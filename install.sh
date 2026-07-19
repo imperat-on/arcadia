@@ -1,14 +1,46 @@
 #!/usr/bin/env bash
-# Instalação completa do Arcadia: dependências do front-end, config inicial e
-# atalho no menu de aplicativos. Uso: ./install.sh
+# Instalação completa do Arcadia: dependências de sistema, front-end, config
+# inicial e atalho no menu de aplicativos. Uso: ./install.sh
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "==> 1/3 Dependências do front-end (npm install)"
+# --- 0/4 Dependências de sistema -------------------------------------------
+# O app precisa de: python3 (indexador/unzip), steam (nativa), dotnet (roda o
+# DepotDownloader), procps (pgrep/pkill p/ vigia de jogos), coreutils (du/df).
+echo "==> 0/4 Verificando dependências de sistema"
+FALTAM=()
+for cmd in python3 steam dotnet pgrep du df; do
+    command -v "$cmd" >/dev/null 2>&1 || FALTAM+=("$cmd")
+done
+
+if [ ${#FALTAM[@]} -gt 0 ]; then
+    echo "    Faltando: ${FALTAM[*]}"
+    # Mapeia comandos -> pacotes por distro.
+    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils )
+    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils )
+    PKGS=()
+    if command -v pacman >/dev/null 2>&1; then
+        for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
+        echo "    Instalando via pacman (sudo): ${PKGS[*]}"
+        sudo pacman -S --needed --noconfirm "${PKGS[@]}"
+    elif command -v apt-get >/dev/null 2>&1; then
+        for c in "${FALTAM[@]}"; do PKGS+=("${PKG_DEB[$c]}"); done
+        echo "    Instalando via apt (sudo): ${PKGS[*]}"
+        sudo apt-get update && sudo apt-get install -y "${PKGS[@]}"
+    else
+        echo "    AVISO: distro não reconhecida — instale manualmente: ${FALTAM[*]}"
+    fi
+else
+    echo "    Tudo presente (python3, steam, dotnet, procps, coreutils)."
+fi
+
+# --- 1/4 Front-end ----------------------------------------------------------
+echo "==> 1/4 Dependências do front-end (npm install)"
 cd "$DIR/app"
 npm install
 
-echo "==> 2/3 Configuração inicial"
+# --- 2/4 Configuração -------------------------------------------------------
+echo "==> 2/4 Configuração inicial"
 if [ ! -f "$DIR/config.json" ]; then
     cp "$DIR/config.example.json" "$DIR/config.json"
     echo "    config.json criado — edite e cole suas chaves (Steam API / Hubcap)."
@@ -16,9 +48,14 @@ else
     echo "    config.json já existe (mantido)."
 fi
 
-echo "==> 3/3 Atalho no menu de aplicativos"
+# --- 3/4 Atalho -------------------------------------------------------------
+echo "==> 3/4 Atalho no menu de aplicativos"
 "$DIR/install-desktop.sh"
 
+# --- 4/4 Resumo -------------------------------------------------------------
 echo ""
 echo "Pronto! Rode:  ./arcadia-desktop.sh   (modo desktop)"
 echo "         ou:   ./arcadia.sh           (modo console/tela cheia)"
+echo ""
+echo "Opcionais dentro do app (botões): .NET local, SLSsteam, SLScheevo,"
+echo "versões de Wine/Proton — tudo se instala pela interface."
