@@ -42,7 +42,12 @@ const ART_DIR = path.join(DATA_DIR, "art") // artes escolhidas pelo usuário
 const NEWS_CACHE = path.join(DATA_DIR, "news_cache.json") // notícias cacheadas (TTL)
 const TRAILERS_DIR = path.join(DATA_DIR, "trailers") // trailers baixados do YouTube
 const BIN_DIR = path.join(DATA_DIR, "bin")
-const YTDLP = path.join(BIN_DIR, "yt-dlp")
+// Preferimos a cópia em bin/ (versão fixada), mas ela só existe se alguém já a
+// tiver baixado. Em máquina limpa não há nada ali: sem o fallback para o yt-dlp
+// do sistema, o execFile dava ENOENT e o usuário só via "trailer não encontrado".
+const YTDLP = fs.existsSync(path.join(BIN_DIR, "yt-dlp"))
+  ? path.join(BIN_DIR, "yt-dlp")
+  : "yt-dlp"
 
 // Padrão que casa o PROCESSO de um jogo rodando (Steam/Proton/Heroic/Lutris).
 // Usado pelo vigia "game:running" e pelo "game:close". pgrep nunca casa
@@ -139,10 +144,16 @@ function baixarTrailer(id, titulo) {
       "-o",
       path.join(TRAILERS_DIR, `${safe}.%(ext)s`),
     ]
-    execFile(YTDLP, args, { timeout: 180000, env: YTDLP_ENV }, () => {
+    execFile(YTDLP, args, { timeout: 180000, env: YTDLP_ENV }, (err) => {
       // yt-dlp pode sair !=0 (limite/reject); o que vale é o arquivo existir.
       const p = trailerLocal(id)
-      resolve(p ? { ok: true, path: p } : { ok: false, error: "trailer não encontrado" })
+      if (p) return resolve({ ok: true, path: p })
+      // ENOENT aqui é o binário ausente, não "sem resultado" — distinguir os
+      // dois evita mandar o usuário caçar um problema de rede que não existe.
+      if (err && err.code === "ENOENT") {
+        return resolve({ ok: false, error: "yt-dlp não instalado (instale o pacote yt-dlp)" })
+      }
+      resolve({ ok: false, error: "trailer não encontrado" })
     })
   }).finally(() => trailerJobs.delete(id))
 
