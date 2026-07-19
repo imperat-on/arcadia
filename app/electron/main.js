@@ -81,9 +81,16 @@ let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
 // é o que fecha/vigia de forma universal (custom, umu, legendary, lutris).
 let jogoAtivo = null
-// yt-dlp precisa achar o Deno (bin/deno) para resolver o desafio JS do YouTube
-// (necessário em vídeos com restrição de idade). Por isso o bin/ entra no PATH.
-const YTDLP_ENV = { ...process.env, PATH: `${BIN_DIR}:${process.env.PATH || ""}` }
+// yt-dlp precisa achar o Deno para resolver o desafio JS do YouTube (necessário
+// em vídeos com restrição de idade). Aceitamos tanto a cópia em bin/ quanto a do
+// sistema, e garantimos os diretórios padrão: no gamescope o PATH herdado pode
+// vir enxuto, sem nem /usr/bin — foi o que já quebrou a busca de trailers.
+const YTDLP_ENV = {
+  ...process.env,
+  PATH: [BIN_DIR, process.env.PATH || "", "/usr/bin", "/usr/local/bin", "/bin"]
+    .filter(Boolean)
+    .join(":"),
+}
 // Pasta do ffmpeg (necessário p/ juntar vídeo+áudio dos vídeos só-DASH). Passamos
 // explícito porque o PATH do app pode não incluir /usr/bin (ex.: no gamescope).
 const FFMPEG_DIR =
