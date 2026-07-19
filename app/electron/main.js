@@ -1303,7 +1303,14 @@ app.whenReady().then(() => {
   ipcMain.handle("store:installDir", (_e, game) => ({ path: steamstore.gameInstallDir(game) }))
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
   ipcMain.handle("store:removeFromSteam", (_e, appid) => steamstore.removeFromSteam(appid))
-  ipcMain.handle("store:removeDownloaded", (_e, appid) => steamstore.removeDownloaded(appid))
+  ipcMain.handle("store:removeDownloaded", (_e, appid) => {
+    const r = steamstore.removeDownloaded(appid)
+    // Sem este aviso a aba Lojas continuava mostrando "Na biblioteca" depois de
+    // remover: o card se baseia na lista de jogos, que só recarrega neste
+    // evento. Todos os outros pontos que mexem na biblioteca já o emitiam.
+    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("library:changed")
+    return r
+  })
   ipcMain.handle("store:installInfo", async (_e, appid) => {
     try {
       return await steamstore.getManifest(appid)
@@ -1326,6 +1333,7 @@ app.whenReady().then(() => {
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) return r
       steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
+      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
