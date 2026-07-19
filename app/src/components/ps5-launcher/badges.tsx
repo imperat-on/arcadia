@@ -24,14 +24,9 @@ const ICONS = {
   clock: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-13v5l3 2",
 }
 
-export const BADGES: BadgeDef[] = [
-  { id: "founder", name: "Fundador", desc: "Um dos criadores do Arcadia", rare: true, tint: "#ffd23f", icon: ICONS.crown },
-  { id: "owner", name: "Dono Supremo", desc: "Detentor do sistema", rare: true, tint: "#a06bff", icon: ICONS.diamond },
-  { id: "legend", name: "Lenda", desc: "Presença lendária", rare: true, tint: "#ff5d5d", icon: ICONS.flame },
-  { id: "collector", name: "Colecionador", desc: "Grande biblioteca", rare: false, tint: "#4aa3ff", icon: ICONS.books },
-  { id: "pioneer", name: "Pioneiro", desc: "Entrou cedo", rare: false, tint: "#4adf9a", icon: ICONS.rocket },
-  { id: "explorer", name: "Explorador", desc: "Vários launchers", rare: false, tint: "#c8d0e0", icon: ICONS.compass },
-]
+// A lista fixa de insígnias honorárias (Fundador, Dono Supremo, Lenda…) foi
+// removida: elas eram concedidas sem nenhuma condição, só por ser o dono do
+// perfil. Toda insígnia agora vem de buildBadges(), com regra verificável.
 
 /** Insígnia calculada a partir das estatísticas reais do jogador. */
 export interface EarnedBadge {
@@ -67,7 +62,9 @@ export function buildBadges(s: {
     regra("hours100", "Maratonista", "Acumule 100 horas de jogo", "#22d3ee", ICONS.clock, s.playtime_hours, 100),
     regra("hours500", "Viciado", "Acumule 500 horas de jogo", "#ff9f1c", ICONS.clock, s.playtime_hours, 500, true),
     regra("collector50", "Colecionador", "Tenha 50 jogos na biblioteca", "#4aa3ff", ICONS.books, s.jogos, 50),
-    regra("pioneer", "Pioneiro", "Membro do Arcadia", "#4adf9a", ICONS.rocket, 1, 1),
+    // "Pioneiro" ficava com alvo 1/1 fixo: desbloqueava sozinha, sem o jogador
+    // fazer nada. Toda insígnia tem de ter uma condição real para ser cumprida.
+    regra("collector200", "Bibliotecário", "Tenha 200 jogos na biblioteca", "#a06bff", ICONS.books, s.jogos, 200, true),
   ]
 }
 

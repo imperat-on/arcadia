@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import type { Profile, ProfileStats, RecentAchievement } from "../../global"
-import { BADGES, Badge, buildBadges } from "./badges"
+import { Badge, buildBadges } from "./badges"
 import { useGamepadNav } from "./useGamepadNav"
 
 // XP estilo Steam: cada conquista vale 10, rara (≤10%) +15, jogo 100% vale 100
@@ -64,9 +64,13 @@ export function ProfilePage({
   const name = profile.name || "Jogador"
   const xp = stats ? calcularXP(stats) : games.length * 25
   const { nivel, noNivel, custo } = nivelDoXP(xp)
+  // Só entram no perfil as insígnias realmente conquistadas. Antes exibíamos
+  // todas (as bloqueadas em cinza) MAIS uma lista fixa que era dada de graça
+  // pelo simples fato de ser o dono — o perfil ficava cheio de insígnias que
+  // ninguém tinha ganhado. Insígnia só aparece quando a condição é cumprida.
   const badgesDin = stats ? buildBadges(stats) : []
-  const desbloqueadas = badgesDin.filter((b) => b.unlocked).length
-  const badgesDono = BADGES.filter((b) => (b.rare ? isOwner : true))
+  const total = badgesDin.length
+  const conquistadas = badgesDin.filter((b) => b.unlocked)
   // Vitrine: usa os destaques escolhidos; senão, os primeiros com capa.
   const showcase =
     profile.showcase && profile.showcase.length
@@ -285,23 +289,22 @@ export function ProfilePage({
             {/* Insígnias (regras reais, estilo Steam) */}
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                Insígnias <span className="opacity-60">{desbloqueadas}/{badgesDin.length}</span>
+                Insígnias <span className="opacity-60">{conquistadas.length}/{total}</span>
               </h2>
-              <div className="flex flex-wrap gap-3">
-                {badgesDin.map((b) => (
-                  <div key={b.def.id} title={`${b.def.name} — ${b.def.desc} (${b.progress})`} className="flex flex-col items-center gap-1">
-                    <Badge badge={b.def} size={52} locked={!b.unlocked} />
-                    <span className={`text-[10px] tabular-nums ${b.unlocked ? "text-white/60" : "text-white/30"}`}>
-                      {b.progress}
-                    </span>
-                  </div>
-                ))}
-                {badgesDono.map((b) => (
-                  <div key={b.id} title={`${b.name} — ${b.desc}`}>
-                    <Badge badge={b} size={52} />
-                  </div>
-                ))}
-              </div>
+              {conquistadas.length === 0 ? (
+                <p className="text-xs text-[#8a93a6]">
+                  Nenhuma insígnia ainda — jogue e desbloqueie conquistas para ganhar as primeiras.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  {conquistadas.map((b) => (
+                    <div key={b.def.id} title={`${b.def.name} — ${b.def.desc}`} className="flex flex-col items-center gap-1">
+                      <Badge badge={b.def} size={52} />
+                      <span className="text-[10px] text-white/60">{b.def.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Estatísticas */}
