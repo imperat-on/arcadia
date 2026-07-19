@@ -59,15 +59,22 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   }, [toast])
 
   useEffect(() => {
-    window.launcherAPI?.storeStatus().then((s) => {
-      setJaAdicionados(new Set(s?.adicionados || []))
-    })
+    const status = () =>
+      window.launcherAPI?.storeStatus().then((s) => {
+        setJaAdicionados(new Set(s?.adicionados || []))
+      })
+    status()
+    // Adicionar/remover mexe no registro da SLSsteam. Relendo o status a cada
+    // mudança de biblioteca, os cards refletem o estado real mesmo quando a
+    // alteração vem de outra aba (ou de um download que terminou).
+    const off = window.launcherAPI?.onLibraryChanged(() => status())
     // "Em alta" vem do SteamSpy e a busca cobre Ryuu/Sushi — nenhum dos dois
     // precisa da chave do Morrenus. Carregamos sempre; antes isto ficava atrás
     // de `if (hubcapKey)` e a loja inteira parecia quebrada para quem não tinha.
     window.launcherAPI?.storeRecent().then((r) => {
       if (r?.ok) setRecentes(r.jogos || [])
     })
+    return off
   }, [])
 
   // Jogos já adicionados/instalados (SLSsteam config + biblioteca do Arcadia):
