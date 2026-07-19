@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   gameSysinfo: (game) => ipcRenderer.invoke("game:sysinfo", game),
   storeStatus: () => ipcRenderer.invoke("store:status"),
   storeSearch: (query) => ipcRenderer.invoke("store:search", query),
+  storeSuggest: (query) => ipcRenderer.invoke("store:suggest", query),
   storeRecent: () => ipcRenderer.invoke("store:recent"),
   storeInstallInfo: (appid) => ipcRenderer.invoke("store:installInfo", appid),
   storeInstall: (payload) => ipcRenderer.invoke("store:install", payload),

@@ -256,6 +256,8 @@ declare global {
       storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string; adicionados?: string[] }>
       /** Loja Steam: busca no catálogo Hubcap. */
       storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
+      /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
+      storeSuggest: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
       /** Loja Steam: adicionados recentemente no catálogo. */
       storeRecent: () => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Loja Steam: manifesto/depots/token de um appid. */
