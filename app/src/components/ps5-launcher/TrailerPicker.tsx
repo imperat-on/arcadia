@@ -44,6 +44,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
   const [streamLoading, setStreamLoading] = useState(false)
   const [streamErr, setStreamErr] = useState<string | null>(null)
   const [dlError, setDlError] = useState<string | null>(null)
+  const [searchErr, setSearchErr] = useState<string | null>(null)
 
   const AGE_MSG =
     "🔞 Vídeo com restrição de idade — o YouTube exige login. Configure os cookies em Configurações › Metadados › Trailers, ou escolha outro resultado."
@@ -55,9 +56,15 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
     setResults([])
     setPreview(null)
     setDownloading(false)
+    setSearchErr(null)
     window.launcherAPI
       ?.trailerSearch(game.title)
-      .then((r) => setResults(r?.results ?? []))
+      .then((r) => {
+        // Antes fazíamos só `r?.results ?? []`, o que transformava QUALQUER
+        // falha em "Nenhum vídeo encontrado" — a tela mentia sobre a causa.
+        setResults(r?.results ?? [])
+        if (r && !r.ok) setSearchErr(r.error || "erro desconhecido")
+      })
       .finally(() => setLoading(false))
   }, [game])
 
@@ -227,6 +234,11 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
           <div className="overflow-y-auto p-5">
             {loading ? (
               <div className="text-center text-[#8a93a6] py-16">Buscando no YouTube…</div>
+            ) : searchErr ? (
+              <div className="text-center py-16 px-6">
+                <div className="text-[#ff6b6b]">Falha ao buscar no YouTube</div>
+                <div className="text-[#8a93a6] text-sm mt-2 break-words">{searchErr}</div>
+              </div>
             ) : results.length === 0 ? (
               <div className="text-center text-[#8a93a6] py-16">Nenhum vídeo encontrado.</div>
             ) : (
