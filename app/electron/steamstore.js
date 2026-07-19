@@ -256,10 +256,13 @@ async function popular() {
       appid: String(g.appid || ""),
       title: g.name || "",
       cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-      manifest: true,
+      manifest: false,
     }))
     .filter((g) => g.appid && g.title)
     .slice(0, 24)
+  // Antes todos vinham marcados com manifest: true — a home prometia jogos que
+  // nenhum provedor tinha, e o erro só aparecia ao clicar em Baixar.
+  await marcarDisponibilidade(jogos)
   return { ok: true, jogos }
 }
 
