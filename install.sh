@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
 # Instalação completa do Arcadia: dependências de sistema, front-end, config
-# inicial e atalho no menu de aplicativos. Uso: ./install.sh
+# inicial e atalho no menu de aplicativos.
+#
+# Duas formas de usar:
+#   Local:  ./install.sh
+#   Remoto: curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Modo curl|bash: se não estamos dentro do repo, clona primeiro e re-executa.
+if [ ! -f "$DIR/app/package.json" ]; then
+    REPO="https://github.com/imperat-on/arcadia.git"
+    DESTINO="$HOME/.local/share/arcadia"
+    echo "==> Baixando o Arcadia para $DESTINO"
+    if [ -d "$DESTINO/.git" ]; then
+        git -C "$DESTINO" pull --ff-only
+    else
+        git clone "$REPO" "$DESTINO"
+    fi
+    exec bash "$DESTINO/install.sh"
+fi
 
 # --- 0/4 Dependências de sistema -------------------------------------------
 # O app precisa de: python3 (indexador/unzip), steam (nativa), dotnet (roda o
