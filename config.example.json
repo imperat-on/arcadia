@@ -1,0 +1,6 @@
+{
+  "_comment": "Copie este arquivo para config.json. steam_api_key: biblioteca INTEIRA da Steam (grátis em https://steamcommunity.com/dev/apikey, dominio 'localhost'; o steam_id64 é detectado automaticamente). hubcap_api_key: catálogo de manifestos da aba Lojas (comunidade Hubcap/Morrenus).",
+  "steam_api_key": "",
+  "steam_id64": "",
+  "hubcap_api_key": ""
+}
