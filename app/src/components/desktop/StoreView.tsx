@@ -37,7 +37,6 @@ function StoreImg({ appid, cover, title }: { appid: string; cover?: string; titl
 }
 
 export function StoreView({ games = [] }: { games?: Game[] }) {
-  const [temKey, setTemKey] = useState(false)
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
   const [recentes, setRecentes] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
@@ -61,13 +60,13 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
 
   useEffect(() => {
     window.launcherAPI?.storeStatus().then((s) => {
-      setTemKey(Boolean(s?.hubcapKey))
       setJaAdicionados(new Set(s?.adicionados || []))
-      if (s?.hubcapKey) {
-        window.launcherAPI?.storeRecent().then((r) => {
-          if (r?.ok) setRecentes(r.jogos || [])
-        })
-      }
+    })
+    // "Em alta" vem do SteamSpy e a busca cobre Ryuu/Sushi — nenhum dos dois
+    // precisa da chave do Morrenus. Carregamos sempre; antes isto ficava atrás
+    // de `if (hubcapKey)` e a loja inteira parecia quebrada para quem não tinha.
+    window.launcherAPI?.storeRecent().then((r) => {
+      if (r?.ok) setRecentes(r.jogos || [])
     })
   }, [])
 
@@ -81,7 +80,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // Sugestões em tempo real (150ms; mantém as anteriores até a nova chegar).
   useEffect(() => {
     const q = busca.trim()
-    if (q.length < 3 || !temKey) {
+    if (q.length < 3) {
       setSugestoes([])
       return
     }
@@ -90,7 +89,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
       if (r?.ok) setSugestoes((r.jogos || []).slice(0, 6))
     }, 150)
     return () => clearTimeout(t)
-  }, [busca, temKey])
+  }, [busca])
 
   const pesquisar = async (termo?: string) => {
     const q = (termo ?? busca).trim()
@@ -208,8 +207,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
             onChange={(e) => setBusca(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && pesquisar()}
             onBlur={() => setTimeout(() => setSugestoes([]), 150)}
-            placeholder={temKey ? "Buscar jogo na loja…" : "Configure a API key em Configurações → Integrações"}
-            disabled={!temKey}
+            placeholder="Buscar jogo na loja…"
             spellCheck={false}
             className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)] disabled:opacity-50"
           />
@@ -230,7 +228,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         </div>
         <button
           onClick={() => pesquisar()}
-          disabled={!temKey || busy === "busca"}
+          disabled={busy === "busca"}
           className="rounded-lg px-4 py-2.5 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
