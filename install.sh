@@ -22,20 +22,21 @@ if [ ! -f "$DIR/app/package.json" ]; then
 fi
 
 # --- 0/4 Dependências de sistema -------------------------------------------
-# O app precisa de: python3 (indexador/unzip), steam (nativa), dotnet (roda o
+# O app precisa de: python3 (indexador), steam (nativa), dotnet (roda o
 # DepotDownloader), procps (pgrep/pkill p/ vigia de jogos), coreutils (du/df),
-# yt-dlp (baixa os trailers) e ffmpeg (junta vídeo+áudio e faz o remux).
+# yt-dlp (baixa os trailers), ffmpeg (junta vídeo+áudio e faz o remux), tar
+# (extrai Proton/Wine e o SLSsteam), findutils, git e node/npm (front-end).
 echo "==> 0/4 Verificando dependências de sistema"
 FALTAM=()
-for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg; do
+for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg tar find git node npm; do
     command -v "$cmd" >/dev/null 2>&1 || FALTAM+=("$cmd")
 done
 
 if [ ${#FALTAM[@]} -gt 0 ]; then
     echo "    Faltando: ${FALTAM[*]}"
     # Mapeia comandos -> pacotes por distro.
-    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg )
-    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg )
+    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm )
+    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm )
     PKGS=()
     if command -v pacman >/dev/null 2>&1; then
         for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
@@ -49,7 +50,19 @@ if [ ${#FALTAM[@]} -gt 0 ]; then
         echo "    AVISO: distro não reconhecida — instale manualmente: ${FALTAM[*]}"
     fi
 else
-    echo "    Tudo presente (python3, steam, dotnet, procps, coreutils, yt-dlp, ffmpeg)."
+    echo "    Tudo presente."
+fi
+
+# Opcional: o yt-dlp usa o Deno para resolver o desafio JS do YouTube, exigido
+# só em vídeos com restrição de idade. Sem ele o resto dos trailers funciona,
+# então nunca abortamos a instalação por causa disso.
+if ! command -v deno >/dev/null 2>&1; then
+    echo "    Deno (opcional, trailers com restrição de idade): instalando…"
+    if command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm deno || echo "    (sem Deno — trailers +18 podem falhar)"
+    else
+        echo "    (sem Deno — instale manualmente se quiser trailers +18)"
+    fi
 fi
 
 # --- 1/4 Front-end ----------------------------------------------------------
@@ -65,6 +78,12 @@ if ! node -e "require('electron')" >/dev/null 2>&1; then
     node node_modules/electron/install.js 2>/dev/null || npm rebuild electron || \
         echo "    AVISO: falha ao baixar o Electron — rode 'cd app && npm rebuild electron'"
 fi
+
+# O dist/ não vai no git (é gerado). O arcadia.sh reconstrói sozinho quando
+# falta, mas aí a PRIMEIRA abertura trava alguns segundos sem explicação.
+# Compilando aqui, o app abre instantâneo desde a primeira vez.
+echo "    Compilando o front-end…"
+npm run build
 
 # --- 2/4 Configuração -------------------------------------------------------
 echo "==> 2/4 Configuração inicial"
