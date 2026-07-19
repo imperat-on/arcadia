@@ -1284,6 +1284,15 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
+  // Sugestões: só a lista de títulos da Steam, sem sondar provedores — é o que
+  // permite responder a cada tecla sem inundar o Ryuu de requisições.
+  ipcMain.handle("store:suggest", async (_e, query) => {
+    try {
+      return await steamstore.suggest(String(query || ""))
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
   ipcMain.handle("store:recent", async () => {
     try {
       return await steamstore.popular()

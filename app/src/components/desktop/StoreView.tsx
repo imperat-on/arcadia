@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 
 // Aba Lojas: busca no catálogo Hubcap e download direto para a biblioteca
@@ -41,6 +41,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const [resultados, setResultados] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
   const [recentes, setRecentes] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
   const [sugestoes, setSugestoes] = useState<{ appid: string; title: string }[]>([])
+  // Item destacado nas sugestões (setas do teclado); -1 = nenhum.
+  const [sugSel, setSugSel] = useState(-1)
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
   // Diálogo "onde instalar" (bibliotecas Steam em vários drives).
   const [escolhendo, setEscolhendo] = useState<{
@@ -84,17 +86,28 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     ...games.map((g) => String(g.id).replace(/^steam:/, "")),
   ])
 
-  // Sugestões em tempo real (150ms; mantém as anteriores até a nova chegar).
+  // Sugestões enquanto digita. Usam storeSuggest (só títulos da Steam), não a
+  // busca completa: esta confere a disponibilidade de cada resultado e leva
+  // 1–2s, então uma por tecla disparava dezenas de sondagens ao Ryuu e as
+  // respostas voltavam fora de ordem, fazendo a lista "piscar" com resultados
+  // de um termo antigo. O contador descarta qualquer resposta atrasada.
+  const pedidoSug = useRef(0)
   useEffect(() => {
     const q = busca.trim()
-    if (q.length < 3) {
+    if (q.length < 2) {
       setSugestoes([])
+      setSugSel(-1)
       return
     }
+    const meu = ++pedidoSug.current
     const t = setTimeout(async () => {
-      const r = await window.launcherAPI?.storeSearch(q)
-      if (r?.ok) setSugestoes((r.jogos || []).slice(0, 6))
-    }, 150)
+      const r = await window.launcherAPI?.storeSuggest(q)
+      if (meu !== pedidoSug.current) return // chegou tarde: já digitaram mais
+      if (r?.ok) {
+        setSugestoes(r.jogos || [])
+        setSugSel(-1)
+      }
+    }, 220)
     return () => clearTimeout(t)
   }, [busca])
 
@@ -212,7 +225,22 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && pesquisar()}
+            onKeyDown={(e) => {
+              // Setas percorrem as sugestões; Enter aceita a destacada (ou
+              // busca o que está digitado); Esc só fecha a lista.
+              if (e.key === "ArrowDown" && sugestoes.length) {
+                e.preventDefault()
+                setSugSel((i) => (i + 1) % sugestoes.length)
+              } else if (e.key === "ArrowUp" && sugestoes.length) {
+                e.preventDefault()
+                setSugSel((i) => (i <= 0 ? sugestoes.length : i) - 1)
+              } else if (e.key === "Escape") {
+                setSugestoes([])
+                setSugSel(-1)
+              } else if (e.key === "Enter") {
+                pesquisar(sugSel >= 0 ? sugestoes[sugSel]?.title : undefined)
+              }
+            }}
             onBlur={() => setTimeout(() => setSugestoes([]), 150)}
             placeholder="Buscar jogo na loja…"
             spellCheck={false}
@@ -221,11 +249,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           {/* Sugestões enquanto digita */}
           {sugestoes.length > 0 && (
             <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-[#15181d] shadow-2xl shadow-black/60">
-              {sugestoes.map((s) => (
+              {sugestoes.map((s, i) => (
                 <button
                   key={s.appid}
                   onMouseDown={() => pesquisar(s.title)}
-                  className="block w-full truncate px-3.5 py-2 text-left text-[13px] text-white/80 transition-colors hover:bg-white/[0.07] hover:text-white"
+                  onMouseEnter={() => setSugSel(i)}
+                  className={`block w-full truncate px-3.5 py-2 text-left text-[13px] transition-colors ${
+                    i === sugSel ? "bg-white/[0.09] text-white" : "text-white/80 hover:bg-white/[0.07] hover:text-white"
+                  }`}
                 >
                   {s.title}
                 </button>
