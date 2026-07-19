@@ -578,14 +578,18 @@ function addToSteam(appid) {
   const stplug = path.join(home, ".config", "SLSsteam", "config", "stplug-in")
   try {
     fs.mkdirSync(stplug, { recursive: true })
+    // Manifestos NÃO vão pro stplug-in: o ManifestStore do slsteam-moon fica
+    // em ~/.config/SLSsteam/manifests/ (sem eles: Download Queued / encrypted).
+    const store = path.join(home, ".config", "SLSsteam", "manifests")
+    fs.mkdirSync(store, { recursive: true })
     let luas = 0
     if (fs.existsSync(outDir)) {
       for (const f of fs.readdirSync(outDir)) {
-        // .lua (keys/tokens) E .manifest (depots) — sem o .manifest a Steam
-        // não consegue baixar: fica "Download Queued" e volta.
-        if (f.endsWith(".lua") || f.endsWith(".manifest")) {
+        if (f.endsWith(".lua")) {
           fs.copyFileSync(path.join(outDir, f), path.join(stplug, f))
-          if (f.endsWith(".lua")) luas++
+          luas++
+        } else if (f.endsWith(".manifest")) {
+          fs.copyFileSync(path.join(outDir, f), path.join(store, f))
         }
       }
     }
@@ -656,11 +660,16 @@ function removeFromSteam(appid) {
       for (const f of fs.readdirSync(stplug)) {
         if (f === `${id}.lua` || f.startsWith(`${id}_`)) {
           fs.rmSync(path.join(stplug, f), { force: true })
-          continue
         }
-        const m = /^(\d+)_.*\.manifest$/.exec(f)
-        if (m && (depotIds.has(m[1]) || m[1].startsWith(id.slice(0, 4)))) {
-          fs.rmSync(path.join(stplug, f), { force: true })
+      }
+      // Manifestos no ManifestStore do moon (~/.config/SLSsteam/manifests).
+      const store = path.join(home, ".config", "SLSsteam", "manifests")
+      if (fs.existsSync(store)) {
+        for (const f of fs.readdirSync(store)) {
+          const m = /^(\d+)_.*\.manifest$/.exec(f)
+          if (m && (depotIds.has(m[1]) || m[1].startsWith(id.slice(0, 4)))) {
+            fs.rmSync(path.join(store, f), { force: true })
+          }
         }
       }
     }
