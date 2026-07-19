@@ -25,7 +25,9 @@ prefixes/
 logs/
 trailers/
 wine/
-boot.mp4
+# boot.mp4 NÃO entra aqui de propósito: é a tela de abertura do Arcadia, parte
+# da identidade do projeto, e precisa vir junto para quem instala. O avatar e o
+# fundo continuam ignorados — esses sim são personalização de cada usuário.
 avatar.gif
 background.gif
 
