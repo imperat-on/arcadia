@@ -519,6 +519,19 @@ async function installSlssteam(onProgress) {
     const raiz = fs.readdirSync(outDir).map((d) => path.join(outDir, d)).find((p) => fs.existsSync(path.join(p, "setup.sh")))
     if (!raiz) return { ok: false, error: "setup.sh não encontrado no pacote" }
 
+    // O setup.sh tenta um `sudo -v` para gravar o .desktop em /usr/share. Rodando
+    // pelo app não há terminal, então o sudo falha e o script aborta ("password
+    // not provided") — quebrava a instalação para todos. Esse passo é opcional: o
+    // próprio script diz que as entradas por usuário já cobrem tudo via prioridade
+    // XDG. Pior: ele grava o home de UM usuário num arquivo global, quebrando a
+    // Steam das outras contas. Forçamos o ramo sem sudo (cobertura --user).
+    const setupPath = path.join(raiz, "setup.sh")
+    try {
+      const src = fs.readFileSync(setupPath, "utf-8")
+      const semSudo = src.replace("elif command -v sudo >/dev/null 2>&1; then", "elif false; then")
+      if (semSudo !== src) fs.writeFileSync(setupPath, semSudo)
+    } catch {}
+
     onProgress?.("Instalando (setup.sh install)…")
     // Captura a saída: sem isto o erro virava só "código 1", sem dizer o motivo
     // (dependência faltando, Steam ausente, permissão…). Grava tudo em log e
@@ -539,8 +552,11 @@ async function installSlssteam(onProgress) {
       fs.mkdirSync(LOG_DIR, { recursive: true })
       fs.writeFileSync(path.join(LOG_DIR, "slssteam-setup.log"), out)
     } catch {}
+    // Só o que importa para injetar: a lib e o wrapper. Se ambos existem, a
+    // instalação serve — não falhamos por causa de um passo final cosmético.
     const instalado = fs.existsSync(path.join(slsDir, "SLSsteam.so"))
-    if (code === 0 && instalado) return { ok: true }
+      && fs.existsSync(path.join(slsDir, "path", "steam"))
+    if (instalado) return { ok: true }
     // Últimas ~6 linhas não vazias da saída — normalmente contêm a causa real.
     const tail = out.split("\n").map((l) => l.trim()).filter(Boolean).slice(-6).join(" · ")
     return {
