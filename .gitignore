@@ -1,0 +1,40 @@
+# Dependências e builds
+node_modules/
+dist/
+__pycache__/
+*.pyc
+
+# Dados do usuário (NUNCA subir: contém chaves, biblioteca e estado local)
+config.json
+library.json
+overrides.json
+custom_games.json
+game_settings.json
+achievements.json
+downloads.json
+meta_cache.json
+news_cache.json
+player_cache.json
+sysinfo_cache.json
+wine_catalog_cache.json
+
+# Conteúdo baixado/gerado em runtime
+art/
+games/
+prefixes/
+logs/
+trailers/
+wine/
+boot.mp4
+avatar.gif
+background.gif
+
+# Binários baixados em runtime (são re-baixáveis pelo app)
+bin/tmp/
+bin/dotnet/
+bin/data/
+bin/deno
+bin/yt-dlp
+bin/SLScheevo-Linux
+bin/slscheevo.tar.gz
+.claude/

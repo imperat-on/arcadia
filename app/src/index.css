@@ -1,0 +1,271 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Inter", "Inter Fallback", sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --color-ps-blue: #0072ce;
+  --color-ps-glow: #00a8ff;
+  --color-ps-dark: #000000;
+  --color-ps-surface: #0d0d0f;
+  --color-ps-surface2: #161619;
+}
+
+:root {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #e8eaf0;
+  --card: #0d0d0f;
+  --card-foreground: #e8eaf0;
+  --primary: #0072ce;
+  --primary-foreground: #ffffff;
+  --secondary: #161619;
+  --muted: #161619;
+  --muted-foreground: #7a8aaa;
+  --accent: #00a8ff;
+  --accent-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: #0072ce;
+  --radius: 0.75rem;
+  --accent: #00a8ff; /* cor de destaque (Temas) */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  margin: 0;
+  overflow: hidden;
+}
+
+/* PS5-style scrollbar */::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* Animações usadas pelos componentes */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-slide-up { animation: fadeSlideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+@keyframes bgFade {
+  from { opacity: 0.15; }
+  to { opacity: 1; }
+}
+.animate-bg-fade { animation: bgFade 0.45s ease-out; }
+
+/* Anel de foco para navegação por controle nos overlays */
+.gp-scope :focus {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Transição do overview (aba Jogos, seta para baixo): conteúdo sobe com fade
+   escalonado ao abrir e desliza de volta ao fechar — não é um modal estático. */
+@keyframes ovFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ovRise {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ovExit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.ov-bg-in { animation: ovFadeIn 0.3s ease both; }
+.ov-rise {
+  animation: ovRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ov-out {
+  animation: ovExit 0.18s ease-in both;
+}
+
+/* Toast de conquista (estilo troféu PS5) */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-24px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateY(-12px); }
+}
+.toast-in { animation: toastIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.toast-out { animation: toastOut 0.4s ease-in both; }
+
+/* Tela de boot (vídeo, estilo PS5) */
+@keyframes bootOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.boot-out {
+  animation: bootOut 0.6s ease both;
+  pointer-events: none;
+}
+
+/* Seleção de perfil (boot → "Quem está jogando?") */
+@keyframes ps5-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+@keyframes ps5-drift {
+  0% { transform: translate3d(-2%, -1%, 0); }
+  50% { transform: translate3d(2%, 1%, 0); }
+  100% { transform: translate3d(-2%, -1%, 0); }
+}
+.ps5-glow {
+  background:
+    radial-gradient(55% 45% at 50% 60%, rgba(212, 162, 78, 0.14) 0%, transparent 70%),
+    radial-gradient(35% 30% at 18% 25%, rgba(58, 74, 110, 0.35) 0%, transparent 70%),
+    radial-gradient(45% 35% at 82% 72%, rgba(212, 162, 78, 0.10) 0%, transparent 70%);
+  filter: blur(40px);
+  animation: ps5-pulse 6s ease-in-out infinite, ps5-drift 14s ease-in-out infinite;
+  /* Promove a camada: o blur (caro) é rasterizado UMA vez e só transformado a
+     cada frame, em vez de re-borrar. Ganho real em GPU fraca (Steam Deck). */
+  will-change: transform;
+}
+.ps5-avatar {
+  width: clamp(120px, 11vw, 200px);
+  height: clamp(120px, 11vw, 200px);
+  background: var(--color-ps-surface2);
+  transform: scale(0.95);
+  opacity: 0.6;
+  box-shadow: 0 0 0 0 transparent;
+}
+.ps5-slot[data-focus="true"] .ps5-avatar,
+.ps5-avatar:focus-visible {
+  transform: scale(1.10);
+  opacity: 1;
+  box-shadow:
+    inset 0 0 0 3px rgba(255,255,255,0.95),
+    0 0 0 6px var(--accent),
+    0 0 40px 4px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.ps5-avatar--add {
+  background: transparent;
+  border: 2px dashed color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+/* Crossfade boot → seleção de perfil */
+@keyframes perfilGateIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.perfil-gate-in { animation: perfilGateIn 0.9s ease both; }
+.boot-out {
+  animation-duration: 0.9s;
+}
+
+/* Saída da seleção de perfil (Fase 1): fade rápido dos elementos, enquanto a
+   home se revela por baixo com máscara expandindo do centro. */
+@keyframes perfilGateOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.perfil-gate-out {
+  animation: perfilGateOut 0.36s ease-out both;
+  pointer-events: none;
+}
+
+/* Coreografia pós-login (3 fases, ease-out pronunciado) */
+@keyframes homeMaskIn {
+  from { clip-path: inset(26% 36% 26% 36% round 48px); opacity: 0.4; }
+  to { clip-path: inset(0 0 0 0 round 0); opacity: 1; }
+}
+@keyframes loginFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes loginRise {
+  from { opacity: 0; transform: translateY(56px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes loginRail {
+  from { opacity: 0; transform: translateX(44px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Fase 1: fundo revelado do centro (máscara arredondada expandindo) */
+.pos-login.home-reveal { animation: homeMaskIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Fase 2: navegação em fade puro; herói sobe de baixo */
+.pos-login .anim-nav { animation: loginFade 0.8s ease-out 0.35s both; }
+.pos-login .anim-rise { animation: loginRise 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
+
+/* Fase 3: texto em fade; capas em cascata da esquerda para a direita */
+.pos-login .anim-fade { animation: loginFade 0.7s ease-out 0.55s both; }
+.pos-login .rail-anim > * { animation: loginRail 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pos-login .rail-anim > *:nth-child(1) { animation-delay: 0.50s; }
+.pos-login .rail-anim > *:nth-child(2) { animation-delay: 0.56s; }
+.pos-login .rail-anim > *:nth-child(3) { animation-delay: 0.62s; }
+.pos-login .rail-anim > *:nth-child(4) { animation-delay: 0.68s; }
+.pos-login .rail-anim > *:nth-child(5) { animation-delay: 0.74s; }
+.pos-login .rail-anim > *:nth-child(6) { animation-delay: 0.80s; }
+.pos-login .rail-anim > *:nth-child(7) { animation-delay: 0.86s; }
+.pos-login .rail-anim > *:nth-child(8) { animation-delay: 0.92s; }
+.pos-login .rail-anim > *:nth-child(9) { animation-delay: 0.98s; }
+.pos-login .rail-anim > *:nth-child(10) { animation-delay: 1.04s; }
+.pos-login .rail-anim > *:nth-child(11) { animation-delay: 1.10s; }
+.pos-login .rail-anim > *:nth-child(n+12) { animation-delay: 1.16s; }
+
+/* Coreografia do overview (seta p/ baixo na aba Jogos) — ease-out premium */
+
+/* Fase 1: o card focado encolhe e desliza até o cabeçalho (hero animation) */
+@keyframes ovHeroCard {
+  from { opacity: 0.9; transform: translate(34vw, 32vh) scale(1.9); }
+  to { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+/* Título/descrição/meta: sobem e se ancoram ao lado do card reduzido */
+@keyframes ovHeroText {
+  from { opacity: 0; transform: translateY(42px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Fase 2: sombra de contraste subindo da borda inferior */
+@keyframes ovShade {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+/* Fase 3: widgets do hub sobem em cascata */
+@keyframes ovWidget {
+  from { opacity: 0; transform: translateY(52px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ov-hero-card {
+  transform-origin: top left;
+  animation: ovHeroCard 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ov-hero-text { animation: ovHeroText 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both; }
+.ov-shade { animation: ovShade 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+.ov-w1 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.38s both; }
+.ov-w2 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.50s both; }
+.ov-w3 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.62s both; }
+.ov-w4 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.74s both; }
