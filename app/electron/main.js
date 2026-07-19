@@ -45,9 +45,29 @@ const BIN_DIR = path.join(DATA_DIR, "bin")
 // Preferimos a cópia em bin/ (versão fixada), mas ela só existe se alguém já a
 // tiver baixado. Em máquina limpa não há nada ali: sem o fallback para o yt-dlp
 // do sistema, o execFile dava ENOENT e o usuário só via "trailer não encontrado".
-const YTDLP = fs.existsSync(path.join(BIN_DIR, "yt-dlp"))
-  ? path.join(BIN_DIR, "yt-dlp")
-  : "yt-dlp"
+// O resultado precisa ser um caminho ABSOLUTO: os handlers de IPC checam
+// fs.existsSync(YTDLP) antes de agir, e um nome solto ("yt-dlp") nunca existe
+// como arquivo relativo ao cwd — todo trailer virava "yt-dlp ausente".
+function acharYtdlp() {
+  const local = path.join(BIN_DIR, "yt-dlp")
+  if (fs.existsSync(local)) return local
+  // O PATH do processo pode estar enxuto (gamescope/sessão sem shell de login),
+  // então varremos também os diretórios usuais além do que o PATH informar.
+  const dirs = [
+    ...(process.env.PATH || "").split(":").filter(Boolean),
+    "/usr/bin", "/usr/local/bin", "/bin",
+    path.join(os.homedir(), ".local", "bin"),
+  ]
+  for (const d of dirs) {
+    const p = path.join(d, "yt-dlp")
+    try {
+      fs.accessSync(p, fs.constants.X_OK)
+      return p
+    } catch {}
+  }
+  return ""
+}
+const YTDLP = acharYtdlp()
 
 // Padrão que casa o PROCESSO de um jogo rodando (Steam/Proton/Heroic/Lutris).
 // Usado pelo vigia "game:running" e pelo "game:close". pgrep nunca casa
