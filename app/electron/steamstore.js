@@ -581,9 +581,11 @@ function addToSteam(appid) {
     let luas = 0
     if (fs.existsSync(outDir)) {
       for (const f of fs.readdirSync(outDir)) {
-        if (f.endsWith(".lua")) {
+        // .lua (keys/tokens) E .manifest (depots) — sem o .manifest a Steam
+        // não consegue baixar: fica "Download Queued" e volta.
+        if (f.endsWith(".lua") || f.endsWith(".manifest")) {
           fs.copyFileSync(path.join(outDir, f), path.join(stplug, f))
-          luas++
+          if (f.endsWith(".lua")) luas++
         }
       }
     }
@@ -640,8 +642,26 @@ function removeFromSteam(appid) {
   const stplug = path.join(home, ".config", "SLSsteam", "config", "stplug-in")
   try {
     if (fs.existsSync(stplug)) {
+      // lua do app + manifests dos depots dele. Como o nome do manifest é
+      // <depotId>_<manifestId>.manifest, usamos os depots conhecidos do zip
+      // em tmp (se existir) e, como fallback, o prefixo do appid.
+      const depotIds = new Set()
+      const outDir = path.join(TMP_DIR, `manifest_${id}`)
+      if (fs.existsSync(outDir)) {
+        for (const f of fs.readdirSync(outDir)) {
+          const m = /^(\d+)_.*\.manifest$/.exec(f)
+          if (m) depotIds.add(m[1])
+        }
+      }
       for (const f of fs.readdirSync(stplug)) {
-        if (f === `${id}.lua` || f.startsWith(`${id}_`)) fs.rmSync(path.join(stplug, f), { force: true })
+        if (f === `${id}.lua` || f.startsWith(`${id}_`)) {
+          fs.rmSync(path.join(stplug, f), { force: true })
+          continue
+        }
+        const m = /^(\d+)_.*\.manifest$/.exec(f)
+        if (m && (depotIds.has(m[1]) || m[1].startsWith(id.slice(0, 4)))) {
+          fs.rmSync(path.join(stplug, f), { force: true })
+        }
       }
     }
   } catch {}
