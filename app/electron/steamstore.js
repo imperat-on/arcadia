@@ -11,6 +11,7 @@ const DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
 const BIN_DIR = path.join(DATA_DIR, "bin")
 const DEPS_DIR = path.join(BIN_DIR, "deps", "depotdownloader")
 const TMP_DIR = path.join(BIN_DIR, "tmp")
+const LOG_DIR = path.join(DATA_DIR, "logs")
 const CONFIG = path.join(DATA_DIR, "config.json")
 
 const HUBCAP_BASE = "https://hubcapmanifest.com/api/v1"
@@ -519,14 +520,34 @@ async function installSlssteam(onProgress) {
     if (!raiz) return { ok: false, error: "setup.sh não encontrado no pacote" }
 
     onProgress?.("Instalando (setup.sh install)…")
+    // Captura a saída: sem isto o erro virava só "código 1", sem dizer o motivo
+    // (dependência faltando, Steam ausente, permissão…). Grava tudo em log e
+    // devolve as últimas linhas no erro, para o usuário ver o que falhou.
+    let out = ""
     const code = await new Promise((res) => {
-      const c = spawn("bash", [path.join(raiz, "setup.sh"), "install"], { cwd: raiz, stdio: "ignore" })
+      const c = spawn("bash", [path.join(raiz, "setup.sh"), "install"], {
+        cwd: raiz,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      c.stdout.on("data", (d) => (out += d))
+      c.stderr.on("data", (d) => (out += d))
       c.on("close", res)
-      c.on("error", () => res(1))
-      setTimeout(() => res(1), 300000)
+      c.on("error", (e) => { out += `\n[spawn] ${e.message}`; res(1) })
+      setTimeout(() => { out += "\n[timeout 5min]"; res(1) }, 300000)
     })
+    try {
+      fs.mkdirSync(LOG_DIR, { recursive: true })
+      fs.writeFileSync(path.join(LOG_DIR, "slssteam-setup.log"), out)
+    } catch {}
     const instalado = fs.existsSync(path.join(slsDir, "SLSsteam.so"))
-    return code === 0 && instalado ? { ok: true } : { ok: false, error: `setup.sh saiu com código ${code}` }
+    if (code === 0 && instalado) return { ok: true }
+    // Últimas ~6 linhas não vazias da saída — normalmente contêm a causa real.
+    const tail = out.split("\n").map((l) => l.trim()).filter(Boolean).slice(-6).join(" · ")
+    return {
+      ok: false,
+      error: `setup.sh saiu com código ${code}${tail ? ` — ${tail}` : ""}`
+        + ` (log completo em ~/.local/share/arcadia/logs/slssteam-setup.log)`,
+    }
   } catch (e) {
     return { ok: false, error: String(e) }
   }
