@@ -168,6 +168,69 @@ function mapJogos(data) {
     .filter((g) => g.appid && g.title)
 }
 
+// Relevância: a Steam devolve por popularidade, o que joga o jogo exato para
+// baixo quando ele tem DLCs/trilhas. Ordenamos por quão bem o título casa com
+// o que foi digitado, e só então por disponibilidade de manifesto.
+function relevancia(titulo, q) {
+  const t = titulo.toLowerCase().trim()
+  const s = q.toLowerCase().trim()
+  if (t === s) return 0
+  if (t.startsWith(s)) return 1
+  if (new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(t)) return 2
+  if (t.includes(s)) return 3
+  return 4
+}
+
+// Conteúdo que não é jogo jogável: some no meio dos resultados e raramente é o
+// que se procura, então vai para o fim (nunca é escondido).
+const ACESSORIO =
+  /\b(ost|soundtrack|artbook|art book|digital (comic|artbook|deluxe)|wallpaper|demo|playtest|beta|trilha sonora|skin|costume|avatar|emote|upgrade pack)\b/i
+
+function ordenar(jogos, q) {
+  return jogos.sort((a, b) => {
+    const ac = ACESSORIO.test(a.title) ? 1 : 0
+    const bc = ACESSORIO.test(b.title) ? 1 : 0
+    if (ac !== bc) return ac - bc
+    const ar = relevancia(a.title, q)
+    const br = relevancia(b.title, q)
+    if (ar !== br) return ar - br
+    return Number(b.manifest) - Number(a.manifest)
+  })
+}
+
+// Sugestões enquanto digita: SÓ a lista de títulos da Steam, sem sondar
+// provedor nenhum. A busca completa leva 1–2s porque confere a disponibilidade
+// de cada resultado; usá-la a cada tecla disparava dezenas de requisições ao
+// Ryuu e as respostas chegavam fora de ordem. Aqui é uma chamada só.
+const sugCache = new Map()
+async function suggest(query) {
+  const q = query.trim()
+  if (q.length < 2) return { ok: true, jogos: [] }
+  const chave = q.toLowerCase()
+  if (sugCache.has(chave)) return { ok: true, jogos: sugCache.get(chave) }
+  try {
+    const r = await gh(
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=portuguese`,
+      { signal: AbortSignal.timeout(6000) },
+    )
+    if (!r.ok) return { ok: false, error: `Steam HTTP ${r.status}` }
+    const data = await r.json()
+    const jogos = ordenar(
+      (data.items || [])
+        .map((g) => ({ appid: String(g.id || ""), title: g.name || "" }))
+        .filter((g) => g.appid && g.title),
+      q,
+    ).slice(0, 8)
+    // Digitar volta atrás (backspace) e repetir termos é comum; o cache evita
+    // repetir a chamada. Limitado para não crescer sem fim numa sessão longa.
+    if (sugCache.size > 100) sugCache.clear()
+    sugCache.set(chave, jogos)
+    return { ok: true, jogos }
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) }
+  }
+}
+
 // Busca unindo TODAS as fontes. Antes o catálogo do Hubcap era a única lista
 // consultada, então um jogo presente no Ryuu/Sushi não aparecia — mesmo com o
 // download funcionando perfeitamente por eles. Agora a Steam dá a lista de
@@ -229,8 +292,7 @@ async function search(query) {
     return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
   }
   await marcarDisponibilidade(jogos, comHubcap)
-  // Quem tem manifesto primeiro: é o que o usuário consegue instalar.
-  jogos.sort((a, b) => Number(b.manifest) - Number(a.manifest))
+  ordenar(jogos, query)
   return { ok: true, jogos, fonte: "multi", avisos: erros }
 }
 
@@ -912,6 +974,7 @@ async function status() {
 
 module.exports = {
   search,
+  suggest,
   recent,
   popular,
   checkFixes,
