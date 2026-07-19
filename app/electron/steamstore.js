@@ -15,6 +15,13 @@ const LOG_DIR = path.join(DATA_DIR, "logs")
 const CONFIG = path.join(DATA_DIR, "config.json")
 
 const HUBCAP_BASE = "https://hubcapmanifest.com/api/v1"
+// URLs dos provedores de manifesto, num lugar só: a busca (para saber se o
+// jogo existe) e o download usam exatamente as mesmas — se divergirem, a busca
+// promete um jogo que o download não consegue trazer.
+const RYUU_URL = (appid) => `http://167.235.229.108/${appid}`
+const SUSHI_URL = (appid) =>
+  `https://raw.githubusercontent.com/sushi-dev55-alt/sushitools-games-repo-alt/refs/heads/main/${appid}.zip`
+const TWENTYTWO_URL = (appid) => `https://api.twentytwocloud.com/download?appid=${appid}`
 
 // Log diagnóstico da loja (restart de Steam, etc) em logs/store.log.
 function storeLog(msg) {
@@ -74,6 +81,80 @@ function depsOk() {
   return fs.existsSync(path.join(DEPS_DIR, "DepotDownloader.dll"))
 }
 
+// ---------- Disponibilidade entre provedores ----------
+// A busca antes só enxergava o catálogo do Hubcap: um jogo que existe no Ryuu
+// ou no Sushi aparecia como indisponível (ou nem aparecia), mesmo com o
+// download funcionando. Aqui descobrimos em QUAIS provedores cada appid existe.
+
+// O repositório do Sushi é um repo git plano de <appid>.zip: uma única chamada
+// à árvore lista os ~5.800 de uma vez, muito mais barato que sondar um a um.
+const SUSHI_TREE = "https://api.github.com/repos/sushi-dev55-alt/sushitools-games-repo-alt/git/trees/main"
+const SUSHI_TTL = 6 * 60 * 60 * 1000 // 6h: o repo muda devagar
+let sushiCache = { at: 0, ids: null }
+
+async function sushiIds() {
+  if (sushiCache.ids && Date.now() - sushiCache.at < SUSHI_TTL) return sushiCache.ids
+  try {
+    const r = await gh(SUSHI_TREE)
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    const d = await r.json()
+    const ids = new Set()
+    for (const n of d.tree || []) {
+      const m = /^(\d+)\.zip$/.exec(n.path || "")
+      if (m) ids.add(m[1])
+    }
+    // Árvore truncada devolveria um índice incompleto, marcando jogos que
+    // existem como indisponíveis. Melhor não cachear e sondar por HEAD.
+    if (d.truncated) throw new Error("árvore truncada")
+    sushiCache = { at: Date.now(), ids }
+    return ids
+  } catch (e) {
+    storeLog(`sushi: falha ao indexar (${e.message}) — caindo para HEAD`)
+    return null
+  }
+}
+
+// Sonda barata: HEAD devolve 200/404 sem baixar o zip. Cacheada por processo.
+const headCache = new Map()
+async function existe(url, timeoutMs = 6000) {
+  if (headCache.has(url)) return headCache.get(url)
+  let ok = false
+  try {
+    const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) })
+    ok = r.ok
+  } catch {
+    ok = false
+  }
+  headCache.set(url, ok)
+  return ok
+}
+
+// Roda as tarefas com concorrência limitada — 12 resultados × N provedores em
+// paralelo total estouraria o servidor do Ryuu e travaria a busca.
+async function emLotes(itens, limite, fn) {
+  const out = []
+  for (let i = 0; i < itens.length; i += limite) {
+    out.push(...(await Promise.all(itens.slice(i, i + limite).map(fn))))
+  }
+  return out
+}
+
+// Marca cada jogo com os provedores onde o manifesto existe.
+// `jaTem` traz os appids que o Hubcap já confirmou (não precisam de sonda).
+async function marcarDisponibilidade(jogos, jaTem = new Set()) {
+  const sushi = await sushiIds()
+  await emLotes(jogos, 6, async (g) => {
+    const fontes = []
+    if (jaTem.has(g.appid)) fontes.push("Morrenus")
+    if (sushi ? sushi.has(g.appid) : await existe(SUSHI_URL(g.appid))) fontes.push("Sushi")
+    if (await existe(RYUU_URL(g.appid))) fontes.push("Ryuu")
+    g.fontes = fontes
+    g.manifest = fontes.length > 0
+    return g
+  })
+  return jogos
+}
+
 // ---------- Hubcap (catálogo + manifestos) ----------
 
 function mapJogos(data) {
@@ -87,34 +168,70 @@ function mapJogos(data) {
     .filter((g) => g.appid && g.title)
 }
 
+// Busca unindo TODAS as fontes. Antes o catálogo do Hubcap era a única lista
+// consultada, então um jogo presente no Ryuu/Sushi não aparecia — mesmo com o
+// download funcionando perfeitamente por eles. Agora a Steam dá a lista de
+// títulos (catálogo completo, sem key) e cada resultado é conferido contra
+// todos os provedores.
 async function search(query) {
   const cfg = readConfig()
-  // 1) Hubcap (catálogo com indicação de manifesto disponível).
+  const porId = new Map()
+  const erros = []
+  const comHubcap = new Set()
+
+  // 1) Hubcap: melhores metadados (capa oficial) e já diz o que ele tem.
   if (cfg.hubcap_api_key) {
     try {
       const r = await gh(`${HUBCAP_BASE}/library?search=${encodeURIComponent(query)}`, {
         headers: { Authorization: `Bearer ${cfg.hubcap_api_key}` },
       })
-      if (r.ok) return { ok: true, jogos: mapJogos(await r.json()), fonte: "hubcap" }
-      if (r.status !== 429) return { ok: false, error: `Hubcap HTTP ${r.status}` }
-      // 429: cai no fallback abaixo.
-    } catch {}
+      if (r.ok) {
+        for (const g of mapJogos(await r.json())) {
+          if (g.manifest) comHubcap.add(g.appid)
+          porId.set(g.appid, g)
+        }
+      } else {
+        erros.push(`Hubcap HTTP ${r.status}`)
+      }
+    } catch (e) {
+      erros.push(`Hubcap: ${e.message}`)
+    }
   }
-  // 2) Fallback: busca oficial da Steam (sem key, sem indicação de manifesto).
-  const r = await gh(
-    `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=portuguese`,
-  )
-  if (!r.ok) return { ok: false, error: `Hubcap 429 e Steam HTTP ${r.status}` }
-  const data = await r.json()
-  const jogos = (data.items || [])
-    .map((g) => ({
-      appid: String(g.id || ""),
-      title: g.name || "",
-      cover: "",
-      manifest: true,
-    }))
-    .filter((g) => g.appid && g.title)
-  return { ok: true, jogos, fonte: "steam" }
+
+  // 2) Steam: catálogo completo e sem chave. É o que garante encontrar jogos
+  // que o Hubcap não indexa mas os outros provedores servem.
+  try {
+    const r = await gh(
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=portuguese`,
+    )
+    if (r.ok) {
+      const data = await r.json()
+      for (const g of data.items || []) {
+        const appid = String(g.id || "")
+        if (!appid || !g.name || porId.has(appid)) continue
+        porId.set(appid, {
+          appid,
+          title: g.name,
+          // A capa da Steam é derivável do appid — não precisa de outra chamada.
+          cover: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          manifest: false,
+        })
+      }
+    } else {
+      erros.push(`Steam HTTP ${r.status}`)
+    }
+  } catch (e) {
+    erros.push(`Steam: ${e.message}`)
+  }
+
+  const jogos = [...porId.values()]
+  if (!jogos.length) {
+    return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
+  }
+  await marcarDisponibilidade(jogos, comHubcap)
+  // Quem tem manifesto primeiro: é o que o usuário consegue instalar.
+  jogos.sort((a, b) => Number(b.manifest) - Number(a.manifest))
+  return { ok: true, jogos, fonte: "multi", avisos: erros }
 }
 
 // Lançamentos/adicionados recentemente no catálogo (home da aba Lojas).
@@ -227,9 +344,11 @@ function gameInstallDir(g) {
 // devolver depots. Todos devolvem um zip no formato SteamTools (.lua+manifest).
 const PROVEDORES = [
   { nome: "Morrenus", url: (appid, cfg) => `${HUBCAP_BASE}/manifest/${appid}?api_key=${cfg.hubcap_api_key || ""}`, headers: (cfg) => ({ Authorization: `Bearer ${cfg.hubcap_api_key}` }), precisaKey: true },
-  { nome: "Ryuu", url: (appid) => `http://167.235.229.108/${appid}`, headers: () => ({}) },
-  { nome: "TwentyTwo Cloud", url: (appid) => `https://api.twentytwocloud.com/download?appid=${appid}`, headers: () => ({}) },
-  { nome: "Sushi", url: (appid) => `https://raw.githubusercontent.com/sushi-dev55-alt/sushitools-games-repo-alt/refs/heads/main/${appid}.zip`, headers: () => ({}) },
+  { nome: "Ryuu", url: (appid) => RYUU_URL(appid), headers: () => ({}) },
+  { nome: "Sushi", url: (appid) => SUSHI_URL(appid), headers: () => ({}) },
+  // Último da fila: o host não respondia nos testes (timeout, sem HTTP algum).
+  // Fica como último recurso para o caso de voltar, nunca atrasando os outros.
+  { nome: "TwentyTwo Cloud", url: (appid) => TWENTYTWO_URL(appid), headers: () => ({}) },
 ]
 
 // Baixa o zip do appid (provedor com fallback) e extrai depots/keys/token do .lua.
@@ -238,13 +357,23 @@ async function getManifest(appid) {
   const zipPath = path.join(TMP_DIR, `manifest_${appid}.zip`)
   fs.mkdirSync(TMP_DIR, { recursive: true })
 
-  let fonte = ""
-  let baixou = false
+  const outDir = path.join(TMP_DIR, `manifest_${appid}`)
   const erros = []
+
+  // A cascata só pode parar quando um provedor entrega um zip COM depots. Antes
+  // ela parava no primeiro que entregasse um zip qualquer, e a extração vinha
+  // depois do laço: um zip vazio (acontece no Sushi) matava o pedido inteiro
+  // sem nunca tentar o Ryuu, que tinha o jogo.
   for (const p of PROVEDORES) {
     if (p.precisaKey && !cfg.hubcap_api_key) continue
     try {
-      const r = await gh(p.url(appid, cfg), { headers: { "User-Agent": "arcadia", ...p.headers(cfg) } })
+      // Sem teto de tempo, um provedor lento (o Ryuu chegou a 100s nos testes)
+      // segura o pedido inteiro e o usuário fica olhando para uma tela parada.
+      // Estourando o prazo, passamos ao próximo em vez de esperar sem fim.
+      const r = await gh(p.url(appid, cfg), {
+        headers: { "User-Agent": "arcadia", ...p.headers(cfg) },
+        signal: AbortSignal.timeout(45000),
+      })
       if (!r.ok) {
         erros.push(`${p.nome}: HTTP ${r.status}`)
         continue
@@ -256,24 +385,32 @@ async function getManifest(appid) {
         continue
       }
       fs.writeFileSync(zipPath, buf)
-      fonte = p.nome
-      baixou = true
-      break
+
+      fs.rmSync(outDir, { recursive: true, force: true })
+      fs.mkdirSync(outDir, { recursive: true })
+      await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
+
+      const dados = lerLuas(outDir, appid)
+      if (!dados.depots.length) {
+        erros.push(`${p.nome}: zip sem depots`)
+        continue
+      }
+      storeLog(`manifesto ${appid}: ${p.nome} (${dados.depots.length} depots)`)
+      return { ok: true, appid: String(appid), ...dados, outDir, fonte: p.nome }
     } catch (e) {
       erros.push(`${p.nome}: ${e}`)
     }
   }
-  if (!baixou) return { ok: false, error: erros.join(" · ") || "nenhum provedor disponível" }
+  return { ok: false, error: erros.join(" · ") || "nenhum provedor disponível" }
+}
 
-  const outDir = path.join(TMP_DIR, `manifest_${appid}`)
-  fs.rmSync(outDir, { recursive: true, force: true })
-  fs.mkdirSync(outDir, { recursive: true })
-  await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
-
-  // .lua: addappid(id, ...ignored..., "depotkey"), setManifestid(depot, "id"), addtoken("...")
+// Lê os .lua extraídos: addappid(id, ..., "depotkey"), setManifestid(depot,
+// "id"), addtoken("..."). Separado de getManifest para a cascata poder validar
+// cada provedor antes de aceitá-lo.
+function lerLuas(outDir, appid) {
   const depots = []
-  let token = ""
   const dlcs = []
+  let token = ""
   for (const f of fs.readdirSync(outDir)) {
     if (!f.endsWith(".lua")) continue
     const lua = fs.readFileSync(path.join(outDir, f), "utf-8")
@@ -293,8 +430,7 @@ async function getManifest(appid) {
       if (m[1] !== String(appid) && !dlcs.includes(m[1])) dlcs.push(m[1])
     }
   }
-  if (!depots.length) return { ok: false, error: `${fonte}: zip sem depots` }
-  return { ok: true, appid: String(appid), depots, token, dlcs, outDir, fonte }
+  return { depots, token, dlcs }
 }
 
 // ---------- Download via DepotDownloader ----------
