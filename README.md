@@ -23,14 +23,20 @@ Front-end de jogos para Linux (Electron), com dois modos de interface:
 
 ## Instalação
 
+Um comando só (clona, instala dependências e cria o atalho):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
+```
+
+Ou manual:
+
 ```bash
 git clone <repo> && cd arcadia
-cd app && npm install
-cd ..
-cp config.example.json config.json   # preencha suas chaves
-./install-desktop.sh                  # opcional: instala no menu de aplicativos
-./arcadia-desktop.sh                  # modo desktop
-./arcadia.sh                          # modo console (tela cheia)
+./install.sh                       # dependências + npm + config + atalho
+cp config.example.json config.json # se não foi criado pelo install.sh
+./arcadia-desktop.sh               # modo desktop
+./arcadia.sh                       # modo console (tela cheia)
 ```
 
 Na primeira execução, o `arcadia.sh` indexa a biblioteca (`index.py`) e compila o front-end (`npm run build`).
