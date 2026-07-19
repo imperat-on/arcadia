@@ -91,6 +91,17 @@ const FFMPEG_DIR =
 const FF_ARGS = FFMPEG_DIR ? ["--ffmpeg-location", FFMPEG_DIR] : []
 const SLS_CONFIG = path.join(HOME, ".config/SLSsteam/config.yaml")
 
+// Diário do subsistema de trailers. Sem isto, toda falha (binário ausente,
+// rede, extractor do YouTube quebrado) chegava na tela como o mesmo
+// "Nenhum vídeo encontrado" — impossível de diagnosticar à distância.
+const TRAILER_LOG = path.join(LOG_DIR, "trailers.log")
+function logTrailer(msg) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+    fs.appendFileSync(TRAILER_LOG, `${new Date().toISOString()} ${msg}\n`)
+  } catch {}
+}
+
 // Trailers em andamento (evita baixar o mesmo jogo duas vezes ao mesmo tempo).
 const trailerJobs = new Map()
 
@@ -210,7 +221,7 @@ function buscarTrailers(query) {
       "--dump-json",
       "--no-warnings",
     ]
-    execFile(YTDLP, args, { timeout: 40000, maxBuffer: 1024 * 1024 * 8, env: YTDLP_ENV }, (err, stdout) => {
+    execFile(YTDLP, args, { timeout: 40000, maxBuffer: 1024 * 1024 * 8, env: YTDLP_ENV }, (err, stdout, stderr) => {
       const out = []
       for (const line of String(stdout || "").split("\n")) {
         if (!line.trim()) continue
@@ -229,7 +240,17 @@ function buscarTrailers(query) {
           /* linha não-JSON: ignora */
         }
       }
-      resolve(out)
+      // Sem resultado E com falha do yt-dlp são coisas MUITO diferentes (rede,
+      // binário quebrado, YouTube mudando o extractor), mas a tela mostrava
+      // "Nenhum vídeo encontrado" para as duas. Devolvemos o motivo real.
+      if (!out.length && err) {
+        const msg = String(stderr || "").split("\n").filter((l) => /error/i.test(l))[0]
+          || (err.code === "ENOENT" ? "yt-dlp não encontrado" : `yt-dlp falhou (${err.code ?? err.message})`)
+        logTrailer(`busca "${query}" falhou: ${msg}`)
+        return resolve({ results: [], error: msg })
+      }
+      logTrailer(`busca "${query}": ${out.length} resultado(s)`)
+      resolve({ results: out })
     })
   })
 }
@@ -1514,8 +1535,13 @@ app.whenReady().then(() => {
 
   // Lista vídeos do YouTube para escolha manual (sem baixar).
   ipcMain.handle("trailer:search", async (_e, { query } = {}) => {
-    if (!fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
-    return { ok: true, results: await buscarTrailers(query || "") }
+    if (!YTDLP) {
+      logTrailer("busca abortada: yt-dlp não instalado")
+      return { ok: false, error: "yt-dlp não está instalado — instale o pacote yt-dlp" }
+    }
+    const { results, error } = await buscarTrailers(query || "")
+    if (error) return { ok: false, error }
+    return { ok: true, results }
   })
 
   // URL direta para pré-visualizar o vídeo num <video> (sem baixar).
