@@ -569,27 +569,47 @@ async function installSlssteam(onProgress) {
   }
 }
 
-// Adiciona o jogo à Steam SEM baixar (estilo LuaTools): copia o .lua do
-// manifesto para config/stplug-in (a SLSsteam aplica keys/tokens nativamente)
-// e registra o appid em AdditionalApps. O download fica por conta da Steam.
-function addToSteam(appid) {
+// Raiz da instalação da Steam (o que o LuaTools chama de steam_path). É aqui
+// que ficam config/stplug-in e depotcache — NÃO em ~/.config/SLSsteam.
+function steamBasePath() {
   const home = os.homedir()
+  const cands = [
+    path.join(home, ".steam", "steam"),
+    path.join(home, ".local", "share", "Steam"),
+    path.join(home, ".steam", "debian-installation"),
+    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
+  ]
+  return cands.find((p) => fs.existsSync(path.join(p, "steamapps")) || fs.existsSync(path.join(p, "config"))) || ""
+}
+
+// Adiciona o jogo à Steam SEM baixar (estilo LuaTools): copia o .lua para
+// <steam>/config/stplug-in e os .manifest para <steam>/depotcache, e registra
+// o appid em AdditionalApps. O download fica por conta da Steam.
+function addToSteam(appid) {
   const outDir = path.join(TMP_DIR, `manifest_${appid}`)
-  const stplug = path.join(home, ".config", "SLSsteam", "config", "stplug-in")
+  const base = steamBasePath()
+  if (!base) return { ok: false, error: "instalação da Steam não encontrada" }
+  const stplug = path.join(base, "config", "stplug-in")
+  // Os manifestos vão para o depotcache da PRÓPRIA Steam — é de lá que ela lê
+  // ao montar a lista de depots. Em ~/.config/SLSsteam/manifests/ ela não
+  // enxerga: o download fica em "Download Queued" ou "content still encrypted".
+  const depotCache = path.join(base, "depotcache")
   try {
     fs.mkdirSync(stplug, { recursive: true })
-    // Manifestos NÃO vão pro stplug-in: o ManifestStore do slsteam-moon fica
-    // em ~/.config/SLSsteam/manifests/ (sem eles: Download Queued / encrypted).
-    const store = path.join(home, ".config", "SLSsteam", "manifests")
-    fs.mkdirSync(store, { recursive: true })
+    fs.mkdirSync(depotCache, { recursive: true })
     let luas = 0
     if (fs.existsSync(outDir)) {
       for (const f of fs.readdirSync(outDir)) {
         if (f.endsWith(".lua")) {
-          fs.copyFileSync(path.join(outDir, f), path.join(stplug, f))
+          // setManifestid() prende a Steam a uma versão específica do depot;
+          // se ela não bate com a do CDN, dá "content still encrypted". O
+          // LuaTools comenta essas linhas para a Steam usar a versão atual.
+          const txt = fs.readFileSync(path.join(outDir, f), "utf-8")
+            .replace(/^(\s*)(setManifestid\()/gm, "$1-- $2")
+          fs.writeFileSync(path.join(stplug, f), txt)
           luas++
         } else if (f.endsWith(".manifest")) {
-          fs.copyFileSync(path.join(outDir, f), path.join(store, f))
+          fs.copyFileSync(path.join(outDir, f), path.join(depotCache, f))
         }
       }
     }
@@ -643,9 +663,10 @@ function steamLibraries() {
 function removeFromSteam(appid) {
   const home = os.homedir()
   const id = String(appid)
-  const stplug = path.join(home, ".config", "SLSsteam", "config", "stplug-in")
+  const base = steamBasePath()
+  const stplug = base ? path.join(base, "config", "stplug-in") : ""
   try {
-    if (fs.existsSync(stplug)) {
+    if (stplug && fs.existsSync(stplug)) {
       // lua do app + manifests dos depots dele. Como o nome do manifest é
       // <depotId>_<manifestId>.manifest, usamos os depots conhecidos do zip
       // em tmp (se existir) e, como fallback, o prefixo do appid.
@@ -662,14 +683,17 @@ function removeFromSteam(appid) {
           fs.rmSync(path.join(stplug, f), { force: true })
         }
       }
-      // Manifestos no ManifestStore do moon (~/.config/SLSsteam/manifests).
-      const store = path.join(home, ".config", "SLSsteam", "manifests")
-      if (fs.existsSync(store)) {
+      // Manifestos no depotcache da Steam + no ManifestStore do moon (que o
+      // slsteam-moon arquiva por conta própria e deixaria lixo para trás).
+      const stores = [
+        path.join(base, "depotcache"),
+        path.join(home, ".config", "SLSsteam", "manifests"),
+      ]
+      for (const store of stores) {
+        if (!fs.existsSync(store)) continue
         for (const f of fs.readdirSync(store)) {
           const m = /^(\d+)_.*\.manifest$/.exec(f)
-          if (m && (depotIds.has(m[1]) || m[1].startsWith(id.slice(0, 4)))) {
-            fs.rmSync(path.join(store, f), { force: true })
-          }
+          if (m && depotIds.has(m[1])) fs.rmSync(path.join(store, f), { force: true })
         }
       }
     }
