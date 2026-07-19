@@ -56,6 +56,15 @@ echo "==> 1/4 Dependências do front-end (npm install)"
 cd "$DIR/app"
 npm install
 
+# O binário do Electron (~100MB) é baixado por um postinstall que, em algumas
+# configs de npm, é pulado ou falha silenciosamente — deixando o app sem "motor"
+# e o arcadia.sh reclamando de "No such file or directory". Garante aqui.
+if ! node -e "require('electron')" >/dev/null 2>&1; then
+    echo "    Electron: binário ausente, baixando…"
+    node node_modules/electron/install.js 2>/dev/null || npm rebuild electron || \
+        echo "    AVISO: falha ao baixar o Electron — rode 'cd app && npm rebuild electron'"
+fi
+
 # --- 2/4 Configuração -------------------------------------------------------
 echo "==> 2/4 Configuração inicial"
 if [ ! -f "$DIR/config.json" ]; then

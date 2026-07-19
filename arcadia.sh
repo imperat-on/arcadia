@@ -6,7 +6,24 @@
 #   ./arcadia.sh --gamescope-> tela cheia 4K no gamescope (legado)
 set -e
 DIR="$HOME/.local/share/arcadia"
+
+# Resolve o binário do Electron de forma tolerante: o caminho do npm às vezes
+# muda ou o download falha. Ordem: (1) caminho padrão do npm; (2) o que o
+# pacote 'electron' resolve; (3) Electron do sistema (pacman/apt). Se nada
+# existir, avisa como consertar em vez de estourar um críptico "No such file".
 ELECTRON="$DIR/app/node_modules/electron/dist/electron"
+if [ ! -x "$ELECTRON" ]; then
+    ELECTRON="$(cd "$DIR/app" && node -p "require('electron')" 2>/dev/null || true)"
+fi
+if [ -z "$ELECTRON" ] || [ ! -x "$ELECTRON" ]; then
+    ELECTRON="$(command -v electron || true)"  # Electron do sistema
+fi
+if [ -z "$ELECTRON" ] || [ ! -x "$ELECTRON" ]; then
+    echo "arcadia: Electron não encontrado." >&2
+    echo "  Conserte com:  cd \"$DIR/app\" && npm rebuild electron" >&2
+    echo "  Ou instale o do sistema (Arch: sudo pacman -S electron)." >&2
+    exit 1
+fi
 
 # 1) Biblioteca: só bloqueia na PRIMEIRA execução (sem library.json ainda).
 #    Nas demais, o app abre na hora com o library.json anterior e reindexa em
