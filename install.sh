@@ -23,18 +23,19 @@ fi
 
 # --- 0/4 Dependências de sistema -------------------------------------------
 # O app precisa de: python3 (indexador/unzip), steam (nativa), dotnet (roda o
-# DepotDownloader), procps (pgrep/pkill p/ vigia de jogos), coreutils (du/df).
+# DepotDownloader), procps (pgrep/pkill p/ vigia de jogos), coreutils (du/df),
+# yt-dlp (baixa os trailers) e ffmpeg (junta vídeo+áudio e faz o remux).
 echo "==> 0/4 Verificando dependências de sistema"
 FALTAM=()
-for cmd in python3 steam dotnet pgrep du df; do
+for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg; do
     command -v "$cmd" >/dev/null 2>&1 || FALTAM+=("$cmd")
 done
 
 if [ ${#FALTAM[@]} -gt 0 ]; then
     echo "    Faltando: ${FALTAM[*]}"
     # Mapeia comandos -> pacotes por distro.
-    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils )
-    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils )
+    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg )
+    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg )
     PKGS=()
     if command -v pacman >/dev/null 2>&1; then
         for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
@@ -48,7 +49,7 @@ if [ ${#FALTAM[@]} -gt 0 ]; then
         echo "    AVISO: distro não reconhecida — instale manualmente: ${FALTAM[*]}"
     fi
 else
-    echo "    Tudo presente (python3, steam, dotnet, procps, coreutils)."
+    echo "    Tudo presente (python3, steam, dotnet, procps, coreutils, yt-dlp, ffmpeg)."
 fi
 
 # --- 1/4 Front-end ----------------------------------------------------------
