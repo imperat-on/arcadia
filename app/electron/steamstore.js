@@ -582,6 +582,29 @@ function steamBasePath() {
   return cands.find((p) => fs.existsSync(path.join(p, "steamapps")) || fs.existsSync(path.join(p, "config"))) || ""
 }
 
+// Apaga o que versões antigas do Arcadia gravaram em ~/.config/SLSsteam/
+// (local errado): .lua do app e .manifest dos depots dele.
+function limpaLegado(appid) {
+  const home = os.homedir()
+  const id = String(appid)
+  const luaDir = path.join(home, ".config", "SLSsteam", "config", "stplug-in")
+  const manDir = path.join(home, ".config", "SLSsteam", "manifests")
+  const depots = new Set()
+  try {
+    const lua = path.join(luaDir, `${id}.lua`)
+    if (fs.existsSync(lua)) {
+      for (const m of fs.readFileSync(lua, "utf-8").matchAll(/addappid\s*\(\s*(\d+)/g)) depots.add(m[1])
+      fs.rmSync(lua, { force: true })
+    }
+    if (fs.existsSync(manDir)) {
+      for (const f of fs.readdirSync(manDir)) {
+        const m = /^(\d+)_.*\.manifest$/.exec(f)
+        if (m && depots.has(m[1])) fs.rmSync(path.join(manDir, f), { force: true })
+      }
+    }
+  } catch {}
+}
+
 // Adiciona o jogo à Steam SEM baixar (estilo LuaTools): copia o .lua para
 // <steam>/config/stplug-in e os .manifest para <steam>/depotcache, e registra
 // o appid em AdditionalApps. O download fica por conta da Steam.
@@ -597,6 +620,9 @@ function addToSteam(appid) {
   try {
     fs.mkdirSync(stplug, { recursive: true })
     fs.mkdirSync(depotCache, { recursive: true })
+    // Versões antigas gravavam em ~/.config/SLSsteam/. Removemos o resto para
+    // não ficar um .lua duplicado (com setManifestid ativo) concorrendo.
+    limpaLegado(appid)
     let luas = 0
     if (fs.existsSync(outDir)) {
       for (const f of fs.readdirSync(outDir)) {
@@ -665,6 +691,7 @@ function removeFromSteam(appid) {
   const id = String(appid)
   const base = steamBasePath()
   const stplug = base ? path.join(base, "config", "stplug-in") : ""
+  limpaLegado(id)
   try {
     if (stplug && fs.existsSync(stplug)) {
       // lua do app + manifests dos depots dele. Como o nome do manifest é
