@@ -61,7 +61,6 @@ export function GameRail({
     >
       {games.map((game, i) => {
         const focused = i === selectedIndex
-        const w = focused ? TILE_SEL_W : TILE_W
         return (
           <button
             key={game.id}
@@ -72,28 +71,41 @@ export function GameRail({
             }}
             className="relative flex-shrink-0 rounded-2xl outline-none scroll-mx-10"
             style={{
-              width: w + PANEL_PAD * 2,
-              height: w * RATIO + PANEL_PAD * 2,
+              // O SLOT tem largura fixa. Antes animávamos width/height, que são
+              // propriedades de layout: o navegador refazia o layout do trilho
+              // inteiro a cada frame e todos os vizinhos escorregavam junto —
+              // era daí que vinha o tremido. Agora só a capa cresce, por
+              // transform, e ninguém mais sai do lugar.
+              width: TILE_W + PANEL_PAD * 2,
+              height: TILE_SEL_W * RATIO + PANEL_PAD * 2,
               padding: PANEL_PAD,
-              background: focused ? "rgba(255,255,255,0.12)" : "transparent",
-              transition:
-                "background 0.25s, width 0.28s cubic-bezier(0.22,1,0.36,1), height 0.28s cubic-bezier(0.22,1,0.36,1)",
+              zIndex: focused ? 10 : 1,
             }}
             aria-label={`${game.title} — selecionar`}
           >
             <div
-              className="w-full h-full rounded-xl overflow-hidden"
+              className="w-full rounded-xl overflow-hidden"
               style={{
+                height: TILE_W * RATIO,
                 background:
                   FALLBACK_GRADIENTS[game.launcher] ??
                   "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)",
+                // Cresce a partir do topo (as capas são alinhadas pelo topo),
+                // sobe um pouco e ganha um anel na cor de destaque. Escala e
+                // deslocamento são compostos na GPU: sem reflow, sem tremer.
+                transform: focused
+                  ? `translateY(-6px) scale(${TILE_SEL_W / TILE_W})`
+                  : "translateY(0) scale(1)",
+                transformOrigin: "center top",
                 boxShadow: focused
-                  ? "0 10px 34px rgba(0,0,0,0.6)"
+                  ? "0 18px 44px rgba(0,0,0,0.7), 0 0 0 2px var(--accent)"
                   : "0 2px 12px rgba(0,0,0,0.4)",
                 // Oculto (visível só com "Mostrar ocultos"): apagado e sem cor.
-                opacity: game.hidden ? 0.4 : focused ? 1 : 0.85,
-                filter: game.hidden ? "grayscale(1)" : undefined,
-                transition: "opacity 0.25s, box-shadow 0.25s",
+                opacity: game.hidden ? 0.4 : focused ? 1 : 0.7,
+                filter: game.hidden ? "grayscale(1)" : focused ? "none" : "brightness(0.75)",
+                transition:
+                  "transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), filter var(--dur-2) var(--ease)",
+                willChange: "transform",
               }}
             >
               {game.cover ? (
@@ -105,7 +117,7 @@ export function GameRail({
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
-                  <LauncherIcon launcher={game.launcher} size={focused ? 28 : 20} />
+                  <LauncherIcon launcher={game.launcher} size={20} />
                   <span className="text-white/80 text-[10px] font-medium text-center leading-tight line-clamp-3">
                     {game.title}
                   </span>
