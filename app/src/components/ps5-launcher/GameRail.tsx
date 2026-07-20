@@ -17,6 +17,9 @@ const BASE_TILE_W = 100 // capa comum (retrato 2:3)
 const BASE_TILE_SEL_W = 152 // capa selecionada
 const RATIO = 1.5 // altura = largura * 1.5
 const PANEL_PAD = 10 // respiro do painel atrás da selecionada
+// Folga embaixo para a sombra projetada da capa selecionada (0 18px 44px):
+// o contêiner rola no eixo X, e isso faz o navegador recortar também no Y.
+const SHADOW_ROOM = 28
 
 const FALLBACK_GRADIENTS: Record<string, string> = {
   steam: "linear-gradient(160deg, #1b2838 0%, #0d1a26 60%, #1b2838 100%)",
@@ -56,8 +59,16 @@ export function GameRail({
   return (
     // Capas alinhadas pelo topo, como na referência. Scrollbar escondida: navega-se por seleção.
     <div
-      className="rail-anim flex items-start px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
-      style={{ height: ROW_H }}
+      className="rail-anim flex shrink-0 items-start px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
+      style={{
+        // shrink-0 + minHeight: o trilho é item de uma coluna flex e, com o
+        // flex-shrink padrão, era espremido quando faltava altura — cortando
+        // a base da capa selecionada. `height` sozinho não impede isso.
+        minHeight: ROW_H + SHADOW_ROOM,
+        // overflow-x cria contexto de rolagem, o que também recorta no eixo Y.
+        // Esta folga é o espaço da sombra projetada sob a capa selecionada.
+        paddingBottom: SHADOW_ROOM,
+      }}
     >
       {games.map((game, i) => {
         const focused = i === selectedIndex
