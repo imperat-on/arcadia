@@ -139,10 +139,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
   }, [destaque])
 
-  // Parallax do herói: ele sobe a uma fração da rolagem, criando profundidade
-  // entre o fundo e as linhas.
   const raiz = useRef<HTMLDivElement | null>(null)
-  const [scroll, setScroll] = useState(0)
 
   // Troca de filtro: busca a lista da categoria escolhida. "Destaques" não
   // busca nada — é a home, que já está carregada.
@@ -195,6 +192,10 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     })
   }, [onAtalhos, emAlta, lista, resultados, linhas, acoes])
 
+  const cat = CATEGORIAS.find((c) => c.id === categoria)
+  const semManifesto = destaque?.manifest === false
+  const jaTem = bloqueado(destaque)
+
   return (
     <div
       ref={(el) => {
@@ -202,77 +203,28 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (typeof ref === "function") ref(el)
         else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
       }}
-      onScroll={(e) => setScroll((e.target as HTMLElement).scrollTop)}
-      className="loja h-full w-full overflow-y-auto overflow-x-hidden bg-[#08090b] text-white"
-      // Tudo que reage à cor do jogo lê daqui: halo, borda da capa em foco,
-      // barra de progresso das linhas e o sublinhado da aba ativa.
-      style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
+      // Cockpit: três colunas, e só a última rola. O herói horizontal saiu — o
+      // jogo em foco mora num painel fixo, então a informação não some quando
+      // se desce pelas linhas.
+      className="loja grid h-full w-full overflow-hidden bg-[#08090b] text-white"
+      style={{
+        gridTemplateColumns: "168px clamp(300px, 22vw, 380px) 1fr",
+        ...(cor ? ({ "--loja-cor": cor } as React.CSSProperties) : {}),
+      }}
     >
-      {/* ── Herói (segue o foco) ─────────────────────────────────────────── */}
-      <div className="relative h-[58vh] min-h-[360px] w-full overflow-hidden">
-        <div
-          className="absolute inset-0"
-          // Parallax: o fundo sobe a 35% da rolagem, então as linhas parecem
-          // deslizar POR CIMA dele em vez de junto.
-          style={{ transform: `translateY(${scroll * -0.35}px) scale(1.06)` }}
+      {/* ── Coluna 1: trilho de categorias ───────────────────────────────── */}
+      <nav className="flex flex-col gap-1 border-r border-white/[0.06] py-9 pl-8 pr-3">
+        <button
+          onClick={() => setTeclado(true)}
+          className="mb-5 flex items-center gap-2 text-left text-[13px] text-white/45 outline-none transition-colors hover:text-white focus:text-white"
         >
-          {destaque && (
-            <img
-              key={destaque.appid}
-              src={ficha?.fundo || `https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/header.jpg`}
-              alt=""
-              className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
-            />
-          )}
-          {trailer && ativo && (
-            <video
-              key={trailer.url}
-              src={trailer.url}
-              poster={trailer.poster}
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
-            />
-          )}
-        </div>
-        <div className="loja-halo absolute inset-0" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#08090b] via-[#08090b]/60 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#08090b] to-transparent" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          Buscar
+        </button>
 
-        <div className="absolute bottom-9 left-12 right-12">
-          {/* Linha de dados: só aparece quando a ficha chega, então não fica
-              piscando enquanto se atravessa a linha depressa. */}
-          <div className="mb-2 flex h-5 items-center gap-3 text-[13px] text-white/55">
-            {ficha?.generos?.length ? <span>{ficha.generos.slice(0, 3).join(" · ")}</span> : null}
-            {ficha?.metacritic ? (
-              <span className="rounded px-1.5 py-0.5 text-[12px] font-semibold text-black" style={{ background: "var(--loja-cor)" }}>
-                {ficha.metacritic}
-              </span>
-            ) : null}
-            {ficha?.lancamento && <span className="text-white/35">{ficha.lancamento}</span>}
-          </div>
-
-          <h1 className="max-w-3xl text-5xl font-light tracking-wide drop-shadow-[0_2px_16px_rgba(0,0,0,0.85)]">
-            {destaque?.title || (carregando ? "Carregando…" : "Loja")}
-          </h1>
-
-          <div className="mt-3 flex h-6 items-center gap-4 text-[13px]">
-            {ficha?.preco && <span className="text-white/85">{ficha.preco}</span>}
-            {destaque?.fontes?.length ? (
-              <span className="text-white/40">Disponível em {destaque.fontes.join(", ")}</span>
-            ) : destaque?.manifest === false ? (
-              <span className="text-white/35">Sem manifesto</span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Filtros ──────────────────────────────────────────────────────── */}
-      {/* Abas com sublinhado que desliza entre elas, em vez de seis pílulas
-          soltas — o movimento contínuo é o que liga uma categoria à outra. */}
-      <div className="relative flex gap-7 overflow-x-auto px-12 pt-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {CATEGORIAS.map((c) => (
           <button
             key={c.id}
@@ -280,24 +232,144 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
               setCategoria(c.id)
               setResultados(null) // sair da busca ao escolher um filtro
             }}
-            className={`relative shrink-0 pb-2 text-[14px] font-medium outline-none transition-colors focus:text-white ${
+            className={`relative py-2 pl-3 text-left text-[14px] font-medium outline-none transition-colors focus:text-white ${
               categoria === c.id ? "text-white" : "text-white/40 hover:text-white/70"
             }`}
           >
-            {c.rotulo}
+            {/* O indicador que antes deslizava na horizontal agora é uma barra
+                vertical — mesmo mecanismo, girado com a coluna. */}
             {categoria === c.id && (
               <span
-                className="absolute inset-x-0 -bottom-px h-[2px] rounded-full"
-                style={{ background: "var(--loja-cor)", boxShadow: "0 0 12px var(--loja-cor)" }}
+                className="absolute inset-y-1 left-0 w-[2px] rounded-full"
+                style={{ background: "var(--loja-cor)", boxShadow: "0 0 10px var(--loja-cor)" }}
               />
             )}
+            {c.rotulo}
           </button>
         ))}
-      </div>
-      <div className="mx-12 h-px bg-white/[0.07]" />
 
-      {/* ── Linhas ───────────────────────────────────────────────────────── */}
-      <div className="pt-6">
+        <div className="mt-auto text-[11px] leading-relaxed text-white/25">
+          A abrir
+          <br />
+          X baixar
+          <br />
+          Y adicionar
+          <br />
+          B voltar
+        </div>
+      </nav>
+
+      {/* ── Coluna 2: painel do jogo em foco ─────────────────────────────── */}
+      <aside className="relative flex flex-col overflow-hidden border-r border-white/[0.06] px-6 py-9">
+        <div className="loja-halo absolute inset-0" />
+
+        <div className="relative">
+          {/* O trailer ocupa o MESMO retângulo da capa. Cortar as laterais de um
+              16:9 é proposital: trocar retrato por widescreen faria o painel
+              inteiro saltar a cada jogo focado. */}
+          <div
+            className="relative w-full overflow-hidden rounded-xl bg-[#111114] ring-1 ring-white/10"
+            style={{ aspectRatio: "2 / 3" }}
+          >
+            {destaque && (
+              <img
+                key={destaque.appid}
+                src={`https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/library_600x900.jpg`}
+                alt=""
+                className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+            {trailer && ativo && (
+              <video
+                key={trailer.url}
+                src={trailer.url}
+                poster={trailer.poster}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+          </div>
+
+          <h1 className="mt-5 text-2xl font-light leading-tight tracking-wide">
+            {destaque?.title || (carregando ? "Carregando…" : "Loja")}
+          </h1>
+
+          <div className="mt-2 flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-white/45">
+            {ficha?.generos?.length ? <span>{ficha.generos.slice(0, 3).join(" · ")}</span> : null}
+            {ficha?.lancamento && <span className="text-white/30">{ficha.lancamento}</span>}
+          </div>
+
+          <div className="mt-3 flex min-h-[24px] items-center gap-3 text-[13px]">
+            {ficha?.preco && <span className="text-white/85">{ficha.preco}</span>}
+            {ficha?.metacritic ? (
+              <span
+                className="rounded px-1.5 py-0.5 text-[12px] font-semibold text-black"
+                style={{ background: "var(--loja-cor)" }}
+              >
+                {ficha.metacritic}
+              </span>
+            ) : null}
+          </div>
+
+          <p className="mt-2 min-h-[16px] text-[12px] text-white/35">
+            {destaque?.fontes?.length
+              ? `Disponível em ${destaque.fontes.join(", ")}`
+              : semManifesto
+                ? "Sem manifesto"
+                : ""}
+          </p>
+        </div>
+
+        {/* Ações no rodapé do painel: ficam no mesmo lugar em todos os jogos,
+            então a mão aprende o caminho. */}
+        <div className="relative mt-auto flex flex-col gap-2 pt-6">
+          {jaTem ? (
+            <>
+              <div
+                className="rounded-xl border py-3 text-center text-[13px] font-semibold"
+                style={{ borderColor: "color-mix(in oklab, var(--loja-cor) 45%, transparent)", color: "var(--loja-cor)" }}
+              >
+                Na biblioteca
+              </div>
+              <BotaoPainel
+                rotulo="Remover"
+                perigo
+                desabilitado={Boolean(acoes.busy)}
+                onClick={() => destaque && acoes.remover(destaque)}
+              />
+            </>
+          ) : semManifesto ? (
+            <div className="rounded-xl border border-white/10 py-3 text-center text-[13px] text-white/30">
+              Sem manifesto
+            </div>
+          ) : (
+            <>
+              <BotaoPainel
+                rotulo={acoes.busy ? "…" : "Baixar"}
+                primario
+                desabilitado={!destaque || Boolean(acoes.busy)}
+                onClick={() => destaque && acoes.baixar(destaque)}
+              />
+              <BotaoPainel
+                rotulo="Adicionar à Steam"
+                desabilitado={!destaque || Boolean(acoes.busy)}
+                onClick={() => destaque && acoes.adicionar(destaque)}
+              />
+            </>
+          )}
+          <BotaoPainel
+            rotulo="Ver detalhes"
+            desabilitado={!destaque}
+            onClick={() => destaque && setAberto(destaque)}
+          />
+        </div>
+      </aside>
+
+      {/* ── Coluna 3: linhas ─────────────────────────────────────────────── */}
+      <div className="overflow-y-auto overflow-x-hidden py-9">
         {resultados && (
           <StoreRow
             titulo={`Resultados para "${busca}" (${resultados.length})`}
@@ -322,20 +394,13 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           </>
         ) : (
           <StoreRow
-            titulo={CATEGORIAS.find((c) => c.id === categoria)?.rotulo || ""}
+            titulo={cat?.rotulo || ""}
             jogos={lista}
             carregando={carregandoLista}
             onAbrir={setAberto}
             onFocar={setDestaque}
           />
         )}
-      </div>
-
-      {/* Dicas dos botões: os atalhos X/Y não teriam como ser descobertos. */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center pb-4">
-        <div className="rounded-full border border-white/10 bg-black/70 px-5 py-2 text-[12px] text-white/45">
-          A abrir · X baixar · Y adicionar · B voltar
-        </div>
       </div>
 
       <StoreGamePage
@@ -399,3 +464,34 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     </div>
   )
 })
+
+function BotaoPainel({
+  rotulo,
+  onClick,
+  primario,
+  perigo,
+  desabilitado,
+}: {
+  rotulo: string
+  onClick: () => void
+  primario?: boolean
+  perigo?: boolean
+  desabilitado?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={desabilitado}
+      className={`rounded-xl py-3 text-[13px] font-semibold outline-none transition-all disabled:opacity-40 focus:ring-2 focus:ring-white ${
+        primario
+          ? "text-black enabled:hover:scale-[1.02]"
+          : perigo
+            ? "border border-[#ff6b81]/40 text-[#ff6b81] enabled:hover:bg-[#ff6b81]/10"
+            : "border border-white/15 text-white/75 enabled:hover:bg-white/[0.07]"
+      }`}
+      style={primario ? { background: "var(--loja-cor)" } : undefined}
+    >
+      {rotulo}
+    </button>
+  )
+}
