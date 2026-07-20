@@ -1,7 +1,6 @@
 "use client"
 
-import { ImgCascata } from "./ImgCascata"
-import { urlsCapa } from "./capaJogo"
+import { StoreHero } from "./StoreHero"
 import { StoreRail } from "./StoreRail"
 import type { FichaJogo, JogoLinha } from "./types"
 
@@ -14,82 +13,94 @@ export interface SecaoVitrine {
 interface StoreShowcaseProps {
   secoes: SecaoVitrine[]
   carregando: boolean
-  /** Jogo em foco — o herói é reativo e mostra sempre este. */
-  focado: JogoLinha | null
-  ficha: FichaJogo | null
-  trailer: { url: string; poster: string } | null
+  /** Destaques do herói e o índice atual (o estado vive no pai, que busca a ficha). */
+  destaques: JogoLinha[]
+  heroiIdx: number
+  onHeroiIdx: (i: number) => void
+  fichaHeroi: FichaJogo | null
+  trailerHeroi: { url: string; poster: string } | null
   ativo: boolean
+  ocupado: boolean
+  naBiblioteca: (j: JogoLinha) => boolean
   onFocar: (j: JogoLinha) => void
   onAbrir: (j: JogoLinha) => void
+  onBaixar: (j: JogoLinha) => void
+  onAdicionar: (j: JogoLinha) => void
   onVerCategoria: (id: string) => void
 }
 
-// A vitrine: um herói widescreen no topo e um trilho por categoria abaixo.
-//
-// O herói é REATIVO — mostra o jogo em foco, e não um destaque fixo. Assim ele
-// reaproveita a ficha e o trailer que já buscamos para o foco, sem uma segunda
-// requisição, e a tela inteira responde à navegação em vez de ficar parada.
+// A vitrine: herói no topo, um trilho por categoria e uma faixa de promoções
+// quebrando a coluna no meio.
 export function StoreShowcase({
   secoes,
   carregando,
-  focado,
-  ficha,
-  trailer,
+  destaques,
+  heroiIdx,
+  onHeroiIdx,
+  fichaHeroi,
+  trailerHeroi,
   ativo,
+  ocupado,
+  naBiblioteca,
   onFocar,
   onAbrir,
+  onBaixar,
+  onAdicionar,
   onVerCategoria,
 }: StoreShowcaseProps) {
-  // Antes do primeiro foco, o herói adianta o primeiro jogo da primeira seção.
-  const heroi = focado || secoes.find((s) => s.jogos.length)?.jogos[0] || null
+  const heroi = destaques[heroiIdx]
 
   return (
-    <div className="flex flex-col gap-9 pb-10">
-      {heroi && (
-        <div className="loja-heroi relative" key={heroi.appid}>
-          <ImgCascata fontes={[ficha?.fundo || "", ...urlsCapa(heroi, "paisagem")].filter(Boolean)} loading="eager" />
-          {trailer && ativo && (
-            <video
-              key={trailer.url}
-              src={trailer.url}
-              poster={trailer.poster}
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          )}
-          {/* Degradês: um lateral para o texto ter contraste, outro no rodapé
-              para o herói se dissolver no primeiro trilho em vez de cortar. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black via-black/55 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black to-transparent" />
-
-          <div className="absolute inset-0 flex flex-col justify-end px-12 pb-10">
-            <h1 className="max-w-[55%] text-4xl font-semibold leading-tight tracking-tight">{heroi.title}</h1>
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-white/60">
-              {ficha?.generos?.length ? <span>{ficha.generos.slice(0, 3).join(" · ")}</span> : null}
-              {ficha?.lancamento ? <span className="text-white/40">{ficha.lancamento}</span> : null}
-              {ficha?.preco ? (
-                <span className="text-[17px] font-semibold" style={{ color: "var(--loja-cor)" }}>
-                  {ficha.preco}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
+    <div className="flex flex-col gap-12 pb-16">
+      {destaques.length > 0 && (
+        <StoreHero
+          jogos={destaques}
+          ficha={fichaHeroi}
+          trailer={trailerHeroi}
+          ativo={ativo}
+          naBiblioteca={Boolean(heroi && naBiblioteca(heroi))}
+          ocupado={ocupado}
+          indice={heroiIdx}
+          onIndice={onHeroiIdx}
+          onAbrir={onAbrir}
+          onBaixar={onBaixar}
+          onAdicionar={onAdicionar}
+        />
       )}
 
-      {secoes.map((s) => (
-        <StoreRail
-          key={s.id}
-          titulo={s.rotulo}
-          jogos={s.jogos}
-          carregando={carregando}
-          onVerTudo={() => onVerCategoria(s.id)}
-          onFocar={onFocar}
-          onAbrir={onAbrir}
-        />
+      {secoes.map((s, i) => (
+        <div key={s.id} className="flex flex-col gap-12">
+          <StoreRail
+            titulo={s.rotulo}
+            jogos={s.jogos}
+            carregando={carregando}
+            naBiblioteca={naBiblioteca}
+            onVerTudo={() => onVerCategoria(s.id)}
+            onFocar={onFocar}
+            onAbrir={onAbrir}
+            onAdicionar={onAdicionar}
+          />
+
+          {/* Depois do segundo trilho: é onde a coluna de capas começa a
+              cansar, e a faixa dá o respiro sem empurrar tudo para baixo. */}
+          {i === 1 && (
+            <div className="px-12">
+              <button onClick={() => onVerCategoria("specials")} className="loja-faixa block w-full">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-black/60">Promoções</p>
+                <h3 className="mt-2 max-w-xl text-3xl font-bold leading-tight text-black">
+                  Jogos com desconto agora na Steam.
+                </h3>
+                <span className="mt-5 inline-block rounded-full bg-black/85 px-6 py-2.5 text-[13px] font-semibold text-white">
+                  Ver promoções
+                </span>
+                {/* Formas decorativas: o mesmo brilho difuso do mock, mas
+                    herdando a cor do jogo em foco. */}
+                <span className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-white/15 blur-3xl" />
+                <span className="pointer-events-none absolute -bottom-20 right-24 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+              </button>
+            </div>
+          )}
+        </div>
       ))}
     </div>
   )

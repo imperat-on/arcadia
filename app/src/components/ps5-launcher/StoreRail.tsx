@@ -11,8 +11,10 @@ interface StoreRailProps {
   carregando?: boolean
   /** Abre a categoria inteira em grade. */
   onVerTudo?: () => void
+  naBiblioteca?: (j: JogoLinha) => boolean
   onFocar: (j: JogoLinha) => void
   onAbrir: (j: JogoLinha) => void
+  onAdicionar?: (j: JogoLinha) => void
 }
 
 // Um trilho horizontal: cabeçalho com título, "Ver tudo" e setas, e um
@@ -21,7 +23,16 @@ interface StoreRailProps {
 // As setas são para o mouse e ficam FORA da navegação por controle
 // (tabIndex -1): como alvos focáveis, virariam armadilha entre um trilho e o
 // seguinte, já que ocupam a mesma faixa vertical dos cards.
-export function StoreRail({ titulo, jogos, carregando, onVerTudo, onFocar, onAbrir }: StoreRailProps) {
+export function StoreRail({
+  titulo,
+  jogos,
+  carregando,
+  onVerTudo,
+  naBiblioteca,
+  onFocar,
+  onAbrir,
+  onAdicionar,
+}: StoreRailProps) {
   const scroller = useRef<HTMLDivElement | null>(null)
 
   const rolar = (dir: 1 | -1) => {
@@ -33,13 +44,13 @@ export function StoreRail({ titulo, jogos, carregando, onVerTudo, onFocar, onAbr
   return (
     <section aria-label={titulo}>
       <div className="mb-3 flex items-end justify-between gap-4 px-12">
-        <h2 className="text-[19px] font-semibold tracking-tight text-white">{titulo}</h2>
+        <h2 className="text-[22px] font-bold tracking-tight text-white">{titulo}</h2>
         <div className="flex items-center gap-2">
           {onVerTudo && (
             <button
               onClick={onVerTudo}
               tabIndex={-1}
-              className="text-[12px] text-white/45 outline-none transition-colors hover:text-white"
+              className="text-[13px] font-medium text-[var(--loja-apagado)] outline-none transition-colors hover:text-white"
             >
               Ver tudo
             </button>
@@ -58,11 +69,19 @@ export function StoreRail({ titulo, jogos, carregando, onVerTudo, onFocar, onAbr
               <div
                 key={`sk${i}`}
                 className="shrink-0 animate-pulse rounded-lg bg-white/[0.04]"
-                style={{ width: 176, aspectRatio: "3 / 4" }}
+                style={{ width: 200, aspectRatio: "3 / 4" }}
               />
             ))
           : jogos.map((j, i) => (
-              <StoreTile key={j.appid} jogo={j} indice={i} onFocar={onFocar} onAbrir={onAbrir} />
+              <StoreTile
+                key={j.appid}
+                jogo={j}
+                indice={i}
+                naBiblioteca={naBiblioteca?.(j)}
+                onFocar={onFocar}
+                onAbrir={onAbrir}
+                onAdicionar={onAdicionar}
+              />
             ))}
       </div>
     </section>
@@ -75,7 +94,7 @@ function Seta({ dir, onClick }: { dir: 1 | -1; onClick: () => void }) {
       onClick={onClick}
       tabIndex={-1}
       aria-label={dir === 1 ? "Avançar" : "Voltar"}
-      className="grid h-8 w-8 place-items-center rounded-full border border-white/10 text-white/60 outline-none transition-colors hover:border-white/25 hover:text-white"
+      className="grid h-9 w-9 place-items-center rounded-full bg-[var(--loja-sup-2)] text-white outline-none transition-colors hover:bg-[var(--loja-sup-3)]"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d={dir === 1 ? "m9 5 7 7-7 7" : "m15 5-7 7 7 7"} />

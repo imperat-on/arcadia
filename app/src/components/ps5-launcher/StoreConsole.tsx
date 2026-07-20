@@ -77,6 +77,10 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // Jogos de cada trilho da vitrine, por id de categoria.
   const [vitrine, setVitrine] = useState<Record<string, JogoLinha[]>>({})
   const [carregandoVitrine, setCarregandoVitrine] = useState(true)
+  // Estado do herói, separado do foco: ele roda sozinho pelos destaques.
+  const [heroiIdx, setHeroiIdx] = useState(0)
+  const [fichaHeroi, setFichaHeroi] = useState<FichaJogo | null>(null)
+  const [trailerHeroi, setTrailerHeroi] = useState<{ url: string; poster: string } | null>(null)
   // O herói e o HUD leem estes três, sempre do jogo em foco.
   const [destaque, setDestaque] = useState<JogoLinha | null>(null)
   const [ficha, setFicha] = useState<FichaJogo | null>(null)
@@ -304,6 +308,27 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     carregar(categoriaRef.current, carregados)
   }, [carregar, resultados, total, carregados])
 
+  // Herói: os primeiros "Mais vendidos" em rodízio. Se essa seção ainda não
+  // respondeu, cai em "Em alta" para a tela não abrir vazia.
+  const destaques = (vitrine.top_sellers?.length ? vitrine.top_sellers : vitrine.alta || []).slice(0, 5)
+  const heroi = destaques[heroiIdx] || null
+
+  // Ficha e trailer do herói. Independentes do jogo em foco: o herói tem vida
+  // própria (roda sozinho) e trocar de capa não pode apagar a arte dele.
+  useEffect(() => {
+    if (!heroi) return
+    let cancelado = false
+    setTrailerHeroi(null)
+    window.launcherAPI?.storeDetails(heroi.appid).then((r) => {
+      if (cancelado || !r?.ok || !r.jogo) return
+      setFichaHeroi(r.jogo)
+      if (r.jogo.trailer) setTrailerHeroi({ url: r.jogo.trailer.url, poster: r.jogo.trailer.poster })
+    })
+    return () => {
+      cancelado = true
+    }
+  }, [heroi])
+
   // Só entram na vitrine as seções que já chegaram — um trilho vazio no meio
   // da coluna abriria um buraco enquanto a segunda onda não responde.
   const secoesVitrine: SecaoVitrine[] = VITRINE.map((id) => ({
@@ -319,65 +344,63 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (typeof ref === "function") ref(el)
         else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
       }}
-      // Preto OLED puro, igual à aba Notícias: sem palco, sem vinheta, sem
-      // tint. A cor dominante ainda pinta ring do card, chip ativo e preço
-      // no HUD — só o FUNDO fica preto absoluto.
-      className="loja flex h-full w-full flex-col overflow-hidden bg-black text-white"
+      // O navy profundo (definido em .loja) substitui o preto absoluto: no
+      // preto puro os cards não tinham chão do qual se destacar.
+      className="loja flex h-full w-full flex-col overflow-hidden text-white"
       style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
     >
-      {/* ── Régua de categorias ──────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-2.5 overflow-x-auto px-12 pb-4 pt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* ── Barra superior ───────────────────────────────────────────────── */}
+      <div className="flex shrink-0 items-center gap-6 border-b border-[var(--loja-fio)] px-12">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* "Vitrine" volta para a entrada; as demais abrem a categoria em
+              grade. Sem esta aba, quem entrasse numa categoria com o mouse não
+              teria como voltar (B é só do controle). */}
+          <button
+            onClick={() => {
+              setModo("vitrine")
+              setResultados(null)
+              setDestaque(null)
+            }}
+            className={`loja-aba${!resultados && modo === "vitrine" ? " -ativo" : ""}`}
+          >
+            Vitrine
+          </button>
+
+          {CATEGORIAS.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => {
+                setCategoria(c.id)
+                setModo("categoria")
+                setResultados(null) // sair da busca ao escolher uma categoria
+              }}
+              className={`loja-aba${!resultados && modo === "categoria" && categoria === c.id ? " -ativo" : ""}`}
+            >
+              {c.rotulo}
+            </button>
+          ))}
+        </div>
+
         <button
           onClick={() => setTeclado(true)}
-          className="loja-chip"
           aria-label="Buscar"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--loja-apagado)] outline-none transition-colors hover:bg-[var(--loja-sup-2)] hover:text-white"
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-1.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
           </svg>
-          Buscar
         </button>
-
-        <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
-
-        {/* "Vitrine" volta para a entrada; os demais abrem a categoria em
-            grade. Sem este chip, quem entrasse numa categoria com o mouse não
-            teria como voltar (B é só do controle). */}
-        <button
-          onClick={() => {
-            setModo("vitrine")
-            setResultados(null)
-            setDestaque(null)
-          }}
-          className={`loja-chip${!resultados && modo === "vitrine" ? " -ativo" : ""}`}
-        >
-          Vitrine
-        </button>
-
-        {CATEGORIAS.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => {
-              setCategoria(c.id)
-              setModo("categoria")
-              setResultados(null) // sair da busca ao escolher uma categoria
-            }}
-            className={`loja-chip${!resultados && modo === "categoria" && categoria === c.id ? " -ativo" : ""}`}
-          >
-            {c.rotulo}
-          </button>
-        ))}
       </div>
 
       {resultados && (
-        <p className="shrink-0 px-12 pb-3 text-[13px] text-white/60">
+        <p className="shrink-0 px-12 pb-3 pt-5 text-[13px] text-[var(--loja-apagado)]">
           Resultados para "{busca}" ({resultados.length})
         </p>
       )}
 
       {/* ── Corpo: vitrine, categoria ou resultados ──────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-2">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {resultados ? (
           // A busca reaproveita a grade da categoria, sem paginação: os
           // resultados são curtos e cabem numa resposta só.
@@ -385,20 +408,28 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             paginas={[resultados]}
             carregando={false}
             temMais={false}
+            naBiblioteca={bloqueado}
             onFocar={setDestaque}
             onAbrir={setAberto}
             onPedirMais={() => {}}
+            onAdicionar={acoes.adicionar}
           />
         ) : modo === "vitrine" ? (
           <StoreShowcase
             secoes={secoesVitrine}
             carregando={carregandoVitrine}
-            focado={destaque}
-            ficha={ficha}
-            trailer={trailer}
+            destaques={destaques}
+            heroiIdx={heroiIdx}
+            onHeroiIdx={setHeroiIdx}
+            fichaHeroi={fichaHeroi}
+            trailerHeroi={trailerHeroi}
             ativo={ativo}
+            ocupado={Boolean(acoes.busy)}
+            naBiblioteca={bloqueado}
             onFocar={setDestaque}
             onAbrir={setAberto}
+            onBaixar={acoes.baixar}
+            onAdicionar={acoes.adicionar}
             onVerCategoria={(id) => {
               setCategoria(id)
               setModo("categoria")
@@ -409,9 +440,11 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             paginas={paginas}
             carregando={carregando}
             temMais={temMais}
+            naBiblioteca={bloqueado}
             onFocar={setDestaque}
             onAbrir={setAberto}
             onPedirMais={pedirMais}
+            onAdicionar={acoes.adicionar}
           />
         )}
       </div>
