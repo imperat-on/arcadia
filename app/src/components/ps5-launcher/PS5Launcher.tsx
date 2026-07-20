@@ -17,6 +17,7 @@ import { EditMetadata } from "./EditMetadata"
 import { LibraryGrid } from "./LibraryGrid"
 import { TopBar, TABS } from "./TopBar"
 import { StoreConsole } from "./StoreConsole"
+import { ConsoleInstallDialog } from "./ConsoleInstallDialog"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
@@ -169,6 +170,8 @@ export function PS5Launcher() {
   }
 
   const [showDownloads, setShowDownloads] = useState(false)
+  // Jogo aguardando escolha do destino de instalação (modo console).
+  const [instalarGame, setInstalarGame] = useState<Game | null>(null)
   const [dmAtivos, setDmAtivos] = useState(0)
   const dmRef = useRef<HTMLDivElement>(null)
 
@@ -196,7 +199,8 @@ export function PS5Launcher() {
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
-    Boolean(trailerPickGame)
+    Boolean(trailerPickGame) ||
+    Boolean(instalarGame)
 
   // uiBlockedRef: pausa a navegação de JOGOS (D-pad/A). Vale também na aba de
   // Notícias, que tem foco próprio — mas o L1/R1 (trocar aba) segue funcionando.
@@ -410,8 +414,10 @@ export function PS5Launcher() {
     // Não instalado: redireciona para a instalação de cada loja.
     if (game.installed === false) {
       if (game.launcher === "epic") {
-        window.launcherAPI?.dmInstall({ appid: game.id, title: game.title, cover: game.cover })
-        setShowDownloads(true)
+        // Pergunta o destino ANTES de baixar. Antes disto o download começava
+        // na hora, na pasta padrão, sem nenhuma confirmação — o desktop já
+        // perguntava (InstallDialog), o console não.
+        setInstalarGame(game)
       } else if (game.launcher === "steam") {
         // rungameid NÃO instala; steam://install abre o diálogo de instalação.
         const appid = String(game.id).replace(/^steam:/, "")
@@ -979,6 +985,25 @@ export function PS5Launcher() {
       {/* Downloads (fila Epic) */}
       {showDownloads && (
         <DownloadManager ref={dmRef} onClose={() => setShowDownloads(false)} />
+      )}
+
+      {/* Destino da instalação (jogos Epic). Só depois de escolher é que o
+          download entra na fila. */}
+      {instalarGame && (
+        <ConsoleInstallDialog
+          game={instalarGame}
+          onFechar={() => setInstalarGame(null)}
+          onInstalar={(installPath) => {
+            window.launcherAPI?.dmInstall({
+              appid: instalarGame.id,
+              title: instalarGame.title,
+              cover: instalarGame.cover,
+              installPath,
+            })
+            setInstalarGame(null)
+            setShowDownloads(true)
+          }}
+        />
       )}
 
       {/* Escolha manual do trailer (mostra os vídeos do YouTube) */}
