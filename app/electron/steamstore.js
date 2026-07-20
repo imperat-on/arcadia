@@ -710,10 +710,29 @@ const DETALHES_TTL = 24 * 60 * 60 * 1000
 const DETALHES_MAX = 300 // teto de entradas: o arquivo é lido inteiro a cada uso
 
 // A Steam migrou os `movies` do appdetails para DASH/HLS, que o Chromium não
-// reproduz. Os MP4 legados do CDN continuam sendo servidos e tocam num <video>
-// comum — é por eles que o trailer da loja funciona sem biblioteca extra.
+// reproduz. Sobra o MP4 legado do CDN, montado a partir do movieId — mas ele
+// só existe para os trailers ANTIGOS: os publicados depois da migração dão
+// 404 nas duas resoluções. Como o appdetails não diz quais são quais (não há
+// mais campo `mp4` para ninguém), a única forma de saber é perguntar.
 const TRAILER_URL = (movieId, alta) =>
   `https://cdn.akamai.steamstatic.com/steam/apps/${movieId}/${alta ? "movie_max" : "movie480"}.mp4`
+
+// Confere quais resoluções existem de fato. Sem isto, um <video> apontando
+// para um 404 fica na tela mostrando o `poster` — uma miniatura de 600px
+// esticada por cima da arte de 3840px, que era a causa do herói borrado.
+async function trailerDisponivel(movieId) {
+  const testar = async (alta) => {
+    const url = TRAILER_URL(movieId, alta)
+    try {
+      const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(8000) })
+      return r.ok ? url : ""
+    } catch {
+      return "" // rede fora conta como indisponível: não mostrar > mostrar quebrado
+    }
+  }
+  const [alta, normal] = await Promise.all([testar(true), testar(false)])
+  return { alta, normal }
+}
 
 // pc_requirements vem como objeto com HTML, ou como array vazio quando o jogo
 // não declara nada — daí a checagem de Array.
@@ -722,8 +741,9 @@ function requisito(reqs, chave) {
   return String(reqs[chave] || "")
 }
 
-function normalizaDetalhes(appid, d) {
+async function normalizaDetalhes(appid, d) {
   const filme = (d.movies || [])[0]
+  const mp4 = filme ? await trailerDisponivel(filme.id) : null
   return {
     appid: String(appid),
     nome: d.name || "",
@@ -731,9 +751,12 @@ function normalizaDetalhes(appid, d) {
     header: d.header_image || "",
     fundo: d.background_raw || d.background || "",
     screenshots: (d.screenshots || []).map((s) => s.path_full).filter(Boolean).slice(0, 12),
-    trailer: filme
-      ? { url: TRAILER_URL(filme.id, false), alta: TRAILER_URL(filme.id, true), poster: filme.thumbnail || "" }
-      : null,
+    // Só devolve trailer quando existe MP4 tocável. `null` faz a UI nem montar
+    // o <video>, em vez de montá-lo quebrado.
+    trailer:
+      mp4 && (mp4.normal || mp4.alta)
+        ? { url: mp4.normal || mp4.alta, alta: mp4.alta || mp4.normal, poster: filme.thumbnail || "" }
+        : null,
     generos: (d.genres || []).map((g) => g.description).filter(Boolean),
     lancamento: d.release_date?.date || "",
     devs: d.developers || [],
@@ -768,7 +791,7 @@ async function detalhes(appid) {
     const data = await r.json()
     const d = data?.[id]?.data
     if (!d) throw new Error("sem dados para este appid")
-    const jogo = normalizaDetalhes(id, d)
+    const jogo = await normalizaDetalhes(id, d)
     cache[id] = { at: Date.now(), jogo }
     // Poda pelas entradas mais antigas quando passa do teto.
     const ids = Object.keys(cache)

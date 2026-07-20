@@ -80,11 +80,10 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // Estado do herói, separado do foco: ele roda sozinho pelos destaques.
   const [heroiIdx, setHeroiIdx] = useState(0)
   const [fichaHeroi, setFichaHeroi] = useState<FichaJogo | null>(null)
-  const [trailerHeroi, setTrailerHeroi] = useState<{ url: string; poster: string } | null>(null)
+  const [trailerHeroi, setTrailerHeroi] = useState<{ url: string } | null>(null)
   // O herói e o HUD leem estes três, sempre do jogo em foco.
   const [destaque, setDestaque] = useState<JogoLinha | null>(null)
   const [ficha, setFicha] = useState<FichaJogo | null>(null)
-  const [trailer, setTrailer] = useState<{ url: string; poster: string } | null>(null)
   const [cor, setCor] = useState("")
   const [aberto, setAberto] = useState<JogoLinha | null>(null)
   const [teclado, setTeclado] = useState(false)
@@ -203,30 +202,22 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
   }, [modo, carregando, paginas, categoria, buscarCategoria])
 
-  // Ficha e trailer do jogo focado. A ficha espera 600ms parado e o trailer
-  // 1,2s: sem essa espera, atravessar uma linha dispararia uma chamada por
-  // capa e o appdetails bate no limite (~200 a cada 5 min). O cache de 24h
-  // absorve o resto.
+  // Ficha do jogo focado, que alimenta o HUD do rodapé. Espera 600ms parado:
+  // sem isso, atravessar um trilho dispararia uma chamada por capa e o
+  // appdetails bate no limite (~200 a cada 5 min). O cache de 24h absorve o
+  // resto. Quem mostra trailer é o herói, com estado próprio.
   useEffect(() => {
     if (!destaque) return
     let cancelado = false
-    setTrailer(null)
     const t = setTimeout(() => {
       window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
         if (cancelado || !r?.ok || !r.jogo) return
         setFicha(r.jogo)
       })
     }, 600)
-    const tv = setTimeout(() => {
-      window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
-        if (cancelado || !r?.ok || !r.jogo?.trailer) return
-        setTrailer({ url: r.jogo.trailer.url, poster: r.jogo.trailer.poster })
-      })
-    }, 1200)
     return () => {
       cancelado = true
       clearTimeout(t)
-      clearTimeout(tv)
     }
   }, [destaque])
 
@@ -325,10 +316,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       // O herói ocupa a largura da tela: em movie480 o vídeo fica mais borrado
       // que a imagem parada atrás dele. Os ladrilhos seguem em 480p.
       if (r.jogo.trailer) {
-        setTrailerHeroi({
-          url: r.jogo.trailer.alta || r.jogo.trailer.url,
-          poster: r.jogo.trailer.poster,
-        })
+        setTrailerHeroi({ url: r.jogo.trailer.alta || r.jogo.trailer.url })
       }
     })
     return () => {
