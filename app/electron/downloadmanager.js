@@ -301,6 +301,10 @@ async function install({ appid, title, cover, installPath }) {
   if (queue.some((q) => q.appid === appid && ["queued", "downloading", "paused"].includes(q.status))) {
     return { ok: true } // já está na fila
   }
+  // Um item que falhou continuava na fila e o novo pedido criava um SEGUNDO
+  // card com o mesmo appid — chave duplicada no React, tela bagunçada. Só
+  // pode existir um item por jogo: o antigo sai.
+  queue = queue.filter((q) => q.appid !== appid)
   await ensureLegendary()
   const destino = installPath || GAMES_DIR
   fs.mkdirSync(destino, { recursive: true })
@@ -321,6 +325,7 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
   if (queue.some((q) => q.appid === id && ["queued", "downloading", "paused"].includes(q.status))) {
     return { ok: true }
   }
+  queue = queue.filter((q) => q.appid !== id) // ver comentário em install()
   const ss = require("./steamstore")
   const dir = steamDir || ss.findSteamDir()
   queue.push({
@@ -334,6 +339,28 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
   emit(true)
   next()
   return { ok: true }
+}
+
+// Tenta de novo um download que falhou: mantém o item (com o destino e os
+// depots já escolhidos) e apenas o recoloca na fila, zerando o erro.
+function retry(appid) {
+  const it = queue.find((q) => q.appid === appid)
+  if (!it || it.status !== "error") return
+  it.fila = null
+  it.filaIdx = 0
+  it.depotsOk = 0
+  it.depotsFalhos = []
+  update(appid, { status: "queued", error: "", percent: 0, done: 0, speed: 0, eta: "" })
+  next()
+}
+
+// Tira da lista um item já finalizado (erro/concluído). Não mexe em disco.
+function descartar(appid) {
+  const it = queue.find((q) => q.appid === appid)
+  if (!it || ["downloading", "queued", "paused"].includes(it.status)) return
+  queue = queue.filter((q) => q.appid !== appid)
+  persist()
+  emit(true)
 }
 
 function pause(appid) {
@@ -472,4 +499,4 @@ function killActive() {
 }
 
 load()
-module.exports = { install, installSteam, pause, resume, cancel, getQueue, onProgress, onDone, killActive }
+module.exports = { install, installSteam, pause, resume, retry, descartar, cancel, getQueue, onProgress, onDone, killActive }

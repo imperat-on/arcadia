@@ -137,6 +137,14 @@ export function DmCard({ item: it }: { item: DmItem }) {
         {ativo && (
           <Acao label="Cancelar" perigo onClick={() => window.launcherAPI?.dmCancel(it.appid)} />
         )}
+        {/* Item que falhou não tinha ação nenhuma: ficava preso na tela para
+            sempre, e mandar baixar de novo criava um card duplicado. */}
+        {it.status === "error" && (
+          <>
+            <Acao label="Tentar de novo" primaria onClick={() => window.launcherAPI?.dmRetry(it.appid)} />
+            <Acao label="Remover" onClick={() => window.launcherAPI?.dmDismiss(it.appid)} />
+          </>
+        )}
       </div>
     </div>
   )

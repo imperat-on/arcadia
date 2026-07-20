@@ -1360,6 +1360,8 @@ app.whenReady().then(() => {
   ipcMain.handle("dm:queue", () => dm.getQueue())
   ipcMain.handle("dm:install", (_e, game) => dm.install(game || {}))
   ipcMain.handle("dm:pause", (_e, appid) => dm.pause(appid))
+  ipcMain.handle("dm:retry", (_e, appid) => dm.retry(appid))
+  ipcMain.handle("dm:dismiss", (_e, appid) => dm.descartar(appid))
   ipcMain.handle("dm:resume", (_e, appid) => dm.resume(appid))
   ipcMain.handle("dm:cancel", (_e, appid) => dm.cancel(appid))
 

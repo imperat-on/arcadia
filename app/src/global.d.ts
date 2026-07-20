@@ -410,6 +410,10 @@ declare global {
       /** Espaço em disco (GiB) do path informado. */
       diskSpace: (p?: string) => Promise<{ ok: boolean; total?: number; free?: number; error?: string }>
       dmPause: (appid: string) => Promise<void>
+      /** Recoloca na fila um download que falhou. */
+      dmRetry: (appid: string) => Promise<void>
+      /** Tira da lista um item já finalizado (erro/concluído). */
+      dmDismiss: (appid: string) => Promise<void>
       dmResume: (appid: string) => Promise<void>
       dmCancel: (appid: string) => Promise<void>
       onDmProgress: (cb: (items: DmItem[]) => void) => () => void
