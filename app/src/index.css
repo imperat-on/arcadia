@@ -41,6 +41,28 @@
   --ring: #0072ce;
   --radius: 0.75rem;
   --accent: #00a8ff; /* cor de destaque (Temas) */
+
+  /* Movimento. As animações estavam espalhadas entre 0,18s e 0,9s com quatro
+     curvas diferentes, então nada parecia da mesma peça. Três durações e uma
+     curva padrão cobrem tudo: --ease é uma saída suave, sem repique. */
+  --dur-1: 120ms; /* estados: hover, foco, cor */
+  --dur-2: 200ms; /* elementos: card, popover, toast */
+  --dur-3: 320ms; /* telas: troca de aba, overlay */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* entradas longas, cinematográficas */
+}
+
+/* Quem pediu menos movimento no sistema recebe menos movimento. Antes só
+   existia o botão em Acessibilidade, que o usuário precisava descobrir. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 body {
@@ -69,16 +91,16 @@ body {
 
 /* Animações usadas pelos componentes */
 @keyframes fadeSlideUp {
-  from { opacity: 0; transform: translateY(24px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-slide-up { animation: fadeSlideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.animate-fade-slide-up { animation: fadeSlideUp var(--dur-3) var(--ease) forwards; }
 
 @keyframes bgFade {
   from { opacity: 0.15; }
   to { opacity: 1; }
 }
-.animate-bg-fade { animation: bgFade 0.45s ease-out; }
+.animate-bg-fade { animation: bgFade var(--dur-3) var(--ease); }
 
 /* Anel de foco para navegação por controle nos overlays */
 .gp-scope :focus {
@@ -94,32 +116,32 @@ body {
   to { opacity: 1; }
 }
 @keyframes ovRise {
-  from { opacity: 0; transform: translateY(22px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes ovExit {
   from { opacity: 1; }
   to { opacity: 0; }
 }
-.ov-bg-in { animation: ovFadeIn 0.3s ease both; }
+.ov-bg-in { animation: ovFadeIn var(--dur-2) var(--ease) both; }
 .ov-rise {
-  animation: ovRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: ovRise var(--dur-3) var(--ease) both;
 }
 .ov-out {
-  animation: ovExit 0.18s ease-in both;
+  animation: ovExit var(--dur-1) ease-in both;
 }
 
 /* Toast de conquista (estilo troféu PS5) */
 @keyframes toastIn {
-  from { opacity: 0; transform: translateY(-24px) scale(0.97); }
+  from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes toastOut {
   from { opacity: 1; }
   to { opacity: 0; transform: translateY(-12px); }
 }
-.toast-in { animation: toastIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.toast-out { animation: toastOut 0.4s ease-in both; }
+.toast-in { animation: toastIn var(--dur-2) var(--ease) both; }
+.toast-out { animation: toastOut var(--dur-2) ease-in both; }
 
 /* Tela de boot (vídeo, estilo PS5) */
 @keyframes bootOut {
@@ -214,15 +236,15 @@ body {
 }
 
 /* Fase 1: fundo revelado do centro (máscara arredondada expandindo) */
-.pos-login.home-reveal { animation: homeMaskIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pos-login.home-reveal { animation: homeMaskIn 0.85s var(--ease-out) both; }
 
 /* Fase 2: navegação em fade puro; herói sobe de baixo */
 .pos-login .anim-nav { animation: loginFade 0.8s ease-out 0.35s both; }
-.pos-login .anim-rise { animation: loginRise 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
+.pos-login .anim-rise { animation: loginRise 0.85s var(--ease-out) 0.3s both; }
 
 /* Fase 3: texto em fade; capas em cascata da esquerda para a direita */
 .pos-login .anim-fade { animation: loginFade 0.7s ease-out 0.55s both; }
-.pos-login .rail-anim > * { animation: loginRail 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pos-login .rail-anim > * { animation: loginRail 0.55s var(--ease-out) both; }
 .pos-login .rail-anim > *:nth-child(1) { animation-delay: 0.50s; }
 .pos-login .rail-anim > *:nth-child(2) { animation-delay: 0.56s; }
 .pos-login .rail-anim > *:nth-child(3) { animation-delay: 0.62s; }
@@ -261,11 +283,59 @@ body {
 
 .ov-hero-card {
   transform-origin: top left;
-  animation: ovHeroCard 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ovHeroCard 0.7s var(--ease-out) both;
 }
-.ov-hero-text { animation: ovHeroText 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both; }
-.ov-shade { animation: ovShade 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
-.ov-w1 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.38s both; }
-.ov-w2 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.50s both; }
-.ov-w3 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.62s both; }
-.ov-w4 { animation: ovWidget 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.74s both; }
+.ov-hero-text { animation: ovHeroText 0.7s var(--ease-out) 0.22s both; }
+.ov-shade { animation: ovShade 0.65s var(--ease-out) 0.1s both; }
+.ov-w1 { animation: ovWidget 0.65s var(--ease-out) 0.38s both; }
+.ov-w2 { animation: ovWidget 0.65s var(--ease-out) 0.50s both; }
+.ov-w3 { animation: ovWidget 0.65s var(--ease-out) 0.62s both; }
+.ov-w4 { animation: ovWidget 0.65s var(--ease-out) 0.74s both; }
+
+/* ─── Modo desktop ─────────────────────────────────────────────────────────
+   O desktop não tinha movimento nenhum: a troca de seção era um corte seco e
+   a grade aparecia de uma vez. Estas são deliberadamente curtas — o objetivo
+   é dar continuidade entre telas, não chamar atenção. */
+
+/* Troca de seção pela barra lateral. A `key` da view reinicia a animação. */
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.view-in { animation: viewIn var(--dur-3) var(--ease) both; }
+
+/* Entrada escalonada da grade. O atraso é por posição e para na 12ª: além
+   disso a espera passa a incomodar mais do que a animação ajuda. */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.grid-stagger > * {
+  animation: cardIn var(--dur-2) var(--ease) both;
+}
+.grid-stagger > *:nth-child(1)  { animation-delay: 0ms; }
+.grid-stagger > *:nth-child(2)  { animation-delay: 20ms; }
+.grid-stagger > *:nth-child(3)  { animation-delay: 40ms; }
+.grid-stagger > *:nth-child(4)  { animation-delay: 60ms; }
+.grid-stagger > *:nth-child(5)  { animation-delay: 80ms; }
+.grid-stagger > *:nth-child(6)  { animation-delay: 100ms; }
+.grid-stagger > *:nth-child(7)  { animation-delay: 120ms; }
+.grid-stagger > *:nth-child(8)  { animation-delay: 140ms; }
+.grid-stagger > *:nth-child(9)  { animation-delay: 160ms; }
+.grid-stagger > *:nth-child(10) { animation-delay: 180ms; }
+.grid-stagger > *:nth-child(11) { animation-delay: 200ms; }
+.grid-stagger > *:nth-child(n + 12) { animation-delay: 220ms; }
+
+/* Estados interativos com um tempo só. Antes cada botão trazia a sua própria
+   duração de transição, e nenhuma batia com a de baixo. */
+button,
+a,
+input,
+[role="button"] {
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    opacity var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
