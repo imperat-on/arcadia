@@ -553,6 +553,30 @@ function binExists(cmd) {
 
 // Monta env/args de lançamento a partir das configurações do jogo.
 // Retorna { cmd, env, warnings } já com gamescope (se ligado) e variáveis.
+/**
+ * Faz a Steam subir escondida quando ela é aberta só para lançar um jogo.
+ *
+ * O comando do jogo é `["steam", "steam://rungameid/<appid>"]`. Com o cliente
+ * fechado, isso abre a janela da Steam na frente de tudo — no Big Picture ela
+ * toma a tela por cima do launcher. Com `-silent` o cliente vai direto para a
+ * bandeja: processo rodando (que é o que o DRM exige), sem janela nenhuma.
+ *
+ * Com a Steam já aberta a flag é ignorada; a invocação só encaminha a URL para
+ * a instância viva. O efeito aparece exatamente no caso que incomoda.
+ *
+ * `steam://install` fica de fora DE PROPÓSITO: ali o diálogo de instalação da
+ * Steam é o que a pessoa foi ver, e escondê-lo faria o jogo nunca instalar.
+ */
+function steamSilencioso(cmd) {
+  if (!Array.isArray(cmd) || cmd.length < 2) return cmd
+  // O binário pode ser o wrapper do slsteam-moon, que repassa os argumentos.
+  if (path.basename(String(cmd[0])) !== "steam") return cmd
+  if (cmd.includes("-silent")) return cmd
+  const abreJogo = cmd.some((a) => /^steam:\/\/(rungameid|run)\//.test(String(a)))
+  if (!abreJogo) return cmd
+  return [cmd[0], "-silent", ...cmd.slice(1)]
+}
+
 function applyGameSettings(cmd, s, gameId) {
   const warnings = []
   const env = { ...process.env }
@@ -906,6 +930,9 @@ app.whenReady().then(() => {
       envExtra = built?.env || {}
     }
     if (!Array.isArray(rawCmd) || rawCmd.length === 0) return { ok: false }
+    // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
+    // em diante o cmd[0] já não é mais o binário da Steam.
+    rawCmd = steamSilencioso(rawCmd)
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
