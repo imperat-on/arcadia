@@ -121,18 +121,66 @@ async function sushiIds() {
   }
 }
 
-// Sonda barata: HEAD devolve 200/404 sem baixar o zip. Cacheada por processo.
+// Sonda barata: HEAD devolve 200/404 sem baixar o zip. Cacheada por processo
+// e em disco: a sondagem é o gargalo da loja e raramente muda.
+const MANIFEST_CACHE = path.join(DATA_DIR, "store_manifest_cache.json")
+const MANIFEST_TTL = 7 * 24 * 60 * 60 * 1000 // 7 dias: um jogo não muda de provedor da noite pro dia
 const headCache = new Map()
+
+function lerManifestCache() {
+  try {
+    const c = JSON.parse(fs.readFileSync(MANIFEST_CACHE, "utf-8"))
+    if (c && typeof c === "object") return c
+  } catch {}
+  return {}
+}
+
+function gravarManifestCache(dados) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    // Limpa entradas vencidas para o arquivo não crescer para sempre.
+    const agora = Date.now()
+    for (const k of Object.keys(dados)) {
+      if (agora - (dados[k].at || 0) > MANIFEST_TTL) delete dados[k]
+    }
+    const tmp = `${MANIFEST_CACHE}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(dados))
+    fs.renameSync(tmp, MANIFEST_CACHE)
+  } catch {}
+}
+
+const manifestDiskCache = { at: 0, dados: {} }
+function getManifestCache() {
+  // Recarrega do disco a cada minuto para absorver outras instâncias/processos.
+  if (Date.now() - manifestDiskCache.at > 60_000) {
+    manifestDiskCache.dados = lerManifestCache()
+    manifestDiskCache.at = Date.now()
+  }
+  return manifestDiskCache.dados
+}
+
 async function existe(url, timeoutMs = 6000) {
   if (headCache.has(url)) return headCache.get(url)
+  const cache = getManifestCache()
+  const guardado = cache[url]
+  if (guardado && Date.now() - (guardado.at || 0) < MANIFEST_TTL) {
+    headCache.set(url, guardado.ok)
+    return guardado.ok
+  }
   let ok = false
+  let cacheavel = false
   try {
     const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) })
     ok = r.ok
+    cacheavel = true
   } catch {
     ok = false
   }
   headCache.set(url, ok)
+  if (cacheavel) {
+    cache[url] = { at: Date.now(), ok }
+    gravarManifestCache(cache)
+  }
   return ok
 }
 
@@ -337,7 +385,7 @@ async function buscarPopular(lista = "top100in2weeks") {
   })
   if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
   const data = await r.json()
-  const jogos = ordenarPorPopularidade(Object.values(data))
+  const completa = ordenarPorPopularidade(Object.values(data))
     .map((g) => ({
       appid: String(g.appid || ""),
       title: g.name || "",
@@ -345,35 +393,13 @@ async function buscarPopular(lista = "top100in2weeks") {
       manifest: false,
     }))
     .filter((g) => g.appid && g.title)
-    .slice(0, 24)
-  // Antes todos vinham marcados com manifest: true — a home prometia jogos que
-  // nenhum provedor tinha, e o erro só aparecia ao clicar em Baixar.
-  await marcarDisponibilidade(jogos)
+  // Cache guarda a lista COMPLETA (dump SteamSpy inteiro). A sondagem —
+  // parte cara — acontece só na fatia servida por popular(), não aqui.
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true })
-    fs.writeFileSync(POPULAR_CACHE, JSON.stringify({ at: Date.now(), jogos }))
+    fs.writeFileSync(POPULAR_CACHE, JSON.stringify({ at: Date.now(), completa }))
   } catch {}
-  return jogos
-}
-
-// Mesma montagem do "Em alta", para as outras listas do SteamSpy.
-async function buscarPopularLista(lista) {
-  const r = await gh(`https://steamspy.com/api.php?request=${lista}`, {
-    signal: AbortSignal.timeout(25000),
-  })
-  if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
-  const data = await r.json()
-  const jogos = ordenarPorPopularidade(Object.values(data))
-    .map((g) => ({
-      appid: String(g.appid || ""),
-      title: g.name || "",
-      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-      manifest: false,
-    }))
-    .filter((g) => g.appid && g.title)
-    .slice(0, 24)
-  await marcarDisponibilidade(jogos)
-  return jogos
+  return completa
 }
 
 // Entrega o cache na hora e, se estiver velho, atualiza em segundo plano
@@ -381,39 +407,68 @@ async function buscarPopularLista(lista) {
 // sozinho para a próxima vez, em vez de fazer o usuário esperar.
 // `lista` escolhe entre a quinzena (Em alta) e o acumulado (Mais jogados).
 let popularEmVoo = null
-async function popular(lista = "top100in2weeks") {
+async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
+  const off = Math.max(0, Number(offset) | 0)
+  const lim = Math.max(1, Number(limite) | 0)
+  // As listas alternativas (top100forever, etc.) vivem no cache genérico,
+  // uma entrada por lista, com prefixo "__" para não colidir com gêneros.
   if (lista !== "top100in2weeks") {
-    // As outras listas usam o cache genérico, com uma entrada por lista.
     const cache = lerCache(GENERO_CACHE) || {}
     const chave = `__${lista}`
     const guardado = cache[chave]
-    if (guardado && Date.now() - (guardado.at || 0) < GENERO_TTL) {
-      return { ok: true, jogos: guardado.jogos, cache: true }
+    let completa =
+      guardado && Date.now() - (guardado.at || 0) < GENERO_TTL && Array.isArray(guardado.completa)
+        ? guardado.completa
+        : null
+    if (!completa) {
+      try {
+        completa = await buscarSteamSpyCompleta(`https://steamspy.com/api.php?request=${lista}`)
+        cache[chave] = { at: Date.now(), completa }
+        gravarCache(GENERO_CACHE, cache)
+      } catch (e) {
+        if (guardado && Array.isArray(guardado.jogos)) {
+          const fatia = guardado.jogos.slice(off, off + lim)
+          return { ok: true, jogos: fatia, offset: off, total: guardado.jogos.length, cache: true, velho: true }
+        }
+        return { ok: false, error: String(e.message || e) }
+      }
     }
-    try {
-      const jogos = await buscarPopularLista(lista)
-      cache[chave] = { at: Date.now(), jogos }
-      gravarCache(GENERO_CACHE, cache)
-      return { ok: true, jogos }
-    } catch (e) {
-      if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
-      return { ok: false, error: String(e.message || e) }
-    }
+    const fatia = completa.slice(off, off + lim)
+    await marcarDisponibilidade(fatia)
+    return { ok: true, jogos: fatia, offset: off, total: completa.length }
   }
+  // "Em alta": cache dedicado com stale-while-revalidate. Guardamos a lista
+  // completa e paginamos aqui; a revalidação em voo continua invisível.
   const c = lerPopularCache()
   const velho = !c || Date.now() - (c.at || 0) > POPULAR_TTL
-  if (c && !velho) return { ok: true, jogos: c.jogos, cache: true }
+  const servir = async (completa) => {
+    const fatia = completa.slice(off, off + lim)
+    await marcarDisponibilidade(fatia)
+    return { jogos: fatia, offset: off, total: completa.length }
+  }
+  const completaDo = (c) => (Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null)
+  if (c && !velho) {
+    const completa = completaDo(c)
+    if (completa) {
+      const s = await servir(completa)
+      return { ok: true, ...s, cache: true }
+    }
+  }
   if (!popularEmVoo) {
     popularEmVoo = buscarPopular().finally(() => {
       popularEmVoo = null
     })
   }
-  if (c) {
+  const completaCache = completaDo(c)
+  if (completaCache) {
     popularEmVoo.catch(() => {}) // renova em segundo plano; erro não interessa
-    return { ok: true, jogos: c.jogos, cache: true, revalidando: true }
+    const s = await servir(completaCache)
+    return { ok: true, ...s, cache: true, revalidando: true }
   }
   try {
-    return { ok: true, jogos: await popularEmVoo }
+    const completa = await popularEmVoo
+    const s = await servir(completa)
+    return { ok: true, ...s }
   } catch (e) {
     return { ok: false, error: String(e.message || e) }
   }
@@ -483,6 +538,8 @@ function normalizaDetalhes(appid, d) {
     devs: d.developers || [],
     publishers: d.publishers || [],
     preco: d.price_overview?.final_formatted || (d.is_free ? "Gratuito" : ""),
+    // Só faz sentido mostrar o preço cheio riscado quando há desconto de fato.
+    precoOriginal: d.price_overview?.discount_percent ? d.price_overview.initial_formatted || "" : "",
     desconto: Number(d.price_overview?.discount_percent) || 0,
     metacritic: Number(d.metacritic?.score) || 0,
     reqMin: requisito(d.pc_requirements, "minimum"),
@@ -536,6 +593,18 @@ const SECOES = new Set(["new_releases", "top_sellers", "specials", "coming_soon"
 
 // Os itens do featuredcategories usam `id`/`name`, e não `appid`/`title` como o
 // resto da loja. Normalizar aqui evita que o carrossel receba capa vazia.
+// Preço em centavos + moeda ISO, como o featuredcategories devolve. Vem na
+// moeda da região, então não precisamos converter nada — só formatar.
+function precoDestaque(centavos, moeda) {
+  if (typeof centavos !== "number" || !moeda) return ""
+  if (centavos === 0) return "Gratuito"
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: moeda }).format(centavos / 100)
+  } catch {
+    return ""
+  }
+}
+
 function mapDestaque(itens) {
   return (itens || [])
     .map((g) => ({
@@ -544,94 +613,166 @@ function mapDestaque(itens) {
       cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`,
       manifest: false,
       desconto: Number(g.discount_percent) || 0,
+      // A vitrine mostra preço por capa; esta é a única fonte que o entrega
+      // sem uma chamada de appdetails por jogo (que estouraria o limite).
+      preco: precoDestaque(g.final_price, g.currency),
+      precoOriginal: g.discount_percent ? precoDestaque(g.original_price, g.currency) : "",
     }))
     .filter((g) => g.appid && g.title)
 }
 
+// Complemento SteamSpy por seção da Featured. Quando o cliente pede offset
+// além dos ~20 que a Steam devolve, servimos jogos populares da SteamSpy
+// para o scroll infinito continuar. coming_soon não tem equivalente
+// natural (jogos futuros); esgota naturalmente.
+const COMPLEMENTO = {
+  top_sellers: "top100forever",
+  new_releases: "top100forever",
+  specials: "top100forever",
+}
+
 // Uma seção da vitrine (lançamentos, mais vendidos, promoções, em breve).
-async function destaques(secao, limite = 24) {
+// Cacheamos a lista COMPLETA da Steam em `.completa` e um complemento
+// SteamSpy em `.complemento`; paginamos aqui. Cliente recebe uma fatia
+// contígua — a transição Steam→SteamSpy é transparente.
+async function destaques(secao, limite = 40, offset = 0) {
   const chave = String(secao || "")
   if (!SECOES.has(chave)) return { ok: false, error: `seção inválida: ${chave}` }
+  const off = Math.max(0, Number(offset) | 0)
+  const lim = Math.max(1, Number(limite) | 0)
   const cache = lerCache(DESTAQUE_CACHE) || {}
-  const guardado = cache[chave]
-  if (guardado && Date.now() - (guardado.at || 0) < DESTAQUE_TTL) {
-    // As seções preenchidas de carona (ver abaixo) entram sem sondagem. Servir
-    // assim marcaria TUDO como "sem manifesto" — sondamos na primeira vez que
-    // a seção é realmente pedida.
-    if (!guardado.sondado) {
-      await marcarDisponibilidade(guardado.jogos)
-      guardado.sondado = true
+  let guardado = cache[chave]
+  const validoSteam = (g) => g && Date.now() - (g.at || 0) < DESTAQUE_TTL && Array.isArray(g.completa)
+  if (!validoSteam(guardado)) {
+    try {
+      const r = await gh("https://store.steampowered.com/api/featuredcategories?cc=br&l=portuguese", {
+        signal: AbortSignal.timeout(20000),
+      })
+      if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
+      const data = await r.json()
+      const agora = Date.now()
+      // A resposta traz todas as seções de uma vez; preenchemos o cache de
+      // todas para não pagar essa chamada de novo ao trocar de filtro. Cada
+      // entrada guarda a lista completa (sem slice); sondagem só na fatia
+      // servida abaixo.
+      for (const s of SECOES) {
+        const itens = mapDestaque(data?.[s]?.items)
+        const anterior = cache[s] || {}
+        cache[s] = { at: agora, completa: itens, complemento: anterior.complemento }
+      }
       gravarCache(DESTAQUE_CACHE, cache)
+      guardado = cache[chave]
+      if (!guardado) throw new Error("seção vazia na resposta")
+    } catch (e) {
+      // Cache velho ainda serve: melhor uma tela pronta que um erro. Aceita
+      // formato novo (`.completa`) ou antigo (`.jogos`).
+      const fallback = guardado?.completa || guardado?.jogos
+      if (Array.isArray(fallback)) {
+        const fatia = fallback.slice(off, Math.min(fallback.length, off + lim))
+        return { ok: true, jogos: fatia, offset: off, total: fallback.length, cache: true, velho: true }
+      }
+      return { ok: false, error: String(e.message || e) }
     }
-    return { ok: true, jogos: guardado.jogos, cache: true }
   }
-  try {
-    const r = await gh("https://store.steampowered.com/api/featuredcategories?cc=br&l=portuguese", {
-      signal: AbortSignal.timeout(20000),
-    })
-    if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
-    const data = await r.json()
-    // A resposta traz TODAS as seções: aproveitamos para preencher o cache das
-    // outras de uma vez, em vez de repetir a chamada quando o usuário troca de
-    // filtro.
-    const agora = Date.now()
-    // A resposta traz todas as seções de uma vez; guardamos as outras sem
-    // sondar (sondado: false) para não gastar dezenas de HEAD em listas que o
-    // usuário talvez nem abra.
-    for (const s of SECOES) {
-      const itens = mapDestaque(data?.[s]?.items).slice(0, limite)
-      if (itens.length) cache[s] = { at: agora, jogos: itens, sondado: false }
+  const steamCompleta = guardado.completa
+  const fimSteam = steamCompleta.length
+  const nomeComp = COMPLEMENTO[chave]
+  // Se o cliente ainda está dentro da faixa da Steam e não precisa transbordar,
+  // servimos direto.
+  if (off + lim <= fimSteam || !nomeComp) {
+    const fatia = steamCompleta.slice(off, Math.min(fimSteam, off + lim))
+    await marcarDisponibilidade(fatia)
+    // Sem complemento OU pedido exatamente dentro: `total` é o que temos hoje.
+    // Se há complemento e ele ainda não foi carregado, avisamos com hasMore.
+    const total = nomeComp ? fimSteam + (guardado.complemento?.length || 0) : fimSteam
+    return { ok: true, jogos: fatia, offset: off, total, hasMoreLazy: Boolean(nomeComp && !guardado.complemento) }
+  }
+  // Cliente pediu além da Steam — precisa complementar com SteamSpy. Buscamos
+  // o dump completo do complemento uma vez, cacheamos em `.complemento`.
+  let complemento = Array.isArray(guardado.complemento) ? guardado.complemento : null
+  if (!complemento) {
+    try {
+      complemento = await buscarSteamSpyCompleta(`https://steamspy.com/api.php?request=${nomeComp}`)
+      // Remove appids já presentes na parte Steam para o cliente não ver o
+      // mesmo card duas vezes na transição.
+      const jaVi = new Set(steamCompleta.map((g) => g.appid))
+      complemento = complemento.filter((g) => !jaVi.has(g.appid))
+      cache[chave] = { ...guardado, complemento }
+      gravarCache(DESTAQUE_CACHE, cache)
+    } catch (e) {
+      // Complemento falhou: entrega o que tem da Steam (potencialmente vazio)
+      // e sinaliza total=fimSteam para o cliente parar de pedir.
+      const fatia = steamCompleta.slice(off, Math.min(fimSteam, off + lim))
+      return { ok: true, jogos: fatia, offset: off, total: fimSteam, cache: true, velho: true, erroComplemento: String(e.message || e) }
     }
-    const alvo = cache[chave]
-    if (!alvo) throw new Error("seção vazia na resposta")
-    await marcarDisponibilidade(alvo.jogos)
-    cache[chave] = { at: agora, jogos: alvo.jogos, sondado: true }
-    gravarCache(DESTAQUE_CACHE, cache)
-    return { ok: true, jogos: alvo.jogos }
-  } catch (e) {
-    if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
-    return { ok: false, error: String(e.message || e) }
   }
+  // Fatia contígua atravessando os dois arrays: pega o que ainda cabe da Steam
+  // (se houver) e o resto do complemento, ajustando o índice do segundo.
+  const jogos = []
+  if (off < fimSteam) jogos.push(...steamCompleta.slice(off, fimSteam))
+  const inicioComp = Math.max(0, off - fimSteam)
+  const restante = lim - jogos.length
+  if (restante > 0) jogos.push(...complemento.slice(inicioComp, inicioComp + restante))
+  await marcarDisponibilidade(jogos)
+  return { ok: true, jogos, offset: off, total: fimSteam + complemento.length }
 }
 
 const GENERO_CACHE = path.join(DATA_DIR, "store_genre_cache.json")
 const GENERO_TTL = 12 * 60 * 60 * 1000
 
-// Uma linha da home, por gênero. O SteamSpy devolve dezenas de milhares de
-// jogos; cortamos ANTES de sondar disponibilidade, que é a parte cara (um HEAD
-// por jogo em cada provedor).
-async function porGenero(genero, limite = 24) {
+// Busca o dump inteiro de um endpoint SteamSpy e retorna a lista completa
+// (sem sondar). Reusado por porGenero e popular para separar "busca +
+// cache" de "sondagem da fatia servida" — a sondagem é o custo real
+// (um HEAD por jogo em cada provedor), então só rodamos na página pedida.
+async function buscarSteamSpyCompleta(url) {
+  const r = await gh(url, { signal: AbortSignal.timeout(25000) })
+  if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
+  const data = await r.json()
+  return ordenarPorPopularidade(Object.values(data))
+    .map((g) => ({
+      appid: String(g.appid || ""),
+      title: g.name || "",
+      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+      manifest: false,
+    }))
+    .filter((g) => g.appid && g.title)
+}
+
+// Uma linha da home, por gênero. Cacheamos a lista COMPLETA do SteamSpy
+// (dezenas de milhares) e paginamos aqui — assim scroll infinito pede a
+// próxima fatia sem tocar na rede, e só a fatia servida paga o custo de
+// sondagem. Caches antigos (só `.jogos`) são migrados sob demanda.
+async function porGenero(genero, limite = 40, offset = 0) {
   const chave = String(genero || "").trim()
   if (!chave) return { ok: false, error: "gênero ausente" }
+  const off = Math.max(0, Number(offset) | 0)
+  const lim = Math.max(1, Number(limite) | 0)
   const cache = lerCache(GENERO_CACHE) || {}
   const guardado = cache[chave]
-  if (guardado && Date.now() - (guardado.at || 0) < GENERO_TTL) {
-    return { ok: true, jogos: guardado.jogos, cache: true }
+  let completa =
+    guardado && Date.now() - (guardado.at || 0) < GENERO_TTL && Array.isArray(guardado.completa)
+      ? guardado.completa
+      : null
+  if (!completa) {
+    try {
+      completa = await buscarSteamSpyCompleta(
+        `https://steamspy.com/api.php?request=genre&genre=${encodeURIComponent(chave)}`,
+      )
+      cache[chave] = { at: Date.now(), completa }
+      gravarCache(GENERO_CACHE, cache)
+    } catch (e) {
+      // Cai no cache antigo se existir (formato `.jogos`) — melhor uma fatia
+      // parcial que uma tela vazia. Se nem isso, propaga o erro.
+      if (guardado && Array.isArray(guardado.jogos)) {
+        const fatia = guardado.jogos.slice(off, off + lim)
+        return { ok: true, jogos: fatia, offset: off, total: guardado.jogos.length, cache: true, velho: true }
+      }
+      return { ok: false, error: String(e.message || e) }
+    }
   }
-  try {
-    const r = await gh(
-      `https://steamspy.com/api.php?request=genre&genre=${encodeURIComponent(chave)}`,
-      { signal: AbortSignal.timeout(25000) },
-    )
-    if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
-    const data = await r.json()
-    const jogos = ordenarPorPopularidade(Object.values(data))
-      .map((g) => ({
-        appid: String(g.appid || ""),
-        title: g.name || "",
-        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-        manifest: false,
-      }))
-      .filter((g) => g.appid && g.title)
-      .slice(0, limite)
-    await marcarDisponibilidade(jogos)
-    cache[chave] = { at: Date.now(), jogos }
-    gravarCache(GENERO_CACHE, cache)
-    return { ok: true, jogos }
-  } catch (e) {
-    if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
-    return { ok: false, error: String(e.message || e) }
-  }
+  const fatia = completa.slice(off, off + lim)
+  await marcarDisponibilidade(fatia)
+  return { ok: true, jogos: fatia, offset: off, total: completa.length }
 }
 
 // ---------- Fixes de jogos (estilo luatools: GameBypass/OnlineFix) ----------

@@ -50,6 +50,8 @@ export interface AppConfig {
   console_ui_scale?: number
   card_scale?: number
   accent?: string
+  /** Layout da loja no modo console. "editorial" é o News-style com hero + mosaico + grade;
+      "ps" é uma variante estilo PS Store (em construção). */
   sources?: Sources
   slssteam_path?: string
   psn_npsso?: string
@@ -282,26 +284,43 @@ declare global {
           reqRec: string
         }
       }>
-      /** Loja Steam: uma linha da home, por gênero. */
+      /** Loja Steam: uma linha da home, por gênero. Paginado por offset. */
       storeGenre: (
         genero: string,
         limite?: number,
+        offset?: number,
       ) => Promise<{
         ok: boolean
         error?: string
         jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[] }[]
+        offset?: number
+        total?: number
       }>
-      /** Loja Steam: uma seção da vitrine (lançamentos, mais vendidos, promoções). */
+      /** Loja Steam: uma seção da vitrine (lançamentos, mais vendidos, promoções). Paginado. */
       storeFeatured: (
         secao: string,
         limite?: number,
+        offset?: number,
       ) => Promise<{
         ok: boolean
         error?: string
         jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[]; desconto?: number }[]
+        offset?: number
+        total?: number
+        hasMoreLazy?: boolean
       }>
-      /** Loja Steam: mais jogados. Sem argumento, os da quinzena. */
-      storeRecent: (lista?: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
+      /** Loja Steam: mais jogados. Sem argumento, os da quinzena. Paginado. */
+      storeRecent: (
+        lista?: string,
+        limite?: number,
+        offset?: number,
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[]
+        offset?: number
+        total?: number
+      }>
       /** Loja Steam: manifesto/depots/token de um appid. */
       storeInstallInfo: (appid: string) => Promise<{
         ok: boolean

@@ -1,3 +1,27 @@
+/** Um jogo como a loja o recebe do backend — bem mais magro que `Game`. */
+export interface JogoLinha {
+  appid: string
+  title: string
+  cover?: string
+  manifest?: boolean
+  fontes?: string[]
+  /** Só as seções da vitrine oficial trazem preço por item; o resto fica vazio. */
+  preco?: string
+  precoOriginal?: string
+  desconto?: number
+}
+
+/** Dados do appdetails, buscados só para o jogo em foco. */
+export interface FichaJogo {
+  generos?: string[]
+  preco?: string
+  precoOriginal?: string
+  desconto?: number
+  metacritic?: number
+  lancamento?: string
+  fundo?: string
+}
+
 export interface Game {
   id: string
   title: string

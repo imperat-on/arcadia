@@ -362,24 +362,62 @@ input,
 }
 
 /* ─── Loja do modo console ─────────────────────────────────────────────────
-   O destaque da capa é dirigido por :focus, não por um índice em estado. Assim
-   o `useGamepadNav`, que move o foco do DOM, acende o item sem que a loja
+   O destaque é dirigido por :focus, não por um índice em estado. Assim o
+   `useGamepadNav`, que move o foco do DOM, acende o ladrilho sem que a loja
    precise manter sua própria noção de seleção — e o mouse ganha o mesmo efeito
-   de graça. A escala segue a lição do GameRail: a caixa tem o tamanho GRANDE e
-   as não focadas encolhem, porque crescer para fora da caixa é o que fazia a
-   capa ser cortada. */
+   de graça. */
 /* Cor do jogo em foco, extraída da capa. Cai no accent quando a imagem falha
    ou ainda não foi lida. É esta variável que faz o ambiente inteiro reagir. */
 .loja {
   --loja-cor: var(--accent);
 }
 
-/* Halo atrás da capa em foco: o brilho ambiente que dá profundidade e some
-   quando o foco vai embora. */
-.loja-capa::before {
+/* Herói da vitrine: arte widescreen que troca junto com o foco. A altura é
+   fixa em vh para o primeiro trilho aparecer sem rolar em telas 16:9. */
+.loja-heroi {
+  position: relative;
+  height: 46vh;
+  min-height: 300px;
+  overflow: hidden;
+  animation: lojaHeroiIn var(--dur-3) var(--ease) both;
+}
+@keyframes lojaHeroiIn {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* Ladrilho: capa retrato + bloco de meta. O realce mora na CAPA, e não no
+   botão inteiro, para o texto abaixo não escalar junto — foi escalar o
+   conjunto que embaçava a tipografia nas versões anteriores. */
+.loja-tile {
+  animation: lojaTileIn 320ms var(--ease-out) both;
+}
+@keyframes lojaTileIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.loja-tile__capa {
+  transform: translateZ(0); /* camada própria: o scale não repinta os vizinhos */
+  opacity: 0.88;
+  transition:
+    transform var(--dur-2) var(--ease),
+    opacity var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+}
+.loja-tile:focus .loja-tile__capa,
+.loja-tile:hover .loja-tile__capa {
+  opacity: 1;
+  transform: scale(1.04);
+  /* A borda usa a cor do próprio jogo, não o accent fixo. */
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.75), 0 0 0 2px var(--loja-cor);
+}
+
+/* Halo ambiente atrás da capa em foco. */
+.loja-tile__capa::before {
   content: "";
   position: absolute;
-  inset: -18%;
+  inset: -16%;
   border-radius: 50%;
   background: radial-gradient(circle, var(--loja-cor) 0%, transparent 70%);
   opacity: 0;
@@ -388,18 +426,18 @@ input,
   pointer-events: none;
   z-index: -1;
 }
-.loja-item:focus .loja-capa::before,
-.loja-item:hover .loja-capa::before {
-  opacity: 0.55;
+.loja-tile:focus .loja-tile__capa::before,
+.loja-tile:hover .loja-tile__capa::before {
+  opacity: 0.45;
 }
 
-/* Varredura de brilho ao ganhar foco. Roda uma vez, 420ms — é o "clique
-   visual" que confirma que o item mudou. */
+/* Varredura de brilho ao ganhar foco: roda uma vez, é o "clique visual" que
+   confirma que o item mudou. */
 @keyframes lojaSheen {
   from { transform: translateX(-120%) skewX(-18deg); }
   to { transform: translateX(220%) skewX(-18deg); }
 }
-.loja-item:focus .loja-capa::after {
+.loja-tile:focus .loja-tile__capa::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -407,46 +445,57 @@ input,
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
   animation: lojaSheen 420ms var(--ease) 1 both;
   pointer-events: none;
+  z-index: 2;
 }
 
-/* Painel do ladrilho em foco. Ele SOBREPÕE os vizinhos em vez de empurrá-los:
-   animar largura refaria o layout a cada quadro e moveria o alvo para onde
-   você está navegando — o defeito que custou três correções no trilho. */
-@keyframes lojaPainel {
-  from { opacity: 0; transform: scale(0.94); }
-  to { opacity: 1; transform: scale(1); }
-}
-.loja-painel {
-  animation: lojaPainel var(--dur-2) var(--ease) both;
-  transform-origin: center left;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 2px var(--loja-cor);
-}
-
-.loja-capa {
-  position: relative;
-  transform: scale(0.82);
-  transform-origin: center top;
-  opacity: 0.62;
-  filter: brightness(0.7);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
-  transition:
-    transform var(--dur-2) var(--ease),
-    opacity var(--dur-2) var(--ease),
-    filter var(--dur-2) var(--ease),
-    box-shadow var(--dur-2) var(--ease);
-  will-change: transform;
-}
-.loja-item:focus .loja-capa,
-.loja-item:hover .loja-capa {
-  transform: translateY(-6px) scale(1);
-  opacity: 1;
-  filter: none;
-  /* A borda usa a cor do próprio jogo, não o accent fixo. */
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.7), 0 0 0 2px var(--loja-cor);
-}
 /* O anel de foco dos overlays desenharia um contorno quadrado por cima da
-   capa; aqui o próprio realce já indica o foco. */
-.gp-scope .loja-item:focus {
+   capa arredondada; o realce já indica o foco. */
+.gp-scope .loja-tile:focus {
   outline: none !important;
 }
+
+/* HUD do rodapé: o título do jogo em foco entra com um pequeno slide-up
+   sempre que muda. Chave-ado por appid no React para não reiniciar quando só
+   a ficha completa carregou. */
+@keyframes lojaHudTitulo {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.loja-hud-titulo {
+  animation: lojaHudTitulo 220ms var(--ease) both;
+}
+
+/* Chips flutuantes da régua de categorias. Padding constante para o ativo
+   não empurrar os vizinhos ao alternar. */
+.loja-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition:
+    background-color var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    border-color var(--dur-2) var(--ease);
+  outline: none;
+}
+.loja-chip:hover {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.loja-chip.-ativo {
+  color: #0a0a0a;
+  background: var(--loja-cor);
+  border-color: transparent;
+  box-shadow: 0 6px 20px -6px var(--loja-cor);
+}
+
 
