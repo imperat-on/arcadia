@@ -194,6 +194,127 @@ async function emLotes(itens, limite, fn) {
   return out
 }
 
+// ── Tipo e capa oficiais (IStoreBrowseService) ─────────────────────────────
+// É o endpoint que a própria loja da Steam usa. Público, aceita centenas de
+// appids numa chamada e devolve, por item, o tipo (jogo, DLC, demo…) e o bloco
+// de assets — inclusive a capa retrato COM o hash do caminho novo, que não dá
+// para montar só com o appid.
+const ITENS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
+const ITENS_ASSETS = "https://shared.akamai.steamstatic.com/store_item_assets/"
+const ITENS_CACHE = path.join(DATA_DIR, "store_items_cache.json")
+const ITENS_TTL = 7 * 24 * 60 * 60 * 1000
+const ITENS_MAX = 4000
+const ITENS_LOTE = 100
+
+// Enumeração da Steam. Só o 0 é um jogo que se instala; o resto é DLC (4),
+// demo (1), software (6), trilha sonora (11), vídeo (12) e afins.
+const TIPO_JOGO = 0
+
+function capaDeAssets(a) {
+  if (!a?.asset_url_format || !a.library_capsule) return ""
+  return ITENS_ASSETS + a.asset_url_format.replace("${FILENAME}", a.library_capsule)
+}
+
+/**
+ * Tipo e capa retrato de vários appids, em lote.
+ *
+ * Devolve `{ mapa, respondidos }`. `respondidos` são os ids sobre os quais
+ * temos uma resposta confiável — os que estão nele mas fora do mapa são os que
+ * a Steam não reconhece (jogo removido da loja). A distinção existe porque um
+ * lote que falhou por rede não pode ser confundido com "não existe".
+ */
+async function itensDaLoja(appids) {
+  const ids = [...new Set(appids.map((a) => String(a)).filter(Boolean))]
+  const mapa = new Map()
+  const respondidos = new Set()
+  if (!ids.length) return { mapa, respondidos }
+
+  const cache = lerCache(ITENS_CACHE) || {}
+  const agora = Date.now()
+  const faltando = []
+  for (const id of ids) {
+    const it = cache[id]
+    if (it && agora - it.at < ITENS_TTL) {
+      respondidos.add(id)
+      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "" })
+    } else faltando.push(id)
+  }
+  if (!faltando.length) return { mapa, respondidos }
+
+  let mudou = false
+  for (let i = 0; i < faltando.length; i += ITENS_LOTE) {
+    const lote = faltando.slice(i, i + ITENS_LOTE)
+    try {
+      const input = {
+        ids: lote.map((id) => ({ appid: Number(id) })),
+        context: { language: "portuguese", country_code: "BR", steam_realm: 1 },
+        data_request: { include_assets: true },
+      }
+      const r = await gh(`${ITENS_URL}?input_json=${encodeURIComponent(JSON.stringify(input))}`, {
+        signal: AbortSignal.timeout(20000),
+      })
+      if (!r.ok) continue
+      const j = await r.json()
+      // O lote respondeu: tudo que pedimos nele tem veredito, inclusive quem
+      // voltou sem tipo (fora da loja) e quem não voltou.
+      for (const id of lote) {
+        respondidos.add(id)
+        cache[id] = { at: agora }
+      }
+      for (const it of j?.response?.store_items || []) {
+        const id = String(it.appid || "")
+        if (!id || typeof it.type !== "number") continue
+        const dado = { tipo: it.type, capa: capaDeAssets(it.assets) }
+        mapa.set(id, dado)
+        cache[id] = { ...dado, at: agora }
+      }
+      mudou = true
+    } catch {
+      // Rede fora ou timeout: estes ids ficam SEM veredito e passam pelo
+      // filtro. É melhor deixar um DLC escapar do que esvaziar a tela porque
+      // uma consulta não respondeu.
+    }
+  }
+
+  if (mudou) {
+    const chaves = Object.keys(cache)
+    if (chaves.length > ITENS_MAX) {
+      chaves
+        .sort((a, b) => (cache[a].at || 0) - (cache[b].at || 0))
+        .slice(0, chaves.length - ITENS_MAX)
+        .forEach((k) => delete cache[k])
+    }
+    gravarCache(ITENS_CACHE, cache)
+  }
+  return { mapa, respondidos }
+}
+
+/**
+ * Prepara uma página de resultados: completa a capa retrato, tira o que não é
+ * jogo e sonda os manifestos. A ordem importa — sondar antes de filtrar
+ * gastaria uma requisição de manifesto por DLC.
+ *
+ * Só remove quem a Steam classificou explicitamente como outra coisa. Se a
+ * consulta falhar, a lista passa inteira.
+ */
+async function preparar(jogos, jaTem = new Set()) {
+  const { mapa, respondidos } = await itensDaLoja(jogos.map((g) => g.appid))
+  const filtrados = []
+  for (const g of jogos) {
+    const id = String(g.appid)
+    const it = mapa.get(id)
+    if (it) {
+      if (it.tipo !== TIPO_JOGO) continue // DLC, demo, trilha sonora, software…
+      if (it.capa) g.capa = it.capa
+    } else if (respondidos.has(id)) {
+      continue // a Steam respondeu e não conhece: removido da loja
+    }
+    filtrados.push(g)
+  }
+  await marcarDisponibilidade(filtrados, jaTem)
+  return filtrados
+}
+
 // Marca cada jogo com os provedores onde o manifesto existe.
 // `jaTem` traz os appids que o Hubcap já confirmou (não precisam de sonda).
 async function marcarDisponibilidade(jogos, jaTem = new Set()) {
@@ -349,9 +470,9 @@ async function search(query) {
   if (!jogos.length) {
     return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
   }
-  await marcarDisponibilidade(jogos, comHubcap)
-  ordenar(jogos, query)
-  return { ok: true, jogos, fonte: "multi", avisos: erros }
+  const encontrados = await preparar(jogos, comHubcap)
+  ordenar(encontrados, query)
+  return { ok: true, jogos: encontrados, fonte: "multi", avisos: erros }
 }
 
 // Lançamentos/adicionados recentemente no catálogo (home da aba Lojas).
@@ -436,8 +557,7 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
         return { ok: false, error: String(e.message || e) }
       }
     }
-    const fatia = completa.slice(off, off + lim)
-    await marcarDisponibilidade(fatia)
+    const fatia = await preparar(completa.slice(off, off + lim))
     return { ok: true, jogos: fatia, offset: off, total: completa.length }
   }
   // "Em alta": cache dedicado com stale-while-revalidate. Guardamos a lista
@@ -445,8 +565,7 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   const c = lerPopularCache()
   const velho = !c || Date.now() - (c.at || 0) > POPULAR_TTL
   const servir = async (completa) => {
-    const fatia = completa.slice(off, off + lim)
-    await marcarDisponibilidade(fatia)
+    const fatia = await preparar(completa.slice(off, off + lim))
     return { jogos: fatia, offset: off, total: completa.length }
   }
   const completaDo = (c) => (Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null)
@@ -766,8 +885,7 @@ async function destaques(secao, limite = 40, offset = 0) {
   // Se o cliente ainda está dentro da faixa da Steam e não precisa transbordar,
   // servimos direto.
   if (off + lim <= fimSteam || !nomeComp) {
-    const fatia = steamCompleta.slice(off, Math.min(fimSteam, off + lim))
-    await marcarDisponibilidade(fatia)
+    const fatia = await preparar(steamCompleta.slice(off, Math.min(fimSteam, off + lim)))
     // Sem complemento OU pedido exatamente dentro: `total` é o que temos hoje.
     // Se há complemento e ele ainda não foi carregado, avisamos com hasMore.
     const total = nomeComp ? fimSteam + (guardado.complemento?.length || 0) : fimSteam
@@ -799,8 +917,8 @@ async function destaques(secao, limite = 40, offset = 0) {
   const inicioComp = Math.max(0, off - fimSteam)
   const restante = lim - jogos.length
   if (restante > 0) jogos.push(...complemento.slice(inicioComp, inicioComp + restante))
-  await marcarDisponibilidade(jogos)
-  return { ok: true, jogos, offset: off, total: fimSteam + complemento.length }
+  const prontos = await preparar(jogos)
+  return { ok: true, jogos: prontos, offset: off, total: fimSteam + complemento.length }
 }
 
 const GENERO_CACHE = path.join(DATA_DIR, "store_genre_cache.json")
@@ -856,8 +974,7 @@ async function porGenero(genero, limite = 40, offset = 0) {
       return { ok: false, error: String(e.message || e) }
     }
   }
-  const fatia = completa.slice(off, off + lim)
-  await marcarDisponibilidade(fatia)
+  const fatia = await preparar(completa.slice(off, off + lim))
   return { ok: true, jogos: fatia, offset: off, total: completa.length }
 }
 
@@ -1540,6 +1657,8 @@ async function status() {
 module.exports = {
   search,
   capaAlternativa,
+  preparar,
+  itensDaLoja,
   suggest,
   detalhes,
   porGenero,
