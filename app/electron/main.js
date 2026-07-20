@@ -1417,7 +1417,11 @@ app.whenReady().then(() => {
     try {
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) return r
-      steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
+      // O retorno de registerSlssteam era descartado: quando ele falhava (sem
+      // config.yaml, por exemplo) a tela mostrava sucesso e nada era
+      // adicionado. Só avisamos a biblioteca se as DUAS etapas deram certo.
+      const reg = steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
+      if (!reg?.ok) return reg || { ok: false, error: "falha ao registrar na SLSsteam" }
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
