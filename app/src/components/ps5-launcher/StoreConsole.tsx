@@ -24,6 +24,22 @@ const GENEROS: { chave: string; rotulo: string }[] = [
   { chave: "Racing", rotulo: "Corrida" },
 ]
 
+// Filtros do topo. "Destaques" é a home completa; os outros trocam as linhas
+// por uma lista só. `fonte` diz de onde a lista vem.
+type Categoria = {
+  id: string
+  rotulo: string
+  fonte?: { tipo: "featured"; secao: string } | { tipo: "steamspy"; lista: string }
+}
+const CATEGORIAS: Categoria[] = [
+  { id: "destaques", rotulo: "Destaques" },
+  { id: "new_releases", rotulo: "Lançamentos", fonte: { tipo: "featured", secao: "new_releases" } },
+  { id: "top_sellers", rotulo: "Mais vendidos", fonte: { tipo: "featured", secao: "top_sellers" } },
+  { id: "jogados", rotulo: "Mais jogados", fonte: { tipo: "steamspy", lista: "top100forever" } },
+  { id: "specials", rotulo: "Promoções", fonte: { tipo: "featured", secao: "specials" } },
+  { id: "coming_soon", rotulo: "Em breve", fonte: { tipo: "featured", secao: "coming_soon" } },
+]
+
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
   { games, ativo },
   ref,
@@ -38,6 +54,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   const [teclado, setTeclado] = useState(false)
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<JogoLinha[] | null>(null)
+  const [categoria, setCategoria] = useState("destaques")
+  const [lista, setLista] = useState<JogoLinha[]>([])
+  const [carregandoLista, setCarregandoLista] = useState(false)
 
   // "Em alta" primeiro: é a linha que define o destaque, então a home tem
   // conteúdo antes de as outras chegarem.
@@ -84,6 +103,28 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       cancelado = true
     }
   }, [destaque])
+
+  // Troca de filtro: busca a lista da categoria escolhida. "Destaques" não
+  // busca nada — é a home, que já está carregada.
+  useEffect(() => {
+    const cat = CATEGORIAS.find((c) => c.id === categoria)
+    if (!cat?.fonte) return setLista([])
+    let cancelado = false
+    setCarregandoLista(true)
+    setLista([])
+    const api = window.launcherAPI
+    const p =
+      cat.fonte.tipo === "featured"
+        ? api?.storeFeatured(cat.fonte.secao, 24)
+        : api?.storeRecent(cat.fonte.lista)
+    p?.then((r) => {
+      if (cancelado) return
+      setLista(r?.ok ? ((r.jogos || []) as JogoLinha[]) : [])
+    }).finally(() => !cancelado && setCarregandoLista(false))
+    return () => {
+      cancelado = true
+    }
+  }, [categoria])
 
   const pesquisar = async (termo: string) => {
     setTeclado(false)
@@ -143,8 +184,28 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         </div>
       </div>
 
+      {/* ── Filtros ──────────────────────────────────────────────────────── */}
+      <div className="flex gap-2 overflow-x-auto px-12 pt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {CATEGORIAS.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => {
+              setCategoria(c.id)
+              setResultados(null) // sair da busca ao escolher um filtro
+            }}
+            className={`shrink-0 rounded-full px-5 py-2 text-[13px] font-medium outline-none transition-colors focus:ring-2 focus:ring-white ${
+              categoria === c.id
+                ? "bg-white text-black"
+                : "border border-white/12 text-white/65 hover:bg-white/[0.08]"
+            }`}
+          >
+            {c.rotulo}
+          </button>
+        ))}
+      </div>
+
       {/* ── Linhas ───────────────────────────────────────────────────────── */}
-      <div className="pt-8">
+      <div className="pt-6">
         {resultados && (
           <StoreRow
             titulo={`Resultados para "${busca}" (${resultados.length})`}
@@ -152,16 +213,27 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             onAbrir={setAberto}
           />
         )}
-        <StoreRow titulo="Em alta agora" jogos={emAlta} carregando={carregando} onAbrir={setAberto} />
-        {GENEROS.map((g) => (
+        {categoria === "destaques" ? (
+          <>
+            <StoreRow titulo="Em alta agora" jogos={emAlta} carregando={carregando} onAbrir={setAberto} />
+            {GENEROS.map((g) => (
+              <StoreRow
+                key={g.chave}
+                titulo={g.rotulo}
+                jogos={linhas[g.chave] || []}
+                carregando={!linhas[g.chave]}
+                onAbrir={setAberto}
+              />
+            ))}
+          </>
+        ) : (
           <StoreRow
-            key={g.chave}
-            titulo={g.rotulo}
-            jogos={linhas[g.chave] || []}
-            carregando={!linhas[g.chave]}
+            titulo={CATEGORIAS.find((c) => c.id === categoria)?.rotulo || ""}
+            jogos={lista}
+            carregando={carregandoLista}
             onAbrir={setAberto}
           />
-        ))}
+        )}
       </div>
 
       <StoreGamePage

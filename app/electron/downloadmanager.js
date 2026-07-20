@@ -432,10 +432,17 @@ async function cancel(appid) {
   // workers ficavam órfãos baixando (e reescrevendo a pasta após o rmSync).
   if (activeChild && (it.status === "downloading" || it.status === "paused")) {
     const child = activeChild
+    // Tira da fila e avisa a tela ANTES de esperar o processo morrer. O
+    // update() abaixo passava pelo throttle do emit e podia não sair, e o
+    // emit forçado só vinha depois do waitExit — até 5s em que o usuário já
+    // tinha apertado e nada mudava na tela.
     update(appid, { status: "canceled" })
+    queue = queue.filter((q) => q.appid !== appid)
+    persist()
+    emit(true)
     signalGroup(child, "SIGCONT") // destrava se estava pausado (senão ignora KILL)
     signalGroup(child, "SIGKILL")
-    await waitExit(child) // só apaga quando os workers já morreram
+    await waitExit(child) // só apaga os arquivos quando os workers já morreram
   }
   queue = queue.filter((q) => q.appid !== appid)
   persist()
@@ -488,6 +495,9 @@ async function cancel(appid) {
       }
     }
   }
+  // Cancelar um item QUEUED não passa pelo handler de close, que é quem
+  // normalmente chama next() — sem isto o próximo da fila ficava parado.
+  next()
 }
 
 function getQueue() {

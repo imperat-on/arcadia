@@ -291,8 +291,17 @@ declare global {
         error?: string
         jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[] }[]
       }>
-      /** Loja Steam: adicionados recentemente no catálogo. */
-      storeRecent: () => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
+      /** Loja Steam: uma seção da vitrine (lançamentos, mais vendidos, promoções). */
+      storeFeatured: (
+        secao: string,
+        limite?: number,
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[]; desconto?: number }[]
+      }>
+      /** Loja Steam: mais jogados. Sem argumento, os da quinzena. */
+      storeRecent: (lista?: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Loja Steam: manifesto/depots/token de um appid. */
       storeInstallInfo: (appid: string) => Promise<{
         ok: boolean
