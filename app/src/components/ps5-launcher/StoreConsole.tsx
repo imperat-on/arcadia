@@ -1,24 +1,39 @@
 "use client"
 
-import { forwardRef, useEffect, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react"
 import { corDominante } from "./corDominante"
-import type { Game } from "./types"
-import { StoreGrid, type JogoLinha } from "./StoreGrid"
+import type { FichaJogo, Game, JogoLinha } from "./types"
+import { StoreShowcase, type SecaoVitrine } from "./StoreShowcase"
+import { StoreCategoria } from "./StoreCategoria"
 import { StoreGamePage } from "./StoreGamePage"
 import { StoreKeyboard } from "./StoreKeyboard"
+import { StoreHUD } from "./StoreHUD"
 import { useStoreActions } from "../useStoreActions"
+
+const TAMANHO_PAGINA = 40
+
+// Seções que compõem a vitrine inicial, na ordem em que aparecem.
+const VITRINE = ["alta", "new_releases", "top_sellers", "specials", "jogados"]
+// Quantos itens cada trilho mostra. Um trilho não rola infinito — quem quer
+// mais entra na categoria.
+const TAMANHO_TRILHO = 24
 
 interface StoreConsoleProps {
   games: Game[]
   /** Pausa o trailer do destaque quando a janela perde o foco. */
   ativo: boolean
-  /** Recebe os atalhos X/Y para o laço de gamepad do PS5Launcher acionar. */
-  onAtalhos?: (a: { baixar: (appid: string) => void; adicionar: (appid: string) => void }) => void
+  /** Recebe os atalhos do laço de gamepad do PS5Launcher (X, Y e B). */
+  onAtalhos?: (a: {
+    baixar: (appid: string) => void
+    adicionar: (appid: string) => void
+    /** B: sai da categoria para a vitrine. Devolve true se consumiu o botão. */
+    voltar: () => boolean
+  }) => void
 }
 
-// Uma régua só de categorias, e cada uma é UMA grade. O antigo modo
-// "Destaques", que empilhava seis linhas dentro de si, não faz sentido no
-// formato de ladrilhos — assim toda categoria se comporta igual.
+// A loja tem dois modos na mesma tela: a VITRINE (herói + um trilho por
+// categoria) e a CATEGORIA aberta (grade densa com rolagem infinita). A régua
+// de chips no topo alterna entre eles; B volta da categoria para a vitrine.
 // As chaves de gênero são as que o SteamSpy aceita (inglês); o rótulo é nosso.
 type Categoria = {
   id: string
@@ -41,19 +56,30 @@ const CATEGORIAS: Categoria[] = [
   { id: "corrida", rotulo: "Corrida", fonte: { tipo: "steamspy", genero: "Racing" } },
 ]
 
-type Ficha = NonNullable<Awaited<ReturnType<NonNullable<typeof window.launcherAPI>["storeDetails"]>>["jogo"]>
-
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
   { games, ativo, onAtalhos },
   ref,
 ) {
   const acoes = useStoreActions(games)
-  const [lista, setLista] = useState<JogoLinha[]>([])
+  // Paginação: cada índice é uma resposta do backend. Concatenadas, viram a
+  // lista visível para a grade. Manter em páginas facilita reset ao trocar
+  // categoria e evita concat linear a cada `setLista`.
+  const [paginas, setPaginas] = useState<JogoLinha[][]>([])
+  const [total, setTotal] = useState<number | null>(null)
   const [carregando, setCarregando] = useState(true)
+  const carregandoRef = useRef(false)
+  const categoriaRef = useRef("alta")
+  const cacheCategorias = useRef<Map<string, { paginas: JogoLinha[][]; total: number | null }>>(new Map())
   const [categoria, setCategoria] = useState("alta")
-  // O painel expandido vive no ladrilho em foco e lê estes três.
+  // "vitrine" é a entrada (herói + trilhos); "categoria" é uma categoria
+  // aberta em grade. B volta de uma para a outra.
+  const [modo, setModo] = useState<"vitrine" | "categoria">("vitrine")
+  // Jogos de cada trilho da vitrine, por id de categoria.
+  const [vitrine, setVitrine] = useState<Record<string, JogoLinha[]>>({})
+  const [carregandoVitrine, setCarregandoVitrine] = useState(true)
+  // O herói e o HUD leem estes três, sempre do jogo em foco.
   const [destaque, setDestaque] = useState<JogoLinha | null>(null)
-  const [ficha, setFicha] = useState<Ficha | null>(null)
+  const [ficha, setFicha] = useState<FichaJogo | null>(null)
   const [trailer, setTrailer] = useState<{ url: string; poster: string } | null>(null)
   const [cor, setCor] = useState("")
   const [aberto, setAberto] = useState<JogoLinha | null>(null)
@@ -61,29 +87,117 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<JogoLinha[] | null>(null)
 
-  // Cada categoria é uma chamada só. A lista da busca, quando existe, tem
-  // precedência sobre a categoria.
-  useEffect(() => {
-    const cat = CATEGORIAS.find((c) => c.id === categoria)
-    if (!cat) return
-    let cancelado = false
-    setCarregando(true)
-    setLista([])
+  // Busca uma página de uma categoria sem tocar no estado da UI. Usada tanto
+  // pela categoria ativa quanto pela pré-carga silenciosa dos vizinhos.
+  const buscarCategoria = useCallback(async (catId: string, offset: number) => {
+    const cat = CATEGORIAS.find((c) => c.id === catId)
+    if (!cat) return null
     const api = window.launcherAPI
-    const p =
+    const r =
       cat.fonte.tipo === "featured"
-        ? api?.storeFeatured(cat.fonte.secao, 40)
+        ? await api?.storeFeatured(cat.fonte.secao, TAMANHO_PAGINA, offset)
         : cat.fonte.genero
-          ? api?.storeGenre(cat.fonte.genero, 40)
-          : api?.storeRecent(cat.fonte.lista)
-    p?.then((r) => {
-      if (cancelado) return
-      setLista(r?.ok ? ((r.jogos || []) as JogoLinha[]) : [])
-    }).finally(() => !cancelado && setCarregando(false))
+          ? await api?.storeGenre(cat.fonte.genero, TAMANHO_PAGINA, offset)
+          : await api?.storeRecent(cat.fonte.lista, TAMANHO_PAGINA, offset)
+    if (!r?.ok) return null
+    return {
+      jogos: (r.jogos || []) as JogoLinha[],
+      total: typeof r.total === "number" ? r.total : null,
+    }
+  }, [])
+
+  // Carrega a categoria ativa. Mantém um cache em memória por categoria para
+  // que voltar num filtro já visitado (ou pré-carregado) seja instantâneo.
+  const carregar = useCallback(async (catId: string, offset: number) => {
+    if (carregandoRef.current) return
+    carregandoRef.current = true
+    setCarregando(true)
+    try {
+      const r = await buscarCategoria(catId, offset)
+      if (!r || categoriaRef.current !== catId) return
+      setPaginas((atual) => {
+        const novo = offset === 0 ? [r.jogos] : [...atual, r.jogos]
+        cacheCategorias.current.set(catId, { paginas: novo, total: r.total })
+        return novo
+      })
+      setTotal(r.total)
+    } finally {
+      carregandoRef.current = false
+      if (categoriaRef.current === catId) setCarregando(false)
+    }
+  }, [buscarCategoria])
+
+  // Monta a vitrine. As seções entram em DUAS ondas: as duas primeiras (as
+  // que aparecem sem rolar) e, só depois, o resto. Disparar as cinco de uma
+  // vez daria uma rajada de requisições para pintar coisa fora da tela.
+  //
+  // Tudo o que chega vai para o mesmo cacheCategorias da grade, então abrir a
+  // categoria depois é instantâneo.
+  useEffect(() => {
+    let cancelado = false
+    const puxar = async (ids: string[]) => {
+      await Promise.all(
+        ids.map(async (id) => {
+          const cached = cacheCategorias.current.get(id)
+          const r = cached ? { jogos: cached.paginas.flat(), total: cached.total } : await buscarCategoria(id, 0)
+          if (!r || cancelado) return
+          if (!cached) cacheCategorias.current.set(id, { paginas: [r.jogos], total: r.total })
+          setVitrine((v) => ({ ...v, [id]: r.jogos.slice(0, TAMANHO_TRILHO) }))
+        }),
+      )
+    }
+    setCarregandoVitrine(true)
+    puxar(VITRINE.slice(0, 2))
+      .then(() => {
+        if (!cancelado) setCarregandoVitrine(false)
+        return puxar(VITRINE.slice(2))
+      })
+      .catch(() => {
+        if (!cancelado) setCarregandoVitrine(false)
+      })
     return () => {
       cancelado = true
     }
-  }, [categoria])
+  }, [buscarCategoria])
+
+  // Ao abrir/trocar de categoria, usa o cache em memória se existir; senão
+  // carrega. Na vitrine não há categoria ativa, então nada é buscado aqui.
+  useEffect(() => {
+    if (modo !== "categoria") return
+    categoriaRef.current = categoria
+    setDestaque(null)
+    const cached = cacheCategorias.current.get(categoria)
+    if (cached) {
+      setPaginas(cached.paginas)
+      setTotal(cached.total)
+      setCarregando(false)
+    } else {
+      setPaginas([])
+      setTotal(null)
+      carregar(categoria, 0)
+    }
+  }, [modo, categoria, carregar])
+
+  // Pré-carrega as categorias vizinhas em segundo plano para a troca de filtro
+  // ser instantânea. Usa buscarCategoria diretamente para não disputar a trava
+  // de loading da categoria ativa.
+  useEffect(() => {
+    if (modo !== "categoria") return
+    if (carregando) return
+    if (!paginas.length) return
+    const idx = CATEGORIAS.findIndex((c) => c.id === categoria)
+    if (idx < 0) return
+    const vizinhos = [idx - 1, idx + 1]
+      .filter((i) => i >= 0 && i < CATEGORIAS.length)
+      .map((i) => CATEGORIAS[i].id)
+    for (const id of vizinhos) {
+      if (cacheCategorias.current.has(id)) continue
+      buscarCategoria(id, 0).then((r) => {
+        if (!r) return
+        cacheCategorias.current.set(id, { paginas: [r.jogos], total: r.total })
+      })
+    }
+  }, [modo, carregando, paginas, categoria, buscarCategoria])
 
   // Ficha e trailer do jogo focado. A ficha espera 600ms parado e o trailer
   // 1,2s: sem essa espera, atravessar uma linha dispararia uma chamada por
@@ -139,13 +253,29 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
   const bloqueado = (j: JogoLinha | null) => Boolean(j && acoes.bloqueados.has(j.appid))
 
-  // X e Y agem sobre a capa em foco, sem abrir a página. Procuramos o jogo em
-  // todas as listas carregadas porque o foco pode estar em qualquer linha.
+  // X e Y agem sobre o card em foco, sem abrir a página. Procuramos o jogo em
+  // tudo que está na tela — trilhos da vitrine, páginas da categoria e
+  // resultados de busca —, porque o foco pode estar em qualquer um.
   useEffect(() => {
     if (!onAtalhos) return
     const achar = (appid: string): JogoLinha | undefined =>
-      [lista, resultados || []].flat().find((j) => j.appid === appid)
+      [...Object.values(vitrine).flat(), ...paginas.flat(), ...(resultados || [])].find((j) => j.appid === appid)
     onAtalhos({
+      // B sai da busca ou da categoria; na vitrine devolve false para o
+      // PS5Launcher tratar o botão como "sair da loja".
+      voltar: () => {
+        if (resultados) {
+          setResultados(null)
+          setBusca("")
+          return true
+        }
+        if (modo === "categoria") {
+          setModo("vitrine")
+          setDestaque(null)
+          return true
+        }
+        return false
+      },
       baixar: (appid) => {
         const j = achar(appid)
         if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.baixar(j)
@@ -155,13 +285,32 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.adicionar(j)
       },
     })
-  }, [onAtalhos, lista, resultados, acoes])
+  }, [onAtalhos, vitrine, paginas, resultados, modo, acoes])
 
-  const cat = CATEGORIAS.find((c) => c.id === categoria)
   const semManifesto = destaque?.manifest === false
   const jaTem = bloqueado(destaque)
 
-  const jogos = resultados ?? lista
+  // Quantos itens já carregamos vs. quanto o backend disse que existe.
+  const carregados = paginas.reduce((n, p) => n + p.length, 0)
+  const temMais = total == null ? carregados > 0 && !carregando : carregados < total
+
+  // Pedido de próxima página vindo do IntersectionObserver da grade. Só
+  // dispara se tem mais e a categoria atual não é resultado de busca.
+  const pedirMais = useCallback(() => {
+    if (resultados) return
+    if (carregandoRef.current) return
+    if (total != null && carregados >= total) return
+    if (carregados === 0) return // primeira página é responsabilidade do useEffect
+    carregar(categoriaRef.current, carregados)
+  }, [carregar, resultados, total, carregados])
+
+  // Só entram na vitrine as seções que já chegaram — um trilho vazio no meio
+  // da coluna abriria um buraco enquanto a segunda onda não responde.
+  const secoesVitrine: SecaoVitrine[] = VITRINE.map((id) => ({
+    id,
+    rotulo: CATEGORIAS.find((c) => c.id === id)?.rotulo || id,
+    jogos: vitrine[id] || [],
+  })).filter((s, i) => s.jogos.length || i < 2)
 
   return (
     <div
@@ -170,66 +319,110 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (typeof ref === "function") ref(el)
         else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
       }}
-      // Sem barra lateral e sem herói: a régua de categorias em cima e a grade
-      // ocupando o resto. O jogo em foco não tem lugar fixo na tela — ele
-      // expande onde está.
-      className="loja flex h-full w-full flex-col overflow-hidden bg-[#08090b] text-white"
+      // Preto OLED puro, igual à aba Notícias: sem palco, sem vinheta, sem
+      // tint. A cor dominante ainda pinta ring do card, chip ativo e preço
+      // no HUD — só o FUNDO fica preto absoluto.
+      className="loja flex h-full w-full flex-col overflow-hidden bg-black text-white"
       style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
     >
       {/* ── Régua de categorias ──────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-6 overflow-x-auto px-12 pb-4 pt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex shrink-0 items-center gap-2.5 overflow-x-auto px-12 pb-4 pt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           onClick={() => setTeclado(true)}
-          className="flex shrink-0 items-center gap-1.5 text-[14px] text-white/40 outline-none transition-colors hover:text-white focus:text-white"
+          className="loja-chip"
+          aria-label="Buscar"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-1.5">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
           </svg>
           Buscar
         </button>
 
-        <span className="h-4 w-px shrink-0 bg-white/10" />
+        <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+
+        {/* "Vitrine" volta para a entrada; os demais abrem a categoria em
+            grade. Sem este chip, quem entrasse numa categoria com o mouse não
+            teria como voltar (B é só do controle). */}
+        <button
+          onClick={() => {
+            setModo("vitrine")
+            setResultados(null)
+            setDestaque(null)
+          }}
+          className={`loja-chip${!resultados && modo === "vitrine" ? " -ativo" : ""}`}
+        >
+          Vitrine
+        </button>
 
         {CATEGORIAS.map((c) => (
           <button
             key={c.id}
             onClick={() => {
               setCategoria(c.id)
+              setModo("categoria")
               setResultados(null) // sair da busca ao escolher uma categoria
             }}
-            className={`relative shrink-0 pb-1 text-[14px] font-medium outline-none transition-colors focus:text-white ${
-              !resultados && categoria === c.id ? "text-white" : "text-white/40 hover:text-white/70"
-            }`}
+            className={`loja-chip${!resultados && modo === "categoria" && categoria === c.id ? " -ativo" : ""}`}
           >
             {c.rotulo}
-            {!resultados && categoria === c.id && (
-              <span
-                className="absolute inset-x-0 -bottom-0.5 h-[2px] rounded-full"
-                style={{ background: "var(--loja-cor)", boxShadow: "0 0 10px var(--loja-cor)" }}
-              />
-            )}
           </button>
         ))}
       </div>
 
       {resultados && (
-        <p className="shrink-0 px-12 pb-3 text-[13px] text-white/45">
+        <p className="shrink-0 px-12 pb-3 text-[13px] text-white/60">
           Resultados para "{busca}" ({resultados.length})
         </p>
       )}
 
-      {/* ── Grade ────────────────────────────────────────────────────────── */}
+      {/* ── Corpo: vitrine, categoria ou resultados ──────────────────────── */}
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-2">
-        <StoreGrid
-          jogos={jogos}
-          carregando={carregando && !resultados}
-          focado={destaque}
+        {resultados ? (
+          // A busca reaproveita a grade da categoria, sem paginação: os
+          // resultados são curtos e cabem numa resposta só.
+          <StoreCategoria
+            paginas={[resultados]}
+            carregando={false}
+            temMais={false}
+            onFocar={setDestaque}
+            onAbrir={setAberto}
+            onPedirMais={() => {}}
+          />
+        ) : modo === "vitrine" ? (
+          <StoreShowcase
+            secoes={secoesVitrine}
+            carregando={carregandoVitrine}
+            focado={destaque}
+            ficha={ficha}
+            trailer={trailer}
+            ativo={ativo}
+            onFocar={setDestaque}
+            onAbrir={setAberto}
+            onVerCategoria={(id) => {
+              setCategoria(id)
+              setModo("categoria")
+            }}
+          />
+        ) : (
+          <StoreCategoria
+            paginas={paginas}
+            carregando={carregando}
+            temMais={temMais}
+            onFocar={setDestaque}
+            onAbrir={setAberto}
+            onPedirMais={pedirMais}
+          />
+        )}
+      </div>
+
+      {/* ── HUD contextual ───────────────────────────────────────────────── */}
+      <div>
+        <StoreHUD
+          destaque={destaque}
           ficha={ficha}
-          trailer={trailer}
-          ativo={ativo}
-          onFocar={setDestaque}
-          onAbrir={setAberto}
+          bloqueado={jaTem}
+          semManifesto={Boolean(semManifesto)}
         />
       </div>
 
@@ -294,34 +487,3 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     </div>
   )
 })
-
-function BotaoPainel({
-  rotulo,
-  onClick,
-  primario,
-  perigo,
-  desabilitado,
-}: {
-  rotulo: string
-  onClick: () => void
-  primario?: boolean
-  perigo?: boolean
-  desabilitado?: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={desabilitado}
-      className={`rounded-xl py-3 text-[13px] font-semibold outline-none transition-all disabled:opacity-40 focus:ring-2 focus:ring-white ${
-        primario
-          ? "text-black enabled:hover:scale-[1.02]"
-          : perigo
-            ? "border border-[#ff6b81]/40 text-[#ff6b81] enabled:hover:bg-[#ff6b81]/10"
-            : "border border-white/15 text-white/75 enabled:hover:bg-white/[0.07]"
-      }`}
-      style={primario ? { background: "var(--loja-cor)" } : undefined}
-    >
-      {rotulo}
-    </button>
-  )
-}
