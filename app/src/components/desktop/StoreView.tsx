@@ -163,28 +163,36 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // por cima da confirmação — a confirmação existia, ficava escondida.
   const pedidoAcao = useRef(0)
 
+  // `busy` desabilita TODOS os botões de ação, então ele nunca pode ficar
+  // preso: qualquer saída — inclusive a de pedido abandonado e a de exceção —
+  // tem de liberar. Por isso o finally, e não um setBusy("") por caminho.
   const baixar = async (jogo: { appid: string; title: string }) => {
     const meu = ++pedidoAcao.current
     setBusy(jogo.appid)
     setMsg("")
-    const info = await obterInfo(jogo.appid)
-    if (meu !== pedidoAcao.current) return
-    setBusy("")
-    if (!info?.ok || !info.depots?.length) {
-      setToast(info?.error || "Sem manifesto para este jogo.")
-      return
+    try {
+      const info = await obterInfo(jogo.appid)
+      if (meu !== pedidoAcao.current) return
+      if (!info?.ok || !info.depots?.length) {
+        setToast(info?.error || "Sem manifesto para este jogo.")
+        return
+      }
+      // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive). Com
+      // uma só, antes disparávamos o download direto, sem confirmação nenhuma —
+      // dois comportamentos diferentes para o mesmo botão, e um download de
+      // vários GB começando sem aviso. Agora o diálogo é sempre mostrado.
+      const libs = (await window.launcherAPI?.storeLibraries()) || []
+      if (meu !== pedidoAcao.current) return
+      if (!libs.length) {
+        setToast("Nenhuma biblioteca Steam encontrada.")
+        return
+      }
+      setEscolhendo({ jogo, info: info as ManifestInfo, libs })
+    } catch (e) {
+      setToast(`Falha ao preparar o download: ${e}`)
+    } finally {
+      if (meu === pedidoAcao.current) setBusy("")
     }
-    // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive). Com
-    // uma só, antes disparávamos o download direto, sem confirmação nenhuma —
-    // dois comportamentos diferentes para o mesmo botão, e um download de
-    // vários GB começando sem aviso. Agora o diálogo é sempre mostrado.
-    const libs = (await window.launcherAPI?.storeLibraries()) || []
-    if (meu !== pedidoAcao.current) return
-    if (!libs.length) {
-      setToast("Nenhuma biblioteca Steam encontrada.")
-      return
-    }
-    setEscolhendo({ jogo, info: info as ManifestInfo, libs })
   }
 
   const confirmarBaixar = async (
@@ -194,19 +202,24 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   ) => {
     setEscolhendo(null)
     setBusy(jogo.appid)
-    const r = await window.launcherAPI?.storeInstall({
-      appid: jogo.appid,
-      title: jogo.title,
-      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`,
-      installdir: jogo.title.replace(/[^A-Za-z0-9]/g, ""),
-      depots: info.depots,
-      token: info.token,
-      dlcs: info.dlcs,
-      steamDir,
-    })
-    setBusy("")
-    const via = info.fonte ? ` (via ${info.fonte})` : ""
-    setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
+    try {
+      const r = await window.launcherAPI?.storeInstall({
+        appid: jogo.appid,
+        title: jogo.title,
+        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`,
+        installdir: jogo.title.replace(/[^A-Za-z0-9]/g, ""),
+        depots: info.depots,
+        token: info.token,
+        dlcs: info.dlcs,
+        steamDir,
+      })
+      const via = info.fonte ? ` (via ${info.fonte})` : ""
+      setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
+    } catch (e) {
+      setToast(`Falha ao enfileirar: ${e}`)
+    } finally {
+      setBusy("")
+    }
   }
 
   // "Add": registra o jogo na Steam (lua + AdditionalApps) sem baixar — a
@@ -217,28 +230,34 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     setEscolhendo(null)
     setBusy(jogo.appid)
     setMsg("")
-    const info = await obterInfo(jogo.appid)
-    if (meu !== pedidoAcao.current) return
-    if (!info?.ok || !info.depots?.length) {
-      setBusy("")
-      setToast(info?.error || "Sem manifesto para este jogo.")
-      return
+    try {
+      const info = await obterInfo(jogo.appid)
+      if (meu !== pedidoAcao.current) return
+      if (!info?.ok || !info.depots?.length) {
+        setToast(info?.error || "Sem manifesto para este jogo.")
+        return
+      }
+      const r = await window.launcherAPI?.storeAddToSteam({ appid: jogo.appid, token: info.token, dlcs: info.dlcs })
+      if (meu !== pedidoAcao.current) return
+      if (r?.ok) setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
+      setToast(
+        r?.ok
+          ? `"${jogo.title}" adicionado! Clique em Restart Steam para baixar por lá.`
+          : r?.error || "Falha ao adicionar",
+      )
+    } catch (e) {
+      setToast(`Falha ao adicionar: ${e}`)
+    } finally {
+      if (meu === pedidoAcao.current) setBusy("")
     }
-    const r = await window.launcherAPI?.storeAddToSteam({ appid: jogo.appid, token: info.token, dlcs: info.dlcs })
-    setBusy("")
-    if (r?.ok) setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
-    setToast(
-      r?.ok
-        ? `"${jogo.title}" adicionado! Clique em Restart Steam para baixar por lá.`
-        : r?.error || "Falha ao adicionar",
-    )
   }
 
   const remover = async (jogo: { appid: string; title: string }) => {
     setBusy(jogo.appid)
     // Remove de tudo: pasta + appmanifest (downloads) + registro SLSsteam (Adds).
-    const r = await window.launcherAPI?.storeRemoveDownloaded(jogo.appid)
-    setBusy("")
+    const r = await window.launcherAPI
+      ?.storeRemoveDownloaded(jogo.appid)
+      .finally(() => setBusy(""))
     if (r?.ok) {
       setJaAdicionados((prev) => {
         const n = new Set(prev)
