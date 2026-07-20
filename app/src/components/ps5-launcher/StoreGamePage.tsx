@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useGamepadNav } from "./useGamepadNav"
-import type { JogoLinha } from "./StoreRow"
+import type { JogoLinha } from "./StoreGrid"
 
 type Detalhes = NonNullable<Awaited<ReturnType<NonNullable<typeof window.launcherAPI>["storeDetails"]>>["jogo"]>
 
