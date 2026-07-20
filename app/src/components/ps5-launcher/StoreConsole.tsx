@@ -1,6 +1,7 @@
 "use client"
 
-import { forwardRef, useEffect, useState } from "react"
+import { forwardRef, useEffect, useRef, useState } from "react"
+import { corDominante } from "./corDominante"
 import type { Game } from "./types"
 import { StoreRow, type JogoLinha } from "./StoreRow"
 import { StoreGamePage } from "./StoreGamePage"
@@ -11,6 +12,8 @@ interface StoreConsoleProps {
   games: Game[]
   /** Pausa o trailer do destaque quando a janela perde o foco. */
   ativo: boolean
+  /** Recebe os atalhos X/Y para o laço de gamepad do PS5Launcher acionar. */
+  onAtalhos?: (a: { baixar: (appid: string) => void; adicionar: (appid: string) => void }) => void
 }
 
 // Gêneros das linhas da home. Os nomes são os que o SteamSpy aceita (inglês);
@@ -40,16 +43,23 @@ const CATEGORIAS: Categoria[] = [
   { id: "coming_soon", rotulo: "Em breve", fonte: { tipo: "featured", secao: "coming_soon" } },
 ]
 
+type Ficha = NonNullable<Awaited<ReturnType<NonNullable<typeof window.launcherAPI>["storeDetails"]>>["jogo"]>
+
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
-  { games, ativo },
+  { games, ativo, onAtalhos },
   ref,
 ) {
   const acoes = useStoreActions(games)
   const [emAlta, setEmAlta] = useState<JogoLinha[]>([])
   const [linhas, setLinhas] = useState<Record<string, JogoLinha[]>>({})
   const [carregando, setCarregando] = useState(true)
+  // O herói acompanha o jogo FOCADO. Antes mostrava um destaque escolhido no
+  // carregamento e nunca mudava — percorrer as linhas não mexia em nada em
+  // cima, que era a principal razão de a tela parecer inerte.
   const [destaque, setDestaque] = useState<JogoLinha | null>(null)
+  const [ficha, setFicha] = useState<Ficha | null>(null)
   const [trailer, setTrailer] = useState<{ url: string; poster: string } | null>(null)
+  const [cor, setCor] = useState("")
   const [aberto, setAberto] = useState<JogoLinha | null>(null)
   const [teclado, setTeclado] = useState(false)
   const [busca, setBusca] = useState("")
@@ -89,20 +99,50 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
   }, [])
 
-  // O trailer do destaque só é buscado quando o destaque muda — nunca para a
-  // linha inteira, senão o appdetails bate no limite de requisições.
+  // Ficha e trailer do jogo focado. A ficha espera 600ms parado e o trailer
+  // 1,2s: sem essa espera, atravessar uma linha dispararia uma chamada por
+  // capa e o appdetails bate no limite (~200 a cada 5 min). O cache de 24h
+  // absorve o resto.
   useEffect(() => {
     if (!destaque) return
     let cancelado = false
     setTrailer(null)
-    window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
-      if (cancelado || !r?.ok || !r.jogo?.trailer) return
-      setTrailer({ url: r.jogo.trailer.url, poster: r.jogo.trailer.poster })
+    const t = setTimeout(() => {
+      window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
+        if (cancelado || !r?.ok || !r.jogo) return
+        setFicha(r.jogo)
+      })
+    }, 600)
+    const tv = setTimeout(() => {
+      window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
+        if (cancelado || !r?.ok || !r.jogo?.trailer) return
+        setTrailer({ url: r.jogo.trailer.url, poster: r.jogo.trailer.poster })
+      })
+    }, 1200)
+    return () => {
+      cancelado = true
+      clearTimeout(t)
+      clearTimeout(tv)
+    }
+  }, [destaque])
+
+  // Cor ambiente extraída da capa. Vem do cache na segunda vez, então voltar
+  // num jogo já visto é instantâneo.
+  useEffect(() => {
+    if (!destaque) return
+    let cancelado = false
+    corDominante(`https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/library_600x900.jpg`).then((c) => {
+      if (!cancelado) setCor(c)
     })
     return () => {
       cancelado = true
     }
   }, [destaque])
+
+  // Parallax do herói: ele sobe a uma fração da rolagem, criando profundidade
+  // entre o fundo e as linhas.
+  const raiz = useRef<HTMLDivElement | null>(null)
+  const [scroll, setScroll] = useState(0)
 
   // Troca de filtro: busca a lista da categoria escolhida. "Destaques" não
   // busca nada — é a home, que já está carregada.
@@ -137,55 +177,102 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
   const bloqueado = (j: JogoLinha | null) => Boolean(j && acoes.bloqueados.has(j.appid))
 
-  return (
-    <div ref={ref} className="h-full w-full overflow-y-auto overflow-x-hidden bg-[#08090b] text-white">
-      {/* ── Destaque ─────────────────────────────────────────────────────── */}
-      <div className="relative h-[62vh] min-h-[380px] w-full overflow-hidden">
-        {trailer && ativo ? (
-          <video
-            key={trailer.url}
-            src={trailer.url}
-            poster={trailer.poster}
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : destaque ? (
-          <img
-            src={`https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/header.jpg`}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : null}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#08090b] via-[#08090b]/55 to-transparent" />
+  // X e Y agem sobre a capa em foco, sem abrir a página. Procuramos o jogo em
+  // todas as listas carregadas porque o foco pode estar em qualquer linha.
+  useEffect(() => {
+    if (!onAtalhos) return
+    const achar = (appid: string): JogoLinha | undefined =>
+      [emAlta, lista, resultados || [], ...Object.values(linhas)].flat().find((j) => j.appid === appid)
+    onAtalhos({
+      baixar: (appid) => {
+        const j = achar(appid)
+        if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.baixar(j)
+      },
+      adicionar: (appid) => {
+        const j = achar(appid)
+        if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.adicionar(j)
+      },
+    })
+  }, [onAtalhos, emAlta, lista, resultados, linhas, acoes])
 
-        <div className="absolute bottom-10 left-12 right-12">
-          <h1 className="max-w-3xl text-5xl font-light tracking-wide drop-shadow-[0_2px_16px_rgba(0,0,0,0.8)]">
+  return (
+    <div
+      ref={(el) => {
+        raiz.current = el
+        if (typeof ref === "function") ref(el)
+        else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
+      }}
+      onScroll={(e) => setScroll((e.target as HTMLElement).scrollTop)}
+      className="loja h-full w-full overflow-y-auto overflow-x-hidden bg-[#08090b] text-white"
+      // Tudo que reage à cor do jogo lê daqui: halo, borda da capa em foco,
+      // barra de progresso das linhas e o sublinhado da aba ativa.
+      style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
+    >
+      {/* ── Herói (segue o foco) ─────────────────────────────────────────── */}
+      <div className="relative h-[58vh] min-h-[360px] w-full overflow-hidden">
+        <div
+          className="absolute inset-0"
+          // Parallax: o fundo sobe a 35% da rolagem, então as linhas parecem
+          // deslizar POR CIMA dele em vez de junto.
+          style={{ transform: `translateY(${scroll * -0.35}px) scale(1.06)` }}
+        >
+          {destaque && (
+            <img
+              key={destaque.appid}
+              src={ficha?.fundo || `https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/header.jpg`}
+              alt=""
+              className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+          {trailer && ativo && (
+            <video
+              key={trailer.url}
+              src={trailer.url}
+              poster={trailer.poster}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="loja-heroi-arte absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+        </div>
+        <div className="loja-halo absolute inset-0" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#08090b] via-[#08090b]/60 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#08090b] to-transparent" />
+
+        <div className="absolute bottom-9 left-12 right-12">
+          {/* Linha de dados: só aparece quando a ficha chega, então não fica
+              piscando enquanto se atravessa a linha depressa. */}
+          <div className="mb-2 flex h-5 items-center gap-3 text-[13px] text-white/55">
+            {ficha?.generos?.length ? <span>{ficha.generos.slice(0, 3).join(" · ")}</span> : null}
+            {ficha?.metacritic ? (
+              <span className="rounded px-1.5 py-0.5 text-[12px] font-semibold text-black" style={{ background: "var(--loja-cor)" }}>
+                {ficha.metacritic}
+              </span>
+            ) : null}
+            {ficha?.lancamento && <span className="text-white/35">{ficha.lancamento}</span>}
+          </div>
+
+          <h1 className="max-w-3xl text-5xl font-light tracking-wide drop-shadow-[0_2px_16px_rgba(0,0,0,0.85)]">
             {destaque?.title || (carregando ? "Carregando…" : "Loja")}
           </h1>
-          <div className="mt-5 flex gap-3">
-            <button
-              onClick={() => destaque && setAberto(destaque)}
-              disabled={!destaque}
-              className="rounded-xl px-7 py-3 text-sm font-bold text-black outline-none transition-transform enabled:hover:scale-[1.03] disabled:opacity-40 focus:ring-2 focus:ring-white"
-              style={{ background: "var(--accent)" }}
-            >
-              Ver na loja
-            </button>
-            <button
-              onClick={() => setTeclado(true)}
-              className="rounded-xl border border-white/20 px-7 py-3 text-sm font-semibold text-white/85 outline-none transition-colors hover:bg-white/[0.08] focus:ring-2 focus:ring-white"
-            >
-              Buscar
-            </button>
+
+          <div className="mt-3 flex h-6 items-center gap-4 text-[13px]">
+            {ficha?.preco && <span className="text-white/85">{ficha.preco}</span>}
+            {destaque?.fontes?.length ? (
+              <span className="text-white/40">Disponível em {destaque.fontes.join(", ")}</span>
+            ) : destaque?.manifest === false ? (
+              <span className="text-white/35">Sem manifesto</span>
+            ) : null}
           </div>
         </div>
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-2 overflow-x-auto px-12 pt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Abas com sublinhado que desliza entre elas, em vez de seis pílulas
+          soltas — o movimento contínuo é o que liga uma categoria à outra. */}
+      <div className="relative flex gap-7 overflow-x-auto px-12 pt-7 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {CATEGORIAS.map((c) => (
           <button
             key={c.id}
@@ -193,16 +280,21 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
               setCategoria(c.id)
               setResultados(null) // sair da busca ao escolher um filtro
             }}
-            className={`shrink-0 rounded-full px-5 py-2 text-[13px] font-medium outline-none transition-colors focus:ring-2 focus:ring-white ${
-              categoria === c.id
-                ? "bg-white text-black"
-                : "border border-white/12 text-white/65 hover:bg-white/[0.08]"
+            className={`relative shrink-0 pb-2 text-[14px] font-medium outline-none transition-colors focus:text-white ${
+              categoria === c.id ? "text-white" : "text-white/40 hover:text-white/70"
             }`}
           >
             {c.rotulo}
+            {categoria === c.id && (
+              <span
+                className="absolute inset-x-0 -bottom-px h-[2px] rounded-full"
+                style={{ background: "var(--loja-cor)", boxShadow: "0 0 12px var(--loja-cor)" }}
+              />
+            )}
           </button>
         ))}
       </div>
+      <div className="mx-12 h-px bg-white/[0.07]" />
 
       {/* ── Linhas ───────────────────────────────────────────────────────── */}
       <div className="pt-6">
@@ -211,11 +303,12 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             titulo={`Resultados para "${busca}" (${resultados.length})`}
             jogos={resultados}
             onAbrir={setAberto}
+            onFocar={setDestaque}
           />
         )}
         {categoria === "destaques" ? (
           <>
-            <StoreRow titulo="Em alta agora" jogos={emAlta} carregando={carregando} onAbrir={setAberto} />
+            <StoreRow titulo="Em alta agora" jogos={emAlta} carregando={carregando} onAbrir={setAberto} onFocar={setDestaque} />
             {GENEROS.map((g) => (
               <StoreRow
                 key={g.chave}
@@ -223,6 +316,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
                 jogos={linhas[g.chave] || []}
                 carregando={!linhas[g.chave]}
                 onAbrir={setAberto}
+                onFocar={setDestaque}
               />
             ))}
           </>
@@ -232,8 +326,16 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             jogos={lista}
             carregando={carregandoLista}
             onAbrir={setAberto}
+            onFocar={setDestaque}
           />
         )}
+      </div>
+
+      {/* Dicas dos botões: os atalhos X/Y não teriam como ser descobertos. */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center pb-4">
+        <div className="rounded-full border border-white/10 bg-black/70 px-5 py-2 text-[12px] text-white/45">
+          A abrir · X baixar · Y adicionar · B voltar
+        </div>
       </div>
 
       <StoreGamePage

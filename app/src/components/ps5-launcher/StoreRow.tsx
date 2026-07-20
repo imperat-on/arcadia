@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 export interface JogoLinha {
   appid: string
@@ -43,20 +43,50 @@ interface StoreRowProps {
   jogos: JogoLinha[]
   carregando?: boolean
   onAbrir: (jogo: JogoLinha) => void
+  /** Chamado quando uma capa ganha foco — alimenta o herói do topo. */
+  onFocar?: (jogo: JogoLinha) => void
 }
 
 const CAPA_W = 176
 const RATIO = 1.5
 const PAD = 12
 
-export function StoreRow({ titulo, jogos, carregando, onAbrir }: StoreRowProps) {
+export function StoreRow({ titulo, jogos, carregando, onAbrir, onFocar }: StoreRowProps) {
+  // Posição do item em foco e progresso da rolagem: numa linha de 24 capas sem
+  // barra visível, não havia nenhuma noção de onde se está nem de quanto falta.
+  const [pos, setPos] = useState(0)
+  const [progresso, setProgresso] = useState(0)
+  const trilho = useRef<HTMLDivElement>(null)
+
   if (!carregando && !jogos.length) return null
+
+  const aoRolar = () => {
+    const el = trilho.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setProgresso(max > 0 ? el.scrollLeft / max : 0)
+  }
 
   return (
     <section className="mb-8">
-      <h2 className="mb-3 px-12 text-[15px] font-medium text-white/70">{titulo}</h2>
+      <div className="mb-3 flex items-baseline gap-3 px-12">
+        <h2 className="text-[15px] font-medium text-white/70">{titulo}</h2>
+        {pos > 0 && (
+          <span className="text-[12px] tabular-nums text-white/30">
+            {pos} / {jogos.length}
+          </span>
+        )}
+        <div className="ml-auto h-px w-40 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full transition-[width] duration-200"
+            style={{ width: `${Math.max(6, progresso * 100)}%`, background: "var(--loja-cor)" }}
+          />
+        </div>
+      </div>
       <div
-        className="flex items-start overflow-x-auto px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        ref={trilho}
+        onScroll={aoRolar}
+        className="loja-linha flex items-start overflow-x-auto px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         // O slot já tem a altura da capa em tamanho cheio mais o respiro do
         // realce. Sem isso o `overflow-x` recortaria a sombra e o anel de foco,
         // que foi exatamente o defeito que apareceu no trilho de jogos.
@@ -71,10 +101,15 @@ export function StoreRow({ titulo, jogos, carregando, onAbrir }: StoreRowProps) 
                 />
               </div>
             ))
-          : jogos.map((j) => (
+          : jogos.map((j, i) => (
               <button
                 key={j.appid}
                 onClick={() => onAbrir(j)}
+                onFocus={() => {
+                  setPos(i + 1)
+                  onFocar?.(j)
+                }}
+                data-appid={j.appid}
                 className="loja-item relative shrink-0 scroll-mx-12 outline-none"
                 style={{ width: CAPA_W + PAD * 2, padding: PAD }}
                 aria-label={j.title}

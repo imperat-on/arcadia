@@ -55,6 +55,10 @@ export function useGamepadNav(
   active: boolean,
   onBack?: () => void,
   scrollOnly = false, // true: só o scroll do analógico direito (sem foco/botões)
+  // Atalhos por tela. A loja usa para baixar (X) e adicionar (Y) sem precisar
+  // abrir a página do jogo. Recebem o elemento focado, que é como quem chama
+  // sabe de qual item se trata.
+  extras?: { onX?: (alvo: HTMLElement | null) => void; onY?: (alvo: HTMLElement | null) => void },
 ) {
   useEffect(() => {
     if (!active) return
@@ -189,11 +193,19 @@ export function useGamepadNav(
           if (el && rootRef.current?.contains(el)) el.click()
         }
         if (!scrollOnly && primed && gp.buttons[1]?.pressed && !prev[1]) onBack?.()
+        if (!scrollOnly && primed && gp.buttons[2]?.pressed && !prev[2]) {
+          const el = document.activeElement as HTMLElement | null
+          extras?.onX?.(rootRef.current?.contains(el) ? el : null)
+        }
+        if (!scrollOnly && primed && gp.buttons[3]?.pressed && !prev[3]) {
+          const el = document.activeElement as HTMLElement | null
+          extras?.onY?.(rootRef.current?.contains(el) ? el : null)
+        }
         prev = gp.buttons.map((b) => b.pressed)
       }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [active, rootRef, onBack, scrollOnly])
+  }, [active, rootRef, onBack, scrollOnly, extras])
 }
