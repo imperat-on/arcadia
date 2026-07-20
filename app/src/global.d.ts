@@ -50,8 +50,6 @@ export interface AppConfig {
   console_ui_scale?: number
   card_scale?: number
   accent?: string
-  /** Layout da loja no modo console. "editorial" é o News-style com hero + mosaico + grade;
-      "ps" é uma variante estilo PS Store (em construção). */
   sources?: Sources
   slssteam_path?: string
   psn_npsso?: string
@@ -278,6 +276,7 @@ declare global {
           devs: string[]
           publishers: string[]
           preco: string
+          precoOriginal: string
           desconto: number
           metacritic: number
           reqMin: string
@@ -292,7 +291,16 @@ declare global {
       ) => Promise<{
         ok: boolean
         error?: string
-        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[] }[]
+        jogos?: {
+          appid: string
+          title: string
+          cover?: string
+          manifest?: boolean
+          fontes?: string[]
+          preco?: string
+          precoOriginal?: string
+          desconto?: number
+        }[]
         offset?: number
         total?: number
       }>

@@ -370,25 +370,41 @@ input,
    ou ainda não foi lida. É esta variável que faz o ambiente inteiro reagir. */
 .loja {
   --loja-cor: var(--accent);
+  /* Superfícies da loja. O navy profundo substitui o preto absoluto: os cards
+     precisam de um fundo do qual se destacar, e no preto puro eles flutuavam
+     sem chão. Escopado em .loja para não mexer no resto do modo console. */
+  --loja-fundo: #14161d;
+  --loja-sup-1: #1a1d26;
+  --loja-sup-2: #242732;
+  --loja-sup-3: #2e3140;
+  --loja-fio: #2a2d38;
+  --loja-apagado: #a7a9b4;
+  background: var(--loja-fundo);
 }
 
-/* Herói da vitrine: arte widescreen que troca junto com o foco. A altura é
-   fixa em vh para o primeiro trilho aparecer sem rolar em telas 16:9. */
+/* Herói da vitrine: arte widescreen com a chamada por cima. A altura é fixa em
+   vh para o primeiro trilho já aparecer sem rolar em telas 16:9. */
 .loja-heroi {
   position: relative;
-  height: 46vh;
-  min-height: 300px;
+  height: 58vh;
+  min-height: 380px;
   overflow: hidden;
-  animation: lojaHeroiIn var(--dur-3) var(--ease) both;
 }
+/* Troca de destaque: um fade curto, sem deslocar nada. */
 @keyframes lojaHeroiIn {
-  from { opacity: 0.55; }
+  from { opacity: 0; }
   to { opacity: 1; }
 }
+.loja-heroi__arte {
+  position: absolute;
+  inset: 0;
+  animation: lojaHeroiIn var(--dur-3) var(--ease) both;
+}
 
-/* Ladrilho: capa retrato + bloco de meta. O realce mora na CAPA, e não no
-   botão inteiro, para o texto abaixo não escalar junto — foi escalar o
-   conjunto que embaçava a tipografia nas versões anteriores. */
+/* Ladrilho: capa retrato + bloco de meta abaixo. O realce mora na CAPA, e não
+   no botão inteiro — escalar o conjunto embaçava a tipografia do texto. Sem
+   halo nem varredura: o anel de 2px já marca o foco, e o excesso de efeito era
+   justamente o que deixava a loja "fresca demais". */
 .loja-tile {
   animation: lojaTileIn 320ms var(--ease-out) both;
 }
@@ -399,59 +415,104 @@ input,
 
 .loja-tile__capa {
   transform: translateZ(0); /* camada própria: o scale não repinta os vizinhos */
-  opacity: 0.88;
-  transition:
-    transform var(--dur-2) var(--ease),
-    opacity var(--dur-2) var(--ease),
-    box-shadow var(--dur-2) var(--ease);
+  box-shadow: 0 0 0 0 var(--loja-cor);
+  transition: box-shadow var(--dur-2) var(--ease);
 }
 .loja-tile:focus .loja-tile__capa,
 .loja-tile:hover .loja-tile__capa {
-  opacity: 1;
-  transform: scale(1.04);
   /* A borda usa a cor do próprio jogo, não o accent fixo. */
-  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.75), 0 0 0 2px var(--loja-cor);
+  box-shadow: 0 0 0 2px var(--loja-cor);
 }
-
-/* Halo ambiente atrás da capa em foco. */
-.loja-tile__capa::before {
-  content: "";
-  position: absolute;
-  inset: -16%;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--loja-cor) 0%, transparent 70%);
+/* Só a imagem cresce, dentro da máscara da capa. */
+.loja-tile__capa img {
+  transition: transform var(--dur-3) var(--ease-out);
+}
+.loja-tile:focus .loja-tile__capa img,
+.loja-tile:hover .loja-tile__capa img {
+  transform: scale(1.04);
+}
+/* Ações de mouse (o "+" de adicionar) aparecem só no hover/foco do ladrilho. */
+.loja-tile__acao {
   opacity: 0;
-  filter: blur(28px);
-  transition: opacity var(--dur-3) var(--ease);
-  pointer-events: none;
-  z-index: -1;
+  transition: opacity var(--dur-2) var(--ease);
 }
-.loja-tile:focus .loja-tile__capa::before,
-.loja-tile:hover .loja-tile__capa::before {
-  opacity: 0.45;
-}
-
-/* Varredura de brilho ao ganhar foco: roda uma vez, é o "clique visual" que
-   confirma que o item mudou. */
-@keyframes lojaSheen {
-  from { transform: translateX(-120%) skewX(-18deg); }
-  to { transform: translateX(220%) skewX(-18deg); }
-}
-.loja-tile:focus .loja-tile__capa::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-  animation: lojaSheen 420ms var(--ease) 1 both;
-  pointer-events: none;
-  z-index: 2;
+.loja-tile:focus .loja-tile__acao,
+.loja-tile:hover .loja-tile__acao {
+  opacity: 1;
 }
 
 /* O anel de foco dos overlays desenharia um contorno quadrado por cima da
-   capa arredondada; o realce já indica o foco. */
+   capa arredondada; o anel colorido já indica o foco. */
 .gp-scope .loja-tile:focus {
   outline: none !important;
+}
+
+/* Botões do herói: pílula sólida para a ação principal (na cor do jogo) e
+   pílula translúcida para a secundária. */
+.loja-botao {
+  border-radius: 999px;
+  padding: 12px 28px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 0;
+  outline: none;
+  transition:
+    transform var(--dur-1) var(--ease),
+    background-color var(--dur-2) var(--ease),
+    opacity var(--dur-2) var(--ease);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.loja-botao:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+.loja-botao.-primario {
+  color: #0a0a0a;
+  background: var(--loja-cor);
+  backdrop-filter: none;
+}
+.loja-botao.-primario:hover:not(:disabled) {
+  background: var(--loja-cor);
+  transform: scale(1.03);
+}
+.loja-botao:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.loja-botao:disabled {
+  opacity: 0.4;
+}
+.gp-scope .loja-botao:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* Faixa de promoções entre os trilhos: um respiro na coluna de capas e um
+   atalho para a categoria. O gradiente usa a cor do jogo em foco, então ela
+   acompanha o resto da tela em vez de ser um bloco fixo. */
+.loja-faixa {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 36px 40px;
+  text-align: left;
+  outline: none;
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--loja-cor) 75%, black) 0%,
+    var(--loja-cor) 60%,
+    color-mix(in oklab, var(--loja-cor) 60%, white) 100%
+  );
+  transition: transform var(--dur-2) var(--ease);
+}
+.loja-faixa:hover,
+.loja-faixa:focus {
+  transform: scale(1.01);
+}
+.gp-scope .loja-faixa:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #fff;
 }
 
 /* HUD do rodapé: o título do jogo em foco entra com um pequeno slide-up
@@ -467,35 +528,46 @@ input,
 
 /* Chips flutuantes da régua de categorias. Padding constante para o ativo
    não empurrar os vizinhos ao alternar. */
-.loja-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 14px;
-  border-radius: 999px;
+/* Abas da barra superior: texto puro com um sublinhado que marca a ativa.
+   Substituem os chips arredondados — a pílula colorida competia com as capas,
+   que é onde o olho precisa ir. O padding é constante para a aba ativa não
+   empurrar as vizinhas. */
+.loja-aba {
+  position: relative;
+  flex-shrink: 0;
+  padding: 8px 12px;
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition:
-    background-color var(--dur-2) var(--ease),
-    color var(--dur-2) var(--ease),
-    box-shadow var(--dur-2) var(--ease),
-    border-color var(--dur-2) var(--ease);
+  color: var(--loja-apagado);
+  background: none;
+  border: 0;
+  transition: color var(--dur-2) var(--ease);
   outline: none;
 }
-.loja-chip:hover {
-  color: rgba(255, 255, 255, 0.9);
-  border-color: rgba(255, 255, 255, 0.14);
+.loja-aba:hover,
+.loja-aba:focus {
+  color: #fff;
 }
-.loja-chip.-ativo {
-  color: #0a0a0a;
+.loja-aba.-ativo {
+  color: #fff;
+}
+/* O traço desliza entre as abas em vez de piscar em cada uma. */
+.loja-aba.-ativo::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
   background: var(--loja-cor);
-  border-color: transparent;
-  box-shadow: 0 6px 20px -6px var(--loja-cor);
+  animation: lojaAbaIn var(--dur-2) var(--ease-out) both;
 }
+@keyframes lojaAbaIn {
+  from { transform: scaleX(0.3); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
 
 

@@ -16,7 +16,7 @@ interface StoreHUDProps {
 export function StoreHUD({ destaque, ficha, bloqueado, semManifesto }: StoreHUDProps) {
   const podeAgir = Boolean(destaque) && !semManifesto && !bloqueado
   return (
-    <div className="loja-hud shrink-0 border-t border-white/[0.06] bg-black">
+    <div className="loja-hud shrink-0 border-t border-[var(--loja-fio)] bg-[var(--loja-fundo)]">
       <div className="flex h-[76px] items-center gap-8 px-12">
         {/* Título + subtítulo (esquerda) */}
         <div className="min-w-0 flex-1">
@@ -25,7 +25,7 @@ export function StoreHUD({ destaque, ficha, bloqueado, semManifesto }: StoreHUDP
               <h2 className="truncate text-[22px] font-semibold leading-tight text-white">
                 {destaque.title}
               </h2>
-              <p className="mt-0.5 truncate text-[12px] text-white/45">
+              <p className="mt-0.5 truncate text-[12px] text-[var(--loja-apagado)]">
                 {[
                   ficha?.generos?.slice(0, 3).join(" · "),
                   ficha?.lancamento,
@@ -36,7 +36,7 @@ export function StoreHUD({ destaque, ficha, bloqueado, semManifesto }: StoreHUDP
               </p>
             </div>
           ) : (
-            <p className="text-[13px] text-white/35">Escolha uma categoria e navegue com os direcionais.</p>
+            <p className="text-[13px] text-[var(--loja-apagado)]">Escolha uma categoria e navegue com os direcionais.</p>
           )}
         </div>
 
@@ -62,7 +62,7 @@ export function StoreHUD({ destaque, ficha, bloqueado, semManifesto }: StoreHUDP
         </div>
 
         {/* Legenda de botões (direita) */}
-        <div className="flex shrink-0 items-center gap-4 text-[12px] text-white/55">
+        <div className="flex shrink-0 items-center gap-4 text-[12px] text-[var(--loja-apagado)]">
           <Legenda tecla="A" rotulo="abrir" ativo={Boolean(destaque)} />
           <Legenda tecla="X" rotulo="baixar" ativo={podeAgir} />
           <Legenda tecla="Y" rotulo="adicionar" ativo={podeAgir} />

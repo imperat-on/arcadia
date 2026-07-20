@@ -12,19 +12,31 @@ interface StoreTileProps {
   indice?: number
   /** Largura do ladrilho. A altura vem da proporção 3:4 mais o bloco de meta. */
   largura?: number
+  /** Já está na biblioteca — some o "+" e o card ganha o selo. */
+  naBiblioteca?: boolean
   onFocar: (j: JogoLinha) => void
   onAbrir: (j: JogoLinha) => void
+  onAdicionar?: (j: JogoLinha) => void
 }
 
-// Capa retrato com um bloco de meta abaixo — título numa linha e preço na
-// outra, com o valor cheio riscado quando há desconto. O selo de desconto fica
-// sobre a capa, no canto superior esquerdo.
+// Capa retrato com bloco de meta abaixo: título numa linha e preço na outra,
+// com o valor cheio riscado quando há desconto. O selo de desconto fica sobre a
+// arte, no canto superior esquerdo, e o "+" de adicionar no direito.
 //
 // Ao receber foco o ladrilho se centraliza no scroller do trilho: o
 // useGamepadNav escolhe o vizinho pela geometria e alcança cards fora da área
 // visível, então sem isto o foco sumiria da tela.
-export function StoreTile({ jogo, indice = 0, largura = 176, onFocar, onAbrir }: StoreTileProps) {
+export function StoreTile({
+  jogo,
+  indice = 0,
+  largura = 200,
+  naBiblioteca,
+  onFocar,
+  onAbrir,
+  onAdicionar,
+}: StoreTileProps) {
   const ref = useRef<HTMLButtonElement | null>(null)
+  const semManifesto = jogo.manifest === false
 
   return (
     <button
@@ -36,15 +48,18 @@ export function StoreTile({ jogo, indice = 0, largura = 176, onFocar, onAbrir }:
       }}
       data-appid={jogo.appid}
       aria-label={jogo.title}
-      className="loja-tile group shrink-0 text-left outline-none"
+      className="loja-tile shrink-0 text-left outline-none"
       style={{ width: largura, animationDelay: `${Math.min(indice * 20, 300)}ms` }}
     >
-      <div className="loja-tile__capa relative overflow-hidden rounded-lg bg-[#111114]" style={{ aspectRatio: "3 / 4" }}>
+      <div
+        className="loja-tile__capa relative overflow-hidden rounded-[10px] bg-[var(--loja-sup-2)]"
+        style={{ aspectRatio: "3 / 4" }}
+      >
         <ImgCascata
           fontes={urlsCapa(jogo, "retrato")}
           fallback={
-            <div className="flex h-full w-full items-center justify-center bg-[#111114] px-3 text-center">
-              <span className="line-clamp-4 text-[13px] leading-tight text-white/45">{jogo.title}</span>
+            <div className="flex h-full w-full items-center justify-center bg-[var(--loja-sup-2)] px-3 text-center">
+              <span className="line-clamp-4 text-[13px] leading-tight text-[var(--loja-apagado)]">{jogo.title}</span>
             </div>
           }
         />
@@ -58,27 +73,52 @@ export function StoreTile({ jogo, indice = 0, largura = 176, onFocar, onAbrir }:
           </span>
         ) : null}
 
-        {jogo.manifest === false && (
-          <span className="absolute inset-x-0 bottom-0 bg-black/75 py-1 text-center text-[11px] font-medium text-white/55">
+        {/* Atalho de mouse para adicionar. No controle isso é o Y, então o
+            botão fica fora da navegação: focável, ele viraria uma parada extra
+            entre uma capa e a seguinte. */}
+        {onAdicionar && !naBiblioteca && !semManifesto && (
+          <span
+            role="button"
+            tabIndex={-1}
+            aria-label="Adicionar"
+            onClick={(e) => {
+              e.stopPropagation()
+              onAdicionar(jogo)
+            }}
+            className="loja-tile__acao absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white backdrop-blur-md hover:bg-black/80"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </span>
+        )}
+
+        {naBiblioteca && (
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-md">
+            Na biblioteca
+          </span>
+        )}
+        {semManifesto && !naBiblioteca && (
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white/60 backdrop-blur-md">
             Sem manifesto
           </span>
         )}
       </div>
 
-      <div className="mt-2.5">
-        <h3 className="truncate text-[13px] font-medium text-white/90">{jogo.title}</h3>
-        {jogo.preco ? (
-          <div className="mt-0.5 flex items-baseline gap-2">
-            <span className="text-[13px] font-semibold text-white">{jogo.preco}</span>
-            {jogo.precoOriginal ? (
-              <span className="text-[11px] text-white/40 line-through">{jogo.precoOriginal}</span>
-            ) : null}
-          </div>
-        ) : (
-          // Espaço reservado: sem ele, as capas de um trilho misto (com e sem
-          // preço) ficariam desalinhadas na vertical.
-          <div className="mt-0.5 h-[18px]" />
-        )}
+      <div className="mt-3">
+        <h3 className="truncate text-[14px] font-semibold text-white">{jogo.title}</h3>
+        {/* Altura reservada: num trilho misto (com e sem preço), sem ela as
+            capas ficariam desalinhadas na vertical. */}
+        <div className="mt-1 flex h-[20px] items-baseline gap-2">
+          {jogo.preco ? (
+            <>
+              <span className="text-[14px] font-semibold text-white">{jogo.preco}</span>
+              {jogo.precoOriginal ? (
+                <span className="text-[12px] text-[var(--loja-apagado)] line-through">{jogo.precoOriginal}</span>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
     </button>
   )
