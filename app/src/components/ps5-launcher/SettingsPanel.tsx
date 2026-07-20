@@ -174,21 +174,19 @@ export function IntegrationsSection({
     <div className="max-w-3xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">Integrações</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Ative ou desative cada fonte de jogos. O que estiver desativado não
-        aparece na biblioteca.
+        Fontes de jogos. O que estiver desativado não aparece na biblioteca.
       </p>
 
       {/* Steam */}
       <IntegrationCard
         title="Steam"
         connected={status?.steam ?? Boolean(cfg.steam_api_key)}
-        color="#66c0f4"
         enabled={on("steam")}
         onToggle={(v) => onToggle("steam", v)}
       >
         <p className="text-xs text-[#8a93a6] mb-3">
-          Cole sua chave da Steam Web API para carregar TODA a biblioteca
-          (mesmo jogos não instalados). Pegue em steamcommunity.com/dev/apikey.
+          Chave da Steam Web API — carrega a biblioteca inteira, inclusive
+          jogos não instalados. Obtenha em steamcommunity.com/dev/apikey.
         </p>
         <input
           type="password"
@@ -223,7 +221,6 @@ export function IntegrationsSection({
       <IntegrationCard
         title="Epic Games (via Legendary)"
         connected={Boolean(legendary?.logged)}
-        color="#f9a020"
         enabled={on("heroic")}
         onToggle={(v) => onToggle("heroic", v)}
       >
@@ -262,8 +259,8 @@ export function IntegrationsSection({
         </button>
         {legendaryErr && <p className="mt-2 text-xs text-[#ff6b81]">{legendaryErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">
-          Se você já usa o Heroic logado, o Legendary compartilha a mesma sessão
-          (~/.config/legendary) — nesse caso nem precisa logar de novo.
+          O Legendary usa a mesma sessão do Heroic (~/.config/legendary). Se já
+          estiver logado lá, não precisa logar de novo.
         </p>
       </IntegrationCard>
 
@@ -271,7 +268,6 @@ export function IntegrationsSection({
       <IntegrationCard
         title="SLSsteam"
         connected={(status?.slssteam ?? 0) > 0}
-        color="#9b6bff"
         enabled={on("slssteam")}
         onToggle={(v) => onToggle("slssteam", v)}
       >
@@ -331,14 +327,12 @@ export function IntegrationsSection({
 function IntegrationCard({
   title,
   connected,
-  color,
   enabled,
   onToggle,
   children,
 }: {
   title: string
   connected: boolean
-  color: string
   enabled: boolean
   onToggle: (v: boolean) => void
   children: React.ReactNode
@@ -348,17 +342,13 @@ function IntegrationCard({
       className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
     >
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2.5">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-          <h3 className="text-base font-semibold text-white">{title}</h3>
-        </div>
+        <h3 className="text-base font-semibold text-white">{title}</h3>
         <div className="flex items-center gap-3">
+          {/* Status como texto: a bolinha da marca e o fundo do badge não
+              carregavam informação nenhuma que a palavra já não desse. */}
           <span
-            className="text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={{
-              color: connected ? "#4adf9a" : "#8a93a6",
-              background: connected ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
-            }}
+            className="text-xs font-medium"
+            style={{ color: connected ? "#4adf9a" : "#8a93a6" }}
           >
             {connected ? "Conectado" : "Não conectado"}
           </span>
@@ -455,7 +445,7 @@ export function ThemeSection({
     <div className="max-w-2xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">Temas</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Deixe a interface do seu jeito — ideal para monitores grandes e tela cheia.
+        Escala e cores da interface.
       </p>
 
       <ScaleControl
@@ -508,9 +498,8 @@ export function ThemeSection({
       </div>
 
       <p className="text-xs text-[#6b7280] mt-6">
-        Tudo é aplicado na hora e fica salvo. Dica: no seu monitor 4K em tela
-        cheia, experimente escala <span className="text-white">Grande</span> e
-        capas <span className="text-white">Grande</span>.
+        Aplicado na hora e salvo automaticamente. Em 4K, escala e capas em
+        <span className="text-white"> Grande</span>.
       </p>
     </div>
   )
@@ -598,7 +587,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
     <div className="max-w-3xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">Metadados</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Dados que deixam a biblioteca rica — puxados da Steam Store e cacheados.
+        Capas, descrições e conquistas, puxados da Steam Store e cacheados.
       </p>
 
       {/* SLScheevo: conquistas funcionais nos jogos injetados via SLSsteam */}
@@ -656,8 +645,8 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         </button>
         {scheevoErr && <p className="mt-2 text-xs text-[#ff6b81]">{scheevoErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">
-          Depois de logar e gerar os schemas, volte aqui e rode “Reconstruir
-          metadados” — ou simplesmente reabra o Arcadia.
+          Depois de logar e gerar os schemas, rode “Reconstruir metadados” ou
+          reabra o Arcadia.
         </p>
       </div>
 
@@ -741,7 +730,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           </p>
         )}
         <p className="text-[11px] text-[#6b7280] mt-2">
-          Baixa só os que faltam. Pode demorar — cada trailer tem alguns MB.
+          Baixa apenas os que faltam. Cada trailer tem alguns MB.
         </p>
 
         {/* Cookies do YouTube: só para vídeos com restrição de idade */}
@@ -858,7 +847,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
 
       <h3 className="text-base font-semibold text-white mb-1">O que é buscado</h3>
       <p className="text-xs text-[#8a93a6] mb-4">
-        Dados coletados automaticamente para cada jogo da biblioteca.
+        Coletados automaticamente para cada jogo.
       </p>
       <div className="grid grid-cols-2 gap-2.5 mb-8">
         {items.map((it) => (
@@ -890,7 +879,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         {busy ? "Reconstruindo…" : done ? "Metadados atualizados!" : "Reconstruir metadados"}
       </button>
       <p className="text-xs text-[#6b7280] mt-3">
-        Limpa o cache e busca tudo de novo (pode levar ~30s na primeira vez).
+        Limpa o cache e busca tudo de novo. Leva cerca de 30s.
       </p>
     </div>
   )

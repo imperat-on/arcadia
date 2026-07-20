@@ -229,7 +229,7 @@ export function WineSection() {
 
       {err && <p className="mt-3 text-xs text-[#ff6b81]">{err}</p>}
       <p className="mt-6 text-xs text-white/35">
-        Ferramentas do prefixo (winecfg, regedit, winetricks): menu de contexto do jogo → Ferramentas do prefixo.
+        winecfg, regedit e winetricks ficam no menu de contexto do jogo.
       </p>
     </div>
   )
