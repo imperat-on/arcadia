@@ -370,15 +370,15 @@ input,
    ou ainda não foi lida. É esta variável que faz o ambiente inteiro reagir. */
 .loja {
   --loja-cor: var(--accent);
-  /* Superfícies da loja. O navy profundo substitui o preto absoluto: os cards
-     precisam de um fundo do qual se destacar, e no preto puro eles flutuavam
-     sem chão. Escopado em .loja para não mexer no resto do modo console. */
-  --loja-fundo: #14161d;
-  --loja-sup-1: #1a1d26;
-  --loja-sup-2: #242732;
-  --loja-sup-3: #2e3140;
-  --loja-fio: #2a2d38;
-  --loja-apagado: #a7a9b4;
+  /* Superfícies da loja, no preto OLED do resto do modo console. O fundo é
+     preto absoluto; o que dá chão aos cards são as superfícies acima dele —
+     cinzas neutros, sem a tonalidade azulada do tema anterior. */
+  --loja-fundo: #000;
+  --loja-sup-1: #0b0b0d;
+  --loja-sup-2: #141416;
+  --loja-sup-3: #1f1f23;
+  --loja-fio: #1b1b1f;
+  --loja-apagado: #9a9aa2;
   background: var(--loja-fundo);
 }
 
