@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
+import { fmtBytes, fmtMiB } from "../tamanho"
 
 interface Sysinfo {
   download_size?: number
@@ -84,8 +85,8 @@ export function GamePage({
     setFixMsg(r?.ok ? "Fix aplicado!" : r?.error || "Falha ao aplicar o fix")
   }
 
-  const gibBytes = (b?: number) => (b ? `${(b / 1024 ** 3).toFixed(2)} GiB` : "—")
-  const gib = (mib?: number) => (mib ? `${(mib / 1024).toFixed(2)} GiB` : "—")
+  const gibBytes = fmtBytes
+  const gib = fmtMiB
   const tamDownload = sys?.download_size ? gibBytes(sys.download_size) : gib(g.size)
   const tamInstalado = sys?.disk_size ? gibBytes(sys.disk_size) : instalado ? gib(g.size) : "—"
   const ultimaVez = g.last_played
