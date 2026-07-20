@@ -10,15 +10,16 @@ const CDN = "https://cdn.akamai.steamstatic.com/steam/apps"
 /**
  * Artes em formato RETRATO (3:4), na ordem de tentativa.
  *
- * A `library_600x900` vem antes do `cover` de propósito: o backend preenche
- * `cover` com um header 460x215 para quase toda lista, e colocá-lo primeiro
- * fazia TODO ladrilho exibir a arte horizontal esmagada numa moldura vertical,
- * mesmo quando o jogo tinha capa retrato. Só entra aqui o `cover` que já é
- * reconhecidamente vertical.
+ * O `cover` NÃO entra aqui: o backend o preenche com um header 460x215 para
+ * quase toda lista, e usá-lo fazia todo ladrilho exibir a arte horizontal
+ * esmagada numa moldura vertical. A arte vertical tem campo próprio (`capa`).
  */
 export function urlsRetrato(jogo: JogoLinha): string[] {
-  const urls = [`${CDN}/${jogo.appid}/library_600x900.jpg`]
-  if (jogo.cover && /library_600x900|600x900|660x930/.test(jogo.cover)) urls.unshift(jogo.cover)
+  const urls: string[] = []
+  // `capa` vem do IStoreBrowseService com o hash do caminho novo — é a única
+  // que funciona para o que foi publicado depois da migração de assets.
+  if (jogo.capa) urls.push(jogo.capa)
+  urls.push(`${CDN}/${jogo.appid}/library_600x900.jpg`)
   return [...new Set(urls)]
 }
 
