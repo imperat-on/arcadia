@@ -343,7 +343,11 @@ export function PS5Launcher() {
   const storeRef = useRef<HTMLDivElement>(null)
   // X baixa e Y adiciona o jogo em foco, sem abrir a página. O appid vem do
   // data-appid da capa focada — o mesmo elemento que o hook já move.
-  const atalhosLoja = useRef<{ baixar: (a: string) => void; adicionar: (a: string) => void } | null>(null)
+  const atalhosLoja = useRef<{
+    baixar: (a: string) => void
+    adicionar: (a: string) => void
+    voltar: () => boolean
+  } | null>(null)
   const extrasLoja = useMemo(
     () => ({
       onX: (alvo: HTMLElement | null) => {
@@ -357,7 +361,9 @@ export function PS5Launcher() {
     }),
     [],
   )
-  useGamepadNav(storeRef, storeMode, undefined, false, extrasLoja)
+  // B na loja é da própria loja enquanto houver para onde voltar (categoria ou
+  // busca). Na vitrine ela devolve false e o botão volta a ser da aba.
+  useGamepadNav(storeRef, storeMode, () => atalhosLoja.current?.voltar(), false, extrasLoja)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =

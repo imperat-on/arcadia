@@ -1307,25 +1307,42 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  // Uma linha da home da loja, por gênero.
-  ipcMain.handle("store:genre", async (_e, { genero, limite } = {}) => {
+  // Uma linha da home da loja, por gênero. Paginação por offset para scroll
+  // infinito (o SteamSpy devolve milhares por gênero; servimos aos pedaços).
+  ipcMain.handle("store:genre", async (_e, { genero, limite, offset } = {}) => {
     try {
-      return await steamstore.porGenero(String(genero || ""), Number(limite) || 24)
+      return await steamstore.porGenero(
+        String(genero || ""),
+        Number(limite) || 40,
+        Number(offset) || 0,
+      )
     } catch (e) {
       return { ok: false, error: String(e) }
     }
   })
   // Uma seção da vitrine da Steam: lançamentos, mais vendidos, promoções.
-  ipcMain.handle("store:featured", async (_e, { secao, limite } = {}) => {
+  // Depois de esgotar o subconjunto da Steam (~20), complementa com SteamSpy.
+  ipcMain.handle("store:featured", async (_e, { secao, limite, offset } = {}) => {
     try {
-      return await steamstore.destaques(String(secao || ""), Number(limite) || 24)
+      return await steamstore.destaques(
+        String(secao || ""),
+        Number(limite) || 40,
+        Number(offset) || 0,
+      )
     } catch (e) {
       return { ok: false, error: String(e) }
     }
   })
-  ipcMain.handle("store:recent", async (_e, lista) => {
+  // Compatibilidade: aceita string legado ({ lista }) ou objeto novo.
+  ipcMain.handle("store:recent", async (_e, arg) => {
     try {
-      return await steamstore.popular(lista ? String(lista) : undefined)
+      const { lista, limite, offset } =
+        typeof arg === "string" ? { lista: arg } : arg || {}
+      return await steamstore.popular(
+        lista ? String(lista) : undefined,
+        Number(limite) || 40,
+        Number(offset) || 0,
+      )
     } catch (e) {
       return { ok: false, error: String(e) }
     }
