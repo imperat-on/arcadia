@@ -708,6 +708,22 @@ function runIndexer() {
   })
 }
 
+// Avisa o renderer e, em seguida, reindexa em SEGUNDO PLANO para avisar de
+// novo com a biblioteca já atualizada.
+//
+// O primeiro aviso cobre o que só depende do que já está em disco (o card da
+// loja voltando a oferecer "Add", por exemplo). O segundo é o que faz o jogo
+// recém-adicionado APARECER nas abas Jogos e Biblioteca: quem o descobre é o
+// index.py, lendo o bloco AdditionalApps da SLSsteam. Reindexar leva ~12s, e
+// travar o handler por esse tempo deixaria o botão preso.
+function avisarBiblioteca(win, reindexar = true) {
+  const emitir = () => {
+    if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+  }
+  emitir()
+  if (reindexar) runIndexer().then(emitir)
+}
+
 // Conta os AppIds injetados pelo SLSsteam (bloco AdditionalApps).
 function slssteamCount() {
   try {
@@ -1367,13 +1383,17 @@ app.whenReady().then(() => {
   })
   ipcMain.handle("store:installDir", (_e, game) => ({ path: steamstore.gameInstallDir(game) }))
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
-  ipcMain.handle("store:removeFromSteam", (_e, appid) => steamstore.removeFromSteam(appid))
+  ipcMain.handle("store:removeFromSteam", (_e, appid) => {
+    const r = steamstore.removeFromSteam(appid)
+    if (r?.ok) avisarBiblioteca(win)
+    return r
+  })
   ipcMain.handle("store:removeDownloaded", (_e, appid) => {
     const r = steamstore.removeDownloaded(appid)
     // Sem este aviso a aba Lojas continuava mostrando "Na biblioteca" depois de
     // remover: o card se baseia na lista de jogos, que só recarrega neste
     // evento. Todos os outros pontos que mexem na biblioteca já o emitiam.
-    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("library:changed")
+    if (r?.ok) avisarBiblioteca(win)
     return r
   })
   ipcMain.handle("store:installInfo", async (_e, appid) => {
@@ -1398,7 +1418,7 @@ app.whenReady().then(() => {
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) return r
       steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
-      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
