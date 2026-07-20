@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useGamepadNav } from "./useGamepadNav"
+import { semHtml } from "./texto"
 import type { JogoLinha } from "./types"
 
 type Detalhes = NonNullable<Awaited<ReturnType<NonNullable<typeof window.launcherAPI>["storeDetails"]>>["jogo"]>
@@ -14,19 +15,6 @@ interface StoreGamePageProps {
   onAdicionar: () => void
   onRemover: () => void
   onFechar: () => void
-}
-
-// A descrição do appdetails vem com HTML. Renderizar HTML de terceiros num app
-// com acesso a IPC é risco desnecessário — extraímos só o texto.
-function semHtml(s: string): string {
-  return s
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .trim()
 }
 
 export function StoreGamePage({
