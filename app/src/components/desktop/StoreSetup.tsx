@@ -44,11 +44,9 @@ export function StoreSetup() {
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white">{titulo}</h3>
-        <span
-          className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-          style={{ color: ok ? "#4adf9a" : "#ffb86b", background: ok ? "rgba(74,223,154,0.12)" : "rgba(255,184,107,0.12)" }}
-        >
-          {ok ? "OK" : "Falta"}
+        {/* Sem pill: a palavra basta, a cor só separa pronto de pendente. */}
+        <span className="text-[11px] font-medium" style={{ color: ok ? "#4adf9a" : "#ffb86b" }}>
+          {ok ? "Instalado" : "Faltando"}
         </span>
       </div>
       <p className="text-xs text-white/45">{detalhe}</p>
@@ -67,17 +65,17 @@ export function StoreSetup() {
 
   return (
     <section className="mb-8">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">Loja Steam (Hubcap + DepotDownloader)</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">Loja Steam</h3>
       <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
         <div>
-          <label className="mb-1.5 block text-[13px] text-white/70">API key do Hubcap (catálogo de manifestos)</label>
+          <label className="mb-1.5 block text-[13px] text-white/70">Chave do Hubcap</label>
           <div className="flex gap-2">
             <input
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               type="password"
               spellCheck={false}
-              placeholder="Cole sua API key aqui"
+              placeholder="Opcional — acrescenta o catálogo do Hubcap"
               className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)]"
             />
             <button
@@ -91,9 +89,9 @@ export function StoreSetup() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-          <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe="Runtime para o DepotDownloader." acao={busy === "dotnet" ? "Instalando…" : "Instalar"} onAcao={instalarDotnet} />
-          <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe="Motor de download dos depots Steam." />
-          <StatusCard titulo="SLSsteam" ok={Boolean(status?.slssteam)} detalhe="Mostra os jogos baixados como owned na Steam." acao={busy === "sls" ? "Instalando…" : "Instalar"} onAcao={instalarSls} />
+          <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe="Runtime do DepotDownloader." acao={busy === "dotnet" ? "Instalando…" : "Instalar"} onAcao={instalarDotnet} />
+          <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe="Baixa os depots da Steam." />
+          <StatusCard titulo="SLSsteam" ok={Boolean(status?.slssteam)} detalhe="Faz a Steam reconhecer os jogos baixados." acao={busy === "sls" ? "Instalando…" : "Instalar"} onAcao={instalarSls} />
         </div>
         {msg && <p className="text-[12px] text-white/55">{msg}</p>}
       </div>

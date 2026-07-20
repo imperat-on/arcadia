@@ -277,7 +277,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
       <h1 className="mb-1 text-2xl font-light tracking-wide text-white">Loja Steam</h1>
-      <p className="mb-6 text-sm text-white/40">Busque jogos no catálogo e baixe direto para a sua biblioteca Steam (via DepotDownloader + SLSsteam).</p>
+      <p className="mb-6 text-sm text-white/40">Busque e baixe jogos direto para a biblioteca Steam.</p>
 
       {/* Busca + Restart Steam */}
       <div className="mb-4 flex max-w-[860px] gap-2">

@@ -161,16 +161,11 @@ export function ProfilePage({
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold text-white">{name}</h1>
               {isOwner && (
-                <span
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-                  style={{ background: "rgba(255,196,0,0.12)", color: "#ffc400", border: "1px solid rgba(255,196,0,0.3)" }}
-                >
-                  👑 Dono
-                </span>
+                <span className="text-xs font-medium text-[#8a93a6]">Dono</span>
               )}
             </div>
             <p className="text-sm text-[#8a93a6] mt-1">
-              Membro do Arcadia · {launchers.length} plataforma(s) conectada(s)
+              {launchers.length} plataforma(s) conectada(s)
             </p>
             <button
               onClick={onEdit}
@@ -293,7 +288,7 @@ export function ProfilePage({
               </h2>
               {conquistadas.length === 0 ? (
                 <p className="text-xs text-[#8a93a6]">
-                  Nenhuma insígnia ainda — jogue e desbloqueie conquistas para ganhar as primeiras.
+                  Nenhuma insígnia conquistada ainda.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-3">
