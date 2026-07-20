@@ -360,3 +360,36 @@ input,
     box-shadow var(--dur-1) var(--ease),
     opacity var(--dur-1) var(--ease);
 }
+
+/* ─── Loja do modo console ─────────────────────────────────────────────────
+   O destaque da capa é dirigido por :focus, não por um índice em estado. Assim
+   o `useGamepadNav`, que move o foco do DOM, acende o item sem que a loja
+   precise manter sua própria noção de seleção — e o mouse ganha o mesmo efeito
+   de graça. A escala segue a lição do GameRail: a caixa tem o tamanho GRANDE e
+   as não focadas encolhem, porque crescer para fora da caixa é o que fazia a
+   capa ser cortada. */
+.loja-capa {
+  transform: scale(0.82);
+  transform-origin: center top;
+  opacity: 0.62;
+  filter: brightness(0.7);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  transition:
+    transform var(--dur-2) var(--ease),
+    opacity var(--dur-2) var(--ease),
+    filter var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+  will-change: transform;
+}
+.loja-item:focus .loja-capa,
+.loja-item:hover .loja-capa {
+  transform: translateY(-6px) scale(1);
+  opacity: 1;
+  filter: none;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.7), 0 0 0 2px var(--accent);
+}
+/* O anel de foco dos overlays desenharia um contorno quadrado por cima da
+   capa; aqui o próprio realce já indica o foco. */
+.gp-scope .loja-item:focus {
+  outline: none !important;
+}

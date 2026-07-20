@@ -16,6 +16,7 @@ import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
 import { LibraryGrid } from "./LibraryGrid"
 import { TopBar, TABS } from "./TopBar"
+import { StoreConsole } from "./StoreConsole"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
@@ -200,7 +201,9 @@ export function PS5Launcher() {
   // uiBlockedRef: pausa a navegação de JOGOS (D-pad/A). Vale também na aba de
   // Notícias, que tem foco próprio — mas o L1/R1 (trocar aba) segue funcionando.
   const uiBlockedRef = useRef(false)
-  uiBlockedRef.current = modalOpenRef.current || activeTab === 0
+  // A Loja tem navegação própria por foco, igual às Notícias: sem isto o
+  // direcional moveria a seleção do trilho de jogos por trás da loja.
+  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3
 
   // Ambas as abas mostram a biblioteca inteira; muda só a forma de exibir.
   // Jogos ocultos só aparecem com "Mostrar ocultos" ligado (menu do Select).
@@ -209,9 +212,10 @@ export function PS5Launcher() {
     () => (showHidden ? games : games.filter((g) => !g.hidden)),
     [games, showHidden],
   )
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade)
+  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja
   const newsMode = activeTab === 0
   const gridMode = activeTab === 2
+  const storeMode = activeTab === 3
   const columns = GRID_COLUMNS
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
@@ -270,7 +274,7 @@ export function PS5Launcher() {
     if (!g || !api || !trailerAutoRef.current) return
     if (showSettings || showProfile || showEditProfile || menuOpen || gameRunning || ctxGame || trailerPickGame) return
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
-    if (gridMode || newsMode) return // na Biblioteca/Notícias não toca trailer
+    if (gridMode || newsMode || storeMode) return // essas abas têm visual próprio
     let cancelled = false
     const t = setTimeout(async () => {
       const { path } = await api.trailerPath(g.id)
@@ -289,7 +293,7 @@ export function PS5Launcher() {
       clearTimeout(t)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selId, showSettings, showProfile, showEditProfile, menuOpen, gameRunning, ctxGame, trailerPickGame, gridMode, newsMode, boot, perfilGate])
+  }, [selId, showSettings, showProfile, showEditProfile, menuOpen, gameRunning, ctxGame, trailerPickGame, gridMode, newsMode, storeMode, boot, perfilGate])
 
   // Notícias: busca alinhada ao RELÓGIO (marcos de 5 min — :00,:05,:10…).
   // O slot também gira o destaque da aba (rotação a cada 5 min).
@@ -334,6 +338,10 @@ export function PS5Launcher() {
   // Notícias: navegação SÓ por scroll (analógico direito). Sem foco espacial —
   // o anel azul de foco no card destaque poluía a tela.
   useGamepadNav(newsRef, newsMode, undefined, true)
+  // A loja navega POR FOCO (as capas são botões), diferente das notícias, que
+  // só rolam. Por isso não usa o modo scrollOnly.
+  const storeRef = useRef<HTMLDivElement>(null)
+  useGamepadNav(storeRef, storeMode)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =
@@ -690,7 +698,7 @@ export function PS5Launcher() {
       {/* Fundo: tema do jogo em TELA CHEIA (crossfade ao trocar).
           Vídeo (.webm/.mp4) vira live wallpaper; imagem/GIF via background.
           Na aba de Notícias o fundo é preto (o NewsView tem visual próprio). */}
-      {newsMode ? (
+      {newsMode || storeMode ? (
         <div className="absolute inset-0" style={{ background: "#000000" }} />
       ) : selectedGame?.hero && isVideoBg(selectedGame.hero) ? (
         <video
@@ -846,9 +854,13 @@ export function PS5Launcher() {
           de abertura, que ja tem a sua propria sequencia. */}
       <div
         key={boot || perfilGate ? "intro" : activeTab}
-        className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
+        className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
       >
-        {newsMode ? (
+        {storeMode ? (
+          <div className="flex-1 min-h-0 pt-20">
+            <StoreConsole ref={storeRef} games={viewGames} ativo={appFocused && !gameRunning} />
+          </div>
+        ) : newsMode ? (
           <div className="flex-1 min-h-0 pt-20">
             <NewsView
               ref={newsRef}
