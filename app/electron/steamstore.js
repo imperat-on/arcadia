@@ -571,12 +571,27 @@ async function prepareDownload({ appid, installdir, depots, steamDir }) {
       "-depot", String(d.depotId),
       "-manifest", String(d.manifestId),
     ]
+    // Sem o .manifest local o DepotDownloader precisa pedir um "manifest
+    // request code" à Steam, e a conta anônima não recebe código para
+    // manifesto antigo: responde 401 e aborta. Esses depots (em geral OST,
+    // artbook e afins, que vêm no .lua mas não no zip) são pulados — tentá-los
+    // é falha garantida.
     const manFile = path.join(TMP_DIR, `manifest_${appid}`, `${d.depotId}_${d.manifestId}.manifest`)
-    if (fs.existsSync(manFile)) args.push("-manifestfile", manFile)
+    if (!fs.existsSync(manFile)) {
+      pulados.push(String(d.depotId))
+      continue
+    }
+    args.push("-manifestfile", manFile)
     args.push("-depotkeys", keysFile, "-max-downloads", "20", "-dir", dest, "-validate")
-    cmds.push({ cmd: dotnetBin(), args })
+    cmds.push({ cmd: dotnetBin(), args, depotId: String(d.depotId) })
   }
-  if (!cmds.length) return { ok: false, error: "nenhum depot com manifesto para baixar" }
+  if (!cmds.length) {
+    return {
+      ok: false,
+      error: "nenhum depot com .manifest local — o provedor entregou o .lua sem os manifestos",
+    }
+  }
+  if (pulados.length) storeLog(`download ${appid}: ${pulados.length} depot(s) pulado(s) sem .manifest: ${pulados.join(",")}`)
   return { ok: true, cmds, dest, pulados }
 }
 
