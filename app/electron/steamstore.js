@@ -553,14 +553,31 @@ async function prepareDownload({ appid, installdir, depots, steamDir }) {
   fs.writeFileSync(keysFile, linhas.join("\n"))
   const dest = path.join(steamDir, "steamapps", "common", installdir)
   fs.mkdirSync(dest, { recursive: true })
-  const args = [path.join(DEPS_DIR, "DepotDownloader.dll"), "-app", String(appid)]
+  // UM comando por depot, como o Acella faz. Antes empilhávamos todos os
+  // depots num único comando, repetindo -manifestfile: esse parâmetro do
+  // DepotDownloader aceita um só valor, então todos os depots menos um
+  // acabavam apontando para o manifesto errado. Com jogos de 1 depot passava
+  // despercebido; com os de 8, 13 ou 59 o download quebrava.
+  const cmds = []
+  const pulados = []
   for (const d of depots) {
-    args.push("-depot", String(d.depotId), "-manifest", String(d.manifestId))
+    if (!d.manifestId) {
+      pulados.push(String(d.depotId))
+      continue
+    }
+    const args = [
+      path.join(DEPS_DIR, "DepotDownloader.dll"),
+      "-app", String(appid),
+      "-depot", String(d.depotId),
+      "-manifest", String(d.manifestId),
+    ]
     const manFile = path.join(TMP_DIR, `manifest_${appid}`, `${d.depotId}_${d.manifestId}.manifest`)
     if (fs.existsSync(manFile)) args.push("-manifestfile", manFile)
+    args.push("-depotkeys", keysFile, "-max-downloads", "20", "-dir", dest, "-validate")
+    cmds.push({ cmd: dotnetBin(), args })
   }
-  args.push("-depotkeys", keysFile, "-max-downloads", "20", "-dir", dest, "-validate")
-  return { ok: true, cmd: dotnetBin(), args, dest }
+  if (!cmds.length) return { ok: false, error: "nenhum depot com manifesto para baixar" }
+  return { ok: true, cmds, dest, pulados }
 }
 
 // ---------- Registro na Steam (acf + SLSsteam) ----------
