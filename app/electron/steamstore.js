@@ -309,9 +309,26 @@ async function recent(limit = 24) {
 
 // "Mais baixados/em alta" (o Hubcap não tem ranking): SteamSpy top 100 das
 // últimas 2 semanas — sem API key.
-async function popular() {
-  const r = await gh("https://steamspy.com/api.php?request=top100in2weeks")
-  if (!r.ok) return { ok: false, error: `SteamSpy HTTP ${r.status}` }
+// Cache em disco do "Em alta": a lista custa ~3s (SteamSpy + 24 sondagens de
+// disponibilidade) e mudava a cada abertura da aba, deixando a tela vazia. Em
+// disco, e não em memória, para sobreviver ao fechar o app — é justamente a
+// primeira abertura que doía.
+const POPULAR_CACHE = path.join(DATA_DIR, "store_popular_cache.json")
+const POPULAR_TTL = 6 * 60 * 60 * 1000 // 6h: "top da quinzena" muda devagar
+
+function lerPopularCache() {
+  try {
+    const c = JSON.parse(fs.readFileSync(POPULAR_CACHE, "utf-8"))
+    if (Array.isArray(c.jogos) && c.jogos.length) return c
+  } catch {}
+  return null
+}
+
+async function buscarPopular() {
+  const r = await gh("https://steamspy.com/api.php?request=top100in2weeks", {
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
   const data = await r.json()
   const jogos = Object.values(data)
     .map((g) => ({
@@ -325,7 +342,35 @@ async function popular() {
   // Antes todos vinham marcados com manifest: true — a home prometia jogos que
   // nenhum provedor tinha, e o erro só aparecia ao clicar em Baixar.
   await marcarDisponibilidade(jogos)
-  return { ok: true, jogos }
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(POPULAR_CACHE, JSON.stringify({ at: Date.now(), jogos }))
+  } catch {}
+  return jogos
+}
+
+// Entrega o cache na hora e, se estiver velho, atualiza em segundo plano
+// (stale-while-revalidate): a aba abre instantânea e o conteúdo se renova
+// sozinho para a próxima vez, em vez de fazer o usuário esperar.
+let popularEmVoo = null
+async function popular() {
+  const c = lerPopularCache()
+  const velho = !c || Date.now() - (c.at || 0) > POPULAR_TTL
+  if (c && !velho) return { ok: true, jogos: c.jogos, cache: true }
+  if (!popularEmVoo) {
+    popularEmVoo = buscarPopular().finally(() => {
+      popularEmVoo = null
+    })
+  }
+  if (c) {
+    popularEmVoo.catch(() => {}) // renova em segundo plano; erro não interessa
+    return { ok: true, jogos: c.jogos, cache: true, revalidando: true }
+  }
+  try {
+    return { ok: true, jogos: await popularEmVoo }
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) }
+  }
 }
 
 // ---------- Fixes de jogos (estilo luatools: GameBypass/OnlineFix) ----------
