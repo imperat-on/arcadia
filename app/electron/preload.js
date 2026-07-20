@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   dmQueue: () => ipcRenderer.invoke("dm:queue"),
   dmInstall: (game) => ipcRenderer.invoke("dm:install", game),
   dmPause: (appid) => ipcRenderer.invoke("dm:pause", appid),
+  dmRetry: (appid) => ipcRenderer.invoke("dm:retry", appid),
+  dmDismiss: (appid) => ipcRenderer.invoke("dm:dismiss", appid),
   dmResume: (appid) => ipcRenderer.invoke("dm:resume", appid),
   dmCancel: (appid) => ipcRenderer.invoke("dm:cancel", appid),
   diskSpace: (p) => ipcRenderer.invoke("app:diskSpace", p),
