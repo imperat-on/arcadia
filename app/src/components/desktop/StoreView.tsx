@@ -36,6 +36,13 @@ function StoreImg({ appid, cover, title }: { appid: string; cover?: string; titl
   )
 }
 
+type ManifestInfo = {
+  depots: { depotId: string; manifestId: string; key: string }[]
+  token?: string
+  dlcs?: string[]
+  fonte?: string
+}
+
 export function StoreView({ games = [] }: { games?: Game[] }) {
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
@@ -138,10 +145,30 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // Esqueleto: buscando, ou o "Em alta" ainda não chegou.
   const carregandoGrade = busy === "busca" || (!buscou && carregandoRec && recentes.length === 0)
 
+  // Buscar o manifesto passa por vários provedores e pode levar dezenas de
+  // segundos. Guardamos o resultado por appid para que Add logo depois de
+  // Baixar (mesmo jogo) seja instantâneo em vez de repetir a busca inteira.
+  const infoCache = useRef(new Map<string, ManifestInfo>())
+  const obterInfo = async (appid: string) => {
+    const guardado = infoCache.current.get(appid)
+    if (guardado) return { ok: true, ...guardado }
+    const info = await window.launcherAPI?.storeInstallInfo(appid)
+    if (info?.ok && info.depots?.length) infoCache.current.set(appid, info as ManifestInfo)
+    return info
+  }
+
+  // Toda ação (Baixar/Add) recebe um número. Se o usuário fizer outra coisa no
+  // meio, a anterior é abandonada: sem isto, um "Baixar" lento resolvia depois
+  // de o usuário fechar o diálogo e clicar em Add, e reabria o popup de disco
+  // por cima da confirmação — a confirmação existia, ficava escondida.
+  const pedidoAcao = useRef(0)
+
   const baixar = async (jogo: { appid: string; title: string }) => {
+    const meu = ++pedidoAcao.current
     setBusy(jogo.appid)
     setMsg("")
-    const info = await window.launcherAPI?.storeInstallInfo(jogo.appid)
+    const info = await obterInfo(jogo.appid)
+    if (meu !== pedidoAcao.current) return
     setBusy("")
     if (!info?.ok || !info.depots?.length) {
       setToast(info?.error || "Sem manifesto para este jogo.")
@@ -149,10 +176,11 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     }
     // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive).
     const libs = (await window.launcherAPI?.storeLibraries()) || []
+    if (meu !== pedidoAcao.current) return
     if (libs.length <= 1) {
-      return confirmarBaixar(jogo, info as Parameters<typeof confirmarBaixar>[1], libs[0]?.steamDir)
+      return confirmarBaixar(jogo, info as ManifestInfo, libs[0]?.steamDir)
     }
-    setEscolhendo({ jogo, info: info as Parameters<typeof confirmarBaixar>[1], libs })
+    setEscolhendo({ jogo, info: info as ManifestInfo, libs })
   }
 
   const confirmarBaixar = async (
@@ -180,9 +208,13 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // "Add": registra o jogo na Steam (lua + AdditionalApps) sem baixar — a
   // própria Steam baixa depois pela CDN dela (estilo luatools-moon).
   const adicionar = async (jogo: { appid: string; title: string }) => {
+    const meu = ++pedidoAcao.current
+    // Um diálogo de disco aberto (ou prestes a abrir) taparia a confirmação.
+    setEscolhendo(null)
     setBusy(jogo.appid)
     setMsg("")
-    const info = await window.launcherAPI?.storeInstallInfo(jogo.appid)
+    const info = await obterInfo(jogo.appid)
+    if (meu !== pedidoAcao.current) return
     if (!info?.ok || !info.depots?.length) {
       setBusy("")
       setToast(info?.error || "Sem manifesto para este jogo.")
@@ -386,6 +418,12 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => setEscolhendo(null)}
+              className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
