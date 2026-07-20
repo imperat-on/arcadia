@@ -55,8 +55,16 @@ const IconeBiblioteca = ({ className = "" }: { className?: string }) => (
   </IconeBase>
 )
 
-export const TABS = ["Notícias", "Jogos", "Biblioteca"]
-const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca]
+const IconeLoja = ({ className = "" }: { className?: string }) => (
+  <IconeBase className={className}>
+    <path d="M3 9h18l-1.5 10.5a2 2 0 0 1-2 1.5H6.5a2 2 0 0 1-2-1.5z" />
+    <path d="M3 9l2-5h14l2 5" />
+    <path d="M8.5 13a3.5 3.5 0 0 0 7 0" />
+  </IconeBase>
+)
+
+export const TABS = ["Notícias", "Jogos", "Biblioteca", "Loja"]
+const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca, IconeLoja]
 
 export function TopBar({
   profile,
