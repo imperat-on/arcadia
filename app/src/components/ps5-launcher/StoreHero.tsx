@@ -1,0 +1,157 @@
+"use client"
+
+import { useEffect, useRef, useState } from "react"
+import { ImgCascata } from "./ImgCascata"
+import { urlsCapa } from "./capaJogo"
+import type { FichaJogo, JogoLinha } from "./types"
+
+interface StoreHeroProps {
+  /** Os destaques que o herói percorre. */
+  jogos: JogoLinha[]
+  /** Ficha do destaque atual — o pai busca conforme o índice muda. */
+  ficha: FichaJogo | null
+  trailer: { url: string; poster: string } | null
+  ativo: boolean
+  naBiblioteca: boolean
+  ocupado: boolean
+  indice: number
+  onIndice: (i: number) => void
+  onAbrir: (j: JogoLinha) => void
+  onBaixar: (j: JogoLinha) => void
+  onAdicionar: (j: JogoLinha) => void
+}
+
+// Troca sozinho a cada 9s. Menos que isso vira slideshow ansioso; mais, e a
+// rotação não é percebida antes de a pessoa rolar a página.
+const INTERVALO = 9000
+
+// O herói da vitrine: arte widescreen, chamada por cima e os botões de ação.
+// Percorre alguns destaques em rodízio, com os pontos indicando a posição.
+//
+// A rotação PARA quando algo aqui dentro tem o foco: trocar o jogo debaixo de
+// um botão que a pessoa está prestes a apertar faria a ação cair no jogo
+// errado. É o mesmo cuidado que impede o layout de se mexer sob a navegação.
+export function StoreHero({
+  jogos,
+  ficha,
+  trailer,
+  ativo,
+  naBiblioteca,
+  ocupado,
+  indice,
+  onIndice,
+  onAbrir,
+  onBaixar,
+  onAdicionar,
+}: StoreHeroProps) {
+  const [pausado, setPausado] = useState(false)
+  const raiz = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (pausado || jogos.length < 2) return
+    const t = setInterval(() => onIndice((indice + 1) % jogos.length), INTERVALO)
+    return () => clearInterval(t)
+  }, [pausado, indice, jogos.length, onIndice])
+
+  const jogo = jogos[indice]
+  if (!jogo) return null
+
+  const semManifesto = jogo.manifest === false
+
+  return (
+    <div
+      ref={raiz}
+      className="loja-heroi"
+      onFocusCapture={() => setPausado(true)}
+      onBlurCapture={(e) => {
+        if (!raiz.current?.contains(e.relatedTarget as Node)) setPausado(false)
+      }}
+      onMouseEnter={() => setPausado(true)}
+      onMouseLeave={() => setPausado(false)}
+    >
+      <div key={jogo.appid} className="loja-heroi__arte">
+        <ImgCascata fontes={[ficha?.fundo || "", ...urlsCapa(jogo, "paisagem")].filter(Boolean)} loading="eager" />
+        {trailer && ativo && (
+          <video
+            key={trailer.url}
+            src={trailer.url}
+            poster={trailer.poster}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+      </div>
+
+      {/* Degradês: um lateral para o texto ter contraste sobre qualquer arte,
+          outro no rodapé para o herói se dissolver no primeiro trilho em vez
+          de terminar num corte reto. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-[var(--loja-fundo)] via-[var(--loja-fundo)]/70 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[var(--loja-fundo)] to-transparent" />
+
+      <div className="relative flex h-full flex-col justify-end px-12 pb-10">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--loja-apagado)]">
+          Em destaque
+        </p>
+        <h1 className="mt-3 max-w-2xl text-5xl font-bold leading-[1.05] tracking-tight">{jogo.title}</h1>
+
+        {ficha?.descricao && (
+          <p className="mt-4 max-w-xl text-[14px] leading-relaxed text-[var(--loja-apagado)] line-clamp-2">
+            {ficha.descricao}
+          </p>
+        )}
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button
+            data-appid={jogo.appid}
+            onClick={() => (semManifesto ? onAbrir(jogo) : onBaixar(jogo))}
+            disabled={ocupado}
+            className="loja-botao -primario"
+          >
+            {semManifesto ? "Ver detalhes" : "Baixar"}
+          </button>
+          <button
+            onClick={() => onAdicionar(jogo)}
+            disabled={ocupado || naBiblioteca || semManifesto}
+            className="loja-botao"
+          >
+            {naBiblioteca ? "Na biblioteca" : "Adicionar"}
+          </button>
+          {ficha?.preco && (
+            <span className="text-[15px] font-semibold" style={{ color: "var(--loja-cor)" }}>
+              {ficha.preco}
+            </span>
+          )}
+          {jogo.desconto ? (
+            <span
+              className="rounded px-2 py-1 text-[11px] font-bold text-black"
+              style={{ background: "var(--loja-cor)" }}
+            >
+              -{jogo.desconto}%
+            </span>
+          ) : null}
+        </div>
+
+        {jogos.length > 1 && (
+          <div className="mt-8 flex items-center gap-2">
+            {jogos.map((j, i) => (
+              <button
+                key={j.appid}
+                tabIndex={-1}
+                aria-label={`Destaque ${i + 1}`}
+                onClick={() => onIndice(i)}
+                className="h-1 rounded-full transition-all"
+                style={{
+                  width: i === indice ? 32 : 16,
+                  background: i === indice ? "#fff" : "rgba(255,255,255,0.3)",
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -13,6 +13,7 @@ export interface JogoLinha {
 
 /** Dados do appdetails, buscados só para o jogo em foco. */
 export interface FichaJogo {
+  descricao?: string
   generos?: string[]
   preco?: string
   precoOriginal?: string

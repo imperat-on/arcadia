@@ -9,10 +9,12 @@ interface StoreCategoriaProps {
   paginas: JogoLinha[][]
   carregando: boolean
   temMais: boolean
+  naBiblioteca?: (j: JogoLinha) => boolean
   onFocar: (j: JogoLinha) => void
   onAbrir: (j: JogoLinha) => void
   /** Chamado pelo IntersectionObserver quando o sentinel aparece na viewport. */
   onPedirMais: () => void
+  onAdicionar?: (j: JogoLinha) => void
 }
 
 // Uma categoria aberta: grade densa dos mesmos ladrilhos da vitrine, com
@@ -22,9 +24,11 @@ export function StoreCategoria({
   paginas,
   carregando,
   temMais,
+  naBiblioteca,
   onFocar,
   onAbrir,
   onPedirMais,
+  onAdicionar,
 }: StoreCategoriaProps) {
   const todos = useMemo(() => paginas.flat(), [paginas])
 
@@ -47,12 +51,12 @@ export function StoreCategoria({
 
   if (carregando && !todos.length) {
     return (
-      <div className="grid px-12 pb-12" style={{ gridTemplateColumns: "repeat(auto-fill, 176px)", gap: 20 }}>
+      <div className="grid px-12 pb-12" style={{ gridTemplateColumns: "repeat(auto-fill, 200px)", gap: 24 }}>
         {Array.from({ length: 21 }).map((_, i) => (
           <div
             key={`sk${i}`}
             className="animate-pulse rounded-lg bg-white/[0.04]"
-            style={{ width: 176, aspectRatio: "3 / 4" }}
+            style={{ width: 200, aspectRatio: "3 / 4" }}
           />
         ))}
       </div>
@@ -65,9 +69,17 @@ export function StoreCategoria({
 
   return (
     <>
-      <div className="grid px-12 pb-6" style={{ gridTemplateColumns: "repeat(auto-fill, 176px)", gap: 20 }}>
+      <div className="grid px-12 pb-6" style={{ gridTemplateColumns: "repeat(auto-fill, 200px)", gap: 24 }}>
         {todos.map((j, i) => (
-          <StoreTile key={j.appid} jogo={j} indice={i} onFocar={onFocar} onAbrir={onAbrir} />
+          <StoreTile
+            key={j.appid}
+            jogo={j}
+            indice={i}
+            naBiblioteca={naBiblioteca?.(j)}
+            onFocar={onFocar}
+            onAbrir={onAbrir}
+            onAdicionar={onAdicionar}
+          />
         ))}
       </div>
       {temMais && <div ref={sentinel} className="h-8" />}
