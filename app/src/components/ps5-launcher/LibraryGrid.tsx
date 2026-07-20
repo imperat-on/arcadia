@@ -45,7 +45,7 @@ export function LibraryGrid({
     // pt-20: folga para o card em foco crescer para cima sem ser cortado pelo scroll
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-10 pt-20 pb-10">
       <div
-        className="grid gap-5"
+        className="grid-stagger grid gap-5"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {games.map((game, i) => {

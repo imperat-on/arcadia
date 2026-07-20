@@ -339,3 +339,24 @@ input,
     opacity var(--dur-1) var(--ease),
     transform var(--dur-1) var(--ease);
 }
+
+/* ─── Modo console (Big Picture) ───────────────────────────────────────────
+   Troca de aba (Notícias · Jogos · Biblioteca). Um pouco mais suave que o
+   equivalente do desktop: aqui a navegação é por gamepad, mais lenta, e a
+   tela inteira muda de conteúdo de uma vez. */
+@keyframes tabIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tab-in { animation: tabIn var(--dur-3) var(--ease-out) both; }
+
+/* O trilho de capas e a grade são navegados com o controle: a resposta ao
+   mover a seleção precisa ser imediata, senão parece atraso de input. Só a
+   sombra e a escala acompanham, e no tempo mais curto. */
+.gp-scope [data-focus],
+.rail-anim > * {
+  transition:
+    transform var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
