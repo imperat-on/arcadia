@@ -85,10 +85,10 @@ export function DesktopLauncher() {
       {baixado && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl">
-            <h3 className="mb-2 text-lg font-semibold text-white">Download concluído!</h3>
+            <h3 className="mb-2 text-lg font-semibold text-white">Download concluído</h3>
             <p className="mb-5 text-[13px] leading-relaxed text-white/60">
-              <span className="font-medium text-white/90">"{baixado.title}"</span> foi instalado e registrado.
-              Para ele aparecer na sua biblioteca Steam, é preciso reiniciar a Steam agora — ou deixe para mais tarde.
+              <span className="font-medium text-white/90">"{baixado.title}"</span> foi instalado.
+              Reinicie a Steam para ele aparecer na biblioteca.
             </p>
             <div className="flex justify-end gap-2.5">
               <button
@@ -120,7 +120,7 @@ export function DesktopLauncher() {
           <div className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-2 text-lg font-semibold text-white">Entrar no Big Picture?</h3>
             <p className="mb-5 text-[13px] leading-relaxed text-white/60">
-              O Arcadia vai fechar o modo desktop e abrir a interface de console em tela cheia (estilo PS5, navegação por gamepad).
+              Fecha o modo desktop e abre a interface de console em tela cheia, com navegação por gamepad.
             </p>
             <div className="flex justify-end gap-2.5">
               <button

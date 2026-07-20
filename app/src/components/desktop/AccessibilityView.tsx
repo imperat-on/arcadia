@@ -137,7 +137,7 @@ export function AccessibilityView() {
         <section>
           <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">Caminho de temas customizados</h2>
           <p className="mb-2 text-xs text-white/40">
-            Pasta com arquivos .css seus — o Arcadia injeta todos ao abrir.
+            Pasta com arquivos .css. Todos são aplicados ao abrir.
           </p>
           <div className="flex gap-2">
             <input

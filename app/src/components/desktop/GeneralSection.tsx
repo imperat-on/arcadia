@@ -44,7 +44,7 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
     <div className="max-w-2xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">Config. Gerais</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Preferências globais do Arcadia — idioma, pastas padrão, comportamento do app e integrações com o sistema.
+        Idioma, pastas padrão, comportamento do app e integrações com o sistema.
       </p>
 
       <Group title="Idioma e aparência">

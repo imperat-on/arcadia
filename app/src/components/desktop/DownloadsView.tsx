@@ -38,7 +38,7 @@ export function DownloadsView() {
 
       {items.length === 0 ? (
         <div className="flex min-h-[280px] items-center justify-center text-white/35">
-          Nenhum download por aqui. O que você mandar instalar pela Biblioteca ou pela aba Lojas aparece nesta tela.
+          Nenhum download. O que você instalar pela Biblioteca ou pelas Lojas aparece aqui.
         </div>
       ) : (
         <div className="flex max-w-[900px] flex-col gap-4 pb-8">

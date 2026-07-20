@@ -52,7 +52,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
 
         {items.length === 0 ? (
           <div className="flex min-h-[300px] items-center justify-center text-white/35">
-            Nenhum download por aqui. Jogos Epic que você mandar instalar aparecem nesta tela.
+            Nenhum download.
           </div>
         ) : (
           <div className="flex flex-col gap-4 pb-10">
