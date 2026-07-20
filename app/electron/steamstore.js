@@ -1310,13 +1310,118 @@ function removeDownloaded(appid) {
   return { ok: true, removidos: achados.length }
 }
 
+// ── Seções do config.yaml da SLSsteam ──────────────────────────────────────
+// O arquivo é lido pela Steam via yaml-cpp e não perdoa erro de forma, então
+// mexemos nele por seção, nunca com busca solta no texto inteiro.
+
+/**
+ * Recorta o corpo de uma seção de topo (tudo até a próxima chave sem
+ * indentação). Devolve "" quando a seção não existe.
+ */
+function corpoSecao(y, secao) {
+  const depois = y.split(new RegExp(`^${secao}:`, "m"))[1]
+  if (depois == null) return ""
+  // Termina na próxima linha que começa na coluna 0 e não é comentário.
+  const linhas = depois.split("\n").slice(1)
+  const corpo = []
+  for (const l of linhas) {
+    if (l && !/^\s/.test(l) && !l.startsWith("#")) break
+    corpo.push(l)
+  }
+  return corpo.join("\n")
+}
+
+/**
+ * A chave está DENTRO da seção indicada?
+ *
+ * Existe porque a checagem anterior era `y.includes(appid)` — busca de
+ * substring no arquivo todo. Dois defeitos: um appid deixado no `DlcData` por
+ * uma remoção anterior fazia a inserção no `AdditionalApps` ser pulada em
+ * silêncio (o jogo nunca mais voltava), e um appid curto casava dentro de um
+ * mais longo ("4740" dentro de "2114740").
+ */
+function temNaSecao(y, secao, chave) {
+  const corpo = corpoSecao(y, secao)
+  if (!corpo) return false
+  const esc = String(chave).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  // Item de lista ("  - 730") ou chave de mapa ("  730: ...").
+  return new RegExp(`^\\s*(?:-\\s*${esc}\\s*(?:#.*)?|${esc}\\s*:)\\s*$`, "m").test(corpo) ||
+    new RegExp(`^\\s*${esc}\\s*:\\s*\\S`, "m").test(corpo)
+}
+
+/**
+ * Remove a chave `<chave>:` de uma seção de mapa junto com TODAS as linhas
+ * mais indentadas que a seguem (os filhos dela).
+ *
+ * Apagar só a linha da chave deixaria os filhos órfãos — e órfão no DlcData
+ * trava a Steam no boot, que é o motivo de a remoção antiga não mexer aqui.
+ */
+function removeChaveComFilhos(y, secao, chave) {
+  const marca = new RegExp(`^${secao}:`, "m")
+  if (!marca.test(y)) return y
+  const linhas = y.split("\n")
+  const inicio = linhas.findIndex((l) => marca.test(l))
+  const esc = String(chave).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const chaveRe = new RegExp(`^(\\s+)${esc}\\s*:`)
+  for (let i = inicio + 1; i < linhas.length; i++) {
+    const l = linhas[i]
+    if (l && !/^\s/.test(l) && !l.startsWith("#")) break // saiu da seção
+    const m = chaveRe.exec(l)
+    if (!m) continue
+    const recuo = m[1].length
+    let fim = i + 1
+    while (fim < linhas.length) {
+      const f = linhas[fim]
+      // Linha vazia não encerra o bloco sozinha; indentação maior é filho.
+      if (f.trim() === "") break
+      const r = f.match(/^\s*/)[0].length
+      if (r <= recuo) break
+      fim++
+    }
+    linhas.splice(i, fim - i)
+    return linhas.join("\n")
+  }
+  return y
+}
+
+/**
+ * Insere `<dlc>: "DLC"` sob `<appid>:` dentro de DlcData.
+ *
+ * DlcData é mapa de mapas — `<appid>: { <dlcId>: "nome" }`. Escrever como
+ * lista (`- dlc`) ou repetir chave CRASHA a Steam no boot (yaml-cpp).
+ *
+ * A versão anterior procurava a chave-pai com `/^  <appid>:/m` no arquivo
+ * inteiro, sem olhar a seção — e casava com a entrada do MESMO appid em
+ * AppTokens, escrita poucas linhas antes nesta mesma função. O ramo seguinte
+ * então não rodava e o DLC não era gravado em ninguém. Como quase todo jogo
+ * tem token, o DlcData quase nunca era preenchido.
+ */
+function addDlc(y, appid, dlc) {
+  const linhas = y.split("\n")
+  const iSecao = linhas.findIndex((l) => /^DlcData:/.test(l))
+  if (iSecao < 0) return `${y}\nDlcData:\n  ${appid}:\n    ${dlc}: "DLC"\n`
+
+  const paiRe = new RegExp(`^(\\s+)${appid}\\s*:`)
+  for (let i = iSecao + 1; i < linhas.length; i++) {
+    const l = linhas[i]
+    if (l && !/^\s/.test(l) && !l.startsWith("#")) break // fim da seção
+    const m = paiRe.exec(l)
+    if (!m) continue
+    linhas.splice(i + 1, 0, `${m[1]}  ${dlc}: "DLC"`)
+    return linhas.join("\n")
+  }
+  // Sem a chave-pai ainda: cria logo abaixo do cabeçalho da seção.
+  linhas.splice(iSecao + 1, 0, `  ${appid}:`, `    ${dlc}: "DLC"`)
+  return linhas.join("\n")
+}
+
 // Registra appid/token/DLCs no ~/.config/SLSsteam/config.yaml (edição simples).
 function registerSlssteam({ appid, token, dlcs }) {
   const cfgPath = path.join(os.homedir(), ".config", "SLSsteam", "config.yaml")
   if (!fs.existsSync(cfgPath)) return { ok: false, error: "config.yaml da SLSsteam não encontrado" }
   let y = fs.readFileSync(cfgPath, "utf-8")
   const appidStr = String(appid)
-  if (!y.includes(appidStr)) {
+  if (!temNaSecao(y, "AdditionalApps", appidStr)) {
     // AdditionalApps: lista de appids extras exibidos como owned.
     if (/^AdditionalApps:/m.test(y)) {
       y = y.replace(/^AdditionalApps:\s*$/m, `AdditionalApps:\n  - ${appidStr}`)
@@ -1325,7 +1430,7 @@ function registerSlssteam({ appid, token, dlcs }) {
       y += `\nAdditionalApps:\n  - ${appidStr}\n`
     }
   }
-  if (token && !y.includes(token)) {
+  if (token && !temNaSecao(y, "AppTokens", appidStr)) {
     if (/^AppTokens:/m.test(y)) {
       y = y.replace(/^AppTokens:\s*$/m, `AppTokens:\n  ${appidStr}: ${token}`)
       y = y.replace(/^AppTokens:\s*\{\}\s*$/m, `AppTokens:\n  ${appidStr}: ${token}`)
@@ -1334,17 +1439,7 @@ function registerSlssteam({ appid, token, dlcs }) {
     }
   }
   for (const dlc of dlcs || []) {
-    if (!y.includes(dlc)) {
-      // DlcData é mapa de mapas: <appid>: { <dlcId>: "nome" } — escrever como
-      // lista (- dlc) ou chave duplicada CRASHA a Steam no boot (yaml-cpp).
-      if (new RegExp(`^  ${appidStr}:`, "m").test(y)) {
-        y = y.replace(new RegExp(`^(  ${appidStr}:\\s*\\n)`, "m"), `$1    ${dlc}: "DLC"\n`)
-      } else if (/^DlcData:/m.test(y)) {
-        y = y.replace(/^DlcData:\s*$/m, `DlcData:\n  ${appidStr}:\n    ${dlc}: "DLC"`)
-      } else {
-        y += `\nDlcData:\n  ${appidStr}:\n    ${dlc}: "DLC"\n`
-      }
-    }
+    if (!temNaSecao(y, "DlcData", dlc)) y = addDlc(y, appidStr, dlc)
   }
   fs.writeFileSync(cfgPath, y)
   return { ok: true }
@@ -1644,12 +1739,12 @@ function removeFromSteam(appid) {
   y = y.replace(new RegExp(`^\\s*-\\s*${id}\\s*(#.*)?$\\n?`, "m"), "")
   // Token em AppTokens — SÓ dentro da seção AppTokens (antes o regex apagava
   // também a chave-pai do appid no DlcData, órfãos que crasham a Steam).
-  const partes = y.split(/^(?=AppTokens:)/m)
-  if (partes.length > 1) {
-    const resto = partes[1].split(/^(?=\S)/m)
-    resto[0] = resto[0].replace(new RegExp(`^\\s*${id}:.*$\\n?`, "m"), "")
-    y = partes[0] + resto.join("")
-  }
+  y = removeChaveComFilhos(y, "AppTokens", id)
+  // DlcData também sai — pai e filhos juntos. Antes ficava para trás, e o
+  // resto sujo fazia um "Adicionar" posterior ser pulado: a checagem de
+  // presença era substring no arquivo inteiro, então o appid órfão no DlcData
+  // se passava por "já está no AdditionalApps".
+  y = removeChaveComFilhos(y, "DlcData", id)
   fs.writeFileSync(cfgPath, y)
   return { ok: true }
 }
@@ -1664,13 +1759,22 @@ async function status() {
     const bloco = y.split(/^AdditionalApps:/m)[1] || ""
     for (const m of bloco.matchAll(/^\s*-\s*(\d+)/gm)) adicionados.add(m[1])
   } catch {}
-  try {
-    const stplug = path.join(os.homedir(), ".config", "SLSsteam", "config", "stplug-in")
-    for (const f of fs.readdirSync(stplug)) {
-      const m = /^(\d+)(?:_.*)?\.lua$/.exec(f)
-      if (m) adicionados.add(m[1])
-    }
-  } catch {}
+  // Dois diretórios: o do SLSsteam e o da própria Steam. `addToSteam` grava no
+  // segundo; ler só o primeiro fazia "Na biblioteca" mentir.
+  const base = steamBasePath()
+  const stplugs = [
+    path.join(os.homedir(), ".config", "SLSsteam", "config", "stplug-in"),
+    base ? path.join(base, "config", "stplug-in") : "",
+  ]
+  for (const stplug of stplugs) {
+    if (!stplug) continue
+    try {
+      for (const f of fs.readdirSync(stplug)) {
+        const m = /^(\d+)(?:_.*)?\.lua$/.exec(f)
+        if (m) adicionados.add(m[1])
+      }
+    } catch {}
+  }
   // Downloads feitos pelo Arcadia (acf marcado) também contam como "adicionados".
   for (const a of arcadiaDownloaded()) adicionados.add(a.appid)
   return {
