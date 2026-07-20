@@ -1315,9 +1315,17 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  ipcMain.handle("store:recent", async () => {
+  // Uma seção da vitrine da Steam: lançamentos, mais vendidos, promoções.
+  ipcMain.handle("store:featured", async (_e, { secao, limite } = {}) => {
     try {
-      return await steamstore.popular()
+      return await steamstore.destaques(String(secao || ""), Number(limite) || 24)
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  ipcMain.handle("store:recent", async (_e, lista) => {
+    try {
+      return await steamstore.popular(lista ? String(lista) : undefined)
     } catch (e) {
       return { ok: false, error: String(e) }
     }

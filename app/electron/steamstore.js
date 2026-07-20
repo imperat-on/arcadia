@@ -331,8 +331,8 @@ function lerPopularCache() {
   return null
 }
 
-async function buscarPopular() {
-  const r = await gh("https://steamspy.com/api.php?request=top100in2weeks", {
+async function buscarPopular(lista = "top100in2weeks") {
+  const r = await gh(`https://steamspy.com/api.php?request=${lista}`, {
     signal: AbortSignal.timeout(15000),
   })
   if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
@@ -356,11 +356,50 @@ async function buscarPopular() {
   return jogos
 }
 
+// Mesma montagem do "Em alta", para as outras listas do SteamSpy.
+async function buscarPopularLista(lista) {
+  const r = await gh(`https://steamspy.com/api.php?request=${lista}`, {
+    signal: AbortSignal.timeout(25000),
+  })
+  if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
+  const data = await r.json()
+  const jogos = ordenarPorPopularidade(Object.values(data))
+    .map((g) => ({
+      appid: String(g.appid || ""),
+      title: g.name || "",
+      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+      manifest: false,
+    }))
+    .filter((g) => g.appid && g.title)
+    .slice(0, 24)
+  await marcarDisponibilidade(jogos)
+  return jogos
+}
+
 // Entrega o cache na hora e, se estiver velho, atualiza em segundo plano
 // (stale-while-revalidate): a aba abre instantânea e o conteúdo se renova
 // sozinho para a próxima vez, em vez de fazer o usuário esperar.
+// `lista` escolhe entre a quinzena (Em alta) e o acumulado (Mais jogados).
 let popularEmVoo = null
-async function popular() {
+async function popular(lista = "top100in2weeks") {
+  if (lista !== "top100in2weeks") {
+    // As outras listas usam o cache genérico, com uma entrada por lista.
+    const cache = lerCache(GENERO_CACHE) || {}
+    const chave = `__${lista}`
+    const guardado = cache[chave]
+    if (guardado && Date.now() - (guardado.at || 0) < GENERO_TTL) {
+      return { ok: true, jogos: guardado.jogos, cache: true }
+    }
+    try {
+      const jogos = await buscarPopularLista(lista)
+      cache[chave] = { at: Date.now(), jogos }
+      gravarCache(GENERO_CACHE, cache)
+      return { ok: true, jogos }
+    } catch (e) {
+      if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
+      return { ok: false, error: String(e.message || e) }
+    }
+  }
   const c = lerPopularCache()
   const velho = !c || Date.now() - (c.at || 0) > POPULAR_TTL
   if (c && !velho) return { ok: true, jogos: c.jogos, cache: true }
@@ -484,6 +523,73 @@ async function detalhes(appid) {
   } catch (e) {
     // Cache vencido ainda serve: melhor uma ficha de ontem que uma tela vazia.
     if (guardado) return { ok: true, jogo: guardado.jogo, cache: true, velho: true }
+    return { ok: false, error: String(e.message || e) }
+  }
+}
+
+const DESTAQUE_CACHE = path.join(DATA_DIR, "store_featured_cache.json")
+const DESTAQUE_TTL = 3 * 60 * 60 * 1000 // 3h: lançamentos e promoções giram rápido
+
+// Seções da vitrine oficial da Steam. Vêm todas numa resposta só, então uma
+// chamada abastece as quatro linhas.
+const SECOES = new Set(["new_releases", "top_sellers", "specials", "coming_soon"])
+
+// Os itens do featuredcategories usam `id`/`name`, e não `appid`/`title` como o
+// resto da loja. Normalizar aqui evita que o carrossel receba capa vazia.
+function mapDestaque(itens) {
+  return (itens || [])
+    .map((g) => ({
+      appid: String(g.id || ""),
+      title: g.name || "",
+      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`,
+      manifest: false,
+      desconto: Number(g.discount_percent) || 0,
+    }))
+    .filter((g) => g.appid && g.title)
+}
+
+// Uma seção da vitrine (lançamentos, mais vendidos, promoções, em breve).
+async function destaques(secao, limite = 24) {
+  const chave = String(secao || "")
+  if (!SECOES.has(chave)) return { ok: false, error: `seção inválida: ${chave}` }
+  const cache = lerCache(DESTAQUE_CACHE) || {}
+  const guardado = cache[chave]
+  if (guardado && Date.now() - (guardado.at || 0) < DESTAQUE_TTL) {
+    // As seções preenchidas de carona (ver abaixo) entram sem sondagem. Servir
+    // assim marcaria TUDO como "sem manifesto" — sondamos na primeira vez que
+    // a seção é realmente pedida.
+    if (!guardado.sondado) {
+      await marcarDisponibilidade(guardado.jogos)
+      guardado.sondado = true
+      gravarCache(DESTAQUE_CACHE, cache)
+    }
+    return { ok: true, jogos: guardado.jogos, cache: true }
+  }
+  try {
+    const r = await gh("https://store.steampowered.com/api/featuredcategories?cc=br&l=portuguese", {
+      signal: AbortSignal.timeout(20000),
+    })
+    if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
+    const data = await r.json()
+    // A resposta traz TODAS as seções: aproveitamos para preencher o cache das
+    // outras de uma vez, em vez de repetir a chamada quando o usuário troca de
+    // filtro.
+    const agora = Date.now()
+    // A resposta traz todas as seções de uma vez; guardamos as outras sem
+    // sondar (sondado: false) para não gastar dezenas de HEAD em listas que o
+    // usuário talvez nem abra.
+    for (const s of SECOES) {
+      const itens = mapDestaque(data?.[s]?.items).slice(0, limite)
+      if (itens.length) cache[s] = { at: agora, jogos: itens, sondado: false }
+    }
+    const alvo = cache[chave]
+    if (!alvo) throw new Error("seção vazia na resposta")
+    await marcarDisponibilidade(alvo.jogos)
+    cache[chave] = { at: agora, jogos: alvo.jogos, sondado: true }
+    gravarCache(DESTAQUE_CACHE, cache)
+    return { ok: true, jogos: alvo.jogos }
+  } catch (e) {
+    if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
     return { ok: false, error: String(e.message || e) }
   }
 }
@@ -1209,6 +1315,7 @@ module.exports = {
   suggest,
   detalhes,
   porGenero,
+  destaques,
   recent,
   popular,
   checkFixes,

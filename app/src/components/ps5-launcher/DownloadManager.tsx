@@ -32,8 +32,13 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
     })
   }, [])
 
-  const ativos = items.filter((i) => i.status === "downloading" || i.status === "queued").length
-  const atual = items.find((i) => i.status === "downloading")
+  // Ativos e não concluídos em seções separadas. O desktop recebeu isso no
+  // commit 717a793 e esta tela ficou para trás: os cards vinham misturados sob
+  // "Baixando agora", com o contador dizendo "N ativo(s)" ao lado de itens em
+  // erro — a tela se contradizia.
+  const ativos = items.filter((i) => ["downloading", "queued", "paused"].includes(i.status))
+  const parados = items.filter((i) => !["downloading", "queued", "paused"].includes(i.status))
+  const baixando = ativos.some((i) => i.status === "downloading")
 
   return (
     <div ref={ref} className="gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl">
@@ -45,9 +50,12 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
         </div>
         <div className="mb-8 flex items-baseline justify-between">
           <h1 className="text-3xl font-light tracking-wide">
-            {atual ? "Baixando agora" : ativos ? "Na fila" : "Fila de downloads"}
+            {baixando ? "Baixando agora" : ativos.length ? "Na fila" : "Fila de downloads"}
           </h1>
-          <span className="text-sm text-white/40">{ativos} ativo(s)</span>
+          <span className="text-sm text-white/40">
+            {ativos.length} ativo(s)
+            {parados.length > 0 && ` · ${parados.length} com falha`}
+          </span>
         </div>
 
         {items.length === 0 ? (
@@ -56,9 +64,17 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
           </div>
         ) : (
           <div className="flex flex-col gap-4 pb-10">
-            {items.map((it) => (
+            {ativos.map((it) => (
               <DmCard key={it.appid} item={it} />
             ))}
+            {parados.length > 0 && (
+              <>
+                <h2 className="mt-4 text-sm font-medium text-white/45">Não concluídos</h2>
+                {parados.map((it) => (
+                  <DmCard key={it.appid} item={it} />
+                ))}
+              </>
+            )}
           </div>
         )}
 
@@ -73,6 +89,10 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
 })
 
 export function DmCard({ item: it }: { item: DmItem }) {
+  // Marca o card assim que o botão é apertado. O back-end remove o item em
+  // ~20ms, mas se a rede ou o disco atrasarem a resposta, sem isto o botão
+  // parece morto — foi o que motivou esta correção.
+  const [cancelando, setCancelando] = useState(false)
   const baixando = it.status === "downloading"
   const pausado = it.status === "paused"
   const ativo = baixando || pausado || it.status === "queued"
@@ -135,7 +155,14 @@ export function DmCard({ item: it }: { item: DmItem }) {
           <Acao label="Retomar" primaria onClick={() => window.launcherAPI?.dmResume(it.appid)} />
         )}
         {ativo && (
-          <Acao label="Cancelar" perigo onClick={() => window.launcherAPI?.dmCancel(it.appid)} />
+          <Acao
+            label={cancelando ? "Cancelando…" : "Cancelar"}
+            perigo
+            onClick={() => {
+              setCancelando(true)
+              window.launcherAPI?.dmCancel(it.appid)
+            }}
+          />
         )}
         {/* Item que falhou não tinha ação nenhuma: ficava preso na tela para
             sempre, e mandar baixar de novo criava um card duplicado. */}
