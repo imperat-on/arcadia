@@ -159,6 +159,12 @@ export function PS5Launcher() {
     setPerfilSaindo(true)
     setPosLogin(true)
     setTimeout(() => setPerfilGate(false), 360)
+    // A classe .pos-login precisa SAIR quando a coreografia acaba. Ficando
+    // para sempre, qualquer remontagem do trilho (trocar de aba e voltar)
+    // reexecutava a cascata de entrada do login — uma abertura de sessão
+    // acontecendo no meio da navegação. 1,6s cobre a fase mais longa (0,55s
+    // de atraso + 0,7s de fade).
+    setTimeout(() => setPosLogin(false), 1600)
   }
 
   const [showDownloads, setShowDownloads] = useState(false)
@@ -834,7 +840,14 @@ export function PS5Launcher() {
 
       {/* Conteúdo (acima do fundo). Em Notícias/Biblioteca a altura é travada na
           tela para o scroll acontecer dentro da view (ref p/ gamepad). */}
-      <div className={newsMode || gridMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}>
+      {/* A key por aba remonta o conteudo, reiniciando a animacao de entrada:
+          trocar Noticias/Jogos/Biblioteca era um corte seco. Durante o boot e a
+          selecao de perfil fica de fora, para nao competir com a coreografia
+          de abertura, que ja tem a sua propria sequencia. */}
+      <div
+        key={boot || perfilGate ? "intro" : activeTab}
+        className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
+      >
         {newsMode ? (
           <div className="flex-1 min-h-0 pt-20">
             <NewsView
