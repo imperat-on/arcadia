@@ -56,7 +56,7 @@ export function GameRail({
   return (
     // Capas alinhadas pelo topo, como na referência. Scrollbar escondida: navega-se por seleção.
     <div
-      className="rail-anim flex items-start gap-3 px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
+      className="rail-anim flex items-start px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
       style={{ height: ROW_H }}
     >
       {games.map((game, i) => {
@@ -71,22 +71,32 @@ export function GameRail({
             }}
             className="relative flex-shrink-0 rounded-2xl outline-none scroll-mx-10"
             style={{
-              // O SLOT tem largura fixa. Antes animávamos width/height, que são
-              // propriedades de layout: o navegador refazia o layout do trilho
-              // inteiro a cada frame e todos os vizinhos escorregavam junto —
-              // era daí que vinha o tremido. Agora só a capa cresce, por
-              // transform, e ninguém mais sai do lugar.
-              width: TILE_W + PANEL_PAD * 2,
+              // O SLOT tem tamanho fixo e já cabe a capa AMPLIADA. Antes
+              // animávamos width/height, que são propriedades de layout: o
+              // trilho inteiro era refeito a cada frame e os vizinhos
+              // escorregavam junto. Agora só a capa cresce, por transform.
+              // O slot precisa ser do tamanho maior: dimensionado pela capa
+              // pequena, a ampliada transbordava 16px para cada lado e o
+              // overflow-x do trilho cortava a primeira e a última.
+              width: TILE_SEL_W + PANEL_PAD * 2,
               height: TILE_SEL_W * RATIO + PANEL_PAD * 2,
               padding: PANEL_PAD,
+              // O slot largo deixaria 72px entre as capas (eram 32px). A
+              // margem negativa devolve o espaçamento original sem encolher o
+              // slot — os slots se sobrepõem, as capas não.
+              marginRight: i === games.length - 1 ? 0 : -40,
               zIndex: focused ? 10 : 1,
             }}
             aria-label={`${game.title} — selecionar`}
           >
             <div
-              className="w-full rounded-xl overflow-hidden"
+              className="rounded-xl overflow-hidden"
               style={{
+                // A capa em si continua no tamanho pequeno e centralizada no
+                // slot; quem cresce é o transform abaixo.
+                width: TILE_W,
                 height: TILE_W * RATIO,
+                margin: "0 auto",
                 background:
                   FALLBACK_GRADIENTS[game.launcher] ??
                   "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)",
