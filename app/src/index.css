@@ -368,7 +368,55 @@ input,
    de graça. A escala segue a lição do GameRail: a caixa tem o tamanho GRANDE e
    as não focadas encolhem, porque crescer para fora da caixa é o que fazia a
    capa ser cortada. */
+/* Cor do jogo em foco, extraída da capa. Cai no accent quando a imagem falha
+   ou ainda não foi lida. É esta variável que faz o ambiente inteiro reagir. */
+.loja {
+  --loja-cor: var(--accent);
+}
+
+/* Halo atrás da capa em foco: o brilho ambiente que dá profundidade e some
+   quando o foco vai embora. */
+.loja-capa::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--loja-cor) 0%, transparent 70%);
+  opacity: 0;
+  filter: blur(28px);
+  transition: opacity var(--dur-3) var(--ease);
+  pointer-events: none;
+  z-index: -1;
+}
+.loja-item:focus .loja-capa::before,
+.loja-item:hover .loja-capa::before {
+  opacity: 0.55;
+}
+
+/* Varredura de brilho ao ganhar foco. Roda uma vez, 420ms — é o "clique
+   visual" que confirma que o item mudou. */
+@keyframes lojaSheen {
+  from { transform: translateX(-120%) skewX(-18deg); }
+  to { transform: translateX(220%) skewX(-18deg); }
+}
+.loja-item:focus .loja-capa::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  animation: lojaSheen 420ms var(--ease) 1 both;
+  pointer-events: none;
+}
+
+/* Desvanecimento nas pontas da linha: dá a leitura de trilho contínuo em vez
+   de uma lista que termina no corte da tela. */
+.loja-linha {
+  mask-image: linear-gradient(90deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+}
+
 .loja-capa {
+  position: relative;
   transform: scale(0.82);
   transform-origin: center top;
   opacity: 0.62;
@@ -386,10 +434,23 @@ input,
   transform: translateY(-6px) scale(1);
   opacity: 1;
   filter: none;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.7), 0 0 0 2px var(--accent);
+  /* A borda usa a cor do próprio jogo, não o accent fixo. */
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.7), 0 0 0 2px var(--loja-cor);
 }
 /* O anel de foco dos overlays desenharia um contorno quadrado por cima da
    capa; aqui o próprio realce já indica o foco. */
 .gp-scope .loja-item:focus {
   outline: none !important;
+}
+
+/* Herói da loja: transição de cor e arte deslizando entre jogos, em vez de
+   trocar seco. */
+.loja-heroi-arte {
+  transition: opacity var(--dur-3) var(--ease);
+}
+.loja-halo {
+  background: radial-gradient(60% 70% at 22% 40%, var(--loja-cor) 0%, transparent 65%);
+  opacity: 0.22;
+  transition: background var(--dur-3) var(--ease);
+  pointer-events: none;
 }

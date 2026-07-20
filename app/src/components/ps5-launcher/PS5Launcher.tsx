@@ -341,7 +341,23 @@ export function PS5Launcher() {
   // A loja navega POR FOCO (as capas são botões), diferente das notícias, que
   // só rolam. Por isso não usa o modo scrollOnly.
   const storeRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(storeRef, storeMode)
+  // X baixa e Y adiciona o jogo em foco, sem abrir a página. O appid vem do
+  // data-appid da capa focada — o mesmo elemento que o hook já move.
+  const atalhosLoja = useRef<{ baixar: (a: string) => void; adicionar: (a: string) => void } | null>(null)
+  const extrasLoja = useMemo(
+    () => ({
+      onX: (alvo: HTMLElement | null) => {
+        const id = alvo?.closest<HTMLElement>("[data-appid]")?.dataset.appid
+        if (id) atalhosLoja.current?.baixar(id)
+      },
+      onY: (alvo: HTMLElement | null) => {
+        const id = alvo?.closest<HTMLElement>("[data-appid]")?.dataset.appid
+        if (id) atalhosLoja.current?.adicionar(id)
+      },
+    }),
+    [],
+  )
+  useGamepadNav(storeRef, storeMode, undefined, false, extrasLoja)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =
@@ -867,7 +883,12 @@ export function PS5Launcher() {
       >
         {storeMode ? (
           <div className="flex-1 min-h-0 pt-20">
-            <StoreConsole ref={storeRef} games={viewGames} ativo={appFocused && !gameRunning} />
+            <StoreConsole
+              ref={storeRef}
+              games={viewGames}
+              ativo={appFocused && !gameRunning}
+              onAtalhos={(a) => (atalhosLoja.current = a)}
+            />
           </div>
         ) : newsMode ? (
           <div className="flex-1 min-h-0 pt-20">
