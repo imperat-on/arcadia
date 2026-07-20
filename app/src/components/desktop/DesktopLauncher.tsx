@@ -65,7 +65,9 @@ export function DesktopLauncher() {
         onConfigSub={setConfigSub}
       />
 
-      <main className="min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]">
+      {/* A key faz o React remontar ao trocar de seção, o que reinicia a
+          animação de entrada — sem ela a troca continuaria um corte seco. */}
+      <main key={view} className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]">
         {view === "biblioteca" && <LibraryView games={games} tilesColor={cfg.tiles_color} alwaysTitles={cfg.always_titles} onRefresh={carregar} />}
         {view === "lojas" && <StoreView games={games} />}
         {view === "downloads" && <DownloadsView />}
