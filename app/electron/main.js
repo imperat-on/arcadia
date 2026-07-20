@@ -659,7 +659,13 @@ function writeConfig(partial) {
     if (partial && partial.sources) {
       next.sources = { ...(cur.sources || {}), ...partial.sources }
     }
-    fs.writeFileSync(CONFIG, JSON.stringify(next, null, 2), "utf-8")
+    // Escrita atômica: grava num temporário e renomeia. Escrevendo direto por
+    // cima, uma queda no meio deixa o config.json truncado — e com ele vão as
+    // chaves de API, o perfil e todos os ajustes. O rename é atômico dentro do
+    // mesmo sistema de arquivos, então ou fica o antigo, ou fica o novo.
+    const tmp = `${CONFIG}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf-8")
+    fs.renameSync(tmp, CONFIG)
     return { ok: true, config: next }
   } catch (e) {
     return { ok: false, error: String(e) }

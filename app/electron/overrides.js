@@ -26,7 +26,11 @@ function setOverride(file, id, patch) {
   }
   if (Object.keys(next).length) all[id] = next
   else delete all[id]
-  fs.writeFileSync(file, JSON.stringify(all, null, 2), "utf-8")
+  // Atômico: as edições de arte/nome dos jogos são trabalho manual do usuário.
+  // Uma queda no meio da gravação apagaria tudo de uma vez.
+  const tmp = `${file}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(all, null, 2), "utf-8")
+  fs.renameSync(tmp, file)
   return all
 }
 

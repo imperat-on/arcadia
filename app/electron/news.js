@@ -136,7 +136,8 @@ function pegarImagem(bloco) {
 }
 
 async function buscarFeed(feed) {
-  const r = await fetch(feed.url, { headers: { "User-Agent": UA } })
+  // Feed de notícias sem timeout pendurava a aba Notícias indefinidamente.
+  const r = await fetch(feed.url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const xml = await r.text()
   const itens = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || []
