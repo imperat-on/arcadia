@@ -176,7 +176,16 @@ function iniciarFilho(it, cmd, args) {
 
   // O Legendary emite o percentual de arquivos na linha "Progress" e os MiB
   // baixados na linha seguinte ("Downloaded"). Guardamos ambos.
+  // Última linha de erro do DepotDownloader. Sem guardá-la, a UI só conseguia
+  // dizer "código 1" e o motivo real (ex.: 401 em manifesto antigo com conta
+  // anônima) se perdia — impossível diagnosticar sem rodar na mão.
+  let ultimoErro = ""
   const onOut = (text) => {
+    for (const linha of String(text).split("\n")) {
+      if (/error|unable|aborting|401|403|denied|not completely/i.test(linha) && linha.trim()) {
+        ultimoErro = linha.trim().slice(0, 300)
+      }
+    }
     const p = RE_PROGRESS.exec(text)
     if (p) {
       update(it.appid, {
@@ -218,19 +227,31 @@ function iniciarFilho(it, cmd, args) {
       next()
       return
     }
-    if (code === 0) {
-      // Ainda há depots na fila? Segue para o próximo em vez de dar por
-      // encerrado — o jogo só está completo quando todos baixaram.
-      const fila = it.fila || []
-      if (fila.length && it.filaIdx < fila.length - 1) {
+    const fila = it.fila || []
+    if (fila.length) {
+      // Um depot que falha não derruba o jogo inteiro — é assim que o Acella
+      // trata (aviso e segue). Depots opcionais (idiomas, DLC) falham sozinhos
+      // com frequência; só damos erro se NENHUM depot tiver baixado.
+      if (code === 0) it.depotsOk = (it.depotsOk || 0) + 1
+      else {
+        it.depotsFalhos = it.depotsFalhos || []
+        it.depotsFalhos.push(fila[it.filaIdx]?.depotId || "?")
+        dlog(`depot ${fila[it.filaIdx]?.depotId} falhou (código ${code}) em ${it.title}: ${(ultimoErro || "").slice(0, 200)}`)
+      }
+      if (it.status !== "paused" && it.filaIdx < fila.length - 1) {
         it.filaIdx++
         activeChild = null
         const prox = fila[it.filaIdx]
         update(it.appid, { depotAtual: it.filaIdx + 1, depotsTotal: fila.length })
         return iniciarFilho(it, prox.cmd, prox.args)
       }
-      finish(it, "done")
-    } else if (it.status === "paused") {
+      if (it.status !== "paused") {
+        if (it.depotsOk) return finish(it, "done")
+        return finish(it, "error", ultimoErro || `download falhou (código ${code})`)
+      }
+    }
+    if (code === 0) finish(it, "done")
+    else if (it.status === "paused") {
       activeChild = null // pausado: fica na fila até dmResume
     } else finish(it, "error", `download falhou (código ${code})`)
   })
