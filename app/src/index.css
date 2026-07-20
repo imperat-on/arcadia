@@ -409,10 +409,11 @@ input,
   pointer-events: none;
 }
 
-/* Desvanecimento nas pontas da linha: dá a leitura de trilho contínuo em vez
-   de uma lista que termina no corte da tela. */
+/* Desvanecimento SÓ na direita: no layout cockpit a linha começa colada na
+   borda da coluna de conteúdo e sangra para fora da tela, o que sugere que ela
+   continua. Desvanecer à esquerda também abriria um vão contra o painel. */
 .loja-linha {
-  mask-image: linear-gradient(90deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 90px), transparent 100%);
 }
 
 .loja-capa {

@@ -47,7 +47,7 @@ interface StoreRowProps {
   onFocar?: (jogo: JogoLinha) => void
 }
 
-const CAPA_W = 176
+const CAPA_W = 150 // menor que antes: a coluna de conteúdo é mais estreita no cockpit
 const RATIO = 1.5
 const PAD = 12
 
@@ -69,7 +69,7 @@ export function StoreRow({ titulo, jogos, carregando, onAbrir, onFocar }: StoreR
 
   return (
     <section className="mb-8">
-      <div className="mb-3 flex items-baseline gap-3 px-12">
+      <div className="mb-3 flex items-baseline gap-3 pl-8 pr-8">
         <h2 className="text-[15px] font-medium text-white/70">{titulo}</h2>
         {pos > 0 && (
           <span className="text-[12px] tabular-nums text-white/30">
@@ -86,7 +86,7 @@ export function StoreRow({ titulo, jogos, carregando, onAbrir, onFocar }: StoreR
       <div
         ref={trilho}
         onScroll={aoRolar}
-        className="loja-linha flex items-start overflow-x-auto px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="loja-linha flex items-start overflow-x-auto pl-8 pr-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         // O slot já tem a altura da capa em tamanho cheio mais o respiro do
         // realce. Sem isso o `overflow-x` recortaria a sombra e o anel de foco,
         // que foi exatamente o defeito que apareceu no trilho de jogos.
@@ -110,7 +110,7 @@ export function StoreRow({ titulo, jogos, carregando, onAbrir, onFocar }: StoreR
                   onFocar?.(j)
                 }}
                 data-appid={j.appid}
-                className="loja-item relative shrink-0 scroll-mx-12 outline-none"
+                className="loja-item relative shrink-0 scroll-mx-8 outline-none"
                 style={{ width: CAPA_W + PAD * 2, padding: PAD }}
                 aria-label={j.title}
               >
