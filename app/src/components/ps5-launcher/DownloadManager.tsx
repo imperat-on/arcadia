@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useState } from "react"
 import type { DmItem } from "../../global"
+import { fmtMiB } from "../tamanho"
 
 interface DownloadManagerProps {
   onClose: () => void
@@ -131,10 +132,13 @@ export function DmCard({ item: it }: { item: DmItem }) {
 
         <div className="mt-2 flex items-baseline justify-between text-xs text-white/50">
           <span className="tabular-nums">
+            {/* A unidade vai nos DOIS números: no meio do download um lado
+                ainda é MiB e o outro já é GiB, e omitir a primeira faria
+                "345 / 60 GiB" mentir. */}
             {it.total > 0
-              ? `${it.done.toFixed(0)} / ${it.total.toFixed(0)} MiB · ${pct}%`
+              ? `${fmtMiB(it.done)} / ${fmtMiB(it.total)} · ${pct}%`
               : it.done > 0
-                ? `${it.done.toFixed(0)} MiB baixados · ${pct}%`
+                ? `${fmtMiB(it.done)} baixados · ${pct}%`
                 : it.status === "queued" ? "aguardando…" : `${pct}%`}
           </span>
           {baixando && (

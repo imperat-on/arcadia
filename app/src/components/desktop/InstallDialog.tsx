@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
+import { fmtGiB } from "../tamanho"
 
 // Diálogo de instalação (estilo Heroic): mostra tamanho do download/instalado,
 // deixa escolher a pasta, exibe espaço livre e confirma/cancela a instalação.
 
+// Recebe GiB e desce para MiB quando o jogo é pequeno — "0.78 GiB" é tão
+// ruim quanto "61440 MiB" no card de download.
 function GiB({ v }: { v?: number }) {
-  if (v == null || Number.isNaN(v)) return <>—</>
-  return <>{v.toFixed(2)} GiB</>
+  return <>{fmtGiB(v)}</>
 }
 
 export function InstallDialog({

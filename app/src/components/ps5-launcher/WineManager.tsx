@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { WineVer } from "../../global"
+import { fmtMiB } from "../tamanho"
 
 // Wine Manager estilo Heroic: abas GE-Proton / Wine-GE / Steam, lista com
 // busca, data de lançamento, tamanho e ações (baixar / remover / abrir pasta).
@@ -25,12 +26,6 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
     hint: "Versões oficiais do Proton detectadas na sua instalação da Steam.",
   },
 ]
-
-function fmtSize(mib?: number) {
-  if (!mib) return "—"
-  if (mib >= 1024) return `${(mib / 1024).toFixed(1).replace(/\.0$/, "")} GiB`
-  return `${mib.toFixed(0)} MiB`
-}
 
 function fmtDate(iso?: string) {
   if (!iso) return "—"
@@ -183,7 +178,7 @@ export function WineSection() {
               <Row key={v.id}>
                 <Name name={v.name} />
                 <Cell>{fmtDate(v.releaseDate)}</Cell>
-                <Cell>{fmtSize(v.size)}</Cell>
+                <Cell>{fmtMiB(v.size)}</Cell>
                 <Actions>
                   <button
                     onClick={async () => {

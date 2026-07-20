@@ -19,6 +19,7 @@ import { TopBar, TABS } from "./TopBar"
 import { StoreConsole } from "./StoreConsole"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
+import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
@@ -1075,7 +1076,7 @@ export function PS5Launcher() {
           titulo={`Instalar ${instalarGame.title}`}
           subtitulo={
             instalarGame.size != null
-              ? `Download de ${(instalarGame.size / 1024).toFixed(1)} GB · escolha onde instalar.`
+              ? `Download de ${fmtMiB(instalarGame.size)} · escolha onde instalar.`
               : "Escolha onde instalar."
           }
           opcoes={destinosEpic}
