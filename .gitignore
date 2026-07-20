@@ -18,6 +18,10 @@ player_cache.json
 store_popular_cache.json
 store_details_cache.json
 store_genre_cache.json
+store_featured_cache.json
+store_manifest_cache.json
+store_items_cache.json
+store_cover_cache.json
 sysinfo_cache.json
 wine_catalog_cache.json
 
