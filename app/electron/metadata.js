@@ -31,8 +31,11 @@ const SGDB_DIMENSIONS_PADRAO = {
   logo: [],
 }
 
+// Timeout obrigatório: sem ele, um servidor que aceita a conexão e nunca
+// responde deixa a promessa pendurada para sempre. Como esses fetch são
+// aguardados dentro de handlers IPC, a tela ficava girando sem fim, sem erro.
 async function getJSON(url, headers) {
-  const r = await fetch(url, { headers })
+  const r = await fetch(url, { headers, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`HTTP ${r.status} em ${url}`)
   return r.json()
 }

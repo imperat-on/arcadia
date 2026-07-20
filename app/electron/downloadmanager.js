@@ -48,7 +48,12 @@ function persist() {
   try {
     const sane = queue.map(({ appid, appName, title, cover, status, percent, done, total, eta, speed, error, installPath, installDir, engine, installdir, depots, token, dlcs, steamDir }) =>
       ({ appid, appName, title, cover, status, percent, done, total, eta, speed, error, installPath, installDir, engine, installdir, depots, token, dlcs, steamDir }))
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(sane, null, 2))
+    // Atômico (ver writeConfig): a fila é gravada a cada 3s durante o
+    // download, então é justamente o arquivo com mais chance de ser pego
+    // pela metade num fechamento abrupto.
+    const tmp = `${QUEUE_FILE}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(sane, null, 2))
+    fs.renameSync(tmp, QUEUE_FILE)
   } catch {}
 }
 
@@ -127,6 +132,10 @@ function next() {
         // item para que pause/cancel/retomada saibam onde paramos.
         it.fila = prep.cmds
         it.filaIdx = 0
+        // Só os depots que realmente vão baixar entram no total. Somando todos
+        // (inclusive os pulados por falta de .manifest), a barra jamais
+        // chegaria a 100% e o ETA ficaria eternamente errado.
+        it.depotsBaixando = prep.cmds.map((c) => String(c.depotId))
         iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args)
       }).catch((e) => finish(it, "error", String(e)))
     })
@@ -158,7 +167,10 @@ function iniciarFilho(it, cmd, args) {
   let poller = null
   let ultimoMiB = 0
   if (it.engine === "steam" && it.installDir) {
-    const totalMiB = (it.depots || []).reduce((acc, d) => acc + (Number(d.size) || 0), 0) / (1024 * 1024)
+    const baixando = it.depotsBaixando ? new Set(it.depotsBaixando) : null
+    const totalMiB = (it.depots || [])
+      .filter((d) => !baixando || baixando.has(String(d.depotId)))
+      .reduce((acc, d) => acc + (Number(d.size) || 0), 0) / (1024 * 1024)
     if (totalMiB > 0) update(it.appid, { total: Math.round(totalMiB) })
     ultimoMiB = dirSizeMiB(it.installDir)
     poller = setInterval(() => {
@@ -227,6 +239,10 @@ function iniciarFilho(it, cmd, args) {
       next()
       return
     }
+    if (it.status === "paused") {
+      activeChild = null // pausado: fica na fila até dmResume
+      return
+    }
     const fila = it.fila || []
     if (fila.length) {
       // Um depot que falha não derruba o jogo inteiro — é assim que o Acella
@@ -238,22 +254,19 @@ function iniciarFilho(it, cmd, args) {
         it.depotsFalhos.push(fila[it.filaIdx]?.depotId || "?")
         dlog(`depot ${fila[it.filaIdx]?.depotId} falhou (código ${code}) em ${it.title}: ${(ultimoErro || "").slice(0, 200)}`)
       }
-      if (it.status !== "paused" && it.filaIdx < fila.length - 1) {
+      if (it.filaIdx < fila.length - 1) {
         it.filaIdx++
         activeChild = null
+        it.pid = null
         const prox = fila[it.filaIdx]
         update(it.appid, { depotAtual: it.filaIdx + 1, depotsTotal: fila.length })
         return iniciarFilho(it, prox.cmd, prox.args)
       }
-      if (it.status !== "paused") {
-        if (it.depotsOk) return finish(it, "done")
-        return finish(it, "error", ultimoErro || `download falhou (código ${code})`)
-      }
+      if (it.depotsOk) return finish(it, "done")
+      return finish(it, "error", ultimoErro || `download falhou (código ${code})`)
     }
     if (code === 0) finish(it, "done")
-    else if (it.status === "paused") {
-      activeChild = null // pausado: fica na fila até dmResume
-    } else finish(it, "error", `download falhou (código ${code})`)
+    else finish(it, "error", ultimoErro || `download falhou (código ${code})`)
   })
 }
 

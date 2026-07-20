@@ -50,7 +50,7 @@ function prefixBase(appid) {
 }
 
 async function gh(url) {
-  const r = await fetch(url, { headers: { "User-Agent": "arcadia" } })
+  const r = await fetch(url, { headers: { "User-Agent": "arcadia" }, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`GitHub ${r.status}`)
   return r.json()
 }

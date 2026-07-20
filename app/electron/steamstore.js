@@ -39,9 +39,16 @@ function readConfig() {
   }
 }
 
+// Todo acesso de rede da loja passa por aqui. O timeout padrão é a rede de
+// segurança: sem ele um provedor que aceita a conexão e nunca responde
+// pendura o handler IPC e a tela fica esperando para sempre. Quem precisa de
+// mais tempo (download de zip) passa o próprio signal.
 async function gh(url, opts = {}) {
-  const r = await fetch(url, { headers: { "User-Agent": "arcadia", ...(opts.headers || {}) }, ...opts })
-  return r
+  return fetch(url, {
+    signal: AbortSignal.timeout(30000),
+    ...opts,
+    headers: { "User-Agent": "arcadia", ...(opts.headers || {}) },
+  })
 }
 
 // ---------- .NET / DepotDownloader ----------
