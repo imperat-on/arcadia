@@ -3,6 +3,8 @@ export interface JogoLinha {
   appid: string
   title: string
   cover?: string
+  /** Capa retrato oficial (library_capsule), quando a Steam publica uma. */
+  capa?: string
   manifest?: boolean
   fontes?: string[]
   /** Só as seções da vitrine oficial trazem preço por item; o resto fica vazio. */

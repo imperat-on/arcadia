@@ -297,6 +297,7 @@ declare global {
           appid: string
           title: string
           cover?: string
+          capa?: string
           manifest?: boolean
           fontes?: string[]
           preco?: string
