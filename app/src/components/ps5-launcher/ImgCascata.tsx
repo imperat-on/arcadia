@@ -11,6 +11,8 @@ interface ImgCascataProps {
   /** Classes adicionais além do preenchimento absoluto padrão. */
   className?: string
   loading?: "eager" | "lazy"
+  /** Disparado uma vez quando TODAS as fontes falham. */
+  onEsgotar?: () => void
 }
 
 /**
@@ -24,6 +26,7 @@ export function ImgCascata({
   fallback,
   className = "",
   loading = "lazy",
+  onEsgotar,
 }: ImgCascataProps) {
   const ref = useRef<HTMLImageElement | null>(null)
   const idx = useRef(0)
@@ -48,8 +51,9 @@ export function ImgCascata({
           idx.current += 1
           if (ref.current && idx.current < fontes.length) {
             ref.current.src = fontes[idx.current]
-          } else if (fallback && wrapper.current) {
-            ref.current?.remove()
+          } else {
+            if (fallback && wrapper.current) ref.current?.remove()
+            onEsgotar?.()
           }
         }}
       />
