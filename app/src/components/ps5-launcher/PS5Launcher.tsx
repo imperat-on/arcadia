@@ -17,7 +17,8 @@ import { EditMetadata } from "./EditMetadata"
 import { LibraryGrid } from "./LibraryGrid"
 import { TopBar, TABS } from "./TopBar"
 import { StoreConsole } from "./StoreConsole"
-import { ConsoleInstallDialog } from "./ConsoleInstallDialog"
+import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
+import { useStoreActions } from "../useStoreActions"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
@@ -170,8 +171,54 @@ export function PS5Launcher() {
   }
 
   const [showDownloads, setShowDownloads] = useState(false)
-  // Jogo aguardando escolha do destino de instalação (modo console).
+  // Jogo Epic aguardando escolha do destino de instalação.
   const [instalarGame, setInstalarGame] = useState<Game | null>(null)
+  const [destinosEpic, setDestinosEpic] = useState<DestinoOpcao[]>([])
+  // Jogo Steam sem manifesto em nenhum provedor: o único caminho que resta é
+  // a própria Steam, e a pessoa decide se quer.
+  const [semManifesto, setSemManifesto] = useState<{ jogo: { appid: string; title: string }; motivo: string } | null>(null)
+
+  // Instalação de jogo Steam pelo NOSSO downloader (manifesto + DepotDownloader),
+  // o mesmo caminho do botão Baixar da loja — e não pelo cliente da Steam.
+  const acoesLoja = useStoreActions(games, {
+    onSemManifesto: (jogo, motivo) => setSemManifesto({ jogo, motivo }),
+  })
+  // `_activate` é um useCallback sem dependências (o trilho o chama a cada
+  // tecla); a ref evita capturar uma versão velha do hook.
+  const baixarSteamRef = useRef<(g: Game) => void>(() => {})
+  baixarSteamRef.current = (g: Game) =>
+    acoesLoja.baixar({ appid: String(g.id).replace(/^steam:/, ""), title: g.title })
+
+  // Destinos do Epic: a pasta padrão e uma pasta Arcadia na raiz de cada
+  // biblioteca Steam — os discos que a pessoa já reservou para jogos, sem se
+  // misturar com o steamapps da Steam.
+  useEffect(() => {
+    if (!instalarGame) return
+    let cancelado = false
+    ;(async () => {
+      const api = window.launcherAPI
+      const cfg = await api?.getConfig()
+      const home = window.launcherPaths?.home || "~"
+      const bases = [
+        { caminho: cfg?.default_install_path || `${home}/Games/Arcadia`, rotulo: "Pasta padrão" },
+        ...((await api?.storeLibraries()) || []).map((l) => ({
+          caminho: `${l.steamDir}/Arcadia`,
+          rotulo: "Disco da biblioteca Steam",
+        })),
+      ].filter((d, i, arr) => arr.findIndex((o) => o.caminho === d.caminho) === i)
+      const comEspaco = await Promise.all(
+        bases.map(async (d) => {
+          const r = await api?.diskSpace(d.caminho)
+          return r?.ok ? { ...d, livre: r.free } : d
+        }),
+      )
+      if (!cancelado) setDestinosEpic(comEspaco)
+    })()
+    return () => {
+      cancelado = true
+      setDestinosEpic([])
+    }
+  }, [instalarGame])
   const [dmAtivos, setDmAtivos] = useState(0)
   const dmRef = useRef<HTMLDivElement>(null)
 
@@ -200,7 +247,9 @@ export function PS5Launcher() {
     Boolean(ctxGame) ||
     Boolean(editGame) ||
     Boolean(trailerPickGame) ||
-    Boolean(instalarGame)
+    Boolean(instalarGame) ||
+    Boolean(semManifesto) ||
+    Boolean(acoesLoja.escolhendo)
 
   // uiBlockedRef: pausa a navegação de JOGOS (D-pad/A). Vale também na aba de
   // Notícias, que tem foco próprio — mas o L1/R1 (trocar aba) segue funcionando.
@@ -386,6 +435,11 @@ export function PS5Launcher() {
   // modalOpenRef, que inclui showDownloads.
   useGamepadNav(dmRef, showDownloads, () => setShowDownloads(false))
 
+  // Diálogo do jogo sem manifesto: dois botões, então precisa do direcional e
+  // do B para fechar como qualquer outro overlay.
+  const semManifestoRef = useRef<HTMLDivElement>(null)
+  useGamepadNav(semManifestoRef, Boolean(semManifesto), () => setSemManifesto(null))
+
   // Reseta a seleção ao trocar de aba.
   useEffect(() => {
     setSelectedIndex(0)
@@ -419,11 +473,10 @@ export function PS5Launcher() {
         // perguntava (InstallDialog), o console não.
         setInstalarGame(game)
       } else if (game.launcher === "steam") {
-        // rungameid NÃO instala; steam://install abre o diálogo de instalação.
-        const appid = String(game.id).replace(/^steam:/, "")
-        window.launcherAPI?.launch(["steam", `steam://install/${appid}`])
-        setToast({ title: `Instalando ${game.title} pela Steam…`, visible: true })
-        setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
+        // Pelo NOSSO downloader: busca o manifesto nos provedores e baixa com
+        // o DepotDownloader, igual ao botão Baixar da loja. O cliente da Steam
+        // só entra se nenhum provedor tiver o manifesto (diálogo de saída).
+        baixarSteamRef.current(game)
       } else {
         // heroic/lutris: cai no launch_cmd (o próprio runner trata).
         window.launcherAPI?.launch(game.launch_cmd)
@@ -990,10 +1043,16 @@ export function PS5Launcher() {
       {/* Destino da instalação (jogos Epic). Só depois de escolher é que o
           download entra na fila. */}
       {instalarGame && (
-        <ConsoleInstallDialog
-          game={instalarGame}
-          onFechar={() => setInstalarGame(null)}
-          onInstalar={(installPath) => {
+        <ConsoleDestinoDialog
+          titulo={`Instalar ${instalarGame.title}`}
+          subtitulo={
+            instalarGame.size != null
+              ? `Download de ${(instalarGame.size / 1024).toFixed(1)} GB · escolha onde instalar.`
+              : "Escolha onde instalar."
+          }
+          opcoes={destinosEpic}
+          tamanho={instalarGame.size != null ? instalarGame.size / 1024 : undefined}
+          onEscolher={(installPath) => {
             window.launcherAPI?.dmInstall({
               appid: instalarGame.id,
               title: instalarGame.title,
@@ -1003,7 +1062,90 @@ export function PS5Launcher() {
             setInstalarGame(null)
             setShowDownloads(true)
           }}
+          onFechar={() => setInstalarGame(null)}
         />
+      )}
+
+      {/* Jogo Steam: escolha da biblioteca de destino, já com o manifesto em mãos */}
+      {acoesLoja.escolhendo && (
+        <ConsoleDestinoDialog
+          titulo={`Instalar ${acoesLoja.escolhendo.jogo.title}`}
+          subtitulo="Escolha a biblioteca Steam de destino."
+          opcoes={acoesLoja.escolhendo.libs.map((l) => ({
+            caminho: l.steamDir,
+            rotulo: "Biblioteca Steam",
+            livre: l.free,
+          }))}
+          onEscolher={(steamDir) => {
+            if (!acoesLoja.escolhendo) return
+            acoesLoja.confirmarBaixar(acoesLoja.escolhendo.jogo, acoesLoja.escolhendo.info, steamDir)
+            setShowDownloads(true)
+          }}
+          onFechar={() => acoesLoja.setEscolhendo(null)}
+        />
+      )}
+
+      {/* Procura do manifesto: passa por vários provedores e pode demorar.
+          Sem este aviso, apertar A parece não fazer nada e a pessoa aperta de
+          novo (o guarda de pedido do hook cobre, mas a tela precisa responder). */}
+      {acoesLoja.busy && !acoesLoja.escolhendo && (
+        <div className="fixed inset-0 z-[88] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-white/10 bg-[#0b0b0d] px-8 py-6 text-center">
+            <div
+              className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/15"
+              style={{ borderTopColor: "var(--accent)" }}
+            />
+            <p className="text-sm text-white/80">Procurando manifesto…</p>
+            <p className="mt-1 text-[12px] text-white/40">Consultando os provedores.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Nenhum provedor tem o manifesto: resta a Steam, se a pessoa quiser */}
+      {semManifesto && (
+        <div
+          ref={semManifestoRef}
+          className="gp-scope fixed inset-0 z-[90] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+        >
+          <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0b0b0d] p-7">
+            <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
+            <p className="mt-2 text-[13px] leading-relaxed text-white/55">
+              {semManifesto.motivo} Não dá para baixar pelo Arcadia — o único caminho é instalar pela
+              própria Steam.
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                autoFocus
+                onClick={() => {
+                  window.launcherAPI?.launch(["steam", `steam://install/${semManifesto.jogo.appid}`])
+                  setToast({ title: `Abrindo a Steam para ${semManifesto.jogo.title}…`, visible: true })
+                  setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
+                  setSemManifesto(null)
+                }}
+                className="rounded-xl px-5 py-3.5 text-[13px] font-semibold text-black outline-none transition-transform focus:scale-[1.02]"
+                style={{ background: "var(--accent)" }}
+              >
+                Instalar pela Steam
+              </button>
+              <button
+                onClick={() => setSemManifesto(null)}
+                className="rounded-xl border border-white/10 py-3 text-[13px] text-white/55 outline-none transition-colors hover:text-white/85"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast do hook da loja (fila, falhas, remoções) */}
+      {acoesLoja.toast && (
+        <div
+          onClick={() => acoesLoja.setToast("")}
+          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
+        >
+          {acoesLoja.toast}
+        </div>
       )}
 
       {/* Escolha manual do trailer (mostra os vídeos do YouTube) */}

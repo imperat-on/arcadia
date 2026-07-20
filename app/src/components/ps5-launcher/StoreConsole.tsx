@@ -7,6 +7,7 @@ import { StoreShowcase, type SecaoVitrine } from "./StoreShowcase"
 import { StoreCategoria } from "./StoreCategoria"
 import { StoreGamePage } from "./StoreGamePage"
 import { StoreKeyboard } from "./StoreKeyboard"
+import { ConsoleDestinoDialog } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
 
 const TAMANHO_PAGINA = 40
@@ -437,37 +438,22 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         onFechar={() => setTeclado(false)}
       />
 
-      {/* Escolha de disco — o mesmo diálogo do desktop, alimentado pelo hook */}
+      {/* Escolha da biblioteca Steam — mesmo diálogo usado pela biblioteca do
+          modo console, alimentado pelo hook */}
       {acoes.escolhendo && (
-        <div className="gp-scope fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="w-[520px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0d0d10] p-6">
-            <h3 className="mb-1 text-lg font-semibold">Instalar "{acoes.escolhendo.jogo.title}" em:</h3>
-            <p className="mb-5 text-[13px] text-white/40">Escolha a biblioteca Steam de destino.</p>
-            <div className="flex flex-col gap-2">
-              {acoes.escolhendo.libs.map((l, i) => (
-                <button
-                  key={l.steamDir}
-                  onClick={() =>
-                    acoes.escolhendo &&
-                    acoes.confirmarBaixar(acoes.escolhendo.jogo, acoes.escolhendo.info, l.steamDir)
-                  }
-                  className={`flex items-center justify-between rounded-xl border px-5 py-4 text-left outline-none transition-colors ${
-                    i === 0 ? "border-[color:var(--accent)]" : "border-white/10 hover:border-white/25"
-                  }`}
-                >
-                  <span className="text-sm text-white/90">{l.steamDir.replace(/^\/home\/[^/]+/, "~")}</span>
-                  <span className="text-xs text-white/45">{l.free.toFixed(2)} GB livres</span>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => acoes.setEscolhendo(null)}
-              className="mt-4 w-full rounded-lg border border-white/10 py-2.5 text-[13px] text-white/55 outline-none hover:text-white/85"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
+        <ConsoleDestinoDialog
+          titulo={`Instalar ${acoes.escolhendo.jogo.title}`}
+          subtitulo="Escolha a biblioteca Steam de destino."
+          opcoes={acoes.escolhendo.libs.map((l) => ({
+            caminho: l.steamDir,
+            rotulo: "Biblioteca Steam",
+            livre: l.free,
+          }))}
+          onEscolher={(steamDir) =>
+            acoes.escolhendo && acoes.confirmarBaixar(acoes.escolhendo.jogo, acoes.escolhendo.info, steamDir)
+          }
+          onFechar={() => acoes.setEscolhendo(null)}
+        />
       )}
 
       {acoes.toast && (

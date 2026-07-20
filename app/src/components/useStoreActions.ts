@@ -26,7 +26,17 @@ export type EscolhaDisco = {
   libs: Biblioteca[]
 }
 
-export function useStoreActions(games: Game[] = []) {
+export interface StoreActionsOpts {
+  /**
+   * Chamado quando nenhum provedor tem manifesto para o jogo.
+   * Sem ele, a falta de manifesto vira apenas um toast — que é o que as duas
+   * lojas querem. O modo console usa o gancho para oferecer a instalação pela
+   * Steam como saída, em vez de deixar o jogo sem caminho nenhum.
+   */
+  onSemManifesto?: (jogo: JogoLoja, motivo: string) => void
+}
+
+export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
   const [escolhendo, setEscolhendo] = useState<EscolhaDisco | null>(null)
   const [busy, setBusy] = useState("")
@@ -76,6 +86,11 @@ export function useStoreActions(games: Game[] = []) {
   // cima da confirmação.
   const pedido = useRef(0)
 
+  // Em ref para o callback não entrar nas dependências de `baixar` — quem
+  // passa uma função inline recriaria o useCallback a cada render.
+  const semManifestoRef = useRef(opts.onSemManifesto)
+  semManifestoRef.current = opts.onSemManifesto
+
   // `busy` desabilita os botões, então nunca pode ficar preso: toda saída —
   // inclusive pedido abandonado e exceção — libera no finally.
   const baixar = useCallback(
@@ -86,7 +101,9 @@ export function useStoreActions(games: Game[] = []) {
         const info = await obterInfo(jogo.appid)
         if (meu !== pedido.current) return
         if (!info?.ok || !info.depots?.length) {
-          setToast(info?.error || "Sem manifesto para este jogo.")
+          const motivo = info?.error || "Sem manifesto para este jogo."
+          if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
+          else setToast(motivo)
           return
         }
         const libs = ((await window.launcherAPI?.storeLibraries()) || []) as Biblioteca[]
