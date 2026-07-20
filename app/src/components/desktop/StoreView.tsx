@@ -43,6 +43,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const [sugestoes, setSugestoes] = useState<{ appid: string; title: string }[]>([])
   // Item destacado nas sugestões (setas do teclado); -1 = nenhum.
   const [sugSel, setSugSel] = useState(-1)
+  const [carregandoRec, setCarregandoRec] = useState(true)
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
   // Diálogo "onde instalar" (bibliotecas Steam em vários drives).
   const [escolhendo, setEscolhendo] = useState<{
@@ -73,9 +74,11 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     // "Em alta" vem do SteamSpy e a busca cobre Ryuu/Sushi — nenhum dos dois
     // precisa da chave do Morrenus. Carregamos sempre; antes isto ficava atrás
     // de `if (hubcapKey)` e a loja inteira parecia quebrada para quem não tinha.
-    window.launcherAPI?.storeRecent().then((r) => {
-      if (r?.ok) setRecentes(r.jogos || [])
-    })
+    window.launcherAPI?.storeRecent()
+      .then((r) => {
+        if (r?.ok) setRecentes(r.jogos || [])
+      })
+      .finally(() => setCarregandoRec(false))
     return off
   }, [])
 
@@ -132,6 +135,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // Grade exibida: resultados da busca ou os adicionados recentemente.
   const buscou = resultados.length > 0 || msg !== ""
   const grade = buscou ? resultados : recentes
+  // Esqueleto: buscando, ou o "Em alta" ainda não chegou.
+  const carregandoGrade = busy === "busca" || (!buscou && carregandoRec && recentes.length === 0)
 
   const baixar = async (jogo: { appid: string; title: string }) => {
     setBusy(jogo.appid)
@@ -290,6 +295,18 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         {buscou ? `Resultados (${grade.length})` : "Em alta agora"}
       </h2>
       <div className="grid max-w-[1100px] grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-8">
+        {/* Enquanto a lista não chega, cartões-fantasma: a área ficava
+            totalmente preta e parecia que a loja tinha quebrado. */}
+        {carregandoGrade &&
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={`sk${i}`} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
+              <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
+              <div className="p-3">
+                <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
+                <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+              </div>
+            </div>
+          ))}
         {grade.map((j) => (
           <div key={j.appid} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
             <div className="aspect-[460/215] w-full bg-black">

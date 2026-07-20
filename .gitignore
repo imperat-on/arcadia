@@ -15,6 +15,7 @@ downloads.json
 meta_cache.json
 news_cache.json
 player_cache.json
+store_popular_cache.json
 sysinfo_cache.json
 wine_catalog_cache.json
 
