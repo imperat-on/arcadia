@@ -18,7 +18,7 @@ interface StoreShowcaseProps {
   heroiIdx: number
   onHeroiIdx: (i: number) => void
   fichaHeroi: FichaJogo | null
-  trailerHeroi: { url: string; poster: string } | null
+  trailerHeroi: { url: string } | null
   ativo: boolean
   ocupado: boolean
   naBiblioteca: (j: JogoLinha) => boolean

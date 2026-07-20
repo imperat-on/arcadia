@@ -515,6 +515,18 @@ input,
   box-shadow: 0 0 0 2px #fff;
 }
 
+/* Trailer do herói. Nasce invisível e só aparece quando o vídeo tem quadro
+   (a classe entra no evento `canplay`). Sem isso, o espaço do vídeo cobriria a
+   arte antes de haver o que mostrar. */
+.loja-trailer {
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease);
+  pointer-events: none;
+}
+.loja-trailer.-tocando {
+  opacity: 1;
+}
+
 /* HUD do rodapé: o título do jogo em foco entra com um pequeno slide-up
    sempre que muda. Chave-ado por appid no React para não reiniciar quando só
    a ficha completa carregou. */

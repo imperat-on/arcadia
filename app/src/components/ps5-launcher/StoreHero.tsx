@@ -11,7 +11,7 @@ interface StoreHeroProps {
   jogos: JogoLinha[]
   /** Ficha do destaque atual — o pai busca conforme o índice muda. */
   ficha: FichaJogo | null
-  trailer: { url: string; poster: string } | null
+  trailer: { url: string } | null
   ativo: boolean
   naBiblioteca: boolean
   ocupado: boolean
@@ -78,16 +78,22 @@ export function StoreHero({
     >
       <div key={jogo.appid} className="loja-heroi__arte">
         <ImgCascata fontes={urlsHeroi(jogo, ficha?.fundo)} loading="eager" />
+        {/* Sem `poster`: a miniatura do trailer tem 600px e, esticada sobre a
+            faixa, cobria a arte de 3840px com um borrão. O vídeo só aparece
+            quando tem quadro para mostrar — até lá, a arte fica visível. Isso
+            também protege o caso de um MP4 quebrado escapar da verificação do
+            backend. */}
         {trailer && ativo && (
           <video
             key={trailer.url}
             src={trailer.url}
-            poster={trailer.poster}
             autoPlay
             loop
             muted
             playsInline
-            className="absolute inset-0 h-full w-full object-cover"
+            preload="none"
+            onCanPlay={(e) => e.currentTarget.classList.add("-tocando")}
+            className="loja-trailer absolute inset-0 h-full w-full object-cover"
           />
         )}
       </div>
