@@ -1307,6 +1307,15 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
+  // Capa retrato alternativa. O renderer só chama quando a arte oficial da
+  // Steam falha, então isto NÃO roda por ladrilho — só pelos que ficariam sem.
+  ipcMain.handle("store:cover", async (_e, appid) => {
+    try {
+      return await steamstore.capaAlternativa(String(appid || ""))
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
   // Uma linha da home da loja, por gênero. Paginação por offset para scroll
   // infinito (o SteamSpy devolve milhares por gênero; servimos aos pedaços).
   ipcMain.handle("store:genre", async (_e, { genero, limite, offset } = {}) => {
