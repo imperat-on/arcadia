@@ -7,7 +7,6 @@ import { StoreShowcase, type SecaoVitrine } from "./StoreShowcase"
 import { StoreCategoria } from "./StoreCategoria"
 import { StoreGamePage } from "./StoreGamePage"
 import { StoreKeyboard } from "./StoreKeyboard"
-import { StoreHUD } from "./StoreHUD"
 import { useStoreActions } from "../useStoreActions"
 
 const TAMANHO_PAGINA = 40
@@ -83,7 +82,6 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   const [trailerHeroi, setTrailerHeroi] = useState<{ url: string } | null>(null)
   // O herói e o HUD leem estes três, sempre do jogo em foco.
   const [destaque, setDestaque] = useState<JogoLinha | null>(null)
-  const [ficha, setFicha] = useState<FichaJogo | null>(null)
   const [cor, setCor] = useState("")
   const [aberto, setAberto] = useState<JogoLinha | null>(null)
   const [teclado, setTeclado] = useState(false)
@@ -202,25 +200,6 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
   }, [modo, carregando, paginas, categoria, buscarCategoria])
 
-  // Ficha do jogo focado, que alimenta o HUD do rodapé. Espera 600ms parado:
-  // sem isso, atravessar um trilho dispararia uma chamada por capa e o
-  // appdetails bate no limite (~200 a cada 5 min). O cache de 24h absorve o
-  // resto. Quem mostra trailer é o herói, com estado próprio.
-  useEffect(() => {
-    if (!destaque) return
-    let cancelado = false
-    const t = setTimeout(() => {
-      window.launcherAPI?.storeDetails(destaque.appid).then((r) => {
-        if (cancelado || !r?.ok || !r.jogo) return
-        setFicha(r.jogo)
-      })
-    }, 600)
-    return () => {
-      cancelado = true
-      clearTimeout(t)
-    }
-  }, [destaque])
-
   // Cor ambiente extraída da capa. Vem do cache na segunda vez, então voltar
   // num jogo já visto é instantâneo.
   useEffect(() => {
@@ -281,9 +260,6 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       },
     })
   }, [onAtalhos, vitrine, paginas, resultados, modo, acoes])
-
-  const semManifesto = destaque?.manifest === false
-  const jaTem = bloqueado(destaque)
 
   // Quantos itens já carregamos vs. quanto o backend disse que existe.
   const carregados = paginas.reduce((n, p) => n + p.length, 0)
@@ -442,16 +418,6 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             onAdicionar={acoes.adicionar}
           />
         )}
-      </div>
-
-      {/* ── HUD contextual ───────────────────────────────────────────────── */}
-      <div>
-        <StoreHUD
-          destaque={destaque}
-          ficha={ficha}
-          bloqueado={jaTem}
-          semManifesto={Boolean(semManifesto)}
-        />
       </div>
 
       <StoreGamePage
