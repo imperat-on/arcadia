@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   storeSearch: (query) => ipcRenderer.invoke("store:search", query),
   storeSuggest: (query) => ipcRenderer.invoke("store:suggest", query),
   storeRecent: () => ipcRenderer.invoke("store:recent"),
+  storeDetails: (appid) => ipcRenderer.invoke("store:details", appid),
+  storeGenre: (genero, limite) => ipcRenderer.invoke("store:genre", { genero, limite }),
   storeInstallInfo: (appid) => ipcRenderer.invoke("store:installInfo", appid),
   storeInstall: (payload) => ipcRenderer.invoke("store:install", payload),
   storeEnsureDotnet: () => ipcRenderer.invoke("store:ensureDotnet"),

@@ -337,7 +337,7 @@ async function buscarPopular() {
   })
   if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
   const data = await r.json()
-  const jogos = Object.values(data)
+  const jogos = ordenarPorPopularidade(Object.values(data))
     .map((g) => ({
       appid: String(g.appid || ""),
       title: g.name || "",
@@ -376,6 +376,154 @@ async function popular() {
   try {
     return { ok: true, jogos: await popularEmVoo }
   } catch (e) {
+    return { ok: false, error: String(e.message || e) }
+  }
+}
+
+// O SteamSpy devolve um OBJETO indexado por appid. Chaves que parecem inteiro
+// são reordenadas numericamente pelo JS, então Object.values() entregava a
+// lista em ordem de appid — o "Em alta" abria com Counter-Strike (10) e
+// Half-Life (70), não com o que está sendo jogado. `ccu` é o número de
+// jogadores simultâneos, que é exatamente o critério que se quer.
+function ordenarPorPopularidade(lista) {
+  return [...lista].sort((a, b) => (Number(b.ccu) || 0) - (Number(a.ccu) || 0))
+}
+
+// ---------- Loja do modo console ----------
+// Cache em disco parametrizado. O "Em alta" acima já tinha o seu; com três
+// caches diferentes (populares, detalhes, gêneros), copiar a lógica em cada um
+// só convida a divergirem.
+function lerCache(arquivo) {
+  try {
+    return JSON.parse(fs.readFileSync(arquivo, "utf-8"))
+  } catch {
+    return null
+  }
+}
+
+function gravarCache(arquivo, dados) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    const tmp = `${arquivo}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(dados))
+    fs.renameSync(tmp, arquivo) // atômico: nunca deixa o cache pela metade
+  } catch {}
+}
+
+const DETALHES_CACHE = path.join(DATA_DIR, "store_details_cache.json")
+const DETALHES_TTL = 24 * 60 * 60 * 1000
+const DETALHES_MAX = 300 // teto de entradas: o arquivo é lido inteiro a cada uso
+
+// A Steam migrou os `movies` do appdetails para DASH/HLS, que o Chromium não
+// reproduz. Os MP4 legados do CDN continuam sendo servidos e tocam num <video>
+// comum — é por eles que o trailer da loja funciona sem biblioteca extra.
+const TRAILER_URL = (movieId, alta) =>
+  `https://cdn.akamai.steamstatic.com/steam/apps/${movieId}/${alta ? "movie_max" : "movie480"}.mp4`
+
+// pc_requirements vem como objeto com HTML, ou como array vazio quando o jogo
+// não declara nada — daí a checagem de Array.
+function requisito(reqs, chave) {
+  if (!reqs || Array.isArray(reqs)) return ""
+  return String(reqs[chave] || "")
+}
+
+function normalizaDetalhes(appid, d) {
+  const filme = (d.movies || [])[0]
+  return {
+    appid: String(appid),
+    nome: d.name || "",
+    descricao: d.short_description || "",
+    header: d.header_image || "",
+    fundo: d.background_raw || d.background || "",
+    screenshots: (d.screenshots || []).map((s) => s.path_full).filter(Boolean).slice(0, 12),
+    trailer: filme
+      ? { url: TRAILER_URL(filme.id, false), alta: TRAILER_URL(filme.id, true), poster: filme.thumbnail || "" }
+      : null,
+    generos: (d.genres || []).map((g) => g.description).filter(Boolean),
+    lancamento: d.release_date?.date || "",
+    devs: d.developers || [],
+    publishers: d.publishers || [],
+    preco: d.price_overview?.final_formatted || (d.is_free ? "Gratuito" : ""),
+    desconto: Number(d.price_overview?.discount_percent) || 0,
+    metacritic: Number(d.metacritic?.score) || 0,
+    reqMin: requisito(d.pc_requirements, "minimum"),
+    reqRec: requisito(d.pc_requirements, "recommended"),
+  }
+}
+
+// Ficha do jogo para a página da loja. O appdetails tem limite de requisições
+// (~200 a cada 5 min), então nunca deve ser chamado para uma linha inteira —
+// só ao abrir a página ou ao entrar no destaque.
+async function detalhes(appid) {
+  const id = String(appid || "")
+  if (!id) return { ok: false, error: "appid ausente" }
+  const cache = lerCache(DETALHES_CACHE) || {}
+  const guardado = cache[id]
+  if (guardado && Date.now() - (guardado.at || 0) < DETALHES_TTL) {
+    return { ok: true, jogo: guardado.jogo, cache: true }
+  }
+  try {
+    const r = await gh(
+      `https://store.steampowered.com/api/appdetails?appids=${id}&cc=br&l=portuguese`,
+      { signal: AbortSignal.timeout(20000) },
+    )
+    if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
+    const data = await r.json()
+    const d = data?.[id]?.data
+    if (!d) throw new Error("sem dados para este appid")
+    const jogo = normalizaDetalhes(id, d)
+    cache[id] = { at: Date.now(), jogo }
+    // Poda pelas entradas mais antigas quando passa do teto.
+    const ids = Object.keys(cache)
+    if (ids.length > DETALHES_MAX) {
+      ids.sort((a, b) => (cache[a].at || 0) - (cache[b].at || 0))
+      for (const velho of ids.slice(0, ids.length - DETALHES_MAX)) delete cache[velho]
+    }
+    gravarCache(DETALHES_CACHE, cache)
+    return { ok: true, jogo }
+  } catch (e) {
+    // Cache vencido ainda serve: melhor uma ficha de ontem que uma tela vazia.
+    if (guardado) return { ok: true, jogo: guardado.jogo, cache: true, velho: true }
+    return { ok: false, error: String(e.message || e) }
+  }
+}
+
+const GENERO_CACHE = path.join(DATA_DIR, "store_genre_cache.json")
+const GENERO_TTL = 12 * 60 * 60 * 1000
+
+// Uma linha da home, por gênero. O SteamSpy devolve dezenas de milhares de
+// jogos; cortamos ANTES de sondar disponibilidade, que é a parte cara (um HEAD
+// por jogo em cada provedor).
+async function porGenero(genero, limite = 24) {
+  const chave = String(genero || "").trim()
+  if (!chave) return { ok: false, error: "gênero ausente" }
+  const cache = lerCache(GENERO_CACHE) || {}
+  const guardado = cache[chave]
+  if (guardado && Date.now() - (guardado.at || 0) < GENERO_TTL) {
+    return { ok: true, jogos: guardado.jogos, cache: true }
+  }
+  try {
+    const r = await gh(
+      `https://steamspy.com/api.php?request=genre&genre=${encodeURIComponent(chave)}`,
+      { signal: AbortSignal.timeout(25000) },
+    )
+    if (!r.ok) throw new Error(`SteamSpy HTTP ${r.status}`)
+    const data = await r.json()
+    const jogos = ordenarPorPopularidade(Object.values(data))
+      .map((g) => ({
+        appid: String(g.appid || ""),
+        title: g.name || "",
+        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+        manifest: false,
+      }))
+      .filter((g) => g.appid && g.title)
+      .slice(0, limite)
+    await marcarDisponibilidade(jogos)
+    cache[chave] = { at: Date.now(), jogos }
+    gravarCache(GENERO_CACHE, cache)
+    return { ok: true, jogos }
+  } catch (e) {
+    if (guardado) return { ok: true, jogos: guardado.jogos, cache: true, velho: true }
     return { ok: false, error: String(e.message || e) }
   }
 }
@@ -1059,6 +1207,8 @@ async function status() {
 module.exports = {
   search,
   suggest,
+  detalhes,
+  porGenero,
   recent,
   popular,
   checkFixes,
