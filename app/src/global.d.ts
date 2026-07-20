@@ -298,6 +298,7 @@ declare global {
           title: string
           cover?: string
           capa?: string
+          heroi?: string
           manifest?: boolean
           fontes?: string[]
           preco?: string

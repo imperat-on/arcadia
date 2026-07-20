@@ -41,3 +41,26 @@ export function urlsPaisagem(jogo: JogoLinha): string[] {
 export function urlsCapa(jogo: JogoLinha, formato: "retrato" | "paisagem" = "retrato"): string[] {
   return formato === "retrato" ? urlsRetrato(jogo) : urlsPaisagem(jogo)
 }
+
+/**
+ * Artes para a faixa do HERÓI, na ordem de tentativa.
+ *
+ * O `fundo` da ficha (o `page_bg_raw` do appdetails) vem quase no fim de
+ * propósito: tem 1438x810 e é o pano de fundo JÁ ESTILIZADO da página da
+ * Steam — publicado desfocado e desbotado para ficar atrás do conteúdo. Usá-lo
+ * em primeiro plano numa faixa de ~2000px era a causa do herói borrado.
+ */
+export function urlsHeroi(jogo: JogoLinha, fundo?: string): string[] {
+  const urls: string[] = []
+  if (jogo.heroi) urls.push(jogo.heroi)
+  urls.push(`${CDN}/${jogo.appid}/library_hero.jpg`)
+  if (fundo) urls.push(fundo)
+  urls.push(`${CDN}/${jogo.appid}/header.jpg`)
+  if (jogo.cover) urls.push(jogo.cover)
+  return [...new Set(urls)]
+}
+
+/** Logo do jogo em PNG com transparência. Não existe para todo appid. */
+export function urlLogo(jogo: JogoLinha): string {
+  return `${CDN}/${jogo.appid}/logo.png`
+}

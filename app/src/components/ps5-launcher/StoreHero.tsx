@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ImgCascata } from "./ImgCascata"
-import { urlsCapa } from "./capaJogo"
+import { urlsHeroi, urlLogo } from "./capaJogo"
+import { semHtml } from "./texto"
 import type { FichaJogo, JogoLinha } from "./types"
 
 interface StoreHeroProps {
@@ -45,6 +46,11 @@ export function StoreHero({
   onAdicionar,
 }: StoreHeroProps) {
   const [pausado, setPausado] = useState(false)
+  // Nem todo appid tem logo.png publicado — lançamento recente costuma não ter.
+  // Quando falha, o título em texto assume. Guardamos POR APPID: com um único
+  // booleano, o primeiro destaque sem logo esconderia o logo dos quatro
+  // seguintes, já que o rodízio reusa o mesmo componente.
+  const [semLogo, setSemLogo] = useState<Set<string>>(new Set())
   const raiz = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -57,6 +63,7 @@ export function StoreHero({
   if (!jogo) return null
 
   const semManifesto = jogo.manifest === false
+  const mostrarLogo = !semLogo.has(jogo.appid)
 
   return (
     <div
@@ -70,7 +77,7 @@ export function StoreHero({
       onMouseLeave={() => setPausado(false)}
     >
       <div key={jogo.appid} className="loja-heroi__arte">
-        <ImgCascata fontes={[ficha?.fundo || "", ...urlsCapa(jogo, "paisagem")].filter(Boolean)} loading="eager" />
+        <ImgCascata fontes={urlsHeroi(jogo, ficha?.fundo)} loading="eager" />
         {trailer && ativo && (
           <video
             key={trailer.url}
@@ -88,18 +95,36 @@ export function StoreHero({
       {/* Degradês: um lateral para o texto ter contraste sobre qualquer arte,
           outro no rodapé para o herói se dissolver no primeiro trilho em vez
           de terminar num corte reto. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[var(--loja-fundo)] via-[var(--loja-fundo)]/70 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[var(--loja-fundo)] to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[var(--loja-fundo)] via-[var(--loja-fundo)]/55 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[var(--loja-fundo)] via-[var(--loja-fundo)]/55 to-transparent" />
 
       <div className="relative flex h-full flex-col justify-end px-12 pb-10">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--loja-apagado)]">
           Em destaque
         </p>
-        <h1 className="mt-3 max-w-2xl text-5xl font-bold leading-[1.05] tracking-tight">{jogo.title}</h1>
+        {/* Logo oficial quando existe; o h1 continua no DOM para leitores de
+            tela, apenas visualmente oculto. */}
+        {mostrarLogo && (
+          <img
+            key={`logo-${jogo.appid}`}
+            src={urlLogo(jogo)}
+            alt=""
+            draggable={false}
+            onError={() => setSemLogo((s) => new Set(s).add(jogo.appid))}
+            className="mt-4 max-h-[132px] max-w-[46%] object-contain object-left drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)]"
+          />
+        )}
+        <h1
+          className={
+            mostrarLogo ? "sr-only" : "mt-3 max-w-2xl text-5xl font-bold leading-[1.05] tracking-tight"
+          }
+        >
+          {jogo.title}
+        </h1>
 
         {ficha?.descricao && (
           <p className="mt-4 max-w-xl text-[14px] leading-relaxed text-[var(--loja-apagado)] line-clamp-2">
-            {ficha.descricao}
+            {semHtml(ficha.descricao)}
           </p>
         )}
 
