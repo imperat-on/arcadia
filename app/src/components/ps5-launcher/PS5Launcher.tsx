@@ -276,6 +276,10 @@ export function PS5Launcher() {
   // O loop do gamepad não re-registra a cada troca de seleção; lê por aqui.
   const selectedGameRef = useRef<Game | null>(null)
   selectedGameRef.current = selectedGame
+  // Espelha o filtro de ocultos para o recarregamento da biblioteca calcular o
+  // novo índice sobre a MESMA lista que a tela mostra.
+  const showHiddenRef = useRef(showHidden)
+  showHiddenRef.current = showHidden
 
   // Carrega a biblioteca real (library.json) via ponte do Electron.
   const bootVideoFim = useRef(false)
@@ -530,6 +534,30 @@ export function PS5Launcher() {
       clearTimeout(fallback)
     }
   }, [gameRunning])
+
+  // Recarrega a biblioteca sempre que ela muda em qualquer lugar: adicionar
+  // pela loja, download concluído, remoção, ou o indexador terminando em
+  // segundo plano. O modo desktop já fazia isso (DesktopLauncher); o console
+  // carregava uma vez no boot e nunca mais, então um jogo recém-adicionado só
+  // aparecia depois de reabrir o app.
+  //
+  // A seleção é preservada pelo ID do jogo, e não pelo índice: a lista pode
+  // ganhar ou perder itens ANTES do selecionado, e o índice apontaria para
+  // outro jogo.
+  useEffect(() => {
+    const api = window.launcherAPI
+    if (!api) return
+    return api.onLibraryChanged(() => {
+      api.getLibrary().then((lib) => {
+        if (!Array.isArray(lib)) return
+        const atual = selectedGameRef.current?.id
+        setGames(lib)
+        if (!atual) return
+        const i = lib.filter((g: Game) => showHiddenRef.current || !g.hidden).findIndex((g: Game) => g.id === atual)
+        if (i >= 0) setSelectedIndex(i)
+      })
+    })
+  }, [])
 
   // Salva metadados editados à mão. Mesmo caminho do ocultar: overrides.json.
   const _save_meta = useCallback(
