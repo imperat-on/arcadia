@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useGamepadNav } from "./useGamepadNav"
+import { fmtGiB } from "../tamanho"
 
 export interface DestinoOpcao {
   /** Caminho de instalação, usado como valor e como rótulo principal. */
@@ -25,7 +26,6 @@ interface ConsoleDestinoDialogProps {
 }
 
 const encurtar = (p: string) => p.replace(/^\/home\/[^/]+/, "~")
-const gb = (v?: number) => (v == null || Number.isNaN(v) ? "—" : `${v.toFixed(1)} GB`)
 
 // Escolha do destino de instalação no modo console, para Epic, Steam e loja.
 //
@@ -80,7 +80,7 @@ export function ConsoleDestinoDialog({
                     {o.rotulo && <span className="block text-[11px] text-white/40">{o.rotulo}</span>}
                   </span>
                   <span className="shrink-0 pl-4 text-xs text-white/45">
-                    {cabe ? `${gb(o.livre)} livres` : "Sem espaço"}
+                    {cabe ? `${fmtGiB(o.livre)} livres` : "Sem espaço"}
                   </span>
                 </button>
               )
