@@ -353,8 +353,12 @@ export function PS5Launcher() {
   // Navegação por controle na seleção de perfil (só depois do boot sair).
   useGamepadNav(perfilRef, perfilGate && !boot && appFocused)
 
-  // Navegação por controle na tela de downloads.
-  useGamepadNav(dmRef, showDownloads && appFocused, () => setShowDownloads(false))
+  // Navegação por controle na tela de downloads. NÃO depende de appFocused:
+  // era a única superfície cuja navegação morria com um blur enquanto seguia
+  // aberta — e como o onBack vive no mesmo hook, o B também parava de fechar,
+  // deixando a tela presa. O laço principal do gamepad já é travado pelo
+  // modalOpenRef, que inclui showDownloads.
+  useGamepadNav(dmRef, showDownloads, () => setShowDownloads(false))
 
   // Reseta a seleção ao trocar de aba.
   useEffect(() => {
@@ -607,6 +611,11 @@ export function PS5Launcher() {
         // L1/LB e R1/RB trocam de aba (Notícias ↔ Jogos ↔ Biblioteca) em QUALQUER
         // aba — só não quando há um modal aberto.
         if (!modalOpenRef.current) {
+          // R2/RT (botão 7 no mapeamento padrão) abre a tela de downloads de
+          // qualquer aba. L2 fica livre de propósito.
+          if (primed && gp.buttons[7]?.pressed && !prev[7]) {
+            setShowDownloads(true)
+          }
           if (primed && gp.buttons[5]?.pressed && !prev[5]) {
             setActiveTab((t) => Math.min(TAB_COUNT - 1, t + 1))
           }
