@@ -19,6 +19,7 @@ import { TopBar, TABS } from "./TopBar"
 import { StoreConsole } from "./StoreConsole"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
+import { useJogoRodando } from "../useJogoRodando"
 import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
@@ -121,10 +122,17 @@ export function PS5Launcher() {
   const [editGame, setEditGame] = useState<Game | null>(null)
   const [showHidden, setShowHidden] = useState(false)
 
-  // Jogo em execução: trava o input do launcher e impede iniciar duas vezes.
-  const [gameRunning, setGameRunning] = useState(false)
+  // Jogo em execução, segundo o vigia de processo do main — e não mais um
+  // palpite pelo foco da janela. Guarda QUAL jogo é, para o botão do herói
+  // virar "Parar" só naquele.
+  const jogoAtivo = useJogoRodando()
+  // Para pausar trailer de fundo e vídeo da loja, "abrindo" já conta como
+  // jogo em cena.
+  const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
   const gameRunningRef = useRef(false)
   gameRunningRef.current = gameRunning
+  const jogoAtivoRef = useRef(jogoAtivo)
+  jogoAtivoRef.current = jogoAtivo
 
   // Trailer no fundo (estilo PS5): toca ao focar o jogo por um instante.
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null)
@@ -243,7 +251,6 @@ export function PS5Launcher() {
     showProfile ||
     showEditProfile ||
     menuOpen ||
-    gameRunning ||
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
@@ -489,10 +496,17 @@ export function PS5Launcher() {
       return
     }
 
+    // Este jogo já foi lançado? Rodando de fato, o botão é "Parar"; ainda
+    // abrindo, ignora — um segundo toque não pode lançar duas vezes nem matar
+    // o processo que está subindo.
+    if (jogoAtivoRef.current.jogo?.id === game.id) {
+      if (jogoAtivoRef.current.rodando) jogoAtivoRef.current.parar()
+      return
+    }
+
     // Instalado: abre o jogo.
-    if (gameRunningRef.current) return // evita abrir duas vezes
-    setGameRunning(true)
     window.launcherAPI?.launch(game.launch_cmd)
+    jogoAtivoRef.current.iniciar(game)
     // Registra em "Recentes".
     setRecent((prev) => {
       const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
@@ -510,31 +524,6 @@ export function PS5Launcher() {
   const _launch_selected = useCallback(() => {
     _activate(viewGames[selectedIndex])
   }, [viewGames, selectedIndex, _activate])
-
-  // Enquanto o jogo roda, o launcher fica travado. Como o jogo é lançado
-  // solto (steam://… retorna na hora), quem diz que voltamos é o foco da
-  // janela: o jogo rouba o foco ao abrir e devolve ao fechar.
-  useEffect(() => {
-    if (!gameRunning) return
-    let stoleFocus = false
-    const onBlur = () => {
-      stoleFocus = true
-    }
-    const onFocus = () => {
-      if (stoleFocus) setGameRunning(false)
-    }
-    window.addEventListener("blur", onBlur)
-    window.addEventListener("focus", onFocus)
-    // Se nada tomou o foco, o jogo provavelmente nem abriu: destrava sozinho.
-    const fallback = setTimeout(() => {
-      if (!stoleFocus) setGameRunning(false)
-    }, 20000)
-    return () => {
-      window.removeEventListener("blur", onBlur)
-      window.removeEventListener("focus", onFocus)
-      clearTimeout(fallback)
-    }
-  }, [gameRunning])
 
   // Recarrega a biblioteca sempre que ela muda em qualquer lugar: adicionar
   // pela loja, download concluído, remoção, ou o indexador terminando em
@@ -940,6 +929,8 @@ export function PS5Launcher() {
           game={selectedGame}
           news={news}
           appFocused={appFocused}
+          rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
+          abrindo={Boolean(selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id)}
           closing={overviewClosing}
           onClose={() => closeOverview()}
           onLaunch={(g) => {
@@ -1031,6 +1022,8 @@ export function PS5Launcher() {
             {/* Hero embaixo à esquerda, com as ações */}
             <HeroSection
               game={selectedGame}
+              rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
+              abrindo={Boolean(selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id)}
               onLaunch={_launch_selected}
               onMore={() => setCtxGame(selectedGame)}
             />
