@@ -200,7 +200,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 
       {/* Grade */}
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8 pt-2">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
+        <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
           {lista.map((g) => {
             // Recém-desinstalado: já mostra como não instalado (sem botão jogar).
             const g2 = recemDesinstalados.has(g.id) ? { ...g, installed: false } : g
