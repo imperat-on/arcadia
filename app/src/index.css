@@ -527,19 +527,6 @@ input,
   opacity: 1;
 }
 
-/* HUD do rodapé: o título do jogo em foco entra com um pequeno slide-up
-   sempre que muda. Chave-ado por appid no React para não reiniciar quando só
-   a ficha completa carregou. */
-@keyframes lojaHudTitulo {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.loja-hud-titulo {
-  animation: lojaHudTitulo 220ms var(--ease) both;
-}
-
-/* Chips flutuantes da régua de categorias. Padding constante para o ativo
-   não empurrar os vizinhos ao alternar. */
 /* Abas da barra superior: texto puro com um sublinhado que marca a ativa.
    Substituem os chips arredondados — a pílula colorida competia com as capas,
    que é onde o olho precisa ir. O padding é constante para a aba ativa não
