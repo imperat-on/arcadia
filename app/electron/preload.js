@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   storeRecent: (lista, limite, offset) => ipcRenderer.invoke("store:recent", { lista, limite, offset }),
   storeFeatured: (secao, limite, offset) => ipcRenderer.invoke("store:featured", { secao, limite, offset }),
   storeDetails: (appid) => ipcRenderer.invoke("store:details", appid),
+  /** Capa retrato alternativa (SteamGridDB), só para quem a Steam não publica. */
+  storeCover: (appid) => ipcRenderer.invoke("store:cover", appid),
   storeGenre: (genero, limite, offset) => ipcRenderer.invoke("store:genre", { genero, limite, offset }),
   storeInstallInfo: (appid) => ipcRenderer.invoke("store:installInfo", appid),
   storeInstall: (payload) => ipcRenderer.invoke("store:install", payload),

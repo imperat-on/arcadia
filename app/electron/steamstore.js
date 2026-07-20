@@ -507,6 +507,79 @@ function gravarCache(arquivo, dados) {
   } catch {}
 }
 
+// ── Capa alternativa (SteamGridDB) ─────────────────────────────────────────
+// Só é consultada para os jogos cuja arte retrato a Steam não publica — o que
+// hoje significa quase todo lançamento recente e DLC. A busca é por appid da
+// Steam, sem procurar por título, então não há risco de trazer a capa do jogo
+// errado.
+const CAPA_CACHE = path.join(DATA_DIR, "store_cover_cache.json")
+const CAPA_TTL = 30 * 24 * 60 * 60 * 1000 // 30 dias: arte da comunidade muda devagar
+// Quem não tem capa hoje provavelmente não terá amanhã, mas pode ganhar uma
+// depois do lançamento. Um TTL curto para o "não achei" evita repetir a
+// chamada a cada rolagem sem congelar a ausência para sempre.
+const CAPA_TTL_VAZIO = 24 * 60 * 60 * 1000
+const CAPA_MAX = 800
+
+// Pedidos em voo, por appid: a mesma capa costuma ser pedida por vários
+// ladrilhos ao mesmo tempo (grade + trilho), e sem isto viraria uma chamada
+// por ladrilho.
+const capasEmVoo = new Map()
+
+async function capaAlternativa(appid) {
+  const id = String(appid || "").trim()
+  if (!id) return { ok: false, error: "appid vazio" }
+
+  const cache = lerCache(CAPA_CACHE) || {}
+  const item = cache[id]
+  if (item) {
+    const ttl = item.url ? CAPA_TTL : CAPA_TTL_VAZIO
+    if (Date.now() - item.at < ttl) return { ok: true, url: item.url, cache: true }
+  }
+
+  const chave = String(readConfig().steamgriddb_api_key || "").trim()
+  if (!chave) return { ok: true, url: "", semChave: true }
+
+  if (capasEmVoo.has(id)) return capasEmVoo.get(id)
+
+  const pedido = (async () => {
+    let url = ""
+    try {
+      const p = new URLSearchParams({ dimensions: "600x900,660x930", types: "static", nsfw: "false" })
+      const r = await fetch(`https://www.steamgriddb.com/api/v2/grids/steam/${id}?${p}`, {
+        headers: { Authorization: `Bearer ${chave}` },
+        signal: AbortSignal.timeout(12000),
+      })
+      // 404 = "essa Steam appid não existe na SGDB". É resposta legítima, não
+      // erro: guardamos o vazio para não perguntar de novo a cada rolagem.
+      if (r.ok) {
+        const j = await r.json()
+        url = (j?.data || []).find((g) => g.url)?.url || ""
+      }
+    } catch {
+      // Rede fora ou timeout: não grava nada, para tentar de novo depois.
+      capasEmVoo.delete(id)
+      return { ok: true, url: "" }
+    }
+
+    const atual = lerCache(CAPA_CACHE) || {}
+    atual[id] = { url, at: Date.now() }
+    const chaves = Object.keys(atual)
+    if (chaves.length > CAPA_MAX) {
+      // Descarta as mais antigas primeiro: o arquivo é lido inteiro a cada uso.
+      chaves
+        .sort((a, b) => (atual[a].at || 0) - (atual[b].at || 0))
+        .slice(0, chaves.length - CAPA_MAX)
+        .forEach((k) => delete atual[k])
+    }
+    gravarCache(CAPA_CACHE, atual)
+    capasEmVoo.delete(id)
+    return { ok: true, url }
+  })()
+
+  capasEmVoo.set(id, pedido)
+  return pedido
+}
+
 const DETALHES_CACHE = path.join(DATA_DIR, "store_details_cache.json")
 const DETALHES_TTL = 24 * 60 * 60 * 1000
 const DETALHES_MAX = 300 // teto de entradas: o arquivo é lido inteiro a cada uso
@@ -1466,6 +1539,7 @@ async function status() {
 
 module.exports = {
   search,
+  capaAlternativa,
   suggest,
   detalhes,
   porGenero,

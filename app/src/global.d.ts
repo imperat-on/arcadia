@@ -259,6 +259,8 @@ declare global {
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
       storeSuggest: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
       /** Loja Steam: ficha completa do jogo (appdetails), para a página da loja. */
+      /** Capa retrato alternativa (SteamGridDB). url vazia = não existe. */
+      storeCover: (appid: string) => Promise<{ ok: boolean; url?: string; error?: string }>
       storeDetails: (appid: string) => Promise<{
         ok: boolean
         error?: string
