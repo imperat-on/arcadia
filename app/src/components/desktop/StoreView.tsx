@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useStoreActions } from "../useStoreActions"
 import type { Game } from "../ps5-launcher/types"
 
 // Aba Lojas: busca no catálogo Hubcap e download direto para a biblioteca
@@ -44,6 +45,24 @@ type ManifestInfo = {
 }
 
 export function StoreView({ games = [] }: { games?: Game[] }) {
+  // Ações (Baixar/Add/Remover/reiniciar Steam), estado de bloqueio e escolha de
+  // disco vêm do hook compartilhado com a loja do modo console — antes essa
+  // lógica morava só aqui e teria de ser duplicada lá.
+  const {
+    bloqueados,
+    jaAdicionados,
+    escolhendo,
+    setEscolhendo,
+    busy: acaoBusy,
+    toast,
+    setToast,
+    baixar,
+    confirmarBaixar,
+    adicionar,
+    remover,
+    reiniciarSteam,
+  } = useStoreActions(games)
+
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
   const [recentes, setRecentes] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
@@ -51,50 +70,16 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   // Item destacado nas sugestões (setas do teclado); -1 = nenhum.
   const [sugSel, setSugSel] = useState(-1)
   const [carregandoRec, setCarregandoRec] = useState(true)
-  const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
-  // Diálogo "onde instalar" (bibliotecas Steam em vários drives).
-  const [escolhendo, setEscolhendo] = useState<{
-    jogo: { appid: string; title: string }
-    info: { depots: { depotId: string; manifestId: string; key: string }[]; token?: string; dlcs?: string[]; fonte?: string }
-    libs: { path: string; steamDir: string; free: number }[]
-  } | null>(null)
-  const [busy, setBusy] = useState("")
+  const [buscando, setBuscando] = useState(false)
   const [msg, setMsg] = useState("")
-  // Toast de feedback (Add/Baixar/Restart) — popup visível, some sozinho.
-  const [toast, setToast] = useState("")
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(""), 5000)
-    return () => clearTimeout(t)
-  }, [toast])
 
   useEffect(() => {
-    const status = () =>
-      window.launcherAPI?.storeStatus().then((s) => {
-        setJaAdicionados(new Set(s?.adicionados || []))
-      })
-    status()
-    // Adicionar/remover mexe no registro da SLSsteam. Relendo o status a cada
-    // mudança de biblioteca, os cards refletem o estado real mesmo quando a
-    // alteração vem de outra aba (ou de um download que terminou).
-    const off = window.launcherAPI?.onLibraryChanged(() => status())
-    // "Em alta" vem do SteamSpy e a busca cobre Ryuu/Sushi — nenhum dos dois
-    // precisa da chave do Morrenus. Carregamos sempre; antes isto ficava atrás
-    // de `if (hubcapKey)` e a loja inteira parecia quebrada para quem não tinha.
     window.launcherAPI?.storeRecent()
       .then((r) => {
         if (r?.ok) setRecentes(r.jogos || [])
       })
       .finally(() => setCarregandoRec(false))
-    return off
   }, [])
-
-  // Jogos já adicionados/instalados (SLSsteam config + biblioteca do Arcadia):
-  // não deixar adicionar/baixar de novo.
-  const bloqueados = new Set([
-    ...jaAdicionados,
-    ...games.map((g) => String(g.id).replace(/^steam:/, "")),
-  ])
 
   // Sugestões enquanto digita. Usam storeSuggest (só títulos da Steam), não a
   // busca completa: esta confere a disponibilidade de cada resultado e leva
@@ -126,10 +111,10 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     if (!q) return
     if (termo) setBusca(termo)
     setSugestoes([])
-    setBusy("busca")
+    setBuscando(true)
     setMsg("")
     const r = await window.launcherAPI?.storeSearch(q)
-    setBusy("")
+    setBuscando(false)
     if (!r?.ok) {
       setResultados([])
       setMsg(r?.error || "Busca falhou")
@@ -143,136 +128,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const buscou = resultados.length > 0 || msg !== ""
   const grade = buscou ? resultados : recentes
   // Esqueleto: buscando, ou o "Em alta" ainda não chegou.
-  const carregandoGrade = busy === "busca" || (!buscou && carregandoRec && recentes.length === 0)
-
-  // Buscar o manifesto passa por vários provedores e pode levar dezenas de
-  // segundos. Guardamos o resultado por appid para que Add logo depois de
-  // Baixar (mesmo jogo) seja instantâneo em vez de repetir a busca inteira.
-  const infoCache = useRef(new Map<string, ManifestInfo>())
-  const obterInfo = async (appid: string) => {
-    const guardado = infoCache.current.get(appid)
-    if (guardado) return { ok: true, ...guardado }
-    const info = await window.launcherAPI?.storeInstallInfo(appid)
-    if (info?.ok && info.depots?.length) infoCache.current.set(appid, info as ManifestInfo)
-    return info
-  }
-
-  // Toda ação (Baixar/Add) recebe um número. Se o usuário fizer outra coisa no
-  // meio, a anterior é abandonada: sem isto, um "Baixar" lento resolvia depois
-  // de o usuário fechar o diálogo e clicar em Add, e reabria o popup de disco
-  // por cima da confirmação — a confirmação existia, ficava escondida.
-  const pedidoAcao = useRef(0)
-
-  // `busy` desabilita TODOS os botões de ação, então ele nunca pode ficar
-  // preso: qualquer saída — inclusive a de pedido abandonado e a de exceção —
-  // tem de liberar. Por isso o finally, e não um setBusy("") por caminho.
-  const baixar = async (jogo: { appid: string; title: string }) => {
-    const meu = ++pedidoAcao.current
-    setBusy(jogo.appid)
-    setMsg("")
-    try {
-      const info = await obterInfo(jogo.appid)
-      if (meu !== pedidoAcao.current) return
-      if (!info?.ok || !info.depots?.length) {
-        setToast(info?.error || "Sem manifesto para este jogo.")
-        return
-      }
-      // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive). Com
-      // uma só, antes disparávamos o download direto, sem confirmação nenhuma —
-      // dois comportamentos diferentes para o mesmo botão, e um download de
-      // vários GB começando sem aviso. Agora o diálogo é sempre mostrado.
-      const libs = (await window.launcherAPI?.storeLibraries()) || []
-      if (meu !== pedidoAcao.current) return
-      if (!libs.length) {
-        setToast("Nenhuma biblioteca Steam encontrada.")
-        return
-      }
-      setEscolhendo({ jogo, info: info as ManifestInfo, libs })
-    } catch (e) {
-      setToast(`Falha ao preparar o download: ${e}`)
-    } finally {
-      if (meu === pedidoAcao.current) setBusy("")
-    }
-  }
-
-  const confirmarBaixar = async (
-    jogo: { appid: string; title: string },
-    info: { depots: { depotId: string; manifestId: string; key: string }[]; token?: string; dlcs?: string[]; fonte?: string },
-    steamDir?: string,
-  ) => {
-    setEscolhendo(null)
-    setBusy(jogo.appid)
-    try {
-      const r = await window.launcherAPI?.storeInstall({
-        appid: jogo.appid,
-        title: jogo.title,
-        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`,
-        installdir: jogo.title.replace(/[^A-Za-z0-9]/g, ""),
-        depots: info.depots,
-        token: info.token,
-        dlcs: info.dlcs,
-        steamDir,
-      })
-      const via = info.fonte ? ` (via ${info.fonte})` : ""
-      setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
-    } catch (e) {
-      setToast(`Falha ao enfileirar: ${e}`)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  // "Add": registra o jogo na Steam (lua + AdditionalApps) sem baixar — a
-  // própria Steam baixa depois pela CDN dela (estilo luatools-moon).
-  const adicionar = async (jogo: { appid: string; title: string }) => {
-    const meu = ++pedidoAcao.current
-    // Um diálogo de disco aberto (ou prestes a abrir) taparia a confirmação.
-    setEscolhendo(null)
-    setBusy(jogo.appid)
-    setMsg("")
-    try {
-      const info = await obterInfo(jogo.appid)
-      if (meu !== pedidoAcao.current) return
-      if (!info?.ok || !info.depots?.length) {
-        setToast(info?.error || "Sem manifesto para este jogo.")
-        return
-      }
-      const r = await window.launcherAPI?.storeAddToSteam({ appid: jogo.appid, token: info.token, dlcs: info.dlcs })
-      if (meu !== pedidoAcao.current) return
-      if (r?.ok) setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
-      setToast(
-        r?.ok
-          ? `"${jogo.title}" adicionado! Clique em Restart Steam para baixar por lá.`
-          : r?.error || "Falha ao adicionar",
-      )
-    } catch (e) {
-      setToast(`Falha ao adicionar: ${e}`)
-    } finally {
-      if (meu === pedidoAcao.current) setBusy("")
-    }
-  }
-
-  const remover = async (jogo: { appid: string; title: string }) => {
-    setBusy(jogo.appid)
-    // Remove de tudo: pasta + appmanifest (downloads) + registro SLSsteam (Adds).
-    const r = await window.launcherAPI
-      ?.storeRemoveDownloaded(jogo.appid)
-      .finally(() => setBusy(""))
-    if (r?.ok) {
-      setJaAdicionados((prev) => {
-        const n = new Set(prev)
-        n.delete(jogo.appid)
-        return n
-      })
-    }
-    setToast(r?.ok ? `"${jogo.title}" removido da Steam (SLSsteam).` : r?.error || "Falha ao remover")
-  }
-
-  const abrirSteam = async () => {
-    const r = await window.launcherAPI?.slssteamLaunch()
-    if (!r?.ok) setToast(r?.error || "Falha ao abrir a Steam")
-    else setToast("Reiniciando a Steam com a SLSsteam…")
-  }
+  const carregandoGrade = buscando || (!buscou && carregandoRec && recentes.length === 0)
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
@@ -326,14 +182,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         </div>
         <button
           onClick={() => pesquisar()}
-          disabled={busy === "busca"}
+          disabled={buscando}
           className="rounded-lg px-4 py-2.5 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
-          {busy === "busca" ? "Buscando…" : "Buscar"}
+          {buscando ? "Buscando…" : "Buscar"}
         </button>
         <button
-          onClick={abrirSteam}
+          onClick={reiniciarSteam}
           title="Reinicia a Steam com a SLSsteam carregada"
           className="flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2.5 text-[12px] font-semibold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
@@ -380,11 +236,11 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                   {jaAdicionados.has(j.appid) && (
                     <button
                       onClick={() => remover(j)}
-                      disabled={busy !== ""}
+                      disabled={acaoBusy !== ""}
                       title="Remover da SLSsteam (desfaz o Add)"
                       className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
                     >
-                      {busy === j.appid ? "…" : "Remover"}
+                      {acaoBusy === j.appid ? "…" : "Remover"}
                     </button>
                   )}
                 </div>
@@ -408,15 +264,15 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                 <div className="flex gap-2">
                   <button
                     onClick={() => baixar(j)}
-                    disabled={busy !== ""}
+                    disabled={acaoBusy !== ""}
                     className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
                     style={{ background: "var(--accent)" }}
                   >
-                    {busy === j.appid ? "…" : "Baixar"}
+                    {acaoBusy === j.appid ? "…" : "Baixar"}
                   </button>
                   <button
                     onClick={() => adicionar(j)}
-                    disabled={busy !== ""}
+                    disabled={acaoBusy !== ""}
                     title="Adiciona à Steam sem baixar — a Steam baixa pela CDN dela"
                     className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
                   >

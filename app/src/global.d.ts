@@ -258,6 +258,39 @@ declare global {
       storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
       storeSuggest: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
+      /** Loja Steam: ficha completa do jogo (appdetails), para a página da loja. */
+      storeDetails: (appid: string) => Promise<{
+        ok: boolean
+        error?: string
+        cache?: boolean
+        jogo?: {
+          appid: string
+          nome: string
+          descricao: string
+          header: string
+          fundo: string
+          screenshots: string[]
+          trailer: { url: string; alta: string; poster: string } | null
+          generos: string[]
+          lancamento: string
+          devs: string[]
+          publishers: string[]
+          preco: string
+          desconto: number
+          metacritic: number
+          reqMin: string
+          reqRec: string
+        }
+      }>
+      /** Loja Steam: uma linha da home, por gênero. */
+      storeGenre: (
+        genero: string,
+        limite?: number,
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[] }[]
+      }>
       /** Loja Steam: adicionados recentemente no catálogo. */
       storeRecent: () => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Loja Steam: manifesto/depots/token de um appid. */

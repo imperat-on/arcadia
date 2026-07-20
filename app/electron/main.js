@@ -1299,6 +1299,22 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
+  // Ficha completa do jogo (appdetails), para a página da loja no console.
+  ipcMain.handle("store:details", async (_e, appid) => {
+    try {
+      return await steamstore.detalhes(String(appid || ""))
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  // Uma linha da home da loja, por gênero.
+  ipcMain.handle("store:genre", async (_e, { genero, limite } = {}) => {
+    try {
+      return await steamstore.porGenero(String(genero || ""), Number(limite) || 24)
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
   ipcMain.handle("store:recent", async () => {
     try {
       return await steamstore.popular()
