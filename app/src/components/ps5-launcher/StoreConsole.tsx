@@ -322,7 +322,14 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     window.launcherAPI?.storeDetails(heroi.appid).then((r) => {
       if (cancelado || !r?.ok || !r.jogo) return
       setFichaHeroi(r.jogo)
-      if (r.jogo.trailer) setTrailerHeroi({ url: r.jogo.trailer.url, poster: r.jogo.trailer.poster })
+      // O herói ocupa a largura da tela: em movie480 o vídeo fica mais borrado
+      // que a imagem parada atrás dele. Os ladrilhos seguem em 480p.
+      if (r.jogo.trailer) {
+        setTrailerHeroi({
+          url: r.jogo.trailer.alta || r.jogo.trailer.url,
+          poster: r.jogo.trailer.poster,
+        })
+      }
     })
     return () => {
       cancelado = true

@@ -210,10 +210,15 @@ const ITENS_LOTE = 100
 // demo (1), software (6), trilha sonora (11), vídeo (12) e afins.
 const TIPO_JOGO = 0
 
-function capaDeAssets(a) {
-  if (!a?.asset_url_format || !a.library_capsule) return ""
-  return ITENS_ASSETS + a.asset_url_format.replace("${FILENAME}", a.library_capsule)
+function urlDeAsset(a, nome) {
+  if (!a?.asset_url_format || !nome) return ""
+  return ITENS_ASSETS + a.asset_url_format.replace("${FILENAME}", nome)
 }
+
+// Capa retrato (600x900) e arte larga do herói. A 2x tem 3840x1240 — a faixa
+// do herói ocupa a largura da tela, e a versão simples já chega esticada.
+const capaDeAssets = (a) => urlDeAsset(a, a?.library_capsule)
+const heroiDeAssets = (a) => urlDeAsset(a, a?.library_hero_2x || a?.library_hero)
 
 /**
  * Tipo e capa retrato de vários appids, em lote.
@@ -236,7 +241,7 @@ async function itensDaLoja(appids) {
     const it = cache[id]
     if (it && agora - it.at < ITENS_TTL) {
       respondidos.add(id)
-      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "" })
+      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "", heroi: it.heroi || "" })
     } else faltando.push(id)
   }
   if (!faltando.length) return { mapa, respondidos }
@@ -264,7 +269,7 @@ async function itensDaLoja(appids) {
       for (const it of j?.response?.store_items || []) {
         const id = String(it.appid || "")
         if (!id || typeof it.type !== "number") continue
-        const dado = { tipo: it.type, capa: capaDeAssets(it.assets) }
+        const dado = { tipo: it.type, capa: capaDeAssets(it.assets), heroi: heroiDeAssets(it.assets) }
         mapa.set(id, dado)
         cache[id] = { ...dado, at: agora }
       }
@@ -306,6 +311,7 @@ async function preparar(jogos, jaTem = new Set()) {
     if (it) {
       if (it.tipo !== TIPO_JOGO) continue // DLC, demo, trilha sonora, software…
       if (it.capa) g.capa = it.capa
+      if (it.heroi) g.heroi = it.heroi
     } else if (respondidos.has(id)) {
       continue // a Steam respondeu e não conhece: removido da loja
     }
