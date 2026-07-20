@@ -123,7 +123,11 @@ function next() {
         steamDir: it.steamDir || ss.findSteamDir(),
       }).then((prep) => {
         if (!prep.ok) return finish(it, "error", prep.error || "falha ao preparar o download")
-        iniciarFilho(it, prep.cmd, prep.args)
+        // Um processo por depot, em sequência (estilo Acella). A fila fica no
+        // item para que pause/cancel/retomada saibam onde paramos.
+        it.fila = prep.cmds
+        it.filaIdx = 0
+        iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args)
       }).catch((e) => finish(it, "error", String(e)))
     })
     return
@@ -214,8 +218,19 @@ function iniciarFilho(it, cmd, args) {
       next()
       return
     }
-    if (code === 0) finish(it, "done")
-    else if (it.status === "paused") {
+    if (code === 0) {
+      // Ainda há depots na fila? Segue para o próximo em vez de dar por
+      // encerrado — o jogo só está completo quando todos baixaram.
+      const fila = it.fila || []
+      if (fila.length && it.filaIdx < fila.length - 1) {
+        it.filaIdx++
+        activeChild = null
+        const prox = fila[it.filaIdx]
+        update(it.appid, { depotAtual: it.filaIdx + 1, depotsTotal: fila.length })
+        return iniciarFilho(it, prox.cmd, prox.args)
+      }
+      finish(it, "done")
+    } else if (it.status === "paused") {
       activeChild = null // pausado: fica na fila até dmResume
     } else finish(it, "error", `download falhou (código ${code})`)
   })
