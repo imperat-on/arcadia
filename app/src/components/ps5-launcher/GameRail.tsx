@@ -82,13 +82,10 @@ export function GameRail({
             }}
             className="relative flex-shrink-0 rounded-2xl outline-none scroll-mx-10"
             style={{
-              // O SLOT tem tamanho fixo e já cabe a capa AMPLIADA. Antes
-              // animávamos width/height, que são propriedades de layout: o
-              // trilho inteiro era refeito a cada frame e os vizinhos
-              // escorregavam junto. Agora só a capa cresce, por transform.
-              // O slot precisa ser do tamanho maior: dimensionado pela capa
-              // pequena, a ampliada transbordava 16px para cada lado e o
-              // overflow-x do trilho cortava a primeira e a última.
+              // Slot de tamanho fixo, igual para todos. Antes animávamos
+              // width/height ao selecionar: são propriedades de layout, então
+              // o trilho inteiro era refeito a cada frame e os vizinhos
+              // escorregavam junto. Agora nada no layout muda com a seleção.
               width: TILE_SEL_W + PANEL_PAD * 2,
               height: TILE_SEL_W * RATIO + PANEL_PAD * 2,
               padding: PANEL_PAD,
@@ -103,20 +100,27 @@ export function GameRail({
             <div
               className="rounded-xl overflow-hidden"
               style={{
-                // A capa em si continua no tamanho pequeno e centralizada no
-                // slot; quem cresce é o transform abaixo.
-                width: TILE_W,
-                height: TILE_W * RATIO,
+                // A capa tem, no layout, o tamanho GRANDE — e são as não
+                // selecionadas que encolhem. Era o contrário: a caixa tinha o
+                // tamanho pequeno e a selecionada era ampliada 1,52x. Isso
+                // causava dois defeitos de uma vez. A capa em foco, justamente
+                // a que se está olhando, era rasterizada a 100x150 e esticada
+                // pela GPU (saía borrada); e, por crescer para fora da própria
+                // caixa, qualquer estouro virava corte — o `overflow-x` do
+                // trilho faz o navegador recortar também no eixo Y.
+                // Encolher nunca estoura, então não há mais como cortar.
+                width: TILE_SEL_W,
+                height: TILE_SEL_W * RATIO,
                 margin: "0 auto",
                 background:
                   FALLBACK_GRADIENTS[game.launcher] ??
                   "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)",
-                // Cresce a partir do topo (as capas são alinhadas pelo topo),
-                // sobe um pouco e ganha um anel na cor de destaque. Escala e
-                // deslocamento são compostos na GPU: sem reflow, sem tremer.
+                // Origem no topo porque as capas são alinhadas pelo topo. A
+                // selecionada fica no tamanho natural e sobe um pouco; escala
+                // e deslocamento são compostos na GPU, sem reflow.
                 transform: focused
-                  ? `translateY(-6px) scale(${TILE_SEL_W / TILE_W})`
-                  : "translateY(0) scale(1)",
+                  ? "translateY(-6px) scale(1)"
+                  : `translateY(0) scale(${TILE_W / TILE_SEL_W})`,
                 transformOrigin: "center top",
                 boxShadow: focused
                   ? "0 18px 44px rgba(0,0,0,0.7), 0 0 0 2px var(--accent)"
@@ -138,8 +142,11 @@ export function GameRail({
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
-                  <LauncherIcon launcher={game.launcher} size={20} />
-                  <span className="text-white/80 text-[10px] font-medium text-center leading-tight line-clamp-3">
+                  {/* A caixa agora tem o tamanho grande e NÃO é ampliada quando
+                      em foco, então o conteúdo precisa nascer maior — antes ele
+                      era esticado 1,52x junto com a capa. */}
+                  <LauncherIcon launcher={game.launcher} size={30} />
+                  <span className="text-white/80 text-[14px] font-medium text-center leading-tight line-clamp-3">
                     {game.title}
                   </span>
                 </div>
