@@ -409,11 +409,17 @@ input,
   pointer-events: none;
 }
 
-/* Desvanecimento SÓ na direita: no layout cockpit a linha começa colada na
-   borda da coluna de conteúdo e sangra para fora da tela, o que sugere que ela
-   continua. Desvanecer à esquerda também abriria um vão contra o painel. */
-.loja-linha {
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 90px), transparent 100%);
+/* Painel do ladrilho em foco. Ele SOBREPÕE os vizinhos em vez de empurrá-los:
+   animar largura refaria o layout a cada quadro e moveria o alvo para onde
+   você está navegando — o defeito que custou três correções no trilho. */
+@keyframes lojaPainel {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+.loja-painel {
+  animation: lojaPainel var(--dur-2) var(--ease) both;
+  transform-origin: center left;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 2px var(--loja-cor);
 }
 
 .loja-capa {
@@ -444,14 +450,3 @@ input,
   outline: none !important;
 }
 
-/* Herói da loja: transição de cor e arte deslizando entre jogos, em vez de
-   trocar seco. */
-.loja-heroi-arte {
-  transition: opacity var(--dur-3) var(--ease);
-}
-.loja-halo {
-  background: radial-gradient(60% 70% at 22% 40%, var(--loja-cor) 0%, transparent 65%);
-  opacity: 0.22;
-  transition: background var(--dur-3) var(--ease);
-  pointer-events: none;
-}
