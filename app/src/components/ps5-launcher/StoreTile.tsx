@@ -1,9 +1,8 @@
 "use client"
 
 import { useRef } from "react"
-import { ImgCascata } from "./ImgCascata"
+import { CapaLoja } from "./CapaLoja"
 import { rolagemSuave } from "./rolagem"
-import { urlsCapa } from "./capaJogo"
 import type { JogoLinha } from "./types"
 
 interface StoreTileProps {
@@ -55,14 +54,7 @@ export function StoreTile({
         className="loja-tile__capa relative overflow-hidden rounded-[10px] bg-[var(--loja-sup-2)]"
         style={{ aspectRatio: "3 / 4" }}
       >
-        <ImgCascata
-          fontes={urlsCapa(jogo, "retrato")}
-          fallback={
-            <div className="flex h-full w-full items-center justify-center bg-[var(--loja-sup-2)] px-3 text-center">
-              <span className="line-clamp-4 text-[13px] leading-tight text-[var(--loja-apagado)]">{jogo.title}</span>
-            </div>
-          }
-        />
+        <CapaLoja jogo={jogo} />
 
         {jogo.desconto ? (
           <span

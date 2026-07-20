@@ -330,8 +330,11 @@ async function search(query) {
         porId.set(appid, {
           appid,
           title: g.name,
-          // A capa da Steam é derivável do appid — não precisa de outra chamada.
-          cover: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          // O `tiny_image` é pequeno, mas vem com o hash do asset — para jogos
+          // do esquema novo é a ÚNICA arte alcançável sem uma chamada extra.
+          // O caminho antigo, montado só com o appid, fica de reserva.
+          cover: g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          preco: precoBusca(g.price),
           manifest: false,
         })
       }
@@ -605,12 +608,22 @@ function precoDestaque(centavos, moeda) {
   }
 }
 
+// O storesearch usa outro formato de preço: { currency, initial, final }.
+function precoBusca(p) {
+  if (!p) return ""
+  return precoDestaque(p.final, p.currency)
+}
+
 function mapDestaque(itens) {
   return (itens || [])
     .map((g) => ({
       appid: String(g.id || ""),
       title: g.name || "",
-      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`,
+      // A URL vem PRONTA da API, com o hash do asset no caminho. Jogos
+      // publicados no esquema novo (/store_item_assets/steam/apps/<id>/<hash>/)
+      // não são alcançáveis pelo caminho antigo montado só com o appid — era
+      // por isso que quase todo lançamento recente aparecia sem capa.
+      cover: g.header_image || g.large_capsule_image || `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`,
       manifest: false,
       desconto: Number(g.discount_percent) || 0,
       // A vitrine mostra preço por capa; esta é a única fonte que o entrega
