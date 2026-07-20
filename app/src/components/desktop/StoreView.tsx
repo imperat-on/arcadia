@@ -174,11 +174,15 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
       setToast(info?.error || "Sem manifesto para este jogo.")
       return
     }
-    // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive).
+    // Pergunta ONDE instalar: bibliotecas Steam detectadas (multi-drive). Com
+    // uma só, antes disparávamos o download direto, sem confirmação nenhuma —
+    // dois comportamentos diferentes para o mesmo botão, e um download de
+    // vários GB começando sem aviso. Agora o diálogo é sempre mostrado.
     const libs = (await window.launcherAPI?.storeLibraries()) || []
     if (meu !== pedidoAcao.current) return
-    if (libs.length <= 1) {
-      return confirmarBaixar(jogo, info as ManifestInfo, libs[0]?.steamDir)
+    if (!libs.length) {
+      setToast("Nenhuma biblioteca Steam encontrada.")
+      return
     }
     setEscolhendo({ jogo, info: info as ManifestInfo, libs })
   }
@@ -357,7 +361,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                   {jaAdicionados.has(j.appid) && (
                     <button
                       onClick={() => remover(j)}
-                      disabled={busy === j.appid}
+                      disabled={busy !== ""}
                       title="Remover da SLSsteam (desfaz o Add)"
                       className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
                     >
@@ -366,10 +370,26 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                   )}
                 </div>
               ) : (
+                /* A busca já sabe se algum provedor tem o manifesto. Sem usar
+                   esse dado, o botão Baixar ficava ativo em jogo indisponível:
+                   o clique consultava todos os provedores e terminava num
+                   toast no canto, sem nunca chegar à escolha de disco — dava a
+                   impressão de que o botão não fazia nada. */
+                j.manifest === false ? (
+                  <div
+                    title="Nenhum provedor (Morrenus/Ryuu/Sushi) tem o manifesto deste jogo."
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/35"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" />
+                    </svg>
+                    Sem manifesto
+                  </div>
+                ) : (
                 <div className="flex gap-2">
                   <button
                     onClick={() => baixar(j)}
-                    disabled={busy === j.appid}
+                    disabled={busy !== ""}
                     className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
                     style={{ background: "var(--accent)" }}
                   >
@@ -377,13 +397,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                   </button>
                   <button
                     onClick={() => adicionar(j)}
-                    disabled={busy === j.appid}
+                    disabled={busy !== ""}
                     title="Adiciona à Steam sem baixar — a Steam baixa pela CDN dela"
                     className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
                   >
                     Add
                   </button>
                 </div>
+                )
               )}
             </div>
           </div>
