@@ -4,11 +4,15 @@ import type { Game } from "./types"
 
 interface HeroSectionProps {
   game: Game | null
+  /** Este jogo é o que está rodando agora — o botão vira "Parar". */
+  rodando?: boolean
+  /** Lançado, esperando o processo subir. */
+  abrindo?: boolean
   onLaunch: () => void
   onMore: () => void
 }
 
-export function HeroSection({ game, onLaunch, onMore }: HeroSectionProps) {
+export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSectionProps) {
   return (
     <div className="anim-rise relative w-full flex-1 flex items-end pb-16">
       {/* Conteúdo do hero (o fundo é a imagem de tela cheia do app) */}
@@ -44,16 +48,18 @@ export function HeroSection({ game, onLaunch, onMore }: HeroSectionProps) {
 
             {/* Ações: pílula translúcida larga + "..." redondo */}
             <div className="flex items-center gap-4">
+              {/* Rodando: o mesmo laranja do card "jogando" do desktop, para a
+                  troca ser percebida sem precisar ler o rótulo. */}
               <button
                 onClick={onLaunch}
                 className="px-16 py-4 rounded-full text-[19px] font-semibold text-white transition-colors hover:bg-white/25"
                 style={{
-                  background: "rgba(255,255,255,0.16)",
+                  background: rodando ? "#e8703a" : "rgba(255,255,255,0.16)",
                   backdropFilter: "blur(10px)",
                   boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
                 }}
               >
-                {game.installed === false ? "Instalar" : "Jogar"}
+                {rodando ? "Parar" : abrindo ? "Abrindo…" : game.installed === false ? "Instalar" : "Jogar"}
               </button>
               <button
                 onClick={onMore}

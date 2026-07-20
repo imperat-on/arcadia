@@ -8,6 +8,10 @@ interface GameOverviewProps {
   game: Game
   news: NewsItem[]
   appFocused?: boolean // foco real da janela (gamescope)
+  /** Este jogo é o que está rodando agora — o botão vira "Parar jogo". */
+  rodando?: boolean
+  /** Lançado, esperando o processo subir. */
+  abrindo?: boolean
   closing?: boolean
   onClose: () => void
   onLaunch: (game: Game) => void
@@ -59,7 +63,7 @@ function Tag({ children }: { children: React.ReactNode }) {
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
-  { game, news, appFocused = true, closing, onClose, onLaunch, onOpenNews },
+  { game, news, appFocused = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
   ref,
 ) {
   const relacionadas = useMemo(() => noticiasRelacionadas(game, news), [game, news])
@@ -204,13 +208,15 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
             </div>
             <button
               onClick={() => onLaunch(game)}
-              className="group mt-6 inline-flex items-center gap-3 rounded-full bg-white py-3 pl-5 pr-7 text-sm font-semibold text-black outline-none transition-all hover:scale-[1.04] focus-visible:shadow-[0_0_0_2px_var(--accent),0_0_30px_var(--accent)]"
+              className={`group mt-6 inline-flex items-center gap-3 rounded-full py-3 pl-5 pr-7 text-sm font-semibold outline-none transition-all hover:scale-[1.04] focus-visible:shadow-[0_0_0_2px_var(--accent),0_0_30px_var(--accent)] ${
+                rodando ? "bg-[#e8703a] text-white" : "bg-white text-black"
+              }`}
               style={{ boxShadow: "0 10px 40px -10px rgba(255,255,255,0.35)" }}
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                <path d="M8 5v14l11-7z" />
+                {rodando ? <rect x="6" y="6" width="12" height="12" rx="1.5" /> : <path d="M8 5v14l11-7z" />}
               </svg>
-              Jogar agora
+              {rodando ? "Parar jogo" : abrindo ? "Abrindo…" : "Jogar agora"}
             </button>
           </div>
         </section>

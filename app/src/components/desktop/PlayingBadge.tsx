@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect } from "react"
 import type { Game } from "../ps5-launcher/types"
+import { useJogoRodando } from "../useJogoRodando"
 
 // Card "jogando <jogo>" no canto inferior direito — aparece quando um jogo
 // é lançado e fica visível ENQUANTO o processo do jogo existir (o main
@@ -9,8 +10,6 @@ import type { Game } from "../ps5-launcher/types"
 // fecha o jogo (game:close). Comunicação entre componentes via CustomEvent.
 
 const EVENTO = "arcadia:jogando"
-const ABERTURA_MS = 60000 // jogo demorando demais pra aparecer -> desiste
-const FECHANDO_MS = 10000 // clicou no X e o processo não morreu -> esconde
 
 /** Dispara o card "jogando". Chame logo após launcherAPI.launch(). */
 export function avisarJogando(game: Game) {
@@ -18,51 +17,23 @@ export function avisarJogando(game: Game) {
 }
 
 export function PlayingBadge() {
-  const [game, setGame] = useState<Game | null>(null)
-  const [visivel, setVisivel] = useState(false)
-  const viuRodando = useRef(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // O acompanhamento do processo (prazos, transições do vigia) vive no hook,
+  // compartilhado com o modo console. Aqui fica só a ponte do CustomEvent,
+  // que é como o desktop avisa qual jogo foi lançado.
+  const { jogo: game, iniciar, parar } = useJogoRodando()
 
   useEffect(() => {
     const handler = (e: Event) => {
       const g = (e as CustomEvent<Game>).detail
-      if (!g) return
-      setGame(g)
-      setVisivel(true)
-      viuRodando.current = false
-      clearTimeout(timer.current)
-      // Se o jogo nem chegar a abrir, esconde depois de um tempo.
-      timer.current = setTimeout(() => {
-        if (!viuRodando.current) setVisivel(false)
-      }, ABERTURA_MS)
+      if (g) iniciar(g)
     }
     window.addEventListener(EVENTO, handler)
+    return () => window.removeEventListener(EVENTO, handler)
+  }, [iniciar])
 
-    // Vigia do processo (main): true = jogo abriu, false = fechou.
-    const off = window.launcherAPI?.onGameRunning((rodando) => {
-      if (rodando) {
-        viuRodando.current = true
-        clearTimeout(timer.current)
-      } else if (viuRodando.current) {
-        setVisivel(false)
-      }
-    })
+  if (!game) return null
 
-    return () => {
-      window.removeEventListener(EVENTO, handler)
-      off?.()
-      clearTimeout(timer.current)
-    }
-  }, [])
-
-  if (!visivel || !game) return null
-
-  const fecharJogo = () => {
-    window.launcherAPI?.closeGame()
-    clearTimeout(timer.current)
-    // Se o processo não morrer (falha no pkill), esconde mesmo assim.
-    timer.current = setTimeout(() => setVisivel(false), FECHANDO_MS)
-  }
+  const fecharJogo = parar
 
   return (
     <div
