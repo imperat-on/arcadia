@@ -109,6 +109,10 @@ arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 User data (config, library, downloads, prefixes, artwork) lives under
 `~/.local/share/arcadia/` and is **not** versioned.
 
+## License
+
+[MIT](LICENSE) © 2026 Davi Kolansinsky.
+
 ## Disclaimer
 
 Personal interoperability project. Respect Valve, Epic and other platforms'
