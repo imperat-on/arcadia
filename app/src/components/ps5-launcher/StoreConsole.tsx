@@ -23,6 +23,12 @@ interface StoreConsoleProps {
   games: Game[]
   /** Pausa o trailer do destaque quando a janela perde o foco. */
   ativo: boolean
+  /**
+   * A loja abriu/fechou um overlay próprio (página do jogo, teclado, escolha
+   * de destino). O launcher desliga o laço de controle dele enquanto isso —
+   * dois laços ativos disputariam o mesmo direcional e o mesmo B.
+   */
+  onOverlay?: (aberto: boolean) => void
   /** Recebe os atalhos do laço de gamepad do PS5Launcher (X, Y e B). */
   onAtalhos?: (a: {
     baixar: (appid: string) => void
@@ -42,10 +48,32 @@ type Categoria = {
   fonte: { tipo: "steamspy"; lista?: string; genero?: string } | { tipo: "featured"; secao: string }
 }
 
+/**
+ * Guarda o foco enquanto um overlay está aberto e devolve ao fechar.
+ *
+ * Os efeitos dos filhos rodam antes dos do pai e o foco inicial de um overlay
+ * acontece dentro de um `requestAnimationFrame` — então, quando este efeito
+ * captura, o `activeElement` ainda é o ladrilho de origem.
+ */
+function useRestaurarFoco(aberto: boolean) {
+  const anterior = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (aberto) {
+      anterior.current = document.activeElement as HTMLElement | null
+      return
+    }
+    const el = anterior.current
+    anterior.current = null
+    // Pode ter sido removido enquanto o overlay estava aberto (troca de
+    // categoria, recarga da vitrine): aí não há para onde voltar.
+    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
+  }, [aberto])
+}
+
 
 
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
-  { games, ativo, onAtalhos },
+  { games, ativo, onOverlay, onAtalhos },
   ref,
 ) {
   const acoes = useStoreActions(games)
@@ -244,6 +272,11 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       // B sai da busca ou da categoria; na vitrine devolve false para o
       // PS5Launcher tratar o botão como "sair da loja".
       voltar: () => {
+        // Rede de segurança para o quadro de transição: quem impede o B de
+        // sair da loja com um overlay aberto é o `onOverlay`, que desliga este
+        // laço. Entre abrir o overlay e o laço parar passa um quadro, e nele
+        // um B sairia da loja inteira.
+        if (aberto || teclado || acoes.escolhendo) return true
         if (resultados) {
           setResultados(null)
           setBusca("")
@@ -265,7 +298,16 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.adicionar(j)
       },
     })
-  }, [onAtalhos, vitrine, paginas, resultados, modo, acoes])
+  }, [onAtalhos, vitrine, paginas, resultados, modo, acoes, aberto, teclado])
+
+  // Fechar um overlay devolve o foco ao ladrilho de onde se veio — é o que faz
+  // o B "voltar uma vez" para o jogo que estava sendo visto, em vez de a
+  // navegação recomeçar do topo da vitrine.
+  const overlay = Boolean(aberto) || teclado || Boolean(acoes.escolhendo)
+  useRestaurarFoco(overlay)
+  useEffect(() => {
+    onOverlay?.(overlay)
+  }, [overlay, onOverlay])
 
   // Quantos itens já carregamos vs. quanto o backend disse que existe.
   const carregados = paginas.reduce((n, p) => n + p.length, 0)
