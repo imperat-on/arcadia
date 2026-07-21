@@ -1,6 +1,6 @@
 # Arcadia
 
-A game launcher for Linux with two UIs: a **desktop** mode (Heroic-style
+A game launcher for Linux with two UIs: a **desktop** mode (windowed
 library, store and downloads) and a **console** mode (fullscreen, gamepad,
 PS5-inspired).
 
@@ -34,7 +34,7 @@ enqueues DepotDownloader and shows real progress, speed and ETA.
 
 ### Desktop mode
 
-Heroic-style window: library on the left, per-game overview on the right,
+Windowed layout: library on the left, per-game overview on the right,
 launch options in a dedicated pane. Same backend as the console mode — just
 a different UI on top.
 
@@ -102,7 +102,7 @@ First run indexes your library (`index.py`) and builds the front-end
 ```
 app/src        # React front-end (desktop/ + ps5-launcher/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
-index.py       # library indexer (Steam/Heroic/Lutris → library.json)
+index.py       # library indexer (scans installed sources → library.json)
 arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 ```
 
