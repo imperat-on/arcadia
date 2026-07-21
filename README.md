@@ -109,6 +109,19 @@ arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 User data (config, library, downloads, prefixes, artwork) lives under
 `~/.local/share/arcadia/` and is **not** versioned.
 
+## Credits
+
+Arcadia leans on the work of these projects:
+
+- [SLSsteam](https://github.com/AceSLS/SLSsteam) — the Steam plugin loader
+  that makes injected apps appear as owned in the Steam client. Powers the
+  "Add to Steam" flow and the launch pipeline for injected games.
+- [luatools-moon](https://github.com/swwayps/luatools-moon/tree/millennium) —
+  the Millennium-less LuaTools bridge (Lumen sidecar and wrapper) that
+  Arcadia's SLSsteam setup ships alongside.
+
+Huge thanks to their authors and contributors.
+
 ## License
 
 [MIT](LICENSE) © 2026 Davi Kolansinsky.
