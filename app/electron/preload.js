@@ -134,6 +134,20 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("library:changed", h)
     return () => ipcRenderer.removeListener("library:changed", h)
   },
+  // Atualização do próprio Arcadia (git pull + rebuild + reinício).
+  updateState: () => ipcRenderer.invoke("update:state"),
+  updateCheck: () => ipcRenderer.invoke("update:check"),
+  updateApply: (data) => ipcRenderer.invoke("update:apply", data),
+  onUpdateAvailable: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("update:available", h)
+    return () => ipcRenderer.removeListener("update:available", h)
+  },
+  onUpdateProgress: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("update:progress", h)
+    return () => ipcRenderer.removeListener("update:progress", h)
+  },
   onStoreDownloaded: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("store:downloaded", h)

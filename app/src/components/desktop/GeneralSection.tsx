@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { AppConfig } from "../../global"
+import type { AppConfig, UpdateInfo } from "../../global"
 import { aplicarA11y } from "./AccessibilityView"
 import { TEMAS } from "../../themes"
 import { useI18n } from "../../i18n/I18nContext"
+import { UpdateDialog } from "../UpdateDialog"
 
 const LANGS = [
   { id: "pt-BR", label: "Português (Brasil)" },
@@ -120,6 +121,7 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           value={cfg.check_updates_on_start !== false}
           onChange={(v) => set("check_updates_on_start", v)}
         />
+        <ProcurarAtualizacao />
         <Toggle
           label={t("settings.auto_update.label")}
           desc={t("settings.auto_update.desc")}
@@ -242,6 +244,51 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
 /* ------------------------------------------------------------------ */
 /*  Componentes base (mesmo visual do resto das Configurações)         */
 /* ------------------------------------------------------------------ */
+
+// Verificação manual, para quem desligou a automática — e o único lugar onde
+// o motivo de o clone estar bloqueado aparece por escrito. Sem isto, quem tem
+// alteração local nunca saberia por que o aviso não vem.
+function ProcurarAtualizacao() {
+  const { t } = useI18n()
+  const [msg, setMsg] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+
+  const procurar = async () => {
+    setBusy(true)
+    setMsg("")
+    const st = await window.launcherAPI?.updateState()
+    if (st && !st.podeAtualizar) {
+      setBusy(false)
+      setMsg(t(`update.bloqueado.${st.motivo}`, { detalhe: st.detalhe || "" }))
+      return
+    }
+    const r = await window.launcherAPI?.updateCheck()
+    setBusy(false)
+    if (!r?.ok) return setMsg(r?.error || t("update.erro_generico"))
+    if (!r.atrasado) return setMsg(t("update.em_dia", { sha: r.local || "" }))
+    setInfo(r)
+  }
+
+  return (
+    <>
+      <Row
+        label={t("update.procurar.label")}
+        desc={msg || t("update.procurar.desc")}
+        control={
+          <button
+            onClick={procurar}
+            disabled={busy}
+            className="rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white disabled:opacity-60"
+          >
+            {busy ? t("update.procurando") : t("update.procurar")}
+          </button>
+        }
+      />
+      {info && <UpdateDialog info={info} onDepois={() => setInfo(null)} />}
+    </>
+  )
+}
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (

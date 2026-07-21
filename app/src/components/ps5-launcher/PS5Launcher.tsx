@@ -26,6 +26,7 @@ import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 
 const MOCK_GAMES: Game[] = [
   {
@@ -128,6 +129,7 @@ export function PS5Launcher() {
   // palpite pelo foco da janela. Guarda QUAL jogo é, para o botão do herói
   // virar "Parar" só naquele.
   const jogoAtivo = useJogoRodando()
+  const atualizacao = useAtualizacao()
   // Para pausar trailer de fundo e vídeo da loja, "abrindo" já conta como
   // jogo em cena.
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
@@ -1196,6 +1198,11 @@ export function PS5Launcher() {
         onClose={() => setEditGame(null)}
         onSave={(patch) => editGame && _save_meta(editGame, patch)}
       />
+
+      {/* Atualização do Arcadia: A confirma, B adia. */}
+      {atualizacao.info && (
+        <UpdateDialog info={atualizacao.info} console onDepois={atualizacao.dispensar} />
+      )}
 
       {/* Toast notification */}
       <Toast visible={toast.visible} title={toast.title} />

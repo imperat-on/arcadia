@@ -37,6 +37,30 @@ export interface TextCandidate {
   texto: string
 }
 
+/** Por que este clone não pode se atualizar sozinho. */
+export type UpdateMotivo = "sem-git" | "branch" | "sujo" | "nao-enviado"
+
+export interface UpdateState {
+  podeAtualizar: boolean
+  motivo?: UpdateMotivo
+  /** Contexto do motivo: nome da branch, ou quantos arquivos/commits. */
+  detalhe?: string
+}
+
+export interface UpdateInfo {
+  ok: boolean
+  error?: string
+  /** Commit local, curto. */
+  local?: string
+  /** Quantos commits o GitHub tem a mais que nós. */
+  atrasado?: number
+  commits?: { sha: string; titulo: string }[]
+  /** O package-lock mudou — vai precisar de `npm install`. */
+  depsMudaram?: boolean
+}
+
+export type UpdateEtapa = "pull" | "deps" | "build" | "pronto"
+
 export interface AppConfig {
   steam_api_key?: string
   steamgriddb_api_key?: string
@@ -457,6 +481,21 @@ declare global {
       onGameRunning: (cb: (running: boolean) => void) => () => void
       /** Biblioteca mudou no disco (download concluído, desinstalação). */
       onLibraryChanged: (cb: () => void) => () => void
+      /** Este clone pode receber atualização automática? */
+      updateState: () => Promise<UpdateState>
+      /** Compara o commit local com o do GitHub. */
+      updateCheck: () => Promise<UpdateInfo>
+      /** git pull + npm install (se preciso) + build + reinício. */
+      updateApply: (data?: { depsMudaram?: boolean }) => Promise<{
+        ok: boolean
+        error?: string
+        sha?: string
+        reiniciou?: boolean
+      }>
+      /** Há commits novos no GitHub (verificado na abertura). */
+      onUpdateAvailable: (cb: (info: UpdateInfo) => void) => () => void
+      /** Etapa atual da atualização em andamento. */
+      onUpdateProgress: (cb: (p: { etapa: UpdateEtapa }) => void) => () => void
       /** Download da loja concluído — oferecer restart da Steam. */
       onStoreDownloaded: (cb: (data: { appid: string; title: string }) => void) => () => void
       /** Conquista desbloqueada em tempo real (toast estilo PS5). */
