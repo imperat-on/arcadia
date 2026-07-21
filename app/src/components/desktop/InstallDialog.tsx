@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { fmtGiB } from "../tamanho"
+import { useI18n } from "../../i18n/I18nContext"
 
 // Diálogo de instalação (estilo Heroic): mostra tamanho do download/instalado,
 // deixa escolher a pasta, exibe espaço livre e confirma/cancela a instalação.
@@ -20,6 +21,7 @@ export function InstallDialog({
   game: Game
   onClose: (instalou: boolean) => void
 }) {
+  const { t } = useI18n()
   const [installPath, setInstallPath] = useState("")
   const [disk, setDisk] = useState<{ free?: number; total?: number }>({})
   const [busy, setBusy] = useState(false)
@@ -89,7 +91,7 @@ export function InstallDialog({
               <polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" />
             </svg>
             <div>
-              <div className="text-[11px] text-white/45">Tamanho do download</div>
+              <div className="text-[11px] text-white/45">{t("install.tamanho_download")}</div>
               <div className="text-sm font-medium text-white"><GiB v={tamanhoGb} /></div>
             </div>
           </div>
@@ -98,14 +100,14 @@ export function InstallDialog({
               <rect x="2" y="3" width="20" height="7" rx="2" /><rect x="2" y="14" width="20" height="7" rx="2" />
             </svg>
             <div>
-              <div className="text-[11px] text-white/45">Tamanho instalado</div>
+              <div className="text-[11px] text-white/45">{t("install.tamanho_instalado")}</div>
               <div className="text-sm font-medium text-white"><GiB v={tamanhoGb} /></div>
             </div>
           </div>
         </div>
 
         {/* Local */}
-        <label className="mb-1.5 block text-[13px] text-white/70">Selecione o local de instalação</label>
+        <label className="mb-1.5 block text-[13px] text-white/70">{t("install.selecione_local")}</label>
         <div className="mb-2 flex gap-2">
           <input
             value={installPath}
@@ -115,7 +117,7 @@ export function InstallDialog({
           />
           <button
             onClick={escolher}
-            title="Escolher pasta"
+            title={t("install.escolher_pasta")}
             className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -126,13 +128,13 @@ export function InstallDialog({
 
         {/* Espaço em disco */}
         <p className="mb-6 text-[12px] text-white/45">
-          Espaço restante no dispositivo:{" "}
+          {t("install.espaco_restante")}{" "}
           <span className="font-semibold text-white/80">
             <GiB v={disk.free} /> / <GiB v={disk.total} />
           </span>
           {tamanhoGb != null && disk.free != null && (
             <>
-              {" "}— Pós-instalação:{" "}
+              {" "}{t("install.pos_instalacao")}{" "}
               <span className="font-semibold text-white/80">
                 <GiB v={Math.max(0, disk.free - tamanhoGb)} />
               </span>
@@ -147,7 +149,7 @@ export function InstallDialog({
             disabled={busy}
             className="rounded-lg border border-white/15 px-5 py-2 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
           >
-            Cancelar
+            {t("common.cancelar")}
           </button>
           <button
             onClick={instalar}
@@ -155,7 +157,7 @@ export function InstallDialog({
             className="rounded-lg px-5 py-2 text-[13px] font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
             style={{ background: "var(--accent)" }}
           >
-            {busy ? "Iniciando…" : "INSTALAR"}
+            {busy ? t("install.iniciando") : t("install.instalar")}
           </button>
         </div>
       </div>

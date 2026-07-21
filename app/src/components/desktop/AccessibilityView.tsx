@@ -1,17 +1,20 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import type { AppConfig } from "../../global"
 import { temaPorId } from "../../themes"
 
 const ZOONS = [60, 80, 100, 120, 140, 160, 180, 200]
 
-const FONTES = [
-  { id: "Inter", label: "Inter (padrão do Arcadia)" },
+// Nomes de fonte não se traduzem; só as duas entradas com texto descritivo
+// passam pelo dicionário.
+const FONTES: { id: string; label?: string; labelKey?: string }[] = [
+  { id: "Inter", labelKey: "accessibility.fonte.inter" },
   { id: "Cabin", label: "Cabin" },
   { id: "Rubik", label: "Rubik" },
   { id: "Ubuntu", label: "Ubuntu" },
-  { id: "system-ui", label: "Sistema (system-ui)" },
+  { id: "system-ui", labelKey: "accessibility.fonte.sistema" },
 ]
 
 // Aplica o tema completo (cores de fundo/sidebar/cards/texto) + acessibilidade
@@ -57,6 +60,7 @@ export function aplicarA11y(cfg: AppConfig) {
 
 // Aba Acessibilidade (modo desktop): zoom, fontes, tema, CSS custom e toggles.
 export function AccessibilityView() {
+  const { t } = useI18n()
   const [cfg, setCfg] = useState<AppConfig>({})
 
   useEffect(() => {
@@ -87,13 +91,13 @@ export function AccessibilityView() {
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
-      <h1 className="mb-8 text-2xl font-light tracking-wide text-white">Acessibilidade</h1>
+      <h1 className="mb-8 text-2xl font-light tracking-wide text-white">{t("accessibility.titulo")}</h1>
 
       <div className="max-w-2xl space-y-8 pb-10">
         {/* Zoom */}
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#a8b3cc]">Zoom</h2>
+            <h2 className="text-sm font-semibold text-[#a8b3cc]">{t("accessibility.zoom")}</h2>
             <span className="text-sm font-bold tabular-nums text-white">{zoomTela}%</span>
           </div>
           <input
@@ -118,15 +122,15 @@ export function AccessibilityView() {
 
         {/* Fontes */}
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-[#a8b3cc]">Fontes</h2>
+          <h2 className="mb-3 text-sm font-semibold text-[#a8b3cc]">{t("accessibility.fontes")}</h2>
           <div className="space-y-3">
             <SelectFonte
-              label="Fonte do conteúdo"
+              label={t("accessibility.fonte_conteudo")}
               value={cfg.content_font || "Inter"}
               onChange={(v) => salvar({ content_font: v })}
             />
             <SelectFonte
-              label="Fonte das ações (botões/menus)"
+              label={t("accessibility.fonte_acoes")}
               value={cfg.actions_font || "Rubik"}
               onChange={(v) => salvar({ actions_font: v })}
             />
@@ -135,9 +139,9 @@ export function AccessibilityView() {
 
         {/* CSS customizado */}
         <section>
-          <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">Caminho de temas customizados</h2>
+          <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">{t("accessibility.caminho_temas")}</h2>
           <p className="mb-2 text-xs text-white/40">
-            Pasta com arquivos .css. Todos são aplicados ao abrir.
+            {t("accessibility.pasta_css_desc")}
           </p>
           <div className="flex gap-2">
             <input
@@ -152,7 +156,7 @@ export function AccessibilityView() {
                 const r = await window.launcherAPI?.pickFolder?.()
                 if (r?.ok && r.path) salvar({ custom_css_path: r.path })
               }}
-              title="Escolher pasta"
+              title={t("common.escolher_pasta")}
               className="rounded-xl border border-white/10 bg-white/[0.06] px-3.5 text-white/80 transition-colors hover:bg-white/10"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -168,40 +172,40 @@ export function AccessibilityView() {
             onClick={() => window.launcherAPI?.openExternal(`file://${window.launcherPaths?.dataDir}/README.md`)}
             className="rounded-xl border border-white/10 px-4 py-2 text-xs font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           >
-            Ajuda (README)
+            {t("accessibility.ajuda_readme")}
           </button>
           <button
             onClick={() => window.launcherAPI?.openExternal("https://www.protondb.com")}
             className="rounded-xl border border-white/10 px-4 py-2 text-xs font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           >
-            Aviso: compatibilidade (ProtonDB)
+            {t("accessibility.aviso_protondb")}
           </button>
         </section>
 
         {/* Checkboxes */}
         <section className="space-y-2.5">
           <Check
-            label="Mostrar todos os blocos de jogos coloridos"
+            label={t("accessibility.blocos_coloridos")}
             checked={Boolean(cfg.tiles_color)}
             onChange={(v) => salvar({ tiles_color: v })}
           />
           <Check
-            label="Sempre mostrar os títulos na biblioteca"
+            label={t("accessibility.sempre_titulos")}
             checked={cfg.always_titles !== false}
             onChange={(v) => salvar({ always_titles: v })}
           />
           <Check
-            label="Não fechar diálogos ao clicar fora"
+            label={t("accessibility.nao_fechar_dialogos")}
             checked={Boolean(cfg.no_click_outside)}
             onChange={(v) => salvar({ no_click_outside: v })}
           />
           <Check
-            label="Desativar rolagem suave"
+            label={t("accessibility.desativar_rolagem")}
             checked={Boolean(cfg.no_smooth_scroll)}
             onChange={(v) => salvar({ no_smooth_scroll: v })}
           />
           <Check
-            label="Desativar animações da interface"
+            label={t("accessibility.desativar_animacoes")}
             checked={Boolean(cfg.no_anim)}
             onChange={(v) => salvar({ no_anim: v })}
           />
@@ -212,6 +216,7 @@ export function AccessibilityView() {
 }
 
 function SelectFonte({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const { t } = useI18n()
   return (
     <label className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
       <span className="text-sm text-white/80">{label}</span>
@@ -221,7 +226,7 @@ function SelectFonte({ label, value, onChange }: { label: string; value: string;
         className="rounded-lg border border-white/10 bg-[#16161a] px-3 py-1.5 text-sm text-white outline-none focus:border-[color:var(--accent)]"
       >
         {FONTES.map((f) => (
-          <option key={f.id} value={f.id}>{f.label}</option>
+          <option key={f.id} value={f.id}>{f.labelKey ? t(f.labelKey) : f.label}</option>
         ))}
       </select>
     </label>

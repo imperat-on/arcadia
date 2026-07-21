@@ -4,6 +4,7 @@ import "@fontsource/inter/500.css"
 import "@fontsource/inter/600.css"
 import "@fontsource/inter/700.css"
 import "./index.css"
+import { I18nProvider } from "./i18n/I18nContext"
 import { PS5Launcher } from "./components/ps5-launcher/PS5Launcher"
 import { DesktopLauncher } from "./components/desktop/DesktopLauncher"
 
@@ -11,4 +12,4 @@ import { DesktopLauncher } from "./components/desktop/DesktopLauncher"
 // mesmo; muda só a UI montada na raiz.
 const root = window.launcherMode === "desktop" ? <DesktopLauncher /> : <PS5Launcher />
 
-createRoot(document.getElementById("root")!).render(root)
+createRoot(document.getElementById("root")!).render(<I18nProvider>{root}</I18nProvider>)

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import { ImgCascata } from "./ImgCascata"
 import { urlsHeroi, urlLogo } from "./capaJogo"
 import { semHtml } from "./texto"
@@ -45,6 +46,7 @@ export function StoreHero({
   onBaixar,
   onAdicionar,
 }: StoreHeroProps) {
+  const { t } = useI18n()
   const [pausado, setPausado] = useState(false)
   // Nem todo appid tem logo.png publicado — lançamento recente costuma não ter.
   // Quando falha, o título em texto assume. Guardamos POR APPID: com um único
@@ -106,7 +108,7 @@ export function StoreHero({
 
       <div className="relative flex h-full flex-col justify-end px-12 pb-10">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--loja-apagado)]">
-          Em destaque
+          {t("store.em_destaque")}
         </p>
         {/* Logo oficial quando existe; o h1 continua no DOM para leitores de
             tela, apenas visualmente oculto. */}
@@ -141,14 +143,14 @@ export function StoreHero({
             disabled={ocupado}
             className="loja-botao -primario"
           >
-            {semManifesto ? "Ver detalhes" : "Baixar"}
+            {semManifesto ? t("store.ver_detalhes") : t("store.baixar")}
           </button>
           <button
             onClick={() => onAdicionar(jogo)}
             disabled={ocupado || naBiblioteca || semManifesto}
             className="loja-botao"
           >
-            {naBiblioteca ? "Na biblioteca" : "Adicionar"}
+            {naBiblioteca ? t("store.na_biblioteca") : t("store.adicionar")}
           </button>
           {ficha?.preco && (
             <span className="text-[15px] font-semibold" style={{ color: "var(--loja-cor)" }}>
@@ -171,7 +173,7 @@ export function StoreHero({
               <button
                 key={j.appid}
                 tabIndex={-1}
-                aria-label={`Destaque ${i + 1}`}
+                aria-label={t("store.destaque_numero", { n: i + 1 })}
                 onClick={() => onIndice(i)}
                 className="h-1 rounded-full transition-all"
                 style={{

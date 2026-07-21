@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useStoreActions } from "../useStoreActions"
 import type { Game } from "../ps5-launcher/types"
+import { useI18n } from "../../i18n/I18nContext"
 
 // Aba Lojas: busca no catálogo Hubcap e download direto para a biblioteca
 // Steam (DepotDownloader + SLSsteam). O setup (API key, .NET, SLSsteam) fica
@@ -45,6 +46,7 @@ type ManifestInfo = {
 }
 
 export function StoreView({ games = [] }: { games?: Game[] }) {
+  const { t } = useI18n()
   // Ações (Baixar/Add/Remover/reiniciar Steam), estado de bloqueio e escolha de
   // disco vêm do hook compartilhado com a loja do modo console — antes essa
   // lógica morava só aqui e teria de ser duplicada lá.
@@ -117,11 +119,11 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     setBuscando(false)
     if (!r?.ok) {
       setResultados([])
-      setMsg(r?.error || "Busca falhou")
+      setMsg(r?.error || t("store.busca_falhou"))
       return
     }
     setResultados(r.jogos || [])
-    if ((r.jogos || []).length === 0) setMsg("Nada encontrado.")
+    if ((r.jogos || []).length === 0) setMsg(t("store.nada_encontrado"))
   }
 
   // Grade exibida: resultados da busca ou os adicionados recentemente.
@@ -132,8 +134,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
-      <h1 className="mb-1 text-2xl font-light tracking-wide text-white">Loja Steam</h1>
-      <p className="mb-6 text-sm text-white/40">Busque e baixe jogos direto para a biblioteca Steam.</p>
+      <h1 className="mb-1 text-2xl font-light tracking-wide text-white">{t("store.titulo")}</h1>
+      <p className="mb-6 text-sm text-white/40">{t("store.descricao")}</p>
 
       {/* Busca + Restart Steam */}
       <div className="mb-4 flex max-w-[860px] gap-2">
@@ -158,7 +160,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
               }
             }}
             onBlur={() => setTimeout(() => setSugestoes([]), 150)}
-            placeholder="Buscar jogo na loja…"
+            placeholder={t("store.buscar_placeholder")}
             spellCheck={false}
             className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)] disabled:opacity-50"
           />
@@ -186,24 +188,24 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           className="rounded-lg px-4 py-2.5 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
-          {buscando ? "Buscando…" : "Buscar"}
+          {buscando ? t("store.buscando") : t("store.buscar")}
         </button>
         <button
           onClick={reiniciarSteam}
-          title="Reinicia a Steam com a SLSsteam carregada"
+          title={t("store.restart_steam_tooltip")}
           className="flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2.5 text-[12px] font-semibold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          Restart Steam
+          {t("store.restart_steam")}
         </button>
       </div>
       {msg && <p className="mb-4 text-[12px] text-white/55">{msg}</p>}
 
       {/* Grade: resultados da busca ou adicionados recentemente */}
       <h2 className="mb-3 text-sm font-medium text-white/60">
-        {buscou ? `Resultados (${grade.length})` : "Em alta agora"}
+        {buscou ? t("store.resultados_count", { count: grade.length }) : t("store.em_alta_agora")}
       </h2>
       <div className="grid-stagger grid max-w-[1100px] grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-8">
         {/* Enquanto a lista não chega, cartões-fantasma: a área ficava
@@ -231,16 +233,16 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
-                    Na biblioteca
+                    {t("store.na_biblioteca")}
                   </div>
                   {jaAdicionados.has(j.appid) && (
                     <button
                       onClick={() => remover(j)}
                       disabled={acaoBusy !== ""}
-                      title="Remover da SLSsteam (desfaz o Add)"
+                      title={t("store.remover_tooltip")}
                       className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
                     >
-                      {acaoBusy === j.appid ? "…" : "Remover"}
+                      {acaoBusy === j.appid ? "…" : t("common.remover")}
                     </button>
                   )}
                 </div>
@@ -252,13 +254,13 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                    impressão de que o botão não fazia nada. */
                 j.manifest === false ? (
                   <div
-                    title="Nenhum provedor (Morrenus/Ryuu/Sushi) tem o manifesto deste jogo."
+                    title={t("store.sem_manifesto_tooltip")}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/35"
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" />
                     </svg>
-                    Sem manifesto
+                    {t("store.sem_manifesto")}
                   </div>
                 ) : (
                 <div className="flex gap-2">
@@ -268,15 +270,15 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                     className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
                     style={{ background: "var(--accent)" }}
                   >
-                    {acaoBusy === j.appid ? "…" : "Baixar"}
+                    {acaoBusy === j.appid ? "…" : t("store.baixar")}
                   </button>
                   <button
                     onClick={() => adicionar(j)}
                     disabled={acaoBusy !== ""}
-                    title="Adiciona à Steam sem baixar — a Steam baixa pela CDN dela"
+                    title={t("store.add_tooltip")}
                     className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
                   >
-                    Add
+                    {t("store.add")}
                   </button>
                 </div>
                 )
@@ -293,8 +295,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
             className="w-[440px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-1 text-base font-semibold text-white">Instalar "{escolhendo.jogo.title}" em:</h3>
-            <p className="mb-4 text-[12px] text-white/40">Escolha a biblioteca Steam de destino.</p>
+            <h3 className="mb-1 text-base font-semibold text-white">{t("store.instalar_em", { title: escolhendo.jogo.title })}</h3>
+            <p className="mb-4 text-[12px] text-white/40">{t("store.escolher_biblioteca")}</p>
             <div className="flex flex-col gap-2">
               {escolhendo.libs.map((l, i) => (
                 <button
@@ -310,7 +312,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                     </svg>
                     {l.steamDir.replace(/^\/home\/[^/]+/, "~")}
                   </span>
-                  <span className="text-[11px] font-semibold text-white/50">{l.free.toFixed(2)} GB livres</span>
+                  <span className="text-[11px] font-semibold text-white/50">{t("store.gb_livres", { free: l.free.toFixed(2) })}</span>
                 </button>
               ))}
             </div>
@@ -318,7 +320,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
               onClick={() => setEscolhendo(null)}
               className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
             >
-              Cancelar
+              {t("common.cancelar")}
             </button>
           </div>
         </div>

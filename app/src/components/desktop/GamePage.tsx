@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { fmtBytes, fmtMiB } from "../tamanho"
+import { userLocale } from "../../i18n/locale"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface Sysinfo {
   download_size?: number
@@ -44,6 +46,7 @@ export function GamePage({
   onImportar: () => void
   onConfig: () => void
 }) {
+  const { t } = useI18n()
   const instalado = g.installed !== false
   const epic = g.launcher === "epic"
   const [aba, setAba] = useState<"dados" | "requisitos">("dados")
@@ -77,12 +80,12 @@ export function GamePage({
     const { path: installPath } = (await window.launcherAPI?.storeInstallDir(g)) || { path: "" }
     if (!installPath) {
       setFixBusy("")
-      setFixMsg("Pasta de instalação não encontrada.")
+      setFixMsg(t("gamepage.pasta_nao_encontrada"))
       return
     }
     const r = await window.launcherAPI?.storeApplyFix({ appid, type, installPath })
     setFixBusy("")
-    setFixMsg(r?.ok ? "Fix aplicado!" : r?.error || "Falha ao aplicar o fix")
+    setFixMsg(r?.ok ? t("gamepage.fix_aplicado") : r?.error || t("gamepage.falha_fix"))
   }
 
   const gibBytes = fmtBytes
@@ -90,8 +93,8 @@ export function GamePage({
   const tamDownload = sys?.download_size ? gibBytes(sys.download_size) : gib(g.size)
   const tamInstalado = sys?.disk_size ? gibBytes(sys.disk_size) : instalado ? gib(g.size) : "—"
   const ultimaVez = g.last_played
-    ? new Date(g.last_played).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
-    : "Nunca"
+    ? new Date(g.last_played).toLocaleDateString(userLocale(), { day: "2-digit", month: "2-digit", year: "numeric" })
+    : t("common.nunca")
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-black" style={{ animation: "gp-in 0.18s ease-out" }}>
@@ -105,7 +108,7 @@ export function GamePage({
       <button
         onClick={onClose}
         className="absolute left-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16] hover:text-white"
-        title="Voltar"
+        title={t("common.voltar")}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="15 18 9 12 15 6" />
@@ -131,7 +134,7 @@ export function GamePage({
               <p className="mt-0.5 text-[13px] italic text-white/50">{g.developer || g.publisher}</p>
             )}
             <p className="mt-3 min-h-0 flex-1 overflow-y-auto text-[13px] leading-relaxed text-white/65">
-              {g.description || "Sem descrição."}
+              {g.description || t("gamepage.sem_descricao")}
             </p>
 
             <div className="mt-4 shrink-0">
@@ -139,9 +142,9 @@ export function GamePage({
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
                 </svg>
-                Jogado pela última vez em: <span className="text-white/70">{ultimaVez}</span>
+                {t("gamepage.ultimo_jogo")} <span className="text-white/70">{ultimaVez}</span>
               </p>
-              {!instalado && <p className="mt-1.5 text-[13px] italic" style={{ color: "var(--accent)" }}>Este jogo não está instalado</p>}
+              {!instalado && <p className="mt-1.5 text-[13px] italic" style={{ color: "var(--accent)" }}>{t("gamepage.nao_instalado")}</p>}
 
               <div className="mt-3 flex gap-2.5">
                 {instalado ? (
@@ -152,13 +155,13 @@ export function GamePage({
                       style={{ background: "var(--accent)" }}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                      JOGAR
+                      {t("gamepage.jogar")}
                     </button>
                     <button
                       onClick={onConfig}
                       className="rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
                     >
-                      CONFIGURAÇÕES
+                      {t("gamepage.configuracoes")}
                     </button>
                   </>
                 ) : (
@@ -171,14 +174,14 @@ export function GamePage({
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
-                      INSTALAR
+                      {t("gamepage.instalar")}
                     </button>
                     {epic && (
                       <button
                         onClick={onImportar}
                         className="rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
                       >
-                        IMPORTAR JOGO
+                        {t("gamepage.importar_jogo")}
                       </button>
                     )}
                   </>
@@ -189,7 +192,7 @@ export function GamePage({
             {/* Fixes (GameBypass/OnlineFix) quando disponíveis para o jogo */}
             {fixes && (
               <div className="mt-3 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-white/50">Fixes disponíveis</div>
+                <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-white/50">{t("gamepage.fixes_disponiveis")}</div>
                 <div className="flex gap-2">
                   {fixes.generic && (
                     <button
@@ -198,7 +201,7 @@ export function GamePage({
                       className="rounded-lg px-3.5 py-1.5 text-[11px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
                       style={{ background: "var(--accent)" }}
                     >
-                      {fixBusy === "generic" ? "Aplicando…" : "GameBypass"}
+                      {fixBusy === "generic" ? t("gamepage.aplicando") : t("gamepage.gamebypass")}
                     </button>
                   )}
                   {fixes.online && (
@@ -208,7 +211,7 @@ export function GamePage({
                       className="rounded-lg px-3.5 py-1.5 text-[11px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
                       style={{ background: "var(--accent)" }}
                     >
-                      {fixBusy === "online" ? "Aplicando…" : "OnlineFix"}
+                      {fixBusy === "online" ? t("gamepage.aplicando") : t("gamepage.onlinefix")}
                     </button>
                   )}
                 </div>
@@ -222,8 +225,8 @@ export function GamePage({
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90 p-5">
           <div className="mx-auto mb-5 flex gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
             {([
-              ["dados", "DADOS DA INSTALAÇÃO"],
-              ["requisitos", "REQUISITOS"],
+              ["dados", t("gamepage.dados_instalacao")],
+              ["requisitos", t("gamepage.requisitos")],
             ] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -244,66 +247,66 @@ export function GamePage({
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  Tamanho do download:
+                  {t("gamepage.tamanho_download")}
                 </span>
-                <span className="text-[13px] text-white/70">{sysBusy && !sys ? "…" : tamDownload}</span>
+                <span className="text-[13px] text-white/70">{sysBusy && !sys ? t("gamepage.carregando") : tamDownload}</span>
               </div>
               <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
                 <span className="flex items-center gap-2.5 text-[13px] font-medium text-white/85">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="2" y="3" width="20" height="7" rx="2" /><rect x="2" y="14" width="20" height="7" rx="2" />
                   </svg>
-                  Tamanho instalado:
+                  {t("gamepage.tamanho_instalado")}
                 </span>
-                <span className="text-[13px] text-white/70">{sysBusy && !sys ? "…" : tamInstalado}</span>
+                <span className="text-[13px] text-white/70">{sysBusy && !sys ? t("gamepage.carregando") : tamInstalado}</span>
               </div>
               {sys?.version && (
                 <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-                  <span className="text-[13px] font-medium text-white/85">Versão:</span>
+                  <span className="text-[13px] font-medium text-white/85">{t("gamepage.versao")}</span>
                   <span className="text-[13px] text-white/70">{sys.version}</span>
                 </div>
               )}
               <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-                <span className="text-[13px] font-medium text-white/85">Loja:</span>
+                <span className="text-[13px] font-medium text-white/85">{t("gamepage.loja")}</span>
                 <span className="text-[13px] capitalize text-white/70">{g.launcher}</span>
               </div>
             </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto text-[13px]">
               {sysBusy && !sys ? (
-                <p className="text-white/45">Buscando requisitos…</p>
+                <p className="text-white/45">{t("gamepage.buscando_requisitos")}</p>
               ) : sys?.req_min || sys?.req_rec ? (
                 <div className="flex flex-col gap-4">
                   {sys.req_min ? (
                     <div>
-                      <h4 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>Mínimos</h4>
+                      <h4 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>{t("gamepage.minimos")}</h4>
                       <p className="whitespace-pre-line leading-relaxed text-white/70">{stripHtml(sys.req_min)}</p>
                     </div>
                   ) : null}
                   {sys.req_rec ? (
                     <div>
-                      <h4 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>Recomendados</h4>
+                      <h4 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>{t("gamepage.recomendados")}</h4>
                       <p className="whitespace-pre-line leading-relaxed text-white/70">{stripHtml(sys.req_rec)}</p>
                     </div>
                   ) : null}
                   {g.launcher !== "steam" && (
-                    <p className="text-[11px] text-white/30">Fonte: página equivalente na Steam.</p>
+                    <p className="text-[11px] text-white/30">{t("gamepage.fonte_steam")}</p>
                   )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {[
-                    ["Gênero", g.genre],
-                    ["Ano", g.year],
-                    ["Jogadores", g.players],
-                    ["Metacritic", g.metacritic != null ? `${g.metacritic}/100` : undefined],
-                  ].map(([k, v]) => (
+                  {([
+                    [t("gamepage.genero"), g.genre],
+                    [t("gamepage.ano"), g.year],
+                    [t("gameoverview.detalhes.jogadores"), g.players],
+                    [t("gameoverview.detalhes.metacritic"), g.metacritic != null ? `${g.metacritic}/100` : undefined],
+                  ] as const).map(([k, v]) => (
                     <div key={String(k)} className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
                       <span className="font-medium text-white/85">{k}:</span>
-                      <span className="text-white/70">{v != null && v !== "" ? String(v) : "—"}</span>
+                      <span className="text-white/70">{v != null && v !== "" ? String(v) : t("common.fallback")}</span>
                     </div>
                   ))}
-                  <p className="mt-2 text-[12px] text-white/35">Requisitos de sistema não disponíveis para este jogo.</p>
+                  <p className="mt-2 text-[12px] text-white/35">{t("gamepage.requisitos_indisponiveis")}</p>
                 </div>
               )}
             </div>

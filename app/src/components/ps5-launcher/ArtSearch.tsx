@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ArtCandidate } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface ArtSearchProps {
   gameId: string
@@ -11,12 +12,6 @@ interface ArtSearchProps {
   onClose: () => void
   /** Recebe o caminho local já baixado. */
   onPicked: (path: string) => void
-}
-
-const TITULOS = {
-  cover: "Buscar capa",
-  hero: "Buscar plano de fundo",
-  logo: "Buscar logo",
 }
 
 // Resoluções oferecidas no filtro. A lista fechada que vale é a do
@@ -40,6 +35,14 @@ const RESOLUCOES: Record<string, { valor: string; rotulo: string }[]> = {
 const CONSOLE = typeof window !== "undefined" && window.launcherMode !== "desktop"
 
 export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearchProps) {
+  const { t } = useI18n()
+
+  const TITULOS = {
+    cover: t("editmetadata.buscar_capa"),
+    hero: t("editmetadata.buscar_fundo"),
+    logo: t("editmetadata.buscar_logo"),
+  }
+
   const ref = useRef<HTMLDivElement>(null)
   useGamepadNav(ref, true, onClose)
 
@@ -94,7 +97,8 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
       onPicked(res.path)
       onClose()
     } else {
-      setErros((e) => [...e, `Falha ao baixar: ${res?.error ?? "erro desconhecido"}`])
+      const errMsg = res?.error ?? t("editmetadata.erro_desconhecido")
+      setErros((e) => [...e, t("editmetadata.falha_baixar", { error: errMsg })])
     }
   }
 
@@ -121,7 +125,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
             value={termo}
             onChange={(e) => setTermo(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && buscar(termo, resolucoes)}
-            placeholder="Nome do jogo"
+            placeholder={t("editmetadata.nome_jogo")}
             className="flex-1 px-3 py-2 rounded-lg text-white text-[14px] outline-none"
             style={{
               background: "rgba(255,255,255,0.07)",
@@ -133,15 +137,15 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
             className="px-4 py-2 rounded-lg text-[14px] font-semibold text-white"
             style={{ background: "var(--accent)" }}
           >
-            Buscar
+            {t("editmetadata.buscar")}
           </button>
           <button
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t("editmetadata.fechar")}
             className="px-3 py-2 rounded-lg text-[14px] text-white/70 hover:text-white"
             style={{ background: "rgba(255,255,255,0.08)" }}
           >
-            Fechar
+            {t("editmetadata.fechar")}
           </button>
         </div>
 
@@ -152,7 +156,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
             style={{ background: "rgba(0,0,0,0.25)" }}
           >
             <span className="text-[11px] font-bold tracking-wider uppercase text-[#8a93a6] mr-1">
-              Resolução
+              {t("editmetadata.resolucao")}
             </span>
             {RESOLUCOES[kind].map((r) => {
               const on = resolucoes.includes(r.valor)
@@ -179,7 +183,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                 }}
                 className="text-[12px] text-[#8a93a6] hover:text-white underline ml-1"
               >
-                limpar
+                {t("editmetadata.limpar_filtro")}
               </button>
             )}
           </div>
@@ -187,10 +191,10 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
 
         <div className="flex-1 overflow-y-auto p-6">
           {carregando ? (
-            <p className="text-center text-[#8a93a6] py-12">Procurando…</p>
+            <p className="text-center text-[#8a93a6] py-12">{t("editmetadata.procurando")}</p>
           ) : candidatos.length === 0 ? (
             <p className="text-center text-[#8a93a6] py-12">
-              Nada encontrado para “{termo}”.
+              {t("editmetadata.nada_encontrado", { termo })}
             </p>
           ) : (
             <div
@@ -228,7 +232,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                       className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold text-black"
                       style={{ background: "#ffd166" }}
                     >
-                      ANIMADO
+                      {t("editmetadata.animado")}
                     </span>
                   )}
                   {baixando === c.url && (
@@ -236,7 +240,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                       className="absolute inset-0 flex items-center justify-center text-white text-xs font-semibold"
                       style={{ background: "rgba(0,0,0,0.6)" }}
                     >
-                      Baixando…
+                      {t("common.baixando")}
                     </span>
                   )}
                 </button>

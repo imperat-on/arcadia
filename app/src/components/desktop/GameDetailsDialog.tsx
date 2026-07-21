@@ -1,20 +1,20 @@
 "use client"
 
 import type { Game } from "../ps5-launcher/types"
+import { useI18n } from "../../i18n/I18nContext"
 
-// Diálogo "Detalhes" do menu de contexto: ficha do jogo (capa, loja,
-// descrição, gênero, ano, tempo de jogo, conquistas).
 export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () => void }) {
+  const { t } = useI18n()
   const horas = game.playtime_minutes != null ? Math.floor(game.playtime_minutes / 60) : null
   const campos: [string, string][] = [
-    ["Loja", game.launcher],
-    ...(game.genre ? [["Gênero", String(game.genre)] as [string, string]] : []),
-    ...(game.year ? [["Ano", String(game.year)] as [string, string]] : []),
-    ...(game.developer ? [["Desenvolvedora", game.developer] as [string, string]] : []),
-    ...(game.publisher ? [["Publicadora", game.publisher] as [string, string]] : []),
-    ...(horas != null ? [["Tempo de jogo", `${horas}h ${game.playtime_minutes! % 60}min`]] as [string, string][] : []),
-    ...(game.achievements_total ? [["Conquistas", `${game.achievements_done || 0}/${game.achievements_total}`] as [string, string]] : []),
-    ...(game.players ? [["Jogadores", game.players] as [string, string]] : []),
+    [t("gameoverview.detalhes.fonte"), game.launcher],
+    ...(game.genre ? [[t("gameoverview.detalhes.genero"), String(game.genre)] as [string, string]] : []),
+    ...(game.year ? [[t("gameoverview.detalhes.lancamento"), String(game.year)] as [string, string]] : []),
+    ...(game.developer ? [[t("gameoverview.detalhes.desenvolvedora"), game.developer] as [string, string]] : []),
+    ...(game.publisher ? [[t("gameoverview.detalhes.publicadora"), game.publisher] as [string, string]] : []),
+    ...(horas != null ? [[t("gameoverview.detalhes.tempo_jogo"), t("gameoverview.tempo.horas_minutos", { h: String(horas), m: String(game.playtime_minutes! % 60) })]] as [string, string][] : []),
+    ...(game.achievements_total ? [[t("gameoverview.detalhes.conquistas"), `${game.achievements_done || 0}/${game.achievements_total}`] as [string, string]] : []),
+    ...(game.players ? [[t("gameoverview.detalhes.jogadores"), game.players] as [string, string]] : []),
   ]
 
   return (
@@ -50,7 +50,7 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
           {game.description ? (
             <p className="text-[13px] leading-relaxed text-white/60">{game.description}</p>
           ) : (
-            <p className="text-[13px] text-white/30">Sem descrição.</p>
+            <p className="text-[13px] text-white/30">{t("gameoverview.sem_descricao")}</p>
           )}
           <p className="mt-4 font-mono text-[11px] text-white/25">ID: {game.id}</p>
         </div>

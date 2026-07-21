@@ -4,9 +4,7 @@ import { useEffect, useState } from "react"
 import type { AppConfig } from "../../global"
 import { aplicarA11y } from "./AccessibilityView"
 import { TEMAS } from "../../themes"
-
-// Configurações Globais → Config. Gerais (idioma, caminhos, comportamento,
-// atalhos, biblioteca e downloads). Salva tudo no config.json via setConfig.
+import { useI18n } from "../../i18n/I18nContext"
 
 const LANGS = [
   { id: "pt-BR", label: "Português (Brasil)" },
@@ -14,14 +12,15 @@ const LANGS = [
   { id: "es-ES", label: "Español" },
 ]
 
-const FEATURED_OPTS = [
-  { id: "disabled", label: "Desabilitada" },
-  { id: "recent", label: "Jogados recentemente" },
-  { id: "favorites", label: "Favoritos" },
-  { id: "most-played", label: "Mais jogados" },
+const FEATURED_OPTS_FN = (t: (k: string) => string) => [
+  { id: "disabled", label: t("featured.disabled") },
+  { id: "recent", label: t("featured.recent") },
+  { id: "favorites", label: t("featured.favorites") },
+  { id: "most-played", label: t("featured.most_played") },
 ] as const
 
 export function GeneralSection({ onSaved }: { onSaved: () => void }) {
+  const { t, lang, setLang } = useI18n()
   const [cfg, setCfg] = useState<AppConfig>({})
   const home = window.launcherPaths?.home || "~"
 
@@ -40,24 +39,29 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
     if (r?.path) await set(key, r.path as never)
   }
 
+  const FEATURED_OPTS = FEATURED_OPTS_FN(t)
+
   return (
     <div className="max-w-2xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">Config. Gerais</h2>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.general")}</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Idioma, pastas padrão, comportamento do app e integrações com o sistema.
+        {t("settings.general_desc")}
       </p>
 
-      <Group title="Idioma e aparência">
+      <Group title={t("settings.language")}>
         <Select
-          label="Selecione o idioma do app"
-          desc="Altera o idioma de toda a interface do Arcadia."
-          value={cfg.language ?? "pt-BR"}
+          label={t("settings.language.label")}
+          desc={t("settings.language.desc")}
+          value={cfg.language ?? lang}
           options={LANGS}
-          onChange={(v) => set("language", v)}
+          onChange={(v) => {
+            set("language", v)
+            setLang(v)
+          }}
         />
         <Select
-          label="Selecione um tema"
-          desc="Altera as cores de toda a interface — fundo, sidebar, cards e destaques. Aplicado na hora."
+          label={t("settings.theme.label")}
+          desc={t("settings.theme.desc")}
           value={cfg.theme_name ?? "midnight"}
           options={TEMAS.map((t) => ({ id: t.id, label: t.nome }))}
           onChange={(v) => {
@@ -73,158 +77,158 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           }}
         />
         <Path
-          label="Caminho para temas personalizados"
-          desc="Pasta com arquivos CSS customizados (temas de terceiros)."
+          label={t("settings.custom_css.label")}
+          desc={t("settings.custom_css.desc")}
           value={cfg.custom_css_path ?? ""}
-          placeholder="Nenhuma pasta selecionada"
+          placeholder={t("settings.custom_css.placeholder")}
           onPick={() => pickFolder("custom_css_path")}
         />
       </Group>
 
-      <Group title="Caminhos padrão">
+      <Group title={t("settings.paths")}>
         <Path
-          label="Local de instalação padrão"
-          desc="Pasta onde os jogos serão baixados e instalados por padrão."
+          label={t("settings.install_path.label")}
+          desc={t("settings.install_path.desc")}
           value={cfg.default_install_path ?? `${home}/Games/Arcadia`}
           onPick={() => pickFolder("default_install_path")}
         />
         <Path
-          label="Pasta padrão para novos prefixos Wine"
-          desc="Onde o Arcadia criará os prefixos Wine necessários para rodar jogos de Windows."
+          label={t("settings.wine_prefix.label")}
+          desc={t("settings.wine_prefix.desc")}
           value={cfg.default_wine_prefix_path ?? `${home}/Games/Arcadia/Prefixes`}
           onPick={() => pickFolder("default_wine_prefix_path")}
         />
         <Path
-          label="Caminho padrão do Steam"
-          desc="Localização dos arquivos do seu Steam local (útil para sincronizações)."
+          label={t("settings.steam_path.label")}
+          desc={t("settings.steam_path.desc")}
           value={cfg.steam_path ?? `${home}/.steam/steam`}
           onPick={() => pickFolder("steam_path")}
         />
         <Path
-          label="Sincronizar com a Epic Games (prefixo onde a EGS está instalada)"
-          desc="Mapeia onde o inicializador oficial da Epic está instalado, se necessário."
+          label={t("settings.egs_prefix.label")}
+          desc={t("settings.egs_prefix.desc")}
           value={cfg.epic_egs_prefix ?? ""}
-          placeholder="Nenhum prefixo selecionado"
+          placeholder={t("settings.egs_prefix.placeholder")}
           onPick={() => pickFolder("epic_egs_prefix")}
         />
       </Group>
 
-      <Group title="Comportamento do aplicativo">
+      <Group title={t("settings.behavior")}>
         <Toggle
-          label="Verificar se há atualizações do Arcadia ao iniciar"
-          desc="Procura automaticamente novas versões do programa ao abrir."
+          label={t("settings.check_updates.label")}
+          desc={t("settings.check_updates.desc")}
           value={cfg.check_updates_on_start !== false}
           onChange={(v) => set("check_updates_on_start", v)}
         />
         <Toggle
-          label="Atualizar jogos automaticamente"
-          desc="Faz o download e instalação automática de patches dos jogos instalados."
+          label={t("settings.auto_update.label")}
+          desc={t("settings.auto_update.desc")}
           value={cfg.auto_update_games === true}
           onChange={(v) => set("auto_update_games", v)}
         />
         <Toggle
-          label="Não mostrar listas de mudanças ao inicializar"
-          desc="Oculta a janela de novidades (changelog) após atualizações."
+          label={t("settings.hide_changelog.label")}
+          desc={t("settings.hide_changelog.desc")}
           value={cfg.hide_changelog_on_start === true}
           onChange={(v) => set("hide_changelog_on_start", v)}
         />
         <Toggle
-          label="Iniciar em modo console"
-          desc="Abre o Arcadia diretamente na interface otimizada para telas grandes e controle. Para voltar ao desktop: rode arcadia-desktop.sh --force-desktop."
+          label={t("settings.console_mode.label")}
+          desc={t("settings.console_mode.desc")}
           value={cfg.start_in_console_mode === true}
           onChange={(v) => set("start_in_console_mode", v)}
         />
         <Toggle
-          label="Esconder ícone do indicador de aplicativo"
-          desc="Oculta o ícone do Arcadia da bandeja do sistema (requer reiniciar o app)."
+          label={t("settings.hide_tray.label")}
+          desc={t("settings.hide_tray.desc")}
           value={cfg.hide_tray_icon === true}
           onChange={(v) => set("hide_tray_icon", v)}
         />
         <Toggle
-          label="Fechar para o indicador de aplicativo"
-          desc="Ao clicar no X, o Arcadia continua rodando em segundo plano na bandeja."
+          label={t("settings.close_to_tray.label")}
+          desc={t("settings.close_to_tray.desc")}
           value={cfg.close_to_tray === true}
           onChange={(v) => set("close_to_tray", v)}
         />
         <Toggle
-          label="Iniciar minimizado"
-          desc="Abre o Arcadia oculto na bandeja ao ligar o computador."
+          label={t("settings.start_minimized.label")}
+          desc={t("settings.start_minimized.desc")}
           value={cfg.start_minimized === true}
           disabled
           onChange={(v) => set("start_minimized", v)}
         />
         <Toggle
-          label="Minimizar Arcadia ao iniciar um jogo"
-          desc="Esconde a janela do Arcadia assim que o jogo é lançado."
+          label={t("settings.minimize_on_launch.label")}
+          desc={t("settings.minimize_on_launch.desc")}
           value={cfg.minimize_on_game_launch === true}
           onChange={(v) => set("minimize_on_game_launch", v)}
         />
         <Toggle
-          label="Usar o ícone escuro no indicador de aplicativo"
-          desc="Altera a cor do ícone da bandeja para um tom mais escuro."
+          label={t("settings.dark_tray.label")}
+          desc={t("settings.dark_tray.desc")}
           value={cfg.dark_tray_icon === true}
           onChange={(v) => set("dark_tray_icon", v)}
         />
         <Toggle
-          label="Usar janela sem moldura"
-          desc="Remove as bordas padrão de janela do sistema (requer reiniciar o app)."
+          label={t("settings.frameless.label")}
+          desc={t("settings.frameless.desc")}
           value={cfg.frameless_window === true}
           onChange={(v) => set("frameless_window", v)}
         />
       </Group>
 
-      <Group title="Atalhos e integrações">
+      <Group title={t("settings.shortcuts")}>
         <Toggle
-          label="Adicionar atalhos na área de trabalho automaticamente"
-          desc="Cria um ícone de acesso rápido no Desktop após instalar um jogo."
+          label={t("settings.auto_desktop.label")}
+          desc={t("settings.auto_desktop.desc")}
           value={cfg.auto_desktop_shortcuts === true}
           onChange={(v) => set("auto_desktop_shortcuts", v)}
         />
         <Toggle
-          label="Adicionar atalhos dos jogos no menu iniciar automaticamente"
-          desc="Cria uma entrada para o jogo no menu de aplicativos do sistema."
+          label={t("settings.auto_menu.label")}
+          desc={t("settings.auto_menu.desc")}
           value={cfg.auto_start_menu_shortcuts === true}
           onChange={(v) => set("auto_start_menu_shortcuts", v)}
         />
         <Toggle
-          label="Adicionar jogos ao Steam automaticamente"
-          desc="Adiciona o jogo instalado como 'não-Steam' na sua biblioteca (ideal p/ Big Picture e Steam Input)."
+          label={t("settings.auto_steam.label")}
+          desc={t("settings.auto_steam.desc")}
           value={cfg.auto_add_to_steam !== false}
           onChange={(v) => set("auto_add_to_steam", v)}
         />
         <Toggle
-          label="Desativar a sincronização do tempo de jogo"
-          desc="Desativa a contagem e o salvamento das horas jogadas."
+          label={t("settings.disable_playtime.label")}
+          desc={t("settings.disable_playtime.desc")}
           value={cfg.disable_playtime_tracking === true}
           onChange={(v) => set("disable_playtime_tracking", v)}
         />
         <Toggle
-          label="Habilitar o Discord Rich Presence"
-          desc="Mostra no seu perfil do Discord qual jogo você está jogando pelo Arcadia."
+          label={t("settings.discord_rpc.label")}
+          desc={t("settings.discord_rpc.desc")}
           value={cfg.discord_rich_presence === true}
           onChange={(v) => set("discord_rich_presence", v)}
         />
       </Group>
 
-      <Group title="Biblioteca e downloads">
+      <Group title={t("settings.library")}>
         <Select
-          label="Coluna de destaque da biblioteca"
-          desc="Se e como uma coluna com jogos em destaque aparece na biblioteca."
+          label={t("settings.featured_column.label")}
+          desc={t("settings.featured_column.desc")}
           value={cfg.library_featured_column ?? "disabled"}
           options={FEATURED_OPTS}
           onChange={(v) => set("library_featured_column", v as AppConfig["library_featured_column"])}
         />
         <NumberField
-          label="Máximo de jogos em Jogados recentemente"
-          desc="Quantos jogos aparecem na sua lista de acessos recentes."
+          label={t("settings.recent_max.label")}
+          desc={t("settings.recent_max.desc")}
           value={cfg.recent_games_max ?? 5}
           min={1}
           max={30}
           onChange={(v) => set("recent_games_max", v)}
         />
         <NumberField
-          label="Máximo de núcleos da CPU durante downloads"
-          desc="Limite o uso do processador enquanto baixa jogos (0 = usar o máximo disponível)."
+          label={t("settings.download_cores.label")}
+          desc={t("settings.download_cores.desc")}
           value={cfg.download_cpu_cores ?? 0}
           min={0}
           max={64}
@@ -345,6 +349,7 @@ function Path({
   placeholder?: string
   onPick: () => void
 }) {
+  const { t } = useI18n()
   return (
     <Row
       label={label}
@@ -358,7 +363,7 @@ function Path({
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span className="truncate">{value || placeholder || "Selecionar…"}</span>
+          <span className="truncate">{value || placeholder || t("common.selecionar")}</span>
         </button>
       }
     />

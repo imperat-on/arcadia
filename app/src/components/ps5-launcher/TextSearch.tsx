@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { TextCandidate } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface TextSearchProps {
   gameId: string
@@ -15,6 +16,7 @@ const CONSOLE = typeof window !== "undefined" && window.launcherMode !== "deskto
 
 export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const { t } = useI18n()
   useGamepadNav(ref, true, onClose)
 
   const [termo, setTermo] = useState(titulo)
@@ -59,17 +61,17 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
           boxShadow: "0 24px 70px rgba(0,0,0,0.7)",
         }}
         role="dialog"
-        aria-label="Buscar descrição"
+        aria-label={t("textsearch.buscar_descricao")}
       >
         <div className="px-6 py-4 flex items-center gap-3" style={{ background: "rgba(0,0,0,0.5)" }}>
           <span className="text-white text-[15px] font-semibold tracking-wide uppercase whitespace-nowrap">
-            Buscar descrição
+            {t("textsearch.buscar_descricao")}
           </span>
           <input
             value={termo}
             onChange={(e) => setTermo(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && buscar(termo)}
-            placeholder="Nome do jogo"
+            placeholder={t("textsearch.placeholder")}
             className="flex-1 px-3 py-2 rounded-lg text-white text-[14px] outline-none"
             style={{
               background: "rgba(255,255,255,0.07)",
@@ -81,30 +83,30 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
             className="px-4 py-2 rounded-lg text-[14px] font-semibold text-white"
             style={{ background: "var(--accent)" }}
           >
-            Buscar
+            {t("store.buscar")}
           </button>
           <button
             onClick={onClose}
             className="px-3 py-2 rounded-lg text-[14px] text-white/70 hover:text-white"
             style={{ background: "rgba(255,255,255,0.08)" }}
           >
-            Fechar
+            {t("common.fechar")}
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3">
           {carregando ? (
-            <p className="text-center text-[#8a93a6] py-12">Procurando…</p>
+            <p className="text-center text-[#8a93a6] py-12">{t("textsearch.procurando")}</p>
           ) : textos.length === 0 ? (
             <p className="text-center text-[#8a93a6] py-12">
-              Nenhuma descrição encontrada para “{termo}”.
+              {t("textsearch.nenhuma_descricao", { termo })}
             </p>
           ) : (
-            textos.map((t, i) => (
+            textos.map((cand, i) => (
               <button
-                key={`${t.fonte}-${i}`}
+                key={`${cand.fonte}-${i}`}
                 onClick={() => {
-                  onPicked(t.texto)
+                  onPicked(cand.texto)
                   onClose()
                 }}
                 className="text-left rounded-xl p-4 transition-colors hover:bg-white/10"
@@ -118,15 +120,15 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
                     className="px-2 py-0.5 rounded text-[10px] font-bold text-white"
                     style={{ background: "rgba(0,0,0,0.6)" }}
                   >
-                    {t.fonte}
+                    {cand.fonte}
                   </span>
                   <span className="text-[11px] text-[#8a93a6]">
-                    {t.texto.length} caracteres
+                    {cand.texto.length} {t("textsearch.caracteres")}
                   </span>
                 </div>
                 {/* Prévia limitada: a completa da Steam passa de 8 mil chars */}
                 <p className="text-[14px] text-white/85 leading-relaxed line-clamp-4 whitespace-pre-line">
-                  {t.texto}
+                  {cand.texto}
                 </p>
               </button>
             ))

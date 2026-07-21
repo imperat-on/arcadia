@@ -1,4 +1,7 @@
+import { useI18n } from "../../i18n/I18nContext"
+
 export function FooterBar() {
+  const { t } = useI18n()
   return (
     <footer
       className="anim-nav flex items-center justify-between px-10 py-3"
@@ -6,17 +9,17 @@ export function FooterBar() {
     >
       {/* Left hints */}
       <div className="flex items-center gap-5 text-xs text-[#7a8aaa]">
-        <GamepadHint button="←→" label="Navegar" />
-        <GamepadHint button="✕" label="Iniciar" color="#7ba4d9" />
-        <GamepadHint button="○" label="Voltar" color="#d97b7b" />
-        <GamepadHint button="START" label="Atualizar" small />
+        <GamepadHint button="←→" label={t("footer.navegar")} />
+        <GamepadHint button="✕" label={t("footer.iniciar")} color="#7ba4d9" />
+        <GamepadHint button="○" label={t("footer.voltar")} color="#d97b7b" />
+        <GamepadHint button="START" label={t("footer.atualizar")} small />
       </div>
 
       {/* Right — status */}
       <div className="flex items-center gap-4 text-xs text-[#7a8aaa]">
         <div className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>Online</span>
+          <span>{t("footer.online")}</span>
         </div>
       </div>
     </footer>

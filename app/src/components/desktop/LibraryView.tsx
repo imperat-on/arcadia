@@ -13,11 +13,13 @@ import { EditMetadata } from "../ps5-launcher/EditMetadata"
 import { avisarJogando } from "./PlayingBadge"
 
 import { AddGameDialog } from "./AddGameDialog"
+import { useI18n } from "../../i18n/I18nContext"
 
 const LOJAS = ["todas", "steam", "epic", "custom"] as const
 
 // Biblioteca do modo desktop: busca, filtros e grade de capas 2:3.
 export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { games: Game[]; tilesColor?: boolean; alwaysTitles?: boolean; onRefresh?: () => void }) {
+  const { t } = useI18n()
   const [busca, setBusca] = useState("")
   const [loja, setLoja] = useState<(typeof LOJAS)[number]>("todas")
   const [catFiltro, setCatFiltro] = useState("todas")
@@ -127,7 +129,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           n.delete(g.id)
           return n
         })
-        window.alert(r?.error || "Falha ao desinstalar")
+        window.alert(r?.error || t("library.falha_desinstalar"))
       }
       onRefresh?.()
     })
@@ -144,7 +146,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar jogos"
+            placeholder={t("library.buscar")}
             spellCheck={false}
             className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-[color:var(--accent)]"
           />
@@ -155,7 +157,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
             onChange={(e) => setCatFiltro(e.target.value)}
             className="appearance-none rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-medium text-white/70 outline-none transition-colors focus:border-[color:var(--accent)]"
           >
-            <option value="todas" className="bg-[#16161a]">Categorias</option>
+            <option value="todas" className="bg-[#16161a]">{t("library.categorias")}</option>
             {categorias.map((c) => (
               <option key={c} value={c} className="bg-[#16161a]">{c}</option>
             ))}
@@ -170,7 +172,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
                 loja === l ? "bg-white text-black" : "text-white/55 hover:text-white"
               }`}
             >
-              {l === "todas" ? "Todas" : l}
+              {l === "todas" ? t("library.todas") : l}
             </button>
           ))}
         </div>
@@ -180,21 +182,21 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
             soInstalados ? "border-[color:var(--accent)] text-white" : "border-white/10 text-white/55 hover:text-white"
           }`}
         >
-          Só instalados
+          {t("library.so_instalados")}
         </button>
         <button
           onClick={() => setAdicionando(true)}
           className="rounded-xl px-4 py-2.5 text-xs font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
           style={{ background: "var(--accent)" }}
         >
-          ADICIONAR JOGO
+          {t("library.adicionar_jogo")}
         </button>
       </div>
 
       {/* Cabeçalho da grade */}
       <div className="flex items-center gap-4 px-8 pb-2">
         <h2 className="text-lg font-light text-white">
-          Todos os jogos <span className="ml-1 rounded-md bg-white/10 px-2 py-0.5 text-xs text-white/70">{lista.length}</span>
+          {t("library.todos_jogos")} <span className="ml-1 rounded-md bg-white/10 px-2 py-0.5 text-xs text-white/70">{lista.length}</span>
         </h2>
       </div>
 
@@ -219,7 +221,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           })}
         </div>
         {lista.length === 0 && (
-          <div className="flex h-64 items-center justify-center text-white/35">Nada por aqui com esses filtros.</div>
+          <div className="flex h-64 items-center justify-center text-white/35">{t("library.vazio")}</div>
         )}
       </div>
 
@@ -252,7 +254,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           }}
           onImportar={() => {
             window.launcherAPI?.gameImport(pagina).then((r) => {
-              if (!r?.ok && r?.error !== "cancelado") window.alert(r?.error || "Falha ao importar")
+              if (!r?.ok && r?.error !== "cancelado") window.alert(r?.error || t("library.falha_importar"))
             })
           }}
           onConfig={() => setConfigurando(pagina)}
@@ -290,6 +292,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 }
 
 function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, onOpen }: { game: Game; tilesColor?: boolean; alwaysTitles?: boolean; onInstall?: () => void; onConfig?: () => void; onMenu?: (x: number, y: number) => void; onOpen?: () => void }) {
+  const { t } = useI18n()
   const instalado = g.installed !== false
   const epicNaoInstalado = g.launcher === "epic" && !instalado
 
@@ -350,7 +353,7 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
                   e.stopPropagation()
                   onConfig?.()
                 }}
-                title="Configurações do jogo"
+                title={t("library.config_jogo")}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white backdrop-blur-sm transition-all hover:scale-110 hover:bg-white/[0.2]"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -365,7 +368,7 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
                   e.stopPropagation()
                   acao()
                 }}
-                title="Jogar"
+                title={t("library.jogar")}
                 className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
                 style={{ background: "var(--accent)", boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)" }}
               >
@@ -381,7 +384,7 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
                 e.stopPropagation()
                 acao()
               }}
-              title={epicNaoInstalado ? "Baixar" : "Instalar"}
+              title={epicNaoInstalado ? t("library.baixar") : t("library.instalar")}
               className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
               style={{ background: "var(--accent)", boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)" }}
             >

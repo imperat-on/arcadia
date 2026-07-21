@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import { CapaLoja } from "./CapaLoja"
 import { rolagemSuave } from "./rolagem"
 import type { JogoLinha } from "./types"
@@ -34,6 +35,7 @@ export function StoreTile({
   onAbrir,
   onAdicionar,
 }: StoreTileProps) {
+  const { t } = useI18n()
   const ref = useRef<HTMLButtonElement | null>(null)
   const semManifesto = jogo.manifest === false
 
@@ -72,7 +74,7 @@ export function StoreTile({
           <span
             role="button"
             tabIndex={-1}
-            aria-label="Adicionar"
+            aria-label={t("store.adicionar")}
             onClick={(e) => {
               e.stopPropagation()
               onAdicionar(jogo)
@@ -87,12 +89,12 @@ export function StoreTile({
 
         {naBiblioteca && (
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-md">
-            Na biblioteca
+            {t("store.na_biblioteca")}
           </span>
         )}
         {semManifesto && !naBiblioteca && (
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white/60 backdrop-blur-md">
-            Sem manifesto
+            {t("store.sem_manifesto")}
           </span>
         )}
       </div>

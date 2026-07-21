@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { useGamepadNav } from "./useGamepadNav"
 import { fmtGiB } from "../tamanho"
+import { useI18n } from "../../i18n/I18nContext"
 
 export interface DestinoOpcao {
   /** Caminho de instalação, usado como valor e como rótulo principal. */
@@ -37,10 +38,11 @@ export function ConsoleDestinoDialog({
   subtitulo,
   opcoes,
   tamanho,
-  carregando = "Procurando destinos…",
+  carregando,
   onEscolher,
   onFechar,
 }: ConsoleDestinoDialogProps) {
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
 
   useGamepadNav(ref, true, onFechar)
@@ -63,7 +65,7 @@ export function ConsoleDestinoDialog({
 
         <div className="mt-6 flex flex-col gap-2">
           {opcoes.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-white/35">{carregando}</p>
+            <p className="py-6 text-center text-[13px] text-white/35">{carregando ?? t("ps5.destino.procurando")}</p>
           ) : (
             opcoes.map((o) => {
               const cabe = o.livre == null || tamanho == null || o.livre >= tamanho
@@ -80,7 +82,7 @@ export function ConsoleDestinoDialog({
                     {o.rotulo && <span className="block text-[11px] text-white/40">{o.rotulo}</span>}
                   </span>
                   <span className="shrink-0 pl-4 text-xs text-white/45">
-                    {cabe ? `${fmtGiB(o.livre)} livres` : "Sem espaço"}
+                    {cabe ? `${fmtGiB(o.livre)} ${t("ps5.destino.livres")}` : t("ps5.destino.sem_espaco")}
                   </span>
                 </button>
               )
@@ -92,7 +94,7 @@ export function ConsoleDestinoDialog({
           onClick={onFechar}
           className="mt-5 w-full rounded-lg border border-white/10 py-2.5 text-[13px] text-white/55 outline-none transition-colors hover:text-white/85"
         >
-          Cancelar
+          {t("common.cancelar")}
         </button>
       </div>
     </div>

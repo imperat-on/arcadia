@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { useJogoRodando } from "../useJogoRodando"
+import { useI18n } from "../../i18n/I18nContext"
 
 // Card "jogando <jogo>" no canto inferior direito — aparece quando um jogo
 // é lançado e fica visível ENQUANTO o processo do jogo existir (o main
@@ -17,6 +18,8 @@ export function avisarJogando(game: Game) {
 }
 
 export function PlayingBadge() {
+  const { t } = useI18n()
+
   // O acompanhamento do processo (prazos, transições do vigia) vive no hook,
   // compartilhado com o modo console. Aqui fica só a ponte do CustomEvent,
   // que é como o desktop avisa qual jogo foi lançado.
@@ -50,7 +53,7 @@ export function PlayingBadge() {
             draggable={false}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-[9px] text-white/25">sem capa</div>
+          <div className="flex h-full items-center justify-center text-[9px] text-white/25">{t("playingbadge.sem_capa")}</div>
         )}
       </div>
 
@@ -61,7 +64,7 @@ export function PlayingBadge() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3ddc6e] opacity-60" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#3ddc6e]" />
           </span>
-          jogando
+          {t("playingbadge.jogando")}
         </span>
         <span className="block truncate text-[14px] font-medium text-white/90" title={game.title}>
           {game.title}
@@ -72,7 +75,7 @@ export function PlayingBadge() {
       {/* Fechar o jogo */}
       <button
         onClick={fecharJogo}
-        title="Fechar o jogo"
+        title={t("playingbadge.fechar_jogo")}
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e8703a] text-white transition-transform hover:scale-110"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
