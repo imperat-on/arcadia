@@ -1095,57 +1095,167 @@ const PROVEDORES = [
   { nome: "TwentyTwo Cloud", url: (appid) => TWENTYTWO_URL(appid), headers: () => ({}) },
 ]
 
-// Baixa o zip do appid (provedor com fallback) e extrai depots/keys/token do .lua.
+// Extrai um provedor num outDir isolado (subdiretório por nome). Devolve
+// {ok, dados?, erro?} — a validação de zip/JSON/rede fica encapsulada aqui.
+async function extrairProvedor(p, appid, cfg, outDir) {
+  try {
+    // Sem teto de tempo, um provedor lento (o Ryuu chegou a 100s nos testes)
+    // segura o pedido inteiro e o usuário fica olhando para uma tela parada.
+    const r = await gh(p.url(appid, cfg), {
+      headers: { "User-Agent": "arcadia", ...p.headers(cfg) },
+      signal: AbortSignal.timeout(45000),
+    })
+    if (!r.ok) return { ok: false, erro: `HTTP ${r.status}` }
+    const buf = Buffer.from(await r.arrayBuffer())
+    // Zip válido começa com PK — alguns provedores devolvem HTML/erro com 200.
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      return { ok: false, erro: "resposta não é zip" }
+    }
+    const zipPath = path.join(TMP_DIR, `manifest_${appid}_${p.nome.replace(/\s+/g, "_")}.zip`)
+    fs.writeFileSync(zipPath, buf)
+    fs.rmSync(outDir, { recursive: true, force: true })
+    fs.mkdirSync(outDir, { recursive: true })
+    await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
+    try { fs.rmSync(zipPath, { force: true }) } catch {}
+    const dados = lerLuas(outDir, appid)
+    if (!dados.depots.length) return { ok: false, erro: "zip sem depots" }
+    return { ok: true, dados }
+  } catch (e) {
+    return { ok: false, erro: String(e) }
+  }
+}
+
+// Baixa o zip do appid de VÁRIOS provedores e monta um outDir final com o
+// melhor conjunto de .manifest disponíveis, cobrindo o caso em que nenhum
+// provedor sozinho tem tudo (o RDR2 do bug do usuário). Early-exit quando
+// o primeiro provedor já traz o pacote completo, para não gastar rede à toa.
+//
+// Estratégia:
+//   1) Percorrer PROVEDORES na ordem, extraindo cada um num outDir separado.
+//   2) Se o primeiro tem .manifest para 100% dos seus depots, ganha e sai.
+//   3) Se não, seguir. Depois de percorrer todos, escolher para cada depot
+//      encontrado a MELHOR fonte de .manifest disponível — preferindo a versão
+//      do provedor "líder" (o primeiro que respondeu), caindo em qualquer
+//      versão disponível nos outros. Um .manifest antigo de um depot ainda
+//      instala uma versão funcional do jogo — o DepotDownloader aceita.
 async function getManifest(appid) {
   const cfg = readConfig()
-  const zipPath = path.join(TMP_DIR, `manifest_${appid}.zip`)
   fs.mkdirSync(TMP_DIR, { recursive: true })
+  const outDirFinal = path.join(TMP_DIR, `manifest_${appid}`)
 
-  const outDir = path.join(TMP_DIR, `manifest_${appid}`)
+  const respostas = [] // {nome, outDir, dados}
   const erros = []
 
-  // A cascata só pode parar quando um provedor entrega um zip COM depots. Antes
-  // ela parava no primeiro que entregasse um zip qualquer, e a extração vinha
-  // depois do laço: um zip vazio (acontece no Sushi) matava o pedido inteiro
-  // sem nunca tentar o Ryuu, que tinha o jogo.
   for (const p of PROVEDORES) {
     if (p.precisaKey && !cfg.hubcap_api_key) continue
-    try {
-      // Sem teto de tempo, um provedor lento (o Ryuu chegou a 100s nos testes)
-      // segura o pedido inteiro e o usuário fica olhando para uma tela parada.
-      // Estourando o prazo, passamos ao próximo em vez de esperar sem fim.
-      const r = await gh(p.url(appid, cfg), {
-        headers: { "User-Agent": "arcadia", ...p.headers(cfg) },
-        signal: AbortSignal.timeout(45000),
-      })
-      if (!r.ok) {
-        erros.push(`${p.nome}: HTTP ${r.status}`)
-        continue
-      }
-      const buf = Buffer.from(await r.arrayBuffer())
-      // Zip válido começa com PK — alguns provedores devolvem HTML/erro com 200.
-      if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
-        erros.push(`${p.nome}: resposta não é zip`)
-        continue
-      }
-      fs.writeFileSync(zipPath, buf)
+    const outDir = path.join(TMP_DIR, `manifest_${appid}_${p.nome.replace(/\s+/g, "_")}`)
+    const r = await extrairProvedor(p, appid, cfg, outDir)
+    if (!r.ok) {
+      erros.push(`${p.nome}: ${r.erro}`)
+      continue
+    }
+    respostas.push({ nome: p.nome, outDir, dados: r.dados })
 
-      fs.rmSync(outDir, { recursive: true, force: true })
-      fs.mkdirSync(outDir, { recursive: true })
-      await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
-
-      const dados = lerLuas(outDir, appid)
-      if (!dados.depots.length) {
-        erros.push(`${p.nome}: zip sem depots`)
-        continue
-      }
-      storeLog(`manifesto ${appid}: ${p.nome} (${dados.depots.length} depots)`)
-      return { ok: true, appid: String(appid), ...dados, outDir, fonte: p.nome }
-    } catch (e) {
-      erros.push(`${p.nome}: ${e}`)
+    // Early-exit: se o primeiro provedor a responder cobre TODOS os seus
+    // depots com .manifest binário, ele ganha e cortamos a cascata aqui —
+    // é o caminho normal (Morrenus completo, indies etc).
+    const comManifest = r.dados.depots.filter((d) =>
+      fs.existsSync(path.join(outDir, `${d.depotId}_${d.manifestId}.manifest`)),
+    ).length
+    if (respostas.length === 1 && comManifest === r.dados.depots.length) {
+      fs.rmSync(outDirFinal, { recursive: true, force: true })
+      fs.renameSync(outDir, outDirFinal)
+      storeLog(`manifesto ${appid}: ${p.nome} (${r.dados.depots.length} depots, todos com .manifest)`)
+      return { ok: true, appid: String(appid), ...r.dados, outDir: outDirFinal, fonte: p.nome }
     }
   }
-  return { ok: false, error: erros.join(" · ") || "nenhum provedor disponível" }
+
+  if (!respostas.length) {
+    return { ok: false, error: erros.join(" · ") || "nenhum provedor disponível" }
+  }
+
+  // Merge entre os provedores que responderam. Líder = primeiro a responder;
+  // ele define a lista base de depots + token/dlcs preferidos.
+  const lider = respostas[0]
+  fs.rmSync(outDirFinal, { recursive: true, force: true })
+  fs.mkdirSync(outDirFinal, { recursive: true })
+
+  const depotsFinais = []
+  const pulados = []
+  const contribuidores = new Set()
+  const depotsVistos = new Set()
+
+  // Percorre depots na ordem do líder e depois os que só aparecem nos outros.
+  const iterar = [lider, ...respostas.filter((r) => r !== lider)]
+  for (const resp of iterar) {
+    for (const d of resp.dados.depots) {
+      if (depotsVistos.has(d.depotId)) continue
+      depotsVistos.add(d.depotId)
+
+      let escolha = null
+      // 1ª preferência: a versão que o líder aponta, se o .manifest está no zip dele.
+      const noLider = lider.dados.depots.find((x) => x.depotId === d.depotId)
+      if (noLider) {
+        const mf = path.join(lider.outDir, `${noLider.depotId}_${noLider.manifestId}.manifest`)
+        if (fs.existsSync(mf)) {
+          escolha = { manifestId: noLider.manifestId, key: noLider.key, size: noLider.size, mfPath: mf, fonte: lider.nome }
+        }
+      }
+      // 2ª preferência: qualquer provedor com o MESMO depot cujo .manifest
+      // binário exista. O manifest_id pode ser mais antigo — ainda funciona.
+      if (!escolha) {
+        for (const outra of respostas) {
+          const cand = outra.dados.depots.find((x) => x.depotId === d.depotId)
+          if (!cand) continue
+          const mf = path.join(outra.outDir, `${cand.depotId}_${cand.manifestId}.manifest`)
+          if (fs.existsSync(mf)) {
+            // A chave é constante por depot; se este provedor não tiver,
+            // pega de qualquer .lua que mencione o depot.
+            const key = cand.key || respostas.map((r) => r.dados.depots.find((x) => x.depotId === d.depotId)?.key).find(Boolean) || ""
+            escolha = { manifestId: cand.manifestId, key, size: cand.size, mfPath: mf, fonte: outra.nome }
+            break
+          }
+        }
+      }
+      if (!escolha) {
+        pulados.push(d.depotId)
+        continue
+      }
+      // Copia o .manifest escolhido para o outDir final com o nome
+      // <depot>_<manifest>.manifest que prepareDownload já espera.
+      const destMf = path.join(outDirFinal, `${d.depotId}_${escolha.manifestId}.manifest`)
+      fs.copyFileSync(escolha.mfPath, destMf)
+      depotsFinais.push({
+        depotId: d.depotId,
+        manifestId: escolha.manifestId,
+        key: escolha.key,
+        size: escolha.size,
+      })
+      contribuidores.add(escolha.fonte)
+    }
+  }
+
+  // Limpa os outDirs individuais — só o outDirFinal fica.
+  for (const r of respostas) {
+    try { fs.rmSync(r.outDir, { recursive: true, force: true }) } catch {}
+  }
+
+  if (!depotsFinais.length) {
+    // Nada colável — devolve a mesma mensagem detalhada que o usuário já vê.
+    const detalhes = respostas.map((r) => `${r.nome}: ${r.dados.depots.length} depot(s), 0 com .manifest`)
+    return { ok: false, error: [...erros, ...detalhes].join(" · ") }
+  }
+
+  // Token e DLCs: preferir líder; se ele não tem, cair em qualquer que tenha.
+  const token = lider.dados.token || respostas.find((r) => r.dados.token)?.dados.token || ""
+  const dlcs = lider.dados.dlcs.length ? lider.dados.dlcs : respostas.find((r) => r.dados.dlcs.length)?.dados.dlcs || []
+
+  const extras = [...contribuidores].filter((f) => f !== lider.nome)
+  const fonteStr = extras.length ? `${lider.nome} (+manifests de ${extras.join(",")})` : lider.nome
+  storeLog(
+    `manifesto ${appid}: ${fonteStr} (${depotsFinais.length} depots${pulados.length ? `, ${pulados.length} pulado(s)` : ""})`,
+  )
+  return { ok: true, appid: String(appid), depots: depotsFinais, token, dlcs, outDir: outDirFinal, fonte: fonteStr }
 }
 
 // Lê os .lua extraídos: addappid(id, ..., "depotkey"), setManifestid(depot,
