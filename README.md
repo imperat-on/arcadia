@@ -1,68 +1,93 @@
 # Arcadia
 
-Front-end de jogos para Linux (Electron), com dois modos de interface:
+A game launcher for Linux with two UIs: a **desktop** mode (Heroic-style
+library, store and downloads) and a **console** mode (fullscreen, gamepad,
+PS5-inspired).
 
-- **Desktop** (estilo Heroic): biblioteca, loja, downloads, gerenciador de Wine
-- **Console** (estilo PS5, tela cheia + gamepad)
+<p align="center">
+  <img src="assets/ui-1.gif" width="820" alt="Arcadia UI">
+</p>
 
-## Recursos
+<p align="center">
+  <img src="assets/ui-2.gif" width="820" alt="Arcadia UI">
+</p>
 
-- **Biblioteca unificada** — Steam, Epic (Legendary), jogos custom (.exe via Wine) com capas, favoritos, categorias e página de detalhes por jogo
-- **Loja Steam** — busca no catálogo (Hubcap/Morrenus + fallback), download via **DepotDownloader** direto para as bibliotecas Steam (multi-drive, lê `libraryfolders.vdf`), ou "Add" para baixar pela própria Steam via **SLSsteam**; fallback de manifestos em 4 provedores (Morrenus, Ryuu, TwentyTwo Cloud, Sushi); fixes de jogos (GameBypass/OnlineFix)
-- **Lançamentos configuráveis por jogo** — versão do Wine/Proton (incl. Proton via UMU), prefixo por jogo, DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, wrappers, variáveis de ambiente, argumentos, scripts pré/pós-jogo e logs
-- **Downloads** — fila serial (Epic via Legendary, Steam via DepotDownloader) com progresso real em MiB, velocidade e ETA; pausar/retomar/cancelar (apaga parciais)
-- **Wine Manager** — instala/gerencia GE-Proton e Wine-GE; Protons da Steam detectados
-- **Conquistas** — toasts estilo PS5 e integração SLScheevo
-- **Trailers** — busca/download de trailers via YouTube (yt-dlp)
+<p align="center">
+  <img src="assets/ui-3.gif" width="820" alt="Arcadia UI">
+</p>
 
-## Requisitos
+<p align="center">
+  <img src="assets/ui-4.gif" width="820" alt="Arcadia UI">
+</p>
 
-- Linux x86_64, **python3**, **Steam** (nativa), **.NET 9+** (o app instala localmente se faltar)
-- Para jogos Epic: login no **Legendary** (o app baixa o binário)
-- Para a Loja Steam: **API key do Hubcap** (grátis na comunidade) e **SLSsteam** (instalável por botão em Configurações → Integrações)
+## Features
 
-## Instalação
+- **Unified library** — Steam, Epic (via Legendary), and custom games (`.exe`
+  through Wine) with covers, categories, per-game details.
+- **Steam store** — search, download via **DepotDownloader** into your Steam
+  libraries (multi-drive), or add to Steam via **SLSsteam**. Manifests are
+  fetched from four providers with a mixed-source cascade so downloads keep
+  working when a single source is incomplete.
+- **Per-game launch options** — Wine/Proton version, per-game prefix,
+  DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom
+  wrappers, env vars, game args, pre/post scripts and verbose logs.
+- **Wine manager** — installs and manages GE-Proton and Wine-GE; Steam-shipped
+  Protons are detected automatically.
+- **Downloads** — serial queue for Epic (Legendary) and Steam
+  (DepotDownloader), with real progress in MiB, speed and ETA;
+  pause/resume/cancel with cleanup of partials.
+- **Achievements** — PS5-style toasts and SLScheevo integration.
+- **Trailers** — YouTube search and download via `yt-dlp`.
 
-Um comando só (clona, instala dependências e cria o atalho):
+## Requirements
+
+- Linux x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed
+  locally if missing)
+- For Epic titles: **Legendary** login (the binary is fetched by the app)
+- For the Steam store: a **Hubcap API key** (free, community) and
+  **SLSsteam** (installable from Settings → Integrations)
+
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
 ```
 
-Ou manual:
+Or manual:
 
 ```bash
-git clone <repo> && cd arcadia
-./install.sh                       # dependências + npm + config + atalho
-cp config.example.json config.json # se não foi criado pelo install.sh
-./arcadia-desktop.sh               # modo desktop
-./arcadia.sh                       # modo console (tela cheia)
+git clone https://github.com/imperat-on/arcadia.git && cd arcadia
+./install.sh                        # deps + npm + config + desktop entry
+cp config.example.json config.json  # if install.sh didn't create it
+./arcadia-desktop.sh                # desktop mode
+./arcadia.sh                        # console mode (fullscreen)
 ```
 
-Na primeira execução, o `arcadia.sh` indexa a biblioteca (`index.py`) e compila o front-end (`npm run build`).
+First run indexes your library (`index.py`) and builds the front-end
+(`npm run build`).
 
-## Configuração
+## Config
 
-`config.json` (não versionado — ver `config.example.json`):
+`config.json` (not versioned — see `config.example.json`):
 
-| Chave | Para quê |
+| Key | Purpose |
 |---|---|
-| `steam_api_key` | Biblioteca completa da Steam (jogos possuídos) |
-| `hubcap_api_key` | Busca/download de manifestos na aba Lojas |
+| `steam_api_key` | Full Steam library (owned games) |
+| `hubcap_api_key` | Manifest search and download for the store |
 
-## Estrutura
+## Layout
 
 ```
-app/src        # front-end React (desktop/ + ps5-launcher/)
-app/electron   # processo principal (main.js, downloadmanager, steamstore, winemanager)
-index.py       # indexador da biblioteca (Steam/Heroic/Lutris → library.json)
-arcadia.sh     # entrada (console) · arcadia-desktop.sh (desktop)
+app/src        # React front-end (desktop/ + ps5-launcher/)
+app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
+index.py       # library indexer (Steam/Heroic/Lutris → library.json)
+arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 ```
 
-Os dados do usuário (config, biblioteca, downloads, prefixos, artes) ficam em
-`~/.local/share/arcadia/` e **não** são versionados.
+User data (config, library, downloads, prefixes, artwork) lives under
+`~/.local/share/arcadia/` and is **not** versioned.
 
-## Aviso legal
+## Disclaimer
 
-Projeto pessoal de interoperabilidade. Respeite os termos de serviço da Valve,
-Epic Games e demais plataformas. Use por sua conta e risco.
+Personal interoperability project. Respect Valve, Epic and other platforms'
+terms of service. Use at your own risk.
