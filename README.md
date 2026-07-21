@@ -112,8 +112,3 @@ User data (config, library, downloads, prefixes, artwork) lives under
 ## License
 
 [MIT](LICENSE) © 2026 Davi Kolansinsky.
-
-## Disclaimer
-
-Personal interoperability project. Respect Valve, Epic and other platforms'
-terms of service. Use at your own risk.
