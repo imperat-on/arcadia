@@ -13,7 +13,7 @@ into it when started with `./arcadia.sh`, ready for a gamepad.
   <img src="assets/boot-do-modo-big-picture.gif" width="820" alt="Big Picture boot">
 </p>
 
-### Big Picture — games tab
+### Big Picture — store & downloads
 
 The Games tab: hero of the selected title with its trailer as background,
 horizontal rail of covers, and per-game details a click away.
@@ -22,7 +22,7 @@ horizontal rail of covers, and per-game details a click away.
   <img src="assets/tour-pela-aba-jogos-do-big-picture.gif" width="820" alt="Big Picture games tab">
 </p>
 
-### Big Picture — store & downloads
+### Big Picture — games tab
 
 The store laid out storefront-style: showcase with a rotating hero and rails
 per category, or open a category as a dense grid. Downloading a title
