@@ -437,7 +437,12 @@ export function PS5Launcher() {
     if (atalhosLoja.current?.voltar()) return
     setActiveTab(1)
   }, [])
-  useGamepadNav(storeRef, storeMode, voltarLoja, false, extrasLoja)
+  // Overlay da loja aberto (página do jogo, teclado, escolha de destino): o
+  // laço daqui SAI DE CENA. O overlay tem o próprio, e dois ativos disputariam
+  // o mesmo direcional — e o mesmo B, que fechava a página e saía da loja
+  // junto. É a mesma regra que o overview já segue logo abaixo.
+  const [lojaOverlay, setLojaOverlay] = useState(false)
+  useGamepadNav(storeRef, storeMode && !lojaOverlay, voltarLoja, false, extrasLoja)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =
@@ -989,6 +994,7 @@ export function PS5Launcher() {
               ref={storeRef}
               games={viewGames}
               ativo={appFocused && !gameRunning}
+              onOverlay={setLojaOverlay}
               onAtalhos={(a) => (atalhosLoja.current = a)}
             />
           </div>
