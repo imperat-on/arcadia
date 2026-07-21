@@ -2,7 +2,7 @@
 
 A game launcher for Linux with two UIs: a **desktop** mode (windowed
 library, store and downloads) and a **console** mode (fullscreen, gamepad,
-PS5-inspired).
+TV-friendly).
 
 ### Big Picture — boot
 
@@ -24,7 +24,7 @@ horizontal rail of covers, and per-game details a click away.
 
 ### Big Picture — store & downloads
 
-The store laid out PS Store-style: showcase with a rotating hero and rails
+The store laid out storefront-style: showcase with a rotating hero and rails
 per category, or open a category as a dense grid. Downloading a title
 enqueues DepotDownloader and shows real progress, speed and ETA.
 
@@ -58,7 +58,7 @@ a different UI on top.
 - **Downloads** — serial queue for Epic (Legendary) and Steam
   (DepotDownloader), with real progress in MiB, speed and ETA;
   pause/resume/cancel with cleanup of partials.
-- **Achievements** — PS5-style toasts and SLScheevo integration.
+- **Achievements** — in-game toast pop-ups and SLScheevo integration.
 - **Trailers** — YouTube search and download via `yt-dlp`.
 
 ## Requirements
@@ -100,7 +100,7 @@ First run indexes your library (`index.py`) and builds the front-end
 ## Layout
 
 ```
-app/src        # React front-end (desktop/ + ps5-launcher/)
+app/src        # React front-end (desktop/ + console/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
 index.py       # library indexer (scans installed sources → library.json)
 arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
@@ -120,7 +120,7 @@ Arcadia leans on the work of these projects:
   the Millennium-less LuaTools bridge (Lumen sidecar and wrapper) that
   Arcadia's SLSsteam setup ships alongside.
 - [SLScheevo](https://github.com/xamionex/SLScheevo) — the achievement
-  unlocker that Arcadia pairs with for the PS5-style toast pop-ups.
+  unlocker that Arcadia pairs with to drive the in-game toast pop-ups.
 
 Huge thanks to their authors and contributors.
 
