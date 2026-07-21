@@ -11,6 +11,7 @@ import { WineSection } from "../ps5-launcher/WineManager"
 import { PlayingBadge } from "./PlayingBadge"
 import { StoreView } from "./StoreView"
 import { useI18n } from "../../i18n/I18nContext"
+import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -21,6 +22,7 @@ export function DesktopLauncher() {
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
   const [cfg, setCfg] = useState<{ tiles_color?: boolean; always_titles?: boolean }>({})
+  const atualizacao = useAtualizacao()
 
   const carregar = useCallback(() => {
     window.launcherAPI?.getLibrary().then((g) => {
@@ -76,6 +78,10 @@ export function DesktopLauncher() {
       </main>
 
       <PlayingBadge />
+
+      {atualizacao.info && (
+        <UpdateDialog info={atualizacao.info} onDepois={atualizacao.dispensar} />
+      )}
 
       {baixado && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm">

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron")
 const { getNews } = require("./news")
 const { startAchievementWatcher } = require("./achievements")
+const updater = require("./updater")
 const path = require("path")
 const fs = require("fs")
 const os = require("os")
@@ -800,6 +801,20 @@ function runIndexer() {
 // recém-adicionado APARECER nas abas Jogos e Biblioteca: quem o descobre é o
 // index.py, lendo o bloco AdditionalApps da SLSsteam. Reindexar leva ~12s, e
 // travar o handler por esse tempo deixaria o botão preso.
+// Procura commit novo no GitHub e avisa o renderer. Nunca aplica nada: quem
+// decide é o usuário, no diálogo. Silencioso quando não há o que dizer — sem
+// internet, com trabalho local em andamento ou já atualizado, ninguém precisa
+// ver aviso nenhum.
+async function procurarAtualizacao(win) {
+  try {
+    if (readConfig().check_updates_on_start === false) return
+    if (!(await updater.estado()).podeAtualizar) return
+    const r = await updater.verificar()
+    if (!r.ok || !r.atrasado) return
+    if (win && !win.isDestroyed()) win.webContents.send("update:available", r)
+  } catch {}
+}
+
 function avisarBiblioteca(win, reindexar = true) {
   const emitir = () => {
     if (win && !win.isDestroyed()) win.webContents.send("library:changed")
@@ -909,6 +924,11 @@ function createWindow() {
         if (css) win.webContents.insertCSS(css)
       }
     } catch {}
+
+    // Atualização do Arcadia: verifica DEPOIS da janela carregar e sem
+    // esperar — checar antes atrasaria a abertura por causa de uma ida à
+    // rede que pode nem ter resposta.
+    procurarAtualizacao(win)
   })
   // Vigia de conquistas (toast estilo PS5 ao desbloquear).
   startAchievementWatcher((payload) => {
@@ -1300,6 +1320,33 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("config:get", () => readConfig())
+
+  // ── Atualização do Arcadia ───────────────────────────────────────────────
+  ipcMain.handle("update:state", () => updater.estado())
+  ipcMain.handle("update:check", () => updater.verificar())
+  ipcMain.handle("update:apply", async (_e, { depsMudaram } = {}) => {
+    const janela = BrowserWindow.fromWebContents(_e.sender)
+    const r = await updater.aplicar((p) => {
+      if (janela && !janela.isDestroyed()) janela.webContents.send("update:progress", p)
+    }, Boolean(depsMudaram))
+    if (!r.ok) return r
+    // Reinício no MESMO modo: o `dist/` acabou de ser refeito e o processo
+    // atual ainda tem em memória o front-end antigo. Mesmo esquema do
+    // "Big Picture", só que preservando o modo em que já estávamos.
+    try {
+      const child = spawn(process.execPath, ["."], {
+        cwd: path.join(__dirname, ".."),
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env },
+      })
+      child.unref()
+      setTimeout(() => app.quit(), 500)
+    } catch (e) {
+      return { ok: true, reiniciou: false, error: String(e) }
+    }
+    return { ...r, reiniciou: true }
+  })
 
   // "Big Picture": fecha o modo desktop e abre o modo console (PS5, tela cheia).
   ipcMain.handle("app:enterConsole", () => {
