@@ -3,6 +3,8 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react"
 import type { Game } from "./types"
 import type { AchievementItem, NewsItem } from "../../global"
+import { userLocale } from "../../i18n/locale"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface GameOverviewProps {
   game: Game
@@ -34,23 +36,23 @@ function noticiasRelacionadas(game: Game, news: NewsItem[]): NewsItem[] {
     .slice(0, 3)
 }
 
-function tempoRelativo(iso: string): string {
+function tempoRelativo(iso: string, t: (k: string, v?: any) => string): string {
   if (!iso) return ""
   const diff = Date.now() - new Date(iso).getTime()
   if (isNaN(diff)) return ""
   const h = Math.floor(diff / 3600000)
-  if (h < 1) return "agora"
-  if (h < 24) return `há ${h} h`
+  if (h < 1) return t("gameoverview.agora")
+  if (h < 24) return t("gameoverview.horas_atras", { h: String(h) })
   const d = Math.floor(h / 24)
-  return d === 1 ? "há 1 dia" : `há ${d} dias`
+  return d === 1 ? t("gameoverview.um_dia_atras") : t("gameoverview.dias_atras", { d: String(d) })
 }
 
 // "20,3 h", "45 min", "1 h 20 min"
-function tempoDeJogo(mins: number): string {
-  if (mins < 60) return `${mins} min`
+function tempoDeJogo(mins: number, t: (k: string, v?: any) => string): string {
+  if (mins < 60) return t("gameoverview.tempo.minutos", { mins: String(mins) })
   const h = Math.floor(mins / 60)
   const m = mins % 60
-  if (h < 10 && m > 0) return `${h} h ${m} min`
+  if (h < 10 && m > 0) return t("gameoverview.tempo.horas_minutos", { h: String(h), m: String(m) })
   return `${String(h).replace(".", ",")} h`
 }
 
@@ -66,6 +68,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   { game, news, appFocused = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
   ref,
 ) {
+  const { t } = useI18n()
   const relacionadas = useMemo(() => noticiasRelacionadas(game, news), [game, news])
   const destaque = relacionadas[0] ?? null
   const [somTrailer, setSomTrailer] = useState(false)
@@ -147,15 +150,15 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   }, [game.id])
 
   const detalhes: [string, string | number | undefined][] = [
-    ["Desenvolvedora", game.developer],
-    ["Publicadora", game.publisher],
-    ["Gênero", game.genre],
-    ["Lançamento", game.year],
-    ["Jogadores", game.players],
-    ["Tempo de jogo", game.playtime_minutes ? tempoDeJogo(game.playtime_minutes) : undefined],
-    ["Conquistas", game.achievements_total ? (game.achievements_done != null ? `${game.achievements_done} / ${game.achievements_total}` : `${game.achievements_total}`) : undefined],
-    ["Metacritic", game.metacritic ? `${game.metacritic} / 100` : undefined],
-    ["Fonte", game.launcher],
+    [t("gameoverview.detalhes.desenvolvedora"), game.developer],
+    [t("gameoverview.detalhes.publicadora"), game.publisher],
+    [t("gameoverview.detalhes.genero"), game.genre],
+    [t("gameoverview.detalhes.lancamento"), game.year],
+    [t("gameoverview.detalhes.jogadores"), game.players],
+    [t("gameoverview.detalhes.tempo_jogo"), game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined],
+    [t("gameoverview.detalhes.conquistas"), game.achievements_total ? (game.achievements_done != null ? `${game.achievements_done} / ${game.achievements_total}` : `${game.achievements_total}`) : undefined],
+    [t("gameoverview.detalhes.metacritic"), game.metacritic ? `${game.metacritic} / 100` : undefined],
+    [t("gameoverview.detalhes.fonte"), game.launcher],
   ]
 
   return (
@@ -199,7 +202,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               <h1 className="truncate text-4xl font-light tracking-wide">{game.title}</h1>
             )}
             <p className="mt-3 line-clamp-3 max-w-[560px] text-[15px] font-light leading-relaxed text-white/65">
-              {game.description || "Sem descrição disponível."}
+              {game.description || t("gameoverview.sem_descricao")}
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {game.year && <Tag>{game.year}</Tag>}
@@ -216,7 +219,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
                 {rodando ? <rect x="6" y="6" width="12" height="12" rx="1.5" /> : <path d="M8 5v14l11-7z" />}
               </svg>
-              {rodando ? "Parar jogo" : abrindo ? "Abrindo…" : "Jogar agora"}
+              {rodando ? t("gameoverview.parar_jogo") : abrindo ? t("common.abrindo") : t("gameoverview.jogar_agora")}
             </button>
           </div>
         </section>
@@ -252,7 +255,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                 </span>
                 <span className="absolute bottom-4 left-5 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
                   <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-                  Trailer
+                  {t("gameoverview.trailer")}
                 </span>
               </div>
             </button>
@@ -271,7 +274,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm font-light text-white/40">
-                    Sem notícias relacionadas no momento.
+                    {t("gameoverview.sem_noticias")}
                   </div>
                 )}
                 {destaque && (
@@ -279,13 +282,13 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 p-6">
                       <h5 className="line-clamp-2 max-w-[90%] text-lg font-normal text-white/95">{destaque.title}</h5>
-                      <p className="mt-1 text-xs tracking-wide text-white/50">{tempoRelativo(destaque.date)}</p>
+                      <p className="mt-1 text-xs tracking-wide text-white/50">{tempoRelativo(destaque.date, t)}</p>
                     </div>
                   </>
                 )}
                 <span className="absolute left-5 top-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
                   <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-                  Notícias
+                  {t("gameoverview.noticias")}
                 </span>
               </div>
             </button>
@@ -295,7 +298,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           <div className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w2"}`}>
             <span className="flex items-center gap-2 px-6 pt-5 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
               <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-              Detalhes
+              {t("gameoverview.detalhes")}
             </span>
             <div className="mt-4 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
               {detalhes.filter(([, v]) => v).map(([label, valor], i, arr) => (
@@ -314,7 +317,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     />
                   </div>
                   <span className="mt-2 block text-right text-[11px] text-white/40">
-                    {Math.round((game.achievements_done / game.achievements_total) * 100)}% das conquistas
+                    {t("gameoverview.conquistas_porcentagem", { pct: String(Math.round((game.achievements_done / game.achievements_total) * 100)) })}
                   </span>
                 </div>
               )}
@@ -327,7 +330,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               <div className="flex items-center gap-4 px-6 pt-5">
                 <span className="flex shrink-0 items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
                   <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-                  Conquistas
+                  {t("gameoverview.conquistas")}
                 </span>
                 <span className="ml-auto shrink-0 text-xs font-light tabular-nums text-white/50">
                   {achievements.filter((a) => a.achieved).length} / {achievements.length}
@@ -356,8 +359,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
         {/* Dica de controle */}
         <div className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/40 ${closing ? "ov-out" : "ov-w4"}`}>
-          <span>A — jogar / som do trailer</span>
-          <button onClick={onClose} className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]">B — voltar</button>
+          <span>{t("gameoverview.controle.jogar")}</span>
+          <button onClick={onClose} className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]">{t("gameoverview.controle.voltar")}</button>
         </div>
       </div>
     </div>
@@ -365,6 +368,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 })
 
 function AchievementRow({ a }: { a: AchievementItem }) {
+  const { t } = useI18n()
   const pct = typeof a.percent === "number" ? a.percent : parseFloat(String(a.percent)) || 0
   const rara = pct > 0 && pct <= 10
   return (
@@ -386,8 +390,8 @@ function AchievementRow({ a }: { a: AchievementItem }) {
           </h5>
           <span className="shrink-0 text-[11px] tabular-nums text-white/40">
             {a.achieved && a.unlock
-              ? new Date(a.unlock * 1000).toLocaleDateString("pt-BR")
-              : "Bloqueada"}
+              ? new Date(a.unlock * 1000).toLocaleDateString(userLocale())
+              : t("gameoverview.conquista.bloqueada")}
           </span>
         </div>
         {a.desc && (
@@ -401,7 +405,7 @@ function AchievementRow({ a }: { a: AchievementItem }) {
             />
           </div>
           <span className={`text-[10px] ${rara ? "text-[#ffd23f]/80" : "text-white/35"}`}>
-            {pct.toFixed(1).replace(".", ",")}% dos jogadores{rara ? " — rara" : ""}
+            {t("gameoverview.conquista.porcentagem_jogadores", { pct: pct.toFixed(1).replace(".", ",") })}{rara ? t("gameoverview.conquista.rara") : ""}
           </span>
         </div>
       </div>

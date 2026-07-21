@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import type { Profile } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface UserMenuProps {
   open: boolean
@@ -26,6 +27,7 @@ export function UserMenu({
   profile,
 }: UserMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const { t } = useI18n()
   useGamepadNav(ref, open, onClose)
 
   // Fecha ao clicar fora ou apertar Esc.
@@ -107,23 +109,23 @@ export function UserMenu({
         </div>
         <div className="leading-tight">
           <div className="text-sm font-semibold text-white">
-            {profile?.name || "Jogador"}
+            {profile?.name || t("profile.jogador")}
           </div>
           <div className="text-xs text-[#00a8ff]">
-            {profile?.owner !== false ? "Dono" : "Online"}
+            {profile?.owner !== false ? t("profile.dono") : t("profile.online")}
           </div>
         </div>
       </button>
       {divider}
 
-      {item("Meu perfil", onOpenProfile)}
-      {item("Atualizar biblioteca", onRefresh)}
-      {item("Mostrar jogos ocultos", onToggleShowHidden, {
-        hint: showHidden ? "Ligado" : "Desligado",
+      {item(t("profile.meu_perfil"), onOpenProfile)}
+      {item(t("profile.atualizar_biblioteca"), onRefresh)}
+      {item(t("profile.mostrar_ocultos"), onToggleShowHidden, {
+        hint: showHidden ? t("common.ligado") : t("common.desligado"),
       })}
-      {item("Configurações", onOpenSettings)}
+      {item(t("settings.title"), onOpenSettings)}
       {divider}
-      {item("Sair", () => window.launcherAPI?.quit(), { danger: true })}
+      {item(t("profile.sair"), () => window.launcherAPI?.quit(), { danger: true })}
     </div>
   )
 }

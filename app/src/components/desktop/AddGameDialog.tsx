@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { WineVer, ArtCandidate } from "../../global"
 import type { Game } from "../ps5-launcher/types"
+import { useI18n } from "../../i18n/I18nContext"
 
 // Diálogo "Adicionar jogo" (estilo Heroic): adiciona um jogo/app manualmente
 // à biblioteca — Windows (via Wine) ou Linux nativo. Salvo em custom_games.json.
@@ -12,6 +13,7 @@ function slug(t: string) {
 }
 
 export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => void; onAdded: () => void; editGame?: Game | null }) {
+  const { t } = useI18n()
   const editando = Boolean(editGame)
   const custom = !editGame || editGame.launcher === "custom" // seções de Wine/exe
   const [titulo, setTitulo] = useState(editGame?.title || "")
@@ -85,8 +87,8 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
 
   const terminar = async () => {
     setErro("")
-    if (!titulo.trim()) return setErro("Informe o título do jogo/app.")
-    if (custom && !exe) return setErro("Selecione o executável.")
+    if (!titulo.trim()) return setErro(t("addgame.erro_titulo"))
+    if (custom && !exe) return setErro(t("addgame.erro_exe"))
     setBusy(true)
     if (editando && !custom) {
       // Jogo de loja (Steam/Epic/etc.): salva título/descrição via overrides.
@@ -108,7 +110,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
       ? await window.launcherAPI?.customGameUpdate({ id, title: titulo.trim(), exe })
       : await window.launcherAPI?.customGameAdd({ id, title: titulo.trim(), platform, exe })
     setBusy(false)
-    if (!r?.ok) return setErro(r?.error || (editando ? "Falha ao salvar" : "Falha ao adicionar"))
+    if (!r?.ok) return setErro(r?.error || (editando ? t("addgame.erro_falha_salvar") : t("addgame.erro_falha_adicionar")))
     onAdded()
     onClose()
   }
@@ -133,7 +135,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between px-6 pt-5">
-          <h2 className="text-lg font-light tracking-wide text-white">{editando ? `Editar ${editGame?.title}` : "Título do jogo/app"}</h2>
+          <h2 className="text-lg font-light tracking-wide text-white">{editando ? t("addgame.editar_jogo", { title: editGame?.title || "" }) : t("addgame.titulo_jogo")}</h2>
           <button onClick={onClose} className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -145,20 +147,20 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
           <input
             value={titulo}
             onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Título"
+            placeholder={t("addgame.titulo_placeholder")}
             spellCheck={false}
             className="mb-4 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/30 focus:border-[color:var(--accent)]"
           />
 
           {/* Imagens */}
-          <label className="mb-1.5 block text-[12px] text-white/60">Imagens (capa, fundo, logo)</label>
+          <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.imagens")}</label>
           <div className="mb-2 flex gap-2">
-            <ArteBtn kind="cover" label="Capa" />
-            <ArteBtn kind="hero" label="Fundo" />
-            <ArteBtn kind="logo" label="Logo" />
+            <ArteBtn kind="cover" label={t("addgame.capa")} />
+            <ArteBtn kind="hero" label={t("addgame.fundo")} />
+            <ArteBtn kind="logo" label={t("addgame.logo")} />
           </div>
           {/* Preview da busca automática de capa */}
-          {buscandoArte && <p className="mb-3 text-[12px] text-white/40">Buscando capas…</p>}
+          {buscandoArte && <p className="mb-3 text-[12px] text-white/40">{t("addgame.buscando_capas")}</p>}
           {!buscandoArte && candidatas.length > 0 && (
             <div className="mb-4 flex gap-2.5">
               {candidatas.map((c) => (
@@ -191,19 +193,19 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
 
           {custom ? (
             <>
-          <label className="mb-1.5 block text-[12px] text-white/60">Selecione a versão da plataforma para instalar:</label>
+          <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.plataforma")}</label>
           <select
             value={platform}
             onChange={(e) => setPlatform(e.target.value as "windows" | "linux")}
             className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
           >
-            <option value="windows" className="bg-[#16161a]">Windows</option>
-            <option value="linux" className="bg-[#16161a]">Linux (nativo)</option>
+            <option value="windows" className="bg-[#16161a]">{t("addgame.windows")}</option>
+            <option value="linux" className="bg-[#16161a]">{t("addgame.linux_nativo")}</option>
           </select>
 
           {platform === "windows" && (
             <>
-              <label className="mb-1.5 block text-[12px] text-white/60">Prefixo Wine (WinePrefix)</label>
+              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.prefixo_wine")}</label>
               <div className="mb-4 flex gap-2">
                 <input
                   value={prefixoEfetivo}
@@ -211,14 +213,14 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
                   spellCheck={false}
                   className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
                 />
-                <button onClick={pickPrefix} title="Escolher pasta" className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white">
+                <button onClick={pickPrefix} title={t("install.escolher_pasta")} className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                 </button>
               </div>
 
-              <label className="mb-1.5 block text-[12px] text-white/60">Versão do Wine:</label>
+              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.versao_wine")}</label>
               <div className="relative mb-4">
                 <svg className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 22h8M12 15v7M7 3h10l-1 7a4 4 0 0 1-8 0L7 3z" />
@@ -228,7 +230,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
                   onChange={(e) => setWineVersion(e.target.value)}
                   className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                 >
-                  <option value="" className="bg-[#16161a]">Padrão do sistema</option>
+                  <option value="" className="bg-[#16161a]">{t("addgame.padrao_sistema")}</option>
                   {wines.map((w) => (
                     <option key={w.id} value={w.id} className="bg-[#16161a]">{w.name}</option>
                   ))}
@@ -240,7 +242,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
             </>
           )}
 
-          <label className="mb-1.5 block text-[12px] text-white/60">Selecionar executável</label>
+          <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.selecionar_exe")}</label>
           <div className="mb-2 flex gap-2">
             <button
               onClick={pickExe}
@@ -248,7 +250,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
                 exe ? "border-white/15 text-white/80" : "border-white/10 text-white/35"
               } bg-white/[0.04] hover:border-white/25`}
             >
-              <span className="truncate">{exe || "Selecionar executável"}</span>
+              <span className="truncate">{exe || t("addgame.selecionar_exe")}</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/50">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
@@ -257,13 +259,13 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
             </>
           ) : (
             <>
-              <label className="mb-1.5 block text-[12px] text-white/60">Descrição</label>
+              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.descricao")}</label>
               <textarea
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
                 rows={6}
                 spellCheck={false}
-                placeholder="Descrição do jogo"
+                placeholder={t("addgame.descricao_placeholder")}
                 className="mb-2 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/30 focus:border-[color:var(--accent)]"
               />
             </>
@@ -279,7 +281,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
               className="rounded-lg px-5 py-2.5 text-[12px] font-bold tracking-wide text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
               style={{ background: "var(--accent)" }}
             >
-              EXECUTAR INSTALADOR ANTES
+              {t("addgame.executar_instalador")}
             </button>
           )}
           <button
@@ -287,7 +289,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
             disabled={busy}
             className="rounded-lg border border-white/20 px-5 py-2.5 text-[12px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
           >
-            TERMINAR
+            {t("addgame.terminar")}
           </button>
         </div>
       </div>

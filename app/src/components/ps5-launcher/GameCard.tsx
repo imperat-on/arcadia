@@ -3,6 +3,7 @@
 import { useRef } from "react"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface GameCardProps {
   game: Game
@@ -21,6 +22,7 @@ const FALLBACK_GRADIENTS: Record<string, string> = {
 
 export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardProps) {
   const cardRef = useRef<HTMLButtonElement>(null)
+  const { t } = useI18n()
 
   const hasCover = Boolean(game.cover)
   const fallbackGradient =
@@ -41,7 +43,7 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
         opacity: focused ? 1 : 0.72,
         zIndex: focused ? 10 : 1,
       }}
-      aria-label={`${game.title} — iniciar`}
+      aria-label={game.title}
     >
       {/* Card surface */}
       <div
@@ -54,7 +56,7 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={game.cover}
-            alt={`Capa de ${game.title}`}
+            alt={game.title}
             className="w-full h-full object-cover"
             loading="lazy"
           />
@@ -88,7 +90,7 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
           <svg width="10" height="10" viewBox="0 0 24 24" fill="#00a8ff">
             <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
           </svg>
-          <span className="text-[9px] font-semibold text-white">Instalar</span>
+          <span className="text-[9px] font-semibold text-white">{t("gamecard.instalar")}</span>
         </div>
       )}
 
@@ -138,11 +140,12 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
 }
 
 function LauncherPill({ launcher }: { launcher: string }) {
+  const { t } = useI18n()
   const config: Record<string, { label: string; color: string }> = {
-    steam: { label: "Steam", color: "#7ba4c7" },
-    heroic: { label: "Heroic", color: "#f9a020" },
-    lutris: { label: "Lutris", color: "#ff7300" },
-    psn: { label: "PSN", color: "#4a9eff" },
+    steam: { label: t("gamecard.steam"), color: "#7ba4c7" },
+    heroic: { label: t("gamecard.heroic"), color: "#f9a020" },
+    lutris: { label: t("gamecard.lutris"), color: "#ff7300" },
+    psn: { label: t("gamecard.psn"), color: "#4a9eff" },
   }
   const c = config[launcher] ?? { label: launcher, color: "#aaa" }
   return (

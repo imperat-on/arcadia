@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useGamepadNav } from "./useGamepadNav"
 import { semHtml } from "./texto"
 import type { JogoLinha } from "./types"
+import { useI18n } from "../../i18n/I18nContext"
 
 type Detalhes = NonNullable<Awaited<ReturnType<NonNullable<typeof window.launcherAPI>["storeDetails"]>>["jogo"]>
 
@@ -26,6 +27,7 @@ export function StoreGamePage({
   onRemover,
   onFechar,
 }: StoreGamePageProps) {
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const aberto = Boolean(jogo)
   useGamepadNav(ref, aberto, onFechar)
@@ -45,7 +47,7 @@ export function StoreGamePage({
       .then((r) => {
         if (cancelado) return
         if (r?.ok && r.jogo) setDet(r.jogo)
-        else setErro(r?.error || "não foi possível carregar a ficha")
+        else setErro(r?.error || t("store.erro_carregar_ficha"))
       })
       .finally(() => !cancelado && setCarregando(false))
     return () => {
@@ -96,7 +98,7 @@ export function StoreGamePage({
             <img src={det.screenshots[0]} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center text-white/25">
-              {carregando ? "Carregando…" : "Sem trailer"}
+              {carregando ? t("store.carregando") : t("store.sem_trailer")}
             </div>
           )}
         </div>
@@ -106,28 +108,28 @@ export function StoreGamePage({
           {bloqueado ? (
             <>
               <div className="flex items-center gap-2 rounded-xl border border-[color:var(--accent)]/40 px-6 py-3 text-sm font-semibold" style={{ color: "var(--accent)" }}>
-                Na biblioteca
+                {t("store.na_biblioteca")}
               </div>
-              <Botao rotulo="Remover" perigo onClick={onRemover} desabilitado={ocupado} />
+              <Botao rotulo={t("common.remover")} perigo onClick={onRemover} desabilitado={ocupado} />
             </>
           ) : semManifesto ? (
             <div
-              title="Nenhum provedor tem o manifesto deste jogo."
+              title={t("store.sem_manifesto_tooltip")}
               className="rounded-xl border border-white/10 px-6 py-3 text-sm font-semibold text-white/35"
             >
-              Sem manifesto
+              {t("store.sem_manifesto")}
             </div>
           ) : (
             <>
-              <Botao rotulo={ocupado ? "…" : "Baixar"} primario onClick={onBaixar} desabilitado={ocupado} />
-              <Botao rotulo="Adicionar à Steam" onClick={onAdicionar} desabilitado={ocupado} />
+              <Botao rotulo={ocupado ? "…" : t("store.baixar")} primario onClick={onBaixar} desabilitado={ocupado} />
+              <Botao rotulo={t("store.adicionar_steam")} onClick={onAdicionar} desabilitado={ocupado} />
             </>
           )}
-          <Botao rotulo="Voltar" onClick={onFechar} />
+          <Botao rotulo={t("common.voltar")} onClick={onFechar} />
         </div>
 
         {jogo.fontes?.length ? (
-          <p className="mt-3 text-xs text-white/35">Manifesto disponível em: {jogo.fontes.join(", ")}</p>
+          <p className="mt-3 text-xs text-white/35">{t("store.manifesto_disponivel_em")} {jogo.fontes.join(", ")}</p>
         ) : null}
 
         {det?.descricao && (
@@ -136,7 +138,7 @@ export function StoreGamePage({
 
         {det?.screenshots?.length ? (
           <>
-            <h2 className="mt-10 mb-3 text-[15px] font-medium text-white/70">Imagens</h2>
+            <h2 className="mt-10 mb-3 text-[15px] font-medium text-white/70">{t("store.imagens")}</h2>
             <div className="flex gap-3 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {det.screenshots.map((s) => (
                 <img
@@ -153,14 +155,14 @@ export function StoreGamePage({
 
         {det?.reqMin && (
           <>
-            <h2 className="mt-10 mb-3 text-[15px] font-medium text-white/70">Requisitos mínimos</h2>
+            <h2 className="mt-10 mb-3 text-[15px] font-medium text-white/70">{t("store.requisitos_minimos")}</h2>
             <p className="max-w-3xl whitespace-pre-line text-[13px] leading-relaxed text-white/45">
               {semHtml(det.reqMin)}
             </p>
           </>
         )}
 
-        {erro && <p className="mt-8 text-sm text-[#ff6b81]">Ficha indisponível: {erro}</p>}
+        {erro && <p className="mt-8 text-sm text-[#ff6b81]">{t("store.ficha_indisponivel", { erro })}</p>}
       </div>
     </div>
   )

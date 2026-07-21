@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import type { Game } from "./types"
 import { GameCard } from "./GameCard"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface GameLibraryProps {
   games: Game[]
@@ -24,6 +25,7 @@ export function GameLibrary({
   onSelect,
   onLaunch,
 }: GameLibraryProps) {
+  const { t } = useI18n()
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 60)
@@ -42,7 +44,7 @@ export function GameLibrary({
       {/* Cabeçalho */}
       <div className="flex items-center mb-4">
         <h2 className="text-sm font-semibold text-[#7a8aaa] tracking-[0.15em] uppercase">
-          Biblioteca de Jogos
+          {t("library.titulo")}
           <span className="ml-2 text-xs opacity-60">({games.length})</span>
         </h2>
       </div>

@@ -14,6 +14,21 @@ const TMP_DIR = path.join(BIN_DIR, "tmp")
 const LOG_DIR = path.join(DATA_DIR, "logs")
 const CONFIG = path.join(DATA_DIR, "config.json")
 
+const STEAM_LANG_MAP = {
+  "pt-BR": "portuguese",
+  "en-US": "english",
+  "es-ES": "spanish",
+}
+
+function steamLang() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG, "utf-8"))
+    return STEAM_LANG_MAP[cfg.language] || "english"
+  } catch {
+    return "english"
+  }
+}
+
 const HUBCAP_BASE = "https://hubcapmanifest.com/api/v1"
 // URLs dos provedores de manifesto, num lugar só: a busca (para saber se o
 // jogo existe) e o download usam exatamente as mesmas — se divergirem, a busca
@@ -252,7 +267,7 @@ async function itensDaLoja(appids) {
     try {
       const input = {
         ids: lote.map((id) => ({ appid: Number(id) })),
-        context: { language: "portuguese", country_code: "BR", steam_realm: 1 },
+        context: { language: steamLang(), country_code: "BR", steam_realm: 1 },
         data_request: { include_assets: true },
       }
       const r = await gh(`${ITENS_URL}?input_json=${encodeURIComponent(JSON.stringify(input))}`, {
@@ -392,7 +407,7 @@ async function suggest(query) {
   if (sugCache.has(chave)) return { ok: true, jogos: sugCache.get(chave) }
   try {
     const r = await gh(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=portuguese`,
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=${steamLang()}`,
       { signal: AbortSignal.timeout(6000) },
     )
     if (!r.ok) return { ok: false, error: `Steam HTTP ${r.status}` }
@@ -447,7 +462,7 @@ async function search(query) {
   // que o Hubcap não indexa mas os outros provedores servem.
   try {
     const r = await gh(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=portuguese`,
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=${steamLang()}`,
     )
     if (r.ok) {
       const data = await r.json()
@@ -778,13 +793,21 @@ async function detalhes(appid) {
   const id = String(appid || "")
   if (!id) return { ok: false, error: "appid ausente" }
   const cache = lerCache(DETALHES_CACHE) || {}
+  const lang = steamLang()
   const guardado = cache[id]
-  if (guardado && Date.now() - (guardado.at || 0) < DETALHES_TTL) {
+  // A ficha (descrição, requisitos, gêneros) vem traduzida pela Steam, então
+  // o idioma faz parte da chave de validade: sem isso, trocar de idioma
+  // deixava a página da loja em português por até 6 horas.
+  // Entrada antiga, sem idioma gravado: conta como idioma diferente. Todas
+  // elas estão em português — servi-las a quem pôs o app em inglês seria pior
+  // que uma ida à rede.
+  const mesmoIdioma = guardado?.lang === lang
+  if (guardado && mesmoIdioma && Date.now() - (guardado.at || 0) < DETALHES_TTL) {
     return { ok: true, jogo: guardado.jogo, cache: true }
   }
   try {
     const r = await gh(
-      `https://store.steampowered.com/api/appdetails?appids=${id}&cc=br&l=portuguese`,
+      `https://store.steampowered.com/api/appdetails?appids=${id}&cc=br&l=${lang}`,
       { signal: AbortSignal.timeout(20000) },
     )
     if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
@@ -792,7 +815,7 @@ async function detalhes(appid) {
     const d = data?.[id]?.data
     if (!d) throw new Error("sem dados para este appid")
     const jogo = await normalizaDetalhes(id, d)
-    cache[id] = { at: Date.now(), jogo }
+    cache[id] = { at: Date.now(), lang, jogo }
     // Poda pelas entradas mais antigas quando passa do teto.
     const ids = Object.keys(cache)
     if (ids.length > DETALHES_MAX) {
@@ -802,8 +825,9 @@ async function detalhes(appid) {
     gravarCache(DETALHES_CACHE, cache)
     return { ok: true, jogo }
   } catch (e) {
-    // Cache vencido ainda serve: melhor uma ficha de ontem que uma tela vazia.
-    if (guardado) return { ok: true, jogo: guardado.jogo, cache: true, velho: true }
+    // Cache vencido ainda serve: melhor uma ficha de ontem que uma tela vazia
+    // — mas só no idioma atual; texto na língua errada confunde mais que ajuda.
+    if (guardado && mesmoIdioma) return { ok: true, jogo: guardado.jogo, cache: true, velho: true }
     return { ok: false, error: String(e.message || e) }
   }
 }
@@ -879,7 +903,7 @@ async function destaques(secao, limite = 40, offset = 0) {
   const validoSteam = (g) => g && Date.now() - (g.at || 0) < DESTAQUE_TTL && Array.isArray(g.completa)
   if (!validoSteam(guardado)) {
     try {
-      const r = await gh("https://store.steampowered.com/api/featuredcategories?cc=br&l=portuguese", {
+      const r = await gh(`https://store.steampowered.com/api/featuredcategories?cc=br&l=${steamLang()}`, {
         signal: AbortSignal.timeout(20000),
       })
       if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)

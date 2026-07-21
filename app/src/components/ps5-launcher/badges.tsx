@@ -36,35 +36,40 @@ export interface EarnedBadge {
 }
 
 // Regras estilo Steam: desbloqueia ao atingir a condição; bloqueadas ficam cinza.
-export function buildBadges(s: {
-  jogos: number
-  playtime_hours: number
-  ach_done: number
-  ach_raras: number
-  jogos_100: number
-}): EarnedBadge[] {
+export function buildBadges(
+  s: {
+    jogos: number
+    playtime_hours: number
+    ach_done: number
+    ach_raras: number
+    jogos_100: number
+  },
+  // Nome e descrição vêm do dicionário: a chave é o id da insígnia. Passar o
+  // `t` de fora mantém esta função pura — ela não é um componente.
+  t: (k: string) => string = (k) => k,
+): EarnedBadge[] {
   const regra = (
-    id: string, name: string, desc: string, tint: string, icon: string,
+    id: string, tint: string, icon: string,
     atual: number, alvo: number, rare = false,
   ): EarnedBadge => ({
-    def: { id, name, desc, rare, tint, icon },
+    def: { id, name: t(`badges.${id}.nome`), desc: t(`badges.${id}.desc`), rare, tint, icon },
     unlocked: atual >= alvo,
     progress: `${Math.min(atual, alvo)}/${alvo}`,
   })
   return [
-    regra("first", "Primeira Conquista", "Desbloqueie 1 conquista", "#4adf9a", ICONS.trophy, s.ach_done, 1),
-    regra("hunter50", "Caçador", "Desbloqueie 50 conquistas", "#4aa3ff", ICONS.trophy, s.ach_done, 50),
-    regra("master200", "Mestre das Conquistas", "Desbloqueie 200 conquistas", "#a06bff", ICONS.crown, s.ach_done, 200, true),
-    regra("rare1", "Caçador de Raras", "Desbloqueie 1 conquista rara (≤10%)", "#ff5d5d", ICONS.flame, s.ach_raras, 1),
-    regra("rare10", "Lenda Rara", "Desbloqueie 10 conquistas raras", "#ffd23f", ICONS.flame, s.ach_raras, 10, true),
-    regra("perfect1", "Completista", "Complete 100% de 1 jogo", "#ffd23f", ICONS.diamond, s.jogos_100, 1),
-    regra("perfect5", "Perfeccionista", "Complete 100% de 5 jogos", "#ffd23f", ICONS.diamond, s.jogos_100, 5, true),
-    regra("hours100", "Maratonista", "Acumule 100 horas de jogo", "#22d3ee", ICONS.clock, s.playtime_hours, 100),
-    regra("hours500", "Viciado", "Acumule 500 horas de jogo", "#ff9f1c", ICONS.clock, s.playtime_hours, 500, true),
-    regra("collector50", "Colecionador", "Tenha 50 jogos na biblioteca", "#4aa3ff", ICONS.books, s.jogos, 50),
+    regra("first", "#4adf9a", ICONS.trophy, s.ach_done, 1),
+    regra("hunter50", "#4aa3ff", ICONS.trophy, s.ach_done, 50),
+    regra("master200", "#a06bff", ICONS.crown, s.ach_done, 200, true),
+    regra("rare1", "#ff5d5d", ICONS.flame, s.ach_raras, 1),
+    regra("rare10", "#ffd23f", ICONS.flame, s.ach_raras, 10, true),
+    regra("perfect1", "#ffd23f", ICONS.diamond, s.jogos_100, 1),
+    regra("perfect5", "#ffd23f", ICONS.diamond, s.jogos_100, 5, true),
+    regra("hours100", "#22d3ee", ICONS.clock, s.playtime_hours, 100),
+    regra("hours500", "#ff9f1c", ICONS.clock, s.playtime_hours, 500, true),
+    regra("collector50", "#4aa3ff", ICONS.books, s.jogos, 50),
     // "Pioneiro" ficava com alvo 1/1 fixo: desbloqueava sozinha, sem o jogador
     // fazer nada. Toda insígnia tem de ter uma condição real para ser cumprida.
-    regra("collector200", "Bibliotecário", "Tenha 200 jogos na biblioteca", "#a06bff", ICONS.books, s.jogos, 200, true),
+    regra("collector200", "#a06bff", ICONS.books, s.jogos, 200, true),
   ]
 }
 

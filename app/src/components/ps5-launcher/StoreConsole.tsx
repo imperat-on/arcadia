@@ -9,6 +9,7 @@ import { StoreGamePage } from "./StoreGamePage"
 import { StoreKeyboard } from "./StoreKeyboard"
 import { ConsoleDestinoDialog } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
+import { useI18n } from "../../i18n/I18nContext"
 
 const TAMANHO_PAGINA = 40
 
@@ -41,26 +42,30 @@ type Categoria = {
   fonte: { tipo: "steamspy"; lista?: string; genero?: string } | { tipo: "featured"; secao: string }
 }
 
-const CATEGORIAS: Categoria[] = [
-  { id: "alta", rotulo: "Em alta", fonte: { tipo: "steamspy" } },
-  { id: "new_releases", rotulo: "Lançamentos", fonte: { tipo: "featured", secao: "new_releases" } },
-  { id: "top_sellers", rotulo: "Mais vendidos", fonte: { tipo: "featured", secao: "top_sellers" } },
-  { id: "jogados", rotulo: "Mais jogados", fonte: { tipo: "steamspy", lista: "top100forever" } },
-  { id: "specials", rotulo: "Promoções", fonte: { tipo: "featured", secao: "specials" } },
-  { id: "coming_soon", rotulo: "Em breve", fonte: { tipo: "featured", secao: "coming_soon" } },
-  { id: "acao", rotulo: "Ação", fonte: { tipo: "steamspy", genero: "Action" } },
-  { id: "rpg", rotulo: "RPG", fonte: { tipo: "steamspy", genero: "RPG" } },
-  { id: "indie", rotulo: "Indie", fonte: { tipo: "steamspy", genero: "Indie" } },
-  { id: "aventura", rotulo: "Aventura", fonte: { tipo: "steamspy", genero: "Adventure" } },
-  { id: "estrategia", rotulo: "Estratégia", fonte: { tipo: "steamspy", genero: "Strategy" } },
-  { id: "corrida", rotulo: "Corrida", fonte: { tipo: "steamspy", genero: "Racing" } },
-]
+
 
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
   { games, ativo, onAtalhos },
   ref,
 ) {
   const acoes = useStoreActions(games)
+  const { t } = useI18n()
+
+  const CATEGORIAS: Categoria[] = [
+    { id: "alta", rotulo: t("store.categorias.em_alta"), fonte: { tipo: "steamspy" } },
+    { id: "new_releases", rotulo: t("store.categorias.lancamentos"), fonte: { tipo: "featured", secao: "new_releases" } },
+    { id: "top_sellers", rotulo: t("store.categorias.mais_vendidos"), fonte: { tipo: "featured", secao: "top_sellers" } },
+    { id: "jogados", rotulo: t("store.categorias.mais_jogados"), fonte: { tipo: "steamspy", lista: "top100forever" } },
+    { id: "specials", rotulo: t("store.categorias.promocoes"), fonte: { tipo: "featured", secao: "specials" } },
+    { id: "coming_soon", rotulo: t("store.categorias.em_breve"), fonte: { tipo: "featured", secao: "coming_soon" } },
+    { id: "acao", rotulo: t("store.categorias.acao"), fonte: { tipo: "steamspy", genero: "Action" } },
+    { id: "rpg", rotulo: t("store.categorias.rpg"), fonte: { tipo: "steamspy", genero: "RPG" } },
+    { id: "indie", rotulo: t("store.categorias.indie"), fonte: { tipo: "steamspy", genero: "Indie" } },
+    { id: "aventura", rotulo: t("store.categorias.aventura"), fonte: { tipo: "steamspy", genero: "Adventure" } },
+    { id: "estrategia", rotulo: t("store.categorias.estrategia"), fonte: { tipo: "steamspy", genero: "Strategy" } },
+    { id: "corrida", rotulo: t("store.categorias.corrida"), fonte: { tipo: "steamspy", genero: "Racing" } },
+  ]
+
   // Paginação: cada índice é uma resposta do backend. Concatenadas, viram a
   // lista visível para a grade. Manter em páginas facilita reset ao trocar
   // categoria e evita concat linear a cada `setLista`.
@@ -335,7 +340,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             }}
             className={`loja-aba${!resultados && modo === "vitrine" ? " -ativo" : ""}`}
           >
-            Vitrine
+            {t("store.vitrine")}
           </button>
 
           {CATEGORIAS.map((c) => (
@@ -355,7 +360,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
         <button
           onClick={() => setTeclado(true)}
-          aria-label="Buscar"
+          aria-label={t("store.buscar")}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--loja-apagado)] outline-none transition-colors hover:bg-[var(--loja-sup-2)] hover:text-white"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -367,7 +372,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
       {resultados && (
         <p className="shrink-0 px-12 pb-3 pt-5 text-[13px] text-[var(--loja-apagado)]">
-          Resultados para "{busca}" ({resultados.length})
+          {t("store.resultados", { query: busca, count: String(resultados.length) })}
         </p>
       )}
 
@@ -442,11 +447,11 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           modo console, alimentado pelo hook */}
       {acoes.escolhendo && (
         <ConsoleDestinoDialog
-          titulo={`Instalar ${acoes.escolhendo.jogo.title}`}
-          subtitulo="Escolha a biblioteca Steam de destino."
+          titulo={t("ps5.instalar.titulo", { title: acoes.escolhendo.jogo.title })}
+          subtitulo={t("ps5.steam_lib.subtitulo")}
           opcoes={acoes.escolhendo.libs.map((l) => ({
             caminho: l.steamDir,
-            rotulo: "Biblioteca Steam",
+            rotulo: t("ps5.steam_lib.opcao"),
             livre: l.free,
           }))}
           onEscolher={(steamDir) =>

@@ -25,6 +25,7 @@ import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
+import { useI18n } from "../../i18n/I18nContext"
 
 const MOCK_GAMES: Game[] = [
   {
@@ -115,6 +116,7 @@ export function PS5Launcher() {
   const [activeTab, setActiveTab] = useState(1) // abre em Jogos (Notícias é a aba 0)
   // Ids já iniciados (persistido): alimenta o selo "Nunca jogado".
   const [recent, setRecent] = useState<string[]>([])
+  const { t } = useI18n()
 
   // Menu de contexto do jogo (Start) e visibilidade dos ocultos.
   const [ctxGame, setCtxGame] = useState<Game | null>(null)
@@ -209,10 +211,10 @@ export function PS5Launcher() {
       const cfg = await api?.getConfig()
       const home = window.launcherPaths?.home || "~"
       const bases = [
-        { caminho: cfg?.default_install_path || `${home}/Games/Arcadia`, rotulo: "Pasta padrão" },
+        { caminho: cfg?.default_install_path || `${home}/Games/Arcadia`, rotulo: t("ps5.destino.pasta_padrao") },
         ...((await api?.storeLibraries()) || []).map((l) => ({
           caminho: `${l.steamDir}/Arcadia`,
-          rotulo: "Disco da biblioteca Steam",
+          rotulo: t("ps5.destino.disco_steam"),
         })),
       ].filter((d, i, arr) => arr.findIndex((o) => o.caminho === d.caminho) === i)
       const comEspaco = await Promise.all(
@@ -569,7 +571,7 @@ export function PS5Launcher() {
           prev.map((g) => (g.id === game.id ? { ...g, ...patch } : g)),
         )
       }
-      setToast({ title: `${game.title} — metadados salvos`, visible: true })
+      setToast({ title: t("ps5.toast.metadados_salvos", { title: game.title }), visible: true })
       setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
     },
     [],
@@ -590,7 +592,9 @@ export function PS5Launcher() {
       )
     }
     setToast({
-      title: nowHidden ? `${game.title} — oculto` : `${game.title} — reexibido`,
+      title: nowHidden
+        ? t("ps5.toast.oculto", { title: game.title })
+        : t("ps5.toast.reexibido", { title: game.title }),
       visible: true,
     })
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
@@ -603,7 +607,7 @@ export function PS5Launcher() {
         if (Array.isArray(g)) setGames(g)
       })
     }
-    setToast({ title: "Biblioteca atualizada!", visible: true })
+    setToast({ title: t("ps5.toast.biblioteca_atualizada"), visible: true })
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
   }, [])
 
@@ -952,7 +956,7 @@ export function PS5Launcher() {
       {perfilGate && (
         <div ref={perfilRef} className={`gp-scope fixed inset-0 z-[75] ${perfilSaindo ? "perfil-gate-out" : "perfil-gate-in"}`}>
           <ProfileSelect
-            profiles={[{ name: profile?.name || "Jogador", avatar: profile?.avatar, background: profile?.background, owner: true }]}
+            profiles={[{ name: profile?.name || t("profile.jogador"), avatar: profile?.avatar, background: profile?.background, owner: true }]}
             onSelect={confirmarPerfil}
             onAdd={() => {
               setPerfilGate(false)
@@ -1001,7 +1005,7 @@ export function PS5Launcher() {
               columns={columns}
               onSelect={setSelectedIndex}
               onLaunch={_activate}
-              emptyMessage="Sua biblioteca está vazia."
+              emptyMessage={t("ps5.biblioteca.vazia")}
               scrollRef={gridScrollRef}
             />
           </>
@@ -1021,7 +1025,7 @@ export function PS5Launcher() {
               />
             ) : (
               <div className="px-10 py-10 text-[#8a93a6]">
-                Sua biblioteca está vazia.
+                {t("ps5.biblioteca.vazia")}
               </div>
             )}
 
@@ -1046,7 +1050,7 @@ export function PS5Launcher() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
                 </svg>
-                Nunca jogado
+                {t("ps5.badge.nunca_jogado")}
               </div>
             )}
           </>
@@ -1072,11 +1076,11 @@ export function PS5Launcher() {
           download entra na fila. */}
       {instalarGame && (
         <ConsoleDestinoDialog
-          titulo={`Instalar ${instalarGame.title}`}
+          titulo={t("ps5.instalar.titulo", { title: instalarGame.title })}
           subtitulo={
             instalarGame.size != null
-              ? `Download de ${fmtMiB(instalarGame.size)} · escolha onde instalar.`
-              : "Escolha onde instalar."
+              ? t("ps5.instalar.subtitulo", { size: fmtMiB(instalarGame.size) })
+              : t("ps5.instalar.escolher")
           }
           opcoes={destinosEpic}
           tamanho={instalarGame.size != null ? instalarGame.size / 1024 : undefined}
@@ -1097,11 +1101,11 @@ export function PS5Launcher() {
       {/* Jogo Steam: escolha da biblioteca de destino, já com o manifesto em mãos */}
       {acoesLoja.escolhendo && (
         <ConsoleDestinoDialog
-          titulo={`Instalar ${acoesLoja.escolhendo.jogo.title}`}
-          subtitulo="Escolha a biblioteca Steam de destino."
+          titulo={t("ps5.instalar.titulo", { title: acoesLoja.escolhendo.jogo.title })}
+          subtitulo={t("ps5.steam_lib.subtitulo")}
           opcoes={acoesLoja.escolhendo.libs.map((l) => ({
             caminho: l.steamDir,
-            rotulo: "Biblioteca Steam",
+            rotulo: t("ps5.steam_lib.opcao"),
             livre: l.free,
           }))}
           onEscolher={(steamDir) => {
@@ -1123,8 +1127,8 @@ export function PS5Launcher() {
               className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/15"
               style={{ borderTopColor: "var(--accent)" }}
             />
-            <p className="text-sm text-white/80">Procurando manifesto…</p>
-            <p className="mt-1 text-[12px] text-white/40">Consultando os provedores.</p>
+            <p className="text-sm text-white/80">{t("ps5.manifesto.procurando")}</p>
+            <p className="mt-1 text-[12px] text-white/40">{t("ps5.manifesto.consultando")}</p>
           </div>
         </div>
       )}
@@ -1138,28 +1142,27 @@ export function PS5Launcher() {
           <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0b0b0d] p-7">
             <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
-              {semManifesto.motivo} Não dá para baixar pelo Arcadia — o único caminho é instalar pela
-              própria Steam.
+              {t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
             </p>
             <div className="mt-6 flex flex-col gap-2">
               <button
                 autoFocus
                 onClick={() => {
                   window.launcherAPI?.launch(["steam", `steam://install/${semManifesto.jogo.appid}`])
-                  setToast({ title: `Abrindo a Steam para ${semManifesto.jogo.title}…`, visible: true })
+                  setToast({ title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }), visible: true })
                   setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
                   setSemManifesto(null)
                 }}
                 className="rounded-xl px-5 py-3.5 text-[13px] font-semibold text-black outline-none transition-transform focus:scale-[1.02]"
                 style={{ background: "var(--accent)" }}
               >
-                Instalar pela Steam
+                {t("ps5.sem_manifesto.botao")}
               </button>
               <button
                 onClick={() => setSemManifesto(null)}
                 className="rounded-xl border border-white/10 py-3 text-[13px] text-white/55 outline-none transition-colors hover:text-white/85"
               >
-                Cancelar
+                {t("common.cancelar")}
               </button>
             </div>
           </div>
@@ -1181,7 +1184,7 @@ export function PS5Launcher() {
         game={trailerPickGame}
         onClose={() => setTrailerPickGame(null)}
         onPicked={(gameId, path) => {
-          setToast({ title: "Trailer baixado e aplicado!", visible: true })
+          setToast({ title: t("ps5.toast.trailer_aplicado"), visible: true })
           setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
           if (selectedGameRef.current?.id === gameId) setTrailerUrl(path)
         }}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import { StoreTile } from "./StoreTile"
 import { rolagemSuave } from "./rolagem"
 import type { JogoLinha } from "./types"
@@ -33,6 +34,7 @@ export function StoreRail({
   onAbrir,
   onAdicionar,
 }: StoreRailProps) {
+  const { t } = useI18n()
   const scroller = useRef<HTMLDivElement | null>(null)
 
   const rolar = (dir: 1 | -1) => {
@@ -52,7 +54,7 @@ export function StoreRail({
               tabIndex={-1}
               className="text-[13px] font-medium text-[var(--loja-apagado)] outline-none transition-colors hover:text-white"
             >
-              Ver tudo
+{t("rail.ver_tudo")}
             </button>
           )}
           <Seta dir={-1} onClick={() => rolar(-1)} />
@@ -89,11 +91,12 @@ export function StoreRail({
 }
 
 function Seta({ dir, onClick }: { dir: 1 | -1; onClick: () => void }) {
+  const { t } = useI18n()
   return (
     <button
       onClick={onClick}
       tabIndex={-1}
-      aria-label={dir === 1 ? "Avançar" : "Voltar"}
+      aria-label={dir === 1 ? t("rail.avancar") : t("rail.voltar")}
       className="grid h-9 w-9 place-items-center rounded-full bg-[var(--loja-sup-2)] text-white outline-none transition-colors hover:bg-[var(--loja-sup-3)]"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">

@@ -5,6 +5,7 @@ import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
 import { ArtSearch } from "./ArtSearch"
 import { TextSearch } from "./TextSearch"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface EditMetadataProps {
   game: Game | null
@@ -15,12 +16,6 @@ interface EditMetadataProps {
 // Estado de um campo de arte:
 //   undefined = intocado · null = restaurar o original · string = novo caminho
 type ArtDraft = string | null | undefined
-
-const ART_LABELS: Record<string, string> = {
-  cover: "Capa",
-  hero: "Plano de fundo",
-  logo: "Logo",
-}
 
 // Tema por modo: no console (Big Picture) o editor fica no azul PS5 clássico;
 // no desktop segue o tema aplicado. (Antes era um fundo só para os dois.)
@@ -34,6 +29,7 @@ const ACCENT_TEXT = CONSOLE ? "#ffffff" : "#000000"
 const MUTED = CONSOLE ? "#8a93a6" : "var(--muted)"
 
 export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const open = Boolean(game)
   useGamepadNav(ref, open, onClose)
@@ -107,17 +103,17 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
           color: CONSOLE ? "#fff" : "var(--text)",
         }}
         role="dialog"
-        aria-label={`Editar metadados de ${game.title}`}
+        aria-label={t("editmetadata.editar_metadados", { title: game.title })}
       >
         <div
           className="px-6 py-4 text-[15px] font-semibold tracking-wide uppercase truncate sticky top-0 z-10"
           style={{ background: BG_HEADER, color: CONSOLE ? "#fff" : "var(--text)", backdropFilter: "blur(8px)" }}
         >
-          Editar metadados — {game.title}
+          {t("editmetadata.titulo")} — {game.title}
         </div>
 
         <div className="p-6 flex flex-col gap-5">
-          <Field label="Título">
+          <Field label={t("editmetadata.titulo")}>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -132,14 +128,14 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[13px] font-semibold tracking-wider uppercase text-white/60">
-                Descrição
+                {t("editmetadata.descricao")}
               </span>
               <button
                 onClick={() => setBuscandoTexto(true)}
                 className="px-3 py-1 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
                 style={{ background: ACCENT, color: ACCENT_TEXT }}
               >
-                Buscar online
+                {t("editmetadata.buscar_online")}
               </button>
             </div>
             <textarea
@@ -190,14 +186,14 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               className="px-6 py-2.5 rounded-lg text-[15px] font-medium text-white transition-colors hover:bg-white/15"
               style={{ background: "rgba(255,255,255,0.08)" }}
             >
-              Cancelar
+              {t("common.cancelar")}
             </button>
             <button
               onClick={save}
               className="px-7 py-2.5 rounded-lg text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
               style={{ background: ACCENT, color: ACCENT_TEXT }}
             >
-              Salvar
+              {t("common.salvar")}
             </button>
           </div>
         </div>
@@ -253,15 +249,22 @@ function ArtField({
   onSearch: () => void
   onReset: () => void
 }) {
+  const { t } = useI18n()
   // Rascunho vence a arte atual. O caminho vem cru do Electron: vira file://
   // só para a prévia (o que é salvo no disco continua sem prefixo).
   const preview =
     draft === null ? null : draft ? "file://" + draft : atual || null
 
+  const labelMap: Record<string, string> = {
+    cover: t("editmetadata.capa"),
+    hero: t("editmetadata.fundo"),
+    logo: t("editmetadata.logo"),
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <span className="text-[13px] font-semibold tracking-wider uppercase text-white/60">
-        {ART_LABELS[kind]}
+        {labelMap[kind]}
       </span>
       <div
         className="w-full rounded-lg overflow-hidden flex items-center justify-center text-center"
@@ -275,7 +278,7 @@ function ArtField({
           <img src={preview} alt="" className="w-full h-full object-cover" />
         ) : (
           <span className="text-[11px] text-white/60 px-2 leading-tight">
-            {draft === null ? "Volta ao original ao salvar" : "Sem imagem"}
+            {draft === null ? t("editmetadata.volta_original") : t("editmetadata.sem_imagem")}
           </span>
         )}
       </div>
@@ -284,24 +287,24 @@ function ArtField({
         className="w-full px-2 py-1.5 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
         style={{ background: ACCENT, color: ACCENT_TEXT }}
       >
-        Buscar online
+        {t("editmetadata.buscar_online")}
       </button>
       <div className="flex gap-2">
         <button
           onClick={onPick}
-          title="Usar uma imagem do seu computador"
+          title={t("editmetadata.usar_do_disco")}
           className="flex-1 px-2 py-1.5 rounded-md text-[12px] font-medium text-white transition-colors hover:bg-white/15"
           style={{ background: "rgba(255,255,255,0.08)" }}
         >
-          Do disco
+          {t("editmetadata.do_disco")}
         </button>
         <button
           onClick={onReset}
-          title="Voltar à arte encontrada pelo indexador"
+          title={t("editmetadata.voltar_arte_original")}
           className="px-2 py-1.5 rounded-md text-[12px] font-medium text-white/60 transition-colors hover:bg-white/10 hover:text-white"
           style={{ background: "rgba(255,255,255,0.04)" }}
         >
-          Restaurar
+          {t("editmetadata.restaurar")}
         </button>
       </div>
     </div>

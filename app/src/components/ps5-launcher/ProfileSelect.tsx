@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react";
-import type { Profile } from "../../global";
+import type { Profile } from "../../global"
+import { useI18n } from "../../i18n/I18nContext";
 
 export interface ProfileSelectProps {
   profiles: Profile[];
@@ -21,6 +22,7 @@ export default function ProfileSelect({
   onEdit,
   onDelete,
 }: ProfileSelectProps) {
+  const { t } = useI18n();
   const [focus, setFocus] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const total = profiles.length + 1; // +1 = "add"
@@ -68,13 +70,13 @@ export default function ProfileSelect({
         className="relative z-10 mb-[clamp(3rem,6vh,6rem)] font-semibold tracking-tight text-white"
         style={{ fontSize: "clamp(2rem, 3.4vw, 4rem)" }}
       >
-        Quem está jogando?
+        {t("profile.quem_esta_jogando")}
       </h1>
 
       <div
         className="relative z-10 flex w-full items-start justify-center gap-[clamp(1rem,2.5vw,3rem)] px-8"
         role="radiogroup"
-        aria-label="Selecionar perfil"
+        aria-label={t("profile.selecionar_perfil")}
       >
         {profiles.map((p, i) => {
           const isFocus = focus === i;
@@ -91,7 +93,7 @@ export default function ProfileSelect({
                 type="button"
                 role="radio"
                 aria-checked={isFocus}
-                aria-label={`Entrar como ${p.name ?? "perfil"}`}
+                aria-label={t("profile.entrar_como", { name: p.name ?? t("profile.jogador") })}
                 onMouseEnter={() => setFocus(i)}
                 onFocus={() => setFocus(i)}
                 onClick={() => onSelect(i)}
@@ -129,11 +131,11 @@ export default function ProfileSelect({
                   className="font-medium text-white/90"
                   style={{ fontSize: "clamp(0.95rem, 1vw, 1.2rem)" }}
                 >
-                  {p.name ?? "Sem nome"}
+                  {p.name ?? t("profile.sem_nome")}
                 </span>
                 {p.owner && (
                   <span className="rounded bg-white/10 px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wider text-white/70">
-                    Dono
+                    {t("profile.dono")}
                   </span>
                 )}
               </div>
@@ -142,7 +144,7 @@ export default function ProfileSelect({
                 <div className="absolute right-1 top-1">
                   <button
                     type="button"
-                    aria-label="Ações do perfil"
+                    aria-label={t("profile.acoes_perfil")}
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenuOpen((v) => !v);
@@ -167,7 +169,7 @@ export default function ProfileSelect({
                             onEdit(i);
                           }}
                         >
-                          Editar
+                          {t("profile.editar_perfil")}
                         </button>
                       )}
                       {onDelete && (
@@ -181,7 +183,7 @@ export default function ProfileSelect({
                             onDelete(i);
                           }}
                         >
-                          Excluir
+                          {t("profile.excluir")}
                         </button>
                       )}
                     </div>
@@ -202,7 +204,7 @@ export default function ProfileSelect({
               btnRefs.current[profiles.length] = el;
             }}
             type="button"
-            aria-label="Adicionar usuário"
+            aria-label={t("profile.adicionar_usuario")}
             onMouseEnter={() => setFocus(profiles.length)}
             onFocus={() => setFocus(profiles.length)}
             onClick={() => activate(profiles.length)}
@@ -226,7 +228,7 @@ export default function ProfileSelect({
               className="font-medium text-white/90"
               style={{ fontSize: "clamp(0.95rem, 1vw, 1.2rem)" }}
             >
-              Adicionar usuário
+              {t("profile.adicionar_usuario")}
             </span>
           </div>
         </div>
@@ -239,7 +241,7 @@ export default function ProfileSelect({
           opacity: focus < profiles.length ? 1 : 0,
         }}
       >
-        Pressione <kbd className="mx-1 rounded bg-white/10 px-2 py-0.5">X</kbd> para entrar
+        {t("profile.pressione")} <kbd className="mx-1 rounded bg-white/10 px-2 py-0.5">X</kbd> {t("profile.para_entrar")}
       </p>
     </div>
   );

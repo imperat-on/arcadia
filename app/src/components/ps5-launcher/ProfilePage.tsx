@@ -5,6 +5,8 @@ import type { Game } from "./types"
 import type { Profile, ProfileStats, RecentAchievement } from "../../global"
 import { Badge, buildBadges } from "./badges"
 import { useGamepadNav } from "./useGamepadNav"
+import { userLocale } from "../../i18n/locale"
+import { useI18n } from "../../i18n/I18nContext"
 
 // XP estilo Steam: cada conquista vale 10, rara (≤10%) +15, jogo 100% vale 100
 // e cada hora jogada vale 2.
@@ -43,6 +45,7 @@ export function ProfilePage({
 }: ProfilePageProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open && navActive, onClose)
+  const { t } = useI18n()
 
   // Estatísticas reais (conquistas/playtime) para nível e insígnias.
   const [stats, setStats] = useState<ProfileStats | null>(null)
@@ -61,14 +64,14 @@ export function ProfilePage({
   if (!open) return null
 
   const isOwner = profile.owner !== false
-  const name = profile.name || "Jogador"
+  const name = profile.name || t("profile.jogador")
   const xp = stats ? calcularXP(stats) : games.length * 25
   const { nivel, noNivel, custo } = nivelDoXP(xp)
   // Só entram no perfil as insígnias realmente conquistadas. Antes exibíamos
   // todas (as bloqueadas em cinza) MAIS uma lista fixa que era dada de graça
   // pelo simples fato de ser o dono — o perfil ficava cheio de insígnias que
   // ninguém tinha ganhado. Insígnia só aparece quando a condição é cumprida.
-  const badgesDin = stats ? buildBadges(stats) : []
+  const badgesDin = stats ? buildBadges(stats, t) : []
   const total = badgesDin.length
   const conquistadas = badgesDin.filter((b) => b.unlocked)
   // Vitrine: usa os destaques escolhidos; senão, os primeiros com capa.
@@ -132,7 +135,7 @@ export function ProfilePage({
       <button
         onClick={onClose}
         className="fixed top-6 right-8 z-10 w-10 h-10 rounded-full flex items-center justify-center text-[#8a93a6] hover:bg-white/10 hover:text-white transition-colors"
-        title="Fechar (Esc)"
+        title={t("profile.fechar")}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -161,24 +164,24 @@ export function ProfilePage({
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold text-white">{name}</h1>
               {isOwner && (
-                <span className="text-xs font-medium text-[#8a93a6]">Dono</span>
+                <span className="text-xs font-medium text-[#8a93a6]">{t("profile.dono")}</span>
               )}
             </div>
             <p className="text-sm text-[#8a93a6] mt-1">
-              {launchers.length} plataforma(s) conectada(s)
+              {t("profile.plataformas_conectadas", { count: String(launchers.length) })}
             </p>
             <button
               onClick={onEdit}
               className="mt-4 px-4 py-2 rounded-lg text-sm font-medium text-[#c8d0e0] transition-colors hover:bg-white/5"
               style={{ border: "1px solid rgba(255,255,255,0.14)" }}
             >
-              Editar perfil
+              {t("profile.editar_perfil")}
             </button>
           </div>
 
           {/* Nível (estilo Steam: círculo + barra de XP) */}
           <div className="flex w-56 shrink-0 flex-col items-center pt-1">
-            <span className="mb-1 text-xs uppercase tracking-wider text-[#8a93a6]">Nível</span>
+            <span className="mb-1 text-xs uppercase tracking-wider text-[#8a93a6]">{t("profile.nivel")}</span>
             <div
               className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white"
               style={{
@@ -195,7 +198,7 @@ export function ProfilePage({
               />
             </div>
             <span className="mt-1.5 text-[11px] tabular-nums text-[#6b7280]">
-              {noNivel} / {custo} XP · total {xp} XP
+              {t("profile.xp", { nivel: String(noNivel), custo: String(custo), xp: String(xp) })}
             </span>
           </div>
         </div>
@@ -208,7 +211,7 @@ export function ProfilePage({
               <section>
                 <h2 className="mb-3 pb-2 text-sm font-semibold uppercase tracking-wider text-[#8a93a6]"
                   style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                  Conquistas recentes
+                  {t("profile.conquistas_recentes")}
                 </h2>
                 <div className="space-y-2">
                   {feed.map((a) => {
@@ -224,11 +227,11 @@ export function ProfilePage({
                         </div>
                         <div className="shrink-0 text-right">
                           <div className="text-[11px] tabular-nums text-white/50">
-                            {new Date(a.unlock * 1000).toLocaleDateString("pt-BR")}
+                            {new Date(a.unlock * 1000).toLocaleDateString(userLocale())}
                           </div>
                           {pct > 0 && (
                             <div className={`text-[10px] ${rara ? "text-[#ffd23f]" : "text-white/30"}`}>
-                              {pct.toFixed(1).replace(".", ",")}%{rara ? " · rara" : ""}
+                              {pct.toFixed(1).replace(".", ",")}%{rara ? t("profile.conquista_rara") : ""}
                             </div>
                           )}
                         </div>
@@ -243,7 +246,7 @@ export function ProfilePage({
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3 pb-2"
                 style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                Vitrine de jogos
+                {t("profile.vitrine_jogos")}
               </h2>
               <div className="grid grid-cols-4 gap-3">
                 {showcase.map((g) => (
@@ -258,7 +261,7 @@ export function ProfilePage({
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3 pb-2"
                 style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                Atividade recente
+                {t("profile.atividade_recente")}
               </h2>
               <div className="space-y-3">
                 {recent.map((g) => (
@@ -270,7 +273,7 @@ export function ProfilePage({
                     <div className="min-w-0">
                       <div className="text-white font-medium truncate">{g.title}</div>
                       <div className="text-xs text-[#8a93a6]">
-                        {g.genre || "Jogo"} {g.year ? `· ${g.year}` : ""}
+                        {g.genre || t("profile.genero_fallback")} {g.year ? `· ${g.year}` : ""}
                       </div>
                     </div>
                   </div>
@@ -284,11 +287,11 @@ export function ProfilePage({
             {/* Insígnias (regras reais, estilo Steam) */}
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                Insígnias <span className="opacity-60">{conquistadas.length}/{total}</span>
+                {t("profile.insignias", { count: String(conquistadas.length), total: String(total) })}
               </h2>
               {conquistadas.length === 0 ? (
                 <p className="text-xs text-[#8a93a6]">
-                  Nenhuma insígnia conquistada ainda.
+                  {t("profile.sem_insignias")}
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-3">
@@ -305,22 +308,22 @@ export function ProfilePage({
             {/* Estatísticas */}
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                Estatísticas
+                {t("profile.estatisticas")}
               </h2>
               <div className="space-y-2">
-                <StatRow label="Jogos" value={String(games.length)} />
-                <StatRow label="Conquistas" value={stats ? `${stats.ach_done} / ${stats.ach_total}` : "—"} />
-                <StatRow label="Raras" value={stats ? String(stats.ach_raras) : "—"} />
-                <StatRow label="100% completos" value={stats ? String(stats.jogos_100) : "—"} />
-                <StatRow label="Horas jogadas" value={stats ? `${stats.playtime_hours} h` : "—"} />
-                <StatRow label="Plataformas" value={String(launchers.length)} />
+                <StatRow label={t("profile.estatisticas.jogos")} value={String(games.length)} />
+                <StatRow label={t("profile.estatisticas.conquistas")} value={stats ? `${stats.ach_done} / ${stats.ach_total}` : t("profile.estatisticas.fallback")} />
+                <StatRow label={t("profile.estatisticas.raras")} value={stats ? String(stats.ach_raras) : t("profile.estatisticas.fallback")} />
+                <StatRow label={t("profile.estatisticas.completos")} value={stats ? String(stats.jogos_100) : t("profile.estatisticas.fallback")} />
+                <StatRow label={t("profile.estatisticas.horas")} value={stats ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) }) : t("profile.estatisticas.fallback")} />
+                <StatRow label={t("profile.estatisticas.plataformas")} value={String(launchers.length)} />
               </div>
             </section>
 
             {/* Plataformas */}
             <section>
               <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                Plataformas
+                {t("profile.plataformas")}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {launchers.map((l) => (

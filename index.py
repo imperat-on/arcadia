@@ -45,6 +45,22 @@ STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
 #   { "steam_api_key": "SUA_CHAVE", "steam_id64": "opcional" }
 CONFIG_FILE = OUT_DIR / "config.json"
 
+_STEAM_LANG = None
+
+def _get_steam_lang() -> str:
+    global _STEAM_LANG
+    if _STEAM_LANG is not None:
+        return _STEAM_LANG
+    cfg = load_config()
+    lang = (cfg.get("language") or "en-US").strip()
+    MAP = {
+        "pt-BR": "portuguese",
+        "en-US": "english",
+        "es-ES": "spanish",
+    }
+    _STEAM_LANG = MAP.get(lang, "english")
+    return _STEAM_LANG
+
 # SLSsteam: jogos injetados ficam no bloco AdditionalApps do config.yaml.
 SLS_CONFIG = HOME / ".config/SLSsteam/config.yaml"
 
@@ -244,12 +260,13 @@ def best_steam_hero(appid: str, current: str, sgdb_key: str) -> str:
     return ""
 
 
-def fetch_appdetails(appid: str, lang: str = "portuguese") -> dict | None:
+def fetch_appdetails(appid: str, lang: str = "") -> dict | None:
     """Descrição/gênero/ano/nota via Steam Store API (público, sem chave)."""
     import urllib.parse
     import urllib.request
+    api_lang = lang or _get_steam_lang()
     url = "https://store.steampowered.com/api/appdetails?" + \
-        urllib.parse.urlencode({"appids": appid, "l": lang})
+        urllib.parse.urlencode({"appids": appid, "l": api_lang})
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -271,15 +288,22 @@ def fetch_appdetails(appid: str, lang: str = "portuguese") -> dict | None:
         # Categorias multijogador (ids conhecidos da Store: 1 single, 9 co-op,
         # 27/36/38 multi/pvp…) — resume em texto curto para o overview.
         cats = {c.get("id") for c in info.get("categories", [])}
+        PLAYER_LABELS = {
+            "portuguese": {1: "1 jogador", 9: "co-op", 38: "co-op", 27: "multiplayer", 36: "multiplayer", 49: "multiplayer"},
+            "english":    {1: "single player", 9: "co-op", 38: "co-op", 27: "multiplayer", 36: "multiplayer", 49: "multiplayer"},
+            "spanish":    {1: "1 jugador", 9: "cooperativo", 38: "cooperativo", 27: "multijugador", 36: "multijugador", 49: "multijugador"},
+        }
+        labels = PLAYER_LABELS.get(api_lang, PLAYER_LABELS["english"])
         modos = []
         if 1 in cats:
-            modos.append("1 jogador")
+            modos.append(labels[1])
         if cats & {9, 38}:
-            modos.append("co-op")
+            modos.append(labels[9])
         if cats & {27, 36, 49}:
-            modos.append("multiplayer")
+            modos.append(labels[27])
         return {
-            "_v": 2,
+            "_v": 3,
+            "_lang": api_lang,
             "name": info.get("name", "") or "",
             "description": info.get("short_description", "") or "",
             "genre": ", ".join(genres[:2]),
@@ -295,22 +319,29 @@ def fetch_appdetails(appid: str, lang: str = "portuguese") -> dict | None:
         return None
 
 
-def enrich_steam(games: list[dict], sgdb_key: str = "") -> None:
+def enrich_steam(games: list[dict], sgdb_key: str = "", lang: str = "") -> None:
     """Adiciona metadados aos jogos Steam, com cache em meta_cache.json."""
     cache = _load_meta_cache()
     changed = False
+    api_lang = lang or _get_steam_lang()
     for g in games:
         if g.get("launcher") != "steam":
             continue
         appid = g["id"].split(":", 1)[1]
         meta = cache.get(appid)
-        # Cache da versão antiga (sem os campos novos): refaz o fetch 1x.
-        if meta is not None and meta.get("_v") != 2:
+        # Cache da versão antiga (sem os campos novos) ou idioma diferente: refaz.
+        hero_hd = meta.get("_hero_hd") if isinstance(meta, dict) else None
+        if meta is not None and (meta.get("_v") != 3 or meta.get("_lang") != api_lang):
             meta = None
         if meta is None:
-            meta = fetch_appdetails(appid)
+            meta = fetch_appdetails(appid, api_lang)
             if meta is None:  # erro de rede: não cacheia (tenta de novo depois)
                 continue
+            # O hero em alta não depende do idioma: sem carregá-lo adiante,
+            # trocar de idioma refazia a busca no SteamGridDB da biblioteca
+            # inteira, de graça.
+            if hero_hd:
+                meta["_hero_hd"] = hero_hd
             cache[appid] = meta
             changed = True
             time.sleep(0.35)  # respeita o rate limit da Store
@@ -482,13 +513,14 @@ ACHIEVEMENTS_FILE = OUT_DIR / "achievements.json"
 PLAYER_TTL = 24 * 3600  # conquistas/tempo revalidam 1x por dia
 
 
-def player_achievements(api_key: str, sid: str, appid: str) -> int | None:
+def player_achievements(api_key: str, sid: str, appid: str, lang: str = "") -> int | None:
     """Nº de conquistas DESBLOQUEADAS pelo jogador (GetPlayerAchievements)."""
+    api_lang = lang or _get_steam_lang()
     import urllib.parse
     url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?" + \
         urllib.parse.urlencode({
             "key": api_key, "steamid": sid, "appid": appid,
-            "l": "portuguese", "format": "json",
+            "l": api_lang, "format": "json",
         })
     try:
         with urllib.request.urlopen(url, timeout=15) as r:
@@ -528,6 +560,8 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
     now = time.time()
     changed = False
 
+    api_lang = _get_steam_lang()
+
     for g in games:
         if g.get("launcher") != "steam":
             continue
@@ -541,7 +575,7 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
 
         ent = cache.get(appid)
         if not isinstance(ent, dict) or now - ent.get("at", 0) > PLAYER_TTL:
-            done = player_achievements(key, sid, appid)
+            done = player_achievements(key, sid, appid, api_lang)
             if done is None:
                 continue
             ent = {"done": done, "at": now}
@@ -567,12 +601,13 @@ def _get_json(url: str, timeout: int = 15) -> dict | None:
         return None
 
 
-def achievements_schema(api_key: str, appid: str) -> dict | None:
-    """Título/descrição/ícones das conquistas (GetSchemaForGame, PT-BR)."""
+def achievements_schema(api_key: str, appid: str, lang: str = "") -> dict | None:
+    """Título/descrição/ícones das conquistas (GetSchemaForGame)."""
+    api_lang = lang or _get_steam_lang()
     import urllib.parse
     url = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?" + \
         urllib.parse.urlencode({"key": api_key, "appid": appid,
-                                "l": "portuguese", "format": "json"})
+                                "l": api_lang, "format": "json"})
     data = _get_json(url)
     if not data:
         return None
@@ -599,16 +634,17 @@ def achievements_global(appid: str) -> dict | None:
             for a in data.get("achievementpercentages", {}).get("achievements", []) or []}
 
 
-def player_achievements_full(api_key: str, sid: str, appid: str) -> dict | None:
+def player_achievements_full(api_key: str, sid: str, appid: str, lang: str = "") -> dict | None:
     """achieved + unlocktime por conquista (GetPlayerAchievements).
 
     403 = jogo que a conta não possui oficialmente (SLSsteam): devolve {}
     (tudo bloqueado). Erro de rede = None (não cacheia, tenta depois)."""
+    api_lang = lang or _get_steam_lang()
     import urllib.error
     import urllib.parse
     url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?" + \
         urllib.parse.urlencode({"key": api_key, "steamid": sid, "appid": appid,
-                                "l": "portuguese", "format": "json"})
+                                "l": api_lang, "format": "json"})
     try:
         with urllib.request.urlopen(url, timeout=15) as r:
             data = json.loads(r.read().decode("utf-8"))
@@ -643,22 +679,27 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
         store = {}
     now = time.time()
     changed = False
+    api_lang = _get_steam_lang()
 
     for g in games:
         if g.get("launcher") != "steam" or not g.get("achievements_total"):
             continue
         appid = g["id"].split(":", 1)[1]
         ent = store.get(appid)
-        if isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL:
+        # O idioma entra na validade: os títulos e descrições das conquistas
+        # são traduzidos pela própria Steam, então trocar de idioma tem de
+        # refazer a busca — senão a aba ficava 24h na língua antiga.
+        if (isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL
+                and ent.get("_lang", api_lang) == api_lang):
             continue
-        schema = achievements_schema(key, appid)
+        schema = achievements_schema(key, appid, api_lang)
         if schema is None:
             continue  # erro de rede: tenta na próxima
         glob = achievements_global(appid) or {}
         # GetPlayerAchievements dá 403 em jogos que a conta não possui
         # oficialmente (ex.: SLSsteam) — nesse caso, lista tudo como bloqueado
         # (schema e raridade são públicos, então a aba funciona igual).
-        mine = player_achievements_full(key, sid, appid)
+        mine = player_achievements_full(key, sid, appid, api_lang)
         if mine is None:
             continue  # erro de rede: tenta na próxima indexação
         items = []
@@ -674,7 +715,12 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
                 "unlock": p.get("unlocktime", 0) or 0,
                 "percent": glob.get(name, 0),
             })
-        store[appid] = {"at": now, "items": items}
+        # Preserva o mapa em inglês: ele não depende do idioma e custa uma
+        # chamada de rede a mais se for jogado fora a cada troca.
+        novo = {"at": now, "_lang": api_lang, "items": items}
+        if isinstance(ent, dict) and ent.get("_en"):
+            novo["_en"] = ent["_en"]
+        store[appid] = novo
         changed = True
         time.sleep(0.5)  # gentil com a API (rate limit derrubava o lote)
 
@@ -1160,6 +1206,10 @@ def main() -> int:
         steam_games = steam_games + index_slssteam(all_steam_ids, sls_config)
 
     # Metadados (descrição/gênero/ano/nota) via Steam Store, cacheado.
+    # Sem passar o idioma: quem traduz o código do config ("pt-BR") para o
+    # nome que a Steam entende ("portuguese") é o _get_steam_lang(). Passando
+    # o código cru, o `l=pt-BR` era ignorado pela API e a descrição vinha em
+    # inglês mesmo com o app em português.
     enrich_steam(steam_games, (cfg.get("steamgriddb_api_key") or "").strip())
 
     # Dados do JOGADOR (tempo de jogo + conquistas) via Web API, cache 24h.

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface UnlockPayload {
   appid: string
@@ -21,6 +22,7 @@ const DURACAO = 6000
 // Toasts de conquista estilo PS5: deslizam do topo no canto direito,
 // ficam ~6s e saem com fade. Fica por cima de tudo (z-[70]).
 export function AchievementToasts() {
+  const { t } = useI18n()
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
@@ -40,16 +42,16 @@ export function AchievementToasts() {
 
   return (
     <div className="pointer-events-none fixed right-6 top-6 z-[70] flex w-[380px] flex-col gap-3">
-      {toasts.map((t) => {
-        const pct = typeof t.percent === "number" ? t.percent : parseFloat(String(t.percent)) || 0
+      {toasts.map((toast) => {
+        const pct = typeof toast.percent === "number" ? toast.percent : parseFloat(String(toast.percent)) || 0
         const rara = pct > 0 && pct <= 10
         return (
           <div
-            key={t.key}
-            className={`flex items-center gap-4 rounded-2xl border border-white/12 bg-black/85 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-2xl ${t.saindo ? "toast-out" : "toast-in"}`}
+            key={toast.key}
+            className={`flex items-center gap-4 rounded-2xl border border-white/12 bg-black/85 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-2xl ${toast.saindo ? "toast-out" : "toast-in"}`}
           >
             <img
-              src={t.icon}
+              src={toast.icon}
               alt=""
               className="h-12 w-12 shrink-0 rounded-lg ring-1 ring-white/20"
               draggable={false}
@@ -57,13 +59,13 @@ export function AchievementToasts() {
             <div className="min-w-0 flex-1">
               <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
                 <Trofeu className="h-3.5 w-3.5" />
-                Conquista desbloqueada
+                {t("achievements.desbloqueada")}
               </span>
-              <h4 className="mt-0.5 truncate text-sm font-medium text-white">{t.title}</h4>
-              {t.desc && <p className="truncate text-xs font-light text-white/60">{t.desc}</p>}
+              <h4 className="mt-0.5 truncate text-sm font-medium text-white">{toast.title}</h4>
+              {toast.desc && <p className="truncate text-xs font-light text-white/60">{toast.desc}</p>}
               {pct > 0 && (
                 <span className={`mt-0.5 block text-[10px] ${rara ? "text-[#ffd23f]" : "text-white/35"}`}>
-                  {pct.toFixed(1).replace(".", ",")}% dos jogadores{rara ? " — rara" : ""}
+                  {pct.toFixed(1).replace(".", ",")}%{t("achievements.dos_jogadores")}{rara ? t("achievements.rara") : ""}
                 </span>
               )}
             </div>

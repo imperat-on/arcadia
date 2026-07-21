@@ -10,9 +10,12 @@
 const SGDB_BASE = "https://www.steamgriddb.com/api/v2"
 const STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
 const STEAM_STORE = "https://store.steampowered.com/api/appdetails"
-const IGDB_BASE = "https://api.igdb.com/v4"
 const IGDB_IMG = "https://images.igdb.com/igdb/image/upload"
-const TWITCH_TOKEN = "https://id.twitch.tv/oauth2/token"
+// A IGDB só atende com credenciais da Twitch. O Playnite resolve isso guardando
+// as credenciais DELE num serviço próprio e servindo a API de lá — é por isso
+// que ele nunca pede chave nenhuma ao usuário. O endereço está no plugin.cfg
+// da extensão oficial (JosefNemec/PlayniteExtensions).
+const IGDB_PROXY = "https://api2.playnite.link/api"
 
 // Qual endpoint da SGDB corresponde a cada arte do nosso Game.
 const SGDB_ENDPOINT = { cover: "grids", hero: "heroes", logo: "logos" }
@@ -136,65 +139,81 @@ async function steamArt(gameId, kind) {
 }
 
 // ── IGDB ───────────────────────────────────────────────────────────────────
-// A fonte "grande": arte E texto, para qualquer plataforma. É a que o Playnite
-// usa por padrão. Exige credenciais da Twitch (client id + secret).
-
-// O token vale ~60 dias; guardamos em memória para não pedir a cada busca
-// (a IGDB limita a 4 pedidos por segundo).
-let tokenCache = { valor: null, expiraEm: 0 }
-
-async function igdbToken(clientId, secret) {
-  if (tokenCache.valor && Date.now() < tokenCache.expiraEm) return tokenCache.valor
-  const p = new URLSearchParams({
-    client_id: clientId,
-    client_secret: secret,
-    grant_type: "client_credentials",
-  })
-  const r = await fetch(`${TWITCH_TOKEN}?${p}`, { method: "POST" })
-  if (!r.ok) throw new Error(`Twitch recusou as credenciais (HTTP ${r.status})`)
-  const j = await r.json()
-  if (!j.access_token) throw new Error("Twitch não devolveu token")
-  // Encolhe 1 minuto para não usar um token que expira no meio do pedido.
-  tokenCache = {
-    valor: j.access_token,
-    expiraEm: Date.now() + Math.max(0, (j.expires_in || 0) - 60) * 1000,
-  }
-  return tokenCache.valor
-}
-
-// Consulta na linguagem APICalypse (corpo de texto, não JSON).
-async function igdbQuery(endpoint, corpo, clientId, secret) {
-  const token = await igdbToken(clientId, secret)
-  const r = await fetch(`${IGDB_BASE}/${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Client-ID": clientId,
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-    },
-    body: corpo,
-  })
-  if (!r.ok) throw new Error(`IGDB respondeu HTTP ${r.status}`)
-  return r.json()
-}
+// Arte E texto para qualquer plataforma — inclusive jogo que não está em loja
+// de PC nenhuma. Sem chave: passa pelo serviço público do Playnite, que guarda
+// as credenciais dele.
+//
+// Duas ressalvas que decidem o lugar dela na fila:
+//
+//   1. O servidor é dos outros. Uma chamada por busca manual, nunca em lote e
+//      nunca na indexação. Se sair do ar, o resto tem de continuar de pé.
+//   2. A IGDB não tem campo de idioma: o texto vem sempre em inglês. Por isso
+//      a Steam e a Xbox, que traduzem, vêm antes.
 
 // URL de imagem da IGDB: o id vira caminho, o tamanho é um token "t_".
 function igdbImg(imageId, tamanho) {
   return `${IGDB_IMG}/t_${tamanho}/${imageId}.jpg`
 }
 
-function igdbBusca(titulo) {
-  const t = String(titulo || "").replace(/"/g, "")
-  return (
-    `search "${t}"; ` +
-    "fields name,summary,storyline,first_release_date,total_rating," +
-    "cover.image_id,artworks.image_id,screenshots.image_id,genres.name; " +
-    "limit 8;"
-  )
+const IGDB_UA = "Arcadia (github.com/imperat-on/arcadia)"
+
+// Buscar e abrir a ficha são duas viagens. Reabrir o diálogo no mesmo jogo é
+// comum, então o resultado fica guardado pela sessão.
+const igdbCache = new Map()
+
+async function igdbProxy(titulo) {
+  const t = String(titulo || "").trim()
+  if (!t) return []
+  const chave = t.toLowerCase()
+  if (igdbCache.has(chave)) return igdbCache.get(chave)
+
+  const r = await fetch(`${IGDB_PROXY}/igdb/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": IGDB_UA },
+    body: JSON.stringify({ SearchTerm: t }),
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!r.ok) throw new Error(`IGDB respondeu HTTP ${r.status}`)
+  const achados = (await r.json())?.data || []
+  if (!achados.length) return []
+
+  // A busca é fuzzy e ela não devolve o resumo nem as artes — só a ficha
+  // completa tem. Então: escolhe um e busca a ficha.
+  //
+  // O título exato vem primeiro de propósito. "Hades" traz "Hade" no topo, e
+  // o `tituloBate` aceita prefixo ("hades" começa com "hade"), então confiar
+  // só nele entregava a ficha do jogo errado.
+  const alvo = normalizaTitulo(t)
+  const melhor =
+    achados.find((g) => normalizaTitulo(g.name) === alvo) ||
+    achados.find((g) => tituloBate(g.name, t)) ||
+    achados[0]
+  const f = await fetch(`${IGDB_PROXY}/igdb/game/${melhor.id}`, {
+    headers: { "User-Agent": IGDB_UA },
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!f.ok) throw new Error(`IGDB respondeu HTTP ${f.status}`)
+  const ficha = (await f.json())?.data
+  const jogos = ficha ? [igdbNormaliza(ficha)] : []
+
+  if (igdbCache.size > 100) igdbCache.clear()
+  igdbCache.set(chave, jogos)
+  return jogos
 }
 
-async function igdbGames(titulo, clientId, secret) {
-  return igdbQuery("games", igdbBusca(titulo), clientId, secret)
+/**
+ * O proxy devolve os campos aninhados com sufixo `_expanded`. Traduz para o
+ * formato da API crua, que é o que `igdbArtDe` e `igdbTextosDe` já consomem.
+ */
+function igdbNormaliza(g) {
+  return {
+    name: g.name || "",
+    summary: g.summary || "",
+    storyline: g.storyline || "",
+    cover: g.cover_expanded || null,
+    artworks: g.artworks_expanded || [],
+    screenshots: g.screenshots_expanded || [],
+  }
 }
 
 // Arte da IGDB no nosso formato. Capa vem de `cover`; fundo, de `artworks` e
@@ -353,9 +372,14 @@ function semHTML(s) {
     .trim()
 }
 
-// Descrições da Steam: curta e completa. Sem chave.
-async function steamTextos(gameId, lang = "portuguese") {
-  const appid = steamAppId(gameId)
+// Descrições da Steam: curta e completa. Sem chave, e a Steam traduz.
+//
+// `appidFallback` é para jogo que não é da Steam (Epic, GOG, custom): quem
+// chama resolve o appid pelo título e passa aqui. A maioria dos jogos de PC
+// tem página na Steam mesmo quando o usuário comprou em outro lugar, então
+// esta é a melhor fonte traduzida que temos para eles.
+async function steamTextos(gameId, lang = "english", appidFallback = "") {
+  const appid = steamAppId(gameId) || String(appidFallback || "")
   if (!appid) return []
   const p = new URLSearchParams({ appids: appid, l: lang })
   const j = await getJSON(`${STEAM_STORE}?${p}`, { "User-Agent": "Mozilla/5.0" })
@@ -546,11 +570,10 @@ module.exports = {
   steamArt,
   steamTextos,
   steamAppId,
-  igdbGames,
+  igdbProxy,
   igdbArtDe,
   igdbTextosDe,
   igdbImg,
-  igdbBusca,
   xboxSearch,
   xboxProduto,
   xboxArtDe,
