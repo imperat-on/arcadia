@@ -504,8 +504,14 @@ export function PS5Launcher() {
       return
     }
 
-    // Instalado: abre o jogo.
-    window.launcherAPI?.launch(game.launch_cmd)
+    // Instalado: abre o jogo. O retorno traz avisos do main — o principal é a
+    // Steam estar aberta SEM a SLSsteam, caso em que um jogo injetado não abre
+    // e o botão voltaria de "Abrindo…" para "Jogar" sem explicação nenhuma.
+    window.launcherAPI?.launch(game.launch_cmd, game.id).then((r) => {
+      const aviso = r?.warnings?.[0] || (r?.ok === false ? r?.error : "")
+      if (aviso) setToast({ title: aviso, visible: true })
+      if (aviso) setTimeout(() => setToast((t) => ({ ...t, visible: false })), 7000)
+    })
     jogoAtivoRef.current.iniciar(game)
     // Registra em "Recentes".
     setRecent((prev) => {

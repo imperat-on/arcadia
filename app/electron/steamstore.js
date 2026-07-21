@@ -1445,20 +1445,97 @@ function registerSlssteam({ appid, token, dlcs }) {
   return { ok: true }
 }
 
-// Reinicia a Steam com a SLSsteam carregada (jogos aparecem como owned).
-// Prefere o wrapper do slsteam-moon (~/.local/share/SLSsteam/path/steam),
-// que injeta LD_AUDIT do jeito certo; fallback: steam puro + LD_AUDIT.
-function launchSteamWithSls(cfg = readConfig()) {
+/**
+ * Como lançar a Steam COM a SLSsteam carregada.
+ *
+ * Ela entra por LD_AUDIT no momento em que o cliente sobe, e é isso que faz o
+ * bloco AdditionalApps ser lido. Sem injeção, um jogo adicionado por aqui não
+ * é considerado adquirido e não abre.
+ *
+ * Importa para o lançamento de jogo: `steam steam://rungameid/<appid>` com o
+ * cliente fechado subia a Steam PURA — o `steam` do PATH é /usr/bin/steam, não
+ * o wrapper. O jogo injetado simplesmente não abria.
+ *
+ * Sem wrapper e sem os .so, devolve o `steam` puro e o comportamento é o de
+ * sempre.
+ */
+function comandoSteam(cfg = readConfig()) {
   const home = os.homedir()
   const wrapper = path.join(home, ".local", "share", "SLSsteam", "path", "steam")
+  if (fs.existsSync(wrapper)) return { cmd: wrapper, env: {}, injeta: true }
+
   const inject = [
     path.join(home, ".local", "share", "SLSsteam", "library-inject.so"),
     path.join(home, ".local", "share", "SLSsteam", "SLSsteam.so"),
   ]
   if (cfg.slssteam_path) inject.push(cfg.slssteam_path)
   const validos = inject.filter((p) => fs.existsSync(p))
-  const usarWrapper = fs.existsSync(wrapper)
-  if (!usarWrapper && validos.length < 2) {
+  if (validos.length >= 2) return { cmd: "steam", env: { LD_AUDIT: validos.join(":") }, injeta: true }
+
+  return { cmd: "steam", env: {}, injeta: false }
+}
+
+/** AppIds que só existem na Steam por causa da SLSsteam. */
+function appidsInjetados() {
+  const ids = new Set()
+  try {
+    const y = fs.readFileSync(path.join(os.homedir(), ".config", "SLSsteam", "config.yaml"), "utf-8")
+    const bloco = y.split(/^AdditionalApps:/m)[1] || ""
+    for (const m of bloco.matchAll(/^\s*-\s*(\d+)/gm)) ids.add(m[1])
+  } catch {}
+  // Dois diretórios: o do SLSsteam e o da própria Steam (addToSteam grava no
+  // segundo).
+  const base = steamBasePath()
+  for (const stplug of [
+    path.join(os.homedir(), ".config", "SLSsteam", "config", "stplug-in"),
+    base ? path.join(base, "config", "stplug-in") : "",
+  ]) {
+    if (!stplug) continue
+    try {
+      for (const f of fs.readdirSync(stplug)) {
+        const m = /^(\d+)(?:_.*)?\.lua$/.exec(f)
+        if (m) ids.add(m[1])
+      }
+    } catch {}
+  }
+  return ids
+}
+
+/**
+ * A Steam que está rodando tem a SLSsteam carregada?
+ *   null  = não há Steam rodando
+ *   true  = rodando com injeção
+ *   false = rodando pura (jogo injetado não vai abrir)
+ *
+ * O wrapper também exporta LD_AUDIT no exec final, então os dois modos de
+ * injeção aparecem aqui.
+ */
+function steamInjetada() {
+  let pids = []
+  try {
+    pids = String(require("child_process").execFileSync("pgrep", ["-x", "steam"], { encoding: "utf-8" }))
+      .split("\n")
+      .filter(Boolean)
+  } catch {
+    return null // pgrep sai com 1 quando não acha: Steam fechada
+  }
+  for (const pid of pids) {
+    try {
+      const env = fs.readFileSync(`/proc/${pid}/environ`, "utf-8")
+      if (/LD_AUDIT=[^\0]*SLSsteam/.test(env)) return true
+    } catch {
+      // Processo morreu entre o pgrep e a leitura: não dá para afirmar nada.
+    }
+  }
+  return pids.length ? false : null
+}
+
+// Reinicia a Steam com a SLSsteam carregada (jogos aparecem como owned).
+// Prefere o wrapper do slsteam-moon (~/.local/share/SLSsteam/path/steam),
+// que injeta LD_AUDIT do jeito certo; fallback: steam puro + LD_AUDIT.
+function launchSteamWithSls(cfg = readConfig()) {
+  const steam = comandoSteam(cfg)
+  if (!steam.injeta) {
     return { ok: false, error: "SLSsteam não instalada (rode o setup em Configurações)" }
   }
   execFile("pkill", ["-x", "steam"], () => {
@@ -1470,12 +1547,8 @@ function launchSteamWithSls(cfg = readConfig()) {
     delete env.LD_PRELOAD
     delete env.LD_AUDIT
     delete env.STEAM_RUNTIME_LIBRARY_PATH
-    let cmd = "steam"
-    if (usarWrapper) {
-      cmd = wrapper
-    } else {
-      env.LD_AUDIT = validos.join(":")
-    }
+    Object.assign(env, steam.env)
+    const cmd = steam.cmd
     let tentativas = 0
     const t0 = Date.now()
     const esperar = setInterval(() => {
@@ -1753,28 +1826,7 @@ async function status() {
   const dotnetSys = await new Promise((res) => execFile("dotnet", ["--version"], (e, stdout) => res(e ? "" : String(stdout).trim())))
   // AppIds já registrados (AdditionalApps do config.yaml + .lua no stplug-in)
   // — cobre apps adicionados por qualquer ferramenta, a qualquer época.
-  const adicionados = new Set()
-  try {
-    const y = fs.readFileSync(path.join(os.homedir(), ".config", "SLSsteam", "config.yaml"), "utf-8")
-    const bloco = y.split(/^AdditionalApps:/m)[1] || ""
-    for (const m of bloco.matchAll(/^\s*-\s*(\d+)/gm)) adicionados.add(m[1])
-  } catch {}
-  // Dois diretórios: o do SLSsteam e o da própria Steam. `addToSteam` grava no
-  // segundo; ler só o primeiro fazia "Na biblioteca" mentir.
-  const base = steamBasePath()
-  const stplugs = [
-    path.join(os.homedir(), ".config", "SLSsteam", "config", "stplug-in"),
-    base ? path.join(base, "config", "stplug-in") : "",
-  ]
-  for (const stplug of stplugs) {
-    if (!stplug) continue
-    try {
-      for (const f of fs.readdirSync(stplug)) {
-        const m = /^(\d+)(?:_.*)?\.lua$/.exec(f)
-        if (m) adicionados.add(m[1])
-      }
-    } catch {}
-  }
+  const adicionados = appidsInjetados()
   // Downloads feitos pelo Arcadia (acf marcado) também contam como "adicionados".
   for (const a of arcadiaDownloaded()) adicionados.add(a.appid)
   return {
@@ -1790,6 +1842,9 @@ async function status() {
 module.exports = {
   search,
   capaAlternativa,
+  comandoSteam,
+  appidsInjetados,
+  steamInjetada,
   preparar,
   itensDaLoja,
   suggest,

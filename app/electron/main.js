@@ -577,6 +577,40 @@ function steamSilencioso(cmd) {
   return [cmd[0], "-silent", ...cmd.slice(1)]
 }
 
+/**
+ * Troca o `steam` do comando pela Steam COM a SLSsteam carregada, e avisa
+ * quando não dá para consertar.
+ *
+ * O `steam` do PATH é a Steam pura (/usr/bin/steam) — o wrapper do slsteam-moon
+ * não está no PATH. Com o cliente fechado, lançar um jogo subia a Steam SEM
+ * injeção, e o jogo que só existe pelo bloco AdditionalApps não abria.
+ *
+ * Com o cliente JÁ aberto sem injeção não há conserto aqui: a URL vai para a
+ * instância de pé, e trocar a injeção exigiria matá-la — decisão do usuário,
+ * pelo botão "Reiniciar Steam". Nesse caso devolvemos um aviso, em vez de
+ * deixar o jogo falhar em silêncio.
+ */
+function steamComInjecao(cmd) {
+  const avisos = []
+  if (!Array.isArray(cmd) || path.basename(String(cmd[0])) !== "steam") return { cmd, env: {}, avisos }
+  const url = cmd.find((a) => /^steam:\/\/(rungameid|run)\//.test(String(a)))
+  if (!url) return { cmd, env: {}, avisos }
+
+  const steam = require("./steamstore").comandoSteam()
+  const novo = [steam.cmd, ...cmd.slice(1)]
+
+  const appid = (String(url).match(/\/(\d+)/) || [])[1]
+  if (appid && require("./steamstore").appidsInjetados().has(appid)) {
+    if (require("./steamstore").steamInjetada() === false) {
+      avisos.push(
+        "A Steam está aberta sem a SLSsteam — este jogo não vai abrir. " +
+          "Use \"Reiniciar Steam\" na loja para recarregá-la.",
+      )
+    }
+  }
+  return { cmd: novo, env: steam.env, avisos }
+}
+
 function applyGameSettings(cmd, s, gameId) {
   const warnings = []
   const env = { ...process.env }
@@ -627,12 +661,12 @@ function applyGameSettings(cmd, s, gameId) {
     }
   }
   // Argumentos do jogo: entram depois do comando (não se aplica a Steam).
-  if (s.gameArgs && cmd[0] !== "steam") finalCmd = [...finalCmd, ...splitArgs(s.gameArgs)]
+  if (s.gameArgs && path.basename(String(cmd[0])) !== "steam") finalCmd = [...finalCmd, ...splitArgs(s.gameArgs)]
   // Gamescope embrulha o comando (não se aplica a jogos Steam — a Steam tem
   // sua própria integração com gamescope). --disable-gamemode evita o abort
   // do gamescopereaper no gamemode_request_end (bug libgamemodeauto/dbus);
   // quem quer GameMode usa o checkbox (gamemoderun), que funciona.
-  if (s.gamescope && cmd[0] !== "steam") {
+  if (s.gamescope && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("gamescope")) {
       const args = ["--disable-gamemode", "-W", String(s.gsWidth || 1920), "-H", String(s.gsHeight || 1080)]
       if (s.gsFps) args.push("-r", String(s.gsFps))
@@ -642,7 +676,7 @@ function applyGameSettings(cmd, s, gameId) {
     }
   }
   // GameMode (Feral): embrulha tudo com gamemoderun (a Steam tem o dela).
-  if (s.gamemode && cmd[0] !== "steam") {
+  if (s.gamemode && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("gamemoderun")) {
       finalCmd = ["gamemoderun", ...finalCmd]
     } else {
@@ -651,7 +685,7 @@ function applyGameSettings(cmd, s, gameId) {
   }
   // MangoHud: embrulha com o binário `mangohud` (LD_PRELOAD correto p/ GL e
   // Vulkan). Só MANGOHUD=1 não basta em jogos OpenGL (ex.: Godot).
-  if (s.mangohud && cmd[0] !== "steam") {
+  if (s.mangohud && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("mangohud")) {
       finalCmd = ["mangohud", ...finalCmd]
     } else {
@@ -659,7 +693,7 @@ function applyGameSettings(cmd, s, gameId) {
     }
   }
   // Wrappers customizados (aba AVANÇADO): os mais externos por último.
-  if (cmd[0] !== "steam") {
+  if (path.basename(String(cmd[0])) !== "steam") {
     for (const w of s.wrappers || []) {
       if (!w || !w.cmd) continue
       if (binExists(w.cmd)) {
@@ -933,11 +967,27 @@ app.whenReady().then(() => {
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
     // em diante o cmd[0] já não é mais o binário da Steam.
     rawCmd = steamSilencioso(rawCmd)
+    const sls = steamComInjecao(rawCmd)
+    rawCmd = sls.cmd
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
       const { cmd, env: envBase, warnings } = applyGameSettings(rawCmd, s, gameId)
-      const env = { ...envBase, ...envExtra }
+      // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a
+      // partir do process.env e apagaria o LD_AUDIT.
+      const env = { ...envBase, ...envExtra, ...sls.env }
+      // Quando o alvo é a Steam (puro OU wrapper do slsteam-moon), tira as
+      // libs herdadas do Electron do caminho — Chromium arrasta LD_LIBRARY_PATH
+      // apontando pras suas próprias libstdc++/libcurl, e a Steam linka nelas
+      // e cai no 0x3008 no startup do transporte. LD_AUDIT NÃO se apaga: o
+      // fallback sem wrapper depende dele, e o wrapper reescreve o dele
+      // sozinho.
+      if (path.basename(String(rawCmd[0])) === "steam") {
+        delete env.LD_LIBRARY_PATH
+        delete env.LD_PRELOAD
+        delete env.STEAM_RUNTIME_LIBRARY_PATH
+      }
+      warnings.push(...sls.avisos)
       for (const w of warnings) console.warn("arcadia:", w)
       // Jogo custom: SEMPRE roda no prefixo dele (padrão ou customizado) —
       // sem isso caía no ~/.wine do sistema e o jogo não abria.
@@ -982,7 +1032,7 @@ app.whenReady().then(() => {
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
       // MAS só manda o exitbigpicture se a Steam JÁ estiver rodando: com ela
       // fechada, esse URI inicia a Steam EM Big Picture (efeito colateral).
-      if (cmd[0] === "steam" && typeof cmd[1] === "string" && cmd[1].startsWith("steam://")) {
+      if (path.basename(String(cmd[0])) === "steam" && typeof cmd[1] === "string" && cmd[1].startsWith("steam://")) {
         const run = () => soltar(cmd)
         execFile("pgrep", ["-x", "steam"], (err) => {
           if (!err) {
