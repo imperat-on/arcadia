@@ -119,6 +119,8 @@ Arcadia leans on the work of these projects:
 - [luatools-moon](https://github.com/swwayps/luatools-moon/tree/millennium) —
   the Millennium-less LuaTools bridge (Lumen sidecar and wrapper) that
   Arcadia's SLSsteam setup ships alongside.
+- [SLScheevo](https://github.com/xamionex/SLScheevo) — the achievement
+  unlocker that Arcadia pairs with for the PS5-style toast pop-ups.
 
 Huge thanks to their authors and contributors.
 
