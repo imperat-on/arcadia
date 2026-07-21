@@ -5,49 +5,93 @@ import { useEffect, type RefObject } from "react"
 // Navegação por controle em QUALQUER overlay: move o foco entre os elementos
 // (navegação espacial), A ativa (click), B volta/fecha.
 
-function visible(el: HTMLElement): boolean {
-  const r = el.getBoundingClientRect()
-  if (r.width <= 0 || r.height <= 0) return false
-  const s = getComputedStyle(el)
-  return s.visibility !== "hidden" && s.display !== "none"
-}
+/** Um focável e o retângulo dele, medidos uma vez só por movimento. */
+type Alvo = { el: HTMLElement; cx: number; cy: number }
 
-function getFocusables(root: HTMLElement): HTMLElement[] {
+/**
+ * Até onde procurar um vizinho, em telas. A grade de uma categoria chega a
+ * centenas de capas: sem limite, o "melhor" alvo podia estar a milhares de
+ * pixels e o foco sumia da tela em vez de parar na borda. Uma tela e meia
+ * cobre a linha seguinte com folga.
+ */
+const ALCANCE = 1.5
+
+function focaveis(root: HTMLElement, cx: number, cy: number, alcance = ALCANCE): Alvo[] {
   const sel =
     'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  return Array.from(root.querySelectorAll<HTMLElement>(sel)).filter(
-    (el) => !el.hasAttribute("disabled") && visible(el),
-  )
+  const limiteX = window.innerWidth * alcance
+  const limiteY = window.innerHeight * alcance
+  const out: Alvo[] = []
+  for (const el of root.querySelectorAll<HTMLElement>(sel)) {
+    if (el.hasAttribute("disabled")) continue
+    // Um getBoundingClientRect por elemento por movimento. Antes eram dois:
+    // um para saber se estava visível e outro para pontuar a direção.
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) continue
+    const s = getComputedStyle(el)
+    if (s.visibility === "hidden" || s.display === "none") continue
+    const ex = r.left + r.width / 2
+    const ey = r.top + r.height / 2
+    if (Math.abs(ex - cx) > limiteX || Math.abs(ey - cy) > limiteY) continue
+    out.push({ el, cx: ex, cy: ey })
+  }
+  return out
 }
 
 function bestInDirection(
-  current: HTMLElement,
-  list: HTMLElement[],
+  cx: number,
+  cy: number,
+  list: Alvo[],
+  atual: HTMLElement | null,
   dx: number,
   dy: number,
 ): HTMLElement | null {
-  const cr = current.getBoundingClientRect()
-  const cx = cr.left + cr.width / 2
-  const cy = cr.top + cr.height / 2
   let best: HTMLElement | null = null
   let bestScore = Infinity
-  for (const el of list) {
-    if (el === current) continue
-    const r = el.getBoundingClientRect()
-    const ex = r.left + r.width / 2
-    const ey = r.top + r.height / 2
-    const ddx = ex - cx
-    const ddy = ey - cy
+  for (const a of list) {
+    if (a.el === atual) continue
+    const ddx = a.cx - cx
+    const ddy = a.cy - cy
     const along = ddx * dx + ddy * dy // distância "na frente"
     if (along <= 4) continue
     const perp = Math.abs(ddx * dy - ddy * dx) // desalinhamento
     const score = along + perp * 2.2
     if (score < bestScore) {
       bestScore = score
-      best = el
+      best = a.el
     }
   }
   return best
+}
+
+/**
+ * O elemento que de fato rola. A raiz vem primeiro (é o caso de todos os
+ * overlays), mas a loja tem a raiz `overflow-hidden` e rola numa div interna —
+ * ali o analógico direito não fazia nada.
+ */
+function acharScroller(root: HTMLElement): HTMLElement {
+  const sobra = (el: HTMLElement) => {
+    const oy = getComputedStyle(el).overflowY
+    if (oy !== "auto" && oy !== "scroll") return 0
+    return el.scrollHeight - el.clientHeight
+  }
+  if (sobra(root) > 8) return root
+
+  // O MAIOR sobrando, não o primeiro que aparece. Detalhe do CSS: quando um
+  // eixo deixa de ser `visible`, o outro vira `auto` sozinho — então os
+  // trilhos horizontais da vitrine e a régua de abas contam como roláveis na
+  // vertical. Pegar o primeiro da lista entregaria a régua de abas, e o
+  // analógico direito mexeria nela em vez da página.
+  let melhor = root
+  let maior = 8
+  for (const el of root.querySelectorAll<HTMLElement>("*")) {
+    const s = sobra(el)
+    if (s > maior) {
+      maior = s
+      melhor = el
+    }
+  }
+  return melhor
 }
 
 export function useGamepadNav(
@@ -67,9 +111,10 @@ export function useGamepadNav(
 
     // Foca o 1º elemento ao abrir.
     if (!scrollOnly) {
-      const first = getFocusables(root)[0]
+      // Sem poda aqui: na abertura o alvo pode estar em qualquer lugar da tela.
+      const first = focaveis(root, 0, 0, Infinity)[0]
       if (first && !root.contains(document.activeElement)) {
-        requestAnimationFrame(() => first.focus())
+        requestAnimationFrame(() => first.el.focus())
       }
     }
 
@@ -83,6 +128,7 @@ export function useGamepadNav(
     let lastRepeat = 0
     let lastStep = 0
     let scrollVel = 0 // velocidade do scroll suave (analógico direito)
+    let scroller: HTMLElement | null = null
     const DEBOUNCE = 90
     const MIN_GAP = 200
     const INITIAL_DELAY = 500
@@ -119,13 +165,44 @@ export function useGamepadNav(
     const move = (dx: number, dy: number) => {
       const root2 = rootRef.current
       if (!root2) return
-      const list = getFocusables(root2)
+      const ativo = document.activeElement as HTMLElement | null
+      const dentro = ativo && root2.contains(ativo) ? ativo : null
+
+      // Ponto de partida. Quando o foco saiu da tela — típico depois de rolar
+      // com o analógico direito —, partir dele faria a tela saltar de volta
+      // para onde não se está mais olhando. Nesse caso, reancora no que está
+      // mais perto do centro da viewport.
+      let ax: number // âncora do movimento (cx/cy do escopo de fora são a direção)
+      let ay: number
+      const r = dentro?.getBoundingClientRect()
+      const naTela =
+        r && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
+      if (r && naTela) {
+        ax = r.left + r.width / 2
+        ay = r.top + r.height / 2
+      } else {
+        ax = window.innerWidth / 2
+        ay = window.innerHeight / 2
+        const perto = focaveis(root2, ax, ay)
+        if (!perto.length) return
+        let melhor = perto[0]
+        let dist = Infinity
+        for (const a of perto) {
+          const d = Math.abs(a.cx - ax) + Math.abs(a.cy - ay)
+          if (d < dist) {
+            dist = d
+            melhor = a
+          }
+        }
+        // Reancorar já É o movimento: trazer o foco para a tela e ainda pular
+        // um card faria a rolagem parecer que passou do ponto.
+        melhor.el.focus()
+        return
+      }
+
+      const list = focaveis(root2, ax, ay)
       if (!list.length) return
-      const cur =
-        document.activeElement && root2.contains(document.activeElement)
-          ? (document.activeElement as HTMLElement)
-          : list[0]
-      const next = bestInDirection(cur, list, dx, dy)
+      const next = bestInDirection(ax, ay, list, dentro, dx, dy)
       if (next) next.focus()
     }
 
@@ -173,7 +250,11 @@ export function useGamepadNav(
         // tela de "aceitar termos" — sem pular de card em card. A velocidade
         // é interpolada (inércia leve) e o eixo é detectado entre os comuns
         // (3 = RY padrão W3C, 5 = alguns controles via SDL).
-        const scroller = rootRef.current
+        // Resolvido sob demanda e memorizado: a raiz não é sempre quem rola
+        // (na loja é uma div interna), e varrer o DOM a cada quadro para
+        // descobrir isso seria desperdício.
+        if (scroller && !document.contains(scroller)) scroller = null
+        if (!scroller && rootRef.current) scroller = acharScroller(rootRef.current)
         if (scroller && rest) {
           let ry = 0
           // Eixo do analógico direito varia por controle/driver — varre todos

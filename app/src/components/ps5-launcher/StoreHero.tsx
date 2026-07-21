@@ -21,6 +21,8 @@ interface StoreHeroProps {
   onAbrir: (j: JogoLinha) => void
   onBaixar: (j: JogoLinha) => void
   onAdicionar: (j: JogoLinha) => void
+  /** Foco entrou no herói — a cor ambiente passa a seguir o destaque. */
+  onFocar?: (j: JogoLinha) => void
 }
 
 // Troca sozinho a cada 9s. Menos que isso vira slideshow ansioso; mais, e a
@@ -45,6 +47,7 @@ export function StoreHero({
   onAbrir,
   onBaixar,
   onAdicionar,
+  onFocar,
 }: StoreHeroProps) {
   const { t } = useI18n()
   const [pausado, setPausado] = useState(false)
@@ -71,7 +74,12 @@ export function StoreHero({
     <div
       ref={raiz}
       className="loja-heroi"
-      onFocusCapture={() => setPausado(true)}
+      onFocusCapture={() => {
+        setPausado(true)
+        // Sem isto, subir do primeiro trilho até o herói deixava a tela com a
+        // cor do card de onde se veio.
+        onFocar?.(jogo)
+      }}
       onBlurCapture={(e) => {
         if (!raiz.current?.contains(e.relatedTarget as Node)) setPausado(false)
       }}

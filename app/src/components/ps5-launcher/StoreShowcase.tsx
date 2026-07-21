@@ -64,6 +64,7 @@ export function StoreShowcase({
           ocupado={ocupado}
           indice={heroiIdx}
           onIndice={onHeroiIdx}
+          onFocar={onFocar}
           onAbrir={onAbrir}
           onBaixar={onBaixar}
           onAdicionar={onAdicionar}

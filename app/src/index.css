@@ -548,6 +548,14 @@ input,
 .loja-aba:focus {
   color: #fff;
 }
+/* A aba ATIVA também é branca, então cor não serve para marcar foco: com o
+   controle na mão não dava para saber onde se estava na régua. O anel resolve,
+   e o `-2px` o encaixa no lugar do sublinhado em vez de empurrar a régua. */
+.gp-scope .loja-aba:focus {
+  outline: 2px solid var(--loja-cor) !important;
+  outline-offset: -2px;
+  border-radius: 6px;
+}
 .loja-aba.-ativo {
   color: #fff;
 }
