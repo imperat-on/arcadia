@@ -4,20 +4,42 @@ A game launcher for Linux with two UIs: a **desktop** mode (Heroic-style
 library, store and downloads) and a **console** mode (fullscreen, gamepad,
 PS5-inspired).
 
-<p align="center">
-  <img src="assets/ui-1.gif" width="820" alt="Arcadia UI">
-</p>
+### Big Picture — boot
+
+Cinematic boot into the fullscreen console UI. The launcher opens straight
+into it when started with `./arcadia.sh`, ready for a gamepad.
 
 <p align="center">
-  <img src="assets/ui-2.gif" width="820" alt="Arcadia UI">
+  <img src="assets/boot-do-modo-big-picture.gif" width="820" alt="Big Picture boot">
 </p>
 
-<p align="center">
-  <img src="assets/ui-3.gif" width="820" alt="Arcadia UI">
-</p>
+### Big Picture — games tab
+
+The Games tab: hero of the selected title with its trailer as background,
+horizontal rail of covers, and per-game details a click away.
 
 <p align="center">
-  <img src="assets/ui-4.gif" width="820" alt="Arcadia UI">
+  <img src="assets/tour-pela-aba-jogos-do-big-picture.gif" width="820" alt="Big Picture games tab">
+</p>
+
+### Big Picture — store & downloads
+
+The store laid out PS Store-style: showcase with a rotating hero and rails
+per category, or open a category as a dense grid. Downloading a title
+enqueues DepotDownloader and shows real progress, speed and ETA.
+
+<p align="center">
+  <img src="assets/tour-pela-loja-e-download-do-modo-big-picture.gif" width="820" alt="Big Picture store and downloads">
+</p>
+
+### Desktop mode
+
+Heroic-style window: library on the left, per-game overview on the right,
+launch options in a dedicated pane. Same backend as the console mode — just
+a different UI on top.
+
+<p align="center">
+  <img src="assets/tour-pelo-arcadia-desktop.gif" width="820" alt="Desktop mode tour">
 </p>
 
 ## Features
