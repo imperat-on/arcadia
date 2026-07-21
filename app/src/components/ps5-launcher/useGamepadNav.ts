@@ -64,6 +64,95 @@ function bestInDirection(
   return best
 }
 
+/** O elemento está, ao menos em parte, dentro da viewport? */
+function naTela(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect()
+  return (
+    r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
+  )
+}
+
+/**
+ * Põe o foco no focável mais próximo do centro da tela.
+ *
+ * Serve às duas pontas: ao direcional, quando o foco ficou fora da viewport, e
+ * ao analógico, quando a rolagem para — é o que faz A, X e Y agirem no jogo que
+ * está sendo olhado, e não num que saiu da tela.
+ *
+ * Só age se o foco atual saiu da tela. Sem essa condição, rolar a régua de
+ * abas de lado (com o foco numa aba, que continua visível) jogaria o foco para
+ * uma capa no meio da tela — brigando com quem está navegando pelas abas.
+ */
+function focarNoCentro(root: HTMLElement): void {
+  const ativo = document.activeElement as HTMLElement | null
+  if (ativo && root.contains(ativo) && naTela(ativo)) return
+  const ax = window.innerWidth / 2
+  const ay = window.innerHeight / 2
+  const perto = focaveis(root, ax, ay)
+  if (!perto.length) return
+  let melhor = perto[0]
+  let dist = Infinity
+  for (const a of perto) {
+    const d = Math.abs(a.cx - ax) + Math.abs(a.cy - ay)
+    if (d < dist) {
+      dist = d
+      melhor = a
+    }
+  }
+  if (melhor.el !== document.activeElement) melhor.el.focus()
+}
+
+/**
+ * Quais eixos são o analógico DIREITO.
+ *
+ * Antes, o laço varria todos os eixos a partir do 2 e tratava o de maior
+ * deflexão como vertical: empurrar o analógico para o LADO rolava a página
+ * para baixo, e um gatilho analógico fazia o mesmo.
+ *
+ * Com `mapping === "standard"` a especificação garante 2 = X e 3 = Y, e é
+ * assim que o Chromium — logo, o Electron — mapeia Xbox, DualShock e
+ * DualSense. Fora do padrão, o repouso calibrado separa analógico de gatilho:
+ * analógico descansa em 0, gatilho descansa em −1 nos mapeamentos SDL/Linux.
+ */
+function eixosDireito(gp: Gamepad, rest: number[]): [number, number] {
+  if (gp.mapping === "standard") return [2, 3]
+  for (let i = 2; i + 1 < gp.axes.length; i++) {
+    if (Math.abs(rest[i] ?? 0) < 0.5 && Math.abs(rest[i + 1] ?? 0) < 0.5) return [i, i + 1]
+  }
+  return [2, 3]
+}
+
+/** Rolável na horizontal? Os trilhos da vitrine e a régua de abas são. */
+function rolaNaHorizontal(el: HTMLElement): boolean {
+  const ox = getComputedStyle(el).overflowX
+  return (ox === "auto" || ox === "scroll") && el.scrollWidth > el.clientWidth + 8
+}
+
+/**
+ * O trilho que o analógico horizontal deve mover: o do elemento focado; sem
+ * foco, o que estiver mais perto do meio da tela — que é o que a pessoa está
+ * olhando.
+ */
+function acharTrilho(root: HTMLElement, focado: HTMLElement | null): HTMLElement | null {
+  for (let el = focado; el && el !== root.parentElement; el = el.parentElement) {
+    if (rolaNaHorizontal(el)) return el
+  }
+  const meio = window.innerHeight / 2
+  let melhor: HTMLElement | null = null
+  let dist = Infinity
+  for (const el of root.querySelectorAll<HTMLElement>("*")) {
+    if (!rolaNaHorizontal(el)) continue
+    const r = el.getBoundingClientRect()
+    if (r.height <= 0) continue
+    const d = Math.abs(r.top + r.height / 2 - meio)
+    if (d < dist) {
+      dist = d
+      melhor = el
+    }
+  }
+  return melhor
+}
+
 /**
  * O elemento que de fato rola. A raiz vem primeiro (é o caso de todos os
  * overlays), mas a loja tem a raiz `overflow-hidden` e rola numa div interna —
@@ -128,7 +217,10 @@ export function useGamepadNav(
     let lastRepeat = 0
     let lastStep = 0
     let scrollVel = 0 // velocidade do scroll suave (analógico direito)
+    let scrollVelX = 0 // idem, na horizontal (trilhos)
+    let rolou = false // houve rolagem desde a última parada
     let scroller: HTMLElement | null = null
+    let trilho: HTMLElement | null = null // rolável horizontal do gesto atual
     const DEBOUNCE = 90
     const MIN_GAP = 200
     const INITIAL_DELAY = 500
@@ -181,22 +273,9 @@ export function useGamepadNav(
         ax = r.left + r.width / 2
         ay = r.top + r.height / 2
       } else {
-        ax = window.innerWidth / 2
-        ay = window.innerHeight / 2
-        const perto = focaveis(root2, ax, ay)
-        if (!perto.length) return
-        let melhor = perto[0]
-        let dist = Infinity
-        for (const a of perto) {
-          const d = Math.abs(a.cx - ax) + Math.abs(a.cy - ay)
-          if (d < dist) {
-            dist = d
-            melhor = a
-          }
-        }
         // Reancorar já É o movimento: trazer o foco para a tela e ainda pular
         // um card faria a rolagem parecer que passou do ponto.
-        melhor.el.focus()
+        focarNoCentro(root2)
         return
       }
 
@@ -246,26 +325,59 @@ export function useGamepadNav(
           lastRepeat = now
           lastStep = now
         }
-        // Analógico DIREITO rola a página suavemente, estilo navegador /
-        // tela de "aceitar termos" — sem pular de card em card. A velocidade
-        // é interpolada (inércia leve) e o eixo é detectado entre os comuns
-        // (3 = RY padrão W3C, 5 = alguns controles via SDL).
-        // Resolvido sob demanda e memorizado: a raiz não é sempre quem rola
+        // Analógico DIREITO: para baixo rola a página, para os lados percorre
+        // o trilho horizontal em foco. Rolagem suave, estilo navegador — sem
+        // pular de card em card —, com a velocidade interpolada (inércia leve).
+        //
+        // O scroller vertical é resolvido sob demanda e memorizado: a raiz não
+        // é sempre quem rola
         // (na loja é uma div interna), e varrer o DOM a cada quadro para
         // descobrir isso seria desperdício.
         if (scroller && !document.contains(scroller)) scroller = null
         if (!scroller && rootRef.current) scroller = acharScroller(rootRef.current)
-        if (scroller && rest) {
-          let ry = 0
-          // Eixo do analógico direito varia por controle/driver — varre todos
-          // além do esquerdo (0/1) e usa o de maior deflexão.
-          for (let ai = 2; ai < gp.axes.length; ai++) {
-            const v = (gp.axes[ai] ?? 0) - (rest[ai] ?? 0)
-            if (Math.abs(v) > Math.abs(ry)) ry = v
+        if (rest && rootRef.current) {
+          const [ix, iy] = eixosDireito(gp, rest)
+          const ex = (gp.axes[ix] ?? 0) - (rest[ix] ?? 0)
+          const ey = (gp.axes[iy] ?? 0) - (rest[iy] ?? 0)
+          // Curva quadrática: o começo do curso é fino para posicionar, o fim
+          // é rápido para atravessar a página. Zona morta contra analógico
+          // gasto, que rolaria sozinho.
+          const vel = (v: number) => (Math.abs(v) > 0.15 ? Math.sign(v) * v * v * 46 : 0)
+
+          scrollVel += (vel(ey) - scrollVel) * 0.25
+          if (scroller && Math.abs(scrollVel) > 0.05) scroller.scrollTop += scrollVel
+
+          // O trilho é escolhido UMA VEZ por gesto, quando o analógico sai do
+          // repouso, e vale até ele voltar. Procurar a cada quadro varreria o
+          // DOM da loja inteira 60 vezes por segundo; e reescolher no meio do
+          // movimento faria o gesto pular de um trilho para outro sozinho.
+          const alvoX = vel(ex)
+          if (alvoX || Math.abs(scrollVelX) > 0.05) {
+            if (!trilho || !document.contains(trilho)) {
+              const focado = document.activeElement as HTMLElement | null
+              trilho = acharTrilho(
+                rootRef.current,
+                focado && rootRef.current.contains(focado) ? focado : null,
+              )
+            }
+            scrollVelX += (alvoX - scrollVelX) * 0.25
+            if (trilho && Math.abs(scrollVelX) > 0.05) trilho.scrollLeft += scrollVelX
+          } else {
+            scrollVelX = 0
+            trilho = null
           }
-          const target = Math.abs(ry) > 0.15 ? Math.sign(ry) * ry * ry * 46 : 0
-          scrollVel += (target - scrollVel) * 0.25
-          if (Math.abs(scrollVel) > 0.05) scroller.scrollTop += scrollVel
+
+          // O foco só acompanha com o analógico PARADO. Focar durante a
+          // rolagem dispara o scrollIntoView do ladrilho, que brigaria com a
+          // inércia daqui e faria a tela tremer.
+          const rolando = Math.abs(scrollVel) > 0.05 || Math.abs(scrollVelX) > 0.05
+          if (!scrollOnly) {
+            if (rolando) rolou = true
+            else if (rolou) {
+              rolou = false
+              focarNoCentro(rootRef.current)
+            }
+          }
         }
 
         // A (0) = ativar; B (1) = voltar
