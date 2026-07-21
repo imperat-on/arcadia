@@ -202,8 +202,14 @@ export function useGamepadNav(
     if (!scrollOnly) {
       // Sem poda aqui: na abertura o alvo pode estar em qualquer lugar da tela.
       const first = focaveis(root, 0, 0, Infinity)[0]
-      if (first && !root.contains(document.activeElement)) {
-        requestAnimationFrame(() => first.el.focus())
+      // A condição é conferida DENTRO do quadro, não ao agendar: quem fechou um
+      // overlay pode estar devolvendo o foco ao ladrilho de origem no mesmo
+      // quadro, e checar antes atropelaria essa restauração com o primeiro
+      // elemento da tela.
+      if (first) {
+        requestAnimationFrame(() => {
+          if (!root.contains(document.activeElement)) first.el.focus()
+        })
       }
     }
 
@@ -329,12 +335,6 @@ export function useGamepadNav(
         // o trilho horizontal em foco. Rolagem suave, estilo navegador — sem
         // pular de card em card —, com a velocidade interpolada (inércia leve).
         //
-        // O scroller vertical é resolvido sob demanda e memorizado: a raiz não
-        // é sempre quem rola
-        // (na loja é uma div interna), e varrer o DOM a cada quadro para
-        // descobrir isso seria desperdício.
-        if (scroller && !document.contains(scroller)) scroller = null
-        if (!scroller && rootRef.current) scroller = acharScroller(rootRef.current)
         if (rest && rootRef.current) {
           const [ix, iy] = eixosDireito(gp, rest)
           const ex = (gp.axes[ix] ?? 0) - (rest[ix] ?? 0)
@@ -344,8 +344,26 @@ export function useGamepadNav(
           // gasto, que rolaria sozinho.
           const vel = (v: number) => (Math.abs(v) > 0.15 ? Math.sign(v) * v * v * 46 : 0)
 
-          scrollVel += (vel(ey) - scrollVel) * 0.25
-          if (scroller && Math.abs(scrollVel) > 0.05) scroller.scrollTop += scrollVel
+          // O scroller vertical é memorizado, mas com validade: ele é
+          // resolvido no primeiro quadro depois de entrar na tela, quando a
+          // vitrine ainda está carregando e NADA transborda. Nessa hora
+          // `acharScroller` cai na raiz, que na loja é `overflow-hidden` — e
+          // como a raiz nunca sai do documento, a memória antiga nunca era
+          // refeita e o analógico vertical ficava morto pela sessão inteira.
+          const alvoY = vel(ey)
+          if (alvoY || Math.abs(scrollVel) > 0.05) {
+            if (
+              !scroller ||
+              !document.contains(scroller) ||
+              scroller.scrollHeight - scroller.clientHeight <= 8
+            ) {
+              scroller = acharScroller(rootRef.current)
+            }
+            scrollVel += (alvoY - scrollVel) * 0.25
+            if (Math.abs(scrollVel) > 0.05) scroller.scrollTop += scrollVel
+          } else {
+            scrollVel = 0
+          }
 
           // O trilho é escolhido UMA VEZ por gesto, quando o analógico sai do
           // repouso, e vale até ele voltar. Procurar a cada quadro varreria o
