@@ -1,5 +1,6 @@
 "use client"
 
+import { useI18n } from "../../i18n/I18nContext"
 import { StoreHero } from "./StoreHero"
 import { StoreRail } from "./StoreRail"
 import type { FichaJogo, JogoLinha } from "./types"
@@ -48,6 +49,7 @@ export function StoreShowcase({
   onAdicionar,
   onVerCategoria,
 }: StoreShowcaseProps) {
+  const { t } = useI18n()
   const heroi = destaques[heroiIdx]
 
   return (
@@ -86,12 +88,12 @@ export function StoreShowcase({
           {i === 1 && (
             <div className="px-12">
               <button onClick={() => onVerCategoria("specials")} className="loja-faixa block w-full">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-black/60">Promoções</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-black/60">{t("store.promocoes")}</p>
                 <h3 className="mt-2 max-w-xl text-3xl font-bold leading-tight text-black">
-                  Jogos com desconto agora na Steam.
+                  {t("store.promocoes_desc")}
                 </h3>
                 <span className="mt-5 inline-block rounded-full bg-black/85 px-6 py-2.5 text-[13px] font-semibold text-white">
-                  Ver promoções
+                  {t("store.ver_promocoes")}
                 </span>
                 {/* Formas decorativas: o mesmo brilho difuso do mock, mas
                     herdando a cor do jogo em foco. */}

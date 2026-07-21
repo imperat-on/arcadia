@@ -3,38 +3,30 @@
 import { useEffect, useMemo, useState } from "react"
 import type { WineVer } from "../../global"
 import { fmtMiB } from "../tamanho"
+import { userLocale } from "../../i18n/locale"
+import { useI18n } from "../../i18n/I18nContext"
 
 // Wine Manager estilo Heroic: abas GE-Proton / Wine-GE / Steam, lista com
 // busca, data de lançamento, tamanho e ações (baixar / remover / abrir pasta).
 
 type Tab = "ge-proton" | "wine-ge" | "steam"
 
-const TABS: { id: Tab; label: string; hint: string }[] = [
-  {
-    id: "ge-proton",
-    label: "GE-Proton",
-    hint: "GE-Proton é uma variante do Proton criada por GloriousEggroll. Recomendada para a maioria dos jogos.",
-  },
-  {
-    id: "wine-ge",
-    label: "Wine-GE",
-    hint: "Wine-GE é a variante do Wine (sem Proton) do GloriousEggroll — ideal para jogos fora da Steam.",
-  },
-  {
-    id: "steam",
-    label: "Proton (Steam)",
-    hint: "Versões oficiais do Proton detectadas na sua instalação da Steam.",
-  },
-]
-
-function fmtDate(iso?: string) {
-  if (!iso) return "—"
+function fmtDate(iso?: string, t?: (k: string) => string) {
+  if (!iso) return t ? t("winemanager.data_fallback") : "—"
   const d = new Date(iso)
-  if (Number.isNaN(+d)) return "—"
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+  if (Number.isNaN(+d)) return t ? t("winemanager.data_fallback") : "—"
+  return d.toLocaleDateString(userLocale(), { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
 export function WineSection() {
+  const { t } = useI18n()
+
+  const TABS: { id: Tab; label: string; hint: string }[] = [
+    { id: "ge-proton", label: t("winemanager.tab.ge_proton"), hint: t("winemanager.tab.ge_proton_hint") },
+    { id: "wine-ge", label: t("winemanager.tab.wine_ge"), hint: t("winemanager.tab.wine_ge_hint") },
+    { id: "steam", label: t("winemanager.tab.proton_steam"), hint: t("winemanager.tab.proton_steam_hint") },
+  ]
+
   const [tab, setTab] = useState<Tab>("ge-proton")
   const [query, setQuery] = useState("")
   const [installed, setInstalled] = useState<WineVer[]>([])
@@ -80,7 +72,7 @@ export function WineSection() {
     <div>
       {/* Cabeçalho com busca */}
       <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="text-3xl font-light tracking-wide text-white">Versões do Wine</h2>
+        <h2 className="text-3xl font-light tracking-wide text-white">{t("winemanager.titulo")}</h2>
         <div className="relative w-64">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35"
@@ -92,7 +84,7 @@ export function WineSection() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar versões…"
+            placeholder={t("winemanager.buscar")}
             spellCheck={false}
             className="w-full rounded-lg border border-white/10 bg-white/[0.04] py-2 pl-9 pr-3 text-[13px] text-white placeholder-white/30 outline-none transition-colors focus:border-[color:var(--accent)]"
           />
@@ -127,22 +119,22 @@ export function WineSection() {
       {/* Tabela */}
       <div className="overflow-hidden rounded-xl border border-white/[0.08]">
         <div className="grid grid-cols-[1fr_160px_110px_120px] gap-2 border-b border-white/[0.08] bg-white/[0.03] px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-          <span>Versão do Wine</span>
-          <span>Data de lançamento</span>
-          <span>Tamanho</span>
-          <span className="text-right">Ações</span>
+          <span>{t("winemanager.coluna.versao")}</span>
+          <span>{t("winemanager.coluna.data")}</span>
+          <span>{t("winemanager.coluna.tamanho")}</span>
+          <span className="text-right">{t("winemanager.coluna.acoes")}</span>
         </div>
 
         {/* Instaladas desta aba */}
         {instDaAba.map((v) => (
           <Row key={v.id}>
             <Name name={v.name} installed />
-            <Cell>—</Cell>
-            <Cell>—</Cell>
+            <Cell>{t("winemanager.data_fallback")}</Cell>
+            <Cell>{t("winemanager.data_fallback")}</Cell>
             <Actions>
               {v.path && (
                 <IconBtn
-                  title="Abrir pasta"
+                  title={t("winemanager.abrir_pasta")}
                   onClick={() => window.launcherAPI?.openExternal(`file://${v.path}`)}
                   icon={
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -151,7 +143,7 @@ export function WineSection() {
               )}
               {v.kind !== "steam" && (
                 <IconBtn
-                  title="Remover"
+                  title={t("common.remover")}
                   danger
                   onClick={async () => {
                     await window.launcherAPI?.wineRemove(v.id)
@@ -177,7 +169,7 @@ export function WineSection() {
             return (
               <Row key={v.id}>
                 <Name name={v.name} />
-                <Cell>{fmtDate(v.releaseDate)}</Cell>
+                <Cell>{fmtDate(v.releaseDate, t)}</Cell>
                 <Cell>{fmtMiB(v.size)}</Cell>
                 <Actions>
                   <button
@@ -187,11 +179,11 @@ export function WineSection() {
                       const r = await window.launcherAPI?.wineInstall(v.id, v.kind as "ge-proton" | "wine-ge")
                       setBusy("")
                       setProgress(null)
-                      if (!r?.ok) setErr(r?.error || "falha ao baixar")
+                      if (!r?.ok) setErr(r?.error || t("winemanager.falha_baixar"))
                       recarregar()
                     }}
                     disabled={baixando}
-                    title={baixando ? `Baixando… ${pct}%` : "Baixar"}
+                    title={baixando ? t("winemanager.baixando_pct", { pct: String(pct) }) : t("winemanager.baixar")}
                     className="flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 disabled:opacity-70"
                     style={{ background: "var(--accent)", color: "#000" }}
                   >
@@ -214,17 +206,17 @@ export function WineSection() {
         {instDaAba.length === 0 && (tab === "steam" || availDaAba.length === 0) && (
           <div className="px-5 py-8 text-center text-[13px] text-white/35">
             {query
-              ? "Nenhuma versão encontrada para esta busca."
+              ? t("winemanager.sem_resultados")
               : tab === "steam"
-                ? "Nenhum Proton da Steam detectado."
-                : "Nenhuma versão disponível no momento."}
+                ? t("winemanager.sem_proton")
+                : t("winemanager.sem_versoes")}
           </div>
         )}
       </div>
 
       {err && <p className="mt-3 text-xs text-[#ff6b81]">{err}</p>}
       <p className="mt-6 text-xs text-white/35">
-        winecfg, regedit e winetricks ficam no menu de contexto do jogo.
+        {t("winemanager.footer_dica")}
       </p>
     </div>
   )

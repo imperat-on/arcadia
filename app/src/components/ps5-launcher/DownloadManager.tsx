@@ -3,18 +3,10 @@
 import { forwardRef, useEffect, useState } from "react"
 import type { DmItem } from "../../global"
 import { fmtMiB } from "../tamanho"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface DownloadManagerProps {
   onClose: () => void
-}
-
-const STATUS_TXT: Record<DmItem["status"], string> = {
-  queued: "Na fila",
-  downloading: "Baixando",
-  paused: "Pausado",
-  done: "Concluído",
-  error: "Erro",
-  canceled: "Cancelado",
 }
 
 // Tela de downloads estilo PS5: um card por jogo, barra azul-glow, MB/s e ETA.
@@ -22,6 +14,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
   { onClose },
   ref,
 ) {
+  const { t } = useI18n()
   const [items, setItems] = useState<DmItem[]>([])
 
   useEffect(() => {
@@ -47,21 +40,21 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
         {/* Cabeçalho */}
         <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-          Downloads
+          {t("downloads.titulo")}
         </div>
         <div className="mb-8 flex items-baseline justify-between">
           <h1 className="text-3xl font-light tracking-wide">
-            {baixando ? "Baixando agora" : ativos.length ? "Na fila" : "Fila de downloads"}
+            {baixando ? t("downloads.baixando_agora") : ativos.length ? t("downloads.status.na_fila") : t("downloads.fila")}
           </h1>
           <span className="text-sm text-white/40">
-            {ativos.length} ativo(s)
-            {parados.length > 0 && ` · ${parados.length} com falha`}
+            {t("downloads.ativos", { count: String(ativos.length) })}
+            {parados.length > 0 && ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
           </span>
         </div>
 
         {items.length === 0 ? (
           <div className="flex min-h-[300px] items-center justify-center text-white/35">
-            Nenhum download.
+            {t("downloads.vazio")}
           </div>
         ) : (
           <div className="flex flex-col gap-4 pb-10">
@@ -70,7 +63,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
             ))}
             {parados.length > 0 && (
               <>
-                <h2 className="mt-4 text-sm font-medium text-white/45">Não concluídos</h2>
+                <h2 className="mt-4 text-sm font-medium text-white/45">{t("downloads.nao_concluidos")}</h2>
                 {parados.map((it) => (
                   <DmCard key={it.appid} item={it} />
                 ))}
@@ -81,7 +74,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
 
         <div className="flex items-center justify-end gap-6 pb-2 text-xs text-white/40">
           <button onClick={onClose} className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]">
-            B — voltar
+            {t("gameoverview.controle.voltar")}
           </button>
         </div>
       </div>
@@ -90,6 +83,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
 })
 
 export function DmCard({ item: it }: { item: DmItem }) {
+  const { t } = useI18n()
   // Marca o card assim que o botão é apertado. O back-end remove o item em
   // ~20ms, mas se a rede ou o disco atrasarem a resposta, sem isto o botão
   // parece morto — foi o que motivou esta correção.
@@ -115,7 +109,7 @@ export function DmCard({ item: it }: { item: DmItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-4">
           <h3 className="truncate text-base font-medium">{it.title}</h3>
-          <span className="shrink-0 text-xs text-white/50">{STATUS_TXT[it.status]}</span>
+          <span className="shrink-0 text-xs text-white/50">{t("downloads.status." + it.status)}</span>
         </div>
 
         {/* Barra de progresso azul-glow */}
@@ -132,35 +126,32 @@ export function DmCard({ item: it }: { item: DmItem }) {
 
         <div className="mt-2 flex items-baseline justify-between text-xs text-white/50">
           <span className="tabular-nums">
-            {/* A unidade vai nos DOIS números: no meio do download um lado
-                ainda é MiB e o outro já é GiB, e omitir a primeira faria
-                "345 / 60 GiB" mentir. */}
             {it.total > 0
-              ? `${fmtMiB(it.done)} / ${fmtMiB(it.total)} · ${pct}%`
+              ? t("downloads.progresso", { done: fmtMiB(it.done), total: fmtMiB(it.total), pct: String(pct) })
               : it.done > 0
-                ? `${fmtMiB(it.done)} baixados · ${pct}%`
-                : it.status === "queued" ? "aguardando…" : `${pct}%`}
+                ? t("downloads.progresso_parcial", { done: fmtMiB(it.done), pct: String(pct) })
+                : it.status === "queued" ? t("downloads.aguardando") : `${pct}%`}
           </span>
           {baixando && (
             <span className="tabular-nums text-white/70">
-              {it.speed > 0 ? `${it.speed.toFixed(1)} MB/s` : ""} {it.eta ? `· ETA ${it.eta}` : ""}
+              {it.speed > 0 ? t("downloads.velocidade", { speed: it.speed.toFixed(1) }) : ""} {it.eta ? t("downloads.eta", { eta: it.eta }) : ""}
             </span>
           )}
-          {it.status === "error" && <span className="text-[#ff6b81]">{it.error || "falhou"}</span>}
+          {it.status === "error" && <span className="text-[#ff6b81]">{it.error || t("downloads.falhou")}</span>}
         </div>
       </div>
 
       {/* Ações */}
       <div className="flex shrink-0 flex-col gap-2">
         {baixando && (
-          <Acao label="Pausar" onClick={() => window.launcherAPI?.dmPause(it.appid)} />
+          <Acao label={t("downloads.pausar")} onClick={() => window.launcherAPI?.dmPause(it.appid)} />
         )}
         {pausado && (
-          <Acao label="Retomar" primaria onClick={() => window.launcherAPI?.dmResume(it.appid)} />
+          <Acao label={t("downloads.retomar")} primaria onClick={() => window.launcherAPI?.dmResume(it.appid)} />
         )}
         {ativo && (
           <Acao
-            label={cancelando ? "Cancelando…" : "Cancelar"}
+            label={cancelando ? t("downloads.cancelando") : t("common.cancelar")}
             perigo
             onClick={() => {
               setCancelando(true)
@@ -172,8 +163,8 @@ export function DmCard({ item: it }: { item: DmItem }) {
             sempre, e mandar baixar de novo criava um card duplicado. */}
         {it.status === "error" && (
           <>
-            <Acao label="Tentar de novo" primaria onClick={() => window.launcherAPI?.dmRetry(it.appid)} />
-            <Acao label="Remover" onClick={() => window.launcherAPI?.dmDismiss(it.appid)} />
+            <Acao label={t("downloads.tentar_novamente")} primaria onClick={() => window.launcherAPI?.dmRetry(it.appid)} />
+            <Acao label={t("common.remover")} onClick={() => window.launcherAPI?.dmDismiss(it.appid)} />
           </>
         )}
       </div>

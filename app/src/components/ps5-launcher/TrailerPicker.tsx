@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import type { YoutubeResult } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface TrailerPickerProps {
   game: Game | null
@@ -20,6 +21,7 @@ function fmtDur(s: number): string {
 
 export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const { t } = useI18n()
   const open = Boolean(game)
   // Sem player aberto, a navegação por controle vale para a grade.
   const [preview, setPreview] = useState<YoutubeResult | null>(null)
@@ -46,8 +48,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
   const [dlError, setDlError] = useState<string | null>(null)
   const [searchErr, setSearchErr] = useState<string | null>(null)
 
-  const AGE_MSG =
-    "🔞 Vídeo com restrição de idade — o YouTube exige login. Configure os cookies em Configurações › Metadados › Trailers, ou escolha outro resultado."
+  const AGE_MSG = t("trailer.restricao_idade")
 
   // Busca os vídeos do YouTube ao abrir.
   useEffect(() => {
@@ -117,7 +118,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
       onPicked(game.id, r.path) // aplica automaticamente
       onClose()
     } else {
-      setDlError(r?.error === "age" ? AGE_MSG : r?.error || "Falha ao baixar este vídeo. Tente outro.")
+      setDlError(r?.error === "age" ? AGE_MSG : r?.error || t("trailer.falha_baixar"))
     }
   }
 
@@ -138,10 +139,10 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
         <div className="px-6 py-4 flex items-center justify-between shrink-0" style={{ background: "rgba(0,0,0,0.5)" }}>
           <div className="min-w-0">
             <h2 className="text-white text-lg font-bold truncate">
-              {downloading ? "Baixando trailer" : preview ? "Pré-visualizar" : "Escolher trailer"}
+              {downloading ? t("trailer.baixando_trailer") : preview ? t("trailer.preview") : t("trailer.escolher")}
             </h2>
             <p className="text-xs text-[#8a93a6] truncate">
-              {game.title} — {downloading || preview ? "" : "resultados do "}YouTube
+              {game.title} —               {downloading || preview ? "" : t("trailer.resultados_youtube")}
             </p>
           </div>
           {!downloading && (
@@ -150,7 +151,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
               className="px-4 py-2 rounded-xl text-sm font-semibold text-white shrink-0"
               style={{ background: "rgba(255,255,255,0.08)" }}
             >
-              {preview ? "Voltar" : "Fechar (Esc)"}
+              {preview ? t("trailer.voltar") : t("trailer.fechar")}
             </button>
           )}
         </div>
@@ -178,10 +179,10 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 </div>
                 <div className="text-xs text-[#8a93a6] mt-2">
                   {stage === "processando"
-                    ? "Processando o vídeo…"
+                    ? t("trailer.processando")
                     : stage === "done"
-                      ? "Aplicando…"
-                      : `Baixando… ${Math.round(percent)}%`}
+                      ? t("trailer.aplicando")
+                      : t("trailer.baixando_pct", { pct: String(Math.round(percent)) })}
                 </div>
               </div>
             </div>
@@ -194,7 +195,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
               style={{ height: "58vh", background: "#000" }}
             >
               {streamLoading ? (
-                <div className="text-[#8a93a6]">Carregando o vídeo…</div>
+                <div className="text-[#8a93a6]">{t("trailer.carregando_video")}</div>
               ) : streamUrl ? (
                 <video
                   className="w-full h-full object-contain"
@@ -205,7 +206,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 />
               ) : (
                 <div className="text-[#8a93a6] px-8 text-center leading-relaxed">
-                  {streamErr || "Não foi possível carregar a prévia — mas dá para baixar mesmo assim."}
+                  {streamErr || t("trailer.sem_previa")}
                 </div>
               )}
             </div>
@@ -225,7 +226,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 className="px-6 py-2.5 rounded-xl text-sm font-bold text-white shrink-0"
                 style={{ background: "linear-gradient(135deg, #ff4d6d, #c81e45)" }}
               >
-                {dlError ? "Tentar de novo" : "Baixar e aplicar"}
+                {dlError ? t("trailer.tentar_novamente") : t("trailer.baixar_aplicar")}
               </button>
             </div>
           </div>
@@ -233,14 +234,14 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
           /* ── Grade de resultados ───────────────────────────────────────── */
           <div className="overflow-y-auto p-5">
             {loading ? (
-              <div className="text-center text-[#8a93a6] py-16">Buscando no YouTube…</div>
+              <div className="text-center text-[#8a93a6] py-16">{t("trailer.buscando_youtube")}</div>
             ) : searchErr ? (
               <div className="text-center py-16 px-6">
-                <div className="text-[#ff6b6b]">Falha ao buscar no YouTube</div>
+                <div className="text-[#ff6b6b]">{t("trailer.falha_busca")}</div>
                 <div className="text-[#8a93a6] text-sm mt-2 break-words">{searchErr}</div>
               </div>
             ) : results.length === 0 ? (
-              <div className="text-center text-[#8a93a6] py-16">Nenhum vídeo encontrado.</div>
+              <div className="text-center text-[#8a93a6] py-16">{t("trailer.nenhum_video")}</div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {results.map((v) => (

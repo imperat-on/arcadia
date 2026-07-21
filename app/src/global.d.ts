@@ -40,8 +40,6 @@ export interface TextCandidate {
 export interface AppConfig {
   steam_api_key?: string
   steamgriddb_api_key?: string
-  igdb_client_id?: string
-  igdb_client_secret?: string
   steam_id64?: string
   ui_scale?: number
   /** API key do Hubcap (catálogo de manifestos Steam, aba Lojas). */
@@ -67,7 +65,7 @@ export interface AppConfig {
   no_smooth_scroll?: boolean
   no_anim?: boolean
   // Configurações Globais → Config. Gerais
-  language?: string // ex.: "pt-BR"
+  language?: string // ex.: "en-US" (padrão), "pt-BR", "es-ES"
   default_install_path?: string // pasta padrão de instalação de jogos
   default_wine_prefix_path?: string // pasta p/ novos prefixos Wine
   steam_path?: string // instalação local da Steam

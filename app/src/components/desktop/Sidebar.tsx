@@ -1,23 +1,24 @@
 "use client"
 
 // Sidebar do modo desktop (estilo Heroic, adaptada ao tema do Arcadia).
+import { useI18n } from "../../i18n/I18nContext"
 
 export type DesktopView = "biblioteca" | "lojas" | "downloads" | "wine" | "config" | "acessibilidade"
 export type ConfigSub = "gerais" | "integracoes" | "metadados"
 
-const ITENS: { id: DesktopView; label: string; icon: React.ReactNode }[] = [
-  { id: "biblioteca", label: "Biblioteca", icon: <IconGrid /> },
-  { id: "lojas", label: "Lojas", icon: <IconStore /> },
-  { id: "downloads", label: "Downloads", icon: <IconDownload /> },
-  { id: "wine", label: "Wine Manager", icon: <IconWine /> },
-  { id: "config", label: "Configurações", icon: <IconGear /> },
-  { id: "acessibilidade", label: "Acessibilidade", icon: <IconA11y /> },
+const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
+  { id: "biblioteca", label: "Biblioteca", labelKey: "sidebar.biblioteca", icon: <IconGrid /> },
+  { id: "lojas", label: "Lojas", labelKey: "sidebar.lojas", icon: <IconStore /> },
+  { id: "downloads", label: "Downloads", labelKey: "sidebar.downloads", icon: <IconDownload /> },
+  { id: "wine", label: "Wine Manager", labelKey: "sidebar.wine", icon: <IconWine /> },
+  { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
+  { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade", icon: <IconA11y /> },
 ]
 
-const CONFIG_SUBS: { id: ConfigSub; label: string }[] = [
-  { id: "gerais", label: "Config. Gerais" },
-  { id: "integracoes", label: "Integrações" },
-  { id: "metadados", label: "Metadados" },
+const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string }[] = [
+  { id: "gerais", label: "Config. Gerais", labelKey: "settings.general" },
+  { id: "integracoes", label: "Integrações", labelKey: "settings.integracoes" },
+  { id: "metadados", label: "Metadados", labelKey: "settings.metadados.titulo" },
 ]
 
 export function Sidebar({
@@ -37,6 +38,7 @@ export function Sidebar({
   configSub: ConfigSub
   onConfigSub: (s: ConfigSub) => void
 }) {
+  const { t } = useI18n()
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col" style={{ background: "var(--sidebar-bg)" }}>
       {/* Logo */}
@@ -61,7 +63,7 @@ export function Sidebar({
                   <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full" style={{ background: "var(--accent)" }} />
                 )}
                 {it.icon}
-                {it.label}
+                {t(it.labelKey)}
                 {it.id === "downloads" && downloadsActive > 0 && (
                   <span
                     className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-black"
@@ -92,7 +94,7 @@ export function Sidebar({
                           className="h-1 w-1 rounded-full"
                           style={{ background: ativo ? "var(--accent)" : "rgba(255,255,255,0.25)" }}
                         />
-                        {s.label}
+                        {t(s.labelKey)}
                       </button>
                     )
                   })}
@@ -108,21 +110,21 @@ export function Sidebar({
         <button
           onClick={onBigPicture}
           className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2.5 text-left text-[13px] font-semibold text-white/70 transition-colors hover:border-[color:var(--accent)] hover:text-white"
-          title="Entrar no modo tela cheia (console)"
+          title={t("sidebar.modo_tela_cheia")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8m-4-4v4" />
           </svg>
-          Big Picture
+          {t("sidebar.bigpicture")}
         </button>
         <div className="flex items-center justify-between text-xs text-white/35">
-          <span>Arcadia · desktop</span>
-          <button onClick={onQuit} className="flex items-center gap-1.5 text-white/50 transition-colors hover:text-white" title="Sair">
+          <span>{t("app.name")} · {t("sidebar.modo_desktop")}</span>
+          <button onClick={onQuit} className="flex items-center gap-1.5 text-white/50 transition-colors hover:text-white" title={t("sidebar.sair")}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
               <line x1="12" x2="12" y1="2" y2="12" />
             </svg>
-            Sair
+            {t("sidebar.sair")}
           </button>
         </div>
       </div>

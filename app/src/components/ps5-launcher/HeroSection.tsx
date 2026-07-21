@@ -1,6 +1,7 @@
 "use client"
 
 import type { Game } from "./types"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface HeroSectionProps {
   game: Game | null
@@ -13,6 +14,7 @@ interface HeroSectionProps {
 }
 
 export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSectionProps) {
+  const { t } = useI18n()
   return (
     <div className="anim-rise relative w-full flex-1 flex items-end pb-16">
       {/* Conteúdo do hero (o fundo é a imagem de tela cheia do app) */}
@@ -59,11 +61,11 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
                   boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
                 }}
               >
-                {rodando ? "Parar" : abrindo ? "Abrindo…" : game.installed === false ? "Instalar" : "Jogar"}
+                {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("hero.jogar")}
               </button>
               <button
                 onClick={onMore}
-                aria-label="Mais opções"
+                aria-label={t("hero.mais_opcoes")}
                 className="w-16 h-16 rounded-full flex items-center justify-center text-white transition-colors hover:bg-white/25"
                 style={{
                   background: "rgba(255,255,255,0.16)",

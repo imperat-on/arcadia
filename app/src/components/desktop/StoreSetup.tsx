@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 
-// Setup da Loja Steam (API key Hubcap + status .NET/DepotDownloader/SLSsteam).
-// Usado em Configurações → Integrações; a aba Lojas fica só com a busca.
 export function StoreSetup() {
+  const { t } = useI18n()
   const [status, setStatus] = useState<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string } | null>(null)
   const [apiKey, setApiKey] = useState("")
   const [busy, setBusy] = useState("")
@@ -19,7 +19,7 @@ export function StoreSetup() {
   const salvarKey = async () => {
     await window.launcherAPI?.setConfig({ hubcap_api_key: apiKey.trim() } as Record<string, unknown>)
     recarregar()
-    setMsg("API key salva.")
+    setMsg(t("common.salvo"))
     setTimeout(() => setMsg(""), 2500)
   }
 
@@ -27,16 +27,16 @@ export function StoreSetup() {
     setBusy("dotnet")
     const r = await window.launcherAPI?.storeEnsureDotnet()
     setBusy("")
-    if (!r?.ok) setMsg(r?.error || "Falha ao instalar o .NET")
+    if (!r?.ok) setMsg(r?.error || t("store_setup.falha_dotnet"))
     recarregar()
   }
 
   const instalarSls = async () => {
     setBusy("sls")
-    setMsg("Instalando a SLSsteam (pode demorar)…")
+    setMsg(t("store_setup.instalando_sls"))
     const r = await window.launcherAPI?.slssteamInstall()
     setBusy("")
-    setMsg(r?.ok ? "SLSsteam instalada!" : r?.error || "Falha ao instalar a SLSsteam")
+    setMsg(r?.ok ? t("store_setup.sls_instalada") : r?.error || t("store_setup.falha_sls"))
     recarregar()
   }
 
@@ -44,9 +44,8 @@ export function StoreSetup() {
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white">{titulo}</h3>
-        {/* Sem pill: a palavra basta, a cor só separa pronto de pendente. */}
         <span className="text-[11px] font-medium" style={{ color: ok ? "#4adf9a" : "#ffb86b" }}>
-          {ok ? "Instalado" : "Faltando"}
+          {ok ? t("store_setup.instalado") : t("store_setup.faltando")}
         </span>
       </div>
       <p className="text-xs text-white/45">{detalhe}</p>
@@ -65,17 +64,17 @@ export function StoreSetup() {
 
   return (
     <section className="mb-8">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">Loja Steam</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">{t("settings.steam")}</h3>
       <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
         <div>
-          <label className="mb-1.5 block text-[13px] text-white/70">Chave do Hubcap</label>
+          <label className="mb-1.5 block text-[13px] text-white/70">{t("store_setup.chave_hubcap")}</label>
           <div className="flex gap-2">
             <input
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               type="password"
               spellCheck={false}
-              placeholder="Opcional — acrescenta o catálogo do Hubcap"
+              placeholder={t("store_setup.hubcap_placeholder")}
               className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)]"
             />
             <button
@@ -83,15 +82,15 @@ export function StoreSetup() {
               className="rounded-lg px-4 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
               style={{ background: "var(--accent)" }}
             >
-              Salvar
+              {t("common.salvar")}
             </button>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-          <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe="Runtime do DepotDownloader." acao={busy === "dotnet" ? "Instalando…" : "Instalar"} onAcao={instalarDotnet} />
-          <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe="Baixa os depots da Steam." />
-          <StatusCard titulo="SLSsteam" ok={Boolean(status?.slssteam)} detalhe="Faz a Steam reconhecer os jogos baixados." acao={busy === "sls" ? "Instalando…" : "Instalar"} onAcao={instalarSls} />
+          <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe={t("store_setup.dotnet_desc")} acao={busy === "dotnet" ? t("store_setup.instalando") : t("contextmenu.instalar")} onAcao={instalarDotnet} />
+          <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe={t("store_setup.depotdownloader_desc")} />
+          <StatusCard titulo="SLSsteam" ok={Boolean(status?.slssteam)} detalhe={t("store_setup.slssteam_desc")} acao={busy === "sls" ? t("store_setup.instalando") : t("contextmenu.instalar")} onAcao={instalarSls} />
         </div>
         {msg && <p className="text-[12px] text-white/55">{msg}</p>}
       </div>

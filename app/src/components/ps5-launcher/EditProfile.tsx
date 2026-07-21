@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface EditProfileProps {
   open: boolean
@@ -22,12 +23,16 @@ const INPUT_STYLE = {
   background: "rgba(255,255,255,0.05)",
   border: "1px solid rgba(255,255,255,0.12)",
 } as const
+// O valor gravado no perfil continua sendo a chave — o rótulo é traduzido na
+// hora de desenhar, senão o país salvo mudaria de nome ao trocar de idioma.
 const COUNTRIES = [
-  "Brasil", "Portugal", "Estados Unidos", "Argentina", "Chile", "México",
-  "Espanha", "Reino Unido", "Alemanha", "França", "Japão", "Canadá",
+  "pais.brasil", "pais.portugal", "pais.estados_unidos", "pais.argentina",
+  "pais.chile", "pais.mexico", "pais.espanha", "pais.reino_unido",
+  "pais.alemanha", "pais.franca", "pais.japao", "pais.canada",
 ]
 
 export function EditProfile({ open, profile, games, onClose, onChange }: EditProfileProps) {
+  const { t } = useI18n()
   const [section, setSection] = useState<Section>("geral")
   const [fields, setFields] = useState({
     name: "", realName: "", country: "", city: "", summary: "",
@@ -39,7 +44,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   useEffect(() => {
     if (!open) return
     setFields({
-      name: profile.name ?? "Jogador",
+      name: profile.name ?? t("profile.padrao_jogador"),
       realName: profile.realName ?? "",
       country: profile.country ?? "",
       city: profile.city ?? "",
@@ -65,7 +70,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     setFields((f) => ({ ...f, [k]: v }))
     if (timer.current) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(
-      () => patch({ [k]: k === "name" ? v.trim() || "Jogador" : v }),
+      () => patch({ [k]: k === "name" ? v.trim() || t("profile.padrao_jogador") : v }),
       450,
     )
   }
@@ -81,10 +86,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   }
 
   const NAV: { id: Section; label: string }[] = [
-    { id: "geral", label: "Geral" },
-    { id: "avatar", label: "Avatar" },
-    { id: "fundo", label: "Plano de fundo" },
-    { id: "destaques", label: "Destaques" },
+    { id: "geral", label: t("editprofile.nav.geral") },
+    { id: "avatar", label: t("editprofile.nav.avatar") },
+    { id: "fundo", label: t("editprofile.nav.fundo") },
+    { id: "destaques", label: t("editprofile.nav.destaques") },
   ]
 
   const showcase = profile.showcase ?? []
@@ -112,9 +117,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         <button onClick={onClose}
           className="text-sm text-[#8a93a6] hover:text-white transition-colors mb-4 text-left flex items-center gap-2">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M15 18l-6-6 6-6" /></svg>
-          Voltar ao perfil
+          {t("editprofile.voltar_perfil")}
         </button>
-        <h1 className="text-xl font-bold text-white mb-4 px-2">Editar perfil</h1>
+        <h1 className="text-xl font-bold text-white mb-4 px-2">{t("profile.editar_perfil")}</h1>
         {NAV.map((n) => {
           const active = section === n.id
           return (
@@ -132,33 +137,33 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         {section === "geral" && (
           <div className="max-w-2xl space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-1">Geral</h2>
-              <p className="text-sm text-[#8a93a6]">Nome e detalhes do seu perfil.</p>
+              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.geral")}</h2>
+              <p className="text-sm text-[#8a93a6]">{t("editprofile.geral_desc")}</p>
             </div>
-            <Field label="Nome do perfil">
+            <Field label={t("editprofile.nome_perfil")}>
               <input value={fields.name} onChange={(e) => setField("name", e.target.value)}
                 className={INPUT_CLS} style={INPUT_STYLE} />
             </Field>
-            <Field label="Nome real">
+            <Field label={t("editprofile.nome_real")}>
               <input value={fields.realName} onChange={(e) => setField("realName", e.target.value)}
-                placeholder="Opcional" className={INPUT_CLS} style={INPUT_STYLE} />
+                placeholder={t("editprofile.opcional")} className={INPUT_CLS} style={INPUT_STYLE} />
             </Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="País">
+              <Field label={t("editprofile.pais")}>
                 <select value={fields.country} onChange={(e) => setField("country", e.target.value)}
                   className={INPUT_CLS} style={INPUT_STYLE}>
-                  <option value="">(Não exibir)</option>
-                  {COUNTRIES.map((c) => <option key={c} value={c} style={{ background: "#0d0d0f" }}>{c}</option>)}
+                  <option value="">{t("editprofile.nao_exibir")}</option>
+                  {COUNTRIES.map((c) => <option key={c} value={c} style={{ background: "#0d0d0f" }}>{t(c)}</option>)}
                 </select>
               </Field>
-              <Field label="Cidade">
+              <Field label={t("editprofile.cidade")}>
                 <input value={fields.city} onChange={(e) => setField("city", e.target.value)}
-                  placeholder="Opcional" className={INPUT_CLS} style={INPUT_STYLE} />
+                placeholder={t("editprofile.opcional")} className={INPUT_CLS} style={INPUT_STYLE} />
               </Field>
             </div>
-            <Field label="Resumo">
+            <Field label={t("editprofile.resumo")}>
               <textarea value={fields.summary} onChange={(e) => setField("summary", e.target.value)}
-                placeholder="Fale um pouco sobre você…" rows={4}
+                placeholder={t("editprofile.resumo_placeholder")} rows={4}
                 className={INPUT_CLS + " resize-none"} style={INPUT_STYLE} />
             </Field>
           </div>
@@ -167,8 +172,8 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         {section === "avatar" && (
           <div className="max-w-2xl space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-1">Avatar</h2>
-              <p className="text-sm text-[#8a93a6]">Sua foto de perfil. GIFs animados funcionam.</p>
+              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.avatar")}</h2>
+              <p className="text-sm text-[#8a93a6]">{t("editprofile.avatar_desc")}</p>
             </div>
             <div className="flex items-center gap-6">
               <div className="w-32 h-32 rounded-2xl overflow-hidden flex items-center justify-center text-4xl font-bold text-white"
@@ -181,13 +186,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                 <button onClick={() => pick("avatar")}
                   className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
                   style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}>
-                  Escolher imagem / GIF
+                  {t("editprofile.escolher_imagem")}
                 </button>
                 {profile.avatar && (
                   <button onClick={() => patch({ avatar: "" })}
                     className="px-5 py-2 rounded-xl text-sm font-medium text-[#c8d0e0] hover:bg-white/5"
                     style={{ border: "1px solid rgba(255,255,255,0.12)" }}>
-                    Remover
+                    {t("editprofile.remover")}
                   </button>
                 )}
               </div>
@@ -198,9 +203,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         {section === "fundo" && (
           <div className="max-w-3xl space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-1">Plano de fundo</h2>
+              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.fundo")}</h2>
               <p className="text-sm text-[#8a93a6]">
-                Imagem de fundo do seu perfil — pode ser um <b>GIF animado</b>.
+                {t("editprofile.fundo_desc")}
               </p>
             </div>
             <div
@@ -215,19 +220,19 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
             >
               {profile.background
                 ? <img src={profile.background} alt="" className="w-full h-full object-cover" />
-                : <span className="text-sm text-[#6b7280]">Sem plano de fundo</span>}
+                : <span className="text-sm text-[#6b7280]">{t("editprofile.sem_fundo")}</span>}
             </div>
             <div className="flex gap-3">
               <button onClick={() => pick("background")}
                 className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
                 style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}>
-                Escolher imagem / GIF
+                {t("editprofile.escolher_imagem")}
               </button>
               {profile.background && (
                 <button onClick={() => patch({ background: "" })}
                   className="px-5 py-2 rounded-xl text-sm font-medium text-[#c8d0e0] hover:bg-white/5"
                   style={{ border: "1px solid rgba(255,255,255,0.12)" }}>
-                  Remover
+                  {t("editprofile.remover")}
                 </button>
               )}
             </div>
@@ -237,13 +242,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         {section === "destaques" && (
           <div className="max-w-5xl">
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-white mb-1">Destaques</h2>
+              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.destaques")}</h2>
               <p className="text-sm text-[#8a93a6]">
-                Escolha até {MAX_SHOWCASE} jogos para a vitrine do seu perfil.{" "}
+                {t("editprofile.destaques_desc", { max: String(MAX_SHOWCASE) })}{" "}
                 <span className="text-white font-medium">
-                  {showcase.length}/{MAX_SHOWCASE} selecionados
+                  {t("editprofile.destaques_selecionados", { selected: String(showcase.length), max: String(MAX_SHOWCASE) })}
                 </span>
-                . Clique para adicionar ou remover.
+                . {t("editprofile.destaques_click_hint")}
               </p>
             </div>
             <div className="grid grid-cols-6 gap-3">

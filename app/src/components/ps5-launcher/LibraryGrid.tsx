@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import type { Game } from "./types"
 import { GameCard } from "./GameCard"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface LibraryGridProps {
   games: Game[]
@@ -23,6 +24,7 @@ export function LibraryGrid({
   emptyMessage,
   scrollRef,
 }: LibraryGridProps) {
+  const { t } = useI18n()
   const selRef = useRef<HTMLDivElement>(null)
 
   // Rola o card selecionado para dentro da vista. "auto" (instantâneo) — com
@@ -35,7 +37,7 @@ export function LibraryGrid({
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-lg text-[#8a93a6]">
-          {emptyMessage || "Nada por aqui ainda."}
+          {emptyMessage || t("library.vazia")}
         </p>
       </div>
     )

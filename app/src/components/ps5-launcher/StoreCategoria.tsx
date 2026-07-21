@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import { StoreTile } from "./StoreTile"
 import type { JogoLinha } from "./types"
 
@@ -30,6 +31,7 @@ export function StoreCategoria({
   onPedirMais,
   onAdicionar,
 }: StoreCategoriaProps) {
+  const { t } = useI18n()
   const todos = useMemo(() => paginas.flat(), [paginas])
 
   // A trava anti-duplo-disparo vive no pai (StoreConsole); aqui só sinalizamos
@@ -64,7 +66,7 @@ export function StoreCategoria({
   }
 
   if (!todos.length) {
-    return <p className="px-12 py-16 text-white/35">Nada por aqui.</p>
+    return <p className="px-12 py-16 text-white/35">{t("store.nada_aqui")}</p>
   }
 
   return (

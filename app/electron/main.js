@@ -20,7 +20,8 @@ const {
   psnStoreArt,
   steamArt,
   steamTextos,
-  igdbGames,
+  tituloBate,
+  igdbProxy,
   igdbArtDe,
   igdbTextosDe,
   xboxSearch,
@@ -36,6 +37,21 @@ const DATA_DIR = path.join(HOME, ".local/share/arcadia")
 const LIB = path.join(DATA_DIR, "library.json")
 const INDEX = path.join(DATA_DIR, "index.py")
 const CONFIG = path.join(DATA_DIR, "config.json")
+
+const STEAM_LANG_MAP = {
+  "pt-BR": "portuguese",
+  "en-US": "english",
+  "es-ES": "spanish",
+}
+
+function steamLang() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG, "utf-8"))
+    return STEAM_LANG_MAP[cfg.language] || "english"
+  } catch {
+    return "english"
+  }
+}
 const META_CACHE = path.join(DATA_DIR, "meta_cache.json")
 const OVERRIDES = path.join(DATA_DIR, "overrides.json")
 const ART_DIR = path.join(DATA_DIR, "art") // artes escolhidas pelo usuário
@@ -351,7 +367,7 @@ async function buildSysinfo(g) {
   if (!appid && g?.title) {
     try {
       const s = await fetchJson(
-        `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(g.title)}&cc=br&l=portuguese`,
+        `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(g.title)}&cc=br&l=${steamLang()}`,
       )
       appid = s?.items?.[0]?.id || ""
     } catch {}
@@ -359,7 +375,7 @@ async function buildSysinfo(g) {
   if (appid) {
     try {
       const d = await fetchJson(
-        `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=br&l=portuguese`,
+        `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=br&l=${steamLang()}`,
       )
       const reqs = d?.[appid]?.data?.pc_requirements
       if (reqs && !Array.isArray(reqs)) {
@@ -374,8 +390,13 @@ async function buildSysinfo(g) {
 async function getSysinfo(g) {
   const id = String(g?.id || "")
   const cache = readJsonFile(SYSINFO_CACHE, {})
-  if (cache[id]) return cache[id]
+  // Os requisitos de sistema vêm traduzidos pela Steam. Guardar o idioma junto
+  // evita que a página do jogo fique em português depois de trocar o app para
+  // inglês — este cache não tem validade, era para sempre.
+  const lang = steamLang()
+  if (cache[id] && cache[id]._lang === lang) return cache[id]
   const info = await buildSysinfo(g)
+  info._lang = lang
   cache[id] = info
   try {
     fs.writeFileSync(SYSINFO_CACHE, JSON.stringify(cache, null, 2))
@@ -730,10 +751,15 @@ function writeConfig(partial) {
   }
 }
 
-// Mercado e idioma da loja da Microsoft. pt-BR por padrão, para as descrições
-// virem em português; dá para trocar no config.json.
+// Mercado e idioma da loja da Microsoft. Segue o idioma configurado.
 function xboxLocale(cfg) {
-  return [String(cfg.xbox_market || "BR"), String(cfg.xbox_locale || "pt-br")]
+  const lang = cfg.language || "en-US"
+  const XBOX_MAP = {
+    "pt-BR": "pt-br",
+    "en-US": "en-us",
+    "es-ES": "es-es",
+  }
+  return [String(cfg.xbox_market || "BR"), XBOX_MAP[lang] || "en-us"]
 }
 
 // Lê library.json, aplica as edições do usuário e converte caminhos de arte
@@ -1298,7 +1324,16 @@ app.whenReady().then(() => {
         fs.mkdirSync(cfg.default_wine_prefix_path, { recursive: true })
       } catch {}
     }
-    return writeConfig(cfg)
+    const idiomaAntes = readConfig().language
+    const r = writeConfig(cfg)
+    // Trocou de idioma: as descrições e requisitos já baixados estão na língua
+    // antiga. Reindexar sozinho é o que faz a biblioteca aparecer traduzida
+    // sem o usuário ter de descobrir que existe um botão de atualizar.
+    if (cfg?.language && cfg.language !== idiomaAntes) {
+      const janela = BrowserWindow.fromWebContents(_e.sender)
+      avisarBiblioteca(janela, true)
+    }
+    return r
   })
 
   // Notícias de jogos (RSS PT-BR). Cache alinhado ao RELÓGIO: vale até o
@@ -1808,8 +1843,6 @@ app.whenReady().then(() => {
       if (!gameId || !SGDB_ENDPOINT[kind]) return { ok: false, error: "pedido inválido" }
       const cfg = readConfig()
       const chave = String(cfg.steamgriddb_api_key || "").trim()
-      const igdbId = String(cfg.igdb_client_id || "").trim()
-      const igdbSecret = String(cfg.igdb_client_secret || "").trim()
       const candidatos = []
       const erros = []
       let jogos = []
@@ -1838,13 +1871,10 @@ app.whenReady().then(() => {
       }
 
       // IGDB: arte de qualquer plataforma (capa e artworks/screenshots).
-      if (igdbId && igdbSecret) {
-        try {
-          const gs = await igdbGames(titulo || "", igdbId, igdbSecret)
-          candidatos.push(...igdbArtDe(gs, kind))
-        } catch (e) {
-          erros.push(`IGDB: ${e.message}`)
-        }
+      try {
+        candidatos.push(...igdbArtDe(await igdbProxy(titulo || ""), kind))
+      } catch (e) {
+        erros.push(`IGDB: ${e.message}`)
       }
 
       // Xbox: catálogo público, sem chave. Capa retrato 1440x2160 e fundo 4K.
@@ -1880,28 +1910,31 @@ app.whenReady().then(() => {
     },
   )
 
-  // Descrições candidatas: Steam (curta e completa) + IGDB (resumo e enredo).
+  // Descrições candidatas. A ordem é a ordem da qualidade: primeiro as fontes
+  // que traduzem (Steam e Xbox), depois a que só fala inglês (IGDB).
   ipcMain.handle("meta:text", async (_e, { gameId, titulo } = {}) => {
     const cfg = readConfig()
-    const igdbId = String(cfg.igdb_client_id || "").trim()
-    const igdbSecret = String(cfg.igdb_client_secret || "").trim()
     const textos = []
     const erros = []
 
     try {
-      textos.push(...(await steamTextos(gameId)))
+      // Jogo de fora da Steam (Epic, GOG, custom) não tem appid no id, mas
+      // quase sempre TEM página na Steam. O `suggest` já faz a busca por
+      // título, ranqueia e cacheia — a mesma que a loja usa.
+      //
+      // O `tituloBate` não é zelo excessivo: a busca da Steam é fuzzy e sempre
+      // devolve ALGO. "Astro Bot", que é exclusivo de PlayStation, volta como
+      // "Sackboy — Disfraz de ASTRO BOT" — sem a peneira, a descrição de uma
+      // fantasia de DLC apareceria etiquetada como a do jogo.
+      let appid = ""
+      if (!/^steam:/.test(String(gameId || "")) && titulo) {
+        const s = await require("./steamstore").suggest(titulo)
+        const achado = (s?.jogos || []).find((j) => tituloBate(j.title, titulo))
+        appid = achado?.appid || ""
+      }
+      textos.push(...(await steamTextos(gameId, steamLang(), appid)))
     } catch (e) {
       erros.push(`Steam: ${e.message}`)
-    }
-
-    if (igdbId && igdbSecret) {
-      try {
-        textos.push(...igdbTextosDe(await igdbGames(titulo || "", igdbId, igdbSecret)))
-      } catch (e) {
-        erros.push(`IGDB: ${e.message}`)
-      }
-    } else {
-      erros.push("IGDB: sem credenciais (defina nas Configurações)")
     }
 
     // Xbox: descrição no idioma da loja, sem chave.
@@ -1913,6 +1946,15 @@ app.whenReady().then(() => {
       }
     } catch (e) {
       erros.push(`Xbox: ${e.message}`)
+    }
+
+    // IGDB por último: cobre o que não está em loja de PC nenhuma, mas o texto
+    // vem sempre em inglês e o servidor não é nosso — se falhar, vira só mais
+    // um erro na lista e as outras fontes seguem valendo.
+    try {
+      textos.push(...igdbTextosDe(await igdbProxy(titulo || "")))
+    } catch (e) {
+      erros.push(`IGDB: ${e.message}`)
     }
 
     return { ok: true, textos, erros }

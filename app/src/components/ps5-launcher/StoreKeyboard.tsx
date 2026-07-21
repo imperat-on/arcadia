@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface StoreKeyboardProps {
   aberto: boolean
@@ -23,6 +24,7 @@ const LINHAS = [
 
 export function StoreKeyboard({ aberto, inicial = "", onConfirmar, onFechar }: StoreKeyboardProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const { t } = useI18n()
   const [texto, setTexto] = useState(inicial)
   useGamepadNav(ref, aberto, onFechar)
 
@@ -50,9 +52,9 @@ export function StoreKeyboard({ aberto, inicial = "", onConfirmar, onFechar }: S
     <div className="gp-scope fixed inset-0 z-[80] flex items-center justify-center bg-black/85 backdrop-blur-md">
       <div ref={ref} className="w-[720px] max-w-[92vw]">
         <div className="mb-5 rounded-xl border border-white/12 bg-white/[0.04] px-5 py-4">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-white/35">Buscar na loja</div>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-white/35">{t("store.buscar_titulo")}</div>
           <div className="mt-1 min-h-[32px] text-2xl font-light text-white">
-            {texto || <span className="text-white/25">Digite o nome do jogo</span>}
+            {texto || <span className="text-white/25">{t("store.keyboard.digite")}</span>}
             <span className="ml-0.5 animate-pulse text-[color:var(--accent)]">|</span>
           </div>
         </div>
@@ -77,25 +79,25 @@ export function StoreKeyboard({ aberto, inicial = "", onConfirmar, onFechar }: S
               onClick={() => setTexto((t) => t + " ")}
               className="h-12 w-56 rounded-lg border border-white/10 bg-white/[0.04] text-sm text-white/75 outline-none transition-colors hover:bg-white/[0.1] focus:bg-[color:var(--accent)] focus:text-black"
             >
-              Espaço
+              {t("store.keyboard.espaco")}
             </button>
             <button
               onClick={() => setTexto((t) => t.slice(0, -1))}
               className="h-12 w-32 rounded-lg border border-white/10 bg-white/[0.04] text-sm text-white/75 outline-none transition-colors hover:bg-white/[0.1] focus:bg-[color:var(--accent)] focus:text-black"
             >
-              Apagar
+              {t("store.keyboard.apagar")}
             </button>
             <button
               onClick={() => onConfirmar(texto.trim())}
               className="h-12 w-32 rounded-lg text-sm font-bold text-black outline-none transition-transform hover:scale-[1.03] focus:ring-2 focus:ring-white"
               style={{ background: "var(--accent)" }}
             >
-              Buscar
+              {t("store.buscar")}
             </button>
           </div>
         </div>
 
-        <p className="mt-5 text-center text-xs text-white/35">B — voltar · Enter — buscar</p>
+        <p className="mt-5 text-center text-xs text-white/35">{t("store.keyboard.rodape")}</p>
       </div>
     </div>
   )

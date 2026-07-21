@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import type { Game } from "../ps5-launcher/types"
 
 // Diálogo de desinstalação (estilo Heroic) para jogos não-Steam:
@@ -14,6 +15,7 @@ export function UninstallDialog({
   onConfirm: (opts: { removePrefix: boolean; removeSettings: boolean }) => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const [prefix, setPrefix] = useState("")
   const [removePrefix, setRemovePrefix] = useState(false)
   const [removeSettings, setRemoveSettings] = useState(false)
@@ -57,7 +59,7 @@ export function UninstallDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
-          <h2 className="text-lg font-semibold text-white">Desinstalar</h2>
+          <h2 className="text-lg font-semibold text-white">{t("uninstall.titulo")}</h2>
           <button onClick={onClose} className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -66,20 +68,20 @@ export function UninstallDialog({
         </div>
 
         <p className="mb-5 text-[14px] text-white/85">
-          Deseja desinstalar <span className="font-semibold">"{game.title}"</span>?
+          {t("uninstall.confirmar", { name: game.title })}
         </p>
 
         <Check
           checked={removePrefix}
           onChange={setRemovePrefix}
-          label={<>Remover prefixo: <span className="text-white/55">{prefix || "…"}</span></>}
-          obs="Obs.: Isso não pode ser desfeito e também removerá jogos salvos sem backup."
+          label={<>{t("uninstall.remover_prefixo")}: <span className="text-white/55">{prefix || "…"}</span></>}
+          obs={t("uninstall.obs_remover")}
         />
         <Check
           checked={removeSettings}
           onChange={setRemoveSettings}
-          label="Apagar configurações e remover logs"
-          obs="Obs: Isto não pode ser desfeito. Qualquer configuração modificada será esquecida e o log será deletado."
+          label={t("uninstall.apagar_config")}
+          obs={t("uninstall.obs_apagar")}
         />
 
         <div className="mt-2 flex justify-end gap-2.5">
@@ -88,13 +90,13 @@ export function UninstallDialog({
             className="rounded-lg border px-6 py-2 text-[12px] font-semibold tracking-wider transition-colors hover:bg-white/[0.06]"
             style={{ borderColor: "color-mix(in srgb, var(--accent) 60%, transparent)", color: "var(--accent)" }}
           >
-            SIM
+            {t("uninstall.sim")}
           </button>
           <button
             onClick={onClose}
             className="rounded-lg border border-white/15 px-6 py-2 text-[12px] font-semibold tracking-wider text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
           >
-            NÃO
+            {t("uninstall.nao")}
           </button>
         </div>
       </div>

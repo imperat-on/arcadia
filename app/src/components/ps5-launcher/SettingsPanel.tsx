@@ -3,6 +3,15 @@
 import { useEffect, useRef, useState } from "react"
 import type { AppConfig, IntegrationsStatus } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
+import { useI18n } from "../../i18n/I18nContext"
+
+// Os três idiomas traduzidos. O rótulo fica no idioma nativo de cada um: quem
+// abriu o app no idioma errado precisa reconhecer o seu na lista.
+const IDIOMAS = [
+  { id: "pt-BR", label: "Português (Brasil)" },
+  { id: "en-US", label: "English (US)" },
+  { id: "es-ES", label: "Español" },
+]
 
 interface SettingsPanelProps {
   open: boolean
@@ -19,6 +28,7 @@ export function SettingsPanel({
   onSaved,
   onUiChange,
 }: SettingsPanelProps) {
+  const { t } = useI18n()
   const [section, setSection] = useState<Section>("temas")
   const [cfg, setCfg] = useState<AppConfig>({})
   const rootRef = useRef<HTMLDivElement>(null)
@@ -39,7 +49,7 @@ export function SettingsPanel({
   if (!open) return null
 
   const NAV: { id: Section; label: string; icon: JSX.Element }[] = [
-    { id: "temas", label: "Temas", icon: <IconTheme /> },
+    { id: "temas", label: t("settings.temas"), icon: <IconTheme /> },
   ]
 
   return (
@@ -51,7 +61,7 @@ export function SettingsPanel({
       <aside className="flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
         <div className="mb-6 flex items-center gap-2 px-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-          Configurações
+          {t("settings.configuracoes")}
         </div>
         {NAV.map((n) => {
           const active = section === n.id
@@ -79,7 +89,7 @@ export function SettingsPanel({
             onClick={onClose}
             className="w-full rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
           >
-            Fechar (Esc)
+            {t("settings.fechar")}
           </button>
         </div>
       </aside>
@@ -124,12 +134,13 @@ function Toggle({
   on: boolean
   onChange: (v: boolean) => void
 }) {
+  const { t } = useI18n()
   return (
     <button
       onClick={() => onChange(!on)}
       className="relative w-11 h-6 rounded-full transition-colors shrink-0"
       style={{ background: on ? "var(--accent)" : "rgba(255,255,255,0.15)" }}
-      title={on ? "Ativado" : "Desativado"}
+      title={on ? t("common.ativado") : t("common.desativado")}
     >
       <span
         className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
@@ -152,6 +163,7 @@ export function IntegrationsSection({
   onToggle: (name: "steam" | "heroic" | "lutris" | "slssteam", val: boolean) => void
   onSlsPath: (path: string) => void
 }) {
+  const { t } = useI18n()
   const [apiKey, setApiKey] = useState(cfg.steam_api_key ?? "")
   const [steamId, setSteamId] = useState(cfg.steam_id64 ?? "")
   const [slsPath, setSlsPath] = useState(cfg.slssteam_path ?? "")
@@ -172,27 +184,26 @@ export function IntegrationsSection({
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">Integrações</h2>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.integracoes")}</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Fontes de jogos. O que estiver desativado não aparece na biblioteca.
+        {t("settings.integracoes.desc")}
       </p>
 
       {/* Steam */}
       <IntegrationCard
-        title="Steam"
+        title={t("settings.steam")}
         connected={status?.steam ?? Boolean(cfg.steam_api_key)}
         enabled={on("steam")}
         onToggle={(v) => onToggle("steam", v)}
       >
         <p className="text-xs text-[#8a93a6] mb-3">
-          Chave da Steam Web API — carrega a biblioteca inteira, inclusive
-          jogos não instalados. Obtenha em steamcommunity.com/dev/apikey.
+          {t("settings.steam.desc")}
         </p>
         <input
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Chave da Steam Web API"
+          placeholder={t("settings.steam.api_key_placeholder")}
           spellCheck={false}
           className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-2"
           style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
@@ -200,7 +211,7 @@ export function IntegrationsSection({
         <input
           value={steamId}
           onChange={(e) => setSteamId(e.target.value)}
-          placeholder="SteamID64 (opcional — detectado automaticamente)"
+          placeholder={t("settings.steam.steamid_placeholder")}
           spellCheck={false}
           className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-3"
           style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
@@ -213,25 +224,21 @@ export function IntegrationsSection({
           }}
           className="px-5 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03]"
         >
-          {saved ? "Salvo!" : "Salvar e sincronizar"}
+          {saved ? t("common.salvo") : t("settings.salvar_sincronizar")}
         </button>
       </IntegrationCard>
 
       {/* Epic (via Legendary) */}
       <IntegrationCard
-        title="Epic Games (via Legendary)"
+        title={t("settings.epic")}
         connected={Boolean(legendary?.logged)}
         enabled={on("heroic")}
         onToggle={(v) => onToggle("heroic", v)}
       >
         <p className="mb-3 text-xs text-[#8a93a6]">
-          O <b>Legendary</b> é o motor open-source da Epic (o mesmo do Heroic).
-          O Arcadia baixa o binário oficial e o login abre num terminal — depois
-          disso seus jogos Epic aparecem na biblioteca ao atualizar.
+          {t("settings.epic.desc")}
           {legendary?.logged && legendary.user ? (
-            <>
-              {" "}Logado como <span className="text-white">{legendary.user}</span>.
-            </>
+            <>{" "}{t("settings.epic.logado", { user: legendary.user || "" })}</>
           ) : null}
         </p>
         <button
@@ -243,64 +250,56 @@ export function IntegrationsSection({
             if (r?.ok) {
               window.launcherAPI?.legendaryStatus().then(setLegendary)
             } else {
-              setLegendaryErr(r?.error || "falha desconhecida")
+              setLegendaryErr(r?.error || t("settings.epic.falha"))
             }
           }}
           disabled={legendaryBusy}
           className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
         >
           {legendaryBusy
-            ? "Preparando…"
+            ? t("common.preparando")
             : legendary?.installed
               ? legendary.logged
-                ? "Refazer login Epic"
-                : "Fazer login Epic (terminal)"
-              : "Baixar Legendary e fazer login"}
+                ? t("settings.epic.refazer_login")
+                : t("settings.epic.fazer_login")
+              : t("settings.epic.baixar_login")}
         </button>
         {legendaryErr && <p className="mt-2 text-xs text-[#ff6b81]">{legendaryErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">
-          O Legendary usa a mesma sessão do Heroic (~/.config/legendary). Se já
-          estiver logado lá, não precisa logar de novo.
+          {t("settings.epic.nota")}
         </p>
       </IntegrationCard>
 
       {/* SLSsteam */}
       <IntegrationCard
-        title="SLSsteam"
+        title={t("settings.slssteam")}
         connected={(status?.slssteam ?? 0) > 0}
         enabled={on("slssteam")}
         onToggle={(v) => onToggle("slssteam", v)}
       >
         <p className="text-xs text-[#8a93a6] mb-3">
           {status
-            ? `${status.slssteam} jogo(s) injetado(s) detectado(s).`
-            : "Lendo configuração…"}{" "}
-          O SLSsteam injeta jogos na Steam pelo bloco{" "}
-          <span className="text-white">AdditionalApps</span> do arquivo{" "}
-          <span className="text-white">config.yaml</span>. Tudo que você adicionar
-          via LuaTools entra na biblioteca ao atualizar.
+            ? t("settings.slssteam.jogos_detectados", { count: String(status.slssteam) })
+            : t("settings.slssteam.lendo_config")}{" "}
+          {t("settings.slssteam.desc")}
         </p>
         <div
           className="rounded-lg p-3 mb-3 text-xs text-[#8a93a6]"
           style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}
         >
           <div className="text-[#a8b3cc] font-semibold mb-1">
-            Onde fica o config.yaml?
+            {t("settings.slssteam.config_label")}
           </div>
-          Por padrão em{" "}
-          <span className="text-white">~/.config/SLSsteam/config.yaml</span>. Se o
-          seu SLSsteam guarda esse arquivo em{" "}
-          <span className="text-white">outra pasta</span>, cole o caminho completo
-          abaixo para o Arcadia ler de lá.
+          {t("settings.slssteam.config_desc")}
         </div>
         <label className="block text-[11px] font-semibold text-[#8a93a6] mb-1.5 uppercase tracking-wider">
-          Caminho do config.yaml (opcional)
+          {t("settings.slssteam.caminho_label")}
         </label>
         <div className="flex gap-2">
           <input
             value={slsPath}
             onChange={(e) => setSlsPath(e.target.value)}
-            placeholder="/home/voce/.config/SLSsteam/config.yaml"
+            placeholder={t("settings.slssteam.caminho_placeholder")}
             spellCheck={false}
             className="flex-1 px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)]"
             style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
@@ -313,11 +312,11 @@ export function IntegrationsSection({
             }}
             className="px-4 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03] shrink-0"
           >
-            {pathSaved ? "Salvo!" : "Salvar"}
+            {pathSaved ? t("common.salvo") : t("common.salvar")}
           </button>
         </div>
         <p className="text-[11px] text-[#6b7280] mt-2">
-          Deixe vazio para usar o caminho padrão.
+          {t("settings.slssteam.hint")}
         </p>
       </IntegrationCard>
     </div>
@@ -337,6 +336,7 @@ function IntegrationCard({
   onToggle: (v: boolean) => void
   children: React.ReactNode
 }) {
+  const { t } = useI18n()
   return (
     <div
       className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
@@ -350,7 +350,7 @@ function IntegrationCard({
             className="text-xs font-medium"
             style={{ color: connected ? "#4adf9a" : "#8a93a6" }}
           >
-            {connected ? "Conectado" : "Não conectado"}
+            {connected ? t("common.conectado") : t("common.nao_conectado")}
           </span>
           <Toggle on={enabled} onChange={onToggle} />
         </div>
@@ -363,16 +363,6 @@ function IntegrationCard({
 /* --------------------------------------------------------------------- */
 /* Metadados                                                             */
 /* --------------------------------------------------------------------- */
-const ACCENTS = [
-  { name: "Azul PS", hex: "#00a8ff" },
-  { name: "Roxo", hex: "#a06bff" },
-  { name: "Verde", hex: "#3ddc84" },
-  { name: "Vermelho", hex: "#ff5d5d" },
-  { name: "Laranja", hex: "#ff9f1c" },
-  { name: "Rosa", hex: "#ff5da2" },
-  { name: "Ciano", hex: "#22d3ee" },
-  { name: "Dourado", hex: "#ffd23f" },
-]
 
 function ScaleControl({
   label,
@@ -441,42 +431,55 @@ export function ThemeSection({
   onCardScale: (z: number) => void
   onAccent: (hex: string) => void
 }) {
+  const { t, lang, setLang } = useI18n()
+
+  const ACCENTS = [
+    { name: t("settings.cores.azul_ps"), hex: "#00a8ff" },
+    { name: t("settings.cores.roxo"), hex: "#a06bff" },
+    { name: t("settings.cores.verde"), hex: "#3ddc84" },
+    { name: t("settings.cores.vermelho"), hex: "#ff5d5d" },
+    { name: t("settings.cores.laranja"), hex: "#ff9f1c" },
+    { name: t("settings.cores.rosa"), hex: "#ff5da2" },
+    { name: t("settings.cores.ciano"), hex: "#22d3ee" },
+    { name: t("settings.cores.dourado"), hex: "#ffd23f" },
+  ]
+
   return (
     <div className="max-w-2xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">Temas</h2>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.temas.titulo")}</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Escala e cores da interface.
+        {t("settings.temas.desc")}
       </p>
 
       <ScaleControl
-        label="Escala da interface (tudo)"
+        label={t("settings.temas.escala")}
         value={scale}
         onChange={onScale}
         presets={[
-          { label: "Pequeno", z: 0.9 },
-          { label: "Padrão", z: 1.0 },
-          { label: "Grande", z: 1.15 },
-          { label: "Enorme", z: 1.3 },
-          { label: "Gigante", z: 1.5 },
+          { label: t("settings.temas.pequeno"), z: 0.9 },
+          { label: t("common.padrao"), z: 1.0 },
+          { label: t("settings.temas.grande"), z: 1.15 },
+          { label: t("settings.temas.enorme"), z: 1.3 },
+          { label: t("settings.temas.gigante"), z: 1.5 },
         ]}
       />
 
       <ScaleControl
-        label="Tamanho das capas"
+        label={t("settings.temas.tamanho_capas")}
         value={cardScale}
         onChange={onCardScale}
         presets={[
-          { label: "Compacto", z: 0.85 },
-          { label: "Padrão", z: 1.0 },
-          { label: "Médio", z: 1.2 },
-          { label: "Grande", z: 1.4 },
-          { label: "Enorme", z: 1.6 },
+          { label: t("settings.temas.compacto"), z: 0.85 },
+          { label: t("common.padrao"), z: 1.0 },
+          { label: t("settings.temas.medio"), z: 1.2 },
+          { label: t("settings.temas.grande"), z: 1.4 },
+          { label: t("settings.temas.enorme"), z: 1.6 },
         ]}
       />
 
       {/* Cor de destaque */}
       <div className="mb-4">
-        <span className="text-sm font-semibold text-[#a8b3cc]">Cor de destaque</span>
+        <span className="text-sm font-semibold text-[#a8b3cc]">{t("settings.temas.cor_destaque")}</span>
         <div className="flex flex-wrap gap-3 mt-3">
           {ACCENTS.map((a) => {
             const active = a.hex.toLowerCase() === accent.toLowerCase()
@@ -497,22 +500,45 @@ export function ThemeSection({
         </div>
       </div>
 
+      {/* Idioma: o modo desktop já tinha o seletor em Configurações Gerais, o
+          console não tinha nenhum — quem só usa o Big Picture ficava preso ao
+          idioma detectado na primeira execução. */}
+      <div className="mt-10">
+        <h3 className="text-sm uppercase tracking-wider text-[#8a93a6] mb-4">{t("settings.language")}</h3>
+        <div className="flex gap-3">
+          {IDIOMAS.map((i) => {
+            const active = lang === i.id
+            return (
+              <button
+                key={i.id}
+                onClick={() => setLang(i.id)}
+                className="rounded-xl px-5 py-3 text-sm transition-colors"
+                style={{
+                  background: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+                  border: active ? "1px solid #ffffff" : "1px solid rgba(255,255,255,0.12)",
+                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                }}
+              >
+                {i.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <p className="text-xs text-[#6b7280] mt-6">
-        Aplicado na hora e salvo automaticamente. Em 4K, escala e capas em
-        <span className="text-white"> Grande</span>.
+        {t("settings.temas.nota")}
       </p>
     </div>
   )
 }
 
 export function MetadataSection({ onSaved }: { onSaved: () => void }) {
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [sgdbKey, setSgdbKey] = useState("")
   const [keySaved, setKeySaved] = useState(false)
-  const [igdbId, setIgdbId] = useState("")
-  const [igdbSecret, setIgdbSecret] = useState("")
-  const [igdbSaved, setIgdbSaved] = useState(false)
   const [trailerAuto, setTrailerAuto] = useState(true)
   const [cookies, setCookies] = useState("")
   const [dlAll, setDlAll] = useState<{ done: number; total: number; title: string } | null>(null)
@@ -524,8 +550,6 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
   useEffect(() => {
     window.launcherAPI?.getConfig().then((c) => {
       setSgdbKey(c?.steamgriddb_api_key ?? "")
-      setIgdbId(c?.igdb_client_id ?? "")
-      setIgdbSecret(c?.igdb_client_secret ?? "")
       setTrailerAuto(c?.trailer_auto !== false)
       setCookies(c?.youtube_cookies ?? "")
     })
@@ -540,7 +564,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
   }, [])
 
   const baixarTodos = async () => {
-    setDlAll({ done: 0, total: 0, title: "iniciando…" })
+    setDlAll({ done: 0, total: 0, title: t("settings.trailers.iniciando") })
     const r = await window.launcherAPI?.trailerDownloadAll()
     setDlAll(null)
     setDone(true)
@@ -554,15 +578,6 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
     setTimeout(() => setKeySaved(false), 1500)
   }
 
-  const saveIgdb = async () => {
-    await window.launcherAPI?.setConfig({
-      igdb_client_id: igdbId.trim(),
-      igdb_client_secret: igdbSecret.trim(),
-    })
-    setIgdbSaved(true)
-    setTimeout(() => setIgdbSaved(false), 1500)
-  }
-
   const rebuild = async () => {
     setBusy(true)
     setDone(false)
@@ -574,20 +589,20 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
   }
 
   const items = [
-    { label: "Capa vertical", on: true },
-    { label: "Banner / imagem-tema (hero)", on: true },
-    { label: "Logo transparente", on: true },
-    { label: "Descrição curta", on: true },
-    { label: "Nota (Metacritic → estrelas)", on: true },
-    { label: "Gênero e ano", on: true },
-    { label: "Trailers (do YouTube)", on: true },
+    { label: t("settings.metadados.item_capa_vertical"), on: true },
+    { label: t("settings.metadados.item_banner_hero"), on: true },
+    { label: t("settings.metadados.item_logo"), on: true },
+    { label: t("settings.metadados.item_descricao_curta"), on: true },
+    { label: t("settings.metadados.item_nota_metacritic"), on: true },
+    { label: t("settings.metadados.item_genero_ano"), on: true },
+    { label: t("settings.metadados.item_trailers"), on: true },
   ]
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">Metadados</h2>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.metadados.titulo")}</h2>
       <p className="text-sm text-[#8a93a6] mb-8">
-        Capas, descrições e conquistas, puxados da Steam Store e cacheados.
+        {t("settings.metadados.desc")}
       </p>
 
       {/* SLScheevo: conquistas funcionais nos jogos injetados via SLSsteam */}
@@ -595,7 +610,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#3ddc84" }} />
-            <h3 className="text-base font-semibold text-white">Conquistas em jogos injetados</h3>
+            <h3 className="text-base font-semibold text-white">{t("settings.metadados.conquistas_injetadas")}</h3>
           </div>
           <span
             className="rounded-full px-2.5 py-1 text-xs font-semibold"
@@ -605,21 +620,16 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             }}
           >
             {scheevo == null
-              ? "Verificando…"
+              ? t("settings.metadados.verificando")
               : scheevo.schemas > 0
-                ? `Ativo (${scheevo.schemas} jogos)`
+                ? t("settings.metadados.ativo", { schemas: String(scheevo.schemas) })
                 : scheevo.installed
-                  ? "Instalado — rode 1x"
-                  : "Não configurado"}
+                  ? t("settings.metadados.instalado_rodar")
+                  : t("settings.metadados.nao_configurado")}
           </span>
         </div>
         <p className="mb-3 text-xs text-[#8a93a6]">
-          Jogos adicionados via <b>SLSsteam</b> não têm progresso de conquistas na
-          Steam Web. O <b>SLScheevo</b> resolve isso: ele gera os arquivos de
-          stats locais e o Arcadia passa a mostrar suas conquistas desbloqueadas
-          de verdade no overview. É um app separado (código aberto) que o Arcadia
-          baixa para você — ele abre num terminal e pede seu <b>login Steam</b>
-          uma única vez.
+          {t("settings.metadados.slscheevo_desc")}
         </p>
         <button
           onClick={async () => {
@@ -631,22 +641,21 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
               onSaved() // reindexa já aplicando os schemas existentes
               window.launcherAPI?.slscheevoStatus().then(setScheevo)
             } else {
-              setScheevoErr(r?.error || "falha desconhecida")
+              setScheevoErr(r?.error || t("common.falha_desconhecida"))
             }
           }}
           disabled={scheevoBusy}
           className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
         >
           {scheevoBusy
-            ? "Preparando…"
+            ? t("common.preparando")
             : scheevo?.installed
-              ? "Abrir SLScheevo (terminal)"
-              : "Baixar e configurar SLScheevo"}
+              ? t("settings.metadados.abrir_slscheevo")
+              : t("settings.metadados.baixar_slscheevo")}
         </button>
         {scheevoErr && <p className="mt-2 text-xs text-[#ff6b81]">{scheevoErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">
-          Depois de logar e gerar os schemas, rode “Reconstruir metadados” ou
-          reabra o Arcadia.
+          {t("settings.metadados.slscheevo_hint")}
         </p>
       </div>
 
@@ -657,7 +666,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#9b6bff" }} />
-            <h3 className="text-base font-semibold text-white">SteamGridDB</h3>
+            <h3 className="text-base font-semibold text-white">{t("settings.steamgriddb")}</h3>
           </div>
           <span
             className="text-xs font-semibold px-2.5 py-1 rounded-full"
@@ -666,20 +675,17 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
               background: sgdbKey ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
             }}
           >
-            {sgdbKey ? "Conectado" : "Sem chave"}
+            {sgdbKey ? t("common.conectado") : t("common.sem_chave")}
           </span>
         </div>
         <p className="text-xs text-[#8a93a6] mb-3">
-          Libera o <b>Buscar online</b> em “Editar metadados”: capas, fundos
-          (inclusive <b>animados</b>) e logos feitos pela comunidade, para
-          qualquer jogo — não só os da Steam. A chave é gratuita: pegue em
-          steamgriddb.com/profile/preferences/api.
+          {t("settings.steamgriddb.desc")}
         </p>
         <input
           type="password"
           value={sgdbKey}
           onChange={(e) => setSgdbKey(e.target.value)}
-          placeholder="Chave da API do SteamGridDB"
+          placeholder={t("settings.steamgriddb.placeholder")}
           spellCheck={false}
           className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-3"
           style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
@@ -688,7 +694,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           onClick={saveKey}
           className="px-5 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03]"
         >
-          {keySaved ? "Salvo!" : "Salvar chave"}
+          {keySaved ? t("common.salvo") : t("settings.steamgriddb.salvar")}
         </button>
       </div>
 
@@ -698,15 +704,14 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       >
         <div className="flex items-center gap-2.5 mb-3">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ff4d6d" }} />
-          <h3 className="text-base font-semibold text-white">Trailers</h3>
+          <h3 className="text-base font-semibold text-white">{t("settings.trailers")}</h3>
         </div>
         <p className="text-xs text-[#8a93a6] mb-4">
-          Os trailers vêm do <b>YouTube</b> e ficam salvos localmente. Ao focar um
-          jogo por um instante, o trailer toca no fundo — como no PS5.
+          {t("settings.trailers.desc")}
         </p>
 
         <div className="flex items-center justify-between mb-4">
-          <span className="text-sm text-white">Tocar trailer no fundo automaticamente</span>
+          <span className="text-sm text-white">{t("settings.trailers.auto_tocar")}</span>
           <Toggle
             on={trailerAuto}
             onChange={(v) => {
@@ -721,7 +726,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           disabled={Boolean(dlAll)}
           className="px-5 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
         >
-          {dlAll ? "Baixando…" : "Baixar todos os trailers"}
+          {dlAll ? t("common.baixando") : t("settings.trailers.baixar_todos")}
         </button>
         {dlAll && (
           <p className="text-xs text-[#8a93a6] mt-3">
@@ -730,13 +735,13 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           </p>
         )}
         <p className="text-[11px] text-[#6b7280] mt-2">
-          Baixa apenas os que faltam. Cada trailer tem alguns MB.
+          {t("settings.trailers.hint")}
         </p>
 
         {/* Cookies do YouTube: só para vídeos com restrição de idade */}
         <div className="mt-5 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
           <div className="flex items-center justify-between gap-3 mb-2">
-            <span className="text-sm text-white">Cookies do YouTube (restrição de idade)</span>
+            <span className="text-sm text-white">{t("settings.trailers.cookies_label")}</span>
             <span
               className="text-xs font-semibold px-2.5 py-1 rounded-full shrink-0"
               style={{
@@ -744,27 +749,20 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
                 background: cookies ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
               }}
             >
-              {cookies ? "Configurado" : "Não usado"}
+              {cookies ? t("common.configurado") : t("common.nao_usado")}
             </span>
           </div>
           <p className="text-xs text-[#8a93a6] mb-3">
-            Alguns trailers oficiais têm <b>restrição de idade</b> e o YouTube exige
-            login. Para esses, exporte um arquivo <b>cookies.txt</b> e selecione aqui.
-            A maioria dos vídeos <b>não</b> precisa disso.
+            {t("settings.trailers.cookies_desc")}
           </p>
           <div
             className="rounded-lg p-3 mb-3 text-xs text-[#8a93a6]"
             style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
-            <div className="text-[#a8b3cc] font-semibold mb-1">Como pegar (2 min)</div>
-            1. No seu navegador logado no YouTube, instale a extensão{" "}
-            <span className="text-white">“Get cookies.txt LOCALLY”</span>.
-            <br />
-            2. Abra <span className="text-white">youtube.com</span> e clique na extensão
-            → <span className="text-white">Export</span> (salva um{" "}
-            <span className="text-white">cookies.txt</span>).
-            <br />
-            3. Clique em “Escolher arquivo” abaixo e aponte para esse arquivo.
+            <div className="text-[#a8b3cc] font-semibold mb-1">{t("settings.trailers.cookies_instrucoes")}</div>
+            {t("settings.trailers.cookies_passo1")}<br />
+            {t("settings.trailers.cookies_passo2")}<br />
+            {t("settings.trailers.cookies_passo3")}
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -774,7 +772,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
               }}
               className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
             >
-              Escolher arquivo…
+              {t("settings.trailers.escolher_arquivo")}
             </button>
             {cookies && (
               <>
@@ -786,7 +784,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
                   }}
                   className="text-xs text-[#ff6b81] shrink-0"
                 >
-                  Remover
+                  {t("settings.trailers.remover")}
                 </button>
               </>
             )}
@@ -794,60 +792,28 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
 
-      {/* Credenciais da IGDB: arte E descrição, para qualquer plataforma */}
-      <div
-        className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
-      >
+      {/* IGDB: arte E descrição para qualquer plataforma, sem credencial */}
+      <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#9147ff" }} />
-            <h3 className="text-base font-semibold text-white">IGDB</h3>
+            <h3 className="text-base font-semibold text-white">{t("settings.igdb")}</h3>
           </div>
           <span
             className="text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={{
-              color: igdbId && igdbSecret ? "#4adf9a" : "#8a93a6",
-              background: igdbId && igdbSecret ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
-            }}
+            style={{ color: "#4adf9a", background: "rgba(74,223,154,0.12)" }}
           >
-            {igdbId && igdbSecret ? "Conectado" : "Sem credenciais"}
+            {t("common.sem_chave")}
           </span>
         </div>
-        <p className="text-xs text-[#8a93a6] mb-3">
-          A base que o Playnite usa por padrão: <b>descrição, capa e fundos</b>{" "}
-          de qualquer plataforma — inclusive jogos de Heroic e Lutris, que a
-          Steam não conhece. É gratuita: crie uma aplicação em
-          dev.twitch.tv/console/apps e use o Client ID e o Client Secret dela.
+        <p className="text-xs text-[#8a93a6]">
+          {t("settings.igdb.desc")}
         </p>
-        <input
-          type="password"
-          value={igdbId}
-          onChange={(e) => setIgdbId(e.target.value)}
-          placeholder="Client ID (Twitch)"
-          spellCheck={false}
-          className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-2"
-          style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
-        />
-        <input
-          value={igdbSecret}
-          onChange={(e) => setIgdbSecret(e.target.value)}
-          placeholder="Client Secret (Twitch)"
-          type="password"
-          spellCheck={false}
-          className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-3"
-          style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
-        />
-        <button
-          onClick={saveIgdb}
-          className="px-5 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03]"
-        >
-          {igdbSaved ? "Salvo!" : "Salvar credenciais"}
-        </button>
       </div>
 
-      <h3 className="text-base font-semibold text-white mb-1">O que é buscado</h3>
+      <h3 className="text-base font-semibold text-white mb-1">{t("settings.igdb.o_que_buscado")}</h3>
       <p className="text-xs text-[#8a93a6] mb-4">
-        Coletados automaticamente para cada jogo.
+        {t("settings.igdb.coletados_desc")}
       </p>
       <div className="grid grid-cols-2 gap-2.5 mb-8">
         {items.map((it) => (
@@ -865,7 +831,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
               style={{ color: "#4adf9a" }}
             >
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#4adf9a" }} />
-              Ativo
+              {t("common.ativo")}
             </span>
           </div>
         ))}
@@ -876,10 +842,10 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         disabled={busy}
         className="px-6 py-2.5 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
       >
-        {busy ? "Reconstruindo…" : done ? "Metadados atualizados!" : "Reconstruir metadados"}
+        {busy ? t("settings.igdb.reconstruindo") : done ? t("settings.igdb.atualizado") : t("settings.igdb.reconstruir")}
       </button>
       <p className="text-xs text-[#6b7280] mt-3">
-        Limpa o cache e busca tudo de novo. Leva cerca de 30s.
+        {t("settings.igdb.reconstruir_hint")}
       </p>
     </div>
   )

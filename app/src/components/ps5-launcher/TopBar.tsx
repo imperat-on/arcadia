@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react"
 import { UserMenu } from "./UserMenu"
 import type { Profile } from "../../global"
+import { userLocale } from "../../i18n/locale"
+import { useI18n } from "../../i18n/I18nContext"
 
 interface TopBarProps {
   profile?: Profile
@@ -63,7 +65,7 @@ const IconeLoja = ({ className = "" }: { className?: string }) => (
   </IconeBase>
 )
 
-export const TABS = ["Notícias", "Jogos", "Biblioteca", "Loja"]
+export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.biblioteca", "topbar.loja"]
 const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca, IconeLoja]
 
 export function TopBar({
@@ -81,14 +83,15 @@ export function TopBar({
   downloadsActive = 0,
   onOpenDownloads,
 }: TopBarProps) {
-  const initial = (profile?.name?.[0] || "J").toUpperCase()
+  const { t } = useI18n()
+  const initial = (profile?.name?.[0] || t("topbar.fallback_inicial")).toUpperCase()
   const [time, setTime] = useState("")
   const active = activeTab
 
   useEffect(() => {
     const update = () =>
       setTime(
-        new Date().toLocaleTimeString("pt-BR", {
+        new Date().toLocaleTimeString(userLocale(), {
           hour: "2-digit",
           minute: "2-digit",
         }),
@@ -109,8 +112,8 @@ export function TopBar({
             <button
               key={tab}
               onClick={() => onTab(i)}
-              title={tab}
-              aria-label={tab}
+              title={t(tab)}
+              aria-label={t(tab)}
               className="relative flex flex-col items-center pb-1 transition-colors duration-200"
               style={{
                 color: isActive ? "#ffffff" : "rgba(255,255,255,0.40)",
@@ -131,8 +134,8 @@ export function TopBar({
       <div className="flex items-center gap-6">
         <button
           onClick={onOpenDownloads}
-          title="Downloads"
-          aria-label="Downloads"
+          title={t("topbar.downloads")}
+          aria-label={t("topbar.downloads")}
           className="relative text-white/75 transition-colors hover:text-white"
           style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
         >
@@ -153,8 +156,8 @@ export function TopBar({
 
         <button
           onClick={onOpenSettings}
-          title="Configurações"
-          aria-label="Configurações"
+          title={t("topbar.configuracoes")}
+          aria-label={t("topbar.configuracoes")}
           className="text-white/75 hover:text-white transition-colors"
           style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
         >
@@ -166,7 +169,7 @@ export function TopBar({
         <div className="relative">
           <button
             onClick={onToggleMenu}
-            title="Perfil"
+            title={t("topbar.perfil")}
             className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden transition-transform hover:scale-105"
             style={{ background: "linear-gradient(135deg, #0072ce, #003791)" }}
           >
