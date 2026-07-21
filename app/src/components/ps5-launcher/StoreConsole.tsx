@@ -321,9 +321,13 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (typeof ref === "function") ref(el)
         else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
       }}
+      // `gp-scope` liga as regras de foco pensadas para a navegação por
+      // controle: sem ela, a aba focada fica branca — igual à aba ativa — e os
+      // botões do herói não mostram foco nenhum.
+      //
       // O navy profundo (definido em .loja) substitui o preto absoluto: no
       // preto puro os cards não tinham chão do qual se destacar.
-      className="loja flex h-full w-full flex-col overflow-hidden text-white"
+      className="loja gp-scope flex h-full w-full flex-col overflow-hidden text-white"
       style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
     >
       {/* ── Barra superior ───────────────────────────────────────────────── */}
