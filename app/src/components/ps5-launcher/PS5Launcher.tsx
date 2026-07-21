@@ -431,8 +431,13 @@ export function PS5Launcher() {
     [],
   )
   // B na loja é da própria loja enquanto houver para onde voltar (categoria ou
-  // busca). Na vitrine ela devolve false e o botão volta a ser da aba.
-  useGamepadNav(storeRef, storeMode, () => atalhosLoja.current?.voltar(), false, extrasLoja)
+  // busca). Na vitrine ela devolve false e o B sai da loja para a aba Jogos —
+  // antes não saía nada: sem esse fallback, só L1/R1 tiravam você da loja.
+  const voltarLoja = useCallback(() => {
+    if (atalhosLoja.current?.voltar()) return
+    setActiveTab(1)
+  }, [])
+  useGamepadNav(storeRef, storeMode, voltarLoja, false, extrasLoja)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =
