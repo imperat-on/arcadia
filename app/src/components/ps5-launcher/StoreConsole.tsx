@@ -64,6 +64,10 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // A loja da Steam é uma página web de verdade: leva alguns segundos até
   // pintar. Sem isto a aba ficava preta e parecia travada.
   const [carregando, setCarregando] = useState(true)
+  // ...mas SÓ na primeira carga (a home da loja). Dali em diante a página já
+  // está na tela e cobri-la de preto a cada clique num jogo era pior que
+  // esperar olhando o conteúdo antigo.
+  const primeiraCargaRef = useRef(true)
   // appid do jogo aberto no webview + refs de estado (para o listener, que é
   // registrado uma vez, ler sempre o valor atual sem fechar sobre valor velho).
   const paginaAppidRef = useRef("")
@@ -247,8 +251,13 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (e?.isMainFrame === false) return
       if (e?.url) empilhar(String(e.url))
     }
-    const onStart = () => setCarregando(true)
-    const onStop = () => setCarregando(false)
+    const onStart = () => {
+      if (primeiraCargaRef.current) setCarregando(true)
+    }
+    const onStop = () => {
+      primeiraCargaRef.current = false
+      setCarregando(false)
+    }
     el.addEventListener("did-start-loading", onStart)
     el.addEventListener("did-stop-loading", onStop)
     el.addEventListener("dom-ready", onReady)
@@ -473,3 +482,4 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     </div>
   )
 })
+
