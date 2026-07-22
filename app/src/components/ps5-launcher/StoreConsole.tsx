@@ -16,7 +16,12 @@ const STEAM_LANG: Record<string, string> = {
 
 interface StoreConsoleProps {
   games: Game[]
-  /** Pausa quando a janela perde o foco (não usado no webview, mantido p/ API). */
+  /**
+   * A loja está visível e em primeiro plano. Falso quando a janela perde o
+   * foco OU quando o launcher está em outra aba — a loja continua montada
+   * (para não recarregar a página da Steam), só escondida; os laços de
+   * gamepad precisam parar nesse estado.
+   */
   ativo: boolean
   /** A loja abriu/fechou um overlay próprio (só o diálogo de escolha de disco). */
   onOverlay?: (aberto: boolean) => void
@@ -36,7 +41,7 @@ interface StoreConsoleProps {
 // (webview-steam-preload.js) injeta um botão discreto "Baixar (Arcadia)" nas
 // páginas de jogo, que dispara o fluxo de download do próprio Arcadia.
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
-  { games, onOverlay, onAtalhos },
+  { games, ativo, onOverlay, onAtalhos },
   ref,
 ) {
   const { t, lang } = useI18n()
@@ -56,6 +61,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // Sugestões espelhadas do dropdown da Steam. Preload observa o DOM interno
   // e nos manda a lista pronta; renderizamos como tira dentro do teclado.
   const [sugestoesLoja, setSugestoesLoja] = useState<SugestaoLoja[]>([])
+  // A loja da Steam é uma página web de verdade: leva alguns segundos até
+  // pintar. Sem isto a aba ficava preta e parecia travada.
+  const [carregando, setCarregando] = useState(true)
   // appid do jogo aberto no webview + refs de estado (para o listener, que é
   // registrado uma vez, ler sempre o valor atual sem fechar sobre valor velho).
   const paginaAppidRef = useRef("")
@@ -239,11 +247,17 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (e?.isMainFrame === false) return
       if (e?.url) empilhar(String(e.url))
     }
+    const onStart = () => setCarregando(true)
+    const onStop = () => setCarregando(false)
+    el.addEventListener("did-start-loading", onStart)
+    el.addEventListener("did-stop-loading", onStop)
     el.addEventListener("dom-ready", onReady)
     el.addEventListener("ipc-message", onMsg)
     el.addEventListener("did-navigate", onNavigate)
     el.addEventListener("did-navigate-in-page", onNavigateInPage)
     return () => {
+      el.removeEventListener("did-start-loading", onStart)
+      el.removeEventListener("did-stop-loading", onStop)
       el.removeEventListener("dom-ready", onReady)
       el.removeEventListener("ipc-message", onMsg)
       el.removeEventListener("did-navigate", onNavigate)
@@ -265,7 +279,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     let rest: number[] | null = null
     let vel = 0
     const loop = () => {
-      const pausado = tecladoAberto || Boolean(acoes.escolhendo)
+      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo)
       if (pausado || !document.hasFocus()) {
         vel = 0
         raf = requestAnimationFrame(loop)
@@ -290,7 +304,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [tecladoAberto, acoes.escolhendo])
+  }, [ativo, tecladoAberto, acoes.escolhendo])
 
   // Cursor virtual: analógico ESQUERDO move a bolinha desenhada pelo preload
   // dentro do webview. Botão A dispara clique no elemento embaixo do cursor.
@@ -307,7 +321,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
     const loop = (agora: number) => {
       const w = webRef.current
-      const pausado = tecladoAberto || Boolean(acoes.escolhendo)
+      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo)
       // Mesmo em pausa, sincronizamos prevA com o estado real do botão. Sem
       // isso, se o usuário aperta A pra escolher uma sugestão (o que fecha o
       // teclado), no frame seguinte o A ainda pode estar pressionado e o loop
@@ -359,7 +373,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [tecladoAberto, acoes.escolhendo])
+  }, [ativo, tecladoAberto, acoes.escolhendo])
 
   // Esconde o cursor no preload sempre que um overlay do host cobrir a loja
   // (teclado, diálogo de disco). Mostra de novo quando fecha.
@@ -380,6 +394,17 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         useragent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         style={{ width: "100%", height: "100%", background: "#000" }}
       />
+
+      {/* Carregando: some sozinho no did-stop-loading. */}
+      {carregando && (
+        <div className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black">
+          <div
+            className="h-10 w-10 animate-spin rounded-full border-2 border-white/15"
+            style={{ borderTopColor: "var(--accent)" }}
+          />
+          <span className="text-sm tracking-wide text-white/40">{t("store.titulo")}</span>
+        </div>
+      )}
 
       {/* Escolha da biblioteca Steam — mesmo diálogo do hook de ações. */}
       {acoes.escolhendo && (
