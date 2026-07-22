@@ -2,6 +2,7 @@
 // parseia o XML (regex, no estilo do metadata.js) e normaliza para NewsItem[].
 
 const { semHTML } = require("./metadata")
+const { fetchRede } = require("./httpfetch")
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -137,7 +138,9 @@ function pegarImagem(bloco) {
 
 async function buscarFeed(feed) {
   // Feed de notícias sem timeout pendurava a aba Notícias indefinidamente.
-  const r = await fetch(feed.url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) })
+  // 8s: os feeds respondem em 3–10s. Com 20s, um único feed pendurado segurava
+  // o Promise.all inteiro e, no caso sem cache, a aba junto.
+  const r = await fetchRede(feed.url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const xml = await r.text()
   const itens = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || []
