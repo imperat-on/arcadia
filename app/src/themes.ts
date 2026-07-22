@@ -160,6 +160,17 @@ export const TEMAS: Theme[] = [
     text: "#f0ead6",
     muted: "#a39f8d",
   },
+  {
+    // Cores da loja web da Steam (navy escuro + azul claro).
+    id: "steam",
+    nome: "Steam",
+    bg: "#1b2838",
+    sidebar: "#171a21",
+    card: "#2a475e",
+    accent: "#66c0f4",
+    text: "#ffffff",
+    muted: "#8f98a0",
+  },
 ]
 
 export const TEMA_PADRAO = "midnight"

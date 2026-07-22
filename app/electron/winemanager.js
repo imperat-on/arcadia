@@ -197,14 +197,23 @@ async function install(id, kind, onProgress) {
   const file = fs.createWriteStream(tgz)
   const reader = res.body.getReader()
   let done = 0
-  for (;;) {
-    const { done: fin, value } = await reader.read()
-    if (fin) break
-    file.write(value)
-    done += value.length
-    onProgress?.({ id, done, total })
+  try {
+    for (;;) {
+      const { done: fin, value } = await reader.read()
+      if (fin) break
+      file.write(value)
+      done += value.length
+      onProgress?.({ id, done, total })
+    }
+    await new Promise((r) => file.end(r))
+  } catch (e) {
+    // Conexão caiu no meio do stream: fecha o handle e descarta o arquivo
+    // parcial — sem isso o fd ficava aberto e o .tar.gz/.tar.xz incompleto
+    // ficava perdido em wine/.
+    await new Promise((r) => file.close(r))
+    fs.rmSync(tgz, { force: true })
+    throw e
   }
-  await new Promise((r) => file.end(r))
 
   await new Promise((res2, rej) =>
     execFile("tar", [tarFlag, tgz, "-C", WINE_DIR], (e) => (e ? rej(e) : res2())),
@@ -232,7 +241,9 @@ async function install(id, kind, onProgress) {
 
 function remove(id) {
   const dir = path.join(WINE_DIR, id)
-  if (!dir.startsWith(WINE_DIR)) return { ok: false }
+  // startsWith(WINE_DIR) sozinho deixa passar irmãos tipo "wine-outra-pasta"
+  // (que também começa com o texto de WINE_DIR); exige o separador de path.
+  if (!(dir === WINE_DIR || dir.startsWith(WINE_DIR + path.sep))) return { ok: false }
   fs.rmSync(dir, { recursive: true, force: true })
   return { ok: true }
 }

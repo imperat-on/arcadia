@@ -19,6 +19,8 @@ var games: Array = []
 var cards: Array = []
 var selected := 0
 var nav_timer := 0.0
+var _nav_tweens: Array = []
+var _overlay_token := 0
 
 # Nós construídos em _ready.
 var bg_base: ColorRect
@@ -196,6 +198,15 @@ func _select(idx: int, instant := false) -> void:
 	selected = idx
 	var g: Dictionary = games[idx]
 
+	# Mata tweens de navegação anteriores: sem isso, segurar uma tecla de
+	# direção (uso normal — o cooldown de 0.16s é menor que a duração de
+	# 0.22s/0.30s dos tweens) empilha vários tweens concorrentes escrevendo
+	# nas mesmas propriedades, causando flicker e um estado final inconsistente.
+	for t_old in _nav_tweens:
+		if t_old != null and is_instance_valid(t_old) and t_old.is_valid():
+			t_old.kill()
+	_nav_tweens.clear()
+
 	# Anima cards.
 	for i in cards.size():
 		var card: Control = cards[i]
@@ -214,6 +225,7 @@ func _select(idx: int, instant := false) -> void:
 			t.tween_property(card, "modulate", target_mod, 0.22)
 			t.tween_property(border, "color",
 				Color(0.4, 0.7, 1.0, 1.0) if focused else Color(1, 1, 1, 0), 0.22)
+			_nav_tweens.append(t)
 
 	# Centraliza a fileira no card selecionado.
 	var target_x := 960.0 - (idx * (CARD_W + GAP) + CARD_W / 2.0)
@@ -222,6 +234,7 @@ func _select(idx: int, instant := false) -> void:
 	else:
 		var tr := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		tr.tween_property(row, "position:x", target_x, 0.30)
+		_nav_tweens.append(tr)
 
 	_update_info(g, instant)
 
@@ -271,6 +284,10 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if overlay.visible:
 		if event.is_action_pressed("ui_cancel"):
+			# Invalida qualquer await pendente de _launch_selected/_refresh_library:
+			# sem isso, o timer da ação cancelada podia esconder o overlay de uma
+			# ação NOVA iniciada logo em seguida.
+			_overlay_token += 1
 			overlay.visible = false
 		return
 	if event.is_action_pressed("ui_accept"):
@@ -299,6 +316,8 @@ func _launch_selected() -> void:
 	for i in range(1, cmd.size()):
 		args.append(str(cmd[i]))
 
+	_overlay_token += 1
+	var token := _overlay_token
 	overlay_label.text = "Iniciando\n" + str(g.get("title", ""))
 	overlay.visible = true
 
@@ -306,14 +325,18 @@ func _launch_selected() -> void:
 	if pid <= 0:
 		overlay_label.text = "Falha ao iniciar\n" + str(g.get("title", ""))
 		await get_tree().create_timer(2.0).timeout
-		overlay.visible = false
+		if token == _overlay_token:
+			overlay.visible = false
 	else:
 		# Some com o overlay depois de alguns segundos (o jogo assume a tela).
 		await get_tree().create_timer(6.0).timeout
-		overlay.visible = false
+		if token == _overlay_token:
+			overlay.visible = false
 
 
 func _refresh_library() -> void:
+	_overlay_token += 1
+	var token := _overlay_token
 	overlay_label.text = "Atualizando biblioteca…"
 	overlay.visible = true
 	var pid := OS.create_process("python3", PackedStringArray([index_path]))
@@ -322,7 +345,8 @@ func _refresh_library() -> void:
 	_build_cards()
 	if not games.is_empty():
 		_select(clampi(selected, 0, games.size() - 1), true)
-	overlay.visible = false
+	if token == _overlay_token:
+		overlay.visible = false
 
 
 # --------------------------------------------------------------------------- #
@@ -337,8 +361,17 @@ func _load_library() -> void:
 		return
 	var data = JSON.parse_string(f.get_as_text())
 	f.close()
-	if typeof(data) == TYPE_ARRAY:
-		games = data
+	if typeof(data) != TYPE_ARRAY:
+		return
+	# Ignora entradas que não são Dictionary: `var g: Dictionary = games[i]`
+	# (usado em _build_cards/_select/_launch_selected) daria erro de tipo em
+	# tempo de execução e interromperia a função no meio de um library.json
+	# parcial/corrompido (ex.: index.py interrompido a meio da escrita).
+	for entry in data:
+		if typeof(entry) == TYPE_DICTIONARY:
+			games.append(entry)
+		else:
+			push_warning("library.json: entrada inválida ignorada: %s" % str(entry))
 
 
 var _tex_cache := {}

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron")
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
 const { getNews } = require("./news")
 const { startAchievementWatcher } = require("./achievements")
 const updater = require("./updater")
@@ -335,9 +335,17 @@ function baixarTrailerUrl(id, url) {
   })
 }
 
+// Cache por mtime: readConfig é chamado dezenas de vezes no boot (createWindow,
+// did-finish-load, watchers, handlers). Relê do disco só quando o arquivo muda
+// (writeConfig troca o mtime pelo rename), então edições externas também pegam.
+let _cfgCache = { mtimeMs: -1, data: {} }
 function readConfig() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG, "utf-8"))
+    const m = fs.statSync(CONFIG).mtimeMs
+    if (m !== _cfgCache.mtimeMs) {
+      _cfgCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(CONFIG, "utf-8")) }
+    }
+    return _cfgCache.data
   } catch (e) {
     return {}
   }
@@ -388,9 +396,29 @@ async function buildSysinfo(g) {
   return info
 }
 
+// Cache de sysinfo em memória + flush coalescido. Antes lia E reescrevia o
+// arquivo INTEIRO (~86KB) a cada jogo: o prefetch percorre a biblioteca toda,
+// então eram N leituras + N escritas síncronas de um arquivo grande. Agora
+// carrega uma vez, muta em memória e agenda UMA escrita.
+let _sysinfoCache = null
+let _sysinfoTimer = null
+function _loadSysinfo() {
+  if (_sysinfoCache === null) _sysinfoCache = readJsonFile(SYSINFO_CACHE, {})
+  return _sysinfoCache
+}
+function _flushSysinfoSoon() {
+  if (_sysinfoTimer) return
+  _sysinfoTimer = setTimeout(() => {
+    _sysinfoTimer = null
+    try {
+      fs.writeFileSync(SYSINFO_CACHE, JSON.stringify(_sysinfoCache))
+    } catch {}
+  }, 1500)
+}
+
 async function getSysinfo(g) {
   const id = String(g?.id || "")
-  const cache = readJsonFile(SYSINFO_CACHE, {})
+  const cache = _loadSysinfo()
   // Os requisitos de sistema vêm traduzidos pela Steam. Guardar o idioma junto
   // evita que a página do jogo fique em português depois de trocar o app para
   // inglês — este cache não tem validade, era para sempre.
@@ -399,9 +427,7 @@ async function getSysinfo(g) {
   const info = await buildSysinfo(g)
   info._lang = lang
   cache[id] = info
-  try {
-    fs.writeFileSync(SYSINFO_CACHE, JSON.stringify(cache, null, 2))
-  } catch {}
+  _flushSysinfoSoon()
   return info
 }
 
@@ -416,6 +442,33 @@ function startSysinfoPrefetch() {
       await new Promise((r) => setTimeout(r, 400)) // não atropela Steam/legendary
     }
   }, 8000)
+}
+
+// Prefetch em background das 5 categorias da vitrine da Loja (mesmas fontes
+// que StoreConsole.tsx busca no mount). O custo real de abrir a Loja não é a
+// lista (já cacheada) e sim a SONDAGEM de disponibilidade por item — que fica
+// pronta aqui antes do usuário clicar na aba. Serial (não Promise.all): evita
+// sondar em paralelo appids repetidos entre categorias e não sobrecarrega os
+// provedores Sushi/Ryuu. Começa depois do prefetch de sysinfo (que também usa
+// rede + escrita em disco) para não disputar o event loop do processo
+// principal logo após o boot.
+function startStorePrefetch() {
+  setTimeout(async () => {
+    const ss = require("./steamstore")
+    const fontes = [
+      () => ss.popular("top100in2weeks", 40, 0), // categoria "alta"
+      () => ss.destaques("new_releases", 40, 0),
+      () => ss.destaques("top_sellers", 40, 0),
+      () => ss.popular("top100forever", 40, 0), // categoria "jogados"
+      () => ss.destaques("specials", 40, 0),
+    ]
+    for (const buscar of fontes) {
+      try {
+        await buscar()
+      } catch {}
+      await new Promise((r) => setTimeout(r, 400))
+    }
+  }, 15000)
 }
 
 // UMU (vem com o Heroic): jeito certo de rodar builds Proton fora da Steam —
@@ -479,6 +532,10 @@ const GAME_SETTINGS = path.join(DATA_DIR, "game_settings.json")
 const SYSINFO_CACHE = path.join(DATA_DIR, "sysinfo_cache.json")
 // Jogos adicionados manualmente ("Adicionar jogo"): entram na biblioteca.
 const CUSTOM_GAMES = path.join(DATA_DIR, "custom_games.json")
+// Stubs otimistas gravados quando o usuário adiciona um jogo pela loja Steam:
+// aparecem na aba Jogos imediatamente, com arte da CDN. O indexer os substitui
+// pela entrada real de library.json na próxima passada, e o stub é removido.
+const PENDING_GAMES = path.join(DATA_DIR, "pending_games.json")
 
 function readJsonFile(p, fallback) {
   try {
@@ -765,10 +822,27 @@ function xboxLocale(cfg) {
 
 // Lê library.json, aplica as edições do usuário e converte caminhos de arte
 // locais em file:// para o <img>. Jogos adicionados manualmente entram aqui.
+// Cache por mtime combinado dos 3 arquivos-fonte. readLibrary é chamado no
+// prefetch e em ~8 handlers; reparsear+reconstruir file:// toda vez é
+// desperdício quando nada mudou. Callers só iteram ou serializam via IPC
+// (structured clone), então devolver a referência cacheada é seguro.
+let _libCache = { chave: "", games: [] }
+function _libMtimeKey() {
+  return [LIB, CUSTOM_GAMES, OVERRIDES, PENDING_GAMES]
+    .map((p) => { try { return fs.statSync(p).mtimeMs } catch { return 0 } })
+    .join(":")
+}
 function readLibrary() {
   try {
+    const chave = _libMtimeKey()
+    if (chave === _libCache.chave) return _libCache.games
     const games = JSON.parse(fs.readFileSync(LIB, "utf-8"))
     games.push(...readJsonFile(CUSTOM_GAMES, []))
+    // Stubs otimistas: só entram se ainda não foram indexados de verdade.
+    const jaTem = new Set(games.map((g) => g.id))
+    for (const p of readJsonFile(PENDING_GAMES, [])) {
+      if (p && p.id && !jaTem.has(p.id)) games.push(p)
+    }
     applyOverrides(games, readOverrides(OVERRIDES))
     for (const g of games) {
       for (const k of ["cover", "hero", "logo"]) {
@@ -777,6 +851,7 @@ function readLibrary() {
         }
       }
     }
+    _libCache = { chave, games }
     return games
   } catch (e) {
     return []
@@ -820,7 +895,47 @@ function avisarBiblioteca(win, reindexar = true) {
     if (win && !win.isDestroyed()) win.webContents.send("library:changed")
   }
   emitir()
-  if (reindexar) runIndexer().then(emitir)
+  if (reindexar) runIndexer().then(() => {
+    try { limparPendentesIndexados() } catch {}
+    emitir()
+  })
+}
+
+// Grava um stub em pending_games.json com o mesmo formato de library.json:
+// id "steam:<appid>", launcher steam, arte da CDN, flag pendente pra UI opcional.
+// Se o appid já está indexado (ou já é pendente), não faz nada.
+function adicionarStubPendente(appid, title) {
+  const id = "steam:" + appid
+  if (readLibrary().some((g) => g.id === id)) return
+  const atuais = readJsonFile(PENDING_GAMES, [])
+  if (atuais.some((g) => g && g.id === id)) return
+  const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appid
+  atuais.push({
+    id,
+    title: String(title || "").trim() || `Steam ${appid}`,
+    launcher: "steam",
+    launch_cmd: ["steam", `steam://rungameid/${appid}`],
+    installed: false,
+    cover: `${base}/library_600x900.jpg`,
+    hero: `${base}/library_hero.jpg`,
+    logo: `${base}/logo.png`,
+    pendente: true,
+  })
+  fs.writeFileSync(PENDING_GAMES, JSON.stringify(atuais, null, 2))
+}
+
+// Após o indexer rodar, qualquer stub cujo id já apareça em library.json é
+// removido — a entrada real substitui o stub sem duplicar.
+function limparPendentesIndexados() {
+  const atuais = readJsonFile(PENDING_GAMES, [])
+  if (!atuais.length) return
+  let reais
+  try { reais = JSON.parse(fs.readFileSync(LIB, "utf-8")) } catch { return }
+  const idsReais = new Set(reais.map((g) => g.id))
+  const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
+  if (restantes.length !== atuais.length) {
+    fs.writeFileSync(PENDING_GAMES, JSON.stringify(restantes, null, 2))
+  }
 }
 
 // Conta os AppIds injetados pelo SLSsteam (bloco AdditionalApps).
@@ -878,6 +993,10 @@ function createWindow() {
     autoHideMenuBar: true,
     icon: path.join(__dirname, "..", "public", "logo-512.png"),
     fullscreen: process.env.PS5_FULLSCREEN === "1",
+    // Não mostra até o primeiro paint estar pronto: sem isto a janela abre
+    // branca/vazia e só depois o React pinta. Com ready-to-show o usuário vê
+    // a janela já com conteúdo, sem flash branco.
+    show: false,
     // "Usar janela sem moldura" (Config. Gerais) — requer reiniciar o app.
     frame: !cfgIni.frameless_window,
     webPreferences: {
@@ -888,9 +1007,19 @@ function createWindow() {
       webSecurity: false,
       // Deixa o trailer tocar sozinho COM som ao focar o jogo (estilo PS5).
       autoplayPolicy: "no-user-gesture-required",
+      // A página da loja Steam é embutida num <webview> (StoreGamePage).
+      webviewTag: true,
     },
   })
+  // Força o preload da webview da loja Steam pelo main (mais seguro que via
+  // atributo no HTML) e trava Node/integração na página de terceiros.
+  win.webContents.on("will-attach-webview", (_e, wp) => {
+    wp.preload = path.join(__dirname, "webview-steam-preload.js")
+    wp.nodeIntegration = false
+    wp.contextIsolation = true
+  })
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
+  win.once("ready-to-show", () => win.show())
   // Aplica a escala salva assim que a página carrega.
   win.webContents.on("did-finish-load", () => {
     const z = Number(readConfig().ui_scale) || 1
@@ -994,8 +1123,41 @@ function createWindow() {
   }, 3000)
 }
 
+// Pré-configura a partition do webview da loja Steam: cookies de idade para
+// pular a verificação de "birth date" nas páginas de conteúdo adulto. É a
+// mesma coisa que a Steam grava depois que o usuário passa o age-gate uma vez.
+function configurarLojaSteam() {
+  try {
+    const ses = session.fromPartition("persist:steamstore")
+    const exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600
+    // birthtime = 1990-01-01 UTC (631152000). Adulto o bastante para tudo.
+    const cookies = [
+      { name: "birthtime", value: "631152000" },
+      { name: "lastagecheckage", value: "1-January-1990" },
+      { name: "wants_mature_content", value: "1" },
+    ]
+    for (const c of cookies) {
+      ses.cookies
+        .set({
+          url: "https://store.steampowered.com",
+          name: c.name,
+          value: c.value,
+          domain: ".steampowered.com",
+          path: "/",
+          secure: true,
+          expirationDate: exp,
+        })
+        .catch(() => {})
+    }
+  } catch {}
+}
+
 app.whenReady().then(() => {
+  configurarLojaSteam()
   startSysinfoPrefetch()
+  // startStorePrefetch() removido: a loja agora é a página web da Steam
+  // embutida (StoreConsole/webview), não a vitrine nativa — o prefetch de
+  // popular/destaques/gênero virou trabalho de rede sem uso.
   ipcMain.handle("library:get", () => readLibrary())
 
   ipcMain.handle("game:launch", async (_e, payload) => {
@@ -1084,17 +1246,19 @@ app.whenReady().then(() => {
           if (!err) {
             // Steam rodando: sai do BPM e lança.
             try {
-              const bp = spawn("steam", ["steam://exitbigpicture"], { detached: true, stdio: "ignore", env })
+              const bp = spawn(cmd[0], ["steam://exitbigpicture"], { detached: true, stdio: "ignore", env })
               bp.unref()
             } catch {}
             setTimeout(run, 900)
             return
           }
-          // Steam FECHADA: abre o cliente puro (modo desktop), espera subir,
-          // garante saída do BPM (ela pode restaurar a sessão anterior em BPM
-          // — principalmente no gamescope) e só então lança o jogo.
+          // Steam FECHADA: abre o cliente (mesmo binário/env de `cmd`/`env` —
+          // com injeção SLSsteam quando aplicável; usar o "steam" do PATH
+          // aqui reintroduziria a Steam pura, ver comentário de steamComInjecao),
+          // espera subir, garante saída do BPM (ela pode restaurar a sessão
+          // anterior em BPM — principalmente no gamescope) e só então lança o jogo.
           try {
-            const st = spawn("steam", [], { detached: true, stdio: "ignore", env })
+            const st = spawn(cmd[0], [], { detached: true, stdio: "ignore", env })
             st.unref()
           } catch {}
           let tentativas = 0
@@ -1104,7 +1268,7 @@ app.whenReady().then(() => {
                 clearInterval(esperar)
                 setTimeout(() => {
                   try {
-                    const bp = spawn("steam", ["steam://exitbigpicture"], { detached: true, stdio: "ignore", env })
+                    const bp = spawn(cmd[0], ["steam://exitbigpicture"], { detached: true, stdio: "ignore", env })
                     bp.unref()
                   } catch {}
                   setTimeout(run, 1200)
@@ -1572,7 +1736,7 @@ app.whenReady().then(() => {
   // "Add": adiciona o jogo à Steam sem baixar (estilo luatools-moon). O .lua
   // vai pro stplug-in da SLSsteam (keys/tokens) e o appid entra em
   // AdditionalApps — aí a própria Steam baixa o jogo pela CDN dela.
-  ipcMain.handle("store:addToSteam", (_e, { appid, token, dlcs } = {}) => {
+  ipcMain.handle("store:addToSteam", (_e, { appid, token, dlcs, title } = {}) => {
     try {
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) return r
@@ -1581,6 +1745,10 @@ app.whenReady().then(() => {
       // adicionado. Só avisamos a biblioteca se as DUAS etapas deram certo.
       const reg = steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
       if (!reg?.ok) return reg || { ok: false, error: "falha ao registrar na SLSsteam" }
+      // Stub otimista: aparece na aba Jogos na hora, sem esperar o indexer
+      // rodar a biblioteca inteira. O reindex substitui pelo real e o stub
+      // é removido em avisarBiblioteca.
+      try { adicionarStubPendente(String(appid), title) } catch {}
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
@@ -2182,6 +2350,17 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Links externos abertos pela página da loja Steam (Community Hub, publisher,
+  // etc.): manda pro navegador do sistema em vez de abrir janela presa dentro
+  // do app. Só afeta contents do tipo webview (a página de terceiros).
+  app.on("web-contents-created", (_e, contents) => {
+    if (contents.getType() !== "webview") return
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) shell.openExternal(url)
+      return { action: "deny" }
+    })
+  })
 
   // Reindexa em BACKGROUND, sem travar a abertura. O app já subiu com o
   // library.json anterior; quando o índice terminar (Steam/Heroic/Lutris), avisa

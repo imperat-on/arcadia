@@ -172,17 +172,18 @@ function iniciarFilho(it, cmd, args) {
       .filter((d) => !baixando || baixando.has(String(d.depotId)))
       .reduce((acc, d) => acc + (Number(d.size) || 0), 0) / (1024 * 1024)
     if (totalMiB > 0) update(it.appid, { total: Math.round(totalMiB) })
-    ultimoMiB = dirSizeMiB(it.installDir)
+    dirSizeMiB(it.installDir, (mi) => { ultimoMiB = mi })
     poller = setInterval(() => {
-      const atual = dirSizeMiB(it.installDir)
-      const speed = Math.max(0, (atual - ultimoMiB) / 3)
-      ultimoMiB = atual
-      const patch = { done: Math.round(atual), speed: Math.round(speed * 10) / 10 }
-      if (totalMiB > 0) {
-        patch.percent = Math.min(100, Math.round((atual / totalMiB) * 1000) / 10)
-        patch.eta = speed > 0.1 ? fmtEta((totalMiB - atual) / speed) : ""
-      }
-      update(it.appid, patch)
+      dirSizeMiB(it.installDir, (atual) => {
+        const speed = Math.max(0, (atual - ultimoMiB) / 3)
+        ultimoMiB = atual
+        const patch = { done: Math.round(atual), speed: Math.round(speed * 10) / 10 }
+        if (totalMiB > 0) {
+          patch.percent = Math.min(100, Math.round((atual / totalMiB) * 1000) / 10)
+          patch.eta = speed > 0.1 ? fmtEta((totalMiB - atual) / speed) : ""
+        }
+        update(it.appid, patch)
+      })
     }, 3000)
   }
 
@@ -271,14 +272,15 @@ function iniciarFilho(it, cmd, args) {
 }
 
 // Tamanho da pasta em MiB (du -sm) — base do progresso dos downloads Steam.
-function dirSizeMiB(dir) {
-  try {
-    const { execFileSync } = require("child_process")
-    const out = execFileSync("du", ["-sm", dir], { encoding: "utf-8", timeout: 10000 })
-    return parseInt(out.split("\t")[0], 10) || 0
-  } catch {
-    return 0
-  }
+// Assíncrono: em pastas grandes/ativas o `du` pode levar um tempo perceptível,
+// e a versão síncrona travava o processo principal do Electron (IPC, janela,
+// vigia de jogo) a cada 3s durante o download inteiro.
+function dirSizeMiB(dir, cb) {
+  const { execFile } = require("child_process")
+  execFile("du", ["-sm", dir], { encoding: "utf-8", timeout: 10000 }, (err, out) => {
+    if (err) return cb(0)
+    cb(parseInt(String(out).split("\t")[0], 10) || 0)
+  })
 }
 
 function fmtEta(seg) {
@@ -340,6 +342,7 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
   }
   queue = queue.filter((q) => q.appid !== id) // ver comentário em install()
   const ss = require("./steamstore")
+  installdir = ss.sanitizeInstallDir(installdir)
   const dir = steamDir || ss.findSteamDir()
   queue.push({
     appid: id, appName: String(appid), title, cover,

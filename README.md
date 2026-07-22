@@ -88,6 +88,21 @@ cp config.example.json config.json  # if install.sh didn't create it
 First run indexes your library (`index.py`) and builds the front-end
 (`npm run build`).
 
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall.sh | bash
+```
+
+Or, from inside the repo: `./uninstall.sh`. Removes the app, its desktop
+entry/icons and `~/.local/share/arcadia/`. Asks before touching anything that
+isn't a cache/binary — installed Epic games (`games/`), Wine prefixes
+(`prefixes/`, may hold saves) and SLSsteam (third-party, installed outside
+`~/.local/share/arcadia/`) — and preserves them by default unless you opt in.
+Steam games downloaded through the store stay registered in your Steam
+installation; remove them from the store's "Remove" button first if you don't
+want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
+
 ## Config
 
 `config.json` (not versioned — see `config.example.json`):
@@ -104,6 +119,7 @@ app/src        # React front-end (desktop/ + console/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
 index.py       # library indexer (scans installed sources → library.json)
 arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
+install.sh     # setup · uninstall.sh (full removal)
 ```
 
 User data (config, library, downloads, prefixes, artwork) lives under

@@ -9,6 +9,7 @@ config.json
 library.json
 overrides.json
 custom_games.json
+pending_games.json
 game_settings.json
 achievements.json
 downloads.json

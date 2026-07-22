@@ -191,15 +191,23 @@ export function useGamepadNav(
   // Atalhos por tela. A loja usa para baixar (X) e adicionar (Y) sem precisar
   // abrir a página do jogo. Recebem o elemento focado, que é como quem chama
   // sabe de qual item se trata.
-  extras?: { onX?: (alvo: HTMLElement | null) => void; onY?: (alvo: HTMLElement | null) => void },
+  extras?: {
+    onX?: (alvo: HTMLElement | null) => void
+    onY?: (alvo: HTMLElement | null) => void
+    // A loja usa um cursor virtual próprio no analógico esquerdo: aqui a gente
+    // não move o foco espacial (que não existe dentro do webview) nem clica em
+    // activeElement no A. B, X, Y e o scroll do analógico direito seguem valendo.
+    noFocusMove?: boolean
+  },
 ) {
   useEffect(() => {
     if (!active) return
     const root = rootRef.current
     if (!root) return
+    const noFocusMove = Boolean(extras?.noFocusMove)
 
     // Foca o 1º elemento ao abrir.
-    if (!scrollOnly) {
+    if (!scrollOnly && !noFocusMove) {
       // Sem poda aqui: na abertura o alvo pode estar em qualquer lugar da tela.
       const first = focaveis(root, 0, 0, Infinity)[0]
       // A condição é conferida DENTRO do quadro, não ao agendar: quem fechou um
@@ -305,7 +313,7 @@ export function useGamepadNav(
         const now = Date.now()
         const primed = prev.length > 0
         if (!rest) rest = Array.from(gp.axes) // calibração (tb usada pelo scrollOnly)
-        const [rx, ry] = scrollOnly ? [0, 0] : dirOf(gp)
+        const [rx, ry] = (scrollOnly || noFocusMove) ? [0, 0] : dirOf(gp)
         if (rx !== cx || ry !== cy) {
           cx = rx
           cy = ry
@@ -389,7 +397,7 @@ export function useGamepadNav(
           // rolagem dispara o scrollIntoView do ladrilho, que brigaria com a
           // inércia daqui e faria a tela tremer.
           const rolando = Math.abs(scrollVel) > 0.05 || Math.abs(scrollVelX) > 0.05
-          if (!scrollOnly) {
+          if (!scrollOnly && !noFocusMove) {
             if (rolando) rolou = true
             else if (rolou) {
               rolou = false
@@ -399,7 +407,7 @@ export function useGamepadNav(
         }
 
         // A (0) = ativar; B (1) = voltar
-        if (!scrollOnly && primed && gp.buttons[0]?.pressed && !prev[0]) {
+        if (!scrollOnly && !noFocusMove && primed && gp.buttons[0]?.pressed && !prev[0]) {
           const el = document.activeElement as HTMLElement | null
           if (el && rootRef.current?.contains(el)) el.click()
         }

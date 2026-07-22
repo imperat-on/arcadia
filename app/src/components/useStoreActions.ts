@@ -168,6 +168,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
           appid: jogo.appid,
           token: info.token,
           dlcs: info.dlcs,
+          title: jogo.title,
         })
         if (meu !== pedido.current) return
         if (r?.ok) setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
