@@ -34,6 +34,28 @@ export function SettingsPanel({
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open, onClose)
 
+  // Arrastar o slider de escala dispara onChange dezenas de vezes por segundo.
+  // Sem controle, cada passo grava config.json + IPC setZoomFactor + re-render
+  // da árvore do launcher = piscada e foco pulando. Estratégia: preview vivo
+  // via rAF (máx 1x por frame) e escrita no disco só quando parar (~250ms).
+  const scaleCommitRef = useRef<number | null>(null)
+  const cardCommitRef = useRef<number | null>(null)
+  const accentCommitRef = useRef<number | null>(null)
+  const scalePendingRef = useRef<number | null>(null)
+  const cardPendingRef = useRef<{ z: number; accent: string } | null>(null)
+  const scaleRafRef = useRef<number | null>(null)
+  const cardRafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (scaleCommitRef.current != null) window.clearTimeout(scaleCommitRef.current)
+      if (cardCommitRef.current != null) window.clearTimeout(cardCommitRef.current)
+      if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
+      if (scaleRafRef.current != null) window.cancelAnimationFrame(scaleRafRef.current)
+      if (cardRafRef.current != null) window.cancelAnimationFrame(cardRafRef.current)
+    }
+  }, [])
+
   useEffect(() => {
     if (!open) return
     window.launcherAPI?.getConfig().then((c) => setCfg(c || {}))
@@ -102,19 +124,41 @@ export function SettingsPanel({
             cardScale={cfg.card_scale ?? 1}
             accent={cfg.accent ?? "#00a8ff"}
             onScale={(z) => {
+              // Slider % anima ao vivo (via setCfg); zoom real só ao parar.
+              // setZoomFactor re-rasteriza a webContents inteira: chamar a cada
+              // step trava e faz o card bugar. Aplica 250ms após o último ajuste.
               setCfg((c) => ({ ...c, console_ui_scale: z }))
-              window.launcherAPI?.setConfig({ console_ui_scale: z })
-              window.launcherAPI?.setZoom(z)
+              scalePendingRef.current = z
+              if (scaleCommitRef.current != null) window.clearTimeout(scaleCommitRef.current)
+              scaleCommitRef.current = window.setTimeout(() => {
+                const val = scalePendingRef.current ?? z
+                window.launcherAPI?.setConfig({ console_ui_scale: val })
+                window.launcherAPI?.setZoom(val)
+                scaleCommitRef.current = null
+              }, 250)
             }}
             onCardScale={(z) => {
               setCfg((c) => ({ ...c, card_scale: z }))
-              window.launcherAPI?.setConfig({ card_scale: z })
-              onUiChange?.({ card_scale: z, accent: cfg.accent ?? "#00a8ff" })
+              const accentNow = cfg.accent ?? "#00a8ff"
+              cardPendingRef.current = { z, accent: accentNow }
+              if (cardCommitRef.current != null) window.clearTimeout(cardCommitRef.current)
+              cardCommitRef.current = window.setTimeout(() => {
+                const p = cardPendingRef.current
+                if (p) {
+                  window.launcherAPI?.setConfig({ card_scale: p.z })
+                  onUiChange?.({ card_scale: p.z, accent: p.accent })
+                }
+                cardCommitRef.current = null
+              }, 250)
             }}
             onAccent={(hex) => {
               setCfg((c) => ({ ...c, accent: hex }))
-              window.launcherAPI?.setConfig({ accent: hex })
-              onUiChange?.({ card_scale: cfg.card_scale ?? 1, accent: hex })
+              if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
+              accentCommitRef.current = window.setTimeout(() => {
+                window.launcherAPI?.setConfig({ accent: hex })
+                onUiChange?.({ card_scale: cfg.card_scale ?? 1, accent: hex })
+                accentCommitRef.current = null
+              }, 120)
             }}
           />
         )}
