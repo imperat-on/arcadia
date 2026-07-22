@@ -29,7 +29,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# Concorrência do enriquecimento (Steam Store / SteamGridDB / Web API). Pool
+# pequeno: paraleliza o gargalo de rede da primeira execução sem estourar o
+# rate limit dos endpoints. Cada worker só faz rede e devolve resultado; o
+# merge nos caches roda serial na thread principal (sem lock).
+ENRICH_WORKERS = 6
 
 HOME = Path.home()
 OUT_DIR = HOME / ".local/share/arcadia"
@@ -115,6 +122,18 @@ def _read(path: Path) -> str | None:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
+
+
+def _atomic_write(path: Path, text: str) -> bool:
+    """Escreve arquivo de forma atômica (tmp + rename). True em sucesso."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -204,26 +223,30 @@ def _load_meta_cache() -> dict:
 
 
 def _save_meta_cache(cache: dict) -> None:
-    try:
-        META_CACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    _atomic_write(META_CACHE, json.dumps(cache, ensure_ascii=False))
 
 
-def _url_ok(url: str) -> bool:
-    """HEAD rápido: True se o recurso existe (200)."""
+def _url_ok(url: str) -> bool | None:
+    """HEAD rápido: True se existe (200), False se confirmadamente ausente
+    (ex.: 404), None se não foi possível checar (erro de rede/timeout)."""
+    import urllib.error
     import urllib.request
     try:
         req = urllib.request.Request(
             url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
             return getattr(r, "status", r.getcode()) == 200
+    except urllib.error.HTTPError as e:
+        return False if e.code == 404 else None
     except Exception:
-        return False
+        return None
 
 
-def sgdb_hero(appid: str, key: str) -> str:
-    """Melhor hero (maior resolução) do SteamGridDB para um appid da Steam."""
+def sgdb_hero(appid: str, key: str) -> str | None:
+    """Melhor hero (maior resolução) do SteamGridDB para um appid da Steam.
+
+    Devolve "" quando confirmadamente não há hero melhor, None quando a
+    consulta falhou (rede/timeout) e deve ser retentada depois."""
     import urllib.parse
     import urllib.request
     base = "https://www.steamgriddb.com/api/v2"
@@ -243,21 +266,28 @@ def sgdb_hero(appid: str, key: str) -> str:
         arr.sort(key=lambda a: a.get("width", 0), reverse=True)
         return arr[0]["url"] if arr else ""
     except Exception:
-        return ""
+        return None
 
 
-def best_steam_hero(appid: str, current: str, sgdb_key: str) -> str:
+def best_steam_hero(appid: str, current: str, sgdb_key: str) -> tuple[str, bool]:
     """Escolhe o hero de maior resolução: 2x da Steam > SteamGridDB > atual.
 
-    Devolve "" quando nada melhor foi encontrado (mantém o `current`)."""
+    Devolve (url, ok). `url` é "" quando nada melhor foi encontrado (mantém
+    o `current`). `ok=False` indica falha transitória (rede/timeout): quem
+    chama não deve cachear o resultado, para tentar de novo depois."""
     two_x = f"{STEAM_CDN}/{appid}/library_hero_2x.jpg"  # 3840x1240 quando existe
-    if _url_ok(two_x):
-        return two_x
+    status = _url_ok(two_x)
+    if status is None:
+        return "", False
+    if status:
+        return two_x, True
     if sgdb_key:
         hero = sgdb_hero(appid, sgdb_key)
+        if hero is None:
+            return "", False
         if hero:
-            return hero
-    return ""
+            return hero, True
+    return "", True
 
 
 def fetch_appdetails(appid: str, lang: str = "") -> dict | None:
@@ -273,7 +303,8 @@ def fetch_appdetails(appid: str, lang: str = "") -> dict | None:
             data = json.loads(r.read().decode("utf-8"))
         node = data.get(str(appid), {})
         if not node.get("success"):
-            return {}
+            # App delistado/sem página: cacheia marcador válido para não refazer.
+            return {"_v": 3, "_lang": api_lang, "_missing": True}
         info = node.get("data", {})
         genres = [g.get("description") for g in info.get("genres", [])
                   if g.get("description")]
@@ -324,43 +355,59 @@ def enrich_steam(games: list[dict], sgdb_key: str = "", lang: str = "") -> None:
     cache = _load_meta_cache()
     changed = False
     api_lang = lang or _get_steam_lang()
-    for g in games:
-        if g.get("launcher") != "steam":
-            continue
+
+    def resolver(g: dict):
+        """Só rede: devolve (appid, meta_final, mudou). Sem tocar em `cache`
+        nem em `g` — a thread principal faz o merge depois."""
         appid = g["id"].split(":", 1)[1]
         meta = cache.get(appid)
+        if not isinstance(meta, dict):
+            meta = None
         # Cache da versão antiga (sem os campos novos) ou idioma diferente: refaz.
-        hero_hd = meta.get("_hero_hd") if isinstance(meta, dict) else None
+        hero_hd = meta.get("_hero_hd") if meta is not None else None
         if meta is not None and (meta.get("_v") != 3 or meta.get("_lang") != api_lang):
             meta = None
+        mudou = False
         if meta is None:
             meta = fetch_appdetails(appid, api_lang)
             if meta is None:  # erro de rede: não cacheia (tenta de novo depois)
-                continue
+                return appid, None, False
             # O hero em alta não depende do idioma: sem carregá-lo adiante,
             # trocar de idioma refazia a busca no SteamGridDB da biblioteca
             # inteira, de graça.
             if hero_hd:
                 meta["_hero_hd"] = hero_hd
-            cache[appid] = meta
-            changed = True
-            time.sleep(0.35)  # respeita o rate limit da Store
-        meta = meta or {}
+            mudou = True
+        else:
+            meta = dict(meta)  # cópia: não muta a entrada compartilhada do cache
         # Hero em alta resolução (2x da Steam > SteamGridDB), resolvido 1x e cacheado.
         if "_hero_hd" not in meta:
-            meta["_hero_hd"] = best_steam_hero(appid, g.get("hero", ""), sgdb_key)
-            cache[appid] = meta
-            changed = True
-        if meta.get("_hero_hd"):
-            g["hero"] = meta["_hero_hd"]
-        # Preenche o título de jogos injetados (SLSsteam) que vieram sem nome.
-        if meta.get("name") and (not g.get("title") or g["title"].startswith("App ")):
-            g["title"] = meta["name"]
-        for k, v in meta.items():
-            if k == "name" or k.startswith("_"):
+            hd, hero_ok = best_steam_hero(appid, g.get("hero", ""), sgdb_key)
+            if hero_ok:  # só cacheia resultado confirmado; falha transitória tenta de novo depois
+                meta["_hero_hd"] = hd
+                mudou = True
+        return appid, meta, mudou
+
+    alvos = [g for g in games if g.get("launcher") == "steam"]
+    porAppid = {g["id"].split(":", 1)[1]: g for g in alvos}
+    with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
+        for appid, meta, mudou in ex.map(resolver, alvos):
+            if meta is None:
                 continue
-            if v:
-                g[k] = v
+            if mudou:
+                cache[appid] = meta
+                changed = True
+            g = porAppid[appid]
+            if meta.get("_hero_hd"):
+                g["hero"] = meta["_hero_hd"]
+            # Preenche o título de jogos injetados (SLSsteam) que vieram sem nome.
+            if meta.get("name") and (not g.get("title") or g["title"].startswith("App ")):
+                g["title"] = meta["name"]
+            for k, v in meta.items():
+                if k == "name" or k.startswith("_"):
+                    continue
+                if v:
+                    g[k] = v
     if changed:
         _save_meta_cache(cache)
 
@@ -459,9 +506,13 @@ def psn_titles(token: str) -> list[dict]:
             break
         out.extend(data.get("titles", []) or [])
         nxt = data.get("nextOffset")
-        if not nxt:
+        try:
+            nxt_int = int(nxt) if nxt is not None else 0
+        except (TypeError, ValueError):
             break
-        offset = nxt
+        if nxt_int <= offset:
+            break
+        offset = nxt_int
     return out
 
 
@@ -562,35 +613,43 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
 
     api_lang = _get_steam_lang()
 
+    # Playtime: local (1 chamada já feita, sem rede aqui).
     for g in games:
         if g.get("launcher") != "steam":
             continue
-        appid = g["id"].split(":", 1)[1]
-
-        og = owned.get(appid)
+        og = owned.get(g["id"].split(":", 1)[1])
         if og:
             mins = og.get("playtime_forever") or 0
             if mins > 0:
                 g["playtime_minutes"] = mins
 
+    # Conquistas: 1 chamada de rede por jogo — o gargalo. Paraleliza os que
+    # estão sem cache ou vencidos; o merge roda serial depois.
+    alvos = [g for g in games if g.get("launcher") == "steam"]
+    porAppid = {g["id"].split(":", 1)[1]: g for g in alvos}
+
+    def buscar(g: dict):
+        appid = g["id"].split(":", 1)[1]
         ent = cache.get(appid)
-        if not isinstance(ent, dict) or now - ent.get("at", 0) > PLAYER_TTL:
-            done = player_achievements(key, sid, appid, api_lang)
-            if done is None:
+        if isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL:
+            return appid, ent, False
+        done = player_achievements(key, sid, appid, api_lang)
+        if done is None:
+            return appid, None, False
+        return appid, {"done": done, "at": now}, True
+
+    with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
+        for appid, ent, mudou in ex.map(buscar, alvos):
+            if ent is None:
                 continue
-            ent = {"done": done, "at": now}
-            cache[appid] = ent
-            changed = True
-            time.sleep(0.15)  # gentil com a API
-        if ent.get("done"):
-            g["achievements_done"] = ent["done"]
+            if mudou:
+                cache[appid] = ent
+                changed = True
+            if ent.get("done"):
+                porAppid[appid]["achievements_done"] = ent["done"]
 
     if changed:
-        try:
-            PLAYER_CACHE.write_text(json.dumps(cache, ensure_ascii=False),
-                                    encoding="utf-8")
-        except Exception:
-            pass
+        _atomic_write(PLAYER_CACHE, json.dumps(cache, ensure_ascii=False))
 
 
 def _get_json(url: str, timeout: int = 15) -> dict | None:
@@ -681,9 +740,9 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
     changed = False
     api_lang = _get_steam_lang()
 
-    for g in games:
-        if g.get("launcher") != "steam" or not g.get("achievements_total"):
-            continue
+    def buscar(g: dict):
+        """Só rede (schema + raridade + progresso): devolve (appid, ent) ou
+        (appid, None) se já quente/erro. Sem tocar em `store`."""
         appid = g["id"].split(":", 1)[1]
         ent = store.get(appid)
         # O idioma entra na validade: os títulos e descrições das conquistas
@@ -691,17 +750,17 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
         # refazer a busca — senão a aba ficava 24h na língua antiga.
         if (isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL
                 and ent.get("_lang", api_lang) == api_lang):
-            continue
+            return appid, None
         schema = achievements_schema(key, appid, api_lang)
         if schema is None:
-            continue  # erro de rede: tenta na próxima
+            return appid, None  # erro de rede: tenta na próxima
         glob = achievements_global(appid) or {}
         # GetPlayerAchievements dá 403 em jogos que a conta não possui
         # oficialmente (ex.: SLSsteam) — nesse caso, lista tudo como bloqueado
         # (schema e raridade são públicos, então a aba funciona igual).
         mine = player_achievements_full(key, sid, appid, api_lang)
         if mine is None:
-            continue  # erro de rede: tenta na próxima indexação
+            return appid, None  # erro de rede: tenta na próxima indexação
         items = []
         for name, s in schema.items():
             p = mine.get(name, {})
@@ -720,9 +779,16 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
         novo = {"at": now, "_lang": api_lang, "items": items}
         if isinstance(ent, dict) and ent.get("_en"):
             novo["_en"] = ent["_en"]
-        store[appid] = novo
-        changed = True
-        time.sleep(0.5)  # gentil com a API (rate limit derrubava o lote)
+        return appid, novo
+
+    refresh = [g for g in games
+               if g.get("launcher") == "steam" and g.get("achievements_total")]
+    with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
+        for appid, novo in ex.map(buscar, refresh):
+            if novo is None:
+                continue
+            store[appid] = novo
+            changed = True
 
     # Passo LOCAL (toda execução, sem rede): sobrepõe o progresso lido dos
     # bins do SLScheevo/Steam — é o que faz as conquistas dos jogos injetados
@@ -749,11 +815,7 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
             changed = True
 
     if changed:
-        try:
-            ACHIEVEMENTS_FILE.write_text(json.dumps(store, ensure_ascii=False),
-                                         encoding="utf-8")
-        except Exception:
-            pass
+        _atomic_write(ACHIEVEMENTS_FILE, json.dumps(store, ensure_ascii=False))
 
 
 # --- Conquistas locais (SLScheevo/SLSsteam) --------------------------------
@@ -863,8 +925,25 @@ def local_progress_map(appid: str) -> dict:
     return out
 
 
-def _account_id() -> str | None:
-    """AccountID numérico da pasta userdata (ex.: 26779690)."""
+def _active_account_id() -> str | None:
+    """AccountID numérico (ex.: 26779690) da conta Steam atualmente ativa.
+
+    Prioriza o `MostRecent` do loginusers.vdf — em máquinas com mais de uma
+    conta em userdata/, a 1ª pasta encontrada na iteração do filesystem não
+    tem relação garantida com quem está logado. Cai para a 1ª pasta válida
+    de userdata/ apenas quando o loginusers.vdf não existir/não puder ser lido.
+    """
+    text = _read(STEAM_ROOT / "config" / "loginusers.vdf")
+    if text:
+        try:
+            users = parse_vdf(text).get("users", {})
+            for sid64, info in users.items():
+                if isinstance(info, dict) and str(info.get("MostRecent", "0")) == "1":
+                    accountid = int(sid64) - 76561197960265728
+                    if accountid > 0 and (STEAM_USERDATA / str(accountid)).is_dir():
+                        return str(accountid)
+        except Exception:
+            pass
     try:
         for d in STEAM_USERDATA.iterdir():
             if d.is_dir() and d.name.isdigit() and d.name != "0":
@@ -872,6 +951,11 @@ def _account_id() -> str | None:
     except Exception:
         pass
     return None
+
+
+def _account_id() -> str | None:
+    """AccountID numérico da pasta userdata (ex.: 26779690)."""
+    return _active_account_id()
 
 
 def apply_local_progress(appid: str, items: list[dict],
@@ -914,14 +998,9 @@ def achievements_schema_en(api_key: str, appid: str) -> dict | None:
 
 
 def steam_id64() -> str | None:
-    """Deriva o SteamID64 a partir da pasta userdata/<accountid>."""
-    try:
-        for d in STEAM_USERDATA.iterdir():
-            if d.is_dir() and d.name.isdigit() and d.name != "0":
-                return str(76561197960265728 + int(d.name))
-    except Exception:
-        pass
-    return None
+    """Deriva o SteamID64 a partir da conta ativa (ver `_active_account_id`)."""
+    acct = _active_account_id()
+    return str(76561197960265728 + int(acct)) if acct else None
 
 
 def steam_owned(api_key: str, steamid64: str) -> list[dict]:
@@ -1078,6 +1157,22 @@ def index_heroic() -> list[dict]:
     return games
 
 
+def index_epic_and_heroic() -> list[dict]:
+    """Combina Epic (via Legendary CLI, preferencial) com GOG/Amazon (via Heroic).
+
+    index_heroic() também inclui entradas Epic (runner "legendary") lidas do
+    cache do Heroic; usamos essas apenas como fallback quando o CLI do
+    Legendary não retornar nada, para não perder GOG/Amazon quando há Epic.
+    """
+    epic = index_legendary()
+    heroic = index_heroic()
+    non_epic_heroic = [g for g in heroic if not g["id"].startswith("heroic:legendary:")]
+    if epic:
+        return epic + non_epic_heroic
+    epic_via_heroic = [g for g in heroic if g["id"].startswith("heroic:legendary:")]
+    return epic_via_heroic + non_epic_heroic
+
+
 # --------------------------------------------------------------------------- #
 # Lutris (SQLite pga.db). Só instalados.
 # --------------------------------------------------------------------------- #
@@ -1101,12 +1196,11 @@ def index_lutris(steam_appids: set[str] | None = None) -> list[dict]:
         return []
     games: list[dict] = []
     try:
-        con = sqlite3.connect(f"file:{LUTRIS_DB}?mode=ro", uri=True)
-        rows = con.execute(
-            "SELECT id, name, slug, runner, installed, service, service_id "
-            "FROM games WHERE installed = 1"
-        ).fetchall()
-        con.close()
+        with sqlite3.connect(f"file:{LUTRIS_DB}?mode=ro", uri=True) as con:
+            rows = con.execute(
+                "SELECT id, name, slug, runner, installed, service, service_id "
+                "FROM games WHERE installed = 1"
+            ).fetchall()
     except sqlite3.Error:
         return []
     for gid, name, slug, runner, _inst, service, service_id in rows:
@@ -1186,7 +1280,7 @@ def main() -> int:
         return sources.get(name, True) is not False
 
     sls_path = str(cfg.get("slssteam_path") or "").strip()
-    sls_config = Path(sls_path) if sls_path else None
+    sls_config = Path(sls_path).expanduser() if sls_path else None
 
     # Steam primeiro, pra desduplicar jogos Steam catalogados no Lutris.
     try:
@@ -1210,7 +1304,10 @@ def main() -> int:
     # nome que a Steam entende ("portuguese") é o _get_steam_lang(). Passando
     # o código cru, o `l=pt-BR` era ignorado pela API e a descrição vinha em
     # inglês mesmo com o app em português.
-    enrich_steam(steam_games, (cfg.get("steamgriddb_api_key") or "").strip())
+    try:
+        enrich_steam(steam_games, (cfg.get("steamgriddb_api_key") or "").strip())
+    except Exception as exc:
+        print(f"[aviso] steam-meta: {exc}", file=sys.stderr)
 
     # Dados do JOGADOR (tempo de jogo + conquistas) via Web API, cache 24h.
     try:
@@ -1224,11 +1321,13 @@ def main() -> int:
     except Exception as exc:
         print(f"[aviso] achievements: {exc}", file=sys.stderr)
 
+    # Recomputa após owned+slssteam pra Lutris deduplicar contra biblioteca completa.
+    all_steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
     for name, fn in (
         ("steam", lambda: steam_games),
-        # Epic: preferência pelo Legendary próprio; Heroic como fallback.
-        ("heroic", ((lambda: index_legendary() or index_heroic()) if on("heroic") else (lambda: []))),
-        ("lutris", (lambda: index_lutris(steam_appids)) if on("lutris") else (lambda: [])),
+        # Epic: preferência pelo Legendary próprio; GOG/Amazon sempre via Heroic.
+        ("heroic", (index_epic_and_heroic if on("heroic") else (lambda: []))),
+        ("lutris", (lambda: index_lutris(all_steam_appids)) if on("lutris") else (lambda: [])),
     ):
         try:
             items = fn()
@@ -1239,8 +1338,9 @@ def main() -> int:
         library.extend(items)
 
     library.sort(key=lambda g: g["title"].lower())
-    OUT_FILE.write_text(json.dumps(library, ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+    if not _atomic_write(OUT_FILE, json.dumps(library, ensure_ascii=False, indent=2)):
+        print(f"[erro] falha ao escrever {OUT_FILE}", file=sys.stderr)
+        return 1
     total = len(library)
     print(f"library.json gerado: {total} jogos "
           f"(steam={counts['steam']}, heroic={counts['heroic']}, "
