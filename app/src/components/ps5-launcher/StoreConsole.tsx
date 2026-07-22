@@ -1,496 +1,387 @@
 "use client"
 
-import { forwardRef, useCallback, useEffect, useRef, useState } from "react"
-import { corDominante } from "./corDominante"
-import type { FichaJogo, Game, JogoLinha } from "./types"
-import { StoreShowcase, type SecaoVitrine } from "./StoreShowcase"
-import { StoreCategoria } from "./StoreCategoria"
-import { StoreGamePage } from "./StoreGamePage"
-import { StoreKeyboard } from "./StoreKeyboard"
+import { forwardRef, useEffect, useRef, useState } from "react"
+import type { Game } from "./types"
 import { ConsoleDestinoDialog } from "./ConsoleDestinoDialog"
+import { StoreKeyboard, type SugestaoLoja } from "./StoreKeyboard"
 import { useStoreActions } from "../useStoreActions"
 import { useI18n } from "../../i18n/I18nContext"
 
-const TAMANHO_PAGINA = 40
-
-// Seções que compõem a vitrine inicial, na ordem em que aparecem.
-const VITRINE = ["alta", "new_releases", "top_sellers", "specials", "jogados"]
-// Quantos itens cada trilho mostra. Um trilho não rola infinito — quem quer
-// mais entra na categoria.
-const TAMANHO_TRILHO = 24
+// i18n do Arcadia → parâmetro `l` da loja Steam.
+const STEAM_LANG: Record<string, string> = {
+  "pt-BR": "brazilian",
+  "en-US": "english",
+  "es-ES": "spanish",
+}
 
 interface StoreConsoleProps {
   games: Game[]
-  /** Pausa o trailer do destaque quando a janela perde o foco. */
+  /** Pausa quando a janela perde o foco (não usado no webview, mantido p/ API). */
   ativo: boolean
-  /**
-   * A loja abriu/fechou um overlay próprio (página do jogo, teclado, escolha
-   * de destino). O launcher desliga o laço de controle dele enquanto isso —
-   * dois laços ativos disputariam o mesmo direcional e o mesmo B.
-   */
+  /** A loja abriu/fechou um overlay próprio (só o diálogo de escolha de disco). */
   onOverlay?: (aberto: boolean) => void
-  /** Recebe os atalhos do laço de gamepad do PS5Launcher (X, Y e B). */
+  /** Atalhos do laço de gamepad do PS5Launcher (aqui só o B/voltar é útil). */
   onAtalhos?: (a: {
     baixar: (appid: string) => void
     adicionar: (appid: string) => void
-    /** B: sai da categoria para a vitrine. Devolve true se consumiu o botão. */
+    /** B: volta no histórico do webview. true se consumiu. */
     voltar: () => boolean
+    /** Y: abre o teclado virtual direto (sem precisar mover o cursor até a barra). */
+    abrirTeclado: () => void
   }) => void
 }
 
-// A loja tem dois modos na mesma tela: a VITRINE (herói + um trilho por
-// categoria) e a CATEGORIA aberta (grade densa com rolagem infinita). A régua
-// de chips no topo alterna entre eles; B volta da categoria para a vitrine.
-// As chaves de gênero são as que o SteamSpy aceita (inglês); o rótulo é nosso.
-type Categoria = {
-  id: string
-  rotulo: string
-  fonte: { tipo: "steamspy"; lista?: string; genero?: string } | { tipo: "featured"; secao: string }
-}
-
-/**
- * Guarda o foco enquanto um overlay está aberto e devolve ao fechar.
- *
- * Os efeitos dos filhos rodam antes dos do pai e o foco inicial de um overlay
- * acontece dentro de um `requestAnimationFrame` — então, quando este efeito
- * captura, o `activeElement` ainda é o ladrilho de origem.
- */
-function useRestaurarFoco(aberto: boolean) {
-  const anterior = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (aberto) {
-      anterior.current = document.activeElement as HTMLElement | null
-      return
-    }
-    const el = anterior.current
-    anterior.current = null
-    // Pode ter sido removido enquanto o overlay estava aberto (troca de
-    // categoria, recarga da vitrine): aí não há para onde voltar.
-    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
-  }, [aberto])
-}
-
-
-
+// A loja do Arcadia é a loja web da Steam embutida num <webview>. A navegação
+// e a abertura de jogos acontecem dentro dela; um preload
+// (webview-steam-preload.js) injeta um botão discreto "Baixar (Arcadia)" nas
+// páginas de jogo, que dispara o fluxo de download do próprio Arcadia.
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
-  { games, ativo, onOverlay, onAtalhos },
+  { games, onOverlay, onAtalhos },
   ref,
 ) {
+  const { t, lang } = useI18n()
   const acoes = useStoreActions(games)
-  const { t } = useI18n()
+  const webRef = useRef<any>(null)
+  // Histórico próprio da webview. O canGoBack() da <webview> mente com a SPA
+  // da Steam (pushState, location.replace, popups negados que não navegam),
+  // então mantemos nossa pilha alimentada por did-navigate + did-navigate-in-page.
+  // voltandoRef desliga o push quando somos NÓS que estamos voltando (senão o
+  // did-navigate da própria volta empilharia a URL de volta).
+  const historicoRef = useRef<string[]>([])
+  const voltandoRef = useRef(false)
+  // Teclado virtual: aberto quando a barra de busca da Steam é clicada
+  // (o preload avisa via IPC e a gente sobe o overlay do Arcadia).
+  const [tecladoAberto, setTecladoAberto] = useState(false)
+  const [tecladoValor, setTecladoValor] = useState("")
+  // Sugestões espelhadas do dropdown da Steam. Preload observa o DOM interno
+  // e nos manda a lista pronta; renderizamos como tira dentro do teclado.
+  const [sugestoesLoja, setSugestoesLoja] = useState<SugestaoLoja[]>([])
+  // appid do jogo aberto no webview + refs de estado (para o listener, que é
+  // registrado uma vez, ler sempre o valor atual sem fechar sobre valor velho).
+  const paginaAppidRef = useRef("")
+  // Timestamp da última vez que o teclado fechou. Serve pra ignorar
+  // arcadia:pedirTeclado disparado pelo focusin da barra de busca da Steam,
+  // que algumas páginas de jogo auto-focam ao carregar depois do loadURL —
+  // sem isso, o teclado reabria sozinho na cara do usuário logo depois de
+  // escolher uma sugestão.
+  const tecladoFechouEmRef = useRef(0)
+  const jaAdRef = useRef(acoes.jaAdicionados)
+  const busyRef = useRef(acoes.busy)
+  jaAdRef.current = acoes.jaAdicionados
+  busyRef.current = acoes.busy
 
-  const CATEGORIAS: Categoria[] = [
-    { id: "alta", rotulo: t("store.categorias.em_alta"), fonte: { tipo: "steamspy" } },
-    { id: "new_releases", rotulo: t("store.categorias.lancamentos"), fonte: { tipo: "featured", secao: "new_releases" } },
-    { id: "top_sellers", rotulo: t("store.categorias.mais_vendidos"), fonte: { tipo: "featured", secao: "top_sellers" } },
-    { id: "jogados", rotulo: t("store.categorias.mais_jogados"), fonte: { tipo: "steamspy", lista: "top100forever" } },
-    { id: "specials", rotulo: t("store.categorias.promocoes"), fonte: { tipo: "featured", secao: "specials" } },
-    { id: "coming_soon", rotulo: t("store.categorias.em_breve"), fonte: { tipo: "featured", secao: "coming_soon" } },
-    { id: "acao", rotulo: t("store.categorias.acao"), fonte: { tipo: "steamspy", genero: "Action" } },
-    { id: "rpg", rotulo: t("store.categorias.rpg"), fonte: { tipo: "steamspy", genero: "RPG" } },
-    { id: "indie", rotulo: t("store.categorias.indie"), fonte: { tipo: "steamspy", genero: "Indie" } },
-    { id: "aventura", rotulo: t("store.categorias.aventura"), fonte: { tipo: "steamspy", genero: "Adventure" } },
-    { id: "estrategia", rotulo: t("store.categorias.estrategia"), fonte: { tipo: "steamspy", genero: "Strategy" } },
-    { id: "corrida", rotulo: t("store.categorias.corrida"), fonte: { tipo: "steamspy", genero: "Racing" } },
-  ]
-
-  // Paginação: cada índice é uma resposta do backend. Concatenadas, viram a
-  // lista visível para a grade. Manter em páginas facilita reset ao trocar
-  // categoria e evita concat linear a cada `setLista`.
-  const [paginas, setPaginas] = useState<JogoLinha[][]>([])
-  const [total, setTotal] = useState<number | null>(null)
-  const [carregando, setCarregando] = useState(true)
-  const carregandoRef = useRef(false)
-  const categoriaRef = useRef("alta")
-  const cacheCategorias = useRef<Map<string, { paginas: JogoLinha[][]; total: number | null }>>(new Map())
-  const [categoria, setCategoria] = useState("alta")
-  // "vitrine" é a entrada (herói + trilhos); "categoria" é uma categoria
-  // aberta em grade. B volta de uma para a outra.
-  const [modo, setModo] = useState<"vitrine" | "categoria">("vitrine")
-  // Jogos de cada trilho da vitrine, por id de categoria.
-  const [vitrine, setVitrine] = useState<Record<string, JogoLinha[]>>({})
-  const [carregandoVitrine, setCarregandoVitrine] = useState(true)
-  // Estado do herói, separado do foco: ele roda sozinho pelos destaques.
-  const [heroiIdx, setHeroiIdx] = useState(0)
-  const [fichaHeroi, setFichaHeroi] = useState<FichaJogo | null>(null)
-  const [trailerHeroi, setTrailerHeroi] = useState<{ url: string } | null>(null)
-  // O herói e o HUD leem estes três, sempre do jogo em foco.
-  const [destaque, setDestaque] = useState<JogoLinha | null>(null)
-  const [cor, setCor] = useState("")
-  const [aberto, setAberto] = useState<JogoLinha | null>(null)
-  const [teclado, setTeclado] = useState(false)
-  const [busca, setBusca] = useState("")
-  const [resultados, setResultados] = useState<JogoLinha[] | null>(null)
-
-  // Busca uma página de uma categoria sem tocar no estado da UI. Usada tanto
-  // pela categoria ativa quanto pela pré-carga silenciosa dos vizinhos.
-  const buscarCategoria = useCallback(async (catId: string, offset: number) => {
-    const cat = CATEGORIAS.find((c) => c.id === catId)
-    if (!cat) return null
-    const api = window.launcherAPI
-    const r =
-      cat.fonte.tipo === "featured"
-        ? await api?.storeFeatured(cat.fonte.secao, TAMANHO_PAGINA, offset)
-        : cat.fonte.genero
-          ? await api?.storeGenre(cat.fonte.genero, TAMANHO_PAGINA, offset)
-          : await api?.storeRecent(cat.fonte.lista, TAMANHO_PAGINA, offset)
-    if (!r?.ok) return null
-    return {
-      jogos: (r.jogos || []) as JogoLinha[],
-      total: typeof r.total === "number" ? r.total : null,
-    }
-  }, [])
-
-  // Carrega a categoria ativa. Mantém um cache em memória por categoria para
-  // que voltar num filtro já visitado (ou pré-carregado) seja instantâneo.
-  const carregar = useCallback(async (catId: string, offset: number) => {
-    if (carregandoRef.current) return
-    carregandoRef.current = true
-    setCarregando(true)
+  // Manda para a barra injetada se o jogo aberto já está adicionado + se está
+  // ocupado, para ela mostrar Remover/estado certo.
+  function enviarEstado(appid: string) {
+    if (!appid) return
     try {
-      const r = await buscarCategoria(catId, offset)
-      if (!r || categoriaRef.current !== catId) return
-      setPaginas((atual) => {
-        const novo = offset === 0 ? [r.jogos] : [...atual, r.jogos]
-        cacheCategorias.current.set(catId, { paginas: novo, total: r.total })
-        return novo
+      webRef.current?.send("arcadia:estado", {
+        adicionado: jaAdRef.current.has(appid),
+        ocupado: Boolean(busyRef.current),
       })
-      setTotal(r.total)
-    } finally {
-      carregandoRef.current = false
-      if (categoriaRef.current === catId) setCarregando(false)
-    }
-  }, [buscarCategoria])
-
-  // Monta a vitrine. As seções entram em DUAS ondas: as duas primeiras (as
-  // que aparecem sem rolar) e, só depois, o resto. Disparar as cinco de uma
-  // vez daria uma rajada de requisições para pintar coisa fora da tela.
-  //
-  // Tudo o que chega vai para o mesmo cacheCategorias da grade, então abrir a
-  // categoria depois é instantâneo.
-  useEffect(() => {
-    let cancelado = false
-    const puxar = async (ids: string[]) => {
-      await Promise.all(
-        ids.map(async (id) => {
-          const cached = cacheCategorias.current.get(id)
-          const r = cached ? { jogos: cached.paginas.flat(), total: cached.total } : await buscarCategoria(id, 0)
-          if (!r || cancelado) return
-          if (!cached) cacheCategorias.current.set(id, { paginas: [r.jogos], total: r.total })
-          setVitrine((v) => ({ ...v, [id]: r.jogos.slice(0, TAMANHO_TRILHO) }))
-        }),
-      )
-    }
-    setCarregandoVitrine(true)
-    puxar(VITRINE.slice(0, 2))
-      .then(() => {
-        if (!cancelado) setCarregandoVitrine(false)
-        return puxar(VITRINE.slice(2))
-      })
-      .catch(() => {
-        if (!cancelado) setCarregandoVitrine(false)
-      })
-    return () => {
-      cancelado = true
-    }
-  }, [buscarCategoria])
-
-  // Ao abrir/trocar de categoria, usa o cache em memória se existir; senão
-  // carrega. Na vitrine não há categoria ativa, então nada é buscado aqui.
-  useEffect(() => {
-    if (modo !== "categoria") return
-    categoriaRef.current = categoria
-    setDestaque(null)
-    const cached = cacheCategorias.current.get(categoria)
-    if (cached) {
-      setPaginas(cached.paginas)
-      setTotal(cached.total)
-      setCarregando(false)
-    } else {
-      setPaginas([])
-      setTotal(null)
-      carregar(categoria, 0)
-    }
-  }, [modo, categoria, carregar])
-
-  // Pré-carrega as categorias vizinhas em segundo plano para a troca de filtro
-  // ser instantânea. Usa buscarCategoria diretamente para não disputar a trava
-  // de loading da categoria ativa.
-  useEffect(() => {
-    if (modo !== "categoria") return
-    if (carregando) return
-    if (!paginas.length) return
-    const idx = CATEGORIAS.findIndex((c) => c.id === categoria)
-    if (idx < 0) return
-    const vizinhos = [idx - 1, idx + 1]
-      .filter((i) => i >= 0 && i < CATEGORIAS.length)
-      .map((i) => CATEGORIAS[i].id)
-    for (const id of vizinhos) {
-      if (cacheCategorias.current.has(id)) continue
-      buscarCategoria(id, 0).then((r) => {
-        if (!r) return
-        cacheCategorias.current.set(id, { paginas: [r.jogos], total: r.total })
-      })
-    }
-  }, [modo, carregando, paginas, categoria, buscarCategoria])
-
-  // Cor ambiente extraída da capa. Vem do cache na segunda vez, então voltar
-  // num jogo já visto é instantâneo.
-  useEffect(() => {
-    if (!destaque) return
-    let cancelado = false
-    corDominante(`https://cdn.akamai.steamstatic.com/steam/apps/${destaque.appid}/library_600x900.jpg`).then((c) => {
-      if (!cancelado) setCor(c)
-    })
-    return () => {
-      cancelado = true
-    }
-  }, [destaque])
-
-  const raiz = useRef<HTMLDivElement | null>(null)
-
-
-  const pesquisar = async (termo: string) => {
-    setTeclado(false)
-    const q = termo.trim()
-    setBusca(q)
-    if (!q) return setResultados(null)
-    const r = await window.launcherAPI?.storeSearch(q)
-    setResultados(r?.ok ? ((r.jogos || []) as JogoLinha[]) : [])
+    } catch {}
   }
 
-  const bloqueado = (j: JogoLinha | null) => Boolean(j && acoes.bloqueados.has(j.appid))
-
-  // X e Y agem sobre o card em foco, sem abrir a página. Procuramos o jogo em
-  // tudo que está na tela — trilhos da vitrine, páginas da categoria e
-  // resultados de busca —, porque o foco pode estar em qualquer um.
+  // Reenvia o estado quando "adicionados"/ocupado mudam (ex.: acabou de
+  // adicionar → a barra troca Adicionar por Remover na hora).
   useEffect(() => {
-    if (!onAtalhos) return
-    const achar = (appid: string): JogoLinha | undefined =>
-      [...Object.values(vitrine).flat(), ...paginas.flat(), ...(resultados || [])].find((j) => j.appid === appid)
-    onAtalhos({
-      // B sai da busca ou da categoria; na vitrine devolve false para o
-      // PS5Launcher tratar o botão como "sair da loja".
+    enviarEstado(paginaAppidRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acoes.jaAdicionados, acoes.busy])
+
+  // Avisa o launcher quando algum overlay do próprio StoreConsole abre/fecha:
+  // hoje, o diálogo de escolha de disco e o teclado virtual. Enquanto qualquer
+  // um deles estiver aberto, o laço de gamepad da loja pausa (o overlay tem o
+  // próprio) e o B da loja não sai da aba.
+  useEffect(() => {
+    onOverlay?.(Boolean(acoes.escolhendo) || tecladoAberto)
+  }, [acoes.escolhendo, tecladoAberto, onOverlay])
+
+  // Registra os atalhos de gamepad: aqui só o B (voltar no histórico) faz
+  // sentido — a página é navegada por mouse, não pelo direcional.
+  useEffect(() => {
+    onAtalhos?.({
+      baixar: () => {},
+      adicionar: () => {},
       voltar: () => {
-        // Rede de segurança para o quadro de transição: quem impede o B de
-        // sair da loja com um overlay aberto é o `onOverlay`, que desliga este
-        // laço. Entre abrir o overlay e o laço parar passa um quadro, e nele
-        // um B sairia da loja inteira.
-        if (aberto || teclado || acoes.escolhendo) return true
-        if (resultados) {
-          setResultados(null)
-          setBusca("")
-          return true
+        // Consome a nossa pilha: se tem mais de uma entrada, tira a atual e
+        // carrega a anterior. Se sobrou só a raiz (ou vazio), devolve false
+        // pro launcher sair da aba loja pra Jogos, que é o comportamento certo
+        // "não tem mais pra onde voltar".
+        //
+        // Coalescência EXTRA por assinatura da página: /app/1091500/ e
+        // /app/1091500/Cyberpunk_2077/ têm pathnames diferentes mas são a
+        // MESMA página (Steam redireciona a primeira pra segunda no load).
+        // Se não pular essas duplicatas, o B carrega a versão "sem slug"
+        // e a Steam reencaminha pra "com slug" — usuário vê reload.
+        const assinatura = (u: string) => {
+          try {
+            const p = new URL(u).pathname.replace(/\/+$/, "")
+            const mApp = /^\/app\/(\d+)/.exec(p)
+            if (mApp) return "app:" + mApp[1]
+            const mSub = /^\/sub\/(\d+)/.exec(p)
+            if (mSub) return "sub:" + mSub[1]
+            const mBundle = /^\/bundle\/(\d+)/.exec(p)
+            if (mBundle) return "bundle:" + mBundle[1]
+            return p || "/"
+          } catch { return u }
         }
-        if (modo === "categoria") {
-          setModo("vitrine")
-          setDestaque(null)
-          return true
+        const w = webRef.current
+        const stack = historicoRef.current
+        if (!w || stack.length < 2) return false
+        const atualSig = assinatura(stack[stack.length - 1])
+        stack.pop() // atual
+        // Continua descendo enquanto as entradas restantes forem "a mesma
+        // página" que a atual — só para quando achar uma REALMENTE diferente.
+        while (stack.length >= 1 && assinatura(stack[stack.length - 1]) === atualSig) {
+          stack.pop()
         }
-        return false
+        if (stack.length < 1) return false
+        const anterior = stack[stack.length - 1]
+        voltandoRef.current = true
+        try { w.loadURL(anterior) } catch { voltandoRef.current = false; return false }
+        return true
       },
-      baixar: (appid) => {
-        const j = achar(appid)
-        if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.baixar(j)
-      },
-      adicionar: (appid) => {
-        const j = achar(appid)
-        if (j && !acoes.bloqueados.has(appid) && j.manifest !== false) acoes.adicionar(j)
+      abrirTeclado: () => {
+        setTecladoValor("")
+        setTecladoAberto(true)
       },
     })
-  }, [onAtalhos, vitrine, paginas, resultados, modo, acoes, aberto, teclado])
+  }, [onAtalhos])
 
-  // Fechar um overlay devolve o foco ao ladrilho de onde se veio — é o que faz
-  // o B "voltar uma vez" para o jogo que estava sendo visto, em vez de a
-  // navegação recomeçar do topo da vitrine.
-  const overlay = Boolean(aberto) || teclado || Boolean(acoes.escolhendo)
-  useRestaurarFoco(overlay)
+  // Eventos do webview: recebe as ações da barra injetada e dispara o hook.
   useEffect(() => {
-    onOverlay?.(overlay)
-  }, [overlay, onOverlay])
-
-  // Quantos itens já carregamos vs. quanto o backend disse que existe.
-  const carregados = paginas.reduce((n, p) => n + p.length, 0)
-  const temMais = total == null ? carregados > 0 && !carregando : carregados < total
-
-  // Pedido de próxima página vindo do IntersectionObserver da grade. Só
-  // dispara se tem mais e a categoria atual não é resultado de busca.
-  const pedirMais = useCallback(() => {
-    if (resultados) return
-    if (carregandoRef.current) return
-    if (total != null && carregados >= total) return
-    if (carregados === 0) return // primeira página é responsabilidade do useEffect
-    carregar(categoriaRef.current, carregados)
-  }, [carregar, resultados, total, carregados])
-
-  // Herói: os primeiros "Mais vendidos" em rodízio. Se essa seção ainda não
-  // respondeu, cai em "Em alta" para a tela não abrir vazia.
-  const destaques = (vitrine.top_sellers?.length ? vitrine.top_sellers : vitrine.alta || []).slice(0, 5)
-  const heroi = destaques[heroiIdx] || null
-
-  // Ficha e trailer do herói. Independentes do jogo em foco: o herói tem vida
-  // própria (roda sozinho) e trocar de capa não pode apagar a arte dele.
-  useEffect(() => {
-    if (!heroi) return
-    let cancelado = false
-    setTrailerHeroi(null)
-    window.launcherAPI?.storeDetails(heroi.appid).then((r) => {
-      if (cancelado || !r?.ok || !r.jogo) return
-      setFichaHeroi(r.jogo)
-      // O herói ocupa a largura da tela: em movie480 o vídeo fica mais borrado
-      // que a imagem parada atrás dele. Os ladrilhos seguem em 480p.
-      if (r.jogo.trailer) {
-        setTrailerHeroi({ url: r.jogo.trailer.alta || r.jogo.trailer.url })
-      }
-    })
-    return () => {
-      cancelado = true
+    const el = webRef.current
+    if (!el) return
+    const onReady = () => {
+      try {
+        el.send("arcadia:labels", {
+          baixar: t("store.baixar"),
+          adicionar: t("store.adicionar_steam"),
+          remover: t("common.remover"),
+          restart: t("desktop.restart_steam"),
+        })
+        // Porta o accent do tema do Arcadia para a loja Steam (botões/destaques).
+        const accent = getComputedStyle(document.documentElement)
+          .getPropertyValue("--accent").trim() || "#00a8ff"
+        el.send("arcadia:tema", { accent })
+      } catch {}
     }
-  }, [heroi])
+    const onMsg = (e: any) => {
+      const arg = e?.args?.[0] || {}
+      // A barra avisa qual jogo abriu → devolvemos o estado dele.
+      if (e?.channel === "arcadia:pagina") {
+        paginaAppidRef.current = String(arg.appid || "")
+        enviarEstado(paginaAppidRef.current)
+        return
+      }
+      // A barra de busca da Steam foi clicada → abrimos o teclado virtual.
+      // Silêncio de 700ms depois do fechamento: cobre o auto-focus da barra
+      // que acontece quando a página do jogo termina de carregar (loadURL de
+      // uma sugestão escolhida), evitando o teclado reabrir sozinho.
+      if (e?.channel === "arcadia:pedirTeclado") {
+        if (Date.now() - tecladoFechouEmRef.current < 700) return
+        setTecladoValor(String(arg.valor || ""))
+        setTecladoAberto(true)
+        return
+      }
+      // Sugestões vindas do preload (extraídas do dropdown nativo da Steam,
+      // que está escondido). Normalizamos e ignoramos itens sem título.
+      if (e?.channel === "arcadia:sugestoes") {
+        const raw = Array.isArray(arg.items) ? arg.items : []
+        const items: SugestaoLoja[] = raw
+          .filter((x: any) => x && x.appid && x.title)
+          .map((x: any) => ({
+            appid: String(x.appid),
+            title: String(x.title),
+            preco: x.preco ? String(x.preco) : "",
+            img: x.img ? String(x.img) : "",
+          }))
+        setSugestoesLoja(items)
+        return
+      }
+      if (e?.channel !== "arcadia:acao") return
+      const { tipo, appid, title } = arg
+      if (tipo === "restart") { acoes.reiniciarSteam(); return }
+      if (!appid) return
+      const jogo = { appid: String(appid), title: String(title || appid) }
+      if (tipo === "baixar") acoes.baixar(jogo)
+      else if (tipo === "adicionar") acoes.adicionar(jogo)
+      else if (tipo === "remover") acoes.remover(jogo)
+    }
+    // Alimenta o histórico próprio. did-navigate cobre navegações completas;
+    // did-navigate-in-page cobre pushState/hash (SPA da Steam). Se somos NÓS
+    // que estamos voltando (loadURL da URL anterior), pulamos o push — senão a
+    // volta empilharia a URL de volta e o B deixaria de funcionar na próxima.
+    //
+    // Coalescência POR PATHNAME: a Steam empilha várias entradas para o que o
+    // usuário vê como uma página só (pushState inicial + normalização de
+    // query/tracking). Se o pathname já é o do topo, apenas atualiza a URL no
+    // topo — assim um B corresponde a uma volta real, não à undo de uma query.
+    const pathnameDe = (u: string) => {
+      try { return new URL(u).pathname.replace(/\/+$/, "") || "/" } catch { return u }
+    }
+    const empilhar = (novaUrl: string) => {
+      if (voltandoRef.current) { voltandoRef.current = false; return }
+      const stack = historicoRef.current
+      const topo = stack[stack.length - 1]
+      if (topo === novaUrl) return
+      if (topo && pathnameDe(topo) === pathnameDe(novaUrl)) {
+        stack[stack.length - 1] = novaUrl
+        return
+      }
+      stack.push(novaUrl)
+      // Não deixa a pilha crescer sem limite em sessões longas.
+      if (stack.length > 60) stack.splice(0, stack.length - 60)
+    }
+    const onNavigate = (e: any) => { if (e?.url) empilhar(String(e.url)) }
+    const onNavigateInPage = (e: any) => {
+      if (e?.isMainFrame === false) return
+      if (e?.url) empilhar(String(e.url))
+    }
+    el.addEventListener("dom-ready", onReady)
+    el.addEventListener("ipc-message", onMsg)
+    el.addEventListener("did-navigate", onNavigate)
+    el.addEventListener("did-navigate-in-page", onNavigateInPage)
+    return () => {
+      el.removeEventListener("dom-ready", onReady)
+      el.removeEventListener("ipc-message", onMsg)
+      el.removeEventListener("did-navigate", onNavigate)
+      el.removeEventListener("did-navigate-in-page", onNavigateInPage)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Só entram na vitrine as seções que já chegaram — um trilho vazio no meio
-  // da coluna abriria um buraco enquanto a segunda onda não responde.
-  const secoesVitrine: SecaoVitrine[] = VITRINE.map((id) => ({
-    id,
-    rotulo: CATEGORIAS.find((c) => c.id === id)?.rotulo || id,
-    jogos: vitrine[id] || [],
-  })).filter((s, i) => s.jogos.length || i < 2)
+  const l = STEAM_LANG[lang]
+  const url = `https://store.steampowered.com/?cc=br${l ? `&l=${l}` : ""}`
+
+  // Analógico direito rola a página da Steam por dentro. Mesma física do
+  // GameOverview: repouso calibrado (permite gatilho analógico separado do
+  // stick), deadzone, resposta quadrática e inércia. O scroll acontece no
+  // preload — mandamos só o delta de pixels a cada frame. Pausa quando o
+  // teclado ou o diálogo de disco estão abertos.
+  useEffect(() => {
+    let raf = 0
+    let rest: number[] | null = null
+    let vel = 0
+    const loop = () => {
+      const pausado = tecladoAberto || Boolean(acoes.escolhendo)
+      if (pausado || !document.hasFocus()) {
+        vel = 0
+        raf = requestAnimationFrame(loop)
+        return
+      }
+      const pads = navigator.getGamepads ? navigator.getGamepads() : []
+      const gp = Array.from(pads).find((p) => p) || null
+      if (gp) {
+        if (!rest) rest = Array.from(gp.axes)
+        let ry = 0
+        for (let ai = 2; ai < gp.axes.length; ai++) {
+          const v = (gp.axes[ai] ?? 0) - (rest[ai] ?? 0)
+          if (Math.abs(v) > Math.abs(ry)) ry = v
+        }
+        const target = Math.abs(ry) > 0.15 ? Math.sign(ry) * ry * ry * 46 : 0
+        vel += (target - vel) * 0.25
+        if (Math.abs(vel) > 0.5) {
+          try { webRef.current?.send("arcadia:scroll", { dy: vel }) } catch {}
+        }
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [tecladoAberto, acoes.escolhendo])
+
+  // Cursor virtual: analógico ESQUERDO move a bolinha desenhada pelo preload
+  // dentro do webview. Botão A dispara clique no elemento embaixo do cursor.
+  // O host é a autoridade sobre a posição — a webview raramente tem foco de
+  // janela, então o Gamepad API não é confiável de dentro dela.
+  useEffect(() => {
+    let raf = 0
+    let rest: number[] | null = null
+    let x = 0, y = 0            // posição atual do cursor, coords do webview
+    let iniciada = false        // já centralizei ao aparecer no controle?
+    let prevA = false           // edge do botão A
+    let ultimoEnvio = 0
+    const MAX_PX_S = 900        // velocidade máxima ~= tela em ~1.5s
+
+    const loop = (agora: number) => {
+      const w = webRef.current
+      const pausado = tecladoAberto || Boolean(acoes.escolhendo)
+      // Mesmo em pausa, sincronizamos prevA com o estado real do botão. Sem
+      // isso, se o usuário aperta A pra escolher uma sugestão (o que fecha o
+      // teclado), no frame seguinte o A ainda pode estar pressionado e o loop
+      // interpreta como uma edge nova — dispararia arcadia:clique na barra de
+      // busca da posição antiga do cursor, reabrindo o teclado sozinho.
+      if (!w || pausado || !document.hasFocus()) {
+        const padsP = navigator.getGamepads ? navigator.getGamepads() : []
+        const gpP = Array.from(padsP).find((p) => p) || null
+        if (gpP) prevA = Boolean(gpP.buttons[0]?.pressed)
+        raf = requestAnimationFrame(loop)
+        return
+      }
+      const pads = navigator.getGamepads ? navigator.getGamepads() : []
+      const gp = Array.from(pads).find((p) => p) || null
+      if (!gp) { raf = requestAnimationFrame(loop); return }
+      if (!rest) rest = Array.from(gp.axes)
+
+      const rect = (w.getBoundingClientRect?.() as DOMRect | undefined)
+      const W = rect?.width || window.innerWidth
+      const H = rect?.height || window.innerHeight
+      if (!iniciada) { x = W / 2; y = H / 2; iniciada = true }
+
+      // Mesma física do scroll: repouso calibrado, deadzone, quadrática.
+      const lx = (gp.axes[0] ?? 0) - (rest[0] ?? 0)
+      const ly = (gp.axes[1] ?? 0) - (rest[1] ?? 0)
+      const vel = (v: number) => (Math.abs(v) > 0.15 ? Math.sign(v) * v * v : 0)
+      // agora - ultimoEnvio ≈ 16.6ms; convertemos velocidade px/s em px/frame.
+      const dt = ultimoEnvio ? Math.min(0.05, (agora - ultimoEnvio) / 1000) : 1 / 60
+      const dx = vel(lx) * MAX_PX_S * dt
+      const dy = vel(ly) * MAX_PX_S * dt
+
+      if (dx || dy) {
+        x = Math.max(0, Math.min(W, x + dx))
+        y = Math.max(0, Math.min(H, y + dy))
+        try { w.send("arcadia:cursor", { x, y }) } catch {}
+      }
+      ultimoEnvio = agora
+
+      // Botão A (edge). Não chamamos activeElement.click aqui — quem clica é
+      // o preload, no elemento embaixo do cursor. useGamepadNav do host está
+      // com noFocusMove, então não vai duplicar.
+      const a = Boolean(gp.buttons[0]?.pressed)
+      if (a && !prevA) {
+        try { w.send("arcadia:clique") } catch {}
+      }
+      prevA = a
+
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [tecladoAberto, acoes.escolhendo])
+
+  // Esconde o cursor no preload sempre que um overlay do host cobrir a loja
+  // (teclado, diálogo de disco). Mostra de novo quando fecha.
+  useEffect(() => {
+    const w = webRef.current
+    if (!w) return
+    const v = !(tecladoAberto || Boolean(acoes.escolhendo))
+    try { w.send("arcadia:cursorVisivel", { v }) } catch {}
+  }, [tecladoAberto, acoes.escolhendo])
 
   return (
-    <div
-      ref={(el) => {
-        raiz.current = el
-        if (typeof ref === "function") ref(el)
-        else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el
-      }}
-      // `gp-scope` liga as regras de foco pensadas para a navegação por
-      // controle: sem ela, a aba focada fica branca — igual à aba ativa — e os
-      // botões do herói não mostram foco nenhum.
-      //
-      // O navy profundo (definido em .loja) substitui o preto absoluto: no
-      // preto puro os cards não tinham chão do qual se destacar.
-      className="loja gp-scope flex h-full w-full flex-col overflow-hidden text-white"
-      style={cor ? ({ "--loja-cor": cor } as React.CSSProperties) : undefined}
-    >
-      {/* ── Barra superior ───────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-6 border-b border-[var(--loja-fio)] px-12">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {/* "Vitrine" volta para a entrada; as demais abrem a categoria em
-              grade. Sem esta aba, quem entrasse numa categoria com o mouse não
-              teria como voltar (B é só do controle). */}
-          <button
-            onClick={() => {
-              setModo("vitrine")
-              setResultados(null)
-              setDestaque(null)
-            }}
-            className={`loja-aba${!resultados && modo === "vitrine" ? " -ativo" : ""}`}
-          >
-            {t("store.vitrine")}
-          </button>
-
-          {CATEGORIAS.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                setCategoria(c.id)
-                setModo("categoria")
-                setResultados(null) // sair da busca ao escolher uma categoria
-              }}
-              className={`loja-aba${!resultados && modo === "categoria" && categoria === c.id ? " -ativo" : ""}`}
-            >
-              {c.rotulo}
-            </button>
-          ))}
-        </div>
-
-        <button
-          onClick={() => setTeclado(true)}
-          aria-label={t("store.buscar")}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--loja-apagado)] outline-none transition-colors hover:bg-[var(--loja-sup-2)] hover:text-white"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
-          </svg>
-        </button>
-      </div>
-
-      {resultados && (
-        <p className="shrink-0 px-12 pb-3 pt-5 text-[13px] text-[var(--loja-apagado)]">
-          {t("store.resultados", { query: busca, count: String(resultados.length) })}
-        </p>
-      )}
-
-      {/* ── Corpo: vitrine, categoria ou resultados ──────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {resultados ? (
-          // A busca reaproveita a grade da categoria, sem paginação: os
-          // resultados são curtos e cabem numa resposta só.
-          <StoreCategoria
-            paginas={[resultados]}
-            carregando={false}
-            temMais={false}
-            naBiblioteca={bloqueado}
-            onFocar={setDestaque}
-            onAbrir={setAberto}
-            onPedirMais={() => {}}
-            onAdicionar={acoes.adicionar}
-          />
-        ) : modo === "vitrine" ? (
-          <StoreShowcase
-            secoes={secoesVitrine}
-            carregando={carregandoVitrine}
-            destaques={destaques}
-            heroiIdx={heroiIdx}
-            onHeroiIdx={setHeroiIdx}
-            fichaHeroi={fichaHeroi}
-            trailerHeroi={trailerHeroi}
-            ativo={ativo}
-            ocupado={Boolean(acoes.busy)}
-            naBiblioteca={bloqueado}
-            onFocar={setDestaque}
-            onAbrir={setAberto}
-            onBaixar={acoes.baixar}
-            onAdicionar={acoes.adicionar}
-            onVerCategoria={(id) => {
-              setCategoria(id)
-              setModo("categoria")
-            }}
-          />
-        ) : (
-          <StoreCategoria
-            paginas={paginas}
-            carregando={carregando}
-            temMais={temMais}
-            naBiblioteca={bloqueado}
-            onFocar={setDestaque}
-            onAbrir={setAberto}
-            onPedirMais={pedirMais}
-            onAdicionar={acoes.adicionar}
-          />
-        )}
-      </div>
-
-      <StoreGamePage
-        jogo={aberto}
-        bloqueado={bloqueado(aberto)}
-        ocupado={Boolean(acoes.busy)}
-        onBaixar={() => aberto && acoes.baixar(aberto)}
-        onAdicionar={() => aberto && acoes.adicionar(aberto)}
-        onRemover={() => aberto && acoes.remover(aberto)}
-        onFechar={() => setAberto(null)}
+    <div ref={ref} className="relative h-full w-full bg-black">
+      <webview
+        ref={webRef}
+        src={url}
+        partition="persist:steamstore"
+        allowpopups={true}
+        useragent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        style={{ width: "100%", height: "100%", background: "#000" }}
       />
 
-      <StoreKeyboard
-        aberto={teclado}
-        inicial={busca}
-        onConfirmar={pesquisar}
-        onFechar={() => setTeclado(false)}
-      />
-
-      {/* Escolha da biblioteca Steam — mesmo diálogo usado pela biblioteca do
-          modo console, alimentado pelo hook */}
+      {/* Escolha da biblioteca Steam — mesmo diálogo do hook de ações. */}
       {acoes.escolhendo && (
         <ConsoleDestinoDialog
           titulo={t("ps5.instalar.titulo", { title: acoes.escolhendo.jogo.title })}
@@ -506,6 +397,45 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           onFechar={() => acoes.setEscolhendo(null)}
         />
       )}
+
+      <StoreKeyboard
+        aberto={tecladoAberto}
+        inicial={tecladoValor}
+        sugestoes={sugestoesLoja}
+        onTexto={(v) => {
+          // Toda tecla vai pra Steam via IPC; o autocomplete deles roda no
+          // input focado e a lista volta pela porta arcadia:sugestoes.
+          try { webRef.current?.send("arcadia:tecla", { value: v }) } catch {}
+        }}
+        onEscolherSugestao={(appid) => {
+          tecladoFechouEmRef.current = Date.now()
+          setTecladoAberto(false)
+          setSugestoesLoja([])
+          const alvo =
+            `https://store.steampowered.com/app/${encodeURIComponent(appid)}/` +
+            `?cc=br${l ? `&l=${l}` : ""}`
+          try { webRef.current?.loadURL(alvo) } catch {}
+        }}
+        onFechar={() => {
+          tecladoFechouEmRef.current = Date.now()
+          setTecladoAberto(false)
+          setSugestoesLoja([])
+          // Limpa o campo dentro do webview pra não ficar termo fantasma da
+          // busca anterior aparecendo se abrir de novo.
+          try { webRef.current?.send("arcadia:limparBusca") } catch {}
+        }}
+        onConfirmar={(texto) => {
+          tecladoFechouEmRef.current = Date.now()
+          setTecladoAberto(false)
+          setSugestoesLoja([])
+          const termo = texto.trim()
+          if (!termo) return
+          const alvo =
+            `https://store.steampowered.com/search/?term=${encodeURIComponent(termo)}` +
+            `&cc=br${l ? `&l=${l}` : ""}`
+          try { webRef.current?.loadURL(alvo) } catch {}
+        }}
+      />
 
       {acoes.toast && (
         <div

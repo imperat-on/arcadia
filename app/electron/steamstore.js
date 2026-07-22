@@ -174,29 +174,42 @@ function getManifestCache() {
   return manifestDiskCache.dados
 }
 
+// Dedup de sondagens em voo: o prefetch em background e uma abertura manual
+// da loja podem cair na mesma URL ao mesmo tempo — sem isto, cada um dispara
+// seu próprio HEAD em vez de compartilhar a mesma requisição pendente.
+const emVoo = new Map()
+
+// Não escreve no disco aqui (isso era um `gravarManifestCache()` do arquivo
+// INTEIRO por sondagem individual, síncrono, travando o processo principal a
+// cada miss). Devolve `{ ok, mudou, entrada }`; quem chama acumula as
+// entradas novas de uma página inteira e grava tudo de uma vez só.
 async function existe(url, timeoutMs = 6000) {
-  if (headCache.has(url)) return headCache.get(url)
-  const cache = getManifestCache()
-  const guardado = cache[url]
+  if (headCache.has(url)) return { ok: headCache.get(url), mudou: false }
+  const guardado = getManifestCache()[url]
   if (guardado && Date.now() - (guardado.at || 0) < MANIFEST_TTL) {
     headCache.set(url, guardado.ok)
-    return guardado.ok
+    return { ok: guardado.ok, mudou: false }
   }
-  let ok = false
-  let cacheavel = false
+  if (emVoo.has(url)) return emVoo.get(url)
+  const promessa = (async () => {
+    let ok = false
+    let cacheavel = false
+    try {
+      const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) })
+      ok = r.ok
+      cacheavel = true
+    } catch {
+      ok = false
+    }
+    headCache.set(url, ok)
+    return cacheavel ? { ok, mudou: true, entrada: { at: Date.now(), ok } } : { ok, mudou: false }
+  })()
+  emVoo.set(url, promessa)
   try {
-    const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) })
-    ok = r.ok
-    cacheavel = true
-  } catch {
-    ok = false
+    return await promessa
+  } finally {
+    emVoo.delete(url)
   }
-  headCache.set(url, ok)
-  if (cacheavel) {
-    cache[url] = { at: Date.now(), ok }
-    gravarManifestCache(cache)
-  }
-  return ok
 }
 
 // Roda as tarefas com concorrência limitada — 12 resultados × N provedores em
@@ -340,15 +353,36 @@ async function preparar(jogos, jaTem = new Set()) {
 // `jaTem` traz os appids que o Hubcap já confirmou (não precisam de sonda).
 async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   const sushi = await sushiIds()
+  // Sondagens novas desta página inteira, acumuladas para UMA escrita em
+  // disco no final (em vez de uma por item sondado — ver `existe()`).
+  const novas = {}
   await emLotes(jogos, 6, async (g) => {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
-    if (sushi ? sushi.has(g.appid) : await existe(SUSHI_URL(g.appid))) fontes.push("Sushi")
-    if (await existe(RYUU_URL(g.appid))) fontes.push("Ryuu")
+    if (sushi) {
+      if (sushi.has(g.appid)) fontes.push("Sushi")
+    } else {
+      const url = SUSHI_URL(g.appid)
+      const r = await existe(url)
+      if (r.mudou) novas[url] = r.entrada
+      if (r.ok) fontes.push("Sushi")
+    }
+    const urlRyuu = RYUU_URL(g.appid)
+    const r2 = await existe(urlRyuu)
+    if (r2.mudou) novas[urlRyuu] = r2.entrada
+    if (r2.ok) fontes.push("Ryuu")
     g.fontes = fontes
     g.manifest = fontes.length > 0
     return g
   })
+  if (Object.keys(novas).length) {
+    // Merge contra o estado ATUAL (não sobrescrita cega): `getManifestCache()`
+    // pode ter recarregado do disco no meio da sondagem (janela de 60s) e
+    // trocado a referência do objeto por baixo dos pés.
+    const cache = getManifestCache()
+    Object.assign(cache, novas)
+    gravarManifestCache(cache)
+  }
   return jogos
 }
 
@@ -1313,9 +1347,19 @@ function lerLuas(outDir, appid) {
 
 // ---------- Download via DepotDownloader ----------
 
+// `installdir` chega do renderer via IPC (store:install) já sanitizado no
+// front-end (useStoreActions.ts), mas isso é só cosmético: qualquer coisa com
+// acesso ao bridge do preload pode invocar o handler direto com um valor
+// arbitrário. Sem revalidar aqui, um `installdir` tipo "../../../tmp/evil"
+// sobrevive ao path.join e escreve fora de steamapps/common (path traversal).
+function sanitizeInstallDir(installdir) {
+  return String(installdir || "").replace(/[^A-Za-z0-9._ -]/g, "").trim() || "jogo"
+}
+
 // Monta o spawn do download de um appid. Retorna { cmd, args, env }.
 async function prepareDownload({ appid, installdir, depots, steamDir }) {
   if (!depsOk()) return { ok: false, error: "DepotDownloader não encontrado em bin/deps" }
+  installdir = sanitizeInstallDir(installdir)
   const keysFile = path.join(TMP_DIR, `keys_${appid}.vdf`)
   const linhas = depots.filter((d) => d.key).map((d) => `${d.depotId};${d.key}`)
   fs.writeFileSync(keysFile, linhas.join("\n"))
@@ -1386,6 +1430,7 @@ function acfEscape(s) {
 // A marca "ArcadiaDownload" distingue downloads NOSSOS de jogos owned — é ela
 // que habilita o Remover seguro (nunca apaga acf de jogo comprado).
 function writeAcf({ appid, title, installdir, steamDir }) {
+  installdir = sanitizeInstallDir(installdir)
   const apps = path.join(steamDir, "steamapps")
   const agora = Math.floor(Date.now() / 1000)
   const conteudo = [
@@ -1994,6 +2039,7 @@ module.exports = {
   prepareDownload,
   ensureDotnet,
   writeAcf,
+  sanitizeInstallDir,
   registerSlssteam,
   launchSteamWithSls,
   installSlssteam,

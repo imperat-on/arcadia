@@ -378,7 +378,7 @@ declare global {
       /** Instala o .NET 9 local (necessário ao DepotDownloader). */
       storeEnsureDotnet: () => Promise<{ ok: boolean; error?: string; path?: string }>
       /** Adiciona o jogo à Steam sem baixar (lua no stplug-in + AdditionalApps). */
-      storeAddToSteam: (payload: { appid: string; token?: string; dlcs?: string[] }) => Promise<{ ok: boolean; error?: string }>
+      storeAddToSteam: (payload: { appid: string; token?: string; dlcs?: string[]; title?: string }) => Promise<{ ok: boolean; error?: string }>
       /** Fixes disponíveis para o jogo (GameBypass/OnlineFix, índice luatools). */
       storeCheckFixes: (appid: string) => Promise<{ ok: boolean; error?: string; generic?: boolean; online?: boolean }>
       /** Baixa e extrai o fix na pasta do jogo. */

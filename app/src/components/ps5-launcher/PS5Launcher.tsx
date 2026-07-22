@@ -416,17 +416,16 @@ export function PS5Launcher() {
     baixar: (a: string) => void
     adicionar: (a: string) => void
     voltar: () => boolean
+    abrirTeclado: () => void
   } | null>(null)
   const extrasLoja = useMemo(
     () => ({
-      onX: (alvo: HTMLElement | null) => {
-        const id = alvo?.closest<HTMLElement>("[data-appid]")?.dataset.appid
-        if (id) atalhosLoja.current?.baixar(id)
-      },
-      onY: (alvo: HTMLElement | null) => {
-        const id = alvo?.closest<HTMLElement>("[data-appid]")?.dataset.appid
-        if (id) atalhosLoja.current?.adicionar(id)
-      },
+      // A loja usa cursor virtual — não há foco espacial no DOM do host, então
+      // desligamos o movimento por direcional/D-pad e a ativação por A (que
+      // são feitos pelo cursor + preload). Y vira "abrir o teclado direto":
+      // atalho pra quem não quer levar o cursor até a barra de busca.
+      noFocusMove: true,
+      onY: () => atalhosLoja.current?.abrirTeclado(),
     }),
     [],
   )
