@@ -8,6 +8,7 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
+const { fetchRede } = require("./httpfetch")
 
 const DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
 const WINE_DIR = path.join(DATA_DIR, "wine")
@@ -50,7 +51,7 @@ function prefixBase(appid) {
 }
 
 async function gh(url) {
-  const r = await fetch(url, { headers: { "User-Agent": "arcadia" }, signal: AbortSignal.timeout(20000) })
+  const r = await fetchRede(url, { headers: { "User-Agent": "arcadia" }, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`GitHub ${r.status}`)
   return r.json()
 }
@@ -191,7 +192,7 @@ async function install(id, kind, onProgress) {
   const tarFlag = ext === ".tar.xz" ? "-xJf" : "-xzf"
   const tgz = path.join(WINE_DIR, id + ext)
 
-  const res = await fetch(av.url)
+  const res = await fetchRede(av.url)
   if (!res.ok || !res.body) throw new Error(`download falhou: HTTP ${res.status}`)
   const total = Number(res.headers.get("content-length") || 0)
   const file = fs.createWriteStream(tgz)

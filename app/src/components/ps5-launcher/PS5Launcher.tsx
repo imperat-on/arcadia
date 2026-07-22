@@ -441,6 +441,12 @@ export function PS5Launcher() {
   // o mesmo direcional — e o mesmo B, que fechava a página e saía da loja
   // junto. É a mesma regra que o overview já segue logo abaixo.
   const [lojaOverlay, setLojaOverlay] = useState(false)
+  // Monta a loja só na primeira vez que a aba é aberta (não custa nada em quem
+  // nunca usa) e nunca mais desmonta — ver o bloco persistente no render.
+  const [lojaMontada, setLojaMontada] = useState(false)
+  useEffect(() => {
+    if (storeMode) setLojaMontada(true)
+  }, [storeMode])
   useGamepadNav(storeRef, storeMode && !lojaOverlay, voltarLoja, false, extrasLoja)
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
@@ -988,15 +994,11 @@ export function PS5Launcher() {
         className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
       >
         {storeMode ? (
-          <div className="flex-1 min-h-0 pt-20">
-            <StoreConsole
-              ref={storeRef}
-              games={viewGames}
-              ativo={appFocused && !gameRunning}
-              onOverlay={setLojaOverlay}
-              onAtalhos={(a) => (atalhosLoja.current = a)}
-            />
-          </div>
+          /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
+             pela `key`): remontar destruía o webview e a loja da Steam
+             recarregava do zero — vários segundos de tela preta a cada visita.
+             Aqui fica só o espaço; o conteúdo é o bloco persistente abaixo. */
+          null
         ) : newsMode ? (
           <div className="flex-1 min-h-0 pt-20">
             <NewsView
@@ -1068,6 +1070,28 @@ export function PS5Launcher() {
           </>
         )}
       </div>
+
+      {/* Loja: montada na primeira visita e mantida viva daí em diante, só
+          escondida quando o usuário está em outra aba. Assim a página da Steam
+          carrega UMA vez por sessão em vez de a cada entrada na aba. */}
+      {lojaMontada && (
+        <div
+          className="fixed inset-0 z-10 pt-20"
+          style={{
+            visibility: storeMode ? "visible" : "hidden",
+            pointerEvents: storeMode ? "auto" : "none",
+          }}
+          aria-hidden={!storeMode}
+        >
+          <StoreConsole
+            ref={storeRef}
+            games={viewGames}
+            ativo={storeMode && appFocused && !gameRunning}
+            onOverlay={setLojaOverlay}
+            onAtalhos={(a) => (atalhosLoja.current = a)}
+          />
+        </div>
+      )}
 
       {/* Opções do jogo (Start ou botão "...") */}
       <GameContextMenu

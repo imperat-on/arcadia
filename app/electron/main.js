@@ -6,6 +6,7 @@ const path = require("path")
 const fs = require("fs")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
+const { fetchRede } = require("./httpfetch")
 const {
   readOverrides,
   setOverride,
@@ -444,33 +445,6 @@ function startSysinfoPrefetch() {
   }, 8000)
 }
 
-// Prefetch em background das 5 categorias da vitrine da Loja (mesmas fontes
-// que StoreConsole.tsx busca no mount). O custo real de abrir a Loja não é a
-// lista (já cacheada) e sim a SONDAGEM de disponibilidade por item — que fica
-// pronta aqui antes do usuário clicar na aba. Serial (não Promise.all): evita
-// sondar em paralelo appids repetidos entre categorias e não sobrecarrega os
-// provedores Sushi/Ryuu. Começa depois do prefetch de sysinfo (que também usa
-// rede + escrita em disco) para não disputar o event loop do processo
-// principal logo após o boot.
-function startStorePrefetch() {
-  setTimeout(async () => {
-    const ss = require("./steamstore")
-    const fontes = [
-      () => ss.popular("top100in2weeks", 40, 0), // categoria "alta"
-      () => ss.destaques("new_releases", 40, 0),
-      () => ss.destaques("top_sellers", 40, 0),
-      () => ss.popular("top100forever", 40, 0), // categoria "jogados"
-      () => ss.destaques("specials", 40, 0),
-    ]
-    for (const buscar of fontes) {
-      try {
-        await buscar()
-      } catch {}
-      await new Promise((r) => setTimeout(r, 400))
-    }
-  }, 15000)
-}
-
 // UMU (vem com o Heroic): jeito certo de rodar builds Proton fora da Steam —
 // o wine direto do Proton quebra (libs do runtime não resolvem).
 const UMU = path.join(os.homedir(), ".config", "heroic", "tools", "runtimes", "umu", "umu_run.py")
@@ -546,7 +520,7 @@ function readJsonFile(p, fallback) {
 }
 
 async function fetchJson(url) {
-  const r = await fetch(url, { headers: { "User-Agent": "arcadia" } })
+  const r = await fetchRede(url, { headers: { "User-Agent": "arcadia" } })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
@@ -1155,9 +1129,13 @@ function configurarLojaSteam() {
 app.whenReady().then(() => {
   configurarLojaSteam()
   startSysinfoPrefetch()
-  // startStorePrefetch() removido: a loja agora é a página web da Steam
-  // embutida (StoreConsole/webview), não a vitrine nativa — o prefetch de
-  // popular/destaques/gênero virou trabalho de rede sem uso.
+  // Não há prefetch de vitrine: a loja é a página web da Steam embutida
+  // (StoreConsole/webview), que se cacheia sozinha. O que vale a pena é abrir
+  // a conexão com a Steam cedo — a primeira requisição do processo custa ~3,4s
+  // de DNS + TLS, e sem isto ela caía na primeira tecla digitada na busca.
+  setTimeout(() => {
+    require("./steamstore").aquecer().catch(() => {})
+  }, 5000)
   ipcMain.handle("library:get", () => readLibrary())
 
   ipcMain.handle("game:launch", async (_e, payload) => {
@@ -1549,22 +1527,49 @@ app.whenReady().then(() => {
 
   // Notícias de jogos (RSS PT-BR). Cache alinhado ao RELÓGIO: vale até o
   // próximo marco de 30 min (:00/:30) — não "30 min a partir do fetch".
+  // Buscar os 6 feeds custa ~10s (o Promise.all espera o mais lento). Antes,
+  // ao virar o slot a aba ficava esse tempo todo em branco. Agora vale
+  // stale-while-revalidate: entrega o cache velho na hora e renova por trás.
+  // Só a primeira execução da vida (sem cache nenhum) espera de verdade.
   const SLOT_30 = 30 * 60 * 1000
-  const slotAtual = Math.floor(Date.now() / SLOT_30)
-  ipcMain.handle("news:get", async () => {
+  let newsEmVoo = null
+
+  function lerNewsCache() {
     try {
-      const raw = fs.readFileSync(NEWS_CACHE, "utf-8")
-      const cache = JSON.parse(raw)
-      if (cache.slot === slotAtual && Array.isArray(cache.items)) {
-        return cache.items
-      }
-    } catch {
-      /* sem cache válido: busca */
+      const cache = JSON.parse(fs.readFileSync(NEWS_CACHE, "utf-8"))
+      if (Array.isArray(cache.items) && cache.items.length) return cache
+    } catch {}
+    return null
+  }
+
+  function renovarNews(slot) {
+    if (newsEmVoo) return newsEmVoo
+    newsEmVoo = getNews(40)
+      .then((items) => {
+        if (items.length) {
+          try {
+            fs.writeFileSync(NEWS_CACHE, JSON.stringify({ slot, items }), "utf-8")
+          } catch {}
+        }
+        return items
+      })
+      .finally(() => {
+        newsEmVoo = null
+      })
+    return newsEmVoo
+  }
+
+  ipcMain.handle("news:get", async () => {
+    // O slot é calculado por chamada: fixá-lo na inicialização congelava o
+    // cache enquanto o app ficasse aberto.
+    const slot = Math.floor(Date.now() / SLOT_30)
+    const cache = lerNewsCache()
+    if (cache) {
+      if (cache.slot !== slot) renovarNews(slot).catch(() => {})
+      return cache.items
     }
     try {
-      const items = await getNews(40)
-      fs.writeFileSync(NEWS_CACHE, JSON.stringify({ slot: slotAtual, items }), "utf-8")
-      return items
+      return await renovarNews(slot)
     } catch (e) {
       console.error("[news:get]", e.message)
       return []
@@ -1631,52 +1636,18 @@ app.whenReady().then(() => {
   })
   // Sugestões: só a lista de títulos da Steam, sem sondar provedores — é o que
   // permite responder a cada tecla sem inundar o Ryuu de requisições.
+  // Aquece a conexão com a Steam quando a aba da loja abre — sem isso a
+  // primeira tecla digitada pagava o handshake TLS inteiro (~3s).
+  ipcMain.handle("store:warm", async () => {
+    try {
+      return await steamstore.aquecer()
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
   ipcMain.handle("store:suggest", async (_e, query) => {
     try {
       return await steamstore.suggest(String(query || ""))
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-  // Ficha completa do jogo (appdetails), para a página da loja no console.
-  ipcMain.handle("store:details", async (_e, appid) => {
-    try {
-      return await steamstore.detalhes(String(appid || ""))
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-  // Capa retrato alternativa. O renderer só chama quando a arte oficial da
-  // Steam falha, então isto NÃO roda por ladrilho — só pelos que ficariam sem.
-  ipcMain.handle("store:cover", async (_e, appid) => {
-    try {
-      return await steamstore.capaAlternativa(String(appid || ""))
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-  // Uma linha da home da loja, por gênero. Paginação por offset para scroll
-  // infinito (o SteamSpy devolve milhares por gênero; servimos aos pedaços).
-  ipcMain.handle("store:genre", async (_e, { genero, limite, offset } = {}) => {
-    try {
-      return await steamstore.porGenero(
-        String(genero || ""),
-        Number(limite) || 40,
-        Number(offset) || 0,
-      )
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-  // Uma seção da vitrine da Steam: lançamentos, mais vendidos, promoções.
-  // Depois de esgotar o subconjunto da Steam (~20), complementa com SteamSpy.
-  ipcMain.handle("store:featured", async (_e, { secao, limite, offset } = {}) => {
-    try {
-      return await steamstore.destaques(
-        String(secao || ""),
-        Number(limite) || 40,
-        Number(offset) || 0,
-      )
     } catch (e) {
       return { ok: false, error: String(e) }
     }
@@ -2304,7 +2275,7 @@ app.whenReady().then(() => {
   ipcMain.handle("slscheevo:setup", async () => {
     try {
       if (!fs.existsSync(SLSCHEEVO)) {
-        const rel = await fetch(
+        const rel = await fetchRede(
           "https://api.github.com/repos/xamionex/SLScheevo/releases/latest",
           { headers: { "User-Agent": "arcadia" } },
         ).then((r) => r.json())
@@ -2312,7 +2283,7 @@ app.whenReady().then(() => {
         if (!asset) return { ok: false, error: "release Linux não encontrada" }
         const tgz = path.join(BIN_DIR, "slscheevo.tar.gz")
         const buf = Buffer.from(
-          await fetch(asset.browser_download_url).then((r) => r.arrayBuffer()),
+          await fetchRede(asset.browser_download_url).then((r) => r.arrayBuffer()),
         )
         fs.writeFileSync(tgz, buf)
         await new Promise((res, rej) =>

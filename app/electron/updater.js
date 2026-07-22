@@ -12,6 +12,7 @@
 const fs = require("fs")
 const path = require("path")
 const { execFile } = require("child_process")
+const { fetchRede } = require("./httpfetch")
 
 const RAIZ = path.resolve(__dirname, "../..")
 const APP = path.join(RAIZ, "app")
@@ -95,7 +96,7 @@ async function verificar() {
   const local = await shaLocal()
   if (!local) return { ok: false, error: "não é um clone git" }
   try {
-    const r = await fetch(`${API}/compare/${local}...${BRANCH}`, {
+    const r = await fetchRede(`${API}/compare/${local}...${BRANCH}`, {
       headers: { "User-Agent": "arcadia" },
       signal: AbortSignal.timeout(15000),
     })

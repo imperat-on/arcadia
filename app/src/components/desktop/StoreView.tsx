@@ -1,17 +1,30 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStoreActions } from "../useStoreActions"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
-// Aba Lojas: busca no catálogo Hubcap e download direto para a biblioteca
-// Steam (DepotDownloader + SLSsteam). O setup (API key, .NET, SLSsteam) fica
-// em Configurações → Integrações.
+// Aba Lojas: busca no catálogo (Hubcap + Steam) e download direto para a
+// biblioteca Steam (DepotDownloader + SLSsteam). O setup (API key, .NET,
+// SLSsteam) fica em Configurações → Integrações.
+
+type ItemLoja = {
+  appid: string
+  title: string
+  cover?: string
+  manifest?: boolean
+}
+
+type Sugestao = { appid: string; title: string }
+
 // Imagem da loja com fallback: header.jpg → capsule → placeholder com título
 // (demos/playtests novos ainda não têm header no CDN da Steam).
 function StoreImg({ appid, cover, title }: { appid: string; cover?: string; title: string }) {
   const [fase, setFase] = useState(0)
+  // Reinicia a cascata quando o card é reaproveitado para outro jogo (a chave
+  // do React é o appid, mas o `cover` pode mudar sozinho ao revalidar).
+  useEffect(() => setFase(0), [appid, cover])
   const fontes = [
     cover || `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
     `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/capsule_231x87.jpg`,
@@ -38,18 +51,10 @@ function StoreImg({ appid, cover, title }: { appid: string; cover?: string; titl
   )
 }
 
-type ManifestInfo = {
-  depots: { depotId: string; manifestId: string; key: string }[]
-  token?: string
-  dlcs?: string[]
-  fonte?: string
-}
-
 export function StoreView({ games = [] }: { games?: Game[] }) {
   const { t } = useI18n()
   // Ações (Baixar/Add/Remover/reiniciar Steam), estado de bloqueio e escolha de
-  // disco vêm do hook compartilhado com a loja do modo console — antes essa
-  // lógica morava só aqui e teria de ser duplicada lá.
+  // disco vêm do hook compartilhado com a loja do modo console.
   const {
     bloqueados,
     jaAdicionados,
@@ -66,71 +71,151 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   } = useStoreActions(games)
 
   const [busca, setBusca] = useState("")
-  const [resultados, setResultados] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
-  const [recentes, setRecentes] = useState<{ appid: string; title: string; cover?: string; manifest?: boolean }[]>([])
-  const [sugestoes, setSugestoes] = useState<{ appid: string; title: string }[]>([])
-  // Item destacado nas sugestões (setas do teclado); -1 = nenhum.
+  const [resultados, setResultados] = useState<ItemLoja[] | null>(null)
+  const [recentes, setRecentes] = useState<ItemLoja[]>([])
+  const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
   const [sugSel, setSugSel] = useState(-1)
   const [carregandoRec, setCarregandoRec] = useState(true)
   const [buscando, setBuscando] = useState(false)
   const [msg, setMsg] = useState("")
 
+  // ── Contadores de geração ────────────────────────────────────────────────
+  // Toda resposta assíncrona carrega o número do pedido que a originou; se
+  // esse número não é mais o atual, a resposta é descartada. É o que impede a
+  // lista de "piscar" com o resultado de um termo que o usuário já abandonou.
+  const gerSug = useRef(0)
+  const gerBusca = useRef(0)
+  // Ligado quando somos NÓS que preenchemos o campo (ao escolher uma
+  // sugestão): sem isso o efeito de sugestões rodava de novo e reabria a lista
+  // logo após o clique — o famoso "tenho que clicar duas vezes".
+  const ignorarSug = useRef(false)
+  const caixaRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Abre a conexão com a Steam assim que a aba monta. A primeira requisição do
+  // processo custa ~3s de DNS + TLS; pagando aqui, a primeira tecla digitada
+  // já encontra o socket pronto (~250ms).
   useEffect(() => {
-    window.launcherAPI?.storeRecent()
-      .then((r) => {
-        if (r?.ok) setRecentes(r.jogos || [])
-      })
-      .finally(() => setCarregandoRec(false))
+    window.launcherAPI?.storeWarm?.()
   }, [])
 
-  // Sugestões enquanto digita. Usam storeSuggest (só títulos da Steam), não a
-  // busca completa: esta confere a disponibilidade de cada resultado e leva
-  // 1–2s, então uma por tecla disparava dezenas de sondagens ao Ryuu e as
-  // respostas voltavam fora de ordem, fazendo a lista "piscar" com resultados
-  // de um termo antigo. O contador descarta qualquer resposta atrasada.
-  const pedidoSug = useRef(0)
   useEffect(() => {
+    let vivo = true
+    window.launcherAPI
+      ?.storeRecent()
+      .then((r) => {
+        if (vivo && r?.ok) setRecentes(r.jogos || [])
+      })
+      .finally(() => {
+        if (vivo) setCarregandoRec(false)
+      })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  // ── Sugestões enquanto digita ────────────────────────────────────────────
+  // Usam storeSuggest (uma chamada à Steam, só títulos), nunca a busca
+  // completa — esta sonda a disponibilidade de cada resultado e custa segundos.
+  useEffect(() => {
+    if (ignorarSug.current) {
+      ignorarSug.current = false
+      return
+    }
     const q = busca.trim()
+    const meu = ++gerSug.current
     if (q.length < 2) {
       setSugestoes([])
       setSugSel(-1)
       return
     }
-    const meu = ++pedidoSug.current
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const r = await window.launcherAPI?.storeSuggest(q)
-      if (meu !== pedidoSug.current) return // chegou tarde: já digitaram mais
-      if (r?.ok) {
-        setSugestoes(r.jogos || [])
-        setSugSel(-1)
-      }
-    }, 220)
-    return () => clearTimeout(t)
+      if (meu !== gerSug.current) return // chegou tarde: já digitaram mais
+      setSugestoes(r?.ok ? r.jogos || [] : [])
+      setSugSel(-1)
+    }, 120)
+    return () => clearTimeout(timer)
   }, [busca])
 
-  const pesquisar = async (termo?: string) => {
-    const q = (termo ?? busca).trim()
-    if (!q) return
-    if (termo) setBusca(termo)
+  const fecharSugestoes = useCallback(() => {
+    gerSug.current++ // invalida qualquer resposta ainda em voo
     setSugestoes([])
-    setBuscando(true)
-    setMsg("")
-    const r = await window.launcherAPI?.storeSearch(q)
-    setBuscando(false)
-    if (!r?.ok) {
-      setResultados([])
-      setMsg(r?.error || t("store.busca_falhou"))
-      return
+    setSugSel(-1)
+  }, [])
+
+  // Fecha a lista ao clicar fora. Substitui o onBlur com setTimeout, que
+  // fechava a lista antes do clique registrar em alguns casos.
+  useEffect(() => {
+    if (!sugestoes.length) return
+    const fora = (e: MouseEvent) => {
+      if (!caixaRef.current?.contains(e.target as Node)) fecharSugestoes()
     }
-    setResultados(r.jogos || [])
-    if ((r.jogos || []).length === 0) setMsg(t("store.nada_encontrado"))
+    document.addEventListener("mousedown", fora)
+    return () => document.removeEventListener("mousedown", fora)
+  }, [sugestoes.length, fecharSugestoes])
+
+  // ── Busca completa ───────────────────────────────────────────────────────
+  const pesquisar = useCallback(
+    async (termo?: string) => {
+      const q = (termo ?? busca).trim()
+      if (!q) return
+      if (termo !== undefined && termo !== busca) {
+        ignorarSug.current = true
+        setBusca(termo)
+      }
+      fecharSugestoes()
+      const meu = ++gerBusca.current
+      setBuscando(true)
+      setMsg("")
+      const r = await window.launcherAPI?.storeSearch(q)
+      if (meu !== gerBusca.current) return // outra busca começou depois desta
+      setBuscando(false)
+      if (!r?.ok) {
+        setResultados([])
+        setMsg(r?.error || t("store.busca_falhou"))
+        return
+      }
+      const jogos = r.jogos || []
+      setResultados(jogos)
+      setMsg(jogos.length ? "" : t("store.nada_encontrado"))
+    },
+    [busca, fecharSugestoes, t],
+  )
+
+  const limpar = useCallback(() => {
+    gerBusca.current++
+    ignorarSug.current = true
+    setBusca("")
+    setResultados(null)
+    setMsg("")
+    setBuscando(false)
+    fecharSugestoes()
+    inputRef.current?.focus()
+  }, [fecharSugestoes])
+
+  const aoTeclar = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" && sugestoes.length) {
+      e.preventDefault()
+      setSugSel((i) => (i + 1) % sugestoes.length)
+    } else if (e.key === "ArrowUp" && sugestoes.length) {
+      e.preventDefault()
+      setSugSel((i) => (i <= 0 ? sugestoes.length : i) - 1)
+    } else if (e.key === "Escape") {
+      if (sugestoes.length) fecharSugestoes()
+      else limpar()
+    } else if (e.key === "Enter") {
+      pesquisar(sugSel >= 0 ? sugestoes[sugSel]?.title : undefined)
+    }
   }
 
-  // Grade exibida: resultados da busca ou os adicionados recentemente.
-  const buscou = resultados.length > 0 || msg !== ""
+  // Grade exibida: resultados da busca (quando houve uma) ou os "em alta".
+  // `resultados === null` distingue "ainda não buscou" de "buscou e deu zero" —
+  // antes as duas situações eram o mesmo array vazio e o cabeçalho mentia.
+  const buscou = resultados !== null
   const grade = buscou ? resultados : recentes
-  // Esqueleto: buscando, ou o "Em alta" ainda não chegou.
   const carregandoGrade = buscando || (!buscou && carregandoRec && recentes.length === 0)
+  const esqueletos = useMemo(() => Array.from({ length: 8 }, (_, i) => i), [])
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
@@ -139,38 +224,43 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
 
       {/* Busca + Restart Steam */}
       <div className="mb-4 flex max-w-[860px] gap-2">
-        <div className="relative flex-1">
+        <div ref={caixaRef} className="relative flex-1">
           <input
+            ref={inputRef}
             value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => {
-              // Setas percorrem as sugestões; Enter aceita a destacada (ou
-              // busca o que está digitado); Esc só fecha a lista.
-              if (e.key === "ArrowDown" && sugestoes.length) {
-                e.preventDefault()
-                setSugSel((i) => (i + 1) % sugestoes.length)
-              } else if (e.key === "ArrowUp" && sugestoes.length) {
-                e.preventDefault()
-                setSugSel((i) => (i <= 0 ? sugestoes.length : i) - 1)
-              } else if (e.key === "Escape") {
-                setSugestoes([])
-                setSugSel(-1)
-              } else if (e.key === "Enter") {
-                pesquisar(sugSel >= 0 ? sugestoes[sugSel]?.title : undefined)
-              }
+            onChange={(e) => {
+              // Digitou de verdade: volta a sugerir (o flag pode ter ficado
+              // ligado se a sugestão escolhida era igual ao texto do campo).
+              ignorarSug.current = false
+              setBusca(e.target.value)
             }}
-            onBlur={() => setTimeout(() => setSugestoes([]), 150)}
+            onKeyDown={aoTeclar}
             placeholder={t("store.buscar_placeholder")}
             spellCheck={false}
-            className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)] disabled:opacity-50"
+            className="w-full rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-3.5 pr-9 text-[13px] text-white outline-none transition-colors placeholder:text-white/25 focus:border-[color:var(--accent)]"
           />
-          {/* Sugestões enquanto digita */}
+          {busca && (
+            <button
+              onClick={limpar}
+              title={t("common.cancelar")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-white/35 transition-colors hover:text-white"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
           {sugestoes.length > 0 && (
             <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-[#15181d] shadow-2xl shadow-black/60">
               {sugestoes.map((s, i) => (
                 <button
                   key={s.appid}
-                  onMouseDown={() => pesquisar(s.title)}
+                  // mousedown (e não click): dispara antes de o input perder o
+                  // foco, então a escolha nunca é engolida pelo fechamento.
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    pesquisar(s.title)
+                  }}
                   onMouseEnter={() => setSugSel(i)}
                   className={`block w-full truncate px-3.5 py-2 text-left text-[13px] transition-colors ${
                     i === sugSel ? "bg-white/[0.09] text-white" : "text-white/80 hover:bg-white/[0.07] hover:text-white"
@@ -184,7 +274,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         </div>
         <button
           onClick={() => pesquisar()}
-          disabled={buscando}
+          disabled={buscando || !busca.trim()}
           className="rounded-lg px-4 py-2.5 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
@@ -211,7 +301,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         {/* Enquanto a lista não chega, cartões-fantasma: a área ficava
             totalmente preta e parecia que a loja tinha quebrado. */}
         {carregandoGrade &&
-          Array.from({ length: 8 }).map((_, i) => (
+          esqueletos.map((i) => (
             <div key={`sk${i}`} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
               <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
               <div className="p-3">
@@ -220,72 +310,21 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
               </div>
             </div>
           ))}
-        {grade.map((j) => (
-          <div key={j.appid} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-            <div className="aspect-[460/215] w-full bg-black">
-              <StoreImg appid={j.appid} cover={j.cover} title={j.title} />
-            </div>
-            <div className="p-3">
-              <div className="mb-2 truncate text-[13px] font-medium text-white" title={j.title}>{j.title}</div>
-              {bloqueados.has(j.appid) ? (
-                <div className="flex gap-2">
-                  <div className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/40 py-2 text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    {t("store.na_biblioteca")}
-                  </div>
-                  {jaAdicionados.has(j.appid) && (
-                    <button
-                      onClick={() => remover(j)}
-                      disabled={acaoBusy !== ""}
-                      title={t("store.remover_tooltip")}
-                      className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
-                    >
-                      {acaoBusy === j.appid ? "…" : t("common.remover")}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                /* A busca já sabe se algum provedor tem o manifesto. Sem usar
-                   esse dado, o botão Baixar ficava ativo em jogo indisponível:
-                   o clique consultava todos os provedores e terminava num
-                   toast no canto, sem nunca chegar à escolha de disco — dava a
-                   impressão de que o botão não fazia nada. */
-                j.manifest === false ? (
-                  <div
-                    title={t("store.sem_manifesto_tooltip")}
-                    className="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/35"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" />
-                    </svg>
-                    {t("store.sem_manifesto")}
-                  </div>
-                ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => baixar(j)}
-                    disabled={acaoBusy !== ""}
-                    className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
-                    style={{ background: "var(--accent)" }}
-                  >
-                    {acaoBusy === j.appid ? "…" : t("store.baixar")}
-                  </button>
-                  <button
-                    onClick={() => adicionar(j)}
-                    disabled={acaoBusy !== ""}
-                    title={t("store.add_tooltip")}
-                    className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
-                  >
-                    {t("store.add")}
-                  </button>
-                </div>
-                )
-              )}
-            </div>
-          </div>
-        ))}
+        {!carregandoGrade &&
+          grade.map((j) => (
+            <CartaoLoja
+              key={j.appid}
+              jogo={j}
+              naBiblioteca={bloqueados.has(j.appid)}
+              adicionado={jaAdicionados.has(j.appid)}
+              ocupado={acaoBusy !== ""}
+              nesteJogo={acaoBusy === j.appid}
+              onBaixar={() => baixar(j)}
+              onAdicionar={() => adicionar(j)}
+              onRemover={() => remover(j)}
+              t={t}
+            />
+          ))}
       </div>
 
       {/* Diálogo "onde instalar" (bibliotecas Steam em vários drives) */}
@@ -342,6 +381,99 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+    </div>
+  )
+}
+
+// Card extraído do corpo da lista: com 24 resultados na tela, deixar tudo
+// inline fazia cada tecla digitada na busca re-renderizar os 24 cards.
+function CartaoLoja({
+  jogo,
+  naBiblioteca,
+  adicionado,
+  ocupado,
+  nesteJogo,
+  onBaixar,
+  onAdicionar,
+  onRemover,
+  t,
+}: {
+  jogo: ItemLoja
+  naBiblioteca: boolean
+  adicionado: boolean
+  ocupado: boolean
+  nesteJogo: boolean
+  onBaixar: () => void
+  onAdicionar: () => void
+  onRemover: () => void
+  t: (k: string, v?: Record<string, string | number>) => string
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
+      <div className="aspect-[460/215] w-full bg-black">
+        <StoreImg appid={jogo.appid} cover={jogo.cover} title={jogo.title} />
+      </div>
+      <div className="p-3">
+        <div className="mb-2 truncate text-[13px] font-medium text-white" title={jogo.title}>
+          {jogo.title}
+        </div>
+        {naBiblioteca ? (
+          <div className="flex gap-2">
+            <div
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/40 py-2 text-[12px] font-semibold"
+              style={{ color: "var(--accent)" }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              {t("store.na_biblioteca")}
+            </div>
+            {adicionado && (
+              <button
+                onClick={onRemover}
+                disabled={ocupado}
+                title={t("store.remover_tooltip")}
+                className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+              >
+                {nesteJogo ? "…" : t("common.remover")}
+              </button>
+            )}
+          </div>
+        ) : jogo.manifest === false ? (
+          /* A busca já sabe se algum provedor tem o manifesto. Sem usar esse
+             dado, o botão Baixar ficava ativo em jogo indisponível: o clique
+             consultava todos os provedores e terminava num toast no canto, sem
+             nunca chegar à escolha de disco — parecia que não fazia nada. */
+          <div
+            title={t("store.sem_manifesto_tooltip")}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/35"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" />
+            </svg>
+            {t("store.sem_manifesto")}
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={onBaixar}
+              disabled={ocupado}
+              className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
+              style={{ background: "var(--accent)" }}
+            >
+              {nesteJogo ? "…" : t("store.baixar")}
+            </button>
+            <button
+              onClick={onAdicionar}
+              disabled={ocupado}
+              title={t("store.add_tooltip")}
+              className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
+            >
+              {t("store.add")}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
