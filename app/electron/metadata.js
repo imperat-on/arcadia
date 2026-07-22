@@ -7,6 +7,8 @@
 //
 // Hoje são dois; a assinatura é a mesma para plugar outros (IGDB, RAWG…).
 
+const { fetchRede } = require("./httpfetch")
+
 const SGDB_BASE = "https://www.steamgriddb.com/api/v2"
 const STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
 const STEAM_STORE = "https://store.steampowered.com/api/appdetails"
@@ -38,7 +40,7 @@ const SGDB_DIMENSIONS_PADRAO = {
 // responde deixa a promessa pendurada para sempre. Como esses fetch são
 // aguardados dentro de handlers IPC, a tela ficava girando sem fim, sem erro.
 async function getJSON(url, headers) {
-  const r = await fetch(url, { headers, signal: AbortSignal.timeout(20000) })
+  const r = await fetchRede(url, { headers, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`HTTP ${r.status} em ${url}`)
   return r.json()
 }
@@ -112,7 +114,7 @@ const STEAM_FILES = {
 
 async function existe(url) {
   try {
-    const r = await fetch(url, { method: "HEAD" })
+    const r = await fetchRede(url, { method: "HEAD" })
     return r.ok
   } catch {
     return false
@@ -167,7 +169,7 @@ async function igdbProxy(titulo) {
   const chave = t.toLowerCase()
   if (igdbCache.has(chave)) return igdbCache.get(chave)
 
-  const r = await fetch(`${IGDB_PROXY}/igdb/search`, {
+  const r = await fetchRede(`${IGDB_PROXY}/igdb/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "User-Agent": IGDB_UA },
     body: JSON.stringify({ SearchTerm: t }),
@@ -188,7 +190,7 @@ async function igdbProxy(titulo) {
     achados.find((g) => normalizaTitulo(g.name) === alvo) ||
     achados.find((g) => tituloBate(g.name, t)) ||
     achados[0]
-  const f = await fetch(`${IGDB_PROXY}/igdb/game/${melhor.id}`, {
+  const f = await fetchRede(`${IGDB_PROXY}/igdb/game/${melhor.id}`, {
     headers: { "User-Agent": IGDB_UA },
     signal: AbortSignal.timeout(20000),
   })
@@ -434,7 +436,7 @@ function extFromUrl(url, contentType) {
 
 // Baixa para um caminho definido pelo chamador. Devolve { path, bytes }.
 async function downloadTo(url, destSemExt, fs) {
-  const r = await fetch(url)
+  const r = await fetchRede(url)
   if (!r.ok) throw new Error(`download falhou: HTTP ${r.status}`)
   const ext = extFromUrl(url, r.headers.get("content-type"))
   const buf = Buffer.from(await r.arrayBuffer())
@@ -495,7 +497,7 @@ const PSN_ROLES = {
 }
 
 async function getText(url) {
-  const r = await fetch(url, { headers: { "User-Agent": PSN_UA } })
+  const r = await fetchRede(url, { headers: { "User-Agent": PSN_UA } })
   if (!r.ok) throw new Error(`HTTP ${r.status} em ${url}`)
   return r.text()
 }

@@ -278,71 +278,10 @@ declare global {
       storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string; adicionados?: string[] }>
       /** Loja Steam: busca no catálogo Hubcap. */
       storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
+      /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */
+      storeWarm: () => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
       storeSuggest: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
-      /** Loja Steam: ficha completa do jogo (appdetails), para a página da loja. */
-      /** Capa retrato alternativa (SteamGridDB). url vazia = não existe. */
-      storeCover: (appid: string) => Promise<{ ok: boolean; url?: string; error?: string }>
-      storeDetails: (appid: string) => Promise<{
-        ok: boolean
-        error?: string
-        cache?: boolean
-        jogo?: {
-          appid: string
-          nome: string
-          descricao: string
-          header: string
-          fundo: string
-          screenshots: string[]
-          trailer: { url: string; alta: string; poster: string } | null
-          generos: string[]
-          lancamento: string
-          devs: string[]
-          publishers: string[]
-          preco: string
-          precoOriginal: string
-          desconto: number
-          metacritic: number
-          reqMin: string
-          reqRec: string
-        }
-      }>
-      /** Loja Steam: uma linha da home, por gênero. Paginado por offset. */
-      storeGenre: (
-        genero: string,
-        limite?: number,
-        offset?: number,
-      ) => Promise<{
-        ok: boolean
-        error?: string
-        jogos?: {
-          appid: string
-          title: string
-          cover?: string
-          capa?: string
-          heroi?: string
-          manifest?: boolean
-          fontes?: string[]
-          preco?: string
-          precoOriginal?: string
-          desconto?: number
-        }[]
-        offset?: number
-        total?: number
-      }>
-      /** Loja Steam: uma seção da vitrine (lançamentos, mais vendidos, promoções). Paginado. */
-      storeFeatured: (
-        secao: string,
-        limite?: number,
-        offset?: number,
-      ) => Promise<{
-        ok: boolean
-        error?: string
-        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean; fontes?: string[]; desconto?: number }[]
-        offset?: number
-        total?: number
-        hasMoreLazy?: boolean
-      }>
       /** Loja Steam: mais jogados. Sem argumento, os da quinzena. Paginado. */
       storeRecent: (
         lista?: string,

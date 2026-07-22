@@ -3,6 +3,7 @@
 // Tudo é subprocess + parsing de texto — sem dependências novas de npm.
 
 const fs = require("fs")
+const { fetchRede } = require("./httpfetch")
 const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
@@ -59,7 +60,10 @@ function readConfig() {
 // pendura o handler IPC e a tela fica esperando para sempre. Quem precisa de
 // mais tempo (download de zip) passa o próprio signal.
 async function gh(url, opts = {}) {
-  return fetch(url, {
+  // fetchRede = pilha de rede do Chromium (cacheia DNS e conexões). Ver
+  // httpfetch.js: com o fetch do Node, cada chamada após alguns segundos
+  // ociosos pagava ~3s só de resolução de nome.
+  return fetchRede(url, {
     signal: AbortSignal.timeout(30000),
     ...opts,
     headers: { "User-Agent": "arcadia", ...(opts.headers || {}) },
@@ -85,7 +89,7 @@ async function ensureDotnet(onProgress) {
   fs.mkdirSync(dir, { recursive: true })
   const script = path.join(TMP_DIR, "dotnet-install.sh")
   fs.mkdirSync(TMP_DIR, { recursive: true })
-  const r = await fetch("https://dot.net/v1/dotnet-install.sh")
+  const r = await fetchRede("https://dot.net/v1/dotnet-install.sh")
   if (!r.ok) return { ok: false, error: `dotnet-install.sh HTTP ${r.status}` }
   fs.writeFileSync(script, Buffer.from(await r.arrayBuffer()))
   fs.chmodSync(script, 0o755)
@@ -113,9 +117,26 @@ function depsOk() {
 const SUSHI_TREE = "https://api.github.com/repos/sushi-dev55-alt/sushitools-games-repo-alt/git/trees/main"
 const SUSHI_TTL = 6 * 60 * 60 * 1000 // 6h: o repo muda devagar
 let sushiCache = { at: 0, ids: null }
+// O índice também vai para disco: em memória ele nascia vazio a cada abertura
+// do app, e a PRIMEIRA visita à loja pagava a árvore inteira do GitHub (~5.800
+// entradas) antes de desenhar qualquer coisa.
+const SUSHI_CACHE = path.join(DATA_DIR, "store_sushi_cache.json")
+
+function lerSushiDisco() {
+  const c = lerCache(SUSHI_CACHE)
+  if (!c || !Array.isArray(c.ids) || Date.now() - (c.at || 0) >= SUSHI_TTL) return null
+  return { at: c.at, ids: new Set(c.ids) }
+}
 
 async function sushiIds() {
   if (sushiCache.ids && Date.now() - sushiCache.at < SUSHI_TTL) return sushiCache.ids
+  if (!sushiCache.ids) {
+    const disco = lerSushiDisco()
+    if (disco) {
+      sushiCache = disco
+      return disco.ids
+    }
+  }
   try {
     const r = await gh(SUSHI_TREE)
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -129,6 +150,7 @@ async function sushiIds() {
     // existem como indisponíveis. Melhor não cachear e sondar por HEAD.
     if (d.truncated) throw new Error("árvore truncada")
     sushiCache = { at: Date.now(), ids }
+    gravarCache(SUSHI_CACHE, { at: sushiCache.at, ids: [...ids] })
     return ids
   } catch (e) {
     storeLog(`sushi: falha ao indexar (${e.message}) — caindo para HEAD`)
@@ -356,7 +378,9 @@ async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   // Sondagens novas desta página inteira, acumuladas para UMA escrita em
   // disco no final (em vez de uma por item sondado — ver `existe()`).
   const novas = {}
-  await emLotes(jogos, 6, async (g) => {
+  // 12 em paralelo: são HEADs de alguns bytes em dois hosts diferentes, e com
+  // 6 a sondagem de uma página inteira somava 6–7 rodadas de ida e volta.
+  await emLotes(jogos, 12, async (g) => {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
     if (sushi) {
@@ -433,12 +457,65 @@ function ordenar(jogos, q) {
 // provedor nenhum. A busca completa leva 1–2s porque confere a disponibilidade
 // de cada resultado; usá-la a cada tecla disparava dezenas de requisições ao
 // Ryuu e as respostas chegavam fora de ordem. Aqui é uma chamada só.
+// Teto de resultados devolvidos pela busca (ver o corte em `search`).
+const BUSCA_MAX = 24
+
 const sugCache = new Map()
+
+// A PRIMEIRA chamada a store.steampowered.com de cada processo custa ~3s só de
+// DNS + handshake TLS; as seguintes, ~250ms. Isso caía inteiro na primeira
+// tecla digitada na busca. `aquecer()` paga esse custo antes, quando a aba da
+// loja abre, e mantém o socket vivo. Deduplicado e no máximo 1x por minuto.
+let aquecendo = null
+let aquecidoEm = 0
+async function aquecer() {
+  if (aquecendo) return aquecendo
+  if (Date.now() - aquecidoEm < 60000) return { ok: true, cache: true }
+  aquecendo = (async () => {
+    try {
+      const r = await gh("https://store.steampowered.com/api/storesearch/?term=a&cc=br", {
+        signal: AbortSignal.timeout(8000),
+      })
+      // Consumir o corpo é obrigatório: sem isso a conexão fica ocupada e a
+      // requisição seguinte abre um socket novo — refazendo o handshake que
+      // este aquecimento existe justamente para evitar.
+      await r.arrayBuffer()
+      // O índice do Sushi também é o gargalo da PRIMEIRA busca (a sondagem de
+      // disponibilidade). Aqui ele já entra no cache de disco/memória.
+      sushiIds().catch(() => {})
+      // Os provedores de manifesto são hosts diferentes: cada um paga a própria
+      // resolução de nome na primeira sondagem. Abrimos os dois em paralelo,
+      // sem esperar — quem chegar antes da busca do usuário já economiza.
+      for (const url of [RYUU_URL(730), SUSHI_URL(730)]) {
+        gh(url, { method: "HEAD", signal: AbortSignal.timeout(8000) }).catch(() => {})
+      }
+      aquecidoEm = Date.now()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e.message || e) }
+    } finally {
+      aquecendo = null
+    }
+  })()
+  return aquecendo
+}
+
+// Requisições em voo por termo: o renderer pode pedir o mesmo termo duas vezes
+// (foco + tecla repetida) e sem isto seriam duas idas à Steam.
+const sugEmVoo = new Map()
+
 async function suggest(query) {
   const q = query.trim()
   if (q.length < 2) return { ok: true, jogos: [] }
   const chave = q.toLowerCase()
-  if (sugCache.has(chave)) return { ok: true, jogos: sugCache.get(chave) }
+  if (sugCache.has(chave)) return { ok: true, jogos: sugCache.get(chave), cache: true }
+  if (sugEmVoo.has(chave)) return sugEmVoo.get(chave)
+  const pedido = suggestDaSteam(q, chave).finally(() => sugEmVoo.delete(chave))
+  sugEmVoo.set(chave, pedido)
+  return pedido
+}
+
+async function suggestDaSteam(q, chave) {
   try {
     const r = await gh(
       `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=${steamLang()}`,
@@ -473,49 +550,55 @@ async function search(query) {
   const erros = []
   const comHubcap = new Set()
 
+  // As duas fontes vão JUNTAS. Em série, a busca somava as duas latências
+  // (~3s cada partindo do Brasil) antes mesmo de começar a sondar
+  // disponibilidade — em paralelo custa o tempo da mais lenta.
+  //
   // 1) Hubcap: melhores metadados (capa oficial) e já diz o que ele tem.
-  if (cfg.hubcap_api_key) {
-    try {
-      const r = await gh(`${HUBCAP_BASE}/library?search=${encodeURIComponent(query)}`, {
+  // 2) Steam: catálogo completo e sem chave. É o que garante encontrar jogos
+  //    que o Hubcap não indexa mas os outros provedores servem.
+  const pHubcap = cfg.hubcap_api_key
+    ? gh(`${HUBCAP_BASE}/library?search=${encodeURIComponent(query)}`, {
         headers: { Authorization: `Bearer ${cfg.hubcap_api_key}` },
+        signal: AbortSignal.timeout(12000),
       })
-      if (r.ok) {
-        for (const g of mapJogos(await r.json())) {
-          if (g.manifest) comHubcap.add(g.appid)
-          porId.set(g.appid, g)
-        }
-      } else {
-        erros.push(`Hubcap HTTP ${r.status}`)
+    : null
+  const pSteam = gh(
+    `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=${steamLang()}`,
+    { signal: AbortSignal.timeout(12000) },
+  )
+  const [rHubcap, rSteam] = await Promise.allSettled([pHubcap, pSteam])
+
+  if (pHubcap) {
+    try {
+      if (rHubcap.status !== "fulfilled") throw rHubcap.reason
+      if (!rHubcap.value.ok) throw new Error(`HTTP ${rHubcap.value.status}`)
+      for (const g of mapJogos(await rHubcap.value.json())) {
+        if (g.manifest) comHubcap.add(g.appid)
+        porId.set(g.appid, g)
       }
     } catch (e) {
       erros.push(`Hubcap: ${e.message}`)
     }
   }
 
-  // 2) Steam: catálogo completo e sem chave. É o que garante encontrar jogos
-  // que o Hubcap não indexa mas os outros provedores servem.
   try {
-    const r = await gh(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&cc=br&l=${steamLang()}`,
-    )
-    if (r.ok) {
-      const data = await r.json()
-      for (const g of data.items || []) {
-        const appid = String(g.id || "")
-        if (!appid || !g.name || porId.has(appid)) continue
-        porId.set(appid, {
-          appid,
-          title: g.name,
-          // O `tiny_image` é pequeno, mas vem com o hash do asset — para jogos
-          // do esquema novo é a ÚNICA arte alcançável sem uma chamada extra.
-          // O caminho antigo, montado só com o appid, fica de reserva.
-          cover: g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
-          preco: precoBusca(g.price),
-          manifest: false,
-        })
-      }
-    } else {
-      erros.push(`Steam HTTP ${r.status}`)
+    if (rSteam.status !== "fulfilled") throw rSteam.reason
+    if (!rSteam.value.ok) throw new Error(`HTTP ${rSteam.value.status}`)
+    const data = await rSteam.value.json()
+    for (const g of data.items || []) {
+      const appid = String(g.id || "")
+      if (!appid || !g.name || porId.has(appid)) continue
+      porId.set(appid, {
+        appid,
+        title: g.name,
+        // O `tiny_image` é pequeno, mas vem com o hash do asset — para jogos
+        // do esquema novo é a ÚNICA arte alcançável sem uma chamada extra.
+        // O caminho antigo, montado só com o appid, fica de reserva.
+        cover: g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        preco: precoBusca(g.price),
+        manifest: false,
+      })
     }
   } catch (e) {
     erros.push(`Steam: ${e.message}`)
@@ -525,20 +608,14 @@ async function search(query) {
   if (!jogos.length) {
     return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
   }
-  const encontrados = await preparar(jogos, comHubcap)
+  // Ordena ANTES de preparar e corta em BUSCA_MAX: sondar disponibilidade
+  // custa 2 requisições por jogo, e a busca trazia até 40 resultados dos quais
+  // ninguém olha o final. Ordenando por relevância primeiro, o corte cai só na
+  // cauda irrelevante.
+  ordenar(jogos, query)
+  const encontrados = await preparar(jogos.slice(0, BUSCA_MAX), comHubcap)
   ordenar(encontrados, query)
   return { ok: true, jogos: encontrados, fonte: "multi", avisos: erros }
-}
-
-// Lançamentos/adicionados recentemente no catálogo (home da aba Lojas).
-async function recent(limit = 24) {
-  const cfg = readConfig()
-  if (!cfg.hubcap_api_key) return { ok: false, error: "sem API key" }
-  const r = await gh(`${HUBCAP_BASE}/library?limit=${limit}&sort_by=updated`, {
-    headers: { Authorization: `Bearer ${cfg.hubcap_api_key}` },
-  })
-  if (!r.ok) return { ok: false, error: `Hubcap HTTP ${r.status}` }
-  return { ok: true, jogos: mapJogos(await r.json()).filter((g) => g.manifest) }
 }
 
 // "Mais baixados/em alta" (o Hubcap não tem ranking): SteamSpy top 100 das
@@ -553,6 +630,11 @@ const POPULAR_TTL = 6 * 60 * 60 * 1000 // 6h: "top da quinzena" muda devagar
 function lerPopularCache() {
   try {
     const c = JSON.parse(fs.readFileSync(POPULAR_CACHE, "utf-8"))
+    // `buscarPopular` grava { at, completa }; formatos antigos gravavam
+    // { at, jogos }. Aceitar os dois: exigir só `jogos` fazia o cache novo
+    // ser sempre descartado e a aba refazia a busca do SteamSpy a cada
+    // abertura (~7s de espera com a grade em esqueleto).
+    if (Array.isArray(c.completa) && c.completa.length) return c
     if (Array.isArray(c.jogos) && c.jogos.length) return c
   } catch {}
   return null
@@ -681,198 +763,6 @@ function gravarCache(arquivo, dados) {
   } catch {}
 }
 
-// ── Capa alternativa (SteamGridDB) ─────────────────────────────────────────
-// Só é consultada para os jogos cuja arte retrato a Steam não publica — o que
-// hoje significa quase todo lançamento recente e DLC. A busca é por appid da
-// Steam, sem procurar por título, então não há risco de trazer a capa do jogo
-// errado.
-const CAPA_CACHE = path.join(DATA_DIR, "store_cover_cache.json")
-const CAPA_TTL = 30 * 24 * 60 * 60 * 1000 // 30 dias: arte da comunidade muda devagar
-// Quem não tem capa hoje provavelmente não terá amanhã, mas pode ganhar uma
-// depois do lançamento. Um TTL curto para o "não achei" evita repetir a
-// chamada a cada rolagem sem congelar a ausência para sempre.
-const CAPA_TTL_VAZIO = 24 * 60 * 60 * 1000
-const CAPA_MAX = 800
-
-// Pedidos em voo, por appid: a mesma capa costuma ser pedida por vários
-// ladrilhos ao mesmo tempo (grade + trilho), e sem isto viraria uma chamada
-// por ladrilho.
-const capasEmVoo = new Map()
-
-async function capaAlternativa(appid) {
-  const id = String(appid || "").trim()
-  if (!id) return { ok: false, error: "appid vazio" }
-
-  const cache = lerCache(CAPA_CACHE) || {}
-  const item = cache[id]
-  if (item) {
-    const ttl = item.url ? CAPA_TTL : CAPA_TTL_VAZIO
-    if (Date.now() - item.at < ttl) return { ok: true, url: item.url, cache: true }
-  }
-
-  const chave = String(readConfig().steamgriddb_api_key || "").trim()
-  if (!chave) return { ok: true, url: "", semChave: true }
-
-  if (capasEmVoo.has(id)) return capasEmVoo.get(id)
-
-  const pedido = (async () => {
-    let url = ""
-    try {
-      const p = new URLSearchParams({ dimensions: "600x900,660x930", types: "static", nsfw: "false" })
-      const r = await fetch(`https://www.steamgriddb.com/api/v2/grids/steam/${id}?${p}`, {
-        headers: { Authorization: `Bearer ${chave}` },
-        signal: AbortSignal.timeout(12000),
-      })
-      // 404 = "essa Steam appid não existe na SGDB". É resposta legítima, não
-      // erro: guardamos o vazio para não perguntar de novo a cada rolagem.
-      if (r.ok) {
-        const j = await r.json()
-        url = (j?.data || []).find((g) => g.url)?.url || ""
-      }
-    } catch {
-      // Rede fora ou timeout: não grava nada, para tentar de novo depois.
-      capasEmVoo.delete(id)
-      return { ok: true, url: "" }
-    }
-
-    const atual = lerCache(CAPA_CACHE) || {}
-    atual[id] = { url, at: Date.now() }
-    const chaves = Object.keys(atual)
-    if (chaves.length > CAPA_MAX) {
-      // Descarta as mais antigas primeiro: o arquivo é lido inteiro a cada uso.
-      chaves
-        .sort((a, b) => (atual[a].at || 0) - (atual[b].at || 0))
-        .slice(0, chaves.length - CAPA_MAX)
-        .forEach((k) => delete atual[k])
-    }
-    gravarCache(CAPA_CACHE, atual)
-    capasEmVoo.delete(id)
-    return { ok: true, url }
-  })()
-
-  capasEmVoo.set(id, pedido)
-  return pedido
-}
-
-const DETALHES_CACHE = path.join(DATA_DIR, "store_details_cache.json")
-const DETALHES_TTL = 24 * 60 * 60 * 1000
-const DETALHES_MAX = 300 // teto de entradas: o arquivo é lido inteiro a cada uso
-
-// A Steam migrou os `movies` do appdetails para DASH/HLS, que o Chromium não
-// reproduz. Sobra o MP4 legado do CDN, montado a partir do movieId — mas ele
-// só existe para os trailers ANTIGOS: os publicados depois da migração dão
-// 404 nas duas resoluções. Como o appdetails não diz quais são quais (não há
-// mais campo `mp4` para ninguém), a única forma de saber é perguntar.
-const TRAILER_URL = (movieId, alta) =>
-  `https://cdn.akamai.steamstatic.com/steam/apps/${movieId}/${alta ? "movie_max" : "movie480"}.mp4`
-
-// Confere quais resoluções existem de fato. Sem isto, um <video> apontando
-// para um 404 fica na tela mostrando o `poster` — uma miniatura de 600px
-// esticada por cima da arte de 3840px, que era a causa do herói borrado.
-async function trailerDisponivel(movieId) {
-  const testar = async (alta) => {
-    const url = TRAILER_URL(movieId, alta)
-    try {
-      const r = await gh(url, { method: "HEAD", signal: AbortSignal.timeout(8000) })
-      return r.ok ? url : ""
-    } catch {
-      return "" // rede fora conta como indisponível: não mostrar > mostrar quebrado
-    }
-  }
-  const [alta, normal] = await Promise.all([testar(true), testar(false)])
-  return { alta, normal }
-}
-
-// pc_requirements vem como objeto com HTML, ou como array vazio quando o jogo
-// não declara nada — daí a checagem de Array.
-function requisito(reqs, chave) {
-  if (!reqs || Array.isArray(reqs)) return ""
-  return String(reqs[chave] || "")
-}
-
-async function normalizaDetalhes(appid, d) {
-  const filme = (d.movies || [])[0]
-  const mp4 = filme ? await trailerDisponivel(filme.id) : null
-  return {
-    appid: String(appid),
-    nome: d.name || "",
-    descricao: d.short_description || "",
-    header: d.header_image || "",
-    fundo: d.background_raw || d.background || "",
-    screenshots: (d.screenshots || []).map((s) => s.path_full).filter(Boolean).slice(0, 12),
-    // Só devolve trailer quando existe MP4 tocável. `null` faz a UI nem montar
-    // o <video>, em vez de montá-lo quebrado.
-    trailer:
-      mp4 && (mp4.normal || mp4.alta)
-        ? { url: mp4.normal || mp4.alta, alta: mp4.alta || mp4.normal, poster: filme.thumbnail || "" }
-        : null,
-    generos: (d.genres || []).map((g) => g.description).filter(Boolean),
-    lancamento: d.release_date?.date || "",
-    devs: d.developers || [],
-    publishers: d.publishers || [],
-    preco: d.price_overview?.final_formatted || (d.is_free ? "Gratuito" : ""),
-    // Só faz sentido mostrar o preço cheio riscado quando há desconto de fato.
-    precoOriginal: d.price_overview?.discount_percent ? d.price_overview.initial_formatted || "" : "",
-    desconto: Number(d.price_overview?.discount_percent) || 0,
-    metacritic: Number(d.metacritic?.score) || 0,
-    reqMin: requisito(d.pc_requirements, "minimum"),
-    reqRec: requisito(d.pc_requirements, "recommended"),
-  }
-}
-
-// Ficha do jogo para a página da loja. O appdetails tem limite de requisições
-// (~200 a cada 5 min), então nunca deve ser chamado para uma linha inteira —
-// só ao abrir a página ou ao entrar no destaque.
-async function detalhes(appid) {
-  const id = String(appid || "")
-  if (!id) return { ok: false, error: "appid ausente" }
-  const cache = lerCache(DETALHES_CACHE) || {}
-  const lang = steamLang()
-  const guardado = cache[id]
-  // A ficha (descrição, requisitos, gêneros) vem traduzida pela Steam, então
-  // o idioma faz parte da chave de validade: sem isso, trocar de idioma
-  // deixava a página da loja em português por até 6 horas.
-  // Entrada antiga, sem idioma gravado: conta como idioma diferente. Todas
-  // elas estão em português — servi-las a quem pôs o app em inglês seria pior
-  // que uma ida à rede.
-  const mesmoIdioma = guardado?.lang === lang
-  if (guardado && mesmoIdioma && Date.now() - (guardado.at || 0) < DETALHES_TTL) {
-    return { ok: true, jogo: guardado.jogo, cache: true }
-  }
-  try {
-    const r = await gh(
-      `https://store.steampowered.com/api/appdetails?appids=${id}&cc=br&l=${lang}`,
-      { signal: AbortSignal.timeout(20000) },
-    )
-    if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
-    const data = await r.json()
-    const d = data?.[id]?.data
-    if (!d) throw new Error("sem dados para este appid")
-    const jogo = await normalizaDetalhes(id, d)
-    cache[id] = { at: Date.now(), lang, jogo }
-    // Poda pelas entradas mais antigas quando passa do teto.
-    const ids = Object.keys(cache)
-    if (ids.length > DETALHES_MAX) {
-      ids.sort((a, b) => (cache[a].at || 0) - (cache[b].at || 0))
-      for (const velho of ids.slice(0, ids.length - DETALHES_MAX)) delete cache[velho]
-    }
-    gravarCache(DETALHES_CACHE, cache)
-    return { ok: true, jogo }
-  } catch (e) {
-    // Cache vencido ainda serve: melhor uma ficha de ontem que uma tela vazia
-    // — mas só no idioma atual; texto na língua errada confunde mais que ajuda.
-    if (guardado && mesmoIdioma) return { ok: true, jogo: guardado.jogo, cache: true, velho: true }
-    return { ok: false, error: String(e.message || e) }
-  }
-}
-
-const DESTAQUE_CACHE = path.join(DATA_DIR, "store_featured_cache.json")
-const DESTAQUE_TTL = 3 * 60 * 60 * 1000 // 3h: lançamentos e promoções giram rápido
-
-// Seções da vitrine oficial da Steam. Vêm todas numa resposta só, então uma
-// chamada abastece as quatro linhas.
-const SECOES = new Set(["new_releases", "top_sellers", "specials", "coming_soon"])
-
 // Os itens do featuredcategories usam `id`/`name`, e não `appid`/`title` como o
 // resto da loja. Normalizar aqui evita que o carrossel receba capa vazia.
 // Preço em centavos + moeda ISO, como o featuredcategories devolve. Vem na
@@ -893,126 +783,11 @@ function precoBusca(p) {
   return precoDestaque(p.final, p.currency)
 }
 
-function mapDestaque(itens) {
-  return (itens || [])
-    .map((g) => ({
-      appid: String(g.id || ""),
-      title: g.name || "",
-      // A URL vem PRONTA da API, com o hash do asset no caminho. Jogos
-      // publicados no esquema novo (/store_item_assets/steam/apps/<id>/<hash>/)
-      // não são alcançáveis pelo caminho antigo montado só com o appid — era
-      // por isso que quase todo lançamento recente aparecia sem capa.
-      cover: g.header_image || g.large_capsule_image || `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`,
-      manifest: false,
-      desconto: Number(g.discount_percent) || 0,
-      // A vitrine mostra preço por capa; esta é a única fonte que o entrega
-      // sem uma chamada de appdetails por jogo (que estouraria o limite).
-      preco: precoDestaque(g.final_price, g.currency),
-      precoOriginal: g.discount_percent ? precoDestaque(g.original_price, g.currency) : "",
-    }))
-    .filter((g) => g.appid && g.title)
-}
-
-// Complemento SteamSpy por seção da Featured. Quando o cliente pede offset
-// além dos ~20 que a Steam devolve, servimos jogos populares da SteamSpy
-// para o scroll infinito continuar. coming_soon não tem equivalente
-// natural (jogos futuros); esgota naturalmente.
-const COMPLEMENTO = {
-  top_sellers: "top100forever",
-  new_releases: "top100forever",
-  specials: "top100forever",
-}
-
-// Uma seção da vitrine (lançamentos, mais vendidos, promoções, em breve).
-// Cacheamos a lista COMPLETA da Steam em `.completa` e um complemento
-// SteamSpy em `.complemento`; paginamos aqui. Cliente recebe uma fatia
-// contígua — a transição Steam→SteamSpy é transparente.
-async function destaques(secao, limite = 40, offset = 0) {
-  const chave = String(secao || "")
-  if (!SECOES.has(chave)) return { ok: false, error: `seção inválida: ${chave}` }
-  const off = Math.max(0, Number(offset) | 0)
-  const lim = Math.max(1, Number(limite) | 0)
-  const cache = lerCache(DESTAQUE_CACHE) || {}
-  let guardado = cache[chave]
-  const validoSteam = (g) => g && Date.now() - (g.at || 0) < DESTAQUE_TTL && Array.isArray(g.completa)
-  if (!validoSteam(guardado)) {
-    try {
-      const r = await gh(`https://store.steampowered.com/api/featuredcategories?cc=br&l=${steamLang()}`, {
-        signal: AbortSignal.timeout(20000),
-      })
-      if (!r.ok) throw new Error(`Steam HTTP ${r.status}`)
-      const data = await r.json()
-      const agora = Date.now()
-      // A resposta traz todas as seções de uma vez; preenchemos o cache de
-      // todas para não pagar essa chamada de novo ao trocar de filtro. Cada
-      // entrada guarda a lista completa (sem slice); sondagem só na fatia
-      // servida abaixo.
-      for (const s of SECOES) {
-        const itens = mapDestaque(data?.[s]?.items)
-        const anterior = cache[s] || {}
-        cache[s] = { at: agora, completa: itens, complemento: anterior.complemento }
-      }
-      gravarCache(DESTAQUE_CACHE, cache)
-      guardado = cache[chave]
-      if (!guardado) throw new Error("seção vazia na resposta")
-    } catch (e) {
-      // Cache velho ainda serve: melhor uma tela pronta que um erro. Aceita
-      // formato novo (`.completa`) ou antigo (`.jogos`).
-      const fallback = guardado?.completa || guardado?.jogos
-      if (Array.isArray(fallback)) {
-        const fatia = fallback.slice(off, Math.min(fallback.length, off + lim))
-        return { ok: true, jogos: fatia, offset: off, total: fallback.length, cache: true, velho: true }
-      }
-      return { ok: false, error: String(e.message || e) }
-    }
-  }
-  const steamCompleta = guardado.completa
-  const fimSteam = steamCompleta.length
-  const nomeComp = COMPLEMENTO[chave]
-  // Se o cliente ainda está dentro da faixa da Steam e não precisa transbordar,
-  // servimos direto.
-  if (off + lim <= fimSteam || !nomeComp) {
-    const fatia = await preparar(steamCompleta.slice(off, Math.min(fimSteam, off + lim)))
-    // Sem complemento OU pedido exatamente dentro: `total` é o que temos hoje.
-    // Se há complemento e ele ainda não foi carregado, avisamos com hasMore.
-    const total = nomeComp ? fimSteam + (guardado.complemento?.length || 0) : fimSteam
-    return { ok: true, jogos: fatia, offset: off, total, hasMoreLazy: Boolean(nomeComp && !guardado.complemento) }
-  }
-  // Cliente pediu além da Steam — precisa complementar com SteamSpy. Buscamos
-  // o dump completo do complemento uma vez, cacheamos em `.complemento`.
-  let complemento = Array.isArray(guardado.complemento) ? guardado.complemento : null
-  if (!complemento) {
-    try {
-      complemento = await buscarSteamSpyCompleta(`https://steamspy.com/api.php?request=${nomeComp}`)
-      // Remove appids já presentes na parte Steam para o cliente não ver o
-      // mesmo card duas vezes na transição.
-      const jaVi = new Set(steamCompleta.map((g) => g.appid))
-      complemento = complemento.filter((g) => !jaVi.has(g.appid))
-      cache[chave] = { ...guardado, complemento }
-      gravarCache(DESTAQUE_CACHE, cache)
-    } catch (e) {
-      // Complemento falhou: entrega o que tem da Steam (potencialmente vazio)
-      // e sinaliza total=fimSteam para o cliente parar de pedir.
-      const fatia = steamCompleta.slice(off, Math.min(fimSteam, off + lim))
-      return { ok: true, jogos: fatia, offset: off, total: fimSteam, cache: true, velho: true, erroComplemento: String(e.message || e) }
-    }
-  }
-  // Fatia contígua atravessando os dois arrays: pega o que ainda cabe da Steam
-  // (se houver) e o resto do complemento, ajustando o índice do segundo.
-  const jogos = []
-  if (off < fimSteam) jogos.push(...steamCompleta.slice(off, fimSteam))
-  const inicioComp = Math.max(0, off - fimSteam)
-  const restante = lim - jogos.length
-  if (restante > 0) jogos.push(...complemento.slice(inicioComp, inicioComp + restante))
-  const prontos = await preparar(jogos)
-  return { ok: true, jogos: prontos, offset: off, total: fimSteam + complemento.length }
-}
-
 const GENERO_CACHE = path.join(DATA_DIR, "store_genre_cache.json")
 const GENERO_TTL = 12 * 60 * 60 * 1000
 
 // Busca o dump inteiro de um endpoint SteamSpy e retorna a lista completa
-// (sem sondar). Reusado por porGenero e popular para separar "busca +
+// (sem sondar). Usado por popular() para separar "busca +
 // cache" de "sondagem da fatia servida" — a sondagem é o custo real
 // (um HEAD por jogo em cada provedor), então só rodamos na página pedida.
 async function buscarSteamSpyCompleta(url) {
@@ -1027,42 +802,6 @@ async function buscarSteamSpyCompleta(url) {
       manifest: false,
     }))
     .filter((g) => g.appid && g.title)
-}
-
-// Uma linha da home, por gênero. Cacheamos a lista COMPLETA do SteamSpy
-// (dezenas de milhares) e paginamos aqui — assim scroll infinito pede a
-// próxima fatia sem tocar na rede, e só a fatia servida paga o custo de
-// sondagem. Caches antigos (só `.jogos`) são migrados sob demanda.
-async function porGenero(genero, limite = 40, offset = 0) {
-  const chave = String(genero || "").trim()
-  if (!chave) return { ok: false, error: "gênero ausente" }
-  const off = Math.max(0, Number(offset) | 0)
-  const lim = Math.max(1, Number(limite) | 0)
-  const cache = lerCache(GENERO_CACHE) || {}
-  const guardado = cache[chave]
-  let completa =
-    guardado && Date.now() - (guardado.at || 0) < GENERO_TTL && Array.isArray(guardado.completa)
-      ? guardado.completa
-      : null
-  if (!completa) {
-    try {
-      completa = await buscarSteamSpyCompleta(
-        `https://steamspy.com/api.php?request=genre&genre=${encodeURIComponent(chave)}`,
-      )
-      cache[chave] = { at: Date.now(), completa }
-      gravarCache(GENERO_CACHE, cache)
-    } catch (e) {
-      // Cai no cache antigo se existir (formato `.jogos`) — melhor uma fatia
-      // parcial que uma tela vazia. Se nem isso, propaga o erro.
-      if (guardado && Array.isArray(guardado.jogos)) {
-        const fatia = guardado.jogos.slice(off, off + lim)
-        return { ok: true, jogos: fatia, offset: off, total: guardado.jogos.length, cache: true, velho: true }
-      }
-      return { ok: false, error: String(e.message || e) }
-    }
-  }
-  const fatia = await preparar(completa.slice(off, off + lim))
-  return { ok: true, jogos: fatia, offset: off, total: completa.length }
 }
 
 // ---------- Fixes de jogos (estilo luatools: GameBypass/OnlineFix) ----------
@@ -1763,7 +1502,7 @@ async function installSlssteam(onProgress) {
     onProgress?.("Baixando slsteam-moon…")
     const zipPath = path.join(TMP_DIR, "slsteam-moon.zip")
     fs.mkdirSync(TMP_DIR, { recursive: true })
-    const buf = await fetch(asset.browser_download_url).then((r) => {
+    const buf = await fetchRede(asset.browser_download_url).then((r) => {
       if (!r.ok) throw new Error(`download HTTP ${r.status}`)
       return r.arrayBuffer()
     })
@@ -2020,17 +1759,13 @@ async function status() {
 
 module.exports = {
   search,
-  capaAlternativa,
   comandoSteam,
   appidsInjetados,
   steamInjetada,
   preparar,
   itensDaLoja,
   suggest,
-  detalhes,
-  porGenero,
-  destaques,
-  recent,
+  aquecer,
   popular,
   checkFixes,
   applyFix,
