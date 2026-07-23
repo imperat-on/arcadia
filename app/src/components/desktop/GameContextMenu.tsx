@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
@@ -89,7 +90,10 @@ export function GameContextMenu({
     actions.categorias(nova)
   }
 
-  return (
+  // Portal para o body: se ficasse dentro da árvore da view, qualquer ancestral
+  // com transform/filter viraria o bloco contedor do position:fixed e o menu
+  // abria deslocado (não onde o mouse clicou).
+  return createPortal(
     <div
       ref={ref}
       className="fixed z-[80] w-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#15181d] py-1.5 shadow-2xl shadow-black/70"
@@ -190,6 +194,7 @@ export function GameContextMenu({
           to { opacity: 1; transform: scale(1); }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body,
   )
 }
