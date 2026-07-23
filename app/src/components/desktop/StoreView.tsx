@@ -297,7 +297,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
       <h2 className="mb-3 text-sm font-medium text-white/60">
         {buscou ? t("store.resultados_count", { count: grade.length }) : t("store.em_alta_agora")}
       </h2>
-      <div className="grid-stagger grid max-w-[1100px] grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-8">
+      <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-8">
         {/* Enquanto a lista não chega, cartões-fantasma: a área ficava
             totalmente preta e parecia que a loja tinha quebrado. */}
         {carregandoGrade &&
