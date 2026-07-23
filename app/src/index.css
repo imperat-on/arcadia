@@ -300,7 +300,10 @@ body {
 /* Troca de seção pela barra lateral. A `key` da view reinicia a animação. */
 @keyframes viewIn {
   from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* transform: none (não translateY(0)) para o elemento não virar bloco
+     contedor de position:fixed depois da animação — senão o menu de contexto
+     ancora no <main> em vez do viewport e sai deslocado. */
+  to { opacity: 1; transform: none; }
 }
 .view-in { animation: viewIn var(--dur-3) var(--ease) both; }
 
