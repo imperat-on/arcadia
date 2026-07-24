@@ -15,7 +15,14 @@ APPS="$HOME/.local/share/applications"
 ICONS="$HOME/.local/share/icons/hicolor/512x512/apps"
 PIXMAPS="$HOME/.local/share/pixmaps"
 SEM_PERGUNTAS=0
-[ "$1" = "-y" ] || [ "$1" = "--yes" ] && SEM_PERGUNTAS=1
+if [ "$1" = "-y" ] || [ "$1" = "--yes" ]; then SEM_PERGUNTAS=1; fi
+
+# Sem TTY (ex.: curl … | bash) não dá pra ler resposta: assume modo -y
+# em vez de travar/pular a confirmação.
+if [ "$SEM_PERGUNTAS" = 0 ] && [ ! -t 0 ]; then
+    echo "Sem terminal interativo — assumindo modo não-interativo (preserva jogos/prefixos/SLSsteam)."
+    SEM_PERGUNTAS=1
+fi
 
 if [ ! -d "$DIR" ]; then
     echo "Arcadia não encontrado em $DIR — nada para desinstalar."
