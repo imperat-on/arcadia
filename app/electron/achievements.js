@@ -91,7 +91,8 @@ function loadItemIndex() {
   }
 }
 
-// Inicia o vigia. onUnlock(payload) recebe {appid,title,desc,icon,percent,unlock}.
+// Inicia o vigia. onUnlock(payload) recebe {appid,title,desc,icon,percent,unlock,key}.
+// key = "block|bit" — permite ao caller marcar o item no achievements.json.
 function startAchievementWatcher(onUnlock) {
   let itemIndex = loadItemIndex()
   const snapshots = new Map() // appid -> Set("block|bit")
@@ -130,12 +131,17 @@ function startAchievementWatcher(onUnlock) {
       if (it && curMap[k] > 0) {
         onUnlock({
           appid,
+          key: k,
           title: it.title,
           desc: it.desc,
           icon: it.icon,
           percent: it.percent,
           unlock: curMap[k],
         })
+      } else if (!it && curMap[k] > 0) {
+        // Progresso novo sem entrada no índice: achievements.json ausente ou
+        // sem esta conquista. Antes falhava em silêncio (sem toast, sem pista).
+        console.warn(`[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto — rode index.py)`)
       }
     }
   }

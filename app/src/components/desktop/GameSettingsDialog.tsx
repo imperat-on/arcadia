@@ -5,7 +5,7 @@ import type { Game } from "../ps5-launcher/types"
 import type { GameSettings, WineVer } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 
-const ABAS = ["WINE", "OUTROS", "AVANÇADO", "GAMESCOPE", "LEGADO"] as const
+const ABAS = ["GERAL", "LOCALIZAÇÕES", "COMPATIBILIDADE", "DESEMPENHO", "AVANÇADO"] as const
 type Aba = (typeof ABAS)[number]
 
 const PADRAO: GameSettings = {
@@ -34,7 +34,7 @@ const PADRAO: GameSettings = {
 
 export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () => void }) {
   const { t } = useI18n()
-  const [aba, setAba] = useState<Aba>("WINE")
+  const [aba, setAba] = useState<Aba>("GERAL")
   const [s, setS] = useState<GameSettings>({ ...PADRAO })
   const [defaultPrefix, setDefaultPrefix] = useState("")
   const [wines, setWines] = useState<WineVer[]>([])
@@ -43,11 +43,11 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
   const [novaVar, setNovaVar] = useState({ name: "", value: "" })
 
   const ABA_LABEL: Record<Aba, string> = {
-    WINE: t("gamesettings.wine"),
-    OUTROS: t("gamesettings.outros"),
+    GERAL: t("gamesettings.geral"),
+    "LOCALIZAÇÕES": t("gamesettings.localizacoes"),
+    COMPATIBILIDADE: t("gamesettings.compatibilidade"),
+    DESEMPENHO: t("gamesettings.desempenho"),
     AVANÇADO: t("gamesettings.avancado"),
-    GAMESCOPE: t("gamesettings.gamescope"),
-    LEGADO: t("gamesettings.legado"),
   }
 
   useEffect(() => {
@@ -125,52 +125,37 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="flex max-h-[88vh] w-[620px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
+        className="flex h-[70vh] w-[720px] max-w-[94vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Título */}
-        <div className="flex items-start justify-between px-6 pt-5">
-          <h2 className="text-lg font-light lowercase tracking-wide text-white">{t("gamesettings.titulo", { title: game.title })}</h2>
-          <button onClick={onClose} className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.08] px-4">
+          <h2 className="truncate text-[15px] font-semibold text-white">{game.title}</h2>
+          <button onClick={onClose} className="rounded-md p-1 text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
 
-        {/* Abas */}
-        <div className="mt-3 flex gap-6 border-b border-white/[0.08] px-6">
-          {ABAS.map((a) => (
-            <button
-              key={a}
-              onClick={() => setAba(a)}
-              className={`pb-2.5 text-[12px] font-semibold tracking-wider transition-colors ${
-                aba === a ? "border-b-2 border-white text-white" : "text-white/45 hover:text-white/80"
-              }`}
-            >
-              {ABA_LABEL[a]}
-            </button>
-          ))}
-        </div>
+        <div className="grid min-h-0 flex-1 grid-cols-[150px_1fr]">
+          <aside className="border-r border-white/[0.08] bg-black/25 p-1.5">
+            {ABAS.map((a) => (
+              <button
+                key={a}
+                onClick={() => setAba(a)}
+                className={`mb-0.5 flex w-full items-center rounded-lg px-2.5 py-2 text-left text-[12px] transition-colors ${
+                  aba === a ? "bg-white/[0.12] text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                {ABA_LABEL[a]}
+              </button>
+            ))}
+          </aside>
 
-        {/* Conteúdo */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {aba === "WINE" && game.launcher === "steam" && (
-            <div className="flex flex-col items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full text-[13px] font-bold text-black" style={{ background: "var(--accent)" }}>i</span>
-                <h3 className="text-[14px] font-semibold text-white">{t("gamesettings.gerenciado_steam")}</h3>
-              </div>
-              <p className="text-[13px] leading-relaxed text-white/60">
-                {t("gamesettings.steam_info1")} <span className="text-white/85">{t("gamesettings.steam_info2")}</span>{t("gamesettings.steam_info3")}
-              </p>
-              <p className="text-[13px] leading-relaxed text-white/60">
-                {t("gamesettings.steam_info4")}
-              </p>
-            </div>
-          )}
-
-          {aba === "WINE" && game.launcher !== "steam" && (
+          {/* Conteúdo */}
+          <div className="min-h-0 overflow-y-auto px-5 py-4">
+          {aba === "COMPATIBILIDADE" && (
             <>
               <label className="mb-1.5 block text-[13px] text-white/70">{t("gamesettings.versao_wine")}</label>
               <div className="relative mb-3">
@@ -252,7 +237,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
             </>
           )}
 
-          {aba === "OUTROS" && (
+          {aba === "DESEMPENHO" && (
             <>
               <Check k="gamemode" label={t("gamesettings.gamemode")} hint={t("gamesettings.gamemode_hint")} />
               <Check k="mangohud" label={t("gamesettings.mangohud")} hint={t("gamesettings.mangohud_hint")} />
@@ -270,11 +255,14 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
             </>
           )}
 
-          {aba === "AVANÇADO" && (
+          {aba === "GERAL" && (
             <>
-              <Check k="verboseLogs" label={t("gamesettings.verbose_logs")} hint={t("gamesettings.verbose_logs_hint", { id: game.id })} />
+              <label className="mb-1.5 block text-[13px] text-white/70">{t("gamesettings.titulo_jogo")}</label>
+              <div className="mb-5 truncate rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white/85">
+                {game.title}
+              </div>
 
-              <label className="mb-1.5 mt-2 block text-[13px] text-white/70">{t("gamesettings.argumentos")}</label>
+              <label className="mb-1.5 block text-[13px] text-white/70">{t("gamesettings.opcoes_inicializacao")}</label>
               <input
                 value={s.gameArgs || ""}
                 onChange={(e) => set({ gameArgs: e.target.value })}
@@ -285,6 +273,47 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
               <div className="mt-2">
                 <Info id="args" label={t("gamesettings.ajuda")} texto={t("gamesettings.argumentos_info")} />
               </div>
+            </>
+          )}
+
+          {aba === "LOCALIZAÇÕES" && (
+            <>
+              <h3 className="mb-1.5 text-[17px] font-semibold text-white">{t("gamesettings.executavel")}</h3>
+              <p className="mb-4 text-[13px] text-white/55">{t("gamesettings.executavel_desc")}</p>
+              <div className="flex gap-2">
+                <div className="flex-1 truncate rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white/75">
+                  {s.exePath || game.exe || <span className="text-white/30">{t("gamesettings.nenhum_executavel")}</span>}
+                </div>
+                {s.exePath ? (
+                  <button
+                    onClick={() => set({ exePath: undefined })}
+                    title={t("gamesettings.limpar")}
+                    className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                ) : null}
+                <button
+                  onClick={async () => {
+                    const r = await window.launcherAPI?.pickFile()
+                    if (r?.ok && r.path) set({ exePath: r.path })
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-[13px] text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  {t("gamesettings.explorar")}
+                </button>
+              </div>
+            </>
+          )}
+
+          {aba === "AVANÇADO" && (
+            <>
+              <Check k="verboseLogs" label={t("gamesettings.verbose_logs")} hint={t("gamesettings.verbose_logs_hint", { id: game.id })} />
 
               <h3 className="mb-2 mt-5 text-[13px] font-medium text-white/80">{t("gamesettings.scripts")}</h3>
               {([
@@ -448,7 +477,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
             </>
           )}
 
-          {aba === "GAMESCOPE" && (
+          {aba === "DESEMPENHO" && (
             <>
               <Check k="gamescope" label={t("gamesettings.gamescope_label")} hint={t("gamesettings.gamescope_hint")} />
               <div className="mt-2 grid grid-cols-3 gap-3">
@@ -483,8 +512,9 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
             </>
           )}
 
-          {aba === "LEGADO" && (
+          {aba === "AVANÇADO" && (
             <>
+              <h3 className="mb-2 mt-6 text-[13px] font-medium text-white/80">{t("gamesettings.legado_titulo")}</h3>
               <p className="mb-4 text-[13px] text-white/55">{t("gamesettings.legado_desc")}</p>
               <div className="flex flex-wrap gap-2.5">
                 <button
@@ -510,10 +540,11 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
               </div>
             </>
           )}
+          </div>
         </div>
 
         {/* Rodapé */}
-        <div className="border-t border-white/[0.06] px-6 py-3">
+        <div className="shrink-0 border-t border-white/[0.06] px-6 py-3">
           <p className="text-[12px] text-white/55">{t("gamesettings.salvas_auto")}</p>
           <p className="mt-0.5 font-mono text-[11px] text-white/25">AppName: {game.id}</p>
         </div>

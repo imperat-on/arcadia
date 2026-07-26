@@ -85,6 +85,25 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
     setBusy(false)
   }
 
+  const salvarCapaAutomatica = async () => {
+    if (capaEscolhida) return
+    const q = titulo.trim()
+    if (q.length < 3) return
+    const lista = candidatas.length ? candidatas : (await window.launcherAPI?.searchArt(id, q, "cover"))?.candidatos || []
+    const capa = lista[0]
+    if (capa?.url) {
+      const r = await window.launcherAPI?.downloadArt(id, "cover", capa.url)
+      if (r?.ok && r.path) {
+        await window.launcherAPI?.setOverride(id, { cover: r.path })
+        return
+      }
+    }
+    const s = await window.launcherAPI?.storeSearch(q)
+    const loja = (s?.resultados || [])[0]
+    const url = loja?.cover || loja?.capa || (loja?.appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${loja.appid}/library_600x900.jpg` : "")
+    if (url) await window.launcherAPI?.setOverride(id, { cover: url })
+  }
+
   const terminar = async () => {
     setErro("")
     if (!titulo.trim()) return setErro(t("addgame.erro_titulo"))
@@ -96,6 +115,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
         title: titulo.trim(),
         description: descricao || null,
       })
+      await salvarCapaAutomatica()
       setBusy(false)
       onAdded()
       onClose()
@@ -109,8 +129,12 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
     const r = editando
       ? await window.launcherAPI?.customGameUpdate({ id, title: titulo.trim(), exe })
       : await window.launcherAPI?.customGameAdd({ id, title: titulo.trim(), platform, exe })
+    if (!r?.ok) {
+      setBusy(false)
+      return setErro(r?.error || (editando ? t("addgame.erro_falha_salvar") : t("addgame.erro_falha_adicionar")))
+    }
+    await salvarCapaAutomatica()
     setBusy(false)
-    if (!r?.ok) return setErro(r?.error || (editando ? t("addgame.erro_falha_salvar") : t("addgame.erro_falha_adicionar")))
     onAdded()
     onClose()
   }

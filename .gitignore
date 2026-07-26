@@ -35,7 +35,9 @@ wine/
 # da identidade do projeto, e precisa vir junto para quem instala. O avatar e o
 # fundo continuam ignorados — esses sim são personalização de cada usuário.
 avatar.gif
+avatar.png
 background.gif
+bin/plugins.json
 
 # Binários baixados em runtime (são re-baixáveis pelo app)
 bin/tmp/

@@ -33,6 +33,7 @@ interface ProfilePageProps {
   games: Game[]
   onClose: () => void
   onEdit: () => void
+  embedded?: boolean
 }
 
 export function ProfilePage({
@@ -42,6 +43,7 @@ export function ProfilePage({
   games,
   onClose,
   onEdit,
+  embedded = false,
 }: ProfilePageProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open && navActive, onClose)
@@ -56,10 +58,11 @@ export function ProfilePage({
     window.launcherAPI?.achievementsRecent().then((r) => {
       if (Array.isArray(r)) setFeed(r.slice(0, 8))
     })
+    if (embedded) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, onClose, embedded])
 
   if (!open) return null
 
@@ -85,9 +88,9 @@ export function ProfilePage({
   const launchers = Array.from(new Set(games.map((g) => g.launcher)))
 
   return (
-    <div ref={rootRef} className="gp-scope fixed inset-0 z-50 overflow-y-auto" style={{ background: "#000000" }}>
+    <div ref={rootRef} className={embedded ? "gp-scope h-full overflow-y-auto" : "gp-scope fixed inset-0 z-50 overflow-y-auto"} style={embedded ? undefined : { background: "#000000" }}>
       {/* Plano de fundo do perfil (imagem/GIF/vídeo) — cobre a TELA INTEIRA */}
-      {profile.background && (
+      {!embedded && profile.background && (
         <>
           {/\.(webm|mp4|m4v|mov)$/i.test(profile.background.split("?")[0]) ? (
             <video
@@ -121,7 +124,7 @@ export function ProfilePage({
       )}
 
       {/* Brilho de topo estilo perfil (só quando não há fundo próprio) */}
-      {!profile.background && (
+      {!embedded && !profile.background && (
         <div
           className="absolute top-0 inset-x-0 h-96 pointer-events-none"
           style={{
@@ -131,213 +134,118 @@ export function ProfilePage({
         />
       )}
 
-      {/* Fechar */}
-      <button
-        onClick={onClose}
-        className="fixed top-6 right-8 z-10 w-10 h-10 rounded-full flex items-center justify-center text-[#8a93a6] hover:bg-white/10 hover:text-white transition-colors"
-        title={t("profile.fechar")}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-        </svg>
-      </button>
+      {!embedded && (
+        <button
+          onClick={onClose}
+          className="fixed top-6 right-8 z-10 w-10 h-10 rounded-full flex items-center justify-center text-[#8a93a6] hover:bg-white/10 hover:text-white transition-colors"
+          title={t("profile.fechar")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </svg>
+        </button>
+      )}
 
-      <div className="relative max-w-6xl mx-auto px-10 pt-16 pb-16">
-        {/* Cabeçalho */}
-        <div className="flex items-start gap-6 mb-10">
-          <div
-            className="w-28 h-28 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center text-4xl font-bold text-white"
-            style={{
-              background: "linear-gradient(135deg, #0072ce, #003791)",
-              border: "2px solid rgba(255,255,255,0.15)",
-              boxShadow: isOwner ? "0 0 30px rgba(255,196,0,0.25)" : "none",
-            }}
+      <div className="relative min-h-full pb-10">
+        <section className="relative h-72 border-b border-white/[0.08] bg-[#17171a]">
+          {profile.background && <img src={profile.background} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" />}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/65" />
+          <button
+            onClick={onEdit}
+            className="absolute right-8 top-6 rounded-lg border border-white/20 bg-black/35 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition-colors hover:bg-white/10"
           >
-            {profile.avatar ? (
-              <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              name[0].toUpperCase()
-            )}
-          </div>
-
-          <div className="flex-1 pt-2">
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold text-white">{name}</h1>
-              {isOwner && (
-                <span className="text-xs font-medium text-[#8a93a6]">{t("profile.dono")}</span>
-              )}
+            {t("profile.editar_perfil")}
+          </button>
+          <div className="absolute bottom-10 left-8 flex items-center gap-5">
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-4xl font-bold text-white shadow-2xl ring-1 ring-white/15">
+              {profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : name[0].toUpperCase()}
             </div>
-            <p className="text-sm text-[#8a93a6] mt-1">
-              {t("profile.plataformas_conectadas", { count: String(launchers.length) })}
-            </p>
-            <button
-              onClick={onEdit}
-              className="mt-4 px-4 py-2 rounded-lg text-sm font-medium text-[#c8d0e0] transition-colors hover:bg-white/5"
-              style={{ border: "1px solid rgba(255,255,255,0.14)" }}
-            >
-              {t("profile.editar_perfil")}
-            </button>
-          </div>
-
-          {/* Nível (estilo Steam: círculo + barra de XP) */}
-          <div className="flex w-56 shrink-0 flex-col items-center pt-1">
-            <span className="mb-1 text-xs uppercase tracking-wider text-[#8a93a6]">{t("profile.nivel")}</span>
-            <div
-              className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white"
-              style={{
-                background: "radial-gradient(circle at 30% 30%, rgba(155,107,255,0.35), rgba(155,107,255,0.08))",
-                border: "2px solid rgba(155,107,255,0.5)",
-              }}
-            >
-              {nivel}
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-white drop-shadow">{name}</h1>
+                {isOwner && <span className="rounded-md bg-white/10 px-2 py-1 text-xs text-white/60">{t("profile.dono")}</span>}
+              </div>
+              <p className="mt-1 text-sm text-white/55">{t("profile.plataformas_conectadas", { count: String(launchers.length) })}</p>
             </div>
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${Math.round((noNivel / custo) * 100)}%`, background: "linear-gradient(90deg, #a06bff, var(--accent))" }}
-              />
-            </div>
-            <span className="mt-1.5 text-[11px] tabular-nums text-[#6b7280]">
-              {t("profile.xp", { nivel: String(noNivel), custo: String(custo), xp: String(xp) })}
-            </span>
           </div>
-        </div>
+        </section>
 
-        <div className="grid grid-cols-3 gap-8">
-          {/* Coluna principal */}
-          <div className="col-span-2 space-y-8">
-            {/* Feed de atividade: conquistas recentes */}
-            {feed.length > 0 && (
-              <section>
-                <h2 className="mb-3 pb-2 text-sm font-semibold uppercase tracking-wider text-[#8a93a6]"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                  {t("profile.conquistas_recentes")}
-                </h2>
-                <div className="space-y-2">
-                  {feed.map((a) => {
-                    const pct = typeof a.percent === "number" ? a.percent : parseFloat(String(a.percent)) || 0
-                    const rara = pct > 0 && pct <= 10
-                    return (
-                      <div key={`${a.appid}-${a.title}`} className="flex items-center gap-4 rounded-xl p-3"
-                        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                        <img src={a.icon} alt="" className="h-10 w-10 shrink-0 rounded-lg ring-1 ring-white/10" loading="lazy" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-white">{a.title}</div>
-                          <div className="truncate text-xs text-[#8a93a6]">{a.game}</div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <div className="text-[11px] tabular-nums text-white/50">
-                            {new Date(a.unlock * 1000).toLocaleDateString(userLocale())}
-                          </div>
-                          {pct > 0 && (
-                            <div className={`text-[10px] ${rara ? "text-[#ffd23f]" : "text-white/30"}`}>
-                              {pct.toFixed(1).replace(".", ",")}%{rara ? t("profile.conquista_rara") : ""}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+        <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-6 px-8 py-7">
+          <main className="min-w-0">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">{t("library.todas")}</span>
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">{t("profile.estatisticas.horas_display", { h: String(stats?.playtime_hours || 0) })}</span>
+            </div>
+            <h2 className="mb-4 text-2xl font-bold text-white">
+              {t("sidebar.biblioteca")} <span className="ml-2 rounded-md bg-white/10 px-2 py-1 text-xs text-white/70">{games.length}</span>
+            </h2>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
+              {games.filter((g) => g.cover).map((g) => (
+                <div key={g.id} className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
+                  <div className="aspect-[2/3] overflow-hidden">
+                    <img src={g.cover} alt={g.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
+                  </div>
+                  <div className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-[11px] text-white/85 backdrop-blur">
+                    {t("profile.estatisticas.horas_display", { h: String(Math.max(1, Math.round((g.playtime_minutes || 0) / 60))) })}
+                  </div>
                 </div>
-              </section>
-            )}
+              ))}
+            </div>
+          </main>
 
-            {/* Vitrine de jogos */}
-            <section>
-              <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3 pb-2"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                {t("profile.vitrine_jogos")}
-              </h2>
-              <div className="grid grid-cols-4 gap-3">
-                {showcase.map((g) => (
-                  <div key={g.id} className="rounded-lg overflow-hidden" style={{ aspectRatio: "2/3" }}>
-                    <img src={g.cover} alt={g.title} className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-            </section>
+          <aside className="space-y-4">
+            <ProfileCard title={t("profile.estatisticas")}>
+              <StatRow label={t("profile.estatisticas.jogos")} value={String(games.length)} />
+              <StatRow label={t("profile.estatisticas.conquistas")} value={stats ? `${stats.ach_done} / ${stats.ach_total}` : t("profile.estatisticas.fallback")} />
+              <StatRow label={t("profile.estatisticas.raras")} value={stats ? String(stats.ach_raras) : t("profile.estatisticas.fallback")} />
+              <StatRow label={t("profile.estatisticas.completos")} value={stats ? String(stats.jogos_100) : t("profile.estatisticas.fallback")} />
+              <StatRow label={t("profile.estatisticas.horas")} value={stats ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) }) : t("profile.estatisticas.fallback")} />
+            </ProfileCard>
 
-            {/* Atividade recente */}
-            <section>
-              <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3 pb-2"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                {t("profile.atividade_recente")}
-              </h2>
-              <div className="space-y-3">
-                {recent.map((g) => (
-                  <div key={g.id} className="flex items-center gap-4 p-3 rounded-xl"
-                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    {g.cover && (
-                      <img src={g.cover} alt="" className="w-12 h-16 rounded object-cover shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-white font-medium truncate">{g.title}</div>
-                      <div className="text-xs text-[#8a93a6]">
-                        {g.genre || t("profile.genero_fallback")} {g.year ? `· ${g.year}` : ""}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-
-          {/* Coluna lateral */}
-          <div className="space-y-8">
-            {/* Insígnias (regras reais, estilo Steam) */}
-            <section>
-              <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                {t("profile.insignias", { count: String(conquistadas.length), total: String(total) })}
-              </h2>
+            <ProfileCard title={t("profile.insignias", { count: String(conquistadas.length), total: String(total) })}>
               {conquistadas.length === 0 ? (
-                <p className="text-xs text-[#8a93a6]">
-                  {t("profile.sem_insignias")}
-                </p>
+                <p className="text-xs text-[#8a93a6]">{t("profile.sem_insignias")}</p>
               ) : (
-                <div className="flex flex-wrap gap-3">
-                  {conquistadas.map((b) => (
-                    <div key={b.def.id} title={`${b.def.name} — ${b.def.desc}`} className="flex flex-col items-center gap-1">
-                      <Badge badge={b.def} size={52} />
-                      <span className="text-[10px] text-white/60">{b.def.name}</span>
+                <div className="space-y-2">
+                  {conquistadas.slice(0, 4).map((b) => (
+                    <div key={b.def.id} className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-3">
+                      <Badge badge={b.def} size={36} />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-white">{b.def.name}</div>
+                        <div className="truncate text-xs text-white/45">{b.def.desc}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </section>
+            </ProfileCard>
 
-            {/* Estatísticas */}
-            <section>
-              <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                {t("profile.estatisticas")}
-              </h2>
-              <div className="space-y-2">
-                <StatRow label={t("profile.estatisticas.jogos")} value={String(games.length)} />
-                <StatRow label={t("profile.estatisticas.conquistas")} value={stats ? `${stats.ach_done} / ${stats.ach_total}` : t("profile.estatisticas.fallback")} />
-                <StatRow label={t("profile.estatisticas.raras")} value={stats ? String(stats.ach_raras) : t("profile.estatisticas.fallback")} />
-                <StatRow label={t("profile.estatisticas.completos")} value={stats ? String(stats.jogos_100) : t("profile.estatisticas.fallback")} />
-                <StatRow label={t("profile.estatisticas.horas")} value={stats ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) }) : t("profile.estatisticas.fallback")} />
-                <StatRow label={t("profile.estatisticas.plataformas")} value={String(launchers.length)} />
-              </div>
-            </section>
-
-            {/* Plataformas */}
-            <section>
-              <h2 className="text-sm font-semibold text-[#8a93a6] uppercase tracking-wider mb-3">
-                {t("profile.plataformas")}
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {launchers.map((l) => (
-                  <span key={l} className="px-3 py-1 rounded-full text-xs font-medium capitalize"
-                    style={{ background: "rgba(255,255,255,0.06)", color: "#c8d0e0" }}>
-                    {l}
-                  </span>
+            <ProfileCard title={t("profile.atividade_recente")}>
+              <div className="space-y-3">
+                {(feed.length ? feed : recent.map((g) => ({ appid: g.id, title: g.title, game: g.title, icon: g.icon || g.cover || "", unlock: 0, percent: 0 }))).slice(0, 6).map((a) => (
+                  <div key={`${a.appid}-${a.title}`} className="flex items-center gap-3">
+                    {a.icon && <img src={a.icon} alt="" className="h-9 w-9 rounded-lg object-cover ring-1 ring-white/10" loading="lazy" />}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">{a.game}</div>
+                      <div className="truncate text-xs text-white/45">{a.title}</div>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </section>
-          </div>
+            </ProfileCard>
+          </aside>
         </div>
       </div>
     </div>
+  )
+}
+
+function ProfileCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035] shadow-xl shadow-black/25">
+      <h2 className="border-b border-white/[0.05] bg-white/[0.025] px-6 py-4 text-sm font-bold text-white">{title}</h2>
+      <div className="space-y-3 p-6">{children}</div>
+    </section>
   )
 }
 

@@ -31,15 +31,6 @@ export function StoreSetup() {
     recarregar()
   }
 
-  const instalarSls = async () => {
-    setBusy("sls")
-    setMsg(t("store_setup.instalando_sls"))
-    const r = await window.launcherAPI?.slssteamInstall()
-    setBusy("")
-    setMsg(r?.ok ? t("store_setup.sls_instalada") : r?.error || t("store_setup.falha_sls"))
-    recarregar()
-  }
-
   const StatusCard = ({ titulo, ok, detalhe, acao, onAcao }: { titulo: string; ok: boolean; detalhe: string; acao?: string; onAcao?: () => void }) => (
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
       <div className="mb-1 flex items-center justify-between">
@@ -90,7 +81,6 @@ export function StoreSetup() {
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
           <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe={t("store_setup.dotnet_desc")} acao={busy === "dotnet" ? t("store_setup.instalando") : t("contextmenu.instalar")} onAcao={instalarDotnet} />
           <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe={t("store_setup.depotdownloader_desc")} />
-          <StatusCard titulo="SLSsteam" ok={Boolean(status?.slssteam)} detalhe={t("store_setup.slssteam_desc")} acao={busy === "sls" ? t("store_setup.instalando") : t("contextmenu.instalar")} onAcao={instalarSls} />
         </div>
         {msg && <p className="text-[12px] text-white/55">{msg}</p>}
       </div>

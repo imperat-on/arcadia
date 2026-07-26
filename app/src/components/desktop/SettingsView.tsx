@@ -41,11 +41,6 @@ export function SettingsView({ sub, onSaved }: { sub: Sub; onSaved: () => void }
               await window.launcherAPI?.setConfig({ sources: { [name]: val } })
               onSaved()
             }}
-            onSlsPath={async (path) => {
-              setCfg((c) => ({ ...c, slssteam_path: path }))
-              await window.launcherAPI?.setConfig({ slssteam_path: path })
-              onSaved()
-            }}
           />
         </>
       )}

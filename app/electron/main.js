@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
 const { getNews } = require("./news")
 const { startAchievementWatcher } = require("./achievements")
+const plugins = require("./plugins")
 const updater = require("./updater")
 const path = require("path")
 const fs = require("fs")
@@ -387,11 +388,43 @@ async function buildSysinfo(g) {
       const d = await fetchJson(
         `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=br&l=${steamLang()}`,
       )
-      const reqs = d?.[appid]?.data?.pc_requirements
+      const data = d?.[appid]?.data || {}
+      const reqs = data.pc_requirements
       if (reqs && !Array.isArray(reqs)) {
         info.req_min = reqs.minimum || ""
         info.req_rec = reqs.recommended || ""
       }
+      // Dados ricos p/ a página estilo Hydra (galeria, descrição, publisher).
+      info.appid = appid
+      info.short_description = data.short_description || ""
+      // Prefere a versão mais rica (mais imagens inline) entre os 2 campos.
+      {
+        const ab = data.about_the_game || ""
+        const det = data.detailed_description || ""
+        const nImg = (s) => (String(s).match(/<img/g) || []).length
+        info.about = nImg(det) > nImg(ab) ? det : (ab || det)
+      }
+      info.publishers = data.publishers || []
+      info.developers = data.developers || []
+      info.release_date = data.release_date?.date || ""
+      info.controller_support = data.controller_support || "" // "full" | "partial"
+      info.languages = data.supported_languages || ""          // HTML; "*" = áudio
+      info.header = data.header_image || ""
+      info.background = data.background_raw || data.background || ""
+      // Screenshots: { id, path_thumbnail, path_full }.
+      info.screenshots = (data.screenshots || []).slice(0, 12).map((s) => ({
+        thumb: s.path_thumbnail,
+        full: s.path_full,
+      }))
+      // Trailers: mp4/webm (jogos antigos) + HLS (jogos novos só têm .m3u8).
+      info.movies = (data.movies || []).slice(0, 6).map((m) => ({
+        id: m.id,
+        name: m.name,
+        thumb: m.thumbnail,
+        mp4: m.mp4?.max || m.mp4?.["480"] || "",
+        webm: m.webm?.max || m.webm?.["480"] || "",
+        hls: m.hls_h264 || "",
+      }))
     } catch {}
   }
   return info
@@ -432,6 +465,73 @@ async function getSysinfo(g) {
   return info
 }
 
+const _protonCache = new Map()
+async function getProtonDb(appid) {
+  appid = String(appid || "").replace(/^steam:/, "")
+  if (!appid) return null
+  const hit = _protonCache.get(appid)
+  if (hit && Date.now() - hit.at < 24 * 60 * 60 * 1000) return hit.data
+  try {
+    const data = await fetchJson(`https://www.protondb.com/api/v1/reports/summaries/${appid}.json`)
+    const out = data ? {
+      tier: data.tier || data.bestReportedTier || "",
+      score: typeof data.score === "number" ? data.score : null,
+      deckCompatibility: data.deckCompatibility || data.steamDeckCompatibilityCategory || "",
+      total: data.total || data.reportCount || 0,
+      url: `https://www.protondb.com/app/${appid}`,
+    } : null
+    _protonCache.set(appid, { at: Date.now(), data: out })
+    return out
+  } catch {
+    _protonCache.set(appid, { at: Date.now(), data: null })
+    return null
+  }
+}
+
+// Estatísticas + resumo de reviews via APIs públicas (SteamSpy owners/ccu +
+// Steam appreviews). Sem backend próprio; dados aproximados. Cache 6h.
+const _statsCache = new Map()
+async function getGameStats(appid) {
+  appid = String(appid || "").replace(/^steam:/, "")
+  if (!appid) return null
+  const hit = _statsCache.get(appid)
+  if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.data
+  let out = null
+  try {
+    const [spy, rev] = await Promise.all([
+      fetchJson(`https://steamspy.com/api.php?request=appdetails&appid=${appid}`).catch(() => null),
+      // num_per_page=20 traz os textos das reviews junto do resumo (mesma API).
+      // language=english: avaliações sempre em inglês (pedido do usuário).
+      fetchJson(`https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=20`).catch(() => null),
+    ])
+    const q = rev?.query_summary || {}
+    const pos = Number(q.total_positive) || 0
+    const total = Number(q.total_reviews) || 0
+    // Comentários individuais: autor, texto, positivo/negativo, horas jogadas.
+    const comments = (rev?.reviews || []).slice(0, 20).map((r) => ({
+      author: r.author?.steamid ? `Steam ${String(r.author.steamid).slice(-4)}` : "",
+      text: String(r.review || "").trim(),
+      positive: Boolean(r.voted_up),
+      hours: r.author?.playtime_forever ? Math.round(r.author.playtime_forever / 60) : 0,
+      helpful: Number(r.votes_up) || 0,
+    })).filter((c) => c.text)
+    out = {
+      owners: spy?.owners || "",
+      ccu: Number(spy?.ccu) || 0,
+      reviewDesc: q.review_score_desc || "",
+      reviewPositivePct: total ? Math.round((pos / total) * 100) : null,
+      totalReviews: total,
+      comments,
+    }
+    // Se tudo vazio, trata como sem dados (painel some).
+    if (!out.owners && !out.ccu && !out.totalReviews) out = null
+  } catch {
+    out = null
+  }
+  _statsCache.set(appid, { at: Date.now(), data: out })
+  return out
+}
+
 // Prefetch em background: vai enchendo o cache de todos os jogos serialmente,
 // para a página abrir instantânea. Começa alguns segundos após o launch.
 function startSysinfoPrefetch() {
@@ -455,10 +555,21 @@ const UMU = path.join(os.homedir(), ".config", "heroic", "tools", "runtimes", "u
 function customLaunchCmd(id) {
   const g = readJsonFile(CUSTOM_GAMES, []).find((x) => x.id === id)
   if (!g) return null
-  if (g.platform === "linux") return { cmd: [g.exe], env: {} }
+  const linux = g.platform === "linux"
+  return exeLaunchCmd(id, g.exe, linux)
+}
+
+// Monta o comando para rodar um executável arbitrário do jogo <id> (usado por
+// jogos custom e pelo override "Executável" da aba Localizações). exe .sh/binário
+// Linux roda direto; .exe passa pelo Wine/Proton no prefixo do jogo.
+function exeLaunchCmd(id, exe, linux) {
+  if (!exe) return null
+  if (linux === undefined) linux = !/\.exe$/i.test(String(exe))
+  if (linux) return { cmd: [exe], env: {} }
   const wm = require("./winemanager")
   const s = getGameSettings(id)
   const prefixo = s.prefixPath || defaultPrefix(id)
+  const g = { exe }
   let v = null
   if (s.wineVersion) {
     v = [...wm.installed(), ...wm.steamProtons()].find((w) => w.id === s.wineVersion)
@@ -497,7 +608,7 @@ function customLaunchCmd(id) {
       })
     } catch {}
   }
-  return { cmd: [wine, g.exe], env: {} }
+  return { cmd: [wine, g.exe], env: { WINEPREFIX: prefixo } }
 }
 
 // --- Configurações por jogo (diálogo estilo Heroic) -------------------------
@@ -806,6 +917,46 @@ function _libMtimeKey() {
     .map((p) => { try { return fs.statSync(p).mtimeMs } catch { return 0 } })
     .join(":")
 }
+
+function capaSteamRuim(appid, cover) {
+  const s = String(cover || "")
+  if (!s) return true
+  if (s.endsWith(`/steam/apps/${appid}/header.jpg`)) return true
+  if (s.endsWith(`/steam/apps/${appid}/library_600x900.jpg`)) return true
+  return /\/steam\/apps\/\d+\/capsule_\d+x\d+\.jpg(?:\?|$)/.test(s)
+}
+
+async function curarCapasSteam(games) {
+  const overrides = readOverrides(OVERRIDES)
+  // Alvo: jogo Steam com capa ruim OU sem ícone (a lista da sidebar usa ícone).
+  const alvos = games
+    .map((g) => ({ g, appid: /^steam:(\d+)$/.exec(String(g.id || ""))?.[1] }))
+    .filter(({ g, appid }) => appid && ((!overrides[g.id]?.cover && capaSteamRuim(appid, g.cover)) || !g.icon))
+  if (!alvos.length) return games
+  try {
+    const { itensDaLoja } = require("./steamstore")
+    const { mapa } = await itensDaLoja(alvos.map((a) => a.appid))
+    let mudou = false
+    const pendentes = readJsonFile(PENDING_GAMES, [])
+    for (const { g, appid } of alvos) {
+      const it = mapa.get(appid)
+      if (!it) continue
+      if (it.capa && !overrides[g.id]?.cover && capaSteamRuim(appid, g.cover)) g.cover = it.capa
+      if (it.heroi && capaSteamRuim(appid, g.hero)) g.hero = it.heroi
+      if (it.icon && !g.icon) g.icon = it.icon
+      const p = pendentes.find((x) => x?.id === g.id)
+      if (p) {
+        p.cover = g.cover
+        if (g.hero) p.hero = g.hero
+        if (g.icon) p.icon = g.icon
+        mudou = true
+      }
+    }
+    if (mudou) fs.writeFileSync(PENDING_GAMES, JSON.stringify(pendentes, null, 2))
+  } catch {}
+  return games
+}
+
 function readLibrary() {
   try {
     const chave = _libMtimeKey()
@@ -878,7 +1029,7 @@ function avisarBiblioteca(win, reindexar = true) {
 // Grava um stub em pending_games.json com o mesmo formato de library.json:
 // id "steam:<appid>", launcher steam, arte da CDN, flag pendente pra UI opcional.
 // Se o appid já está indexado (ou já é pendente), não faz nada.
-function adicionarStubPendente(appid, title) {
+function adicionarStubPendente(appid, title, art = {}) {
   const id = "steam:" + appid
   if (readLibrary().some((g) => g.id === id)) return
   const atuais = readJsonFile(PENDING_GAMES, [])
@@ -890,8 +1041,8 @@ function adicionarStubPendente(appid, title) {
     launcher: "steam",
     launch_cmd: ["steam", `steam://rungameid/${appid}`],
     installed: false,
-    cover: `${base}/library_600x900.jpg`,
-    hero: `${base}/library_hero.jpg`,
+    cover: art.cover || `${base}/header.jpg`,
+    hero: art.hero || `${base}/library_hero.jpg`,
     logo: `${base}/logo.png`,
     pendente: true,
   })
@@ -910,6 +1061,14 @@ function limparPendentesIndexados() {
   if (restantes.length !== atuais.length) {
     fs.writeFileSync(PENDING_GAMES, JSON.stringify(restantes, null, 2))
   }
+}
+
+function removerStubPendente(appid) {
+  const id = "steam:" + appid
+  const atuais = readJsonFile(PENDING_GAMES, [])
+  const restantes = atuais.filter((g) => g && g.id !== id)
+  if (restantes.length !== atuais.length) fs.writeFileSync(PENDING_GAMES, JSON.stringify(restantes, null, 2))
+  return restantes.length !== atuais.length
 }
 
 // Conta os AppIds injetados pelo SLSsteam (bloco AdditionalApps).
@@ -1033,8 +1192,20 @@ function createWindow() {
     // rede que pode nem ter resposta.
     procurarAtualizacao(win)
   })
-  // Vigia de conquistas (toast estilo PS5 ao desbloquear).
+  // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
+  // marca o item no achievements.json NA HORA — sem isso o painel só
+  // atualizava no próximo reindex da biblioteca.
   startAchievementWatcher((payload) => {
+    try {
+      const arq = path.join(DATA_DIR, "achievements.json")
+      const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
+      const it = (store?.[payload.appid]?.items || []).find((x) => `${x.block}|${x.bit}` === payload.key)
+      if (it && !it.achieved) {
+        it.achieved = true
+        it.unlock = payload.unlock
+        fs.writeFileSync(arq, JSON.stringify(store))
+      }
+    } catch {}
     if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", payload)
   })
   // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
@@ -1136,7 +1307,7 @@ app.whenReady().then(() => {
   setTimeout(() => {
     require("./steamstore").aquecer().catch(() => {})
   }, 5000)
-  ipcMain.handle("library:get", () => readLibrary())
+  ipcMain.handle("library:get", async () => curarCapasSteam(readLibrary()))
 
   ipcMain.handle("game:launch", async (_e, payload) => {
     // Aceita { cmd, gameId } (novo) ou o array cmd direto (legado).
@@ -1148,12 +1319,23 @@ app.whenReady().then(() => {
       const built = customLaunchCmd(gameId)
       rawCmd = built?.cmd
       envExtra = built?.env || {}
+    } else if (typeof gameId === "string") {
+      // Override "Executável" (aba Localizações): roda o exe escolhido em vez do
+      // launch_cmd padrão da loja.
+      const exe = getGameSettings(gameId).exePath
+      if (exe) {
+        const built = exeLaunchCmd(gameId, exe)
+        if (built?.cmd?.length) {
+          rawCmd = built.cmd
+          envExtra = built.env || {}
+        }
+      }
     }
     if (!Array.isArray(rawCmd) || rawCmd.length === 0) return { ok: false }
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
     // em diante o cmd[0] já não é mais o binário da Steam.
     rawCmd = steamSilencioso(rawCmd)
-    const sls = steamComInjecao(rawCmd)
+    const sls = plugins.isEnabled("slssteam") ? steamComInjecao(rawCmd) : { cmd: rawCmd, env: {} }
     rawCmd = sls.cmd
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
@@ -1298,6 +1480,24 @@ app.whenReady().then(() => {
   ipcMain.handle("game:sysinfo", async (_e, g) => {
     try {
       return { ok: true, info: await getSysinfo(g) }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // ProtonDB (tier/Steam Deck/score) via API pública. Só faz sentido no Linux.
+  ipcMain.handle("game:protondb", async (_e, appid) => {
+    try {
+      return { ok: true, info: await getProtonDb(appid) }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // Estatísticas (donos/jogadores) + resumo de reviews via APIs públicas.
+  ipcMain.handle("game:stats", async (_e, appid) => {
+    try {
+      return { ok: true, info: await getGameStats(appid) }
     } catch (e) {
       return { ok: false, error: String(e) }
     }
@@ -1613,7 +1813,7 @@ app.whenReady().then(() => {
         const ss = require("./steamstore")
         const appid = String(item.appid).replace(/^steam:/, "")
         ss.writeAcf({ appid, title: item.title, installdir: item.installdir, steamDir: item.steamDir })
-        ss.registerSlssteam({ appid, token: item.token, dlcs: item.dlcs })
+        if (plugins.isEnabled("slssteam")) ss.registerSlssteam({ appid, token: item.token, dlcs: item.dlcs })
         // Avisa o renderer: oferecer restart da Steam (ou "mais tarde").
         if (win && !win.isDestroyed()) {
           win.webContents.send("store:downloaded", { appid, title: item.title })
@@ -1666,15 +1866,6 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  // Fixes de jogos (GameBypass/OnlineFix, estilo luatools).
-  ipcMain.handle("store:checkFixes", async (_e, appid) => steamstore.checkFixes(appid))
-  ipcMain.handle("store:applyFix", async (_e, { appid, type, installPath } = {}) => {
-    try {
-      return await steamstore.applyFix(appid, type, installPath)
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
   ipcMain.handle("store:installDir", (_e, game) => ({ path: steamstore.gameInstallDir(game) }))
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
   ipcMain.handle("store:removeFromSteam", (_e, appid) => {
@@ -1698,28 +1889,53 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle("store:install", async (_e, payload) => {
+    if (!plugins.isEnabled("slssteam")) return { ok: false, plugin: "slssteam" }
     try {
       return await dm.installSteam(payload || {})
     } catch (e) {
       return { ok: false, error: String(e) }
     }
   })
-  // "Add": adiciona o jogo à Steam sem baixar (estilo luatools-moon). O .lua
-  // vai pro stplug-in da SLSsteam (keys/tokens) e o appid entra em
-  // AdditionalApps — aí a própria Steam baixa o jogo pela CDN dela.
+  // "Add": adiciona o jogo à Steam sem baixar (estilo luatools-moon). Só
+  // funciona com o plugin SLSsteam instalado; sem ele, o catálogo continua puro.
   ipcMain.handle("store:addToSteam", (_e, { appid, token, dlcs, title } = {}) => {
+    if (!plugins.isEnabled("slssteam")) return { ok: false, plugin: "slssteam" }
     try {
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) return r
-      // O retorno de registerSlssteam era descartado: quando ele falhava (sem
-      // config.yaml, por exemplo) a tela mostrava sucesso e nada era
-      // adicionado. Só avisamos a biblioteca se as DUAS etapas deram certo.
       const reg = steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
       if (!reg?.ok) return reg || { ok: false, error: "falha ao registrar na SLSsteam" }
-      // Stub otimista: aparece na aba Jogos na hora, sem esperar o indexer
-      // rodar a biblioteca inteira. O reindex substitui pelo real e o stub
-      // é removido em avisarBiblioteca.
       try { adicionarStubPendente(String(appid), title) } catch {}
+      avisarBiblioteca(win)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  ipcMain.handle("store:addToLibrary", async (_e, { appid, title, cover, hero, heroi } = {}) => {
+    try {
+      appid = String(appid || "")
+      const cega = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
+      if (!cover || cover === cega) {
+        try {
+          const { mapa } = await steamstore.itensDaLoja([appid])
+          const it = mapa.get(appid)
+          if (it?.capa) cover = it.capa
+          if (it?.heroi && !hero && !heroi) hero = it.heroi
+        } catch {}
+      }
+      adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
+      avisarBiblioteca(win)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  ipcMain.handle("store:removeFromLibrary", (_e, appid) => {
+    try {
+      const id = "steam:" + String(appid || "")
+      const removed = removerStubPendente(String(appid || ""))
+      if (!removed && readLibrary().some((g) => g.id === id)) setOverride(OVERRIDES, id, { hidden: true })
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
@@ -1733,8 +1949,7 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  ipcMain.handle("slssteam:launchSteam", () => steamstore.launchSteamWithSls())
-  ipcMain.handle("slssteam:install", () => steamstore.installSlssteam())
+  ipcMain.handle("slssteam:launchSteam", () => plugins.isEnabled("slssteam") ? steamstore.launchSteamWithSls() : { ok: false, plugin: "slssteam" })
   ipcMain.handle("dm:queue", () => dm.getQueue())
   ipcMain.handle("dm:install", (_e, game) => dm.install(game || {}))
   ipcMain.handle("dm:pause", (_e, appid) => dm.pause(appid))
@@ -1791,14 +2006,45 @@ app.whenReady().then(() => {
   })
 
   // Detalhe das conquistas do jogo (ícone/descrição/raridade/data).
-  ipcMain.handle("achievements:get", (_e, appid) => {
+  ipcMain.handle("achievements:get", async (_e, appid) => {
     try {
       const store = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
-      return store?.[appid]?.items || []
-    } catch {
-      return []
-    }
+      const local = store?.[appid]?.items || []
+      if (local.length) return local
+    } catch {}
+    return conquistasSteamComunity(appid)
   })
+
+  // Fallback p/ jogos fora da biblioteca: página pública de conquistas do
+  // steamcommunity (HTML — o modo ?xml=1 não existe mais). Devolve nome,
+  // descrição, ícone e % global de desbloqueio. Cache em RAM por 6h.
+  const _conquistasCache = new Map()
+  async function conquistasSteamComunity(appid) {
+    appid = String(appid || "").replace(/^steam:/, "")
+    if (!appid) return []
+    const hit = _conquistasCache.get(appid)
+    if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.data
+    let out = []
+    try {
+      const url = `https://steamcommunity.com/stats/${encodeURIComponent(appid)}/achievements?l=portuguese`
+      const r = await fetchRede(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "arcadia" } })
+      if (r.ok) {
+        const html = await r.text()
+        const unesc = (s) => String(s || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim()
+        for (const m of html.matchAll(/<div class="achieveRow[^"]*"[^>]*>([\s\S]*?)<div style="clear: both;">/gi)) {
+          const b = m[1]
+          const icon = (/<img src="([^"]+)"/i.exec(b) || [])[1] || ""
+          const title = unesc((/<h3>([\s\S]*?)<\/h3>/i.exec(b) || [])[1])
+          if (!title) continue
+          const desc = unesc((/<h5>([\s\S]*?)<\/h5>/i.exec(b) || [])[1])
+          const percent = parseFloat((/achievePercent">\s*([\d.,]+)%/i.exec(b) || [])[1]?.replace(",", ".") || "") || 0
+          out.push({ name: title, title, desc, icon, icongray: icon, achieved: false, unlock: 0, percent })
+        }
+      }
+    } catch {}
+    _conquistasCache.set(appid, { at: Date.now(), data: out })
+    return out
+  }
 
   // Estatísticas do perfil: nível e insígnias (estilo Steam) — agrega
   // library.json + achievements.json.
@@ -1996,7 +2242,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle("library:refresh", async () => {
     await runIndexer()
-    return readLibrary()
+    return curarCapasSteam(readLibrary())
   })
 
   // Reconstrói TODOS os metadados (limpa cache e reindexar).
@@ -2015,10 +2261,14 @@ app.whenReady().then(() => {
     const cfg = readConfig()
     return {
       steam: Boolean(cfg.steam_api_key),
-      slssteam: slssteamCount(),
+      slssteam: plugins.isEnabled("slssteam") ? slssteamCount() : 0,
       heroic: heroicConnected(),
     }
   })
+
+  ipcMain.handle("plugins:list", () => ({ ok: true, plugins: plugins.list() }))
+  ipcMain.handle("plugins:install", async (_e, id) => plugins.install(String(id || "")))
+  ipcMain.handle("plugins:remove", async (_e, id) => plugins.remove(String(id || "")))
 
   // Escolher imagem (avatar ou plano de fundo) — aceita GIF animado.
   // Procura arte online para um jogo. Junta o que cada fonte achou numa lista
@@ -2267,57 +2517,7 @@ app.whenReady().then(() => {
       schemas = fs.readdirSync(STEAM_STATS)
         .filter((f) => f.startsWith("UserGameStatsSchema_")).length
     } catch {}
-    return { installed: fs.existsSync(SLSCHEEVO), schemas }
-  })
-
-  // Baixa o SLScheevo (release mais recente do GitHub) e abre num terminal —
-  // ele é interativo (login Steam + 2FA), por isso precisa de TTY.
-  ipcMain.handle("slscheevo:setup", async () => {
-    try {
-      if (!fs.existsSync(SLSCHEEVO)) {
-        const rel = await fetchRede(
-          "https://api.github.com/repos/xamionex/SLScheevo/releases/latest",
-          { headers: { "User-Agent": "arcadia" } },
-        ).then((r) => r.json())
-        const asset = (rel.assets || []).find((a) => /linux/i.test(a.name || ""))
-        if (!asset) return { ok: false, error: "release Linux não encontrada" }
-        const tgz = path.join(BIN_DIR, "slscheevo.tar.gz")
-        const buf = Buffer.from(
-          await fetchRede(asset.browser_download_url).then((r) => r.arrayBuffer()),
-        )
-        fs.writeFileSync(tgz, buf)
-        await new Promise((res, rej) =>
-          execFile("tar", ["-xzf", tgz, "-C", BIN_DIR], (e) => (e ? rej(e) : res())),
-        )
-        fs.rmSync(tgz, { force: true })
-        // o tar pode trazer o binário dentro de uma subpasta
-        if (!fs.existsSync(SLSCHEEVO)) {
-          const found = spawn("find", [BIN_DIR, "-name", "SLScheevo-Linux", "-type", "f"])
-          let out = ""
-          found.stdout.on("data", (d) => (out += d))
-          await new Promise((res) => found.on("close", res))
-          const src = out.trim().split("\n")[0]
-          if (src) fs.renameSync(src, SLSCHEEVO)
-        }
-        fs.chmodSync(SLSCHEEVO, 0o755)
-      }
-      // Terminal disponível para a sessão interativa de login
-      const terms = ["kitty", "kgx", "gnome-terminal", "konsole", "alacritty", "xterm"]
-      const { execFileSync } = require("child_process")
-      const term = terms.find((t) => {
-        try { execFileSync("which", [t], { stdio: "ignore" }); return true } catch { return false }
-      })
-      if (!term) return { ok: false, error: "nenhum terminal encontrado (kitty, konsole…)" }
-      const child = spawn(term, ["-e", SLSCHEEVO], {
-        cwd: BIN_DIR,
-        detached: true,
-        stdio: "ignore",
-      })
-      child.unref()
-      return { ok: true }
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
+    return { installed: plugins.isEnabled("slscheevo"), schemas }
   })
 
   createWindow()

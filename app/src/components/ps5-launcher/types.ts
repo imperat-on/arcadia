@@ -35,6 +35,7 @@ export interface Game {
   cover?: string
   hero?: string
   logo?: string
+  icon?: string // ícone quadrado (lista estilo Hydra na sidebar)
   installed?: boolean
   description?: string
   genre?: string
