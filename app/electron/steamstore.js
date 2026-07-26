@@ -269,6 +269,8 @@ function urlDeAsset(a, nome) {
 // do herói ocupa a largura da tela, e a versão simples já chega esticada.
 const capaDeAssets = (a) => urlDeAsset(a, a?.library_capsule)
 const heroiDeAssets = (a) => urlDeAsset(a, a?.library_hero_2x || a?.library_hero)
+// Ícone quadrado do jogo (lista estilo Hydra na sidebar).
+const iconeDeAssets = (a) => urlDeAsset(a, a?.icon || a?.community_icon)
 
 /**
  * Tipo e capa retrato de vários appids, em lote.
@@ -291,7 +293,7 @@ async function itensDaLoja(appids) {
     const it = cache[id]
     if (it && agora - it.at < ITENS_TTL) {
       respondidos.add(id)
-      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "", heroi: it.heroi || "" })
+      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "", heroi: it.heroi || "", icon: it.icon || "" })
     } else faltando.push(id)
   }
   if (!faltando.length) return { mapa, respondidos }
@@ -319,7 +321,7 @@ async function itensDaLoja(appids) {
       for (const it of j?.response?.store_items || []) {
         const id = String(it.appid || "")
         if (!id || typeof it.type !== "number") continue
-        const dado = { tipo: it.type, capa: capaDeAssets(it.assets), heroi: heroiDeAssets(it.assets) }
+        const dado = { tipo: it.type, capa: capaDeAssets(it.assets), heroi: heroiDeAssets(it.assets), icon: iconeDeAssets(it.assets) }
         mapa.set(id, dado)
         cache[id] = { ...dado, at: agora }
       }
@@ -378,9 +380,10 @@ async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   // Sondagens novas desta página inteira, acumuladas para UMA escrita em
   // disco no final (em vez de uma por item sondado — ver `existe()`).
   const novas = {}
-  // 12 em paralelo: são HEADs de alguns bytes em dois hosts diferentes, e com
-  // 6 a sondagem de uma página inteira somava 6–7 rodadas de ida e volta.
-  await emLotes(jogos, 12, async (g) => {
+  // 24 em paralelo (= BUSCA_MAX): página inteira sonda em UMA rodada de HEADs
+  // de alguns bytes, espalhados em dois hosts. Com 12 eram 2 rodadas e a busca
+  // pagava a latência da mais lenta duas vezes.
+  await emLotes(jogos, 24, async (g) => {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
     if (sushi) {
@@ -461,6 +464,13 @@ function ordenar(jogos, q) {
 const BUSCA_MAX = 24
 
 const sugCache = new Map()
+
+// Cache do resultado COMPLETO da busca (já sondado). Disponibilidade de
+// manifesto muda devagar; 5 min equilibra frescor e latência. Mesmo padrão
+// de sugCache/sugEmVoo: cache por termo + dedup de requisição em voo.
+const buscaCache = new Map()
+const buscaEmVoo = new Map()
+const BUSCA_TTL = 5 * 60 * 1000
 
 // A PRIMEIRA chamada a store.steampowered.com de cada processo custa ~3s só de
 // DNS + handshake TLS; as seguintes, ~250ms. Isso caía inteiro na primeira
@@ -545,6 +555,19 @@ async function suggestDaSteam(q, chave) {
 // títulos (catálogo completo, sem key) e cada resultado é conferido contra
 // todos os provedores.
 async function search(query) {
+  const chave = String(query || "").trim().toLowerCase()
+  if (chave.length >= 2) {
+    const hit = buscaCache.get(chave)
+    if (hit && Date.now() - hit.at < BUSCA_TTL) return { ...hit.res, cache: true }
+    if (buscaEmVoo.has(chave)) return buscaEmVoo.get(chave)
+    const pedido = _searchReal(query, chave).finally(() => buscaEmVoo.delete(chave))
+    buscaEmVoo.set(chave, pedido)
+    return pedido
+  }
+  return _searchReal(query, chave)
+}
+
+async function _searchReal(query, chave) {
   const cfg = readConfig()
   const porId = new Map()
   const erros = []
@@ -615,7 +638,12 @@ async function search(query) {
   ordenar(jogos, query)
   const encontrados = await preparar(jogos.slice(0, BUSCA_MAX), comHubcap)
   ordenar(encontrados, query)
-  return { ok: true, jogos: encontrados, fonte: "multi", avisos: erros }
+  const res = { ok: true, jogos: encontrados, fonte: "multi", avisos: erros }
+  if (chave.length >= 2) {
+    if (buscaCache.size > 50) buscaCache.clear()
+    buscaCache.set(chave, { at: Date.now(), res })
+  }
+  return res
 }
 
 // "Mais baixados/em alta" (o Hubcap não tem ranking): SteamSpy top 100 das
@@ -804,56 +832,7 @@ async function buscarSteamSpyCompleta(url) {
     .filter((g) => g.appid && g.title)
 }
 
-// ---------- Fixes de jogos (estilo luatools: GameBypass/OnlineFix) ----------
-// Índice: index.luatools.work/fixes-index.json (lista appids). Zips:
-// files.luatools.work/GameBypasses/<appid>.zip e OnlineFix1/<appid>.zip.
-const FIXES_INDEX = "https://index.luatools.work/fixes-index.json"
-let fixesCache = null
-
-async function fixesIndex() {
-  if (fixesCache && Date.now() - fixesCache.ts < 6 * 3600_000) return fixesCache.data
-  const r = await gh(FIXES_INDEX, { headers: { "User-Agent": "luatools" } })
-  if (!r.ok) throw new Error(`índice de fixes HTTP ${r.status}`)
-  const data = await r.json()
-  fixesCache = { ts: Date.now(), data }
-  return data
-}
-
-async function checkFixes(appid) {
-  try {
-    const idx = await fixesIndex()
-    const id = Number(appid)
-    const has = (arr) => (arr || []).some((v) => Number(v) === id)
-    return {
-      ok: true,
-      generic: has(idx.genericFixes),
-      online: has(idx.onlineFixes),
-    }
-  } catch (e) {
-    return { ok: false, error: String(e) }
-  }
-}
-
-// Baixa e extrai o fix na pasta de instalação do jogo.
-async function applyFix(appid, type, installPath) {
-  try {
-    const base = type === "online" ? "OnlineFix1" : "GameBypasses"
-    const url = `https://files.luatools.work/${base}/${appid}.zip`
-    const r = await gh(url, { headers: { "User-Agent": "luatools" } })
-    if (!r.ok) return { ok: false, error: `fix HTTP ${r.status}` }
-    const zipPath = path.join(TMP_DIR, `fix_${appid}.zip`)
-    fs.mkdirSync(TMP_DIR, { recursive: true })
-    fs.writeFileSync(zipPath, Buffer.from(await r.arrayBuffer()))
-    if (!fs.existsSync(installPath)) return { ok: false, error: `pasta não existe: ${installPath}` }
-    await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, installPath], res))
-    fs.rmSync(zipPath, { force: true })
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, error: String(e) }
-  }
-}
-
-// Pasta de instalação do jogo (para onde o fix vai).
+// Pasta de instalação do jogo.
 function gameInstallDir(g) {
   const home = os.homedir()
   const appid = String(g?.id || "").replace(/^steam:/, "")
@@ -1488,85 +1467,6 @@ function launchSteamWithSls(cfg = readConfig()) {
   return { ok: true }
 }
 
-// Instala a SLSsteam (slsteam-moon) do zero: baixa o release mais recente do
-// GitHub, extrai e roda o setup.sh install. Retorna { ok, error? }.
-async function installSlssteam(onProgress) {
-  const home = os.homedir()
-  const slsDir = path.join(home, ".local", "share", "SLSsteam")
-  try {
-    onProgress?.("Buscando release mais recente…")
-    const rel = await gh("https://api.github.com/repos/swwayps/slsteam-moon/releases/latest").then((r) => r.json())
-    const asset = (rel.assets || []).find((a) => /^slsteam-moon-linux-.*-lumen\.zip$/.test(a.name || ""))
-    if (!asset) return { ok: false, error: "asset slsteam-moon-linux-*-lumen.zip não encontrado" }
-
-    onProgress?.("Baixando slsteam-moon…")
-    const zipPath = path.join(TMP_DIR, "slsteam-moon.zip")
-    fs.mkdirSync(TMP_DIR, { recursive: true })
-    const buf = await fetchRede(asset.browser_download_url).then((r) => {
-      if (!r.ok) throw new Error(`download HTTP ${r.status}`)
-      return r.arrayBuffer()
-    })
-    fs.writeFileSync(zipPath, Buffer.from(buf))
-
-    const outDir = path.join(TMP_DIR, "slsteam-moon")
-    fs.rmSync(outDir, { recursive: true, force: true })
-    fs.mkdirSync(outDir, { recursive: true })
-    await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
-
-    // setup.sh fica na raiz da pasta extraída (slsteam-moon-<ver>-lumen/).
-    const raiz = fs.readdirSync(outDir).map((d) => path.join(outDir, d)).find((p) => fs.existsSync(path.join(p, "setup.sh")))
-    if (!raiz) return { ok: false, error: "setup.sh não encontrado no pacote" }
-
-    // O setup.sh tenta um `sudo -v` para gravar o .desktop em /usr/share. Rodando
-    // pelo app não há terminal, então o sudo falha e o script aborta ("password
-    // not provided") — quebrava a instalação para todos. Esse passo é opcional: o
-    // próprio script diz que as entradas por usuário já cobrem tudo via prioridade
-    // XDG. Pior: ele grava o home de UM usuário num arquivo global, quebrando a
-    // Steam das outras contas. Forçamos o ramo sem sudo (cobertura --user).
-    const setupPath = path.join(raiz, "setup.sh")
-    try {
-      const src = fs.readFileSync(setupPath, "utf-8")
-      const semSudo = src.replace("elif command -v sudo >/dev/null 2>&1; then", "elif false; then")
-      if (semSudo !== src) fs.writeFileSync(setupPath, semSudo)
-    } catch {}
-
-    onProgress?.("Instalando (setup.sh install)…")
-    // Captura a saída: sem isto o erro virava só "código 1", sem dizer o motivo
-    // (dependência faltando, Steam ausente, permissão…). Grava tudo em log e
-    // devolve as últimas linhas no erro, para o usuário ver o que falhou.
-    let out = ""
-    const code = await new Promise((res) => {
-      const c = spawn("bash", [path.join(raiz, "setup.sh"), "install"], {
-        cwd: raiz,
-        stdio: ["ignore", "pipe", "pipe"],
-      })
-      c.stdout.on("data", (d) => (out += d))
-      c.stderr.on("data", (d) => (out += d))
-      c.on("close", res)
-      c.on("error", (e) => { out += `\n[spawn] ${e.message}`; res(1) })
-      setTimeout(() => { out += "\n[timeout 5min]"; res(1) }, 300000)
-    })
-    try {
-      fs.mkdirSync(LOG_DIR, { recursive: true })
-      fs.writeFileSync(path.join(LOG_DIR, "slssteam-setup.log"), out)
-    } catch {}
-    // Só o que importa para injetar: a lib e o wrapper. Se ambos existem, a
-    // instalação serve — não falhamos por causa de um passo final cosmético.
-    const instalado = fs.existsSync(path.join(slsDir, "SLSsteam.so"))
-      && fs.existsSync(path.join(slsDir, "path", "steam"))
-    if (instalado) return { ok: true }
-    // Últimas ~6 linhas não vazias da saída — normalmente contêm a causa real.
-    const tail = out.split("\n").map((l) => l.trim()).filter(Boolean).slice(-6).join(" · ")
-    return {
-      ok: false,
-      error: `setup.sh saiu com código ${code}${tail ? ` — ${tail}` : ""}`
-        + ` (log completo em ~/.local/share/arcadia/logs/slssteam-setup.log)`,
-    }
-  } catch (e) {
-    return { ok: false, error: String(e) }
-  }
-}
-
 // Raiz da instalação da Steam (o que o LuaTools chama de steam_path). É aqui
 // que ficam config/stplug-in e depotcache — NÃO em ~/.config/SLSsteam.
 function steamBasePath() {
@@ -1767,8 +1667,6 @@ module.exports = {
   suggest,
   aquecer,
   popular,
-  checkFixes,
-  applyFix,
   gameInstallDir,
   getManifest,
   prepareDownload,
@@ -1777,7 +1675,6 @@ module.exports = {
   sanitizeInstallDir,
   registerSlssteam,
   launchSteamWithSls,
-  installSlssteam,
   addToSteam,
   removeFromSteam,
   removeDownloaded,

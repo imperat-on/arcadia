@@ -26,9 +26,20 @@ function obter() {
   return netFetch
 }
 
+function saneOpts(opts = {}) {
+  if (!opts.headers) return opts
+  const headers = {}
+  for (const [k, v] of Object.entries(opts.headers)) {
+    if (v == null) continue
+    headers[k] = String(v).replace(/[^\x00-\xFF]/g, "")
+  }
+  return { ...opts, headers }
+}
+
 function fetchRede(url, opts) {
   const f = obter()
-  return f ? f(url, opts) : fetch(url, opts)
+  const o = saneOpts(opts)
+  return f ? f(url, o) : fetch(url, o)
 }
 
 module.exports = { fetchRede }

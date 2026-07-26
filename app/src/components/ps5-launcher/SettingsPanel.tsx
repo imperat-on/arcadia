@@ -199,32 +199,27 @@ export function IntegrationsSection({
   status,
   onSaveKey,
   onToggle,
-  onSlsPath,
 }: {
   cfg: AppConfig
   status: IntegrationsStatus | null
   onSaveKey: (key: string, id: string) => void
-  onToggle: (name: "steam" | "heroic" | "lutris" | "slssteam", val: boolean) => void
-  onSlsPath: (path: string) => void
+  onToggle: (name: "steam" | "heroic" | "lutris", val: boolean) => void
 }) {
   const { t } = useI18n()
   const [apiKey, setApiKey] = useState(cfg.steam_api_key ?? "")
   const [steamId, setSteamId] = useState(cfg.steam_id64 ?? "")
-  const [slsPath, setSlsPath] = useState(cfg.slssteam_path ?? "")
   const [saved, setSaved] = useState(false)
-  const [pathSaved, setPathSaved] = useState(false)
   const [legendary, setLegendary] = useState<{ installed: boolean; logged: boolean; user?: string } | null>(null)
   const [legendaryBusy, setLegendaryBusy] = useState(false)
   const [legendaryErr, setLegendaryErr] = useState("")
   const src = cfg.sources ?? {}
-  const on = (k: "steam" | "heroic" | "lutris" | "slssteam") => src[k] !== false
+  const on = (k: "steam" | "heroic" | "lutris") => src[k] !== false
 
   useEffect(() => {
     setApiKey(cfg.steam_api_key ?? "")
     setSteamId(cfg.steam_id64 ?? "")
-    setSlsPath(cfg.slssteam_path ?? "")
     window.launcherAPI?.legendaryStatus().then(setLegendary)
-  }, [cfg.steam_api_key, cfg.steam_id64, cfg.slssteam_path])
+  }, [cfg.steam_api_key, cfg.steam_id64])
 
   return (
     <div className="max-w-3xl">
@@ -311,56 +306,6 @@ export function IntegrationsSection({
         {legendaryErr && <p className="mt-2 text-xs text-[#ff6b81]">{legendaryErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">
           {t("settings.epic.nota")}
-        </p>
-      </IntegrationCard>
-
-      {/* SLSsteam */}
-      <IntegrationCard
-        title={t("settings.slssteam")}
-        connected={(status?.slssteam ?? 0) > 0}
-        enabled={on("slssteam")}
-        onToggle={(v) => onToggle("slssteam", v)}
-      >
-        <p className="text-xs text-[#8a93a6] mb-3">
-          {status
-            ? t("settings.slssteam.jogos_detectados", { count: String(status.slssteam) })
-            : t("settings.slssteam.lendo_config")}{" "}
-          {t("settings.slssteam.desc")}
-        </p>
-        <div
-          className="rounded-lg p-3 mb-3 text-xs text-[#8a93a6]"
-          style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          <div className="text-[#a8b3cc] font-semibold mb-1">
-            {t("settings.slssteam.config_label")}
-          </div>
-          {t("settings.slssteam.config_desc")}
-        </div>
-        <label className="block text-[11px] font-semibold text-[#8a93a6] mb-1.5 uppercase tracking-wider">
-          {t("settings.slssteam.caminho_label")}
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={slsPath}
-            onChange={(e) => setSlsPath(e.target.value)}
-            placeholder={t("settings.slssteam.caminho_placeholder")}
-            spellCheck={false}
-            className="flex-1 px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)]"
-            style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
-          />
-          <button
-            onClick={() => {
-              onSlsPath(slsPath.trim())
-              setPathSaved(true)
-              setTimeout(() => setPathSaved(false), 1500)
-            }}
-            className="px-4 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03] shrink-0"
-          >
-            {pathSaved ? t("common.salvo") : t("common.salvar")}
-          </button>
-        </div>
-        <p className="text-[11px] text-[#6b7280] mt-2">
-          {t("settings.slssteam.hint")}
         </p>
       </IntegrationCard>
     </div>
@@ -695,7 +640,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             ? t("common.preparando")
             : scheevo?.installed
               ? t("settings.metadados.abrir_slscheevo")
-              : t("settings.metadados.baixar_slscheevo")}
+              : t("plugins.verificar")}
         </button>
         {scheevoErr && <p className="mt-2 text-xs text-[#ff6b81]">{scheevoErr}</p>}
         <p className="mt-2 text-[11px] text-[#6b7280]">

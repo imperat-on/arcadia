@@ -16,7 +16,7 @@ export type ManifestInfo = {
   fonte?: string
 }
 
-export type JogoLoja = { appid: string; title: string }
+export type JogoLoja = { appid: string; title: string; cover?: string; capa?: string; hero?: string; heroi?: string }
 
 export type Biblioteca = { path: string; steamDir: string; free: number }
 
@@ -38,6 +38,7 @@ export interface StoreActionsOpts {
 
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
+  const [removidosLocal, setRemovidosLocal] = useState<Set<string>>(new Set())
   const [escolhendo, setEscolhendo] = useState<EscolhaDisco | null>(null)
   const [busy, setBusy] = useState("")
   const [toast, setToast] = useState("")
@@ -66,7 +67,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const bloqueados = new Set([
     ...jaAdicionados,
     ...games.map((g) => String(g.id).replace(/^steam:/, "")),
-  ])
+  ].filter((appid) => !removidosLocal.has(appid)))
 
   // Buscar o manifesto passa por vários provedores e pode levar dezenas de
   // segundos. Guardamos por appid para que Add logo depois de Baixar no mesmo
@@ -140,7 +141,11 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
           steamDir,
         })
         const via = info.fonte ? ` (via ${info.fonte})` : ""
-        setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
+        if (r?.plugin) {
+          setToast(`Requer o plugin ${r.plugin} (aba Plugins).`)
+        } else {
+          setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
+        }
       } catch (e) {
         setToast(`Falha ao enfileirar: ${e}`)
       } finally {
@@ -150,55 +155,46 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     [],
   )
 
-  // Registra o jogo na Steam sem baixar — a própria Steam baixa depois pela
-  // CDN dela.
+  // Adicionar na biblioteca = só cria entrada local no Arcadia. Não toca na Steam.
   const adicionar = useCallback(
     async (jogo: JogoLoja) => {
       const meu = ++pedido.current
-      setEscolhendo(null) // um diálogo aberto taparia a confirmação
+      setEscolhendo(null)
       setBusy(jogo.appid)
       try {
-        const info = await obterInfo(jogo.appid)
+        const r = await window.launcherAPI?.storeAddToLibrary({ appid: jogo.appid, title: jogo.title, cover: jogo.capa || jogo.cover, hero: jogo.hero, heroi: jogo.heroi })
         if (meu !== pedido.current) return
-        if (!info?.ok || !info.depots?.length) {
-          setToast(info?.error || "Sem manifesto para este jogo.")
-          return
+        if (r?.ok) {
+          setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
+          setRemovidosLocal((prev) => {
+            const n = new Set(prev)
+            n.delete(jogo.appid)
+            return n
+          })
         }
-        const r = await window.launcherAPI?.storeAddToSteam({
-          appid: jogo.appid,
-          token: info.token,
-          dlcs: info.dlcs,
-          title: jogo.title,
-        })
-        if (meu !== pedido.current) return
-        if (r?.ok) setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
-        setToast(
-          r?.ok
-            ? `"${jogo.title}" adicionado! Reinicie a Steam para baixar por lá.`
-            : r?.error || "Falha ao adicionar",
-        )
+        setToast(r?.ok ? `"${jogo.title}" adicionado à biblioteca.` : r?.error || "Falha ao adicionar")
       } catch (e) {
         setToast(`Falha ao adicionar: ${e}`)
       } finally {
         if (meu === pedido.current) setBusy("")
       }
     },
-    [obterInfo],
+    [],
   )
 
   const remover = useCallback(async (jogo: JogoLoja) => {
     setBusy(jogo.appid)
     try {
-      // Remove de tudo: pasta + appmanifest (downloads) + registro SLSsteam.
-      const r = await window.launcherAPI?.storeRemoveDownloaded(jogo.appid)
+      const r = await window.launcherAPI?.storeRemoveFromLibrary(jogo.appid)
       if (r?.ok) {
         setJaAdicionados((prev) => {
           const n = new Set(prev)
           n.delete(jogo.appid)
           return n
         })
+        setRemovidosLocal((prev) => new Set(prev).add(jogo.appid))
       }
-      setToast(r?.ok ? `"${jogo.title}" removido da Steam.` : r?.error || "Falha ao remover")
+      setToast(r?.ok ? `"${jogo.title}" removido da biblioteca.` : r?.error || "Falha ao remover")
     } catch (e) {
       setToast(`Falha ao remover: ${e}`)
     } finally {
