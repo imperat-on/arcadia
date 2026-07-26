@@ -19,6 +19,32 @@ interface Toast extends UnlockPayload {
 
 const DURACAO = 6000
 
+function tocarSomConquista() {
+  try {
+    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const tocarNota = (freq: number, inicio: number, duracao: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + inicio)
+      gain.gain.setValueAtTime(0, ctx.currentTime + inicio)
+      gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + inicio + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + inicio + duracao)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(ctx.currentTime + inicio)
+      osc.stop(ctx.currentTime + inicio + duracao)
+    }
+    tocarNota(659.25, 0, 0.18)
+    tocarNota(987.77, 0.12, 0.28)
+    window.setTimeout(() => ctx.close().catch(() => {}), 700)
+  } catch {
+    // Áudio pode ser bloqueado pelo navegador/ambiente. Toast continua normal.
+  }
+}
+
 // Toasts de conquista estilo PS5: deslizam do topo no canto direito,
 // ficam ~6s e saem com fade. Fica por cima de tudo (z-[70]).
 export function AchievementToasts() {
@@ -29,6 +55,7 @@ export function AchievementToasts() {
     const api = window.launcherAPI
     if (!api?.onAchievementUnlocked) return
     return api.onAchievementUnlocked((data) => {
+      tocarSomConquista()
       const key = Date.now() + Math.random()
       setToasts((t) => [...t.slice(-2), { ...data, key }]) // máx. 3 na tela
       setTimeout(() => {

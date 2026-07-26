@@ -42,6 +42,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const [escolhendo, setEscolhendo] = useState<EscolhaDisco | null>(null)
   const [busy, setBusy] = useState("")
   const [toast, setToast] = useState("")
+  const [slsAtivo, setSlsAtivo] = useState(false)
 
   // O toast some sozinho; sem isso ele ficaria na tela até a próxima ação.
   useEffect(() => {
@@ -57,9 +58,12 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     const status = () =>
       window.launcherAPI?.storeStatus().then((s) => {
         setJaAdicionados(new Set(s?.adicionados || []))
+        setSlsAtivo(Boolean(s?.slssteam))
       })
     status()
-    return window.launcherAPI?.onLibraryChanged(() => status())
+    const offLib = window.launcherAPI?.onLibraryChanged(() => status())
+    const offPlugins = window.launcherAPI?.onPluginsChanged?.(() => status())
+    return () => { offLib?.(); offPlugins?.() }
   }, [])
 
   // Jogos que não devem oferecer Baixar/Add: já adicionados à Steam ou já
@@ -155,15 +159,38 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     [],
   )
 
-  // Adicionar na biblioteca = só cria entrada local no Arcadia. Não toca na Steam.
+  // Add muda conforme a integração local: ativa = registra na Steam usando o
+  // manifesto; desativada = cria só o stub na biblioteca do Arcadia.
   const adicionar = useCallback(
     async (jogo: JogoLoja) => {
       const meu = ++pedido.current
       setEscolhendo(null)
       setBusy(jogo.appid)
       try {
-        const r = await window.launcherAPI?.storeAddToLibrary({ appid: jogo.appid, title: jogo.title, cover: jogo.capa || jogo.cover, hero: jogo.hero, heroi: jogo.heroi })
-        if (meu !== pedido.current) return
+        const r = slsAtivo
+          ? await (async () => {
+              const info = await obterInfo(jogo.appid)
+              if (!info?.ok) {
+                const motivo = info?.error || "Sem manifesto para este jogo."
+                if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
+                else setToast(motivo)
+                return null
+              }
+              return window.launcherAPI?.storeAddToSteam({
+                appid: jogo.appid,
+                title: jogo.title,
+                token: info.token,
+                dlcs: info.dlcs,
+              })
+            })()
+          : await window.launcherAPI?.storeAddToLibrary({
+              appid: jogo.appid,
+              title: jogo.title,
+              cover: jogo.capa || jogo.cover,
+              hero: jogo.hero,
+              heroi: jogo.heroi,
+            })
+        if (meu !== pedido.current || !r) return
         if (r?.ok) {
           setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
           setRemovidosLocal((prev) => {
@@ -172,14 +199,15 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
             return n
           })
         }
-        setToast(r?.ok ? `"${jogo.title}" adicionado à biblioteca.` : r?.error || "Falha ao adicionar")
+        const faltaPlugin = "plugin" in r && r.plugin
+        setToast(faltaPlugin ? "Configure uma integração local em Plugins para habilitar estas ações." : r?.ok ? `"${jogo.title}" adicionado à biblioteca.` : r?.error || "Falha ao adicionar")
       } catch (e) {
         setToast(`Falha ao adicionar: ${e}`)
       } finally {
         if (meu === pedido.current) setBusy("")
       }
     },
-    [],
+    [obterInfo, slsAtivo],
   )
 
   const remover = useCallback(async (jogo: JogoLoja) => {

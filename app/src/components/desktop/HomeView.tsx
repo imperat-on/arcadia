@@ -23,7 +23,6 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
     baixar,
     confirmarBaixar,
     adicionar,
-    remover,
   } = useStoreActions(games)
   const [categoria, setCategoria] = useState<(typeof CATEGORIAS)[number]["id"]>("top100in2weeks")
   const [recentes, setRecentes] = useState<ItemLoja[]>([])
@@ -102,11 +101,6 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
               jogo={j}
               naBiblioteca={bloqueados.has(j.appid)}
               adicionado={jaAdicionados.has(j.appid)}
-              ocupado={acaoBusy !== ""}
-              nesteJogo={acaoBusy === j.appid}
-              onBaixar={() => baixar(j)}
-              onAdicionar={() => adicionar(j)}
-              onRemover={() => remover(j)}
               onOpen={() => setPagina(j)}
               t={t}
             />
@@ -118,7 +112,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
         <StoreGamePage
           jogo={pagina}
           onClose={() => setPagina(null)}
-          onBaixar={() => { baixar(pagina); setPagina(null) }}
+          onBaixar={() => baixar(pagina)}
           onAdicionar={() => { adicionar(pagina); setPagina(null) }}
           naBiblioteca={bloqueados.has(pagina.appid)}
           ocupado={acaoBusy !== ""}

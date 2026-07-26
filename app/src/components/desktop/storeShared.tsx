@@ -57,24 +57,12 @@ export function CartaoLoja({
   jogo,
   naBiblioteca,
   adicionado,
-  ocupado,
-  nesteJogo,
-  slsAtivo = true,
-  onBaixar,
-  onAdicionar,
-  onRemover,
   onOpen,
   t,
 }: {
   jogo: ItemLoja
   naBiblioteca: boolean
   adicionado: boolean
-  ocupado: boolean
-  nesteJogo: boolean
-  slsAtivo?: boolean
-  onBaixar: () => void
-  onAdicionar: () => void
-  onRemover: () => void
   onOpen: () => void
   t: (k: string, v?: Record<string, string | number>) => string
 }) {
@@ -91,47 +79,20 @@ export function CartaoLoja({
         <div className="mb-2 truncate text-[13px] font-medium text-white" title={jogo.title}>
           {jogo.title}
         </div>
-        {naBiblioteca ? (
-          <div className="flex gap-2">
-            <div
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/40 py-2 text-[12px] font-semibold"
-              style={{ color: "var(--accent)" }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {t("store.na_biblioteca")}
-            </div>
-            <button
-              onClick={onRemover}
-              disabled={ocupado}
-              title={t("store.remover_tooltip")}
-              className="rounded-lg border border-[#ff6b81]/40 px-3 py-2 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
-            >
-              {nesteJogo ? "…" : t("common.remover")}
-            </button>
+        {naBiblioteca || adicionado ? (
+          <div
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/35 py-2 text-[12px] font-semibold"
+            style={{ color: "var(--accent)" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {t("store.na_biblioteca")}
           </div>
         ) : (
-          <div className="flex gap-2">
-            {slsAtivo && jogo.manifest !== false && (
-              <button
-                onClick={onBaixar}
-                disabled={ocupado}
-                className="flex-1 rounded-lg px-3 py-2 text-[12px] font-bold text-black transition-transform enabled:hover:scale-[1.02] disabled:opacity-50"
-                style={{ background: "var(--accent)" }}
-              >
-                {nesteJogo ? "…" : t("store.baixar")}
-              </button>
-            )}
-            <button
-              onClick={onAdicionar}
-              disabled={ocupado}
-              title={t("store.add_tooltip")}
-              className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-[12px] font-semibold text-white/80 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
-            >
-              {t("store.add")}
-            </button>
-          </div>
+          <p className="rounded-lg border border-white/10 py-2 text-center text-[12px] text-white/45">
+            {t("store.ver_detalhes")}
+          </p>
         )}
       </div>
     </div>

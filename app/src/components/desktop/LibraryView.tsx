@@ -13,6 +13,7 @@ import { EditMetadata } from "../ps5-launcher/EditMetadata"
 import { avisarJogando } from "./PlayingBadge"
 
 import { AddGameDialog } from "./AddGameDialog"
+import { LaunchModeDialog } from "./LaunchModeDialog"
 import { useI18n } from "../../i18n/I18nContext"
 
 // Biblioteca do modo desktop: busca, filtros e grade de capas 2:3.
@@ -29,9 +30,18 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
   const [desinstalando, setDesinstalando] = useState<Game | null>(null)
   const [pagina, setPagina] = useState<Game | null>(null)
   const [paginaLoja, setPaginaLoja] = useState<Game | null>(null)
+  const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const [menu, setMenu] = useState<{ g: Game; x: number; y: number } | null>(null)
   const [recemDesinstalados, setRecemDesinstalados] = useState<Set<string>>(new Set())
+
+  // Página aberta segura um snapshot do jogo; quando a lista é recarregada
+  // (ex.: exePath salvo marca installed=true), atualiza o snapshot pelo id para
+  // o botão Jogar aparecer sem reabrir a página.
+  useEffect(() => {
+    setPaginaLoja((p) => (p ? games.find((g) => g.id === p.id) || p : p))
+    setPagina((p) => (p ? games.find((g) => g.id === p.id) || p : p))
+  }, [games])
 
   // Quando a biblioteca real chega (reindex/refresh), o estado otimista já
   // cumpriu seu papel — limpa para não marcar jogo reinstalado como removido.
@@ -78,8 +88,8 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 
   // Lança o jogo, mostra o card "jogando" e registra a última jogatina
   // (a menos que "Desativar a sincronização do tempo de jogo" esteja ligada).
-  const jogar = (g: Game) => {
-    window.launcherAPI?.launch(g.launch_cmd, g.id).then((r) => {
+  const jogar = (g: Game, mode?: "steam" | "exe") => {
+    window.launcherAPI?.launch(g.launch_cmd, g.id, mode).then((r) => {
       if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
     })
     avisarJogando(g)
@@ -88,9 +98,15 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
     })
   }
 
+  // Steam com executável configurado: duas formas de iniciar → abre o menu.
+  const pedirJogar = (g: Game) => {
+    if (g.launcher === "steam" && g.temExe) setEscolhendoLaunch(g)
+    else jogar(g)
+  }
+
   const acoesMenu = (g: Game): CtxActions => ({
     jogar: () => {
-      if (g.installed !== false) jogar(g)
+      if (g.installed !== false) pedirJogar(g)
       else instalar(g)
     },
     detalhes: () => setDetalhes(g),
@@ -200,6 +216,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
                 onOpen={() => g2.launcher === "steam" ? setPaginaLoja(g2) : setPagina(g2)}
+                onPlay={() => pedirJogar(g2)}
               />
             )
           })}
@@ -221,7 +238,14 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
       )}
 
       {/* Diálogo de configurações do jogo (estilo Heroic) */}
-      {configurando && <GameSettingsDialog game={configurando} onClose={() => setConfigurando(null)} />}
+      {configurando && <GameSettingsDialog game={configurando} onClose={() => { setConfigurando(null); onRefresh?.() }} />}
+      {escolhendoLaunch && (
+        <LaunchModeDialog
+          game={escolhendoLaunch}
+          onEscolher={(m) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); jogar(g, m) }}
+          onClose={() => setEscolhendoLaunch(null)}
+        />
+      )}
 
       {/* Página da loja para jogos Steam da biblioteca */}
       {paginaLoja && (
@@ -241,6 +265,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
             setPaginaLoja(null)
           }}
           onConfig={() => setConfigurando(paginaLoja)}
+          onJogar={paginaLoja.installed !== false ? () => { const g = paginaLoja; setPaginaLoja(null); pedirJogar(g) } : undefined}
           naBiblioteca
           ocupado={false}
         />
@@ -252,8 +277,9 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           game={pagina}
           onClose={() => setPagina(null)}
           onJogar={() => {
+            const g = pagina
             setPagina(null)
-            jogar(pagina)
+            pedirJogar(g)
           }}
           onInstalar={() => {
             setPagina(null)
@@ -316,7 +342,7 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
   )
 }
 
-function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, onOpen }: { game: Game; tilesColor?: boolean; alwaysTitles?: boolean; onInstall?: () => void; onConfig?: () => void; onMenu?: (x: number, y: number) => void; onOpen?: () => void }) {
+function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, onOpen, onPlay }: { game: Game; tilesColor?: boolean; alwaysTitles?: boolean; onInstall?: () => void; onConfig?: () => void; onMenu?: (x: number, y: number) => void; onOpen?: () => void; onPlay?: () => void }) {
   const { t } = useI18n()
   const instalado = g.installed !== false
   const acao = () => {
@@ -326,13 +352,9 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
       onInstall?.()
       return
     }
-    window.launcherAPI?.launch(g.launch_cmd, g.id).then((r) => {
-      if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
-    })
-    avisarJogando(g)
-    window.launcherAPI?.getConfig().then((c) => {
-      if (c?.disable_playtime_tracking !== true) window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
-    })
+    // O pai decide a forma de iniciar (menu Steam vs fora-da-Steam quando há
+    // executável configurado).
+    onPlay?.()
   }
 
   return (

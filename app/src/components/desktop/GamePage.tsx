@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import {
   AchievementsPanel, GameMediaGallery, GameDescription, ProtonDBPanel,
   ControllerPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
+  stripHtml,
 } from "./GameDetailPanels"
 
 interface Sysinfo {
@@ -27,21 +28,6 @@ interface Sysinfo {
   short_description?: string
   controller_support?: string
   languages?: string
-}
-
-// Requisitos vêm como HTML da Steam — vira texto simples.
-function stripHtml(s: string) {
-  return String(s || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/li>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
 }
 
 // Página do jogo (estilo Heroic): abre ao clicar no card. Hero + metadados à
