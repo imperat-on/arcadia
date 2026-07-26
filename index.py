@@ -47,6 +47,8 @@ STEAM_ROOT = HOME / ".local/share/Steam"
 STEAM_LIBCACHE = STEAM_ROOT / "appcache/librarycache"
 STEAM_USERDATA = STEAM_ROOT / "userdata"
 STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
+# Ícones de conquista (público, sem chave): <appid>/<hash-do-schema>.jpg
+STEAM_IMG = "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps"
 
 # Config opcional: ~/.local/share/arcadia/config.json
 #   { "steam_api_key": "SUA_CHAVE", "steam_id64": "opcional" }
@@ -802,16 +804,7 @@ def enrich_achievements(games: list[dict], cfg: dict) -> None:
             continue
         if not (STEAM_STATS / f"UserGameStatsSchema_{appid}.bin").exists():
             continue
-        en_map = ent.get("_en")
-        if en_map is None:
-            en_map = achievements_schema_en(key, appid)
-            if en_map is None:
-                continue  # sem rede agora: tenta na próxima
-            ent["_en"] = en_map
-            store[appid] = ent
-            changed = True
-            time.sleep(0.3)
-        if apply_local_progress(appid, ent["items"], en_map):
+        if apply_local_progress(appid, ent["items"]):
             changed = True
 
     if changed:
@@ -866,11 +859,13 @@ def _load_kv_bin(path: Path) -> dict | None:
 
 
 def local_schema_map(appid: str) -> dict | None:
-    """Schema LOCAL (SLScheevo): nome_en minúsculo → {block, bit, br, br_desc}.
+    """Schema LOCAL (SLScheevo): apiname → {block, bit, en, br, br_desc, ícones}.
 
     O schema bin agrupa conquistas em blocos (stats/<bloco>/bits/<bit>) e cada
-    conquista tem nomes/descrições por idioma + hash de ícone. A chave inglesa
-    é o elo com o schema da Web API (displayName), que tem o apiname/percent.
+    conquista traz o apiname (binfo["name"], ex.: "AC01"), nomes/descrições por
+    idioma e hash de ícone. Indexamos por apiname: é a chave da raridade pública
+    (GetGlobalAchievementPercentagesForApp) e do schema da Web API, então o
+    índice funciona SEM chave da API.
     """
     kv = _load_kv_bin(STEAM_STATS / f"UserGameStatsSchema_{appid}.bin")
     if not kv:
@@ -882,16 +877,18 @@ def local_schema_map(appid: str) -> dict | None:
         for bit, binfo in (bval.get("bits") or {}).items():
             if not isinstance(binfo, dict):
                 continue
+            api = str(binfo.get("name") or "").strip()
+            if not api or api == "0":
+                continue
             disp = binfo.get("display") or {}
             names = disp.get("name") or {}
             descs = disp.get("desc") or {}
             en = str(names.get("english") or "").strip()
-            if not en or en == "0":
-                continue
-            out[en.lower()] = {
+            out[api] = {
                 "block": blk,
                 "bit": bit,
-                "br": str(names.get("brazilian") or names.get("portuguese") or en).strip(),
+                "en": en,
+                "br": str(names.get("brazilian") or names.get("portuguese") or en or api).strip(),
                 "br_desc": str(descs.get("brazilian") or descs.get("portuguese")
                                or descs.get("english") or "").strip(),
                 "icon_hash": str(disp.get("icon") or ""),
@@ -959,22 +956,16 @@ def _account_id() -> str | None:
 
 
 def apply_local_progress(appid: str, items: list[dict],
-                         schema_en: dict | None) -> bool:
-    """Sobrepõe achieved/unlock lidos dos bins locais aos itens da Web API.
-
-    schema_en: apiname -> displayName em inglês (elo com o schema local).
-    Retorna True se havia schema local para o jogo.
-    """
+                         schema_en: dict | None = None) -> bool:
+    """Sobrepõe achieved/unlock lidos dos bins locais aos itens da Web API."""
     local = local_schema_map(appid)
     if not local:
         return False
     prog = local_progress_map(appid)
-    schema_en = schema_en or {}
     for it in items:
-        en = (schema_en.get(it["name"]) or "").strip().lower()
-        if not en or en not in local:
+        entry = local.get(str(it.get("name") or ""))
+        if not entry:
             continue
-        entry = local[en]
         it["block"] = entry["block"]
         it["bit"] = entry["bit"]
         ts = prog.get((entry["block"], entry["bit"]), 0)
@@ -982,6 +973,83 @@ def apply_local_progress(appid: str, items: list[dict],
             it["achieved"] = True
             it["unlock"] = ts
     return True
+
+
+def _apply_local_only(ent: dict, appid: str) -> bool:
+    """Atualiza achieved/unlock de itens existentes pelo (block, bit) local.
+
+    Usado quando NÃO há API key: a entrada já veio do schema local e só o
+    progresso (desbloqueio/data) muda entre indexações.
+    """
+    prog = local_progress_map(appid)
+    changed = False
+    for it in ent.get("items", []):
+        if it.get("block") is None:
+            continue
+        ts = prog.get((it["block"], it["bit"]), 0)
+        if ts and not it.get("achieved"):
+            it["achieved"], it["unlock"] = True, ts
+            changed = True
+        elif not ts and it.get("achieved"):
+            it["achieved"], it["unlock"] = False, 0
+            changed = True
+    return changed
+
+
+def enrich_achievements_local(games: list[dict], cfg: dict) -> None:
+    """achievements.json a partir SÓ dos bins locais (SLScheevo), sem API key.
+
+    Roda mesmo com steam_api_key vazia — é o que destrava as conquistas dos
+    jogos injetados (SLSsteam), onde a Web API devolve 403. Não sobrescreve
+    jogos que a Web API já enriqueceu (itens presentes); nesses só atualiza o
+    progresso. Raridade global (endpoint público, sem chave) é best-effort.
+    """
+    try:
+        store = json.loads(ACHIEVEMENTS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        store = {}
+    now = time.time()
+    changed = False
+    tem_key = bool((cfg.get("steam_api_key") or "").strip())
+
+    for g in games:
+        if g.get("launcher") != "steam":
+            continue
+        appid = g["id"].split(":", 1)[1]
+        if not (STEAM_STATS / f"UserGameStatsSchema_{appid}.bin").exists():
+            continue
+        local = local_schema_map(appid)
+        if not local:
+            continue
+        ent = store.get(appid)
+        if isinstance(ent, dict) and ent.get("items"):
+            # Já coberto (Web API ou local anterior): só o progresso muda.
+            if not tem_key and _apply_local_only(ent, appid):
+                store[appid] = ent
+                changed = True
+            continue
+        glob = achievements_global(appid) or {}
+        prog = local_progress_map(appid)
+        items = []
+        for api, s in sorted(local.items()):
+            ts = prog.get((s["block"], s["bit"]), 0)
+            items.append({
+                "name": api,
+                "title": s["br"],
+                "desc": s["br_desc"],
+                "icon": f"{STEAM_IMG}/{appid}/{s['icon_hash']}" if s["icon_hash"] else "",
+                "icongray": f"{STEAM_IMG}/{appid}/{s['icongray_hash']}" if s["icongray_hash"] else "",
+                "achieved": bool(ts),
+                "unlock": ts,
+                "percent": glob.get(api, 0),
+                "block": s["block"],
+                "bit": s["bit"],
+            })
+        store[appid] = {"at": now, "_lang": "pt-BR", "_source": "local", "items": items}
+        changed = True
+
+    if changed:
+        _atomic_write(ACHIEVEMENTS_FILE, json.dumps(store, ensure_ascii=False))
 
 
 def achievements_schema_en(api_key: str, appid: str) -> dict | None:
@@ -1048,7 +1116,7 @@ def steam_owned_games(installed_ids: set[str]) -> list[dict]:
             "launcher": "steam",
             "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
             "installed": False,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
+            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/header.jpg",
             "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
             "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
         })
@@ -1260,7 +1328,7 @@ def index_slssteam(existing_appids: set[str],
             "launcher": "steam",
             "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
             "installed": installed,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
+            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/header.jpg",
             "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
             "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
         })
@@ -1316,8 +1384,10 @@ def main() -> int:
         print(f"[aviso] player: {exc}", file=sys.stderr)
 
     # Detalhe das conquistas (ícone/descrição/raridade) → achievements.json.
+    # Web API (se houver chave) + local (sempre, cobre jogos injetados/SLSsteam).
     try:
         enrich_achievements(steam_games, cfg)
+        enrich_achievements_local(steam_games, cfg)
     except Exception as exc:
         print(f"[aviso] achievements: {exc}", file=sys.stderr)
 

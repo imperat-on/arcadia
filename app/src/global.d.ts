@@ -112,6 +112,7 @@ export interface AppConfig {
   library_featured_column?: "disabled" | "recent" | "favorites" | "most-played"
   recent_games_max?: number
   download_cpu_cores?: number // 0 = máximo
+  library_sidebar?: boolean // mostra a lista de jogos na sidebar (estilo Hydra)
 }
 
 export interface NewsItem {
@@ -232,6 +233,8 @@ export interface GameSettings {
   verboseLogs?: boolean
   /** Argumentos extras passados após o comando do jogo. */
   gameArgs?: string
+  /** Executável customizado (aba Localizações); vazio = launch_cmd padrão. */
+  exePath?: string
   /** Script executado antes do jogo iniciar. */
   scriptPre?: string
   /** Script executado quando o jogo fechar. */
@@ -272,7 +275,31 @@ declare global {
       gameSysinfo: (game: Game) => Promise<{
         ok: boolean
         error?: string
-        info?: { download_size?: number; disk_size?: number; version?: string; req_min?: string; req_rec?: string }
+        info?: {
+          download_size?: number; disk_size?: number; version?: string
+          req_min?: string; req_rec?: string
+          appid?: string; short_description?: string; about?: string
+          publishers?: string[]; developers?: string[]; release_date?: string
+          controller_support?: string; languages?: string
+          header?: string; background?: string
+          screenshots?: { thumb: string; full: string }[]
+          movies?: { id: number; name: string; thumb: string; mp4: string; webm: string }[]
+        }
+      }>
+      /** ProtonDB: tier, Steam Deck e score da compatibilidade (Linux). */
+      gameProtonDb: (appid: string | number) => Promise<{
+        ok: boolean
+        error?: string
+        info?: { tier?: string; score?: number | null; deckCompatibility?: string; total?: number; url?: string } | null
+      }>
+      /** Estatísticas (SteamSpy) + resumo de reviews (Steam), APIs públicas. */
+      gameStats: (appid: string | number) => Promise<{
+        ok: boolean
+        error?: string
+        info?: {
+          owners?: string; ccu?: number; reviewDesc?: string; reviewPositivePct?: number | null; totalReviews?: number
+          comments?: { author: string; text: string; positive: boolean; hours: number; helpful: number }[]
+        } | null
       }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
       storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string; adicionados?: string[] }>
@@ -313,27 +340,25 @@ declare global {
         token?: string
         dlcs?: string[]
         steamDir?: string
-      }) => Promise<{ ok: boolean; error?: string }>
+      }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
       /** Instala o .NET 9 local (necessário ao DepotDownloader). */
       storeEnsureDotnet: () => Promise<{ ok: boolean; error?: string; path?: string }>
+      /** Adiciona o jogo só à biblioteca do Arcadia. Não toca na Steam. */
+      storeAddToLibrary: (payload: { appid: string; title?: string; cover?: string; capa?: string; hero?: string; heroi?: string }) => Promise<{ ok: boolean; error?: string }>
       /** Adiciona o jogo à Steam sem baixar (lua no stplug-in + AdditionalApps). */
-      storeAddToSteam: (payload: { appid: string; token?: string; dlcs?: string[]; title?: string }) => Promise<{ ok: boolean; error?: string }>
-      /** Fixes disponíveis para o jogo (GameBypass/OnlineFix, índice luatools). */
-      storeCheckFixes: (appid: string) => Promise<{ ok: boolean; error?: string; generic?: boolean; online?: boolean }>
-      /** Baixa e extrai o fix na pasta do jogo. */
-      storeApplyFix: (payload: { appid: string; type: "generic" | "online"; installPath: string }) => Promise<{ ok: boolean; error?: string }>
-      /** Pasta de instalação do jogo (para aplicar fixes). */
+      storeAddToSteam: (payload: { appid: string; token?: string; dlcs?: string[]; title?: string }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
+      /** Pasta de instalação do jogo. */
       storeInstallDir: (game: Game) => Promise<{ path: string }>
       /** Bibliotecas Steam detectadas (multi-drive) com espaço livre. */
       storeLibraries: () => Promise<{ path: string; steamDir: string; free: number }[]>
       /** Desfaz o "Add": tira o jogo da SLSsteam (lua + AdditionalApps). */
       storeRemoveFromSteam: (appid: string) => Promise<{ ok: boolean; error?: string }>
+      /** Remove jogo só da biblioteca do Arcadia. */
+      storeRemoveFromLibrary: (appid: string) => Promise<{ ok: boolean; error?: string }>
       /** Remove jogo baixado/adicionado: pasta + appmanifest marcado + SLSsteam. */
       storeRemoveDownloaded: (appid: string) => Promise<{ ok: boolean; removidos?: number; error?: string }>
       /** Reinicia a Steam com a SLSsteam carregada (jogos aparecem como owned). */
       slssteamLaunch: () => Promise<{ ok: boolean; error?: string }>
-      /** Instala a SLSsteam (slsteam-moon) do zero via release do GitHub. */
-      slssteamInstall: () => Promise<{ ok: boolean; error?: string }>
       refresh: () => Promise<Game[]>
       /** Notícias de jogos (RSS PT-BR), já normalizadas e cacheadas. */
       getNews: () => Promise<NewsItem[]>
@@ -492,6 +517,10 @@ declare global {
       pickFile: () => Promise<{ ok: boolean; path?: string }>
       /** Baixa o SLScheevo e abre a sessão interativa de login num terminal. */
       slscheevoSetup: () => Promise<{ ok: boolean; error?: string }>
+      /** Plugins opcionais (SLSsteam, SLScheevo, luatools). */
+      pluginsList: () => Promise<{ ok: boolean; plugins: { id: string; name: string; descKey: string; installed: boolean; enabled: boolean }[] }>
+      pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
       /** Assina o progresso do "baixar todos". Retorna a função de cancelar. */
       onTrailerProgress: (
         cb: (data: { done: number; total: number; title: string }) => void,

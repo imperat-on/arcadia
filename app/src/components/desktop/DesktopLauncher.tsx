@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
+import type { Profile } from "../../global"
 import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
 import { LibraryView } from "./LibraryView"
 import { DownloadsView } from "./DownloadsView"
@@ -10,26 +11,79 @@ import { SettingsView } from "./SettingsView"
 import { WineSection } from "../ps5-launcher/WineManager"
 import { PlayingBadge } from "./PlayingBadge"
 import { StoreView } from "./StoreView"
+import { HomeView } from "./HomeView"
+import { PluginsView } from "./PluginsView"
+import { StoreGamePage } from "./StoreGamePage"
+import { GamePage } from "./GamePage"
+import { GameSettingsDialog } from "./GameSettingsDialog"
+import { AddGameDialog } from "./AddGameDialog"
+import { avisarJogando } from "./PlayingBadge"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
+import { ProfilePage } from "../ps5-launcher/ProfilePage"
+import { EditProfile } from "../ps5-launcher/EditProfile"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
-  const [view, setView] = useState<DesktopView>("biblioteca")
+  const [view, setView] = useState<DesktopView>("inicio")
   const [configSub, setConfigSub] = useState<ConfigSub>("gerais")
   const [games, setGames] = useState<Game[]>([])
   const [dmAtivos, setDmAtivos] = useState(0)
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
-  const [cfg, setCfg] = useState<{ tiles_color?: boolean; always_titles?: boolean }>({})
+  const [showProfile, setShowProfile] = useState(false)
+  const [showEditProfile, setShowEditProfile] = useState(false)
+  const [profile, setProfile] = useState<Profile>({})
+  const [cfg, setCfg] = useState<{ tiles_color?: boolean; always_titles?: boolean; library_sidebar?: boolean }>({})
+  const [librarySidebar, setLibrarySidebar] = useState(true)
+  const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
+  const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
+  const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
+
+  const toggleLibrarySidebar = useCallback(() => {
+    setLibrarySidebar((v) => {
+      const novo = !v
+      window.launcherAPI?.setConfig({ library_sidebar: novo })
+      return novo
+    })
+  }, [])
+
+  const jogar = useCallback((g: Game) => {
+    window.launcherAPI?.launch(g.launch_cmd, g.id)
+    avisarJogando(g)
+    window.launcherAPI?.getConfig().then((c) => {
+      if (c?.disable_playtime_tracking !== true) window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
+    })
+  }, [])
+
+  const instalar = useCallback((g: Game) => {
+    if (g.launcher === "steam") {
+      const appid = String(g.id).replace(/^steam:/, "")
+      window.launcherAPI?.launch(["steam", `steam://install/${appid}`])
+      return
+    }
+    // Epic/custom: a página do jogo cobre instalação; abrir a página basta.
+    setJogoPagina(g)
+  }, [])
 
   const carregar = useCallback(() => {
     window.launcherAPI?.getLibrary().then((g) => {
       if (Array.isArray(g)) setGames(g)
     })
-    window.launcherAPI?.getConfig().then((c) => setCfg(c || {}))
+    window.launcherAPI?.getConfig().then((c) => {
+      setCfg(c || {})
+      setProfile(c?.profile || {})
+      if (typeof c?.library_sidebar === "boolean") setLibrarySidebar(c.library_sidebar)
+    })
   }, [])
+
+  const atualizarBiblioteca = useCallback(() => {
+    window.launcherAPI?.refresh().then((g) => {
+      if (Array.isArray(g)) setGames(g)
+      else carregar()
+    })
+  }, [carregar])
 
   useEffect(() => {
     carregar()
@@ -56,28 +110,85 @@ export function DesktopLauncher() {
     <div className="flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <Sidebar
         view={view}
-        onView={setView}
+        onView={(v) => { setShowProfile(false); setJogoPagina(null); setView(v) }}
         downloadsActive={dmAtivos}
         onQuit={() => window.launcherAPI?.quit()}
         onBigPicture={() => setConfirmBigPicture(true)}
         configSub={configSub}
         onConfigSub={setConfigSub}
+        profile={profile}
+        onProfile={() => setShowProfile(true)}
+        onRefresh={atualizarBiblioteca}
+        games={games}
+        librarySidebar={librarySidebar}
+        onToggleLibrarySidebar={toggleLibrarySidebar}
+        onOpenGame={(g) => { setShowProfile(false); setView("biblioteca"); setJogoPagina(g) }}
+        onAddGame={() => setAdicionando(true)}
+        activeGameId={jogoPagina?.id}
       />
 
-      <main key={view} className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]">
-        {view === "biblioteca" && <LibraryView games={games} tilesColor={cfg.tiles_color} alwaysTitles={cfg.always_titles} onRefresh={carregar} />}
-        {view === "lojas" && <StoreView games={games} />}
-        {view === "downloads" && <DownloadsView />}
-        {view === "wine" && (
-          <div className="h-full overflow-y-auto px-8 py-6">
-            <WineSection />
-          </div>
+      <main key={showProfile ? "profile" : view} className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]">
+        {showProfile ? (
+          <ProfilePage
+            open
+            embedded
+            navActive={!showEditProfile}
+            profile={profile}
+            games={games}
+            onClose={() => setShowProfile(false)}
+            onEdit={() => setShowEditProfile(true)}
+          />
+        ) : (
+          <>
+            {jogoPagina && jogoPagina.launcher === "steam" && (
+              <StoreGamePage
+                embedded
+                jogo={{
+                  appid: String(jogoPagina.id).replace(/^steam:/, ""),
+                  title: jogoPagina.title,
+                  cover: jogoPagina.cover,
+                  capa: jogoPagina.cover,
+                  heroi: jogoPagina.hero,
+                  manifest: true,
+                }}
+                onClose={() => setJogoPagina(null)}
+                onBaixar={() => instalar(jogoPagina)}
+                onAdicionar={() => {}}
+                onConfig={() => setJogoConfig(jogoPagina)}
+                naBiblioteca
+                ocupado={false}
+              />
+            )}
+            {jogoPagina && jogoPagina.launcher !== "steam" && (
+              <GamePage
+                embedded
+                game={jogoPagina}
+                onClose={() => setJogoPagina(null)}
+                onJogar={() => { const g = jogoPagina; setJogoPagina(null); jogar(g) }}
+                onInstalar={() => instalar(jogoPagina)}
+                onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
+                onConfig={() => setJogoConfig(jogoPagina)}
+              />
+            )}
+            {!jogoPagina && view === "inicio" && <HomeView games={games} />}
+            {!jogoPagina && view === "biblioteca" && <LibraryView games={games} tilesColor={cfg.tiles_color} alwaysTitles={cfg.always_titles} onRefresh={carregar} />}
+            {!jogoPagina && view === "lojas" && <StoreView games={games} />}
+            {!jogoPagina && view === "plugins" && <PluginsView />}
+            {!jogoPagina && view === "downloads" && <DownloadsView />}
+            {!jogoPagina && view === "wine" && (
+              <div className="h-full overflow-y-auto px-8 py-6">
+                <WineSection />
+              </div>
+            )}
+            {!jogoPagina && view === "acessibilidade" && <AccessibilityView />}
+            {!jogoPagina && view === "config" && <SettingsView sub={configSub} onSaved={carregar} />}
+          </>
         )}
-        {view === "acessibilidade" && <AccessibilityView />}
-        {view === "config" && <SettingsView sub={configSub} onSaved={carregar} />}
       </main>
 
       <PlayingBadge />
+      {jogoConfig && <GameSettingsDialog game={jogoConfig} onClose={() => setJogoConfig(null)} />}
+      {adicionando && <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => atualizarBiblioteca()} />}
 
       {atualizacao.info && (
         <UpdateDialog info={atualizacao.info} onDepois={atualizacao.dispensar} />
@@ -116,6 +227,14 @@ export function DesktopLauncher() {
           </div>
         </div>
       )}
+      <EditProfile
+        open={showEditProfile}
+        profile={profile}
+        games={games}
+        onClose={() => setShowEditProfile(false)}
+        onChange={setProfile}
+      />
+
       {confirmBigPicture && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmBigPicture(false)}>
           <div className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>

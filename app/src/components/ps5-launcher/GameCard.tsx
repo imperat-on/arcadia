@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
 import { useI18n } from "../../i18n/I18nContext"
@@ -23,8 +23,12 @@ const FALLBACK_GRADIENTS: Record<string, string> = {
 export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardProps) {
   const cardRef = useRef<HTMLButtonElement>(null)
   const { t } = useI18n()
+  const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
+  const [faseCapa, setFaseCapa] = useState(0)
+  useEffect(() => setFaseCapa(0), [game.id, game.cover])
+  const coverSrc = faseCapa === 0 ? game.cover : appid && faseCapa === 1 ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
 
-  const hasCover = Boolean(game.cover)
+  const hasCover = Boolean(coverSrc)
   const fallbackGradient =
     FALLBACK_GRADIENTS[game.launcher] ??
     "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)"
@@ -55,10 +59,11 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
         {hasCover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={game.cover}
+            src={coverSrc}
             alt={game.title}
             className="w-full h-full object-cover"
             loading="lazy"
+            onError={() => setFaseCapa((f) => f + 1)}
           />
         ) : (
           /* Fallback art */

@@ -25,7 +25,7 @@ export function DownloadsView() {
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
       <div className="mb-6 flex items-baseline justify-between">
-        <h1 className="text-2xl font-light tracking-wide text-white">
+        <h1 className="ui-title">
           {baixando ? t("downloads.baixando_agora") : t("downloads.fila")}
         </h1>
         <span className="text-sm text-white/40">
@@ -35,7 +35,7 @@ export function DownloadsView() {
       </div>
 
       {items.length === 0 ? (
-        <div className="flex min-h-[280px] items-center justify-center text-white/35">
+        <div className="ui-empty">
           {t("downloads.vazio")}
         </div>
       ) : (
@@ -45,7 +45,7 @@ export function DownloadsView() {
           ))}
           {parados.length > 0 && (
             <>
-              <h2 className="mt-4 text-sm font-medium text-white/45">{t("downloads.nao_concluidos")}</h2>
+              <h2 className="ui-section-title mt-4">{t("downloads.nao_concluidos")}</h2>
               {parados.map((it) => (
                 <DmCard key={it.appid} item={it} />
               ))}

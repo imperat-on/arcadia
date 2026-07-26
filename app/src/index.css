@@ -102,6 +102,14 @@ body {
 }
 .animate-bg-fade { animation: bgFade var(--dur-3) var(--ease); }
 
+@keyframes letterBlink {
+  0%, 70%, 100% { opacity: 0.42; text-shadow: none; }
+  20% { opacity: 1; text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent); }
+}
+.arcadia-blink span {
+  animation: letterBlink 2.1s ease-in-out infinite;
+}
+
 /* Anel de foco para navegação por controle nos overlays */
 .gp-scope :focus {
   outline: 2px solid var(--accent) !important;
@@ -581,3 +589,31 @@ input,
 
 
 
+
+/* Descrição rica da Steam (about_the_game): mix imagem+texto. */
+.steam-desc img, .steam-desc video { max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; }
+.steam-desc .bb_h1, .steam-desc .bb_h2 { font-size: 18px; font-weight: 600; color: #fff; margin: 18px 0 8px; }
+.steam-desc h1, .steam-desc h2 { font-size: 18px; font-weight: 600; color: #fff; margin: 18px 0 8px; }
+.steam-desc h3 { font-size: 15px; font-weight: 600; color: #fff; margin: 14px 0 6px; }
+.steam-desc p { margin: 8px 0; }
+.steam-desc ul { list-style: disc; padding-left: 20px; margin: 8px 0; }
+.steam-desc li { margin: 3px 0; }
+.steam-desc a { color: var(--accent); }
+.steam-desc strong, .steam-desc b { color: rgba(255,255,255,0.92); }
+
+
+/* UI polish helpers (desktop) */
+.ui-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);border-radius:16px;box-shadow:0 18px 48px rgba(0,0,0,.22)}
+.ui-card-soft{border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);border-radius:14px}
+.ui-input{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:white;transition:border-color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease)}
+.ui-input:focus{border-color:color-mix(in srgb,var(--accent) 70%,transparent);background:rgba(255,255,255,.055);outline:none}
+.ui-btn-primary{background:var(--accent);color:black;font-weight:700;transition:transform var(--dur-1) var(--ease),filter var(--dur-1) var(--ease)}
+.ui-btn-primary:not(:disabled):hover{transform:translateY(-1px);filter:brightness(1.05)}
+.ui-btn-secondary{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.03);color:rgba(255,255,255,.78);transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.ui-btn-secondary:not(:disabled):hover{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.07);color:white}
+.ui-title{font-size:1.5rem;line-height:2rem;font-weight:650;letter-spacing:-.02em;color:white}
+.ui-subtitle{font-size:.875rem;line-height:1.35rem;color:rgba(255,255,255,.42)}
+.ui-section-title{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.58)}
+.ui-empty{display:flex;min-height:280px;align-items:center;justify-content:center;color:rgba(255,255,255,.35);text-align:center}
+*:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 80%,white 10%);outline-offset:2px}
+button:disabled,input:disabled,select:disabled{cursor:not-allowed}
