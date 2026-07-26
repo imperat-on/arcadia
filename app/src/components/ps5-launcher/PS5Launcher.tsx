@@ -27,6 +27,7 @@ import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
+import { LaunchModeDialog } from "../desktop/LaunchModeDialog"
 
 const MOCK_GAMES: Game[] = [
   {
@@ -190,6 +191,7 @@ export function PS5Launcher() {
   // Jogo Steam sem manifesto em nenhum provedor: o único caminho que resta é
   // a própria Steam, e a pessoa decide se quer.
   const [semManifesto, setSemManifesto] = useState<{ jogo: { appid: string; title: string }; motivo: string } | null>(null)
+  const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
 
   // Instalação de jogo Steam pelo NOSSO downloader (manifesto + DepotDownloader),
   // o mesmo caminho do botão Baixar da loja — e não pelo cliente da Steam.
@@ -261,6 +263,7 @@ export function PS5Launcher() {
     Boolean(trailerPickGame) ||
     Boolean(instalarGame) ||
     Boolean(semManifesto) ||
+    Boolean(escolhendoLaunch) ||
     Boolean(acoesLoja.escolhendo)
 
   // uiBlockedRef: pausa a navegação de JOGOS (D-pad/A). Vale também na aba de
@@ -491,6 +494,26 @@ export function PS5Launcher() {
     setSelectedIndex((i) => Math.min(i, Math.max(0, viewGames.length - 1)))
   }, [viewGames.length])
 
+  const abrirJogo = useCallback((game: Game, mode?: "steam" | "exe") => {
+    window.launcherAPI?.launch(game.launch_cmd, game.id, mode).then((r) => {
+      const aviso = r?.warnings?.[0] || (r?.ok === false ? r?.error : "")
+      if (aviso) setToast({ title: aviso, visible: true })
+      if (aviso) setTimeout(() => setToast((t) => ({ ...t, visible: false })), 7000)
+    })
+    jogoAtivoRef.current.iniciar(game)
+    setRecent((prev) => {
+      const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
+      try {
+        localStorage.setItem("gs_recent", JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+    setToast({ title: game.title, visible: true })
+    setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3000)
+  }, [])
+
   // Instalar OU abrir, conforme o estado do jogo. Instalar não trava o launcher
   // (não é sessão de jogo) — só abrir seta gameRunning.
   const _activate = useCallback((game?: Game | null) => {
@@ -523,28 +546,12 @@ export function PS5Launcher() {
       return
     }
 
-    // Instalado: abre o jogo. O retorno traz avisos do main — o principal é a
-    // Steam estar aberta SEM a SLSsteam, caso em que um jogo injetado não abre
-    // e o botão voltaria de "Abrindo…" para "Jogar" sem explicação nenhuma.
-    window.launcherAPI?.launch(game.launch_cmd, game.id).then((r) => {
-      const aviso = r?.warnings?.[0] || (r?.ok === false ? r?.error : "")
-      if (aviso) setToast({ title: aviso, visible: true })
-      if (aviso) setTimeout(() => setToast((t) => ({ ...t, visible: false })), 7000)
-    })
-    jogoAtivoRef.current.iniciar(game)
-    // Registra em "Recentes".
-    setRecent((prev) => {
-      const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
-      try {
-        localStorage.setItem("gs_recent", JSON.stringify(next))
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
-    setToast({ title: game.title, visible: true })
-    setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3000)
-  }, [])
+    if (game.launcher === "steam" && game.temExe) {
+      setEscolhendoLaunch(game)
+      return
+    }
+    abrirJogo(game)
+  }, [abrirJogo])
 
   const _launch_selected = useCallback(() => {
     _activate(viewGames[selectedIndex])
@@ -1236,6 +1243,14 @@ export function PS5Launcher() {
       {/* Atualização do Arcadia: A confirma, B adia. */}
       {atualizacao.info && (
         <UpdateDialog info={atualizacao.info} console onDepois={atualizacao.dispensar} />
+      )}
+
+      {escolhendoLaunch && (
+        <LaunchModeDialog
+          game={escolhendoLaunch}
+          onEscolher={(mode) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); abrirJogo(g, mode) }}
+          onClose={() => setEscolhendoLaunch(null)}
+        />
       )}
 
       {/* Toast notification */}

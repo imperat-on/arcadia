@@ -74,6 +74,7 @@ export interface AppConfig {
   accent?: string
   sources?: Sources
   slssteam_path?: string
+  slscheevo_path?: string
   psn_npsso?: string
   trailer_auto?: boolean
   youtube_cookies?: string
@@ -253,7 +254,7 @@ declare global {
     launcherPaths?: { home: string; dataDir: string }
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
-      launch: (cmd: string[], gameId?: string) => Promise<{ ok: boolean; error?: string; warnings?: string[] }>
+      launch: (cmd: string[], gameId?: string, mode?: "steam" | "exe") => Promise<{ ok: boolean; error?: string; warnings?: string[] }>
       /** Fecha o jogo em execução (mata o processo do jogo). */
       closeGame: () => Promise<{ ok: boolean; error?: string }>
       /** Abre o log de lançamento do jogo (logs/<id>.log). */
@@ -521,6 +522,8 @@ declare global {
       pluginsList: () => Promise<{ ok: boolean; plugins: { id: string; name: string; descKey: string; installed: boolean; enabled: boolean }[] }>
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
+      /** Plugin ativado/desativado — telas de loja atualizam ações em tempo real. */
+      onPluginsChanged: (cb: () => void) => () => void
       /** Assina o progresso do "baixar todos". Retorna a função de cancelar. */
       onTrailerProgress: (
         cb: (data: { done: number; total: number; title: string }) => void,

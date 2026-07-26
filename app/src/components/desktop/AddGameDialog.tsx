@@ -99,8 +99,8 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
       }
     }
     const s = await window.launcherAPI?.storeSearch(q)
-    const loja = (s?.resultados || [])[0]
-    const url = loja?.cover || loja?.capa || (loja?.appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${loja.appid}/library_600x900.jpg` : "")
+    const loja = (s?.jogos || [])[0]
+    const url = loja?.cover || (loja?.appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${loja.appid}/library_600x900.jpg` : "")
     if (url) await window.launcherAPI?.setOverride(id, { cover: url })
   }
 
