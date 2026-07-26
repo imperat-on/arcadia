@@ -22,6 +22,7 @@ export function StoreGamePage({
   onAdicionar,
   onRemover,
   onConfig,
+  onJogar,
   naBiblioteca,
   ocupado,
   embedded,
@@ -32,6 +33,7 @@ export function StoreGamePage({
   onAdicionar: () => void
   onRemover?: () => void
   onConfig?: () => void
+  onJogar?: () => void
   naBiblioteca: boolean
   ocupado: boolean
   embedded?: boolean
@@ -53,7 +55,9 @@ export function StoreGamePage({
   }, [jogo.appid])
 
   useEffect(() => {
-    window.launcherAPI?.storeStatus?.().then((s) => setSlsAtivo(Boolean(s?.slssteam)))
+    const carregar = () => window.launcherAPI?.storeStatus?.().then((s) => setSlsAtivo(Boolean(s?.slssteam)))
+    carregar()
+    return window.launcherAPI?.onPluginsChanged?.(() => carregar())
   }, [])
 
   const hero = jogo.heroi || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
@@ -90,10 +94,22 @@ export function StoreGamePage({
           <div className="flex gap-2.5">
             {naBiblioteca ? (
               <>
-                <span className="flex items-center gap-1.5 rounded-lg border border-[color:var(--accent)]/40 px-5 py-2.5 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                  {t("store.na_biblioteca")}
-                </span>
+                {onJogar ? (
+                  <button
+                    onClick={onJogar}
+                    disabled={ocupado}
+                    className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                    {t("gamepage.jogar")}
+                  </button>
+                ) : (
+                  <span className="flex items-center gap-1.5 rounded-lg border border-[color:var(--accent)]/40 px-5 py-2.5 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                    {t("store.na_biblioteca")}
+                  </span>
+                )}
                 {onConfig && (
                   <button
                     onClick={onConfig}

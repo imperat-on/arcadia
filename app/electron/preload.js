@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("launcherPaths", {
 // Ponte segura: o renderer (React) só enxerga estas funções.
 contextBridge.exposeInMainWorld("launcherAPI", {
   getLibrary: () => ipcRenderer.invoke("library:get"),
-  launch: (cmd, gameId) => ipcRenderer.invoke("game:launch", { cmd, gameId }),
+  launch: (cmd, gameId, mode) => ipcRenderer.invoke("game:launch", { cmd, gameId, mode }),
   closeGame: () => ipcRenderer.invoke("game:close"),
   gamelogOpen: (id) => ipcRenderer.invoke("gamelog:open", id),
   gameUninstall: (game, opts) => ipcRenderer.invoke("game:uninstall", { game, ...(opts || {}) }),
@@ -135,6 +135,11 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     const h = () => cb()
     ipcRenderer.on("library:changed", h)
     return () => ipcRenderer.removeListener("library:changed", h)
+  },
+  onPluginsChanged: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on("plugins:changed", h)
+    return () => ipcRenderer.removeListener("plugins:changed", h)
   },
   // Atualização do próprio Arcadia (git pull + rebuild + reinício).
   updateState: () => ipcRenderer.invoke("update:state"),
