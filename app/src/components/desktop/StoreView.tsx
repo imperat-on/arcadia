@@ -5,8 +5,7 @@ import { useStoreActions, StoreGamePage, type ItemLoja, CartaoLoja, useI18n } fr
 import type { Game } from "../ps5-launcher/types"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
-// Hydra (StoreGamePage) abre ao clicar no card. Sem plugin SLSsteam, as ações
-// Baixar/Adicionar informam o usuário.
+// Hydra (StoreGamePage) abre ao clicar no card.
 
 export function StoreView({ games = [] }: { games?: Game[] }) {
   const { t } = useI18n()
@@ -57,11 +56,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const caixaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const [slsAtivo, setSlsAtivo] = useState(false)
-
   useEffect(() => {
     window.launcherAPI?.storeWarm?.()
-    window.launcherAPI?.storeStatus?.().then((s) => setSlsAtivo(Boolean(s?.slssteam)))
   }, [])
 
   useEffect(() => {
@@ -238,12 +234,6 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
                   jogo={j}
                   naBiblioteca={bloqueados.has(j.appid)}
                   adicionado={jaAdicionados.has(j.appid)}
-                  ocupado={acaoBusy !== ""}
-                  nesteJogo={acaoBusy === j.appid}
-                  slsAtivo={slsAtivo}
-                  onBaixar={() => baixar(j)}
-                  onAdicionar={() => adicionar(j)}
-                  onRemover={() => remover(j)}
                   onOpen={() => setPagina(j)}
                   t={t}
                 />
@@ -264,7 +254,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         <StoreGamePage
           jogo={pagina}
           onClose={() => setPagina(null)}
-          onBaixar={() => { baixar(pagina); setPagina(null) }}
+          onBaixar={() => baixar(pagina)}
           onAdicionar={() => adicionar(pagina)}
           onRemover={() => remover(pagina)}
           naBiblioteca={bloqueados.has(pagina.appid)}

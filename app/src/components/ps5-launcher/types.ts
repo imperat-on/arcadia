@@ -46,6 +46,7 @@ export interface Game {
   categories?: string[] // categorias atribuídas pelo usuário
   last_played?: number // timestamp da última vez que abriu o jogo
   exe?: string // caminho do executável (jogos custom)
+  temExe?: boolean // derivado: há exePath configurado (aba Localizações)
   platform?: string // "windows" | "linux" (jogos custom)
   developer?: string
   publisher?: string

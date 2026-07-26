@@ -785,7 +785,9 @@ function applyGameSettings(cmd, s, gameId) {
   if (s.fsrHack) env.WINE_FULLSCREEN_FSR = "1"
   if (s.autoNVAPI) env.DXVK_ENABLE_NVAPI = "1"
   if (s.dxvkHud) env.DXVK_HUD = s.dxvkHud
-  if (s.mangohud) env.MANGOHUD = "1"
+  // MANGOHUD=1 só quando o binário não existe (fallback); com o wrapper o
+  // mangohud já se ativa sozinho e a var vira redundância.
+  if (s.mangohud && !binExists("mangohud")) env.MANGOHUD = "1"
   if (s.prefixPath) env.WINEPREFIX = s.prefixPath
   // Variáveis de ambiente extras (aba AVANÇADO).
   for (const v of s.envVars || []) {
@@ -913,7 +915,7 @@ function xboxLocale(cfg) {
 // (structured clone), então devolver a referência cacheada é seguro.
 let _libCache = { chave: "", games: [] }
 function _libMtimeKey() {
-  return [LIB, CUSTOM_GAMES, OVERRIDES, PENDING_GAMES]
+  return [LIB, CUSTOM_GAMES, OVERRIDES, PENDING_GAMES, GAME_SETTINGS]
     .map((p) => { try { return fs.statSync(p).mtimeMs } catch { return 0 } })
     .join(":")
 }
@@ -969,6 +971,16 @@ function readLibrary() {
       if (p && p.id && !jaTem.has(p.id)) games.push(p)
     }
     applyOverrides(games, readOverrides(OVERRIDES))
+    // Executável definido na aba Localizações torna o jogo jogável: o launch já
+    // roda esse .exe (exeLaunchCmd), mas sem marcar installed a UI só oferecia
+    // "Instalar" e o botão Jogar nunca aparecia.
+    const settings = readAllGameSettings()
+    for (const g of games) {
+      if (g && settings[g.id]?.exePath) {
+        if (g.installed === false) g.installed = true
+        g.temExe = true // frontend decide se mostra o menu Steam vs fora-da-Steam
+      }
+    }
     for (const g of games) {
       for (const k of ["cover", "hero", "logo"]) {
         if (typeof g[k] === "string" && g[k].startsWith("/")) {
@@ -1117,6 +1129,7 @@ function heroicConnected() {
 }
 
 let win
+let pararAchievementWatcher = null
 function createWindow() {
   const cfgIni = readConfig()
   win = new BrowserWindow({
@@ -1195,7 +1208,8 @@ function createWindow() {
   // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
   // marca o item no achievements.json NA HORA — sem isso o painel só
   // atualizava no próximo reindex da biblioteca.
-  startAchievementWatcher((payload) => {
+  if (pararAchievementWatcher) pararAchievementWatcher()
+  pararAchievementWatcher = startAchievementWatcher((payload) => {
     try {
       const arq = path.join(DATA_DIR, "achievements.json")
       const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
@@ -1313,15 +1327,19 @@ app.whenReady().then(() => {
     // Aceita { cmd, gameId } (novo) ou o array cmd direto (legado).
     let rawCmd = Array.isArray(payload) ? payload : payload?.cmd
     const gameId = Array.isArray(payload) ? undefined : payload?.gameId
+    // Modo explícito (menu Steam vs fora-da-Steam): "steam" força o launch_cmd
+    // da loja; "exe" força o executável do prefixo wine. Sem modo: decide sozinho
+    // (exePath vence quando existe).
+    const mode = Array.isArray(payload) ? undefined : payload?.mode
     // Jogo adicionado manualmente: monta o comando na hora (wine + exe).
     let envExtra = {}
     if (typeof gameId === "string" && gameId.startsWith("custom:")) {
       const built = customLaunchCmd(gameId)
       rawCmd = built?.cmd
       envExtra = built?.env || {}
-    } else if (typeof gameId === "string") {
+    } else if (typeof gameId === "string" && mode !== "steam") {
       // Override "Executável" (aba Localizações): roda o exe escolhido em vez do
-      // launch_cmd padrão da loja.
+      // launch_cmd padrão da loja. Sem modo, só quando há exePath configurado.
       const exe = getGameSettings(gameId).exePath
       if (exe) {
         const built = exeLaunchCmd(gameId, exe)
@@ -1718,9 +1736,12 @@ app.whenReady().then(() => {
     // Trocou de idioma: as descrições e requisitos já baixados estão na língua
     // antiga. Reindexar sozinho é o que faz a biblioteca aparecer traduzida
     // sem o usuário ter de descobrir que existe um botão de atualizar.
+    const janela = BrowserWindow.fromWebContents(_e.sender)
     if (cfg?.language && cfg.language !== idiomaAntes) {
-      const janela = BrowserWindow.fromWebContents(_e.sender)
       avisarBiblioteca(janela, true)
+    }
+    if (Object.prototype.hasOwnProperty.call(cfg || {}, "slssteam_path") || Object.prototype.hasOwnProperty.call(cfg || {}, "slscheevo_path")) {
+      janela?.webContents.send("plugins:changed")
     }
     return r
   })
@@ -1826,7 +1847,10 @@ app.whenReady().then(() => {
 
   // --- Loja Steam (estilo Acella: Hubcap + DepotDownloader + SLSsteam) -----
   const steamstore = require("./steamstore")
-  ipcMain.handle("store:status", () => steamstore.status())
+  ipcMain.handle("store:status", () => ({
+    ...steamstore.status(),
+    slssteam: plugins.isEnabled("slssteam"),
+  }))
   ipcMain.handle("store:search", async (_e, query) => {
     try {
       return await steamstore.search(String(query || ""))
@@ -2267,8 +2291,16 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("plugins:list", () => ({ ok: true, plugins: plugins.list() }))
-  ipcMain.handle("plugins:install", async (_e, id) => plugins.install(String(id || "")))
-  ipcMain.handle("plugins:remove", async (_e, id) => plugins.remove(String(id || "")))
+  ipcMain.handle("plugins:install", async (_e, id) => {
+    const r = await plugins.install(String(id || ""))
+    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    return r
+  })
+  ipcMain.handle("plugins:remove", async (_e, id) => {
+    const r = await plugins.remove(String(id || ""))
+    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    return r
+  })
 
   // Escolher imagem (avatar ou plano de fundo) — aceita GIF animado.
   // Procura arte online para um jogo. Junta o que cada fonte achou numa lista
@@ -2556,5 +2588,6 @@ app.on("window-all-closed", () => {
 // Ao sair, derruba o download ativo para não deixar o Legendary órfão (os
 // downloads são detached, então não morrem junto do app sozinhos).
 app.on("before-quit", () => {
+  try { pararAchievementWatcher?.() } catch {}
   try { require("./downloadmanager").killActive() } catch {}
 })

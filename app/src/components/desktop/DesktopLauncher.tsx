@@ -16,11 +16,13 @@ import { PluginsView } from "./PluginsView"
 import { StoreGamePage } from "./StoreGamePage"
 import { GamePage } from "./GamePage"
 import { GameSettingsDialog } from "./GameSettingsDialog"
+import { LaunchModeDialog } from "./LaunchModeDialog"
 import { AddGameDialog } from "./AddGameDialog"
 import { avisarJogando } from "./PlayingBadge"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
+import { AchievementToasts } from "../ps5-launcher/AchievementToasts"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 
 export function DesktopLauncher() {
@@ -38,6 +40,7 @@ export function DesktopLauncher() {
   const [librarySidebar, setLibrarySidebar] = useState(true)
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
+  const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
 
@@ -49,13 +52,20 @@ export function DesktopLauncher() {
     })
   }, [])
 
-  const jogar = useCallback((g: Game) => {
-    window.launcherAPI?.launch(g.launch_cmd, g.id)
+  const jogar = useCallback((g: Game, mode?: "steam" | "exe") => {
+    window.launcherAPI?.launch(g.launch_cmd, g.id, mode)
     avisarJogando(g)
     window.launcherAPI?.getConfig().then((c) => {
       if (c?.disable_playtime_tracking !== true) window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
     })
   }, [])
+
+  // Jogo Steam com executável configurado tem duas formas de iniciar: abre o
+  // menu de escolha. Nos demais casos joga direto.
+  const pedirJogar = useCallback((g: Game) => {
+    if (g.launcher === "steam" && g.temExe) setEscolhendoLaunch(g)
+    else jogar(g)
+  }, [jogar])
 
   const instalar = useCallback((g: Game) => {
     if (g.launcher === "steam") {
@@ -84,6 +94,12 @@ export function DesktopLauncher() {
       else carregar()
     })
   }, [carregar])
+
+  // Página aberta segura snapshot; após recarregar a lista, sincroniza pelo id
+  // para o botão Jogar refletir installed atualizado (ex.: exePath salvo).
+  useEffect(() => {
+    setJogoPagina((p) => (p ? games.find((g) => g.id === p.id) || p : p))
+  }, [games])
 
   useEffect(() => {
     carregar()
@@ -155,6 +171,7 @@ export function DesktopLauncher() {
                 onBaixar={() => instalar(jogoPagina)}
                 onAdicionar={() => {}}
                 onConfig={() => setJogoConfig(jogoPagina)}
+                onJogar={jogoPagina.installed !== false ? () => { const g = jogoPagina; setJogoPagina(null); pedirJogar(g) } : undefined}
                 naBiblioteca
                 ocupado={false}
               />
@@ -164,7 +181,7 @@ export function DesktopLauncher() {
                 embedded
                 game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
-                onJogar={() => { const g = jogoPagina; setJogoPagina(null); jogar(g) }}
+                onJogar={() => { const g = jogoPagina; setJogoPagina(null); pedirJogar(g) }}
                 onInstalar={() => instalar(jogoPagina)}
                 onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
                 onConfig={() => setJogoConfig(jogoPagina)}
@@ -187,7 +204,15 @@ export function DesktopLauncher() {
       </main>
 
       <PlayingBadge />
-      {jogoConfig && <GameSettingsDialog game={jogoConfig} onClose={() => setJogoConfig(null)} />}
+      <AchievementToasts />
+      {jogoConfig && <GameSettingsDialog game={jogoConfig} onClose={() => { setJogoConfig(null); carregar() }} />}
+      {escolhendoLaunch && (
+        <LaunchModeDialog
+          game={escolhendoLaunch}
+          onEscolher={(m) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); jogar(g, m) }}
+          onClose={() => setEscolhendoLaunch(null)}
+        />
+      )}
       {adicionando && <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => atualizarBiblioteca()} />}
 
       {atualizacao.info && (
