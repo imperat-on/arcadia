@@ -5,6 +5,10 @@ import type { Game } from "../ps5-launcher/types"
 import { fmtBytes, fmtMiB } from "../tamanho"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
+import {
+  AchievementsPanel, GameMediaGallery, GameDescription, ProtonDBPanel,
+  ControllerPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
+} from "./GameDetailPanels"
 
 interface Sysinfo {
   download_size?: number
@@ -12,6 +16,17 @@ interface Sysinfo {
   version?: string
   req_min?: string
   req_rec?: string
+  screenshots?: { thumb: string; full: string }[]
+  movies?: { id: number; name: string; thumb: string; mp4: string; webm: string }[]
+  release_date?: string
+  publishers?: string[]
+  developers?: string[]
+  header?: string
+  background?: string
+  about?: string
+  short_description?: string
+  controller_support?: string
+  languages?: string
 }
 
 // Requisitos vêm como HTML da Steam — vira texto simples.
@@ -38,6 +53,7 @@ export function GamePage({
   onInstalar,
   onImportar,
   onConfig,
+  embedded,
 }: {
   game: Game
   onClose: () => void
@@ -45,17 +61,15 @@ export function GamePage({
   onInstalar: () => void
   onImportar: () => void
   onConfig: () => void
+  embedded?: boolean
 }) {
   const { t } = useI18n()
   const instalado = g.installed !== false
   const epic = g.launcher === "epic"
+  const steamAppid = g.launcher === "steam" ? String(g.id).replace(/^steam:/, "") : ""
   const [aba, setAba] = useState<"dados" | "requisitos">("dados")
   const [sys, setSys] = useState<Sysinfo | null>(null)
   const [sysBusy, setSysBusy] = useState(true)
-  // Fixes (GameBypass/OnlineFix, estilo luatools).
-  const [fixes, setFixes] = useState<{ generic?: boolean; online?: boolean } | null>(null)
-  const [fixBusy, setFixBusy] = useState("")
-  const [fixMsg, setFixMsg] = useState("")
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
   useEffect(() => {
@@ -64,29 +78,7 @@ export function GamePage({
       setSys(r?.info || {})
       setSysBusy(false)
     })
-    // Fixes só fazem sentido em jogo instalado.
-    if (g.installed !== false) {
-      const appid = String(g.id).replace(/^steam:/, "")
-      window.launcherAPI?.storeCheckFixes(appid).then((r) => {
-        if (r?.ok && (r.generic || r.online)) setFixes({ generic: r.generic, online: r.online })
-      })
-    }
   }, [g.id])
-
-  const aplicarFix = async (type: "generic" | "online") => {
-    setFixBusy(type)
-    setFixMsg("")
-    const appid = String(g.id).replace(/^steam:/, "")
-    const { path: installPath } = (await window.launcherAPI?.storeInstallDir(g)) || { path: "" }
-    if (!installPath) {
-      setFixBusy("")
-      setFixMsg(t("gamepage.pasta_nao_encontrada"))
-      return
-    }
-    const r = await window.launcherAPI?.storeApplyFix({ appid, type, installPath })
-    setFixBusy("")
-    setFixMsg(r?.ok ? t("gamepage.fix_aplicado") : r?.error || t("gamepage.falha_fix"))
-  }
 
   const gibBytes = fmtBytes
   const gib = fmtMiB
@@ -97,7 +89,7 @@ export function GamePage({
     : t("common.nunca")
 
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-black" style={{ animation: "gp-in 0.18s ease-out" }}>
+    <div className={`${embedded ? "relative h-full" : "fixed inset-0 z-[55]"} flex flex-col bg-black`} style={{ animation: "gp-in 0.18s ease-out" }}>
       {/* Fundo: hero desfocado */}
       {g.hero || g.cover ? (
         <img src={g.hero || g.cover} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-25 blur-md" draggable={false} />
@@ -159,9 +151,10 @@ export function GamePage({
                     </button>
                     <button
                       onClick={onConfig}
-                      className="rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                      className="flex items-center gap-2 rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
                     >
-                      {t("gamepage.configuracoes")}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.32.22.66.22 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                      {t("gamepage.gerenciar")}
                     </button>
                   </>
                 ) : (
@@ -184,45 +177,22 @@ export function GamePage({
                         {t("gamepage.importar_jogo")}
                       </button>
                     )}
+                    <button
+                      onClick={onConfig}
+                      className="flex items-center gap-2 rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.32.22.66.22 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                      {t("gamepage.gerenciar")}
+                    </button>
                   </>
                 )}
               </div>
             </div>
-
-            {/* Fixes (GameBypass/OnlineFix) quando disponíveis para o jogo */}
-            {fixes && (
-              <div className="mt-3 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-white/50">{t("gamepage.fixes_disponiveis")}</div>
-                <div className="flex gap-2">
-                  {fixes.generic && (
-                    <button
-                      onClick={() => aplicarFix("generic")}
-                      disabled={Boolean(fixBusy)}
-                      className="rounded-lg px-3.5 py-1.5 text-[11px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
-                      style={{ background: "var(--accent)" }}
-                    >
-                      {fixBusy === "generic" ? t("gamepage.aplicando") : t("gamepage.gamebypass")}
-                    </button>
-                  )}
-                  {fixes.online && (
-                    <button
-                      onClick={() => aplicarFix("online")}
-                      disabled={Boolean(fixBusy)}
-                      className="rounded-lg px-3.5 py-1.5 text-[11px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
-                      style={{ background: "var(--accent)" }}
-                    >
-                      {fixBusy === "online" ? t("gamepage.aplicando") : t("gamepage.onlinefix")}
-                    </button>
-                  )}
-                </div>
-                {fixMsg && <p className="mt-2 text-[11px] text-white/55">{fixMsg}</p>}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Coluna direita: dados */}
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90 p-5">
+        {/* Coluna direita: dados + painéis estilo Hydra */}
+        <div className="flex min-h-0 flex-col overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90 p-5">
           <div className="mx-auto mb-5 flex gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
             {([
               ["dados", t("gamepage.dados_instalacao")],
@@ -309,6 +279,24 @@ export function GamePage({
                   <p className="mt-2 text-[12px] text-white/35">{t("gamepage.requisitos_indisponiveis")}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Galeria + painéis (só jogos Steam com appid) */}
+          {steamAppid && (
+            <div className="mt-5 flex flex-col gap-5">
+              {(sys?.movies?.length || sys?.screenshots?.length) ? (
+                <GameMediaGallery movies={sys?.movies} screenshots={sys?.screenshots} />
+              ) : null}
+              <GameDescription html={sys?.about} fallback={sys?.short_description} />
+              <ProtonDBPanel appid={steamAppid} />
+              <StatsPanel appid={steamAppid} />
+              <ControllerPanel support={sys?.controller_support} />
+              <LanguagesPanel languages={sys?.languages} />
+              <AchievementsPanel appid={steamAppid} />
+              {/* Avaliações + comentários abaixo da descrição. */}
+              <ReviewsPanel appid={steamAppid} />
+              <CommentsPanel appid={steamAppid} />
             </div>
           )}
         </div>
