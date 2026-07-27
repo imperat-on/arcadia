@@ -257,6 +257,27 @@ declare global {
       launch: (cmd: string[], gameId?: string, mode?: "steam" | "exe") => Promise<{ ok: boolean; error?: string; warnings?: string[] }>
       /** Fecha o jogo em execução (mata o processo do jogo). */
       closeGame: () => Promise<{ ok: boolean; error?: string }>
+      fixesCheck: (appid: string) => Promise<{
+        ok: boolean
+        appid?: string
+        generic?: { available: boolean; status: number; url?: string }
+        online?: { available: boolean; status: number; url?: string }
+        crack?: { available: boolean; status: number; url?: string; badge?: string; gameName?: string; requiresAuth?: boolean }
+        authConfigured?: boolean
+      }>
+      fixesApply: (opts: { appid: string; url: string; type: "generic" | "online" | "crack"; installPath: string }) => Promise<{ ok: boolean; error?: string; errorCode?: string }>
+      fixesStatus: (appid: string) => Promise<{ status: string; bytesRead?: number; totalBytes?: number; error?: string; errorCode?: string }>
+      fixesCancel: (appid: string) => Promise<{ ok: boolean }>
+      fixesInstalled: (opts: { appid: string; installPath: string }) => Promise<{ ok: boolean; installed: boolean }>
+      fixesUnfix: (opts: { appid: string; installPath: string }) => Promise<{ ok: boolean; error?: string }>
+      fixesLauncherRedirect: (opts: { installPath: string }) => Promise<{ ok: boolean; redirect: string | null }>
+      fixesSetRyuuAuth: (key: string) => Promise<{ ok: boolean }>
+      fixesRyuuAuthStatus: () => Promise<{ configured: boolean }>
+      fixesClearRyuuAuth: () => Promise<{ ok: boolean }>
+      winMinimize: () => Promise<void>
+      /** Alterna maximizar/restaurar; resolve com o novo estado maximizado. */
+      winMaximize: () => Promise<boolean>
+      winClose: () => Promise<void>
       /** Abre o log de lançamento do jogo (logs/<id>.log). */
       gamelogOpen: (id: string) => Promise<{ ok: boolean; error?: string }>
       /** Desinstala o jogo (Steam via URI dela; Epic via legendary). */

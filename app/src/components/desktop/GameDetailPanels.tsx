@@ -59,6 +59,7 @@ export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: M
             poster={movies[sel.idx].thumb}
             controls
             autoPlay
+            muted
             className="h-full w-full object-contain"
           />
         ) : screenshots[sel.idx] ? (
@@ -144,24 +145,34 @@ export function ProtonDBPanel({ appid }: { appid: string }) {
 export function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   const [aberto, setAberto] = useState(true)
   return (
-    <div className="ui-card p-5">
+    <div
+      className="overflow-hidden rounded-2xl transition-colors"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        boxShadow: `inset 0 0 0 1px rgba(255,255,255,${aberto ? 0.07 : 0.05})`,
+      }}
+    >
       <button
         onClick={() => setAberto((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 text-left"
+        className="group flex w-full items-center justify-between gap-2 px-5 py-3.5 text-left transition-colors hover:bg-white/[0.03]"
       >
-        <span className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-white/60">
+        <span className="flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
+          <span
+            className="h-3 w-[2px] rounded-full transition-colors"
+            style={{ background: aberto ? "var(--accent)" : "rgba(255,255,255,0.2)" }}
+          />
           {title}
-          {right}
+          {right && <span className="ml-1 font-normal normal-case tracking-normal text-white/45">{right}</span>}
         </span>
         <svg
-          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
           strokeLinecap="round" strokeLinejoin="round"
           className={`shrink-0 text-white/40 transition-transform ${aberto ? "" : "-rotate-90"}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
-      {aberto && <div className="mt-4">{children}</div>}
+      {aberto && <div className="px-5 pb-5 pt-1">{children}</div>}
     </div>
   )
 }
@@ -344,7 +355,8 @@ export function LanguagesPanel({ languages }: { languages?: string }) {
   )
 }
 
-type Stats = { owners?: string; ccu?: number; reviewDesc?: string; reviewPositivePct?: number | null; totalReviews?: number; comments?: { author: string; text: string; positive: boolean; hours: number; helpful: number }[] }
+type Comment = { steamid?: string; author: string; avatar?: string; text: string; positive: boolean; hours: number; hoursAtReview?: number; helpful: number; timestamp?: number }
+type Stats = { owners?: string; ccu?: number; reviewDesc?: string; reviewPositivePct?: number | null; totalReviews?: number; comments?: Comment[] }
 
 // Hook compartilhado por Stats, Reviews e Comentários (um só fetch por appid).
 function useGameStats(appid: string) {
@@ -396,53 +408,164 @@ export function StatsPanel({ appid }: { appid: string }) {
   )
 }
 
-// Avaliações: descrição + barra de % positivo + total.
+// Avaliações estilo Hydra: cabeçalho com resumo (descrição + %/total), aba de
+// ordenação (Recentes · Melhor pontuados · Mais votados) e lista de reviews
+// com avatar identicon, tempo relativo e "Mostrar mais" incremental.
+type OrdemReview = "recentes" | "melhores" | "votadas"
+
 export function ReviewsPanel({ appid }: { appid: string }) {
   const { t } = useI18n()
   const d = useGameStats(appid)
-  if (!d || !d.totalReviews) return null
-  const pct = typeof d.reviewPositivePct === "number" ? d.reviewPositivePct : null
+  const [ordem, setOrdem] = useState<OrdemReview>("recentes")
+  const [visiveis, setVisiveis] = useState(4)
+
+  useEffect(() => { setVisiveis(4) }, [appid, ordem])
+
+  const comments = d?.comments || []
+  if (!d || (comments.length === 0 && !d.totalReviews)) return null
+
+  const ordenadas = [...comments].sort((a, b) => {
+    if (ordem === "recentes") return (b.timestamp || 0) - (a.timestamp || 0)
+    if (ordem === "votadas") return (b.helpful || 0) - (a.helpful || 0)
+    // "melhores": recomendadas primeiro, dentro delas mais votadas primeiro
+    if (a.positive !== b.positive) return a.positive ? -1 : 1
+    return (b.helpful || 0) - (a.helpful || 0)
+  })
+  const mostrando = ordenadas.slice(0, visiveis)
+  const restam = ordenadas.length - visiveis
+
   return (
-    <Panel title={t("reviews.titulo")}>
-      {d.reviewDesc && <p className="mb-2 text-[13px] font-medium text-white/85">{d.reviewDesc}</p>}
-      {pct !== null && (
-        <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct >= 70 ? "#4adf9a" : pct >= 40 ? "#ffb86b" : "#ff6b81" }} />
-        </div>
+    <Panel title={t("reviews.titulo")} right={<span className="text-white/35">({d.totalReviews ? d.totalReviews.toLocaleString() : comments.length})</span>}>
+      {comments.length > 0 && (
+        <>
+          {/* Ordenação */}
+          <div className="mb-4 flex items-center gap-1 border-b border-white/[0.06] pb-2 text-[11.5px] font-medium">
+            <SortBtn ativo={ordem === "recentes"} onClick={() => setOrdem("recentes")}>{t("reviews.recentes")}</SortBtn>
+            <SortSep />
+            <SortBtn ativo={ordem === "melhores"} onClick={() => setOrdem("melhores")}>{t("reviews.melhor_pontuadas")}</SortBtn>
+            <SortSep />
+            <SortBtn ativo={ordem === "votadas"} onClick={() => setOrdem("votadas")}>{t("reviews.mais_votadas")}</SortBtn>
+          </div>
+
+          <div className="flex flex-col">
+            {mostrando.map((c, i) => (
+              <ReviewCard key={`${c.steamid || i}-${c.timestamp || i}`} c={c} last={i === mostrando.length - 1} />
+            ))}
+          </div>
+
+          {restam > 0 && (
+            <button
+              onClick={() => setVisiveis((v) => v + 6)}
+              className="mt-4 w-full rounded-full border border-white/10 py-2.5 text-[12.5px] font-semibold text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
+            >
+              {t("reviews.mostrar_mais")} ({restam})
+            </button>
+          )}
+        </>
       )}
-      <p className="text-[12px] text-white/50">
-        {pct !== null ? `${pct}% ${t("reviews.positivas")} · ` : ""}
-        {d.totalReviews.toLocaleString()} {t("reviews.total")}
-      </p>
     </Panel>
   )
 }
 
-// Comentários da Steam: lista de reviews individuais (autor, texto, 👍, horas).
-export function CommentsPanel({ appid }: { appid: string }) {
-  const { t } = useI18n()
-  const d = useGameStats(appid)
-  const comments = d?.comments || []
-  if (comments.length === 0) return null
+function SortBtn({ ativo, onClick, children }: { ativo: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <Panel title={t("comentarios.titulo")} right={<span className="text-white/35">({comments.length})</span>}>
-      <div className="flex max-h-[520px] flex-col gap-3 overflow-y-auto pr-1">
-        {comments.map((c, i) => (
-          <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-            <div className="mb-1.5 flex items-center gap-2 text-[11px]">
-              <span className={c.positive ? "text-[#4adf9a]" : "text-[#ff6b81]"}>
-                {c.positive ? "👍" : "👎"} {t(c.positive ? "comentarios.recomenda" : "comentarios.nao_recomenda")}
-              </span>
-              {c.hours > 0 && <span className="text-white/35">· {c.hours}h {t("comentarios.jogadas")}</span>}
-              {c.helpful > 0 && <span className="text-white/35">· {c.helpful} {t("comentarios.util")}</span>}
-            </div>
-            <p className="line-clamp-6 whitespace-pre-line text-[12px] leading-relaxed text-white/70">{c.text}</p>
-          </div>
-        ))}
-      </div>
-    </Panel>
+    <button
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 transition-colors ${ativo ? "text-white" : "text-white/45 hover:text-white/75"}`}
+    >
+      {ativo ? "▾ " : ""}{children}
+    </button>
   )
 }
+function SortSep() {
+  return <span className="text-white/15">|</span>
+}
+
+// Cartão individual de review — avatar identicon + nome + tempo relativo,
+// estrelinha derivada da recomendação, texto e rodapé com votos úteis.
+function ReviewCard({ c, last }: { c: Comment; last: boolean }) {
+  const { t } = useI18n()
+  const cor = identiconColor(c.steamid || c.author)
+  const inicial = (c.author?.replace(/^Steam\s*/, "") || "?")[0]?.toUpperCase() || "?"
+  const quando = tempoRelativo(c.timestamp || 0, t)
+  return (
+    <div className={`py-4 ${last ? "" : "border-b border-white/[0.05]"}`}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {c.avatar ? (
+            <img
+              src={c.avatar}
+              alt=""
+              draggable={false}
+              className="h-9 w-9 shrink-0 rounded-full object-cover"
+              style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" }}
+              onError={(e) => {
+                const el = e.currentTarget as HTMLImageElement
+                el.replaceWith(Object.assign(document.createElement("span"), {
+                  className: "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-black/80",
+                  style: `background:${cor}`,
+                  textContent: inicial,
+                }))
+              }}
+            />
+          ) : (
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-black/80"
+              style={{ background: cor }}
+            >
+              {inicial}
+            </span>
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-white/90">{c.author || "Steam"}</div>
+            <div className="flex items-center gap-2 text-[11px] text-white/40">
+              <span className={c.positive ? "text-[#4adf9a]" : "text-[#ff6b81]"}>
+                {c.positive ? "★" : "☆"} {t(c.positive ? "comentarios.recomenda" : "comentarios.nao_recomenda")}
+              </span>
+              {(c.hoursAtReview || c.hours) > 0 && (
+                <span>· {(c.hoursAtReview || c.hours)}h {t("comentarios.jogadas")}</span>
+              )}
+            </div>
+          </div>
+        </div>
+        {quando && <span className="shrink-0 text-[11px] text-white/40">{quando}</span>}
+      </div>
+      <p className="whitespace-pre-line pl-12 text-[13px] leading-relaxed text-white/75">{c.text}</p>
+      {c.helpful > 0 && (
+        <p className="mt-2 pl-12 text-[11px] text-white/35">
+          👍 {c.helpful} {t("comentarios.util")}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// Identicon determinístico: hash simples → tom pastel HSL. Sem chamada de rede.
+function identiconColor(seed: string) {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return `hsl(${h % 360} 65% 62%)`
+}
+
+// "há 5 horas" / "há 3 dias" / "há 2 meses". Sem dep (Intl.RelativeTimeFormat).
+function tempoRelativo(ts: number, t: (k: string) => string): string {
+  if (!ts) return ""
+  const diff = (Date.now() / 1000) - ts
+  if (diff < 60) return t("tempo.agora")
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
+  const [val, unit] = escalaTempo(diff)
+  return rtf.format(-val, unit)
+}
+function escalaTempo(seg: number): [number, Intl.RelativeTimeFormatUnit] {
+  if (seg < 3600) return [Math.round(seg / 60), "minute"]
+  if (seg < 86400) return [Math.round(seg / 3600), "hour"]
+  if (seg < 2592000) return [Math.round(seg / 86400), "day"]
+  if (seg < 31536000) return [Math.round(seg / 2592000), "month"]
+  return [Math.round(seg / 31536000), "year"]
+}
+
+// Mantido como stub p/ compatibilidade — CommentsPanel foi fundido em Reviews.
+export function CommentsPanel(_: { appid: string }) { return null }
 
 type Ach = { name: string; title: string; desc: string; icon: string; icongray?: string; achieved: boolean; unlock: number; percent: number | string }
 

@@ -488,6 +488,74 @@ async function getProtonDb(appid) {
   }
 }
 
+// Resolver perfis Steam (nome + avatar) a partir do steamid, sem API key.
+// Endpoint público XML — pega o mesmo dado que o site do perfil expõe.
+// Cache em disco (perfil raramente muda) com TTL de 7 dias e failure-cache
+// curto de 1h (evita re-tentar 50 perfis privados a cada abertura da tela).
+const PROFILE_CACHE = path.join(DATA_DIR, "profile_cache.json")
+const PROFILE_TTL = 7 * 24 * 60 * 60 * 1000
+const PROFILE_FAIL_TTL = 60 * 60 * 1000
+let _profileCache = null
+function loadProfileCache() {
+  if (_profileCache) return _profileCache
+  try { _profileCache = JSON.parse(fs.readFileSync(PROFILE_CACHE, "utf-8")) } catch { _profileCache = {} }
+  return _profileCache
+}
+function saveProfileCache() {
+  try { fs.writeFileSync(PROFILE_CACHE, JSON.stringify(_profileCache)) } catch { /* disco cheio: ignora */ }
+}
+async function fetchProfile(steamid) {
+  // XML público. Timeout curto: perfil que não responde em 3s não vale bloquear.
+  const ctrl = new AbortController()
+  const to = setTimeout(() => ctrl.abort(), 3000)
+  try {
+    const r = await fetchRede(`https://steamcommunity.com/profiles/${steamid}?xml=1`, {
+      headers: { "User-Agent": "arcadia" },
+      signal: ctrl.signal,
+    })
+    if (!r.ok) return null
+    const xml = await r.text()
+    const nome = xml.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/)?.[1]
+      || xml.match(/<steamID>(.*?)<\/steamID>/)?.[1]
+    const avatar = xml.match(/<avatarMedium><!\[CDATA\[(.*?)\]\]><\/avatarMedium>/)?.[1]
+      || xml.match(/<avatarMedium>(.*?)<\/avatarMedium>/)?.[1]
+    if (!nome && !avatar) return null
+    return { name: (nome || "").trim(), avatar: (avatar || "").trim() }
+  } catch { return null }
+  finally { clearTimeout(to) }
+}
+// Roda `tarefas` (arrays de () => Promise) com no máximo `n` em paralelo.
+async function pool(tarefas, n) {
+  const out = new Array(tarefas.length)
+  let i = 0
+  await Promise.all(Array.from({ length: Math.min(n, tarefas.length) }, async () => {
+    while (i < tarefas.length) {
+      const idx = i++
+      out[idx] = await tarefas[idx]()
+    }
+  }))
+  return out
+}
+async function resolveProfiles(steamids) {
+  const cache = loadProfileCache()
+  const agora = Date.now()
+  const faltando = steamids.filter((id) => {
+    const c = cache[id]
+    if (!c) return true
+    const ttl = c.name ? PROFILE_TTL : PROFILE_FAIL_TTL
+    return agora - c.at > ttl
+  })
+  if (faltando.length) {
+    const resultados = await pool(faltando.map((id) => () => fetchProfile(id)), 6)
+    faltando.forEach((id, idx) => {
+      const r = resultados[idx] || {}
+      cache[id] = { at: agora, name: r.name || "", avatar: r.avatar || "" }
+    })
+    saveProfileCache()
+  }
+  return cache
+}
+
 // Estatísticas + resumo de reviews via APIs públicas (SteamSpy owners/ccu +
 // Steam appreviews). Sem backend próprio; dados aproximados. Cache 6h.
 const _statsCache = new Map()
@@ -502,19 +570,30 @@ async function getGameStats(appid) {
       fetchJson(`https://steamspy.com/api.php?request=appdetails&appid=${appid}`).catch(() => null),
       // num_per_page=20 traz os textos das reviews junto do resumo (mesma API).
       // language=english: avaliações sempre em inglês (pedido do usuário).
-      fetchJson(`https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=20`).catch(() => null),
+      fetchJson(`https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=50`).catch(() => null),
     ])
     const q = rev?.query_summary || {}
     const pos = Number(q.total_positive) || 0
     const total = Number(q.total_reviews) || 0
-    // Comentários individuais: autor, texto, positivo/negativo, horas jogadas.
-    const comments = (rev?.reviews || []).slice(0, 20).map((r) => ({
+    // Comentários individuais: perfil (steamid p/ identicon), texto, recomendação,
+    // horas jogadas na review e data (timestamp p/ "há N dias").
+    const comentariosBase = (rev?.reviews || []).slice(0, 50).map((r) => ({
+      steamid: String(r.author?.steamid || ""),
       author: r.author?.steamid ? `Steam ${String(r.author.steamid).slice(-4)}` : "",
+      avatar: "",
       text: String(r.review || "").trim(),
       positive: Boolean(r.voted_up),
       hours: r.author?.playtime_forever ? Math.round(r.author.playtime_forever / 60) : 0,
+      hoursAtReview: r.author?.playtime_at_review ? Math.round(r.author.playtime_at_review / 60) : 0,
       helpful: Number(r.votes_up) || 0,
+      timestamp: Number(r.timestamp_created) || 0,
     })).filter((c) => c.text)
+    // Enriquece com nome/avatar reais (cache disco 7d, pool 6 paralelas).
+    const perfis = await resolveProfiles(comentariosBase.map((c) => c.steamid).filter(Boolean))
+    const comments = comentariosBase.map((c) => {
+      const p = perfis[c.steamid]
+      return { ...c, author: p?.name || c.author, avatar: p?.avatar || "" }
+    })
     out = {
       owners: spy?.owners || "",
       ccu: Number(spy?.ccu) || 0,
@@ -1143,8 +1222,10 @@ function createWindow() {
     // branca/vazia e só depois o React pinta. Com ready-to-show o usuário vê
     // a janela já com conteúdo, sem flash branco.
     show: false,
-    // "Usar janela sem moldura" (Config. Gerais) — requer reiniciar o app.
-    frame: !cfgIni.frameless_window,
+    // Modo desktop usa barra de título própria (botões estilo macOS na UI), então
+    // a janela é frameless. "Usar janela sem moldura" (Config. Gerais) força o
+    // mesmo no modo console. Requer reiniciar o app.
+    frame: process.env.ARCADIA_MODE !== "desktop" && !cfgIni.frameless_window,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -2255,6 +2336,67 @@ app.whenReady().then(() => {
     return { ok: true, count: feitos }
   })
   ipcMain.handle("app:quit", () => app.quit())
+
+  // ─── Fixes (crack/bypass/online) — port do luatools-moon ────────────────
+  const fixes = require("./fixes")
+  // Garante permissão de execução do worker (build/git nem sempre preserva).
+  try { fs.chmodSync(path.join(__dirname, "fix_downloader.sh"), 0o755) } catch { /* ok */ }
+
+  ipcMain.handle("fixes:check", async (_e, appid) => {
+    const a = String(appid || "").replace(/^steam:/, "")
+    if (!a) return { ok: false }
+    const [generic, online, crack] = await Promise.all([
+      fixes.checkGenericFix(a).catch(() => ({ available: false, status: 0 })),
+      fixes.checkOnlineFix(a).catch(() => ({ available: false, status: 0 })),
+      fixes.checkCrackFix(a).catch(() => ({ available: false, status: 0 })),
+    ])
+    const auth = fixes.getRyuuAuthStatus()
+    return { ok: true, appid: a, generic, online, crack, authConfigured: auth.configured }
+  })
+
+  ipcMain.handle("fixes:apply", async (_e, { appid, url, type, installPath }) => {
+    const a = String(appid || "").replace(/^steam:/, "")
+    if (!a || !url || !installPath) return { ok: false, error: "missing_args" }
+    return fixes.applyFix({ appid: a, url, type, installPath })
+  })
+
+  ipcMain.handle("fixes:status", (_e, appid) => {
+    const a = String(appid || "").replace(/^steam:/, "")
+    return fixes.getStatus(a)
+  })
+
+  ipcMain.handle("fixes:cancel", (_e, appid) => {
+    const a = String(appid || "").replace(/^steam:/, "")
+    return fixes.cancelApply(a)
+  })
+
+  ipcMain.handle("fixes:installed", (_e, { appid, installPath }) => {
+    if (!installPath) return { ok: true, installed: false }
+    return { ok: true, installed: fixes.isFixed(installPath) }
+  })
+
+  ipcMain.handle("fixes:unfix", (_e, { appid, installPath }) => {
+    return fixes.unfix(installPath)
+  })
+
+  ipcMain.handle("fixes:launcherRedirect", (_e, { installPath }) => {
+    const r = fixes.buildLauncherRedirect(installPath)
+    return { ok: true, redirect: r }
+  })
+
+  ipcMain.handle("fixes:setRyuuAuth", (_e, key) => fixes.setRyuuAuth(key))
+  ipcMain.handle("fixes:ryuuAuthStatus", () => fixes.getRyuuAuthStatus())
+  ipcMain.handle("fixes:clearRyuuAuth", () => fixes.clearRyuuAuth())
+
+  // Controles de janela (botões estilo macOS na barra custom do modo desktop).
+  ipcMain.handle("win:minimize", () => win?.minimize())
+  ipcMain.handle("win:maximize", () => {
+    if (!win) return false
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+    return win.isMaximized()
+  })
+  ipcMain.handle("win:close", () => win?.close())
   ipcMain.handle("app:toggleFullscreen", () => {
     if (win) win.setFullScreen(!win.isFullScreen())
   })

@@ -23,6 +23,11 @@ store_items_cache.json
 store_sushi_cache.json
 sysinfo_cache.json
 wine_catalog_cache.json
+profile_cache.json
+fixes_index.json
+ryuu-index.json
+ryuu_auth.txt
+fix.log
 
 # Conteúdo baixado/gerado em runtime
 art/
