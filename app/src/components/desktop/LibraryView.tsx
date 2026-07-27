@@ -257,6 +257,7 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
             heroi: paginaLoja.hero,
             manifest: true,
           }}
+          game={paginaLoja}
           onClose={() => setPaginaLoja(null)}
           onBaixar={() => instalar(paginaLoja)}
           onAdicionar={() => {}}

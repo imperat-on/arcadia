@@ -58,6 +58,8 @@ export function GamePage({
   const [sys, setSys] = useState<Sysinfo | null>(null)
   const [sysBusy, setSysBusy] = useState(true)
   const [installPath, setInstallPath] = useState("")
+  const [cheevoAtivo, setCheevoAtivo] = useState(false)
+  const [fixesAtivo, setFixesAtivo] = useState(false)
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
   useEffect(() => {
@@ -68,12 +70,26 @@ export function GamePage({
     })
   }, [g.id])
 
-  // Path de instalação (pra FixesPanel saber onde extrair).
+  // Path de instalação (pra FixesPanel saber onde extrair) e estado dos plugins.
   useEffect(() => {
     if (!instalado) { setInstallPath(""); return }
     window.launcherAPI?.storeInstallDir(g).then((r) => setInstallPath(r?.path || ""))
+    window.launcherAPI?.storeStatus().then((s) => {
+      setCheevoAtivo(Boolean(s?.slscheevo))
+      setFixesAtivo(Boolean(s?.luatools))
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g.id, instalado])
+
+  useEffect(() => {
+    const off = window.launcherAPI?.onPluginsChanged?.(() => {
+      window.launcherAPI?.storeStatus().then((s) => {
+        setCheevoAtivo(Boolean(s?.slscheevo))
+        setFixesAtivo(Boolean(s?.luatools))
+      })
+    })
+    return () => off?.()
+  }, [])
 
   const gibBytes = fmtBytes
   const gib = fmtMiB
@@ -286,10 +302,10 @@ export function GamePage({
               <GameDescription html={sys?.about} fallback={sys?.short_description} />
               <ProtonDBPanel appid={steamAppid} />
               <StatsPanel appid={steamAppid} />
+              {instalado && fixesAtivo && <FixesPanel appid={steamAppid} installPath={installPath} />}
               <ControllerPanel support={sys?.controller_support} />
               <LanguagesPanel languages={sys?.languages} />
-              <AchievementsPanel appid={steamAppid} />
-              {instalado && <FixesPanel appid={steamAppid} installPath={installPath} />}
+              {cheevoAtivo && <AchievementsPanel appid={steamAppid} />}
               {/* Avaliações + comentários abaixo da descrição. */}
               <ReviewsPanel appid={steamAppid} />
               <CommentsPanel appid={steamAppid} />

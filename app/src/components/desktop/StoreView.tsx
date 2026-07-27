@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStoreActions, StoreGamePage, type ItemLoja, CartaoLoja, useI18n } from "./storeShared"
+import { GameSettingsDialog } from "./GameSettingsDialog"
 import type { Game } from "../ps5-launcher/types"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
@@ -30,6 +31,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const [buscando, setBuscando] = useState(false)
   const [msg, setMsg] = useState("")
   const [pagina, setPagina] = useState<ItemLoja | null>(null)
+  const [configGame, setConfigGame] = useState<Game | null>(null)
   const esqueletos = useMemo(() => Array.from({ length: 8 }, (_, i) => i), [])
 
   // Catálogo navegável (sem busca): lista "Em alta" paginada via store:recent.
@@ -151,6 +153,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const buscou = resultados !== null
   const grade = buscou ? resultados : []
   const carregandoGrade = buscando
+  const gamePorAppid = useMemo(() => {
+    const m = new Map<string, Game>()
+    for (const g of games) {
+      const appid = String(g.id).replace(/^steam:/, "")
+      if (appid) m.set(appid, g)
+    }
+    return m
+  }, [games])
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
@@ -250,17 +260,24 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
         )
       })()}
 
-      {pagina && (
-        <StoreGamePage
-          jogo={pagina}
-          onClose={() => setPagina(null)}
-          onBaixar={() => baixar(pagina)}
-          onAdicionar={() => adicionar(pagina)}
-          onRemover={() => remover(pagina)}
-          naBiblioteca={bloqueados.has(pagina.appid)}
-          ocupado={acaoBusy !== ""}
-        />
-      )}
+      {pagina && (() => {
+        const naBiblioteca = bloqueados.has(pagina.appid)
+        const game = naBiblioteca ? gamePorAppid.get(pagina.appid) : undefined
+        return (
+          <StoreGamePage
+            jogo={pagina}
+            game={game}
+            onClose={() => setPagina(null)}
+            onBaixar={() => baixar(pagina)}
+            onAdicionar={() => adicionar(pagina)}
+            onRemover={() => remover(pagina)}
+            onConfig={game ? () => setConfigGame(game) : undefined}
+            onJogar={game && game.installed !== false ? () => window.launcherAPI?.launch(game.launch_cmd, game.id) : undefined}
+            naBiblioteca={naBiblioteca}
+            ocupado={acaoBusy !== ""}
+          />
+        )
+      })()}
 
       {escolhendo && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEscolhendo(null)}>
@@ -283,6 +300,8 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           </div>
         </div>
       )}
+
+      {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
 
       {toast && (
         <div className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>{toast}</div>

@@ -1931,6 +1931,8 @@ app.whenReady().then(() => {
   ipcMain.handle("store:status", () => ({
     ...steamstore.status(),
     slssteam: plugins.isEnabled("slssteam"),
+    slscheevo: plugins.isEnabled("slscheevo"),
+    luatools: plugins.isEnabled("luatools-fixes"),
   }))
   ipcMain.handle("store:search", async (_e, query) => {
     try {
@@ -1971,7 +1973,12 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  ipcMain.handle("store:installDir", (_e, game) => ({ path: steamstore.gameInstallDir(game) }))
+  ipcMain.handle("store:installDir", (_e, game) => {
+    const p = steamstore.gameInstallDir(game)
+    if (p) return { path: p }
+    const exe = getGameSettings(game?.id).exePath
+    return { path: exe ? path.dirname(exe) : "" }
+  })
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
   ipcMain.handle("store:removeFromSteam", (_e, appid) => {
     const r = steamstore.removeFromSteam(appid)
@@ -2007,7 +2014,14 @@ app.whenReady().then(() => {
     if (!plugins.isEnabled("slssteam")) return { ok: false, plugin: "slssteam" }
     try {
       const r = steamstore.addToSteam(String(appid || ""))
-      if (!r.ok) return r
+      if (!r.ok) {
+        // Sem .lua o registro na Steam falha, mas o jogo ainda entra na
+        // biblioteca — antes o Add morria aqui e o jogo não aparecia em
+        // lugar nenhum.
+        try { adicionarStubPendente(String(appid), title) } catch {}
+        avisarBiblioteca(win)
+        return r
+      }
       const reg = steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
       if (!reg?.ok) return reg || { ok: false, error: "falha ao registrar na SLSsteam" }
       try { adicionarStubPendente(String(appid), title) } catch {}
@@ -2029,6 +2043,9 @@ app.whenReady().then(() => {
           if (it?.heroi && !hero && !heroi) hero = it.heroi
         } catch {}
       }
+      // Reexibe: um "Remover" anterior pode ter marcado hidden=true (jogo
+      // indexado); sem limpar aqui o Add não trazia o jogo de volta.
+      setOverride(OVERRIDES, "steam:" + appid, { hidden: null })
       adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
       avisarBiblioteca(win)
       return { ok: true }

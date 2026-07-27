@@ -75,9 +75,16 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
   // Conquistas detalhadas (estilo SuccessStory): busca ao abrir o overview.
   const [achievements, setAchievements] = useState<AchievementItem[] | null>(null)
+  const [cheevoAtivo, setCheevoAtivo] = useState(false)
   const achievementsScrollRef = useRef<HTMLDivElement>(null)
   const appFocusedRef = useRef(appFocused)
   appFocusedRef.current = appFocused
+
+  useEffect(() => {
+    const carregar = () => window.launcherAPI?.storeStatus().then((s) => setCheevoAtivo(Boolean(s?.slscheevo)))
+    carregar()
+    return window.launcherAPI?.onPluginsChanged?.(() => carregar())
+  }, [])
 
   // Analógico DIREITO rola a coluna de conquistas (mesma física do
   // useGamepadNav: zona morta, resposta quadrática e inércia).
@@ -115,7 +122,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     let vivo = true
     const api = window.launcherAPI
     const appid = game.id.startsWith("steam:") ? game.id.split(":")[1] : ""
-    if (!api || !appid) {
+    if (!api || !appid || !cheevoAtivo) {
       setAchievements([])
       return
     }
@@ -127,7 +134,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     return () => {
       vivo = false
     }
-  }, [game.id])
+  }, [game.id, cheevoAtivo])
 
   // Trailer local resolvido NA HORA (sem o delay de 1,5s da home e sem
   // baixar nada): undefined = carregando, null = não existe, string = path.
@@ -308,7 +315,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                 </div>
               ))}
               {/* Barra de progresso das conquistas do jogador */}
-              {game.achievements_total != null && game.achievements_total > 0 && game.achievements_done != null && (
+              {cheevoAtivo && game.achievements_total != null && game.achievements_total > 0 && game.achievements_done != null && (
                 <div className="pt-4">
                   <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
                     <div
@@ -325,7 +332,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           </div>
 
           {/* Conquistas — coluna própria com progresso e lista rolável */}
-          {achievements != null && achievements.length > 0 && (
+          {cheevoAtivo && achievements != null && achievements.length > 0 && (
             <div className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w3"}`}>
               <div className="flex items-center gap-4 px-6 pt-5">
                 <span className="flex shrink-0 items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">

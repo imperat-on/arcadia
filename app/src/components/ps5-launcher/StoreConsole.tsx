@@ -165,14 +165,20 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   useEffect(() => {
     const el = webRef.current
     if (!el) return
-    const onReady = () => {
+    const onReady = async () => {
       try {
-        el.send("arcadia:labels", {
-          baixar: t("store.baixar"),
-          adicionar: t("store.adicionar_steam"),
-          remover: t("common.remover"),
-          restart: t("desktop.restart_steam"),
-        })
+        const s = await window.launcherAPI?.storeStatus()
+        const slsAtivo = Boolean(s?.slssteam)
+        if (!slsAtivo) {
+          el.send("arcadia:disable", {})
+        } else {
+          el.send("arcadia:labels", {
+            baixar: t("store.baixar"),
+            adicionar: t("store.adicionar_steam"),
+            remover: t("common.remover"),
+            restart: t("desktop.restart_steam"),
+          })
+        }
         // Porta o accent do tema do Arcadia para a loja Steam (botões/destaques).
         const accent = getComputedStyle(document.documentElement)
           .getPropertyValue("--accent").trim() || "#00a8ff"

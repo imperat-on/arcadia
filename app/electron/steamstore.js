@@ -833,16 +833,32 @@ async function buscarSteamSpyCompleta(url) {
 }
 
 // Pasta de instalação do jogo.
-function gameInstallDir(g) {
+function steamAppsDirs() {
   const home = os.homedir()
+  const bases = [
+    path.join(home, ".steam", "steam"),
+    path.join(home, ".local", "share", "Steam"),
+    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
+  ]
+  const dirs = new Set()
+  for (const base of bases) {
+    const main = path.join(base, "steamapps")
+    dirs.add(main)
+    try {
+      const vdf = fs.readFileSync(path.join(main, "libraryfolders.vdf"), "utf-8")
+      for (const m of vdf.matchAll(/"path"\s+"([^"]+)"/g)) {
+        dirs.add(path.join(m[1].replace(/\\\\/g, "/"), "steamapps"))
+      }
+    } catch {}
+  }
+  return [...dirs]
+}
+
+function gameInstallDir(g) {
   const appid = String(g?.id || "").replace(/^steam:/, "")
   if (g?.launcher === "custom" && g.exe) return path.dirname(g.exe)
   if (g?.launcher === "steam" || String(g?.id || "").startsWith("steam:")) {
-    for (const dir of [
-      path.join(home, ".steam", "steam", "steamapps"),
-      path.join(home, ".local", "share", "Steam", "steamapps"),
-      path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps"),
-    ]) {
+    for (const dir of steamAppsDirs()) {
       const acf = path.join(dir, `appmanifest_${appid}.acf`)
       if (fs.existsSync(acf)) {
         const m = /"installdir"\s+"([^"]+)"/.exec(fs.readFileSync(acf, "utf-8"))

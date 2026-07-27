@@ -324,7 +324,7 @@ declare global {
         } | null
       }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
-      storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string; adicionados?: string[] }>
+      storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; slscheevo?: boolean; luatools?: boolean; steamDir: string; adicionados?: string[] }>
       /** Loja Steam: busca no catálogo Hubcap. */
       storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */

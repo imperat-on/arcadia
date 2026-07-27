@@ -6,11 +6,13 @@
 // conteúdo com painéis reagrupados. Preto OLED em toda superfície.
 
 import { useEffect, useState } from "react"
+import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
   GameMediaGallery, GameDescription, ProtonDBPanel, AchievementsPanel,
   ControllerPanel, RequirementsPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
 } from "./GameDetailPanels"
+import { FixesPanel } from "./FixesPanel"
 
 type ItemLoja = { appid: string; title: string; cover?: string; capa?: string; heroi?: string; manifest?: boolean }
 type Info = NonNullable<Awaited<ReturnType<NonNullable<Window["launcherAPI"]>["gameSysinfo"]>>["info"]>
@@ -26,8 +28,10 @@ export function StoreGamePage({
   naBiblioteca,
   ocupado,
   embedded,
+  game,
 }: {
   jogo: ItemLoja
+  game?: Game
   onClose: () => void
   onBaixar: () => void
   onAdicionar: () => void
@@ -42,7 +46,11 @@ export function StoreGamePage({
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
   const [slsAtivo, setSlsAtivo] = useState(false)
+  const [cheevoAtivo, setCheevoAtivo] = useState(false)
+  const [fixesAtivo, setFixesAtivo] = useState(false)
   const [rolado, setRolado] = useState(false)
+  const [installPath, setInstallPath] = useState("")
+  const [fixesAberto, setFixesAberto] = useState(false)
   const temDownload = jogo.manifest !== false
 
   useEffect(() => {
@@ -56,7 +64,19 @@ export function StoreGamePage({
   }, [jogo.appid])
 
   useEffect(() => {
-    const carregar = () => window.launcherAPI?.storeStatus?.().then((s) => setSlsAtivo(Boolean(s?.slssteam)))
+    if (!naBiblioteca) { setInstallPath(""); return }
+    const g = game || { id: `steam:${jogo.appid}`, title: jogo.title, launcher: "steam", launch_cmd: [] as string[] }
+    window.launcherAPI?.storeInstallDir(g as never).then((r) => setInstallPath(r?.path || ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jogo.appid, naBiblioteca, game])
+
+  useEffect(() => {
+    const carregar = () =>
+      window.launcherAPI?.storeStatus?.().then((s) => {
+        setSlsAtivo(Boolean(s?.slssteam))
+        setCheevoAtivo(Boolean(s?.slscheevo))
+        setFixesAtivo(Boolean(s?.luatools))
+      })
     carregar()
     return window.launcherAPI?.onPluginsChanged?.(() => carregar())
   }, [])
@@ -66,6 +86,7 @@ export function StoreGamePage({
   const capa = jogo.cover || jogo.capa || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`
   const dev = info?.developers?.[0]
   const pub = info?.publishers?.[0]
+  const instalado = game ? game.installed !== false : Boolean(onJogar)
 
   return (
     <div
@@ -145,34 +166,7 @@ export function StoreGamePage({
               <span className="hidden text-[12px] text-white/45 sm:inline">{t("store.nenhum_download")}</span>
             )}
             <div className="flex gap-2">
-              {naBiblioteca ? (
-                <>
-                  {onJogar ? (
-                    <PrimaryBtn onClick={onJogar} disabled={ocupado} label={t("gamepage.jogar")}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                    </PrimaryBtn>
-                  ) : (
-                    <span className="flex items-center gap-1.5 rounded-full border border-[color:var(--accent)]/40 px-4 py-2 text-[12.5px] font-semibold" style={{ color: "var(--accent)" }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      {t("store.na_biblioteca")}
-                    </span>
-                  )}
-                  {onConfig && (
-                    <GhostBtn onClick={onConfig} disabled={ocupado} label={t("gamepage.gerenciar")}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.32.22.66.22 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
-                    </GhostBtn>
-                  )}
-                  {onRemover && (
-                    <button
-                      onClick={onRemover}
-                      disabled={ocupado}
-                      className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
-                    >
-                      {t("common.remover")}
-                    </button>
-                  )}
-                </>
-              ) : (
+              {!naBiblioteca ? (
                 <>
                   <GhostBtn onClick={onAdicionar} disabled={ocupado} label={t("store.adicionar_biblioteca")}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
@@ -182,6 +176,34 @@ export function StoreGamePage({
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                     </PrimaryBtn>
                   )}
+                </>
+              ) : instalado ? (
+                <>
+                  {onJogar && (
+                    <PrimaryBtn onClick={onJogar} disabled={ocupado} label={t("gamepage.jogar")}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                    </PrimaryBtn>
+                  )}
+                  {fixesAtivo && (
+                    <GhostBtn onClick={() => setFixesAberto(true)} disabled={ocupado} label="Fixes">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20" /><path d="M2 12h20" /><path d="m7 7 10 10" /><path d="m17 7-10 10" /></svg>
+                    </GhostBtn>
+                  )}
+                  {onConfig && (
+                    <GhostBtn onClick={onConfig} disabled={ocupado} label={t("gamepage.gerenciar")}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.32.22.66.22 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                    </GhostBtn>
+                  )}
+                  {onRemover && <DangerBtn onClick={onRemover} disabled={ocupado} label={t("common.remover")} />}
+                </>
+              ) : (
+                <>
+                  {onBaixar && slsAtivo && (
+                    <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                    </PrimaryBtn>
+                  )}
+                  {onRemover && <DangerBtn onClick={onRemover} disabled={ocupado} label={t("common.remover")} />}
                 </>
               )}
             </div>
@@ -201,13 +223,21 @@ export function StoreGamePage({
           <div className="flex flex-col gap-4">
             <ProtonDBPanel appid={jogo.appid} />
             <StatsPanel appid={jogo.appid} />
-            <AchievementsPanel appid={jogo.appid} />
+            {cheevoAtivo && <AchievementsPanel appid={jogo.appid} />}
             <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
             <LanguagesPanel languages={info?.languages} />
             <ControllerPanel support={info?.controller_support} />
           </div>
         </div>
       </div>
+
+      {fixesAberto && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setFixesAberto(false)}>
+          <div className="w-[520px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
+            <FixesPanel appid={jogo.appid} installPath={installPath} />
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes sg-in { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:translateY(0);} }
@@ -251,6 +281,18 @@ function GhostBtn({ children, onClick, disabled, label }: { children: React.Reac
       className="flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-[12.5px] font-semibold text-white/85 transition-colors enabled:hover:border-white/25 enabled:hover:bg-white/[0.07] enabled:hover:text-white disabled:opacity-50"
     >
       {children}
+      {label}
+    </button>
+  )
+}
+
+function DangerBtn({ onClick, disabled, label }: { onClick: () => void; disabled?: boolean; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+    >
       {label}
     </button>
   )

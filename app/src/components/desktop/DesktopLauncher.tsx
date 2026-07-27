@@ -169,10 +169,15 @@ export function DesktopLauncher() {
                   heroi: jogoPagina.hero,
                   manifest: true,
                 }}
+                game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
                 onBaixar={() => instalar(jogoPagina)}
                 onAdicionar={() => {}}
                 onConfig={() => setJogoConfig(jogoPagina)}
+                onRemover={() => {
+                  window.launcherAPI?.storeRemoveFromLibrary(String(jogoPagina.id).replace(/^steam:/, "")).then(() => carregar())
+                  setJogoPagina(null)
+                }}
                 onJogar={jogoPagina.installed !== false ? () => { const g = jogoPagina; setJogoPagina(null); pedirJogar(g) } : undefined}
                 naBiblioteca
                 ocupado={false}

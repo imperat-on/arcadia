@@ -43,6 +43,8 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const [busy, setBusy] = useState("")
   const [toast, setToast] = useState("")
   const [slsAtivo, setSlsAtivo] = useState(false)
+  const [cheevoAtivo, setCheevoAtivo] = useState(false)
+  const [fixesAtivo, setFixesAtivo] = useState(false)
 
   // O toast some sozinho; sem isso ele ficaria na tela até a próxima ação.
   useEffect(() => {
@@ -59,6 +61,8 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       window.launcherAPI?.storeStatus().then((s) => {
         setJaAdicionados(new Set(s?.adicionados || []))
         setSlsAtivo(Boolean(s?.slssteam))
+        setCheevoAtivo(Boolean(s?.slscheevo))
+        setFixesAtivo(Boolean(s?.luatools))
       })
     status()
     const offLib = window.launcherAPI?.onLibraryChanged(() => status())
@@ -67,10 +71,12 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   }, [])
 
   // Jogos que não devem oferecer Baixar/Add: já adicionados à Steam ou já
-  // presentes na biblioteca do Arcadia.
+  // presentes na biblioteca do Arcadia. Ocultos (hidden) não contam: "Remover"
+  // da loja só oculta o jogo indexado, e sem este filtro o botão continuava
+  // "Na biblioteca" depois de removido.
   const bloqueados = new Set([
     ...jaAdicionados,
-    ...games.map((g) => String(g.id).replace(/^steam:/, "")),
+    ...games.filter((g) => !g.hidden).map((g) => String(g.id).replace(/^steam:/, "")),
   ].filter((appid) => !removidosLocal.has(appid)))
 
   // Buscar o manifesto passa por vários provedores e pode levar dezenas de
@@ -211,9 +217,13 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   )
 
   const remover = useCallback(async (jogo: JogoLoja) => {
+    // Mesma guarda de `pedido` de baixar/adicionar: sem ela, um Add/Baixar
+    // lento em voo resolvia depois do Remover e revertia o estado do botão.
+    const meu = ++pedido.current
     setBusy(jogo.appid)
     try {
       const r = await window.launcherAPI?.storeRemoveFromLibrary(jogo.appid)
+      if (meu !== pedido.current) return
       if (r?.ok) {
         setJaAdicionados((prev) => {
           const n = new Set(prev)
@@ -226,7 +236,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     } catch (e) {
       setToast(`Falha ao remover: ${e}`)
     } finally {
-      setBusy("")
+      if (meu === pedido.current) setBusy("")
     }
   }, [])
 
@@ -238,6 +248,9 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   return {
     bloqueados,
     jaAdicionados,
+    slsAtivo,
+    cheevoAtivo,
+    fixesAtivo,
     escolhendo,
     setEscolhendo,
     busy,
