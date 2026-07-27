@@ -133,24 +133,28 @@ export function GameRail({
                 willChange: "transform",
               }}
             >
-              {game.cover ? (
-                <img
-                  src={game.cover}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
-                  {/* A caixa agora tem o tamanho grande e NÃO é ampliada quando
-                      em foco, então o conteúdo precisa nascer maior — antes ele
-                      era esticado 1,52x junto com a capa. */}
-                  <LauncherIcon launcher={game.launcher} size={30} />
-                  <span className="text-white/80 text-[14px] font-medium text-center leading-tight line-clamp-3">
-                    {game.title}
-                  </span>
-                </div>
-              )}
+              {(() => {
+                const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
+                const coverSrc = game.cover?.includes("/header.jpg") && appid
+                  ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
+                  : game.cover
+                const isLandscape = coverSrc?.includes("/header.jpg")
+                return coverSrc ? (
+                  <img
+                    src={coverSrc}
+                    alt=""
+                    className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"}`}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
+                    <LauncherIcon launcher={game.launcher} size={30} />
+                    <span className="text-white/80 text-[14px] font-medium text-center leading-tight line-clamp-3">
+                      {game.title}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
           </button>
         )
