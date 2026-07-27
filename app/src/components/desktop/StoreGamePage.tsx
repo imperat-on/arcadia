@@ -83,7 +83,12 @@ export function StoreGamePage({
 
   const hero = jogo.heroi || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
   const header = info?.header || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`
-  const capa = jogo.cover || jogo.capa || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`
+  const portraitUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`
+  // A capa flutuante é retrato (160×240 / 2:3); `jogo.cover` costuma ser o
+  // header paisagem, então preferimos `jogo.capa` (library_600x900). Se até a
+  // `capa` vier como header (ex.: DesktopLauncher passando cover como capa),
+  // caimos na URL retrato padrão.
+  const capa = (jogo.capa && !jogo.capa.includes("/header.jpg")) ? jogo.capa : portraitUrl
   const dev = info?.developers?.[0]
   const pub = info?.publishers?.[0]
   const instalado = game ? game.installed !== false : Boolean(onJogar)

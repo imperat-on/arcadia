@@ -24,9 +24,18 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
   const cardRef = useRef<HTMLButtonElement>(null)
   const { t } = useI18n()
   const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  const [faseCapa, setFaseCapa] = useState(0)
-  useEffect(() => setFaseCapa(0), [game.id, game.cover])
-  const coverSrc = faseCapa === 0 ? game.cover : appid && faseCapa === 1 ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
+  const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
+  const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
+  const [faseCapa, setFaseCapa] = useState<"cover" | "portrait" | "header" | "none">(
+    game.cover?.includes("/header.jpg") ? "portrait" : "cover"
+  )
+  useEffect(() => setFaseCapa(game.cover?.includes("/header.jpg") ? "portrait" : "cover"), [game.id, game.cover])
+  const coverSrc =
+    faseCapa === "cover" ? game.cover || portraitUrl
+    : faseCapa === "portrait" ? portraitUrl
+    : faseCapa === "header" ? headerUrl
+    : ""
+  const isLandscape = coverSrc.includes("/header.jpg")
 
   const hasCover = Boolean(coverSrc)
   const fallbackGradient =
@@ -61,9 +70,9 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
           <img
             src={coverSrc}
             alt={game.title}
-            className="w-full h-full object-cover"
+            className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"}`}
             loading="lazy"
-            onError={() => setFaseCapa((f) => f + 1)}
+            onError={() => setFaseCapa((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))}
           />
         ) : (
           /* Fallback art */

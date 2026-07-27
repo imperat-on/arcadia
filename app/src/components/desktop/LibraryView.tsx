@@ -327,18 +327,27 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 
 function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
   const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  const [fase, setFase] = useState(0)
-  useEffect(() => setFase(0), [game.id, game.cover])
-  const src = fase === 0 ? game.cover : appid && fase === 1 ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
+  const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
+  const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
+  const [fase, setFase] = useState<"cover" | "portrait" | "header" | "none">(
+    game.cover?.includes("/header.jpg") ? "portrait" : "cover"
+  )
+  useEffect(() => setFase(game.cover?.includes("/header.jpg") ? "portrait" : "cover"), [game.id, game.cover])
+  const src =
+    fase === "cover" ? game.cover || portraitUrl
+    : fase === "portrait" ? portraitUrl
+    : fase === "header" ? headerUrl
+    : ""
+  const isLandscape = src.includes("/header.jpg")
   if (!src) return <div className="flex h-full items-center justify-center px-3 text-center text-xs text-white/30">{game.title}</div>
   return (
     <img
       src={src}
       alt={game.title}
       loading="lazy"
-      className={`h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
+      className={`h-full w-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
       draggable={false}
-      onError={() => setFase((f) => f + 1)}
+      onError={() => setFase((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))}
     />
   )
 }

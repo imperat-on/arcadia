@@ -100,6 +100,10 @@ let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
 // é o que fecha/vigia de forma universal (custom, umu, legendary, lutris).
 let jogoAtivo = null
+// Intervals do createWindow. Se a janela for recriada sem matar o processo
+// (comum no macOS ou em reinicializações), evita acumular timers antigos.
+let gamescopeFocusInterval = null
+let runningGameInterval = null
 // yt-dlp precisa achar o Deno para resolver o desafio JS do YouTube (necessário
 // em vídeos com restrição de idade). Aceitamos tanto a cópia em bin/ quanto a do
 // sistema, e garantimos os diretórios padrão: no gamescope o PATH herdado pode
@@ -1132,7 +1136,7 @@ function adicionarStubPendente(appid, title, art = {}) {
     launcher: "steam",
     launch_cmd: ["steam", `steam://rungameid/${appid}`],
     installed: false,
-    cover: art.cover || `${base}/header.jpg`,
+    cover: art.cover || `${base}/library_600x900.jpg`,
     hero: art.hero || `${base}/library_hero.jpg`,
     logo: `${base}/logo.png`,
     pendente: true,
@@ -1315,7 +1319,8 @@ function createWindow() {
   // pgrep nunca casa consigo mesmo; poll de 2s.
   if (process.env.ARCADIA_GAMESCOPE === "1") {
     let focado = true
-    setInterval(() => {
+    if (gamescopeFocusInterval) clearInterval(gamescopeFocusInterval)
+    gamescopeFocusInterval = setInterval(() => {
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
         const jogoRodando = !err // exit 0 = achou processo
         const ativo = !jogoRodando
@@ -1347,7 +1352,8 @@ function createWindow() {
       } catch {}
     }
   }
-  setInterval(() => {
+  if (runningGameInterval) clearInterval(runningGameInterval)
+  runningGameInterval = setInterval(() => {
     if (jogoAtivo) {
       // Sinal 0: só testa se o grupo de processos ainda existe.
       try {
@@ -2749,4 +2755,9 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   try { pararAchievementWatcher?.() } catch {}
   try { require("./downloadmanager").killActive() } catch {}
+  // Garante que metadados baixados na sessão atual não se percam se o app for
+  // fechado antes do debounce de 1500ms do sysinfo cache.
+  try {
+    if (_sysinfoCache) fs.writeFileSync(SYSINFO_CACHE, JSON.stringify(_sysinfoCache))
+  } catch {}
 })
