@@ -88,6 +88,13 @@ export function DmCard({ item: it }: { item: DmItem }) {
   // ~20ms, mas se a rede ou o disco atrasarem a resposta, sem isto o botão
   // parece morto — foi o que motivou esta correção.
   const [cancelando, setCancelando] = useState(false)
+  // A URL salva no item pode falhar (404, CDN offline). Sem fallback a tela
+  // mostra o ícone de imagem quebrada em vez do placeholder.
+  const appidSteam = String(it.appid).startsWith("steam:") ? String(it.appid).replace(/^steam:/, "") : ""
+  const fallbackSteam = appidSteam ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidSteam}/library_600x900.jpg` : ""
+  const [coverSrc, setCoverSrc] = useState(it.cover)
+  const [coverQuebrou, setCoverQuebrou] = useState(false)
+  useEffect(() => { setCoverSrc(it.cover); setCoverQuebrou(false) }, [it.cover])
   const baixando = it.status === "downloading"
   const pausado = it.status === "paused"
   const ativo = baixando || pausado || it.status === "queued"
@@ -100,8 +107,17 @@ export function DmCard({ item: it }: { item: DmItem }) {
       } bg-white/[0.03]`}
       style={baixando ? { boxShadow: "0 0 30px -8px var(--accent)" } : undefined}
     >
-      {it.cover ? (
-        <img src={it.cover} alt="" className="h-20 w-14 shrink-0 rounded-lg object-cover ring-1 ring-white/10" draggable={false} />
+      {coverSrc && !coverQuebrou ? (
+        <img
+          src={coverSrc}
+          alt=""
+          className="h-20 w-14 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+          draggable={false}
+          onError={() => {
+            if (fallbackSteam && coverSrc !== fallbackSteam) setCoverSrc(fallbackSteam)
+            else setCoverQuebrou(true)
+          }}
+        />
       ) : (
         <div className="h-20 w-14 shrink-0 rounded-lg bg-white/5 ring-1 ring-white/10" />
       )}
