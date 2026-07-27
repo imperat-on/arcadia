@@ -74,13 +74,13 @@ export function Sidebar({
   }, [games, buscaJogos])
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col" style={{ background: "var(--sidebar-bg)" }}>
-      <div className="px-6 pb-5 pt-6">
+      <div className="px-6 pb-5 pt-9">
         <button onClick={() => setProfileMenu((v) => !v)} className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
             {profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" draggable={false} /> : nome[0]?.toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="arcadia-blink text-[10px] font-light uppercase tracking-[0.28em] text-white/55" aria-label="Arcadia">
+            <div className="wordmark arcadia-blink text-[10px] uppercase text-white/55" aria-label="Arcadia">
               {"Arcadia".split("").map((ch, i) => <span key={i} style={{ animationDelay: `${i * 0.14}s` }}>{ch}</span>)}
             </div>
             <div className="truncate text-[13px] font-medium text-white/80 group-hover:text-white">{nome}</div>
@@ -269,83 +269,100 @@ function ProfileMenuItem({ label, onClick, danger }: { label: string; onClick: (
   )
 }
 
-const s = { width: 17, height: 17, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" } as const
+/* ─── Iconografia própria do Arcadia ───────────────────────────────────────
+   Set autoral, não Lucide. Uma gramática só: grade 24, cantos vivos, um
+   acento diagonal a 45° que reaparece em cada símbolo (o "corte" do Arcadia).
+   Traço fino e geométrico para casar com o wordmark Michroma sobre o OLED. */
+const s = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" } as const
 
-function IconGrid() {
-  return (
-    <svg {...s}>
-      <rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" />
-      <rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" />
-    </svg>
-  )
-}
-function IconStore() {
-  return (
-    <svg {...s}>
-      <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7" />
-      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-      <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4" />
-      <path d="M2 7h20" />
-    </svg>
-  )
-}
-function IconDownload() {
-  return (
-    <svg {...s}>
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" x2="12" y1="15" y2="3" />
-    </svg>
-  )
-}
-function IconWine() {
-  return (
-    <svg {...s}>
-      <path d="M8 22h8" /><path d="M12 15v7" /><path d="M5 3h14l-1.5 7.5a5.5 5.5 0 0 1-11 0L5 3z" />
-    </svg>
-  )
-}
-function IconGear() {
-  return (
-    <svg {...s}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  )
-}
-
-function IconA11y() {
-  return (
-    <svg {...s}>
-      <circle cx="12" cy="4.5" r="2" />
-      <path d="M4 8.5c2.7.6 5.3 1 8 1s5.3-.4 8-1" />
-      <path d="M12 9.5v5l-3 7" />
-      <path d="M12 14.5l3 7" />
-    </svg>
-  )
-}
-
+// Início: telhado chanfrado + núcleo, o corte diagonal marca a "porta".
 function IconHome() {
   return (
     <svg {...s}>
-      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
+      <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <path d="M12 20v-5.5" />
+      <path d="m9.5 12 2.5-2.5 2.5 2.5" />
     </svg>
   )
 }
 
+// Biblioteca: pilha de cartuchos/lombadas, um puxado adiante (o selecionado).
+function IconGrid() {
+  return (
+    <svg {...s}>
+      <rect x="4" y="4" width="5" height="16" rx="1" />
+      <rect x="11" y="4" width="5" height="16" rx="1" />
+      <path d="m17.6 5 2.5.7-3.2 12-2.4-.7" />
+    </svg>
+  )
+}
+
+// Loja: toldo de barraca com o vinco diagonal, base aberta.
+function IconStore() {
+  return (
+    <svg {...s}>
+      <path d="M4 9 6 4h12l2 5" />
+      <path d="M4 9h16" />
+      <path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9" />
+      <path d="M9.5 20v-4.5a2.5 2.5 0 0 1 5 0V20" />
+    </svg>
+  )
+}
+
+// Componentes: bloco modular encaixando por uma aba diagonal (plug abstrato).
 function IconPlugin() {
   return (
     <svg {...s}>
-      <path d="M12 2v4" />
-      <path d="m16.2 7.8 2.9-2.9" />
-      <path d="M18 12h4" />
-      <path d="m16.2 16.2 2.9 2.9" />
-      <path d="M12 18v4" />
-      <path d="m4.9 19.1 2.9-2.9" />
-      <path d="M2 12h4" />
-      <path d="m4.9 4.9 2.9 2.9" />
+      <path d="M6 6h8l4 4v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z" />
+      <path d="M14 6v4h4" />
+      <path d="M9 13.5h4.5" />
+      <path d="M9 16.5h6" />
+    </svg>
+  )
+}
+
+// Downloads: bandeja com seta que desce cortando na diagonal.
+function IconDownload() {
+  return (
+    <svg {...s}>
+      <path d="M12 4v9" />
+      <path d="m8 10 4 4 4-4" />
+      <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+    </svg>
+  )
+}
+
+// Wine: taça com haste e base — silhueta limpa, sem folhagem.
+function IconWine() {
+  return (
+    <svg {...s}>
+      <path d="M6 4h12l-1 5.5A5 5 0 0 1 12 14a5 5 0 0 1-5-4.5z" />
+      <path d="M12 14v5" />
+      <path d="M8 20h8" />
+    </svg>
+  )
+}
+
+// Configurações: engrenagem hexagonal (6 dentes) com núcleo — mais firme que a
+// engrenagem redonda genérica, alinhada à gramática geométrica.
+function IconGear() {
+  return (
+    <svg {...s}>
+      <path d="M12 3.2 18.6 7v10L12 20.8 5.4 17V7z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+// Acessibilidade: figura centrada dentro de um anel de foco — inclusão + alvo.
+function IconA11y() {
+  return (
+    <svg {...s}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="8" r="1.4" />
+      <path d="M7.5 10.5c3 1 6 1 9 0" />
+      <path d="M12 11v3.5L10 18" />
+      <path d="M12 14.5 14 18" />
     </svg>
   )
 }
