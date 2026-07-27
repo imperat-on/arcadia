@@ -15,6 +15,9 @@ let labels = {
   remover: "Remover",
   restart: "Reiniciar Steam",
 }
+// Quando a integração SLSsteam está desativada, o Arcadia manda disable
+// para a barra de ações não aparecer na loja web.
+let uiDisabled = false
 // Estado do jogo atual vindo do host (arcadia:estado).
 let estado = { adicionado: false, ocupado: false }
 
@@ -142,8 +145,12 @@ function montarBotoes(wrap) {
 // (dentro de .apphub_OtherSiteInfo). Se esse container não existir, cai numa
 // barra fixa no topo direito como fallback. Remove fora de página de jogo.
 function sync() {
-  const emJogo = Boolean(appidAtual())
   const existente = document.getElementById(BAR_ID)
+  if (uiDisabled) {
+    if (existente) existente.remove()
+    return
+  }
+  const emJogo = Boolean(appidAtual())
   if (!emJogo) {
     if (existente) existente.remove()
     return
@@ -183,6 +190,12 @@ ipcRenderer.on("arcadia:labels", (_e, novo) => {
   labels = { ...labels, ...(novo || {}) }
   const wrap = document.getElementById(BAR_ID)
   if (wrap) montarBotoes(wrap)
+})
+
+ipcRenderer.on("arcadia:disable", () => {
+  uiDisabled = true
+  const wrap = document.getElementById(BAR_ID)
+  if (wrap) wrap.remove()
 })
 
 ipcRenderer.on("arcadia:estado", (_e, novo) => {
