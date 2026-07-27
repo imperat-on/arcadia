@@ -17,7 +17,12 @@ const CACHE_DIR = path.join(DATA_DIR, "cache")
 const TMP_DIR = path.join(DATA_DIR, "tmp")
 const FIXES_INDEX_CACHE = path.join(CACHE_DIR, "fixes-index.json")
 const RYUU_INDEX_CACHE = path.join(CACHE_DIR, "ryuu-index.json")
-const RYUU_AUTH_FILE = path.join(DATA_DIR, "ryuu_auth.txt")
+const RYUU_AUTH_FILE = path.join(DATA_DIR, "ryuu_auth.json")
+// Formato antigo (texto cru tratado como Authorization: Bearer). O Ryuu não
+// aceita Bearer; só X-Auth-Key ou Cookie: session=. Migração transparente:
+// se o arquivo antigo existir e for texto, o normaliza como key na hora da
+// leitura.
+const RYUU_AUTH_FILE_LEGACY = path.join(DATA_DIR, "ryuu_auth.txt")
 
 const REFRESH_TTL_MS = 6 * 60 * 60 * 1000
 
@@ -238,12 +243,13 @@ async function applyFix({ appid, url, type, installPath }) {
   const isRyuu = typeof url === "string" && url.startsWith(RYUU_BASE)
   let headerFile = ""
   if (isRyuu) {
-    const key = readFile(RYUU_AUTH_FILE)
-    if (!key || !key.trim()) {
-      return { ok: false, errorCode: "authentication", error: "Ryuu authentication is required. Add your auth key first." }
+    const cred = readRyuuAuth()
+    const line = ryuuAuthHeaderLine(cred)
+    if (!line) {
+      return { ok: false, errorCode: "authentication", error: "Ryuu authentication is required. Add your session cookie or X-Auth-Key first." }
     }
     headerFile = tmpHeaders(a)
-    fs.writeFileSync(headerFile, `Authorization: Bearer ${key.trim()}\n`, { mode: 0o600 })
+    fs.writeFileSync(headerFile, line, { mode: 0o600 })
   }
 
   writeState(a, { status: "downloading", bytesRead: 0, totalBytes: 0 })
@@ -325,17 +331,79 @@ function unfix(installPath) {
 }
 
 // ─── Auth Ryuu ──────────────────────────────────────────────────────────────
-function setRyuuAuth(key) {
+// Ryuu aceita session cookie OU X-Auth-Key. NÃO aceita Authorization: Bearer
+// (o Arcadia mandava isso antes e o download falhava com 401 mesmo com key
+// válida). Espelha o luatools-moon (plugin/backend/ryuu_auth.lua).
+function normalizeRyuuAuth(raw) {
+  const input = String(raw || "").trim()
+  if (!input) return null
+  if (/[\r\n]/.test(input) || input.length > 8192) return null
+  // "X-Auth-Key: xxx" ou "Cookie: session=xxx" (formato colado do DevTools).
+  const hdr = input.match(/^([A-Za-z0-9-]+)\s*:\s*(.+)$/)
+  if (hdr) {
+    const name = hdr[1].toLowerCase()
+    const value = hdr[2].trim()
+    if (!value) return null
+    if (name === "x-auth-key") return { kind: "key", value }
+    if (name === "cookie") {
+      const m = value.match(/(?:^|;\s*)session=([^;]+)/)
+      return m ? { kind: "session", value: m[1].trim() } : null
+    }
+    return null
+  }
+  // "session=xxx" solto.
+  const s = input.match(/^session=(.+)$/)
+  if (s) return { kind: "session", value: s[1].trim() }
+  // Valor cru: X-Auth-Key.
+  return { kind: "key", value: input }
+}
+
+function ryuuAuthHeaderLine(cred) {
+  if (!cred || typeof cred !== "object") return null
+  const v = String(cred.value || "").trim()
+  if (!v || /[\r\n]/.test(v)) return null
+  if (cred.kind === "session") return `Cookie: session=${v}\n`
+  if (cred.kind === "key") return `X-Auth-Key: ${v}\n`
+  return null
+}
+
+function readRyuuAuth() {
+  const raw = readFile(RYUU_AUTH_FILE)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (ryuuAuthHeaderLine(parsed)) return parsed
+    } catch { /* cai no legado */ }
+  }
+  // Migração do formato antigo (texto cru salvo como Bearer): trata como
+  // X-Auth-Key. Escreve por cima no formato novo e apaga o legado.
+  const legado = readFile(RYUU_AUTH_FILE_LEGACY)
+  if (legado && legado.trim()) {
+    const cred = { kind: "key", value: legado.trim() }
+    try { writeRyuuAuth(cred); fs.unlinkSync(RYUU_AUTH_FILE_LEGACY) } catch { /* ok */ }
+    return cred
+  }
+  return null
+}
+
+function writeRyuuAuth(cred) {
   ensureDirs()
-  fs.writeFileSync(RYUU_AUTH_FILE, String(key || "").trim(), { mode: 0o600 })
-  return { ok: true }
+  fs.writeFileSync(RYUU_AUTH_FILE, JSON.stringify(cred), { mode: 0o600 })
+}
+
+function setRyuuAuth(key) {
+  const cred = normalizeRyuuAuth(key)
+  if (!cred) return { ok: false, error: "invalid_credential" }
+  writeRyuuAuth(cred)
+  return { ok: true, kind: cred.kind }
 }
 function getRyuuAuthStatus() {
-  const k = readFile(RYUU_AUTH_FILE)
-  return { configured: Boolean(k && k.trim()) }
+  const cred = readRyuuAuth()
+  return { configured: Boolean(cred), kind: cred?.kind || null }
 }
 function clearRyuuAuth() {
   try { fs.unlinkSync(RYUU_AUTH_FILE) } catch { /* ok */ }
+  try { fs.unlinkSync(RYUU_AUTH_FILE_LEGACY) } catch { /* ok */ }
   return { ok: true }
 }
 
