@@ -1642,8 +1642,20 @@ function removeFromSteam(appid) {
   const cfgPath = path.join(home, ".config", "SLSsteam", "config.yaml")
   if (!fs.existsSync(cfgPath)) return { ok: true }
   let y = fs.readFileSync(cfgPath, "utf-8")
-  // Linha "  - <appid>" em AdditionalApps.
-  y = y.replace(new RegExp(`^\\s*-\\s*${id}\\s*(#.*)?$\\n?`, "m"), "")
+  // Linha "  - <appid>" em AdditionalApps (formato bloco YAML).
+  y = y.replace(new RegExp(`^\\s* -\\s*${id}\\s*(#.*)?$\\n?`, "m"), "")
+  // Formato inline: AdditionalApps: [123, 456]
+  y = y.replace(
+    /^(AdditionalApps:\s*\[)([^\]]*)\]/m,
+    (_m, prefix, inner) => {
+      const ids = inner
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((s) => s !== id)
+      return ids.length ? `${prefix}${ids.join(", ")}]` : "AdditionalApps: []"
+    },
+  )
   // Token em AppTokens — SÓ dentro da seção AppTokens (antes o regex apagava
   // também a chave-pai do appid no DlcData, órfãos que crasham a Steam).
   y = removeChaveComFilhos(y, "AppTokens", id)

@@ -361,7 +361,10 @@ def enrich_steam(games: list[dict], sgdb_key: str = "", lang: str = "") -> None:
     def resolver(g: dict):
         """Só rede: devolve (appid, meta_final, mudou). Sem tocar em `cache`
         nem em `g` — a thread principal faz o merge depois."""
-        appid = g["id"].split(":", 1)[1]
+        gid = g.get("id", "")
+        if ":" not in gid:
+            return "", None, False
+        appid = gid.split(":", 1)[1]
         meta = cache.get(appid)
         if not isinstance(meta, dict):
             meta = None
@@ -391,7 +394,11 @@ def enrich_steam(games: list[dict], sgdb_key: str = "", lang: str = "") -> None:
         return appid, meta, mudou
 
     alvos = [g for g in games if g.get("launcher") == "steam"]
-    porAppid = {g["id"].split(":", 1)[1]: g for g in alvos}
+    porAppid = {}
+    for g in alvos:
+        gid = g.get("id", "")
+        if ":" in gid:
+            porAppid[gid.split(":", 1)[1]] = g
     with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
         for appid, meta, mudou in ex.map(resolver, alvos):
             if meta is None:
@@ -628,10 +635,17 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
     # Conquistas: 1 chamada de rede por jogo — o gargalo. Paraleliza os que
     # estão sem cache ou vencidos; o merge roda serial depois.
     alvos = [g for g in games if g.get("launcher") == "steam"]
-    porAppid = {g["id"].split(":", 1)[1]: g for g in alvos}
+    porAppid = {}
+    for g in alvos:
+        gid = g.get("id", "")
+        if ":" in gid:
+            porAppid[gid.split(":", 1)[1]] = g
 
     def buscar(g: dict):
-        appid = g["id"].split(":", 1)[1]
+        gid = g.get("id", "")
+        if ":" not in gid:
+            return "", None, False
+        appid = gid.split(":", 1)[1]
         ent = cache.get(appid)
         if isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL:
             return appid, ent, False
@@ -1116,7 +1130,7 @@ def steam_owned_games(installed_ids: set[str]) -> list[dict]:
             "launcher": "steam",
             "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
             "installed": False,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/header.jpg",
+            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
             "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
             "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
         })
@@ -1328,7 +1342,7 @@ def index_slssteam(existing_appids: set[str],
             "launcher": "steam",
             "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
             "installed": installed,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/header.jpg",
+            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
             "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
             "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
         })

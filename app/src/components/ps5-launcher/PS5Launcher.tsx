@@ -421,6 +421,9 @@ export function PS5Launcher() {
     voltar: () => boolean
     abrirTeclado: () => void
   } | null>(null)
+  const setAtalhosLoja = useCallback((a: typeof atalhosLoja.current) => {
+    atalhosLoja.current = a
+  }, [])
   const extrasLoja = useMemo(
     () => ({
       // A loja usa cursor virtual — não há foco espacial no DOM do host, então
@@ -1095,7 +1098,7 @@ export function PS5Launcher() {
             games={viewGames}
             ativo={storeMode && appFocused && !gameRunning}
             onOverlay={setLojaOverlay}
-            onAtalhos={(a) => (atalhosLoja.current = a)}
+            onAtalhos={setAtalhosLoja}
           />
         </div>
       )}
