@@ -6,8 +6,6 @@ import { CartaoLoja, StoreGamePage, useGameSysinfo, useI18n, useStoreActions, ty
 
 const CATEGORIAS = [
   { id: "top100in2weeks", labelKey: "store.mais_baixados_semana" },
-  { id: "top100forever", labelKey: "store.populares" },
-  { id: "top100owned", labelKey: "store.pra_platinar" },
 ] as const
 
 export function HomeView({ games = [] }: { games?: Game[] }) {
@@ -70,7 +68,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
                   c.id === categoria ? "border-white/80 bg-white text-black" : "border-white/10 bg-white/[0.02] text-white/70 hover:text-white"
                 }`}
               >
-                {c.id === "top100in2weeks" ? "📅 " : c.id === "top100forever" ? "🔥 " : "🏆 "}{t(c.labelKey)}
+                {t(c.labelKey)}
               </button>
             ))}
           </div>
@@ -79,13 +77,12 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
             disabled={!recentes.length}
             className="ui-btn-secondary flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] disabled:opacity-40"
           >
-            ✨ {t("store.surpreenda_me")}
+            {t("store.surpreenda_me")}
           </button>
         </div>
 
         <h2 className="mb-4 text-xl font-semibold text-white">
-          {categoria === "top100in2weeks" ? "📅 " : categoria === "top100forever" ? "🔥 " : "🏆 "}
-          {t(CATEGORIAS.find((c) => c.id === categoria)?.labelKey || "store.populares")}
+          {t(CATEGORIAS.find((c) => c.id === categoria)?.labelKey || "store.mais_baixados_semana")}
         </h2>
 
         <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4 pb-10">

@@ -10,6 +10,7 @@ import {
   ControllerPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
   stripHtml,
 } from "./GameDetailPanels"
+import { FixesPanel } from "./FixesPanel"
 
 interface Sysinfo {
   download_size?: number
@@ -56,6 +57,7 @@ export function GamePage({
   const [aba, setAba] = useState<"dados" | "requisitos">("dados")
   const [sys, setSys] = useState<Sysinfo | null>(null)
   const [sysBusy, setSysBusy] = useState(true)
+  const [installPath, setInstallPath] = useState("")
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
   useEffect(() => {
@@ -65,6 +67,13 @@ export function GamePage({
       setSysBusy(false)
     })
   }, [g.id])
+
+  // Path de instalação (pra FixesPanel saber onde extrair).
+  useEffect(() => {
+    if (!instalado) { setInstallPath(""); return }
+    window.launcherAPI?.storeInstallDir(g).then((r) => setInstallPath(r?.path || ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [g.id, instalado])
 
   const gibBytes = fmtBytes
   const gib = fmtMiB
@@ -107,7 +116,7 @@ export function GamePage({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
-            <h1 className="truncate text-2xl font-light text-white">{g.title}</h1>
+            <h1 className="game-name truncate text-2xl font-light text-white">{g.title}</h1>
             {(g.developer || g.publisher) && (
               <p className="mt-0.5 text-[13px] italic text-white/50">{g.developer || g.publisher}</p>
             )}
@@ -280,6 +289,7 @@ export function GamePage({
               <ControllerPanel support={sys?.controller_support} />
               <LanguagesPanel languages={sys?.languages} />
               <AchievementsPanel appid={steamAppid} />
+              {instalado && <FixesPanel appid={steamAppid} installPath={installPath} />}
               {/* Avaliações + comentários abaixo da descrição. */}
               <ReviewsPanel appid={steamAppid} />
               <CommentsPanel appid={steamAppid} />
