@@ -60,9 +60,19 @@ export function PluginsView() {
                 <div>
                   <div className="mb-1 flex items-center gap-2">
                     <h3 className="text-base font-semibold text-white">{t(p.name)}</h3>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${p.installed ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]" : "bg-white/10 text-white/45"}`}>
-                      {p.installed ? t("plugins.detectado") : t("plugins.nao_detectado")}
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      p.enabled
+                        ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
+                        : "bg-white/10 text-white/45"
+                    }`}>
+                      {p.enabled ? t("plugins.ativo") : t("plugins.desativado")}
                     </span>
+                    {/* Status de detecção só faz sentido p/ plugins com arquivo físico. */}
+                    {temCaminho && !p.installed && (
+                      <span className="rounded-full bg-[#ffb86b]/15 px-2 py-0.5 text-[11px] font-semibold text-[#ffb86b]">
+                        {t("plugins.arquivo_nao_encontrado")}
+                      </span>
+                    )}
                   </div>
                   <p className="max-w-xl text-[13px] leading-relaxed text-white/45">{t(p.descKey)}</p>
                 </div>

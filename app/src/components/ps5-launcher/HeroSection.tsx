@@ -31,7 +31,7 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
               />
             ) : (
               <h1
-                className="text-6xl font-bold text-white leading-[1.05] text-balance mb-5"
+                className="game-name text-6xl font-bold text-white leading-[1.05] text-balance mb-5"
                 style={{ textShadow: "0 2px 16px rgba(0,0,0,0.6)" }}
               >
                 {game.title}

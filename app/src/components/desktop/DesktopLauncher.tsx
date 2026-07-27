@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import type { Profile } from "../../global"
 import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
+import { WindowControls } from "./WindowControls"
 import { LibraryView } from "./LibraryView"
 import { DownloadsView } from "./DownloadsView"
 import { AccessibilityView, aplicarA11y } from "./AccessibilityView"
@@ -123,7 +124,8 @@ export function DesktopLauncher() {
   }, [carregar])
 
   return (
-    <div className="flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
+    <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
+      <WindowControls />
       <Sidebar
         view={view}
         onView={(v) => { setShowProfile(false); setJogoPagina(null); setView(v) }}

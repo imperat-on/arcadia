@@ -199,7 +199,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
             {game.logo ? (
               <img src={game.logo} alt={game.title} className="max-h-16 max-w-[380px] object-contain object-left" draggable={false} />
             ) : (
-              <h1 className="truncate text-4xl font-light tracking-wide">{game.title}</h1>
+              <h1 className="game-name truncate text-4xl font-light tracking-wide">{game.title}</h1>
             )}
             <p className="mt-3 line-clamp-3 max-w-[560px] text-[15px] font-light leading-relaxed text-white/65">
               {game.description || t("gameoverview.sem_descricao")}
