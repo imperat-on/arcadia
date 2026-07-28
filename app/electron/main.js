@@ -484,9 +484,12 @@ async function getProtonDb(appid) {
       total: data.total || data.reportCount || 0,
       url: `https://www.protondb.com/app/${appid}`,
     } : null
+    // Teto de entradas: sem isto o Map só crescia enquanto o app ficasse aberto.
+    if (_protonCache.size > 100) _protonCache.clear()
     _protonCache.set(appid, { at: Date.now(), data: out })
     return out
   } catch {
+    if (_protonCache.size > 100) _protonCache.clear()
     _protonCache.set(appid, { at: Date.now(), data: null })
     return null
   }
@@ -611,6 +614,8 @@ async function getGameStats(appid) {
   } catch {
     out = null
   }
+  // Teto de entradas: cada item carrega até 50 reviews completas.
+  if (_statsCache.size > 30) _statsCache.clear()
   _statsCache.set(appid, { at: Date.now(), data: out })
   return out
 }
@@ -2170,6 +2175,7 @@ app.whenReady().then(() => {
         }
       }
     } catch {}
+    if (_conquistasCache.size > 20) _conquistasCache.clear()
     _conquistasCache.set(appid, { at: Date.now(), data: out })
     return out
   }
@@ -2454,6 +2460,31 @@ app.whenReady().then(() => {
       heroic: heroicConnected(),
     }
   })
+
+  // --- Fontes de download (JSONs estilo Hydra, 100% locais) ----------------
+  const sources = require("./sources")
+  ipcMain.handle("sources:list", () => ({ ok: true, sources: sources.list() }))
+  ipcMain.handle("sources:add", (_e, url) => sources.addSource(url))
+  ipcMain.handle("sources:remove", (_e, id) => sources.removeSource(id))
+  ipcMain.handle("sources:sync", () => sources.syncSources())
+  ipcMain.handle("sources:search", (_e, { query, limit } = {}) =>
+    ({ ok: true, results: sources.search(query, Number(limit) || 40) }))
+  ipcMain.handle("sources:game", (_e, ref) => sources.getGame(ref))
+
+  // --- Torrent (worker Python + libtorrent; ver electron/torrent.js) -------
+  const torrent = require("./torrent")
+  torrent.onProgress((items) => {
+    if (win && !win.isDestroyed()) win.webContents.send("torrent:progress", items)
+  })
+  // Retoma downloads que estavam ativos quando o app fechou.
+  torrent.retomar().catch(() => {})
+  ipcMain.handle("torrent:start", (_e, payload) => torrent.start(payload || {}))
+  ipcMain.handle("torrent:pause", (_e, gameId) => torrent.pause(gameId))
+  ipcMain.handle("torrent:resume", (_e, gameId) => torrent.resume(gameId))
+  ipcMain.handle("torrent:cancel", (_e, gameId) => torrent.cancel(gameId))
+  ipcMain.handle("torrent:files", (_e, { magnet, timeoutMs } = {}) => torrent.files(magnet, timeoutMs))
+  ipcMain.handle("torrent:setLimit", (_e, bytes) => torrent.setLimit(bytes))
+  ipcMain.handle("torrent:list", () => ({ ok: true, downloads: torrent.list() }))
 
   ipcMain.handle("plugins:list", () => ({ ok: true, plugins: plugins.list() }))
   ipcMain.handle("plugins:install", async (_e, id) => {

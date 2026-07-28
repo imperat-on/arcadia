@@ -84,6 +84,24 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   slscheevoStatus: () => ipcRenderer.invoke("slscheevo:status"),
   // "Setup" agora = detectar/ativar o plugin que o usuário já colocou (não baixa).
   slscheevoSetup: () => ipcRenderer.invoke("plugins:install", "slscheevo"),
+  sourcesList: () => ipcRenderer.invoke("sources:list"),
+  sourcesAdd: (url) => ipcRenderer.invoke("sources:add", url),
+  sourcesRemove: (id) => ipcRenderer.invoke("sources:remove", id),
+  sourcesSync: () => ipcRenderer.invoke("sources:sync"),
+  sourcesSearch: (query, limit) => ipcRenderer.invoke("sources:search", { query, limit }),
+  sourcesGame: (ref) => ipcRenderer.invoke("sources:game", ref),
+  torrentStart: (payload) => ipcRenderer.invoke("torrent:start", payload),
+  torrentPause: (gameId) => ipcRenderer.invoke("torrent:pause", gameId),
+  torrentResume: (gameId) => ipcRenderer.invoke("torrent:resume", gameId),
+  torrentCancel: (gameId) => ipcRenderer.invoke("torrent:cancel", gameId),
+  torrentFiles: (magnet, timeoutMs) => ipcRenderer.invoke("torrent:files", { magnet, timeoutMs }),
+  torrentSetLimit: (bytes) => ipcRenderer.invoke("torrent:setLimit", bytes),
+  torrentList: () => ipcRenderer.invoke("torrent:list"),
+  onTorrentProgress: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("torrent:progress", h)
+    return () => ipcRenderer.removeListener("torrent:progress", h)
+  },
   pluginsList: () => ipcRenderer.invoke("plugins:list"),
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),

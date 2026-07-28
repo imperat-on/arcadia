@@ -26,6 +26,20 @@ export type EscolhaDisco = {
   libs: Biblioteca[]
 }
 
+export type OpcaoTorrent = {
+  ref: string
+  magnet: string // nome legado: pode ser magnet ou URL http direta
+  fonte: string
+  tituloFonte: string
+  fileSize: string
+  http?: boolean
+}
+
+export type EscolhaMetodo = {
+  jogo: JogoLoja
+  opcoes: OpcaoTorrent[]
+}
+
 export interface StoreActionsOpts {
   /**
    * Chamado quando nenhum provedor tem manifesto para o jogo.
@@ -40,6 +54,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
   const [removidosLocal, setRemovidosLocal] = useState<Set<string>>(new Set())
   const [escolhendo, setEscolhendo] = useState<EscolhaDisco | null>(null)
+  const [metodo, setMetodo] = useState<EscolhaMetodo | null>(null)
   const [busy, setBusy] = useState("")
   const [toast, setToast] = useState("")
   const [slsAtivo, setSlsAtivo] = useState(false)
@@ -102,9 +117,45 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const semManifestoRef = useRef(opts.onSemManifesto)
   semManifestoRef.current = opts.onSemManifesto
 
+  // Procura o jogo nas fontes JSON (aba Fontes) com magnet disponível.
+  // Casa por título normalizado: o título da fonte é longo ("ELDEN RING:
+  // Deluxe Edition, v1.12 + 9 DLCs...") e o da loja é curto — basta um
+  // conter o outro. Devolve TODAS as opções com magnet: quem escolhe a
+  // fonte é o usuário no diálogo. Sem fonte adicionada, o índice está
+  // vazio e volta null.
+  const acharTorrent = useCallback(async (title: string) => {
+    try {
+      // 50: jogos populares têm MUITAS releases (RDR2 tem 30+ entre as
+      // fontes) — o diálogo lista todas as que têm link baixável.
+      const r = await window.launcherAPI?.sourcesSearch?.(title, 50)
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+      const alvo = norm(title)
+      if (!alvo) return null
+      const cands = (r?.results || []).filter((g) => {
+        const t = norm(g.title)
+        return t.includes(alvo) || (t.length >= 8 && alvo.includes(t))
+      })
+      // Junta TODAS as fontes baixáveis: magnet (torrent) ou URL http direta
+      // (o backend resolve/recusa hoster HTML). O diálogo lista tudo e quem
+      // escolhe é o usuário.
+      const opcoes: OpcaoTorrent[] = []
+      for (const cand of cands) {
+        const full = await window.launcherAPI?.sourcesGame?.(cand.ref)
+        const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
+        const magnet = uris.find((u) => String(u).startsWith("magnet:"))
+        const http = uris.find((u) => /^https?:\/\//.test(String(u)))
+        const uri = magnet || http
+        if (uri) opcoes.push({ ref: cand.ref, magnet: String(uri), fonte: cand.src, tituloFonte: cand.title, fileSize: cand.fileSize, http: !magnet })
+      }
+      return opcoes.length ? opcoes : null
+    } catch {
+      return null
+    }
+  }, [])
+
   // `busy` desabilita os botões, então nunca pode ficar preso: toda saída —
   // inclusive pedido abandonado e exceção — libera no finally.
-  const baixar = useCallback(
+  const baixarDepot = useCallback(
     async (jogo: JogoLoja) => {
       const meu = ++pedido.current
       setBusy(jogo.appid)
@@ -133,6 +184,52 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       }
     },
     [obterInfo],
+  )
+
+  // Entrada pública do botão Baixar: se o jogo existe numa fonte com magnet,
+  // pergunta o método (Depot vs Torrent) antes de seguir. Sem fonte, cai
+  // direto no fluxo Depot de sempre.
+  const baixar = useCallback(
+    async (jogo: JogoLoja) => {
+      const meu = ++pedido.current
+      setBusy(jogo.appid)
+      try {
+        const opcoes = await acharTorrent(jogo.title)
+        if (meu !== pedido.current) return
+        if (opcoes) {
+          setMetodo({ jogo, opcoes })
+          return
+        }
+      } finally {
+        if (meu === pedido.current) setBusy("")
+      }
+      await baixarDepot(jogo)
+    },
+    [acharTorrent, baixarDepot],
+  )
+
+  // Confirma o download via torrent na pasta escolhida (padrão: mesma do
+  // InstallDialog — config.default_install_path ou ~/Games/Arcadia).
+  const confirmarTorrent = useCallback(
+    async (jogo: JogoLoja, magnet: string, savePath: string) => {
+      setMetodo(null)
+      setBusy(jogo.appid)
+      try {
+        const r = await window.launcherAPI?.torrentStart({
+          gameId: jogo.appid,
+          url: magnet,
+          savePath,
+          title: jogo.title,
+          cover: `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`,
+        })
+        setToast(r?.ok ? `"${jogo.title}" entrou nos downloads via torrent.` : r?.error || "Falha ao iniciar o torrent")
+      } catch (e) {
+        setToast(`Falha ao iniciar o torrent: ${e}`)
+      } finally {
+        setBusy("")
+      }
+    },
+    [],
   )
 
   const confirmarBaixar = useCallback(
@@ -253,10 +350,14 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     fixesAtivo,
     escolhendo,
     setEscolhendo,
+    metodo,
+    setMetodo,
     busy,
     toast,
     setToast,
     baixar,
+    baixarDepot,
+    confirmarTorrent,
     confirmarBaixar,
     adicionar,
     remover,

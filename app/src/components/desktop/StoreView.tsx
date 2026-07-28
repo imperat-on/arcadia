@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStoreActions, StoreGamePage, type ItemLoja, CartaoLoja, useI18n } from "./storeShared"
 import { GameSettingsDialog } from "./GameSettingsDialog"
+import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import type { Game } from "../ps5-launcher/types"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
@@ -15,10 +16,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     jaAdicionados,
     escolhendo,
     setEscolhendo,
+    metodo,
+    setMetodo,
     busy: acaoBusy,
     toast,
     setToast,
     baixar,
+    baixarDepot,
+    confirmarTorrent,
     confirmarBaixar,
     adicionar,
     remover,
@@ -278,6 +283,16 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           />
         )
       })()}
+
+      {metodo && (
+        <MetodoDownloadDialog
+          jogo={metodo.jogo}
+          opcoes={metodo.opcoes}
+          onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
+          onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
+          onClose={() => setMetodo(null)}
+        />
+      )}
 
       {escolhendo && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEscolhendo(null)}>
