@@ -6,7 +6,7 @@ import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
-export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "wine" | "config" | "acessibilidade"
+export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "wine" | "config" | "acessibilidade"
 export type ConfigSub = "gerais" | "integracoes" | "metadados"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
@@ -15,6 +15,7 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "lojas", label: "Loja", labelKey: "sidebar.lojas", icon: <IconStore /> },
   { id: "plugins", label: "Componentes", labelKey: "sidebar.plugins", icon: <IconPlugin /> },
   { id: "downloads", label: "Downloads", labelKey: "sidebar.downloads", icon: <IconDownload /> },
+  { id: "fontes", label: "Fontes", labelKey: "sidebar.fontes", icon: <IconFontes /> },
   { id: "wine", label: "Wine Manager", labelKey: "sidebar.wine", icon: <IconWine /> },
   { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
   { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade", icon: <IconA11y /> },
@@ -328,6 +329,16 @@ function IconDownload() {
       <path d="M12 4v9" />
       <path d="m8 10 4 4 4-4" />
       <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+    </svg>
+  )
+}
+
+// Fontes: elo de corrente (link) — catálogos JSON apontados por URL.
+function IconFontes() {
+  return (
+    <svg {...s}>
+      <path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
+      <path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7L12.5 19" />
     </svg>
   )
 }

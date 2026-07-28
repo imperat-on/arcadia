@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import type { DmItem } from "../../global"
 import { DmCard } from "../ps5-launcher/DownloadManager"
+import { TorrentSection } from "./TorrentSection"
 import { useI18n } from "../../i18n/I18nContext"
 
 export function DownloadsView() {
@@ -53,6 +54,8 @@ export function DownloadsView() {
           )}
         </div>
       )}
+
+      <TorrentSection />
     </div>
   )
 }
