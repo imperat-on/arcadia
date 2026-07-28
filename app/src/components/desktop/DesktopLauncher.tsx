@@ -7,6 +7,7 @@ import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
 import { WindowControls } from "./WindowControls"
 import { LibraryView } from "./LibraryView"
 import { DownloadsView } from "./DownloadsView"
+import { SourcesView } from "./SourcesView"
 import { AccessibilityView, aplicarA11y } from "./AccessibilityView"
 import { SettingsView } from "./SettingsView"
 import { WineSection } from "../ps5-launcher/WineManager"
@@ -199,6 +200,7 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "lojas" && <StoreView games={games} />}
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
+            {!jogoPagina && view === "fontes" && <SourcesView />}
             {!jogoPagina && view === "wine" && (
               <div className="h-full overflow-y-auto px-8 py-6">
                 <WineSection />

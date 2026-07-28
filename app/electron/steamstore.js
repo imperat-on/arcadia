@@ -206,6 +206,10 @@ const emVoo = new Map()
 // cada miss). Devolve `{ ok, mudou, entrada }`; quem chama acumula as
 // entradas novas de uma página inteira e grava tudo de uma vez só.
 async function existe(url, timeoutMs = 6000) {
+  // Teto de entradas (mesmo padrão do sugCache/buscaCache): sondar vitrines
+  // inteiras enchia o Map sem limite. O cache em disco (manifest) absorve o
+  // clear sem custo de rede.
+  if (headCache.size > 500) headCache.clear()
   if (headCache.has(url)) return { ok: headCache.get(url), mudou: false }
   const guardado = getManifestCache()[url]
   if (guardado && Date.now() - (guardado.at || 0) < MANIFEST_TTL) {

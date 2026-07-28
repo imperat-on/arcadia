@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { CartaoLoja, StoreGamePage, useGameSysinfo, useI18n, useStoreActions, type ItemLoja } from "./storeShared"
+import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 
 const CATEGORIAS = [
   { id: "top100in2weeks", labelKey: "store.mais_baixados_semana" },
@@ -15,10 +16,14 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
     jaAdicionados,
     escolhendo,
     setEscolhendo,
+    metodo,
+    setMetodo,
     busy: acaoBusy,
     toast,
     setToast,
     baixar,
+    baixarDepot,
+    confirmarTorrent,
     confirmarBaixar,
     adicionar,
   } = useStoreActions(games)
@@ -113,6 +118,16 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
           onAdicionar={() => { adicionar(pagina); setPagina(null) }}
           naBiblioteca={bloqueados.has(pagina.appid)}
           ocupado={acaoBusy !== ""}
+        />
+      )}
+
+      {metodo && (
+        <MetodoDownloadDialog
+          jogo={metodo.jogo}
+          opcoes={metodo.opcoes}
+          onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
+          onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
+          onClose={() => setMetodo(null)}
         />
       )}
 

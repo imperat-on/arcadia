@@ -54,3 +54,9 @@ bin/yt-dlp
 bin/SLScheevo-Linux
 bin/slscheevo.tar.gz
 .claude/
+
+# Fontes de download + torrent (dados/estado do usuário)
+sources.json
+sources/
+torrent_state.json
+bin/gemini-scan
