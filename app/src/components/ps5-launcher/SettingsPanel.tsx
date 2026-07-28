@@ -208,12 +208,35 @@ export function IntegrationsSection({
   const { t } = useI18n()
   const [apiKey, setApiKey] = useState(cfg.steam_api_key ?? "")
   const [steamId, setSteamId] = useState(cfg.steam_id64 ?? "")
+  // Um estado por debrid (todos seguem o mesmo padrão: input + salvar).
+  const [debridTokens, setDebridTokens] = useState({
+    realdebrid: cfg.realdebrid_token ?? "",
+    torbox: cfg.torbox_token ?? "",
+    alldebrid: cfg.alldebrid_token ?? "",
+    premiumize: cfg.premiumize_token ?? "",
+  })
+  const [debridSaved, setDebridSaved] = useState<Record<string, boolean>>({})
+  // Expande só o card clicado (com token salvo, também abre por padrão para
+  // o usuário conferir/editar). Início: todos fechados — visual limpo.
+  const [debridAberto, setDebridAberto] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
   const [legendary, setLegendary] = useState<{ installed: boolean; logged: boolean; user?: string } | null>(null)
   const [legendaryBusy, setLegendaryBusy] = useState(false)
   const [legendaryErr, setLegendaryErr] = useState("")
   const src = cfg.sources ?? {}
   const on = (k: "steam" | "heroic" | "lutris") => src[k] !== false
+
+  // Tokens chegam de forma assíncrona (getConfig resolve DEPOIS do mount):
+  // sem isto o estado inicial ficava "" e um Salvar rápido sobrescrevia o
+  // token com vazio.
+  useEffect(() => {
+    setDebridTokens({
+      realdebrid: cfg.realdebrid_token ?? "",
+      torbox: cfg.torbox_token ?? "",
+      alldebrid: cfg.alldebrid_token ?? "",
+      premiumize: cfg.premiumize_token ?? "",
+    })
+  }, [cfg.realdebrid_token, cfg.torbox_token, cfg.alldebrid_token, cfg.premiumize_token])
 
   useEffect(() => {
     setApiKey(cfg.steam_api_key ?? "")
@@ -266,6 +289,41 @@ export function IntegrationsSection({
           {saved ? t("common.salvo") : t("settings.salvar_sincronizar")}
         </button>
       </IntegrationCard>
+
+      {/* Debrid services: agrupa os 4 num bloco só, cada um começa colapsado
+          (apenas nome + status). Clicar no cabeçalho expande o campo do
+          token. Resolvedores gratuitos continuam com prioridade — o debrid é
+          fallback para os hosters que exigem JS/captcha. */}
+      <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
+        <h3 className="mb-1 text-base font-semibold text-white">{t("settings.debrid.titulo")}</h3>
+        <p className="mb-4 text-xs text-[#8a93a6]">{t("settings.debrid.desc")}</p>
+        <div className="flex flex-col divide-y divide-white/[0.06]">
+          {DEBRIDS.map((d) => (
+            <DebridItem
+              key={d.chave}
+              nome={d.nome}
+              descKey={d.descKey}
+              token={debridTokens[d.chave]}
+              // Estado local é a fonte da verdade: o effect sincroniza com o
+              // cfg ao carregar, e assim Salvar/Desconectar atualiza o badge
+              // na hora (sem esperar reload da aba).
+              conectado={Boolean(debridTokens[d.chave])}
+              salvo={Boolean(debridSaved[d.chave])}
+              aberto={Boolean(debridAberto[d.chave])}
+              onToggle={() => setDebridAberto((s) => ({ ...s, [d.chave]: !s[d.chave] }))}
+              onChange={(v) => setDebridTokens((s) => ({ ...s, [d.chave]: v }))}
+              onSave={async () => {
+                // Campo vazio + Salvar = DESCONECTA (apaga o token). Pedido
+                // explícito do usuário; o botão muda para "Desconectar".
+                await window.launcherAPI?.setConfig({ [d.configKey]: debridTokens[d.chave].trim() })
+                setDebridSaved((s) => ({ ...s, [d.chave]: true }))
+                setTimeout(() => setDebridSaved((s) => ({ ...s, [d.chave]: false })), 1500)
+              }}
+              t={t}
+            />
+          ))}
+        </div>
+      </div>
 
       {/* Epic (via Legendary) */}
       <IntegrationCard
@@ -880,5 +938,83 @@ function IconWine() {
       <path d="M12 15v7" />
       <path d="M5 3h14l-1.5 7.5a5.5 5.5 0 0 1-11 0L5 3z" />
     </svg>
+  )
+}
+
+// Debrids: catálogo estático (nome, descrição i18n, chave da config).
+// Ordem casa com a de tentativa no backend (RD → TorBox → AllDebrid → Premiumize).
+type DebridId = "realdebrid" | "torbox" | "alldebrid" | "premiumize"
+const DEBRIDS: { chave: DebridId; nome: string; descKey: string; configKey: "realdebrid_token" | "torbox_token" | "alldebrid_token" | "premiumize_token" }[] = [
+  { chave: "realdebrid", nome: "Real-Debrid", descKey: "settings.realdebrid.desc", configKey: "realdebrid_token" },
+  { chave: "torbox", nome: "TorBox", descKey: "settings.torbox.desc", configKey: "torbox_token" },
+  { chave: "alldebrid", nome: "AllDebrid", descKey: "settings.alldebrid.desc", configKey: "alldebrid_token" },
+  { chave: "premiumize", nome: "Premiumize", descKey: "settings.premiumize.desc", configKey: "premiumize_token" },
+]
+
+function DebridItem({
+  nome, descKey, token, conectado, salvo, aberto, onToggle, onChange, onSave, t,
+}: {
+  nome: string
+  descKey: string
+  token: string
+  conectado: boolean
+  salvo: boolean
+  aberto: boolean
+  onToggle: () => void
+  onChange: (v: string) => void
+  onSave: () => void
+  t: (k: string, vars?: Record<string, string | number>) => string
+}) {
+  return (
+    <div className="py-3 first:pt-0 last:pb-0">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 py-1 text-left transition-colors hover:text-white"
+      >
+        <span className="flex items-center gap-2">
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            className="text-white/60 transition-transform"
+            style={{ transform: aberto ? "rotate(90deg)" : "none" }}
+          ><polyline points="9 18 15 12 9 6" /></svg>
+          <span className="text-sm font-semibold text-white">{nome}</span>
+          {conectado && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4adf9a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          )}
+        </span>
+        <span className="text-[11px] font-medium" style={{ color: conectado ? "#4adf9a" : "#8a93a6" }}>
+          {conectado ? t("common.conectado") : t("common.nao_conectado")}
+        </span>
+      </button>
+      {aberto && (
+        <div className="mt-3">
+          <p className="mb-3 text-xs text-[#8a93a6]">{t(descKey)}</p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={t("settings.debrid.token_placeholder", { nome })}
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[color:var(--accent)]"
+              style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
+            />
+            <button
+              onClick={onSave}
+              className="shrink-0 rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03]"
+            >
+              {salvo
+                ? t("common.salvo")
+                : !token.trim() && conectado
+                  ? t("settings.desconectar")
+                  : t("settings.salvar")}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

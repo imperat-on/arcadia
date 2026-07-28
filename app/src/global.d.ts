@@ -68,6 +68,12 @@ export interface AppConfig {
   ui_scale?: number
   /** API key do Hubcap (catálogo de manifestos Steam, aba Lojas). */
   hubcap_api_key?: string
+  /** Tokens dos serviços debrid (aba Integrações). Ter QUALQUER um já basta —
+   * a ordem de tentativa é RD → TorBox → AllDebrid → Premiumize. */
+  realdebrid_token?: string
+  torbox_token?: string
+  alldebrid_token?: string
+  premiumize_token?: string
   /** Zoom do modo console (separado do desktop para não conflitarem). */
   console_ui_scale?: number
   card_scale?: number
@@ -176,6 +182,63 @@ export interface RecentAchievement {
 }
 
 /** Item da fila de downloads (Epic via Legendary). */
+/** Fonte de download (JSON estilo Hydra). */
+export interface SourceInfo {
+  id: string
+  url: string
+  name: string
+  count?: number
+  addedAt?: number
+}
+
+/** Jogo do índice leve das fontes (sem uris — essas vêm do sourcesGame). */
+export interface SourceGame {
+  ref: string
+  title: string
+  fileSize: string
+  uploadDate: string
+  src: string
+}
+
+/** Jogo completo de uma fonte (lido do disco sob demanda). */
+export interface SourceGameFull {
+  title: string
+  uris?: string[]
+  uri?: string
+  fileSize?: string
+  uploadDate?: string
+  [k: string]: unknown
+}
+
+/** Arquivo dentro de um torrent (para download seletivo). */
+export interface TorrentFileInfo {
+  index: number
+  path: string
+  length: number
+}
+
+/** Download torrent ativo/concluído (torrent_state.json + status vivo). */
+export interface TorrentItem {
+  gameId: string
+  url: string
+  savePath: string
+  title: string
+  cover?: string
+  engine?: "http" | "debrid" // ausente = torrent (libtorrent)
+  cacheando?: boolean // debrid baixando o torrent pro servidor dele
+  erro?: string
+  pausado?: boolean
+  completo?: boolean
+  progress?: number
+  downloadSpeed?: number
+  uploadSpeed?: number
+  numPeers?: number
+  numSeeds?: number
+  bytesDownloaded?: number
+  fileSize?: number
+  folderName?: string
+}
+
 export interface DmItem {
   appid: string // epic:<app_name>
   appName: string
@@ -553,6 +616,22 @@ declare global {
       onTrailerDlProgress: (
         cb: (data: { id: string; percent: number; stage: string }) => void,
       ) => () => void
+      /** Fontes de download (JSONs estilo Hydra, locais). */
+      sourcesList: () => Promise<{ ok: boolean; sources: SourceInfo[] }>
+      sourcesAdd: (url: string) => Promise<{ ok: boolean; source?: SourceInfo; error?: string }>
+      sourcesRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
+      sourcesSync: () => Promise<{ ok: boolean; results: { id: string; ok: boolean; error?: string }[] }>
+      sourcesSearch: (query: string, limit?: number) => Promise<{ ok: boolean; results: SourceGame[] }>
+      sourcesGame: (ref: string) => Promise<{ ok: boolean; game?: SourceGameFull; source?: string; error?: string }>
+      /** Torrent (worker Python + libtorrent). Ids sempre "tor:...". */
+      torrentStart: (payload: { gameId: string; url: string; savePath?: string; fileIndices?: number[]; title?: string; cover?: string }) => Promise<{ ok: boolean; error?: string }>
+      torrentPause: (gameId: string) => Promise<{ ok: boolean; error?: string }>
+      torrentResume: (gameId: string) => Promise<{ ok: boolean; error?: string }>
+      torrentCancel: (gameId: string) => Promise<{ ok: boolean; error?: string }>
+      torrentFiles: (magnet: string, timeoutMs?: number) => Promise<{ ok: boolean; name?: string; totalSize?: number; files?: TorrentFileInfo[]; error?: string }>
+      torrentSetLimit: (bytes: number) => Promise<{ ok: boolean; error?: string }>
+      torrentList: () => Promise<{ ok: boolean; downloads: TorrentItem[] }>
+      onTorrentProgress: (cb: (items: TorrentItem[]) => void) => () => void
     }
   }
 }
