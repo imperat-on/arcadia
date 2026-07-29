@@ -6,8 +6,8 @@ import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
-export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "wine" | "config" | "acessibilidade"
-export type ConfigSub = "gerais" | "integracoes" | "metadados"
+export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "wine" | "config"
+export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
   { id: "inicio", label: "Início", labelKey: "sidebar.inicio", icon: <IconHome /> },
@@ -18,13 +18,13 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "fontes", label: "Fontes", labelKey: "sidebar.fontes", icon: <IconFontes /> },
   { id: "wine", label: "Wine Manager", labelKey: "sidebar.wine", icon: <IconWine /> },
   { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
-  { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade", icon: <IconA11y /> },
 ]
 
 const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string }[] = [
   { id: "gerais", label: "Config. Gerais", labelKey: "settings.general" },
   { id: "integracoes", label: "Integrações", labelKey: "settings.integracoes" },
   { id: "metadados", label: "Metadados", labelKey: "settings.metadados.titulo" },
+  { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade" },
 ]
 
 export function Sidebar({

@@ -90,7 +90,7 @@ export function AccessibilityView() {
   }
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-6">
+    <div>
       <h1 className="mb-8 text-2xl font-light tracking-wide text-white">{t("accessibility.titulo")}</h1>
 
       <div className="max-w-2xl space-y-8 pb-10">
