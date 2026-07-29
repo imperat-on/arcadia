@@ -51,6 +51,9 @@ export function StoreGamePage({
   const [rolado, setRolado] = useState(false)
   const [installPath, setInstallPath] = useState("")
   const [fixesAberto, setFixesAberto] = useState(false)
+  // Um jogo pode ter torrent numa fonte JSON conectada mesmo sem SLSsteam ativo.
+  // Quando isso for verdade, o botão Baixar aparece com só a opção Torrent.
+  const [temTorrent, setTemTorrent] = useState(false)
   const temDownload = jogo.manifest !== false
 
   useEffect(() => {
@@ -80,6 +83,18 @@ export function StoreGamePage({
     carregar()
     return window.launcherAPI?.onPluginsChanged?.(() => carregar())
   }, [])
+
+  // Consulta as fontes JSON conectadas para saber se este jogo tem torrent.
+  // 1 chamada por página aberta — barato o suficiente pra não valer cache.
+  useEffect(() => {
+    let vivo = true
+    window.launcherAPI?.sourcesSearch?.(jogo.title, 1).then((r) => {
+      if (!vivo) return
+      // sourcesSearch retorna { ok, results: [...] } — não é array direto.
+      setTemTorrent(Boolean(r?.ok && Array.isArray(r.results) && r.results.length > 0))
+    }).catch(() => { if (vivo) setTemTorrent(false) })
+    return () => { vivo = false }
+  }, [jogo.title])
 
   const hero = jogo.heroi || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
   const header = info?.header || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`
@@ -176,7 +191,7 @@ export function StoreGamePage({
                   <GhostBtn onClick={onAdicionar} disabled={ocupado} label={t("store.adicionar_biblioteca")}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                   </GhostBtn>
-                  {slsAtivo && temDownload && (
+                  {(slsAtivo || temTorrent) && temDownload && (
                     <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                     </PrimaryBtn>
@@ -203,7 +218,7 @@ export function StoreGamePage({
                 </>
               ) : (
                 <>
-                  {onBaixar && slsAtivo && (
+                  {onBaixar && (slsAtivo || temTorrent) && (
                     <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                     </PrimaryBtn>
