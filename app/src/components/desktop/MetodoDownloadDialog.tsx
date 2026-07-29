@@ -18,15 +18,19 @@ export function MetodoDownloadDialog({
   onDepot,
   onTorrent,
   onClose,
+  depotDisponivel = true,
 }: {
   jogo: JogoLoja
   opcoes: OpcaoTorrent[]
   onDepot: () => void
   onTorrent: (magnet: string, savePath: string) => void
   onClose: () => void
+  // Quando integração SLSsteam está desligada, só torrent existe — pulamos a
+  // tela de escolha e o botão Depot some.
+  depotDisponivel?: boolean
 }) {
   const { t } = useI18n()
-  const [etapa, setEtapa] = useState<Etapa>("metodo")
+  const [etapa, setEtapa] = useState<Etapa>(depotDisponivel ? "metodo" : "fonte")
   const [escolhida, setEscolhida] = useState<OpcaoTorrent | null>(null)
   const [pasta, setPasta] = useState("")
   const [livre, setLivre] = useState<number | null>(null)
@@ -63,13 +67,15 @@ export function MetodoDownloadDialog({
             <h3 className="mb-1 text-base font-semibold text-white">{t("store.metodo.titulo", { title: jogo.title })}</h3>
             <p className="mb-4 text-[12px] text-white/40">{t("store.metodo.sub")}</p>
             <div className="flex flex-col gap-2">
-              <button
-                onClick={onDepot}
-                className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3.5 text-left transition-colors hover:border-white/25"
-              >
-                <span className="text-[13px] font-medium text-white/90">{t("store.metodo.depot")}</span>
-                <span className="text-[11px] text-white/50">{t("store.metodo.depot_desc")}</span>
-              </button>
+              {depotDisponivel && (
+                <button
+                  onClick={onDepot}
+                  className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3.5 text-left transition-colors hover:border-white/25"
+                >
+                  <span className="text-[13px] font-medium text-white/90">{t("store.metodo.depot")}</span>
+                  <span className="text-[11px] text-white/50">{t("store.metodo.depot_desc")}</span>
+                </button>
+              )}
               <button
                 onClick={() => setEtapa("fonte")}
                 className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3.5 text-left transition-colors hover:border-white/25"
