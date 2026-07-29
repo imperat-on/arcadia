@@ -167,19 +167,14 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     if (!el) return
     const onReady = async () => {
       try {
-        const s = await window.launcherAPI?.storeStatus()
-        const slsAtivo = Boolean(s?.slssteam)
-        if (!slsAtivo) {
-          el.send("arcadia:disable", {})
-        } else {
-          el.send("arcadia:labels", {
-            baixar: t("store.baixar"),
-            adicionar: t("store.adicionar_steam"),
-            remover: t("common.remover"),
-            restart: t("desktop.restart_steam"),
-          })
-        }
-        // Porta o accent do tema do Arcadia para a loja Steam (botões/destaques).
+        // Labels e tema sempre — a disponibilidade da barra por página é
+        // decidida no handler de arcadia:pagina (depot ou torrent via fonte).
+        el.send("arcadia:labels", {
+          baixar: t("store.baixar"),
+          adicionar: t("store.adicionar_steam"),
+          remover: t("common.remover"),
+          restart: t("desktop.restart_steam"),
+        })
         const accent = getComputedStyle(document.documentElement)
           .getPropertyValue("--accent").trim() || "#00a8ff"
         el.send("arcadia:tema", { accent })
@@ -191,6 +186,21 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (e?.channel === "arcadia:pagina") {
         paginaAppidRef.current = String(arg.appid || "")
         enviarEstado(paginaAppidRef.current)
+        // Decide se a barra fica visível: depot (SLSsteam) OU torrent de fonte
+        // JSON conectada. Sem nenhum dos dois, escondemos.
+        ;(async () => {
+          try {
+            const [s, r] = await Promise.all([
+              window.launcherAPI?.storeStatus(),
+              window.launcherAPI?.sourcesSearch?.(String(arg.title || ""), 1),
+            ])
+            const depot = Boolean(s?.slssteam)
+            const torrent = Boolean(r?.ok && Array.isArray(r.results) && r.results.length > 0)
+            el.send(depot || torrent ? "arcadia:enable" : "arcadia:disable", {})
+          } catch {
+            el.send("arcadia:disable", {})
+          }
+        })()
         return
       }
       // A barra de busca da Steam foi clicada → abrimos o teclado virtual.

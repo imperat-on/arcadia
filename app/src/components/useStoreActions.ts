@@ -189,6 +189,10 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   // Entrada pública do botão Baixar: se o jogo existe numa fonte com magnet,
   // pergunta o método (Depot vs Torrent) antes de seguir. Sem fonte, cai
   // direto no fluxo Depot de sempre.
+  // 3 cenários:
+  //   1) só torrent (JSON conectado, SLSsteam OFF)      → abre diálogo, etapa "fonte" direta
+  //   2) só depot  (SLSsteam ON, sem torrent na fonte)  → baixa via depot sem diálogo
+  //   3) ambos                                          → abre diálogo com escolha de método
   const baixar = useCallback(
     async (jogo: JogoLoja) => {
       const meu = ++pedido.current
@@ -197,15 +201,17 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         const opcoes = await acharTorrent(jogo.title)
         if (meu !== pedido.current) return
         if (opcoes) {
+          // caso 1 e 3: diálogo cuida da etapa inicial via depotDisponivel
           setMetodo({ jogo, opcoes })
           return
         }
       } finally {
         if (meu === pedido.current) setBusy("")
       }
-      await baixarDepot(jogo)
+      // caso 2: sem torrent — só faz sentido se depot estiver ativo
+      if (slsAtivo) await baixarDepot(jogo)
     },
-    [acharTorrent, baixarDepot],
+    [acharTorrent, baixarDepot, slsAtivo],
   )
 
   // Confirma o download via torrent na pasta escolhida (padrão: mesma do

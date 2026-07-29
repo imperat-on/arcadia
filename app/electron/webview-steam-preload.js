@@ -198,6 +198,13 @@ ipcRenderer.on("arcadia:disable", () => {
   if (wrap) wrap.remove()
 })
 
+// Reabilita a barra quando algum método de download vira disponível para a
+// página atual (ex.: fonte JSON tem torrent do jogo, mesmo com SLSsteam OFF).
+ipcRenderer.on("arcadia:enable", () => {
+  uiDisabled = false
+  sync()
+})
+
 ipcRenderer.on("arcadia:estado", (_e, novo) => {
   estado = { ...estado, ...(novo || {}) }
   const wrap = document.getElementById(BAR_ID)

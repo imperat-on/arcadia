@@ -27,6 +27,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     confirmarBaixar,
     adicionar,
     remover,
+    slsAtivo,
   } = useStoreActions(games)
 
   const [busca, setBusca] = useState("")
@@ -291,6 +292,7 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
           onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
           onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
           onClose={() => setMetodo(null)}
+          depotDisponivel={slsAtivo}
         />
       )}
 
