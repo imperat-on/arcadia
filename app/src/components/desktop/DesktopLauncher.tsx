@@ -8,7 +8,7 @@ import { WindowControls } from "./WindowControls"
 import { LibraryView } from "./LibraryView"
 import { DownloadsView } from "./DownloadsView"
 import { SourcesView } from "./SourcesView"
-import { AccessibilityView, aplicarA11y } from "./AccessibilityView"
+import { aplicarA11y } from "./AccessibilityView"
 import { SettingsView } from "./SettingsView"
 import { WineSection } from "../ps5-launcher/WineManager"
 import { PlayingBadge } from "./PlayingBadge"
@@ -206,7 +206,6 @@ export function DesktopLauncher() {
                 <WineSection />
               </div>
             )}
-            {!jogoPagina && view === "acessibilidade" && <AccessibilityView />}
             {!jogoPagina && view === "config" && <SettingsView sub={configSub} onSaved={carregar} />}
           </>
         )}
