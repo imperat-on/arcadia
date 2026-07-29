@@ -26,6 +26,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
     confirmarTorrent,
     confirmarBaixar,
     adicionar,
+    slsAtivo,
   } = useStoreActions(games)
   const [categoria, setCategoria] = useState<(typeof CATEGORIAS)[number]["id"]>("top100in2weeks")
   const [recentes, setRecentes] = useState<ItemLoja[]>([])
@@ -128,6 +129,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
           onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
           onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
           onClose={() => setMetodo(null)}
+          depotDisponivel={slsAtivo}
         />
       )}
 
