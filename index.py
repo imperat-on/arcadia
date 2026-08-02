@@ -178,7 +178,7 @@ def _find_asset(folder: Path, names: tuple[str, ...]) -> str:
 def steam_art(appid: str) -> dict:
     folder = STEAM_LIBCACHE / appid
     return {
-        "cover": _find_asset(folder, ("library_600x900.jpg", "library_header.jpg", "header.jpg")),
+        "cover": _find_asset(folder, ("library_600x900.jpg",)),
         "hero": _find_asset(folder, ("library_hero.jpg",)),
         "logo": _find_asset(folder, ("logo.png",)),
     }

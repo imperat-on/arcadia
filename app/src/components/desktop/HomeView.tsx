@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { CartaoLoja, StoreGamePage, useGameSysinfo, useI18n, useStoreActions, type ItemLoja } from "./storeShared"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
+import { EscolhaDownloadDialog } from "../DepotPicker"
 
 const CATEGORIAS = [
   { id: "top100in2weeks", labelKey: "store.mais_baixados_semana" },
@@ -134,21 +135,12 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
       )}
 
       {escolhendo && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEscolhendo(null)}>
-          <div className="w-[440px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-1 text-base font-semibold text-white">{t("store.instalar_em", { title: escolhendo.jogo.title })}</h3>
-            <p className="mb-4 text-[12px] text-white/40">{t("store.escolher_biblioteca")}</p>
-            <div className="flex flex-col gap-2">
-              {escolhendo.libs.map((l, i) => (
-                <button key={l.steamDir} onClick={() => confirmarBaixar(escolhendo.jogo, escolhendo.info, l.steamDir)} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors ${i === 0 ? "border-[color:var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]" : "border-white/10 hover:border-white/25"}`}>
-                  <span className="text-[13px] font-medium text-white/90">{l.steamDir.replace(/^\/home\/[^/]+/, "~")}</span>
-                  <span className="text-[11px] font-semibold text-white/50">{t("store.gb_livres", { free: l.free.toFixed(2) })}</span>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setEscolhendo(null)} className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/50 transition-colors hover:border-white/25 hover:text-white/80">{t("common.cancelar")}</button>
-          </div>
-        </div>
+        <EscolhaDownloadDialog
+          escolhendo={escolhendo}
+          onCancel={() => setEscolhendo(null)}
+          onConfirm={(steamDir, sel) => confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)}
+          titulo={t("store.instalar_em", { title: escolhendo.jogo.title })}
+        />
       )}
 
       {toast && (
@@ -175,3 +167,4 @@ function HomeHero({ jogo, onOpen }: { jogo: ItemLoja; onOpen: () => void }) {
     </button>
   )
 }
+

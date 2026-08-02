@@ -9,11 +9,25 @@ import type { Game } from "./ps5-launcher/types"
 // em finally, cache do manifesto) teria de ser refeita na loja do console.
 // Com o hook, uma correção vale para os dois.
 
+export type DepotInfo = {
+  depotId: string
+  manifestId: string
+  key: string
+  size?: number
+  name?: string
+  os?: string
+  language?: string
+  dlcAppid?: string
+  shared?: boolean
+  optional?: boolean
+}
+
 export type ManifestInfo = {
-  depots: { depotId: string; manifestId: string; key: string }[]
+  depots: DepotInfo[]
   token?: string
   dlcs?: string[]
   fonte?: string
+  installdir?: string
 }
 
 export type JogoLoja = { appid: string; title: string; cover?: string; capa?: string; hero?: string; heroi?: string }
@@ -100,7 +114,10 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const infoCache = useRef(new Map<string, ManifestInfo>())
   const obterInfo = useCallback(async (appid: string) => {
     const guardado = infoCache.current.get(appid)
-    if (guardado) return { ok: true, ...guardado }
+    // Cache velho (versão anterior do backend) pode não ter os/language/dlcAppid.
+    // Nesse caso refaz o fetch para pegar metadata enriquecida.
+    const temMeta = (i?: ManifestInfo) => !!i?.depots?.some((d) => d.os || d.language || d.dlcAppid)
+    if (guardado && temMeta(guardado)) return { ok: true, ...guardado }
     const info = await window.launcherAPI?.storeInstallInfo(appid)
     if (info?.ok && info.depots?.length) infoCache.current.set(appid, info as ManifestInfo)
     return info
@@ -239,16 +256,16 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   )
 
   const confirmarBaixar = useCallback(
-    async (jogo: JogoLoja, info: ManifestInfo, steamDir?: string) => {
+    async (jogo: JogoLoja, info: ManifestInfo, steamDir?: string, depotsEscolhidos?: DepotInfo[]) => {
       setEscolhendo(null)
       setBusy(jogo.appid)
       try {
         const r = await window.launcherAPI?.storeInstall({
           appid: jogo.appid,
           title: jogo.title,
-          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`,
-          installdir: jogo.title.replace(/[^A-Za-z0-9]/g, ""),
-          depots: info.depots,
+          cover: jogo.capa || jogo.cover || `https://steamcdn-a.akamaihd.net/steam/apps/${jogo.appid}/library_600x900.jpg`,
+          installdir: info.installdir || jogo.title.replace(/[^A-Za-z0-9]/g, ""),
+          depots: depotsEscolhidos && depotsEscolhidos.length ? depotsEscolhidos : info.depots,
           token: info.token,
           dlcs: info.dlcs,
           steamDir,
