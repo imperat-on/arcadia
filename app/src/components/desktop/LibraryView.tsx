@@ -330,15 +330,15 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
   const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
   const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
   const [fase, setFase] = useState<"cover" | "portrait" | "header" | "none">(
-    game.cover?.includes("/header.jpg") ? "portrait" : "cover"
+    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"
   )
-  useEffect(() => setFase(game.cover?.includes("/header.jpg") ? "portrait" : "cover"), [game.id, game.cover])
+  useEffect(() => setFase(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"), [game.id, game.cover])
   const src =
     fase === "cover" ? game.cover || portraitUrl
     : fase === "portrait" ? portraitUrl
     : fase === "header" ? headerUrl
     : ""
-  const isLandscape = src.includes("/header.jpg")
+  const isLandscape = /\/(?:library_)?header\.jpg/i.test(src)
   if (!src) return <div className="flex h-full items-center justify-center px-3 text-center text-xs text-white/30">{game.title}</div>
   return (
     <img
