@@ -13,13 +13,6 @@ const LANGS = [
   { id: "es-ES", label: "Español" },
 ]
 
-const FEATURED_OPTS_FN = (t: (k: string) => string) => [
-  { id: "disabled", label: t("featured.disabled") },
-  { id: "recent", label: t("featured.recent") },
-  { id: "favorites", label: t("featured.favorites") },
-  { id: "most-played", label: t("featured.most_played") },
-] as const
-
 export function GeneralSection({ onSaved }: { onSaved: () => void }) {
   const { t, lang, setLang } = useI18n()
   const [cfg, setCfg] = useState<AppConfig>({})
@@ -39,8 +32,6 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
     const r = await window.launcherAPI?.pickFolder()
     if (r?.path) await set(key, r.path as never)
   }
-
-  const FEATURED_OPTS = FEATURED_OPTS_FN(t)
 
   return (
     <div className="max-w-2xl">
@@ -105,13 +96,6 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           value={cfg.steam_path ?? `${home}/.steam/steam`}
           onPick={() => pickFolder("steam_path")}
         />
-        <Path
-          label={t("settings.egs_prefix.label")}
-          desc={t("settings.egs_prefix.desc")}
-          value={cfg.epic_egs_prefix ?? ""}
-          placeholder={t("settings.egs_prefix.placeholder")}
-          onPick={() => pickFolder("epic_egs_prefix")}
-        />
       </Group>
 
       <Group title={t("settings.behavior")}>
@@ -123,41 +107,10 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
         />
         <ProcurarAtualizacao />
         <Toggle
-          label={t("settings.auto_update.label")}
-          desc={t("settings.auto_update.desc")}
-          value={cfg.auto_update_games === true}
-          onChange={(v) => set("auto_update_games", v)}
-        />
-        <Toggle
           label={t("settings.hide_changelog.label")}
           desc={t("settings.hide_changelog.desc")}
           value={cfg.hide_changelog_on_start === true}
           onChange={(v) => set("hide_changelog_on_start", v)}
-        />
-        <Toggle
-          label={t("settings.console_mode.label")}
-          desc={t("settings.console_mode.desc")}
-          value={cfg.start_in_console_mode === true}
-          onChange={(v) => set("start_in_console_mode", v)}
-        />
-        <Toggle
-          label={t("settings.hide_tray.label")}
-          desc={t("settings.hide_tray.desc")}
-          value={cfg.hide_tray_icon === true}
-          onChange={(v) => set("hide_tray_icon", v)}
-        />
-        <Toggle
-          label={t("settings.close_to_tray.label")}
-          desc={t("settings.close_to_tray.desc")}
-          value={cfg.close_to_tray === true}
-          onChange={(v) => set("close_to_tray", v)}
-        />
-        <Toggle
-          label={t("settings.start_minimized.label")}
-          desc={t("settings.start_minimized.desc")}
-          value={cfg.start_minimized === true}
-          disabled
-          onChange={(v) => set("start_minimized", v)}
         />
         <Toggle
           label={t("settings.minimize_on_launch.label")}
@@ -213,21 +166,6 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
       </Group>
 
       <Group title={t("settings.library")}>
-        <Select
-          label={t("settings.featured_column.label")}
-          desc={t("settings.featured_column.desc")}
-          value={cfg.library_featured_column ?? "disabled"}
-          options={FEATURED_OPTS}
-          onChange={(v) => set("library_featured_column", v as AppConfig["library_featured_column"])}
-        />
-        <NumberField
-          label={t("settings.recent_max.label")}
-          desc={t("settings.recent_max.desc")}
-          value={cfg.recent_games_max ?? 5}
-          min={1}
-          max={30}
-          onChange={(v) => set("recent_games_max", v)}
-        />
         <NumberField
           label={t("settings.download_cores.label")}
           desc={t("settings.download_cores.desc")}

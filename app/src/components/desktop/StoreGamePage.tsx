@@ -5,7 +5,7 @@
 // display, chip de meta + ações sticky em vidro logo abaixo. Duas colunas de
 // conteúdo com painéis reagrupados. Preto OLED em toda superfície.
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
@@ -48,6 +48,23 @@ export function StoreGamePage({
   const [slsAtivo, setSlsAtivo] = useState(false)
   const [cheevoAtivo, setCheevoAtivo] = useState(false)
   const [fixesAtivo, setFixesAtivo] = useState(false)
+  const voltarRef = useRef<HTMLButtonElement>(null)
+
+  // ESC fecha. Antes só o botão fechava — sem teclado, quem chegava aqui pelo
+  // duplo-clique do desktop tinha que ir com o mouse até o canto pra sair.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", h)
+    return () => window.removeEventListener("keydown", h)
+  }, [onClose])
+
+  // Ao abrir, foca o botão voltar. Isso dá um ponto inicial para o D-pad do
+  // gamepad (a página vira uma tela navegável por espaço), e ainda faz o
+  // scrollIntoView do useGamepadNav parar no topo, e não no meio dos painéis.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => voltarRef.current?.focus())
+    return () => cancelAnimationFrame(id)
+  }, [jogo.appid])
   const [rolado, setRolado] = useState(false)
   const [installPath, setInstallPath] = useState("")
   const [fixesAberto, setFixesAberto] = useState(false)
@@ -110,14 +127,16 @@ export function StoreGamePage({
 
   return (
     <div
+      data-gamepad-cursor-surface
       className={`${embedded ? "relative h-full" : "fixed inset-0 z-[55]"} flex flex-col bg-black`}
       style={{ animation: "sg-in 0.22s var(--ease-out)" }}
       onScroll={(e) => setRolado((e.target as HTMLDivElement).scrollTop > 40)}
     >
       {/* Voltar — sempre visível, glass */}
       <button
+        ref={voltarRef}
         onClick={onClose}
-        className="absolute left-5 top-5 z-[30] flex h-10 w-10 items-center justify-center rounded-full text-white/90 backdrop-blur-md transition-colors hover:text-white"
+        className="absolute left-5 top-5 z-[30] flex h-10 w-10 items-center justify-center rounded-full text-white/90 backdrop-blur-md transition-colors hover:text-white focus:ring-2 focus:ring-[color:var(--accent)] focus:ring-offset-2 focus:ring-offset-black"
         style={{ background: "rgba(0,0,0,0.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.10)" }}
         title={t("common.voltar")}
       >
@@ -127,6 +146,7 @@ export function StoreGamePage({
       </button>
 
       <div
+        data-gamepad-scroll
         className="min-h-0 flex-1 overflow-y-auto"
         onScroll={(e) => setRolado((e.currentTarget as HTMLDivElement).scrollTop > 40)}
       >

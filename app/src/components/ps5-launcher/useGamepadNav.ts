@@ -158,13 +158,26 @@ function acharTrilho(root: HTMLElement, focado: HTMLElement | null): HTMLElement
  * overlays), mas a loja tem a raiz `overflow-hidden` e rola numa div interna —
  * ali o analógico direito não fazia nada.
  */
-function acharScroller(root: HTMLElement): HTMLElement {
-  const sobra = (el: HTMLElement) => {
-    const oy = getComputedStyle(el).overflowY
-    if (oy !== "auto" && oy !== "scroll") return 0
-    return el.scrollHeight - el.clientHeight
+function sobraVertical(el: HTMLElement): number {
+  const oy = getComputedStyle(el).overflowY
+  if (oy !== "auto" && oy !== "scroll") return 0
+  return el.scrollHeight - el.clientHeight
+}
+
+function scrollerMarcado(root: HTMLElement): HTMLElement | null {
+  const marcados = Array.from(root.querySelectorAll<HTMLElement>("[data-gamepad-scroll]"))
+  for (let i = marcados.length - 1; i >= 0; i--) {
+    const el = marcados[i]
+    const r = el.getBoundingClientRect()
+    if (r.width > 0 && r.height > 0 && sobraVertical(el) > 8) return el
   }
-  if (sobra(root) > 8) return root
+  return null
+}
+
+function acharScroller(root: HTMLElement): HTMLElement {
+  const marcado = scrollerMarcado(root)
+  if (marcado) return marcado
+  if (sobraVertical(root) > 8) return root
 
   // O MAIOR sobrando, não o primeiro que aparece. Detalhe do CSS: quando um
   // eixo deixa de ser `visible`, o outro vira `auto` sozinho — então os
@@ -174,7 +187,7 @@ function acharScroller(root: HTMLElement): HTMLElement {
   let melhor = root
   let maior = 8
   for (const el of root.querySelectorAll<HTMLElement>("*")) {
-    const s = sobra(el)
+    const s = sobraVertical(el)
     if (s > maior) {
       maior = s
       melhor = el
@@ -198,6 +211,8 @@ export function useGamepadNav(
     // não move o foco espacial (que não existe dentro do webview) nem clica em
     // activeElement no A. B, X, Y e o scroll do analógico direito seguem valendo.
     noFocusMove?: boolean
+    // Nesta tela o analógico esquerdo é um cursor; somente o D-pad move foco.
+    dpadOnly?: boolean
   },
 ) {
   useEffect(() => {
@@ -248,10 +263,12 @@ export function useGamepadNav(
       if (gp.buttons[13]?.pressed) y = 1
       else if (gp.buttons[12]?.pressed) y = -1
       if (!rest) rest = Array.from(gp.axes)
-      const ax = (gp.axes[0] ?? 0) - (rest[0] ?? 0)
-      const ay = (gp.axes[1] ?? 0) - (rest[1] ?? 0)
-      if (!x) x = ax > 0.6 ? 1 : ax < -0.6 ? -1 : 0
-      if (!y) y = ay > 0.6 ? 1 : ay < -0.6 ? -1 : 0
+      if (!extras?.dpadOnly) {
+        const ax = (gp.axes[0] ?? 0) - (rest[0] ?? 0)
+        const ay = (gp.axes[1] ?? 0) - (rest[1] ?? 0)
+        if (!x) x = ax > 0.6 ? 1 : ax < -0.6 ? -1 : 0
+        if (!y) y = ay > 0.6 ? 1 : ay < -0.6 ? -1 : 0
+      }
       // D-pad como hat (eixo 9)
       const h = gp.axes[9]
       if ((!x && !y) && typeof h === "number" && h >= -1.05 && h <= 1.05) {
@@ -296,7 +313,15 @@ export function useGamepadNav(
       const list = focaveis(root2, ax, ay)
       if (!list.length) return
       const next = bestInDirection(ax, ay, list, dentro, dx, dy)
-      if (next) next.focus()
+      if (next) {
+        next.focus({ preventScroll: true })
+        // Antes o `.focus()` disparava um scroll instantâneo do navegador para
+        // trazer o alvo à tela. Numa TV, saltos sem transição parecem quebra —
+        // e o ladrilho podia pousar colado à borda. Aqui pedimos scroll suave,
+        // parando na posição mais próxima (nearest): o card focado fica
+        // sempre visível, sem centralizar à força quando já estava na tela.
+        next.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
+      }
     }
 
     const loop = () => {
@@ -360,6 +385,8 @@ export function useGamepadNav(
           // refeita e o analógico vertical ficava morto pela sessão inteira.
           const alvoY = vel(ey)
           if (alvoY || Math.abs(scrollVel) > 0.05) {
+            const marcado = scrollerMarcado(rootRef.current)
+            if (marcado && marcado !== scroller) scroller = marcado
             if (
               !scroller ||
               !document.contains(scroller) ||
@@ -408,8 +435,12 @@ export function useGamepadNav(
 
         // A (0) = ativar; B (1) = voltar
         if (!scrollOnly && !noFocusMove && primed && gp.buttons[0]?.pressed && !prev[0]) {
-          const el = document.activeElement as HTMLElement | null
-          if (el && rootRef.current?.contains(el)) el.click()
+          const confirmar = new Event("arcadia:gamepad-confirm", { cancelable: true })
+          const consumido = !window.dispatchEvent(confirmar)
+          if (!consumido) {
+            const el = document.activeElement as HTMLElement | null
+            if (el && rootRef.current?.contains(el)) el.click()
+          }
         }
         if (!scrollOnly && primed && gp.buttons[1]?.pressed && !prev[1]) onBack?.()
         if (!scrollOnly && primed && gp.buttons[2]?.pressed && !prev[2]) {

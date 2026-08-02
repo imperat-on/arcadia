@@ -498,4 +498,3 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     </div>
   )
 })
-

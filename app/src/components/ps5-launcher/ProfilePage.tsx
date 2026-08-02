@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import type { Profile, ProfileStats, RecentAchievement } from "../../global"
-import { Badge, buildBadges } from "./badges"
 import { useGamepadNav } from "./useGamepadNav"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"

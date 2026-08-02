@@ -4,12 +4,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStoreActions, StoreGamePage, type ItemLoja, CartaoLoja, useI18n } from "./storeShared"
 import { GameSettingsDialog } from "./GameSettingsDialog"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
+import { EscolhaDownloadDialog } from "../DepotPicker"
 import type { Game } from "../ps5-launcher/types"
+import { StoreKeyboard, type SugestaoLoja } from "../ps5-launcher/StoreKeyboard"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
 // Hydra (StoreGamePage) abre ao clicar no card.
+//
+// bigPicture=true: modo Big Picture. Habilita StoreKeyboard (teclado na tela),
+// avisa o host quando abre/fecha overlay (StoreGamePage / dialogs) e expõe
+// atalhos de gamepad (voltar / abrirTeclado) via onAtalhos.
 
-export function StoreView({ games = [] }: { games?: Game[] }) {
+interface StoreAtalhos {
+  voltar: () => boolean
+  abrirTeclado: () => void
+}
+
+export function StoreView({
+  games = [],
+  bigPicture = false,
+  ativo = true,
+  onOverlay,
+  onAtalhos,
+}: {
+  games?: Game[]
+  bigPicture?: boolean
+  ativo?: boolean
+  onOverlay?: (aberto: boolean) => void
+  onAtalhos?: (a: StoreAtalhos) => void
+}) {
   const { t } = useI18n()
   const {
     bloqueados,
@@ -38,7 +61,12 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   const [msg, setMsg] = useState("")
   const [pagina, setPagina] = useState<ItemLoja | null>(null)
   const [configGame, setConfigGame] = useState<Game | null>(null)
+  const [tecladoAberto, setTecladoAberto] = useState(false)
   const esqueletos = useMemo(() => Array.from({ length: 8 }, (_, i) => i), [])
+  const containerLojaRef = useRef<HTMLDivElement>(null)
+  const cursorGamepadRef = useRef<HTMLDivElement>(null)
+  const cursorPosRef = useRef({ x: 0, y: 0 })
+  const cursorVisivelRef = useRef(false)
 
   // Catálogo navegável (sem busca): lista "Em alta" paginada via store:recent.
   const POR_PAGINA = 24
@@ -67,6 +95,128 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   useEffect(() => {
     window.launcherAPI?.storeWarm?.()
   }, [])
+
+  const gamepadSuspenso = Boolean(configGame || metodo || escolhendo || tecladoAberto)
+
+  useEffect(() => {
+    if (!bigPicture || !ativo || gamepadSuspenso) return
+
+    let raf = 0
+    let ultimoFrame = 0
+    let repouso: number[] | null = null
+    const deadzone = 0.18
+    const seletorClicavel = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role='button'], [tabindex]:not([tabindex='-1'])"
+
+    const ocultarCursor = () => {
+      cursorVisivelRef.current = false
+      containerLojaRef.current?.classList.remove("cursor-none")
+      if (cursorGamepadRef.current) cursorGamepadRef.current.style.display = "none"
+    }
+
+    const superficieCursor = () => {
+      const container = containerLojaRef.current
+      if (!container) return null
+      const superficies = Array.from(container.querySelectorAll<HTMLElement>("[data-gamepad-cursor-surface]"))
+      for (let i = superficies.length - 1; i >= 0; i--) {
+        const superficie = superficies[i]
+        const rect = superficie.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) return superficie
+      }
+      return container
+    }
+
+    const alvoNoCursor = () => {
+      const { x, y } = cursorPosRef.current
+      const elemento = document.elementFromPoint(x, y)
+      const alvo = elemento?.closest<HTMLElement>(seletorClicavel) || null
+      return alvo && superficieCursor()?.contains(alvo) ? alvo : null
+    }
+
+    const atualizarCursor = () => {
+      const cursor = cursorGamepadRef.current
+      if (!cursor) return
+      const clicavel = Boolean(alvoNoCursor())
+      cursor.style.width = clicavel ? "28px" : "20px"
+      cursor.style.height = clicavel ? "28px" : "20px"
+      cursor.style.background = clicavel ? "var(--accent)" : "rgba(255, 255, 255, 0.22)"
+      cursor.style.filter = clicavel
+        ? "drop-shadow(0 0 7px var(--accent)) drop-shadow(0 2px 2px rgba(0,0,0,.8))"
+        : "drop-shadow(0 2px 2px rgba(0,0,0,.85))"
+    }
+
+    const confirmarCursor = (evento: Event) => {
+      if (!cursorVisivelRef.current) return
+      evento.preventDefault()
+      const alvo = alvoNoCursor()
+      if (!alvo) return
+      alvo.focus({ preventScroll: true })
+      alvo.click()
+    }
+
+    const normalizarEixo = (valor: number) => {
+      const absoluto = Math.abs(valor)
+      if (absoluto <= deadzone) return 0
+      const normalizado = (absoluto - deadzone) / (1 - deadzone)
+      return Math.sign(valor) * normalizado * normalizado
+    }
+
+    const loop = (agora: number) => {
+      const container = containerLojaRef.current
+      const gamepad = Array.from(navigator.getGamepads?.() || []).find((controle): controle is Gamepad => Boolean(controle))
+      const pausado = !document.hasFocus()
+      const deltaTempo = ultimoFrame ? Math.min(0.05, (agora - ultimoFrame) / 1000) : 1 / 60
+      ultimoFrame = agora
+
+      if (!pausado && container && gamepad) {
+        if (!repouso) repouso = Array.from(gamepad.axes)
+        const cursorX = normalizarEixo((gamepad.axes[0] ?? 0) - (repouso[0] ?? 0))
+        const cursorY = normalizarEixo((gamepad.axes[1] ?? 0) - (repouso[1] ?? 0))
+        if (cursorX || cursorY) {
+          const limite = (superficieCursor() || container).getBoundingClientRect()
+          if (!cursorVisivelRef.current) {
+            cursorPosRef.current = { x: limite.left + limite.width / 2, y: limite.top + limite.height / 2 }
+          }
+          cursorPosRef.current.x = Math.max(limite.left + 10, Math.min(limite.right - 10, cursorPosRef.current.x + cursorX * 1200 * deltaTempo))
+          cursorPosRef.current.y = Math.max(limite.top + 10, Math.min(limite.bottom - 10, cursorPosRef.current.y + cursorY * 1200 * deltaTempo))
+          cursorVisivelRef.current = true
+          container.classList.add("cursor-none")
+          if (cursorGamepadRef.current) {
+            cursorGamepadRef.current.style.display = "block"
+            cursorGamepadRef.current.style.left = `${cursorPosRef.current.x}px`
+            cursorGamepadRef.current.style.top = `${cursorPosRef.current.y}px`
+          }
+          atualizarCursor()
+        } else if (cursorVisivelRef.current) {
+          atualizarCursor()
+        }
+
+        if (gamepad.buttons.slice(12, 16).some((botao) => botao?.pressed)) ocultarCursor()
+      } else if (pausado) {
+        ocultarCursor()
+      }
+
+      raf = requestAnimationFrame(loop)
+    }
+
+    window.addEventListener("mousemove", ocultarCursor)
+    window.addEventListener("arcadia:gamepad-confirm", confirmarCursor)
+    raf = requestAnimationFrame(loop)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener("mousemove", ocultarCursor)
+      window.removeEventListener("arcadia:gamepad-confirm", confirmarCursor)
+      ocultarCursor()
+    }
+  }, [bigPicture, ativo, gamepadSuspenso])
+
+  // Big Picture: avisa o host que um overlay próprio está no ar (página do
+  // jogo, teclado, dialog de config/método/escolha), pra ele suspender o laço
+  // de gamepad do launcher. Sem isso, dois laços disputam o D-pad e o B fecha
+  // a página junto com a loja.
+  useEffect(() => {
+    if (!bigPicture) return
+    onOverlay?.(ativo && gamepadSuspenso)
+  }, [bigPicture, ativo, gamepadSuspenso, onOverlay])
 
   useEffect(() => {
     if (ignorarSug.current) {
@@ -141,6 +291,30 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
     inputRef.current?.focus()
   }, [fecharSugestoes])
 
+  // Big Picture: registra os atalhos que o laço do host consome. `voltar` tem
+  // pilha própria (página aberta → fecha; senão pede pro host sair da loja).
+  // `abrirTeclado` é o Y do controle.
+  useEffect(() => {
+    if (!bigPicture) return
+    onAtalhos?.({
+      voltar: () => {
+        if (tecladoAberto) { setTecladoAberto(false); return true }
+        if (pagina) { setPagina(null); return true }
+        if (configGame) { setConfigGame(null); return true }
+        if (metodo) { setMetodo(null); return true }
+        if (escolhendo) { setEscolhendo(null); return true }
+        if (busca) { limpar(); return true }
+        return false
+      },
+      abrirTeclado: () => setTecladoAberto(true),
+    })
+  }, [bigPicture, onAtalhos, tecladoAberto, pagina, configGame, metodo, escolhendo, busca, limpar, setMetodo, setEscolhendo])
+
+  // Sugestões pro teclado no formato SugestaoLoja (com img/preco quando existirem).
+  const sugestoesKB = useMemo<SugestaoLoja[]>(() => {
+    return sugestoes.map((s) => ({ appid: s.appid, title: s.title }))
+  }, [sugestoes])
+
   const aoTeclar = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown" && sugestoes.length) {
       e.preventDefault()
@@ -169,7 +343,14 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
   }, [games])
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-6">
+    <div ref={containerLojaRef} data-gamepad-scroll className="h-full overflow-y-auto px-8 py-6">
+      {bigPicture && (
+        <div
+          ref={cursorGamepadRef}
+          aria-hidden="true"
+          className="pointer-events-none fixed z-[9999] hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white transition-[width,height,background-color,filter] duration-75"
+        />
+      )}
       <h1 className="ui-title mb-1">{t("store.titulo")}</h1>
       <p className="ui-subtitle mb-6">{t("store.descricao")}</p>
 
@@ -180,6 +361,11 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
             value={busca}
             onChange={(e) => { ignorarSug.current = false; setBusca(e.target.value) }}
             onKeyDown={aoTeclar}
+            onClick={() => {
+              if (!bigPicture) return
+              inputRef.current?.blur()
+              setTecladoAberto(true)
+            }}
             placeholder={t("store.buscar_placeholder")}
             spellCheck={false}
             className="ui-input w-full py-2.5 pl-3.5 pr-9 text-[13px] placeholder:text-white/25"
@@ -297,31 +483,34 @@ export function StoreView({ games = [] }: { games?: Game[] }) {
       )}
 
       {escolhendo && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEscolhendo(null)}>
-          <div className="w-[440px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-1 text-base font-semibold text-white">{t("store.instalar_em", { title: escolhendo.jogo.title })}</h3>
-            <p className="mb-4 text-[12px] text-white/40">{t("store.escolher_biblioteca")}</p>
-            <div className="flex flex-col gap-2">
-              {escolhendo.libs.map((l, i) => (
-                <button
-                  key={l.steamDir}
-                  onClick={() => confirmarBaixar(escolhendo.jogo, escolhendo.info, l.steamDir)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors ${i === 0 ? "border-[color:var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]" : "border-white/10 hover:border-white/25"}`}
-                >
-                  <span className="text-[13px] font-medium text-white/90">{l.steamDir.replace(/^\/home\/[^/]+/, "~")}</span>
-                  <span className="text-[11px] font-semibold text-white/50">{t("store.gb_livres", { free: l.free.toFixed(2) })}</span>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setEscolhendo(null)} className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-semibold text-white/50 transition-colors hover:border-white/25 hover:text-white/80">{t("common.cancelar")}</button>
-          </div>
-        </div>
+        <EscolhaDownloadDialog
+          escolhendo={escolhendo}
+          onCancel={() => setEscolhendo(null)}
+          onConfirm={(steamDir, sel) => confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)}
+          titulo={t("store.instalar_em", { title: escolhendo.jogo.title })}
+        />
       )}
 
       {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
 
       {toast && (
         <div className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>{toast}</div>
+      )}
+
+      {/* Teclado virtual: só no Big Picture. No desktop existe teclado físico. */}
+      {bigPicture && (
+        <StoreKeyboard
+          aberto={tecladoAberto}
+          inicial={busca}
+          sugestoes={sugestoesKB}
+          onTexto={(v) => setBusca(v)}
+          onEscolherSugestao={(appid) => {
+            const s = sugestoes.find((x) => x.appid === appid)
+            if (s) { setTecladoAberto(false); pesquisar(s.title) }
+          }}
+          onConfirmar={(texto) => { setTecladoAberto(false); if (texto) pesquisar(texto) }}
+          onFechar={() => setTecladoAberto(false)}
+        />
       )}
     </div>
   )

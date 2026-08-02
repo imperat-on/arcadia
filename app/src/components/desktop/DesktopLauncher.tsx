@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
-import type { Profile } from "../../global"
+import type { Profile, TorrentItem } from "../../global"
 import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
 import { WindowControls } from "./WindowControls"
 import { LibraryView } from "./LibraryView"
@@ -33,6 +33,7 @@ export function DesktopLauncher() {
   const [configSub, setConfigSub] = useState<ConfigSub>("gerais")
   const [games, setGames] = useState<Game[]>([])
   const [dmAtivos, setDmAtivos] = useState(0)
+  const [torrAtivos, setTorrAtivos] = useState(0)
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
@@ -111,15 +112,22 @@ export function DesktopLauncher() {
     })
     const conta = (items: { status?: string }[]) =>
       items.filter((i) => ["downloading", "queued", "paused"].includes(i.status || "")).length
+    const contaTorr = (items: TorrentItem[]) =>
+      items.filter((i) => !i.completo && !i.erro).length
     window.launcherAPI?.dmQueue().then((q) => {
       if (Array.isArray(q)) setDmAtivos(conta(q))
     })
+    window.launcherAPI?.torrentList().then((r) => {
+      if (Array.isArray(r?.downloads)) setTorrAtivos(contaTorr(r.downloads))
+    })
     const offLib = window.launcherAPI?.onLibraryChanged(() => carregar())
     const offDm = window.launcherAPI?.onDmProgress((q) => setDmAtivos(conta(q)))
+    const offTorr = window.launcherAPI?.onTorrentProgress((items) => setTorrAtivos(contaTorr(items)))
     const offDl = window.launcherAPI?.onStoreDownloaded((d) => setBaixado(d))
     return () => {
       offLib?.()
       offDm?.()
+      offTorr?.()
       offDl?.()
     }
   }, [carregar])
@@ -130,7 +138,7 @@ export function DesktopLauncher() {
       <Sidebar
         view={view}
         onView={(v) => { setShowProfile(false); setJogoPagina(null); setView(v) }}
-        downloadsActive={dmAtivos}
+        downloadsActive={dmAtivos + torrAtivos}
         onQuit={() => window.launcherAPI?.quit()}
         onBigPicture={() => setConfirmBigPicture(true)}
         configSub={configSub}

@@ -1013,6 +1013,8 @@ function capaSteamRuim(appid, cover) {
   if (!s) return true
   if (s.endsWith(`/steam/apps/${appid}/header.jpg`)) return true
   if (s.endsWith(`/steam/apps/${appid}/library_600x900.jpg`)) return true
+  if (s.endsWith(`/library_header.jpg`)) return true
+  if (/librarycache\/\d+\/[^/]+\/library_header\.jpg$/i.test(s)) return true
   return /\/steam\/apps\/\d+\/capsule_\d+x\d+\.jpg(?:\?|$)/.test(s)
 }
 

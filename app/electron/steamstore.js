@@ -962,7 +962,9 @@ async function getManifest(appid) {
       fs.rmSync(outDirFinal, { recursive: true, force: true })
       fs.renameSync(outDir, outDirFinal)
       storeLog(`manifesto ${appid}: ${p.nome} (${r.dados.depots.length} depots, todos com .manifest)`)
-      return { ok: true, appid: String(appid), ...r.dados, outDir: outDirFinal, fonte: p.nome }
+      const ret = { ok: true, appid: String(appid), ...r.dados, outDir: outDirFinal, fonte: p.nome }
+      await enriquecerMetadata(appid, r.dados.depots, ret)
+      return ret
     }
   }
 
@@ -1051,7 +1053,103 @@ async function getManifest(appid) {
   storeLog(
     `manifesto ${appid}: ${fonteStr} (${depotsFinais.length} depots${pulados.length ? `, ${pulados.length} pulado(s)` : ""})`,
   )
-  return { ok: true, appid: String(appid), depots: depotsFinais, token, dlcs, outDir: outDirFinal, fonte: fonteStr }
+  const ret = { ok: true, appid: String(appid), depots: depotsFinais, token, dlcs, outDir: outDirFinal, fonte: fonteStr }
+  await enriquecerMetadata(appid, depotsFinais, ret)
+  return ret
+}
+
+// Muta o array de depots adicionando os/language/dlcAppid/name via api.steamcmd.net.
+// Sem isso o UI não sabe agrupar e a lista de depots vira só IDs numéricos.
+async function enriquecerMetadata(appid, depots, resultado) {
+  try {
+    const info = await fetchAppInfo(appid)
+    if (!info) { storeLog(`meta ${appid}: api.steamcmd.net devolveu vazio`); return }
+    if (resultado && info.installdir) resultado.installdir = info.installdir
+    const meta = info.depotsMeta
+    const gameName = info.name || ""
+    for (const d of depots) {
+      const m = meta[String(d.depotId)]
+      if (!m) continue
+      d.os = m.os || ""
+      d.language = m.language || ""
+      d.dlcAppid = m.dlcAppid || ""
+      d.shared = !!m.shared
+      d.optional = !!m.optional
+      d.name = m.name || gameName || String(d.depotId)
+    }
+    // Cruzar com extended.listofdlc: muitos DLCs (Phantom Liberty, etc) são
+    // appids separados e seus depots aparecem no manifesto do jogo base SEM
+    // dlcappid tag. Buscar appinfo de cada DLC para saber quais depotIds
+    // pertencem a ele + o nome do DLC.
+    for (const dlcId of info.listofdlc || []) {
+      try {
+        const dlc = await fetchAppInfo(dlcId)
+        if (!dlc) continue
+        const dlcName = dlc.name || `DLC ${dlcId}`
+        for (const d of depots) {
+          const dm = dlc.depotsMeta[String(d.depotId)]
+          if (!dm) continue
+          d.dlcAppid = dlcId
+          d.name = dlcName
+          if (!d.os) d.os = dm.os || ""
+          if (!d.language) d.language = dm.language || ""
+        }
+      } catch {}
+    }
+    // Nomes dos DLCs marcados originalmente (via config.dlcappid).
+    const dlcDireto = [...new Set(depots.map((d) => d.dlcAppid).filter((a) => a && !info.listofdlc.includes(a)))]
+    if (dlcDireto.length) {
+      const nomes = await Promise.all(dlcDireto.map((a) => fetchAppName(a).catch(() => "")))
+      const mapa = {}
+      dlcDireto.forEach((a, i) => { if (nomes[i]) mapa[a] = nomes[i] })
+      for (const d of depots) {
+        if (d.dlcAppid && mapa[d.dlcAppid]) d.name = mapa[d.dlcAppid]
+      }
+    }
+    const enriched = depots.filter((d) => d.os || d.language || d.dlcAppid).length
+    storeLog(`meta ${appid}: ${enriched}/${depots.length} depots enriquecidos (${info.listofdlc.length} DLCs)`)
+  } catch (e) { storeLog(`meta ${appid}: ${e.message || e}`) }
+}
+
+// api.steamcmd.net expõe PICS público: common.name, depots[].config.oslist,
+// config.language, dlcappid, sharedinstall, optional.
+async function fetchAppInfo(appid) {
+  const r = await fetchRede(`https://api.steamcmd.net/v1/info/${appid}`, {
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!r.ok) return null
+  const j = await r.json()
+  const app = j?.data?.[String(appid)]
+  if (!app) return null
+  const raw = app.depots
+  const out = {}
+  if (raw && typeof raw === "object") {
+    for (const [id, v] of Object.entries(raw)) {
+      if (!v || typeof v !== "object") continue
+      const cfg = v.config || {}
+      out[id] = {
+        name: v.name || "",
+        os: cfg.oslist || "",
+        language: cfg.language || "",
+        dlcAppid: v.dlcappid || "",
+        shared: !!v.sharedinstall,
+        optional: !!v.optional,
+      }
+    }
+  }
+  const listofdlc = String(app?.extended?.listofdlc || "")
+    .split(",").map((s) => s.trim()).filter(Boolean)
+  const installdir = app?.config?.installdir || ""
+  return { depotsMeta: out, name: app?.common?.name || "", listofdlc, installdir }
+}
+
+async function fetchAppName(appid) {
+  const r = await fetchRede(`https://api.steamcmd.net/v1/info/${appid}`, {
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!r.ok) return ""
+  const j = await r.json()
+  return j?.data?.[String(appid)]?.common?.name || ""
 }
 
 // Lê os .lua extraídos: addappid(id, ..., "depotkey"), setManifestid(depot,
