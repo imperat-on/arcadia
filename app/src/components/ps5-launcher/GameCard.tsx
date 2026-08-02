@@ -27,15 +27,15 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
   const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
   const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
   const [faseCapa, setFaseCapa] = useState<"cover" | "portrait" | "header" | "none">(
-    game.cover?.includes("/header.jpg") ? "portrait" : "cover"
+    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"
   )
-  useEffect(() => setFaseCapa(game.cover?.includes("/header.jpg") ? "portrait" : "cover"), [game.id, game.cover])
+  useEffect(() => setFaseCapa(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"), [game.id, game.cover])
   const coverSrc =
     faseCapa === "cover" ? game.cover || portraitUrl
     : faseCapa === "portrait" ? portraitUrl
     : faseCapa === "header" ? headerUrl
     : ""
-  const isLandscape = coverSrc.includes("/header.jpg")
+  const isLandscape = /\/(?:library_)?header\.jpg/i.test(coverSrc)
 
   const hasCover = Boolean(coverSrc)
   const fallbackGradient =

@@ -172,4 +172,4 @@ function startAchievementWatcher(onUnlock) {
   }
 }
 
-module.exports = { startAchievementWatcher, progressMap }
+module.exports = { startAchievementWatcher }

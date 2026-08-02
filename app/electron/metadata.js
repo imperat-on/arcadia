@@ -587,6 +587,4 @@ module.exports = {
   extFromUrl,
   downloadTo,
   SGDB_ENDPOINT,
-  SGDB_DIMENSIONS,
-  SGDB_DIMENSIONS_PADRAO,
 }

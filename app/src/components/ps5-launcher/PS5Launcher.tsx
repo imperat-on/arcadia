@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Game } from "./types"
 import { HeroSection } from "./HeroSection"
+import { HeroBackground } from "./HeroBackground"
 import { GameRail } from "./GameRail"
 import { NewsView } from "./NewsView"
 import { AchievementToasts } from "./AchievementToasts"
@@ -16,7 +17,7 @@ import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
 import { LibraryGrid } from "./LibraryGrid"
 import { TopBar, TABS } from "./TopBar"
-import { StoreConsole } from "./StoreConsole"
+import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
@@ -89,12 +90,7 @@ const MOCK_GAMES: Game[] = [
 
 const TAB_COUNT = TABS.length
 
-// Detecta fundo em vídeo (live wallpaper). GIF anima sozinho via background-image;
-// vídeo precisa de um <video>. Ignora query string (?w=…) ao olhar a extensão.
-function isVideoBg(url?: string): boolean {
-  if (!url) return false
-  return /\.(webm|mp4|m4v|mov)$/i.test(url.split("?")[0])
-}
+
 
 interface LaunchToast {
   title: string
@@ -410,14 +406,12 @@ export function PS5Launcher() {
   // Notícias: navegação SÓ por scroll (analógico direito). Sem foco espacial —
   // o anel azul de foco no card destaque poluía a tela.
   useGamepadNav(newsRef, newsMode, undefined, true)
-  // A loja navega POR FOCO (as capas são botões), diferente das notícias, que
-  // só rolam. Por isso não usa o modo scrollOnly.
+  // A loja agora é a StoreView nativa (React puro): busca, cards e página do
+  // jogo são todos DOM comum, com foco padrão dos <button>. O useGamepadNav
+  // move o foco espacial como em qualquer outra tela — sem cursor virtual,
+  // sem webview, sem preload injetado. O visual é o mesmo do modo desktop.
   const storeRef = useRef<HTMLDivElement>(null)
-  // X baixa e Y adiciona o jogo em foco, sem abrir a página. O appid vem do
-  // data-appid da capa focada — o mesmo elemento que o hook já move.
   const atalhosLoja = useRef<{
-    baixar: (a: string) => void
-    adicionar: (a: string) => void
     voltar: () => boolean
     abrirTeclado: () => void
   } | null>(null)
@@ -426,18 +420,17 @@ export function PS5Launcher() {
   }, [])
   const extrasLoja = useMemo(
     () => ({
-      // A loja usa cursor virtual — não há foco espacial no DOM do host, então
-      // desligamos o movimento por direcional/D-pad e a ativação por A (que
-      // são feitos pelo cursor + preload). Y vira "abrir o teclado direto":
-      // atalho pra quem não quer levar o cursor até a barra de busca.
-      noFocusMove: true,
+      // Y abre o teclado virtual pra digitar a busca sem depender de teclado
+      // físico. O analógico esquerdo pertence ao cursor da loja; D-pad segue
+      // com a navegação espacial normal e A/Cross confirma o cursor ou o foco.
       onY: () => atalhosLoja.current?.abrirTeclado(),
+      dpadOnly: true,
     }),
     [],
   )
-  // B na loja é da própria loja enquanto houver para onde voltar (categoria ou
-  // busca). Na vitrine ela devolve false e o B sai da loja para a aba Jogos —
-  // antes não saía nada: sem esse fallback, só L1/R1 tiravam você da loja.
+  // B na loja tem pilha própria (StoreView.voltar): fecha página/dialog/teclado
+  // conforme o que estiver aberto. Só na raiz devolve false, e aí o B sai da
+  // loja para a aba Jogos.
   const voltarLoja = useCallback(() => {
     if (atalhosLoja.current?.voltar()) return
     setActiveTab(1)
@@ -840,37 +833,19 @@ export function PS5Launcher() {
           }}
         />
       )}
-      {/* Fundo: tema do jogo em TELA CHEIA (crossfade ao trocar).
-          Vídeo (.webm/.mp4) vira live wallpaper; imagem/GIF via background.
-          Na aba de Notícias o fundo é preto (o NewsView tem visual próprio). */}
-      {newsMode || storeMode ? (
-        <div className="absolute inset-0" style={{ background: "#000000" }} />
-      ) : selectedGame?.hero && isVideoBg(selectedGame.hero) ? (
-        <video
-          key={selectedGame.id}
-          className="absolute inset-0 w-full h-full object-cover animate-bg-fade"
-          src={selectedGame.hero}
-          autoPlay
-          loop
-          muted
-          playsInline
-        />
-      ) : selectedGame?.hero ? (
-        <div
-          key={selectedGame.id}
-          className="absolute inset-0 animate-bg-fade"
-          style={{
-            backgroundImage: `url(${selectedGame.hero})`,
-            backgroundSize: "cover",
-            backgroundPosition: "top center",
-          }}
-        />
-      ) : (
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(135deg, #000000, #161619)" }}
-        />
-      )}
+      {/* Fundo: tema do jogo em TELA CHEIA (crossfade real ao trocar).
+          Antes, `key={selectedGame.id}` remontava o elemento a cada troca:
+          o anterior sumia na hora e o novo entrava do zero (opacity: 0 →
+          animação). Entre um e outro, o preto do container aparecia — a
+          "piscada" clássica.
+          Agora `HeroBackground` mantém DUAS camadas: a atual segue visível
+          enquanto a nova entra em fade por cima; só quando a nova cobre é
+          que a antiga sai. Sem gap preto. */}
+      <HeroBackground
+        preto={newsMode || storeMode}
+        hero={selectedGame?.hero}
+        id={selectedGame?.id}
+      />
 
       {/* Trailer do jogo por cima do fundo (estilo PS5), com fade de entrada.
           Só toca com a janela focada e sem jogo rodando — desmontar o <video>
@@ -1082,21 +1057,23 @@ export function PS5Launcher() {
       </div>
 
       {/* Loja: montada na primeira visita e mantida viva daí em diante, só
-          escondida quando o usuário está em outra aba. Assim a página da Steam
-          carrega UMA vez por sessão em vez de a cada entrada na aba. */}
+          escondida quando o usuário está em outra aba. Agora é a StoreView
+          (mesmo visual do modo desktop), com bigPicture=true habilitando
+          teclado virtual e atalhos de gamepad. */}
       {lojaMontada && (
         <div
-          className="fixed inset-0 z-10 pt-20"
+          ref={storeRef}
+          className="fixed inset-0 z-10 pt-20 overflow-hidden"
           style={{
             visibility: storeMode ? "visible" : "hidden",
             pointerEvents: storeMode ? "auto" : "none",
           }}
           aria-hidden={!storeMode}
         >
-          <StoreConsole
-            ref={storeRef}
+          <StoreView
             games={viewGames}
-            ativo={storeMode && appFocused && !gameRunning}
+            bigPicture
+            ativo={storeMode}
             onOverlay={setLojaOverlay}
             onAtalhos={setAtalhosLoja}
           />

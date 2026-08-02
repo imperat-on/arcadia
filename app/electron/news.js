@@ -1,7 +1,6 @@
 // Notícias de jogos em PT-BR via RSS (sem chave de API). Faz o fetch dos feeds,
 // parseia o XML (regex, no estilo do metadata.js) e normaliza para NewsItem[].
 
-const { semHTML } = require("./metadata")
 const { fetchRede } = require("./httpfetch")
 
 const UA =
