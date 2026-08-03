@@ -69,10 +69,12 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   quit: () => ipcRenderer.invoke("app:quit"),
   enterConsole: () => ipcRenderer.invoke("app:enterConsole"),
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),
+  setFullscreen: (on) => ipcRenderer.invoke("app:setFullscreen", on),
   setZoom: (z) => ipcRenderer.invoke("app:setZoom", z),
   rebuildMeta: () => ipcRenderer.invoke("meta:rebuild"),
   integrationsStatus: () => ipcRenderer.invoke("integrations:status"),
   pickImage: (kind) => ipcRenderer.invoke("profile:pickImage", kind),
+  hltbGet: (titulo) => ipcRenderer.invoke("hltb:get", titulo),
   trailerPath: (id) => ipcRenderer.invoke("trailer:path", id),
   trailerDownload: (id, title) => ipcRenderer.invoke("trailer:download", { id, title }),
   trailerSearch: (query) => ipcRenderer.invoke("trailer:search", { query }),
@@ -124,13 +126,6 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     return () => ipcRenderer.removeListener("dm:progress", h)
   },
   wineList: () => ipcRenderer.invoke("wine:list"),
-  wineInstall: (id, kind) => ipcRenderer.invoke("wine:install", { id, kind }),
-  wineRemove: (id) => ipcRenderer.invoke("wine:remove", id),
-  onWineProgress: (cb) => {
-    const h = (_e, data) => cb(data)
-    ipcRenderer.on("wine:progress", h)
-    return () => ipcRenderer.removeListener("wine:progress", h)
-  },
   prefixTool: (appid, tool, opts) => ipcRenderer.invoke("wine:prefixTool", { appid, tool, ...(opts || {}) }),
   wineRunExe: (appid, opts) => ipcRenderer.invoke("wine:runExe", { appid, ...(opts || {}) }),
   gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", id),
@@ -190,6 +185,16 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("store:downloaded", h)
     return () => ipcRenderer.removeListener("store:downloaded", h)
+  },
+  onLaunchError: (cb) => {
+    const h = (_e, payload) => cb(payload)
+    ipcRenderer.on("game:launchError", h)
+    return () => ipcRenderer.removeListener("game:launchError", h)
+  },
+  onLaunchWarning: (cb) => {
+    const h = (_e, payload) => cb(payload)
+    ipcRenderer.on("game:launchWarning", h)
+    return () => ipcRenderer.removeListener("game:launchWarning", h)
   },
 })
 
