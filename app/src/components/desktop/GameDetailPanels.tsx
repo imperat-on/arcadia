@@ -1,9 +1,8 @@
 "use client"
 
 // Painéis reaproveitados pela página do jogo da LOJA (StoreGamePage) e da
-// BIBLIOTECA (GamePage), no estilo Hydra: galeria (trailer+screenshots),
-// ProtonDB e conquistas. Todos os dados vêm de IPC já existente
-// (gameSysinfo, gameProtonDb, achievementsGet).
+// BIBLIOTECA (GamePage), no estilo Hydra: galeria (trailer+screenshots) e
+// ProtonDB. Todos os dados vêm de IPC já existente (gameSysinfo, gameProtonDb).
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Hls from "hls.js"
@@ -141,7 +140,7 @@ export function ProtonDBPanel({ appid }: { appid: string }) {
 }
 
 // Card colapsável: clica no título oculta/mostra o corpo. Padrão: aberto.
-// `right` = conteúdo extra à direita do título (ex: contador de conquistas).
+// `right` = conteúdo extra à direita do título.
 export function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   const [aberto, setAberto] = useState(true)
   return (
@@ -567,67 +566,3 @@ function escalaTempo(seg: number): [number, Intl.RelativeTimeFormatUnit] {
 // Mantido como stub p/ compatibilidade — CommentsPanel foi fundido em Reviews.
 export function CommentsPanel(_: { appid: string }) { return null }
 
-type Ach = { name: string; title: string; desc: string; icon: string; icongray?: string; achieved: boolean; unlock: number; percent: number | string }
-
-// Painel de conquistas: contador, barra e lista. Aviso "não sincroniza".
-export function AchievementsPanel({ appid }: { appid: string }) {
-  const { t } = useI18n()
-  const [items, setItems] = useState<Ach[] | null>(null)
-  const [todas, setTodas] = useState(false)
-
-  useEffect(() => {
-    let vivo = true
-    setItems(null)
-    window.launcherAPI?.achievementsGet(appid).then((its) => {
-      if (vivo) setItems(Array.isArray(its) ? its : [])
-    })
-    return () => { vivo = false }
-  }, [appid])
-
-  if (!items || items.length === 0) return null
-  const feitas = items.filter((a) => a.achieved).length
-  const pct = Math.round((feitas / items.length) * 100)
-  const ordenadas = [...items].sort((a, b) => {
-    if (a.achieved !== b.achieved) return a.achieved ? -1 : 1
-    if (a.achieved) return (b.unlock || 0) - (a.unlock || 0)
-    return (Number(a.percent) || 999) - (Number(b.percent) || 999)
-  })
-
-  return (
-    <Panel title={t("achievements.titulo")} right={<span className="text-white/35">({feitas}/{items.length})</span>}>
-      <p className="mb-3 flex items-center gap-1.5 text-[11px] text-[#e6b800]">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        {t("achievements.nao_sincroniza")}
-      </p>
-      <div className="flex flex-col gap-4">
-        {ordenadas.slice(0, todas ? ordenadas.length : 4).map((a) => (
-          <div key={a.name} className="flex items-center gap-4">
-            <img
-              src={a.achieved ? a.icon : a.icongray || a.icon}
-              alt=""
-              className={`h-14 w-14 shrink-0 rounded-md object-cover ${a.achieved ? "" : "grayscale opacity-80"}`}
-              draggable={false}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-white/90">{a.title}</div>
-              {a.desc && <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-white/40">{a.desc}</div>}
-            </div>
-            {Number(a.percent) > 0 && (
-              <span className="shrink-0 text-[11px] font-medium text-white/35">{Number(a.percent).toFixed(1).replace(".", ",")}%</span>
-            )}
-          </div>
-        ))}
-      </div>
-      {items.length > 4 && (
-        <button
-          onClick={() => setTodas((v) => !v)}
-          className="mt-4 text-[12px] text-white/60 transition-colors hover:text-white"
-        >
-          {t(todas ? "gamepage.mostrar_menos" : "achievements.ver_todas")}
-        </button>
-      )}
-    </Panel>
-  )
-}

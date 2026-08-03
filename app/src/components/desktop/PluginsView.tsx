@@ -6,10 +6,9 @@ import { useI18n } from "../../i18n/I18nContext"
 type Plugin = { id: string; name: string; descKey: string; installed: boolean; enabled: boolean }
 
 // Chave no config.json onde fica o caminho manual de cada plugin (quando o
-// usuário colocou o arquivo fora do caminho padrão). Só slssteam/slscheevo.
+// usuário colocou o arquivo fora do caminho padrão). Só slssteam.
 const CAMINHO_KEY: Record<string, string> = {
   slssteam: "slssteam_path",
-  slscheevo: "slscheevo_path",
 }
 
 export function PluginsView() {
@@ -23,7 +22,7 @@ export function PluginsView() {
   useEffect(() => {
     carregar()
     window.launcherAPI?.getConfig().then((c) => {
-      setCaminhos({ slssteam: c?.slssteam_path || "", slscheevo: c?.slscheevo_path || "" })
+      setCaminhos({ slssteam: c?.slssteam_path || "" })
     })
   }, [])
 

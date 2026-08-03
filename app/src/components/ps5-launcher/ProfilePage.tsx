@@ -2,29 +2,10 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
-import type { Profile, ProfileStats, RecentAchievement } from "../../global"
+import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
-import { buildBadges, Badge } from "./badges"
-
-// XP estilo Steam: cada conquista vale 10, rara (≤10%) +15, jogo 100% vale 100
-// e cada hora jogada vale 2.
-function calcularXP(s: ProfileStats): number {
-  return s.ach_done * 10 + s.ach_raras * 15 + s.jogos_100 * 100 + s.playtime_hours * 2
-}
-
-// Curva da Steam: a cada 10 níveis o custo por nível sobe (100, 200, 300…).
-function nivelDoXP(xp: number): { nivel: number; noNivel: number; custo: number } {
-  let nivel = 0
-  let resto = xp
-  while (true) {
-    const custo = (Math.floor(nivel / 10) + 1) * 100
-    if (resto < custo) return { nivel, noNivel: resto, custo }
-    resto -= custo
-    nivel++
-  }
-}
 
 interface ProfilePageProps {
   open: boolean
@@ -49,15 +30,11 @@ export function ProfilePage({
   useGamepadNav(rootRef, open && navActive, onClose)
   const { t } = useI18n()
 
-  // Estatísticas reais (conquistas/playtime) para nível e insígnias.
+  // Estatísticas reais (jogos/playtime).
   const [stats, setStats] = useState<ProfileStats | null>(null)
-  const [feed, setFeed] = useState<RecentAchievement[]>([])
   useEffect(() => {
     if (!open) return
     window.launcherAPI?.profileStats().then(setStats)
-    window.launcherAPI?.achievementsRecent().then((r) => {
-      if (Array.isArray(r)) setFeed(r.slice(0, 8))
-    })
     if (embedded) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
@@ -68,23 +45,15 @@ export function ProfilePage({
 
   const isOwner = profile.owner !== false
   const name = profile.name || t("profile.jogador")
-  const xp = stats ? calcularXP(stats) : games.length * 25
-  const { nivel, noNivel, custo } = nivelDoXP(xp)
-  // Só entram no perfil as insígnias realmente conquistadas. Antes exibíamos
-  // todas (as bloqueadas em cinza) MAIS uma lista fixa que era dada de graça
-  // pelo simples fato de ser o dono — o perfil ficava cheio de insígnias que
-  // ninguém tinha ganhado. Insígnia só aparece quando a condição é cumprida.
-  const badgesDin = stats ? buildBadges(stats, t) : []
-  const total = badgesDin.length
-  const conquistadas = badgesDin.filter((b) => b.unlocked)
-  // Vitrine: usa os destaques escolhidos; senão, os primeiros com capa.
-  const showcase =
-    profile.showcase && profile.showcase.length
-      ? profile.showcase
-          .map((id) => games.find((g) => g.id === id))
-          .filter((g): g is Game => Boolean(g && g.cover))
-      : games.filter((g) => g.cover).slice(0, 8)
-  const recent = games.slice(0, 3)
+  // Atividade recente estilo Steam: só jogos já abertos, mais recentes primeiro.
+  const jogados = games
+    .filter((g) => g.last_played)
+    .sort((a, b) => (b.last_played || 0) - (a.last_played || 0))
+    .slice(0, 10)
+  const duasSemanas = Date.now() - 14 * 24 * 60 * 60 * 1000
+  const horasRecentes = Math.round(
+    jogados.filter((g) => (g.last_played || 0) >= duasSemanas).reduce((s, g) => s + (g.playtime_minutes || 0), 0) / 60
+  )
   const launchers = Array.from(new Set(games.map((g) => g.launcher)))
 
   return (
@@ -172,76 +141,64 @@ export function ProfilePage({
 
         <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-6 px-8 py-7">
           <main className="min-w-0">
-            <div className="mb-5 flex items-center gap-3">
-              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">{t("library.todas")}</span>
-              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">{t("profile.estatisticas.horas_display", { h: String(stats?.playtime_hours || 0) })}</span>
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h2 className="text-2xl font-bold text-white">{t("profile.atividade_recente")}</h2>
+              {horasRecentes > 0 && (
+                <span className="text-sm text-white/55">{t("profile.horas_2semanas", { h: String(horasRecentes) })}</span>
+              )}
             </div>
-            <h2 className="mb-4 text-2xl font-bold text-white">
-              {t("sidebar.biblioteca")} <span className="ml-2 rounded-md bg-white/10 px-2 py-1 text-xs text-white/70">{games.length}</span>
-            </h2>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
-              {games.filter((g) => g.cover).map((g) => {
-                const horas = Math.round((g.playtime_minutes || 0) / 60)
-                return (
-                  <div key={g.id} className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
-                    <div className="aspect-[2/3] overflow-hidden">
-                      <img src={g.cover} alt={g.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
-                    </div>
-                    {horas > 0 && (
-                      <div className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-[11px] text-white/85 backdrop-blur">
-                        {t("profile.estatisticas.horas_display", { h: String(horas) })}
+            {jogados.length === 0 ? (
+              <p className="text-sm text-[#8a93a6]">{t("profile.nenhum_jogado")}</p>
+            ) : (
+              <div className="space-y-3">
+                {jogados.map((g) => {
+                  const horas = Math.round((g.playtime_minutes || 0) / 60)
+                  const capsula = g.hero || g.cover
+                  const data = g.last_played
+                    ? new Date(g.last_played).toLocaleDateString(userLocale(), { day: "2-digit", month: "2-digit" })
+                    : ""
+                  return (
+                    <div key={g.id} className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
+                      <div className="flex items-center gap-4 p-3">
+                        <GameCapsule src={capsula} title={g.title} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-white">{g.title}</div>
+                        </div>
+                        <div className="flex-none text-right">
+                          <div className="text-xs text-white/70">{t("profile.horas_registradas", { h: String(horas) })}</div>
+                          <div className="mt-1 text-[11px] text-white/40">{t("profile.ultima_vez", { data })}</div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </main>
 
           <aside className="space-y-4">
             <ProfileCard title={t("profile.estatisticas")}>
               <StatRow label={t("profile.estatisticas.jogos")} value={String(games.length)} />
-              <StatRow label={t("profile.estatisticas.conquistas")} value={stats ? `${stats.ach_done} / ${stats.ach_total}` : t("profile.estatisticas.fallback")} />
-              <StatRow label={t("profile.estatisticas.raras")} value={stats ? String(stats.ach_raras) : t("profile.estatisticas.fallback")} />
-              <StatRow label={t("profile.estatisticas.completos")} value={stats ? String(stats.jogos_100) : t("profile.estatisticas.fallback")} />
               <StatRow label={t("profile.estatisticas.horas")} value={stats ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) }) : t("profile.estatisticas.fallback")} />
-            </ProfileCard>
-
-            <ProfileCard title={t("profile.insignias", { count: String(conquistadas.length), total: String(total) })}>
-              {conquistadas.length === 0 ? (
-                <p className="text-xs text-[#8a93a6]">{t("profile.sem_insignias")}</p>
-              ) : (
-                <div className="space-y-2">
-                  {conquistadas.slice(0, 4).map((b) => (
-                    <div key={b.def.id} className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-3">
-                      <Badge badge={b.def} size={36} />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">{b.def.name}</div>
-                        <div className="truncate text-xs text-white/45">{b.def.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ProfileCard>
-
-            <ProfileCard title={t("profile.atividade_recente")}>
-              <div className="space-y-3">
-                {(feed.length ? feed : recent.map((g) => ({ appid: g.id, title: g.title, game: g.title, icon: g.icon || g.cover || "", unlock: 0, percent: 0 }))).slice(0, 6).map((a) => (
-                  <div key={`${a.appid}-${a.title}`} className="flex items-center gap-3">
-                    {a.icon && <img src={a.icon} alt="" className="h-9 w-9 rounded-lg object-cover ring-1 ring-white/10" loading="lazy" />}
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-white">{a.game}</div>
-                      <div className="truncate text-xs text-white/45">{a.title}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </ProfileCard>
           </aside>
         </div>
       </div>
     </div>
+  )
+}
+
+function GameCapsule({ src, title }: { src: string; title: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!src || broken) {
+    return (
+      <div className="flex h-[69px] w-[184px] flex-none items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-2xl font-bold text-white/50 ring-1 ring-white/10">
+        {title[0]?.toUpperCase()}
+      </div>
+    )
+  }
+  return (
+    <img src={src} alt={title} className="h-[69px] w-[184px] flex-none rounded-lg object-cover ring-1 ring-white/10" loading="lazy" onError={() => setBroken(true)} />
   )
 }
 
