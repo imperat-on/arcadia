@@ -6,6 +6,7 @@ import type { Profile, ProfileStats, RecentAchievement } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
+import { buildBadges, Badge } from "./badges"
 
 // XP estilo Steam: cada conquista vale 10, rara (≤10%) +15, jogo 100% vale 100
 // e cada hora jogada vale 2.
@@ -179,16 +180,21 @@ export function ProfilePage({
               {t("sidebar.biblioteca")} <span className="ml-2 rounded-md bg-white/10 px-2 py-1 text-xs text-white/70">{games.length}</span>
             </h2>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
-              {games.filter((g) => g.cover).map((g) => (
-                <div key={g.id} className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
-                  <div className="aspect-[2/3] overflow-hidden">
-                    <img src={g.cover} alt={g.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
+              {games.filter((g) => g.cover).map((g) => {
+                const horas = Math.round((g.playtime_minutes || 0) / 60)
+                return (
+                  <div key={g.id} className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
+                    <div className="aspect-[2/3] overflow-hidden">
+                      <img src={g.cover} alt={g.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
+                    </div>
+                    {horas > 0 && (
+                      <div className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-[11px] text-white/85 backdrop-blur">
+                        {t("profile.estatisticas.horas_display", { h: String(horas) })}
+                      </div>
+                    )}
                   </div>
-                  <div className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-[11px] text-white/85 backdrop-blur">
-                    {t("profile.estatisticas.horas_display", { h: String(Math.max(1, Math.round((g.playtime_minutes || 0) / 60))) })}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </main>
 
