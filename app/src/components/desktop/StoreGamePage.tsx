@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
-  GameMediaGallery, GameDescription, ProtonDBPanel, AchievementsPanel,
+  GameMediaGallery, GameDescription, ProtonDBPanel,
   ControllerPanel, RequirementsPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
 } from "./GameDetailPanels"
 import { FixesPanel } from "./FixesPanel"
@@ -46,7 +46,6 @@ export function StoreGamePage({
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
   const [slsAtivo, setSlsAtivo] = useState(false)
-  const [cheevoAtivo, setCheevoAtivo] = useState(false)
   const [fixesAtivo, setFixesAtivo] = useState(false)
   const voltarRef = useRef<HTMLButtonElement>(null)
 
@@ -94,7 +93,6 @@ export function StoreGamePage({
     const carregar = () =>
       window.launcherAPI?.storeStatus?.().then((s) => {
         setSlsAtivo(Boolean(s?.slssteam))
-        setCheevoAtivo(Boolean(s?.slscheevo))
         setFixesAtivo(Boolean(s?.luatools))
       })
     carregar()
@@ -263,7 +261,6 @@ export function StoreGamePage({
           <div className="flex flex-col gap-4">
             <ProtonDBPanel appid={jogo.appid} />
             <StatsPanel appid={jogo.appid} />
-            {cheevoAtivo && <AchievementsPanel appid={jogo.appid} />}
             <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
             <LanguagesPanel languages={info?.languages} />
             <ControllerPanel support={info?.controller_support} />

@@ -6,7 +6,6 @@ import { HeroSection } from "./HeroSection"
 import { HeroBackground } from "./HeroBackground"
 import { GameRail } from "./GameRail"
 import { NewsView } from "./NewsView"
-import { AchievementToasts } from "./AchievementToasts"
 import { BootScreen } from "./BootScreen"
 import ProfileSelect from "./ProfileSelect"
 import { DownloadManager } from "./DownloadManager"
@@ -815,9 +814,6 @@ export function PS5Launcher() {
       className={`relative flex flex-col min-h-screen select-none overflow-hidden ${posLogin ? "pos-login home-reveal" : ""}`}
       style={{ background: "#000000" }}
     >
-      {/* Toasts de conquista (estilo PS5), por cima de tudo */}
-      <AchievementToasts />
-
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
         <BootScreen

@@ -589,9 +589,6 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
   const [trailerAuto, setTrailerAuto] = useState(true)
   const [cookies, setCookies] = useState("")
   const [dlAll, setDlAll] = useState<{ done: number; total: number; title: string } | null>(null)
-  const [scheevo, setScheevo] = useState<{ installed: boolean; schemas: number } | null>(null)
-  const [scheevoBusy, setScheevoBusy] = useState(false)
-  const [scheevoErr, setScheevoErr] = useState("")
 
   // As chaves vivem no config.json; aqui só editamos.
   useEffect(() => {
@@ -600,7 +597,6 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       setTrailerAuto(c?.trailer_auto !== false)
       setCookies(c?.youtube_cookies ?? "")
     })
-    window.launcherAPI?.slscheevoStatus().then(setScheevo)
   }, [])
 
   // Progresso do "baixar todos os trailers".
@@ -651,60 +647,6 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       <p className="text-sm text-[#8a93a6] mb-8">
         {t("settings.metadados.desc")}
       </p>
-
-      {/* SLScheevo: conquistas funcionais nos jogos injetados via SLSsteam */}
-      <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#3ddc84" }} />
-            <h3 className="text-base font-semibold text-white">{t("settings.metadados.conquistas_injetadas")}</h3>
-          </div>
-          <span
-            className="rounded-full px-2.5 py-1 text-xs font-semibold"
-            style={{
-              color: scheevo && scheevo.schemas > 0 ? "#4adf9a" : "#8a93a6",
-              background: scheevo && scheevo.schemas > 0 ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
-            }}
-          >
-            {scheevo == null
-              ? t("settings.metadados.verificando")
-              : scheevo.schemas > 0
-                ? t("settings.metadados.ativo", { schemas: String(scheevo.schemas) })
-                : scheevo.installed
-                  ? t("settings.metadados.instalado_rodar")
-                  : t("settings.metadados.nao_configurado")}
-          </span>
-        </div>
-        <p className="mb-3 text-xs text-[#8a93a6]">
-          {t("settings.metadados.slscheevo_desc")}
-        </p>
-        <button
-          onClick={async () => {
-            setScheevoBusy(true)
-            setScheevoErr("")
-            const r = await window.launcherAPI?.slscheevoSetup()
-            setScheevoBusy(false)
-            if (r?.ok) {
-              onSaved() // reindexa já aplicando os schemas existentes
-              window.launcherAPI?.slscheevoStatus().then(setScheevo)
-            } else {
-              setScheevoErr(r?.error || t("common.falha_desconhecida"))
-            }
-          }}
-          disabled={scheevoBusy}
-          className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
-        >
-          {scheevoBusy
-            ? t("common.preparando")
-            : scheevo?.installed
-              ? t("settings.metadados.abrir_slscheevo")
-              : t("plugins.verificar")}
-        </button>
-        {scheevoErr && <p className="mt-2 text-xs text-[#ff6b81]">{scheevoErr}</p>}
-        <p className="mt-2 text-[11px] text-[#6b7280]">
-          {t("settings.metadados.slscheevo_hint")}
-        </p>
-      </div>
 
       {/* Chave do SteamGridDB: libera a busca de arte em "Editar metadados" */}
       <div

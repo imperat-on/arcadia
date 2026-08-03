@@ -72,7 +72,6 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   const [busy, setBusy] = useState("")
   const [toast, setToast] = useState("")
   const [slsAtivo, setSlsAtivo] = useState(false)
-  const [cheevoAtivo, setCheevoAtivo] = useState(false)
   const [fixesAtivo, setFixesAtivo] = useState(false)
 
   // O toast some sozinho; sem isso ele ficaria na tela até a próxima ação.
@@ -90,7 +89,6 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       window.launcherAPI?.storeStatus().then((s) => {
         setJaAdicionados(new Set(s?.adicionados || []))
         setSlsAtivo(Boolean(s?.slssteam))
-        setCheevoAtivo(Boolean(s?.slscheevo))
         setFixesAtivo(Boolean(s?.luatools))
       })
     status()
@@ -369,7 +367,6 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     bloqueados,
     jaAdicionados,
     slsAtivo,
-    cheevoAtivo,
     fixesAtivo,
     escolhendo,
     setEscolhendo,
