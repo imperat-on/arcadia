@@ -51,8 +51,6 @@ export interface Game {
   developer?: string
   publisher?: string
   metacritic?: number // 0–100
-  achievements_total?: number
-  achievements_done?: number // conquistas desbloqueadas pelo jogador
   playtime_minutes?: number // tempo de jogo na Steam
   players?: string // "1 jogador · co-op · multiplayer"
   size?: number // tamanho do download em MiB (jogos Epic)

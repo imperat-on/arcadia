@@ -47,8 +47,6 @@ STEAM_ROOT = HOME / ".local/share/Steam"
 STEAM_LIBCACHE = STEAM_ROOT / "appcache/librarycache"
 STEAM_USERDATA = STEAM_ROOT / "userdata"
 STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
-# Ícones de conquista (público, sem chave): <appid>/<hash-do-schema>.jpg
-STEAM_IMG = "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps"
 
 # Config opcional: ~/.local/share/arcadia/config.json
 #   { "steam_api_key": "SUA_CHAVE", "steam_id64": "opcional" }
@@ -345,7 +343,6 @@ def fetch_appdetails(appid: str, lang: str = "") -> dict | None:
             "developer": ", ".join(info.get("developers", [])[:2]),
             "publisher": ", ".join(info.get("publishers", [])[:2]),
             "metacritic": mc if isinstance(mc, (int, float)) and mc > 0 else 0,
-            "achievements_total": (info.get("achievements") or {}).get("total", 0) or 0,
             "players": " · ".join(modos),
         }
     except Exception:
@@ -569,41 +566,13 @@ def index_psn(npsso: str) -> list[dict]:
 
 
 PLAYER_CACHE = OUT_DIR / "player_cache.json"
-ACHIEVEMENTS_FILE = OUT_DIR / "achievements.json"
-PLAYER_TTL = 24 * 3600  # conquistas/tempo revalidam 1x por dia
-
-
-def player_achievements(api_key: str, sid: str, appid: str, lang: str = "") -> int | None:
-    """Nº de conquistas DESBLOQUEADAS pelo jogador (GetPlayerAchievements)."""
-    api_lang = lang or _get_steam_lang()
-    import urllib.parse
-    url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?" + \
-        urllib.parse.urlencode({
-            "key": api_key, "steamid": sid, "appid": appid,
-            "l": api_lang, "format": "json",
-        })
-    try:
-        with urllib.request.urlopen(url, timeout=15) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        ps = data.get("playerstats", {})
-        if not ps.get("success"):
-            return 0  # jogo sem stats/conquistas
-        return sum(1 for a in ps.get("achievements", []) if a.get("achieved"))
-    except urllib.error.HTTPError:
-        # 403/400: sem acesso às conquistas (perfil privado ou jogo injetado
-        # via SLSsteam que a conta não possui oficialmente). É um "não" DEFINITIVO
-        # — devolve 0 para CACHEAR, senão esses 47 jogos refariam a requisição a
-        # cada boot (~15s desperdiçados travando a abertura do app).
-        return 0
-    except Exception:
-        return None  # erro de rede real: não cacheia, tenta na próxima
+PLAYER_TTL = 24 * 3600  # playtime revalida 1x por dia
 
 
 def enrich_player(games: list[dict], cfg: dict) -> None:
-    """Tempo de jogo (playtime_hours) e conquistas do jogador (achievements_done).
+    """Tempo de jogo (playtime_minutes) do jogador, via Steam Web API.
 
-    Usa a Steam Web API (chave do config). Playtime vem do GetOwnedGames (1
-    chamada); conquistas do GetPlayerAchievements (1 por jogo, cache 24h).
+    Usa GetOwnedGames (1 chamada, cache 24h em player_cache.json).
     """
     key = (cfg.get("steam_api_key") or "").strip()
     if not key:
@@ -620,453 +589,27 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
     now = time.time()
     changed = False
 
-    api_lang = _get_steam_lang()
-
-    # Conquistas: 1 chamada de rede por jogo — o gargalo. Paraleliza os que
-    # estão sem cache ou vencidos; o merge roda serial depois.
-    alvos = [g for g in games if g.get("launcher") == "steam"]
-    porAppid = {}
-    for g in alvos:
-        gid = g.get("id", "")
-        if ":" in gid:
-            porAppid[gid.split(":", 1)[1]] = g
-
-    def buscar(g: dict):
-        gid = g.get("id", "")
-        if ":" not in gid:
-            return "", None, False
-        appid = gid.split(":", 1)[1]
-        ent = cache.get(appid)
-        if isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL:
-            return appid, ent, False
-        done = player_achievements(key, sid, appid, api_lang)
-        if done is None:
-            return appid, None, False
-        return appid, {"done": done, "at": now}, True
-
-    with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
-        for appid, ent, mudou in ex.map(buscar, alvos):
-            if ent is None:
-                continue
-            if mudou:
-                cache[appid] = ent
-                changed = True
-            if ent.get("done"):
-                porAppid[appid]["achievements_done"] = ent["done"]
-
-    if changed:
-        _atomic_write(PLAYER_CACHE, json.dumps(cache, ensure_ascii=False))
-
-
-def _get_json(url: str, timeout: int = 15) -> dict | None:
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except Exception:
-        return None
-
-
-def achievements_schema(api_key: str, appid: str, lang: str = "") -> dict | None:
-    """Título/descrição/ícones das conquistas (GetSchemaForGame)."""
-    api_lang = lang or _get_steam_lang()
-    import urllib.parse
-    url = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?" + \
-        urllib.parse.urlencode({"key": api_key, "appid": appid,
-                                "l": api_lang, "format": "json"})
-    data = _get_json(url)
-    if not data:
-        return None
-    out = {}
-    for a in data.get("game", {}).get("availableGameStats", {}).get("achievements", []) or []:
-        out[a.get("name", "")] = {
-            "title": a.get("displayName", "") or a.get("name", ""),
-            "desc": a.get("description", "") or "",
-            "icon": a.get("icon", "") or "",
-            "icongray": a.get("icongray", "") or "",
-        }
-    return out
-
-
-def achievements_global(appid: str) -> dict | None:
-    """% global de desbloqueio por conquista (raridade), sem chave."""
-    import urllib.parse
-    url = "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?" + \
-        urllib.parse.urlencode({"gameid": appid, "format": "json"})
-    data = _get_json(url)
-    if not data:
-        return None
-    return {a.get("name", ""): a.get("percent", 0)
-            for a in data.get("achievementpercentages", {}).get("achievements", []) or []}
-
-
-def player_achievements_full(api_key: str, sid: str, appid: str, lang: str = "") -> dict | None:
-    """achieved + unlocktime por conquista (GetPlayerAchievements).
-
-    403 = jogo que a conta não possui oficialmente (SLSsteam): devolve {}
-    (tudo bloqueado). Erro de rede = None (não cacheia, tenta depois)."""
-    api_lang = lang or _get_steam_lang()
-    import urllib.error
-    import urllib.parse
-    url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?" + \
-        urllib.parse.urlencode({"key": api_key, "steamid": sid, "appid": appid,
-                                "l": api_lang, "format": "json"})
-    try:
-        with urllib.request.urlopen(url, timeout=15) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 403:
-            return {}
-        return None
-    except Exception:
-        return None
-    ps = data.get("playerstats", {})
-    if not ps.get("success"):
-        return {}
-    return {a.get("apiname", ""): a for a in ps.get("achievements", []) or []}
-
-
-def enrich_achievements(games: list[dict], cfg: dict) -> None:
-    """Detalhe completo das conquistas por jogo → achievements.json (cache 24h).
-
-    Junta schema (título/descrição/ícones), raridade global e progresso do
-    jogador (desbloqueada + data). Só roda em jogos com achievements_total > 0.
-    """
-    key = (cfg.get("steam_api_key") or "").strip()
-    if not key:
-        return
-    sid = (cfg.get("steam_id64") or "").strip() or steam_id64()
-    if not sid:
-        return
-
-    try:
-        store = json.loads(ACHIEVEMENTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        store = {}
-    now = time.time()
-    changed = False
-    api_lang = _get_steam_lang()
-
-    def buscar(g: dict):
-        """Só rede (schema + raridade + progresso): devolve (appid, ent) ou
-        (appid, None) se já quente/erro. Sem tocar em `store`."""
-        appid = g["id"].split(":", 1)[1]
-        ent = store.get(appid)
-        # O idioma entra na validade: os títulos e descrições das conquistas
-        # são traduzidos pela própria Steam, então trocar de idioma tem de
-        # refazer a busca — senão a aba ficava 24h na língua antiga.
-        if (isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL
-                and ent.get("_lang", api_lang) == api_lang):
-            return appid, None
-        schema = achievements_schema(key, appid, api_lang)
-        if schema is None:
-            return appid, None  # erro de rede: tenta na próxima
-        glob = achievements_global(appid) or {}
-        # GetPlayerAchievements dá 403 em jogos que a conta não possui
-        # oficialmente (ex.: SLSsteam) — nesse caso, lista tudo como bloqueado
-        # (schema e raridade são públicos, então a aba funciona igual).
-        mine = player_achievements_full(key, sid, appid, api_lang)
-        if mine is None:
-            return appid, None  # erro de rede: tenta na próxima indexação
-        items = []
-        for name, s in schema.items():
-            p = mine.get(name, {})
-            items.append({
-                "name": name,
-                "title": s["title"],
-                "desc": s["desc"],
-                "icon": s["icon"],
-                "icongray": s["icongray"],
-                "achieved": bool(p.get("achieved")),
-                "unlock": p.get("unlocktime", 0) or 0,
-                "percent": glob.get(name, 0),
-            })
-        # Preserva o mapa em inglês: ele não depende do idioma e custa uma
-        # chamada de rede a mais se for jogado fora a cada troca.
-        novo = {"at": now, "_lang": api_lang, "items": items}
-        if isinstance(ent, dict) and ent.get("_en"):
-            novo["_en"] = ent["_en"]
-        return appid, novo
-
-    refresh = [g for g in games
-               if g.get("launcher") == "steam" and g.get("achievements_total")]
-    with ThreadPoolExecutor(max_workers=ENRICH_WORKERS) as ex:
-        for appid, novo in ex.map(buscar, refresh):
-            if novo is None:
-                continue
-            store[appid] = novo
-            changed = True
-
-    # Passo LOCAL (toda execução, sem rede): sobrepõe o progresso lido dos
-    # bins do SLScheevo/Steam — é o que faz as conquistas dos jogos injetados
-    # (SLSsteam) marcarem de verdade, e mantém os legítimos sempre frescos.
-    for g in games:
-        if g.get("launcher") != "steam" or not g.get("achievements_total"):
-            continue
-        appid = g["id"].split(":", 1)[1]
-        ent = store.get(appid)
-        if not isinstance(ent, dict) or not ent.get("items"):
-            continue
-        if not (STEAM_STATS / f"UserGameStatsSchema_{appid}.bin").exists():
-            continue
-        if apply_local_progress(appid, ent["items"]):
-            changed = True
-
-    if changed:
-        _atomic_write(ACHIEVEMENTS_FILE, json.dumps(store, ensure_ascii=False))
-
-
-# --- Conquistas locais (SLScheevo/SLSsteam) --------------------------------
-# O SLScheevo gera, em Steam/appcache/stats, o UserGameStatsSchema_<appid>.bin
-# (mapa bloco/bit → conquista, com nomes/ícones) e o Steam grava o progresso
-# em UserGameStats_<conta>_<appid>.bin (bitfield + datas). Lemos os dois para
-# ter progresso REAL mesmo nos jogos injetados, onde a Web API dá 403.
-
-STEAM_STATS = STEAM_ROOT / "appcache/stats"
-
-
-def _read_kv_bin(buf: bytes, pos: int = 0):
-    """Parser mínimo de KeyValues binário do Steam (string/int32/uint64/int64/float)."""
-    import struct
-    t = buf[pos]
-    pos += 1
-    end = buf.index(b"\x00", pos)
-    name = buf[pos:end].decode("utf-8", "replace")
-    pos = end + 1
-    if t == 0x00:  # sub-mapa
-        val = {}
-        while buf[pos] != 0x08:
-            k, v, pos = _read_kv_bin(buf, pos)
-            val[k] = v
-        pos += 1
-        return name, val, pos
-    if t == 0x01:  # string
-        end = buf.index(b"\x00", pos)
-        return name, buf[pos:end].decode("utf-8", "replace"), end + 1
-    if t == 0x02:
-        return name, struct.unpack("<i", buf[pos:pos + 4])[0], pos + 4
-    if t == 0x07:
-        return name, struct.unpack("<Q", buf[pos:pos + 8])[0], pos + 8
-    if t == 0x0A:
-        return name, struct.unpack("<q", buf[pos:pos + 8])[0], pos + 8
-    if t == 0x0B:
-        return name, struct.unpack("<f", buf[pos:pos + 4])[0], pos + 4
-    raise ValueError(f"tipo KV desconhecido: {t}")
-
-
-def _load_kv_bin(path: Path) -> dict | None:
-    try:
-        buf = path.read_bytes()
-        _, kv, _ = _read_kv_bin(buf, 0)
-        return kv if isinstance(kv, dict) else None
-    except Exception:
-        return None
-
-
-def local_schema_map(appid: str) -> dict | None:
-    """Schema LOCAL (SLScheevo): apiname → {block, bit, en, br, br_desc, ícones}.
-
-    O schema bin agrupa conquistas em blocos (stats/<bloco>/bits/<bit>) e cada
-    conquista traz o apiname (binfo["name"], ex.: "AC01"), nomes/descrições por
-    idioma e hash de ícone. Indexamos por apiname: é a chave da raridade pública
-    (GetGlobalAchievementPercentagesForApp) e do schema da Web API, então o
-    índice funciona SEM chave da API.
-    """
-    kv = _load_kv_bin(STEAM_STATS / f"UserGameStatsSchema_{appid}.bin")
-    if not kv:
-        return None
-    out = {}
-    for blk, bval in (kv.get("stats") or {}).items():
-        if not isinstance(bval, dict):
-            continue
-        for bit, binfo in (bval.get("bits") or {}).items():
-            if not isinstance(binfo, dict):
-                continue
-            api = str(binfo.get("name") or "").strip()
-            if not api or api == "0":
-                continue
-            disp = binfo.get("display") or {}
-            names = disp.get("name") or {}
-            descs = disp.get("desc") or {}
-            en = str(names.get("english") or "").strip()
-            out[api] = {
-                "block": blk,
-                "bit": bit,
-                "en": en,
-                "br": str(names.get("brazilian") or names.get("portuguese") or en or api).strip(),
-                "br_desc": str(descs.get("brazilian") or descs.get("portuguese")
-                               or descs.get("english") or "").strip(),
-                "icon_hash": str(disp.get("icon") or ""),
-                "icongray_hash": str(disp.get("icon_gray") or ""),
-            }
-    return out
-
-
-def local_progress_map(appid: str) -> dict:
-    """Progresso LOCAL: (block, bit) -> epoch do desbloqueio (0 = bloqueada)."""
-    acct = _account_id()
-    if not acct:
-        return {}
-    kv = _load_kv_bin(STEAM_STATS / f"UserGameStats_{acct}_{appid}.bin")
-    if not kv:
-        return {}
-    out = {}
-    for blk, bval in kv.items():
-        if not isinstance(bval, dict) or "data" not in bval:
-            continue
-        times = bval.get("AchievementTimes") or {}
-        bits = (bval.get("bits") or {}) if isinstance(bval.get("bits"), dict) else {}
-        # Formato novo: bitfield "data" + AchievementTimes por índice.
-        # Formato antigo: bits/<i>/bits com flag de desbloqueado.
-        if times:
-            for idx, ts in times.items():
-                out[(blk, str(idx))] = int(ts or 0)
-        for idx, binfo in bits.items():
-            if isinstance(binfo, dict) and (binfo.get("bits", 0) & 1):
-                out.setdefault((blk, str(idx)), int(binfo.get("unlock_time") or 0))
-    return out
-
-
-def _active_account_id() -> str | None:
-    """AccountID numérico (ex.: 26779690) da conta Steam atualmente ativa.
-
-    Prioriza o `MostRecent` do loginusers.vdf — em máquinas com mais de uma
-    conta em userdata/, a 1ª pasta encontrada na iteração do filesystem não
-    tem relação garantida com quem está logado. Cai para a 1ª pasta válida
-    de userdata/ apenas quando o loginusers.vdf não existir/não puder ser lido.
-    """
-    text = _read(STEAM_ROOT / "config" / "loginusers.vdf")
-    if text:
-        try:
-            users = parse_vdf(text).get("users", {})
-            for sid64, info in users.items():
-                if isinstance(info, dict) and str(info.get("MostRecent", "0")) == "1":
-                    accountid = int(sid64) - 76561197960265728
-                    if accountid > 0 and (STEAM_USERDATA / str(accountid)).is_dir():
-                        return str(accountid)
-        except Exception:
-            pass
-    try:
-        for d in STEAM_USERDATA.iterdir():
-            if d.is_dir() and d.name.isdigit() and d.name != "0":
-                return d.name
-    except Exception:
-        pass
-    return None
-
-
-def _account_id() -> str | None:
-    """AccountID numérico da pasta userdata (ex.: 26779690)."""
-    return _active_account_id()
-
-
-def apply_local_progress(appid: str, items: list[dict],
-                         schema_en: dict | None = None) -> bool:
-    """Sobrepõe achieved/unlock lidos dos bins locais aos itens da Web API."""
-    local = local_schema_map(appid)
-    if not local:
-        return False
-    prog = local_progress_map(appid)
-    for it in items:
-        entry = local.get(str(it.get("name") or ""))
-        if not entry:
-            continue
-        it["block"] = entry["block"]
-        it["bit"] = entry["bit"]
-        ts = prog.get((entry["block"], entry["bit"]), 0)
-        if ts:
-            it["achieved"] = True
-            it["unlock"] = ts
-    return True
-
-
-def _apply_local_only(ent: dict, appid: str) -> bool:
-    """Atualiza achieved/unlock de itens existentes pelo (block, bit) local.
-
-    Usado quando NÃO há API key: a entrada já veio do schema local e só o
-    progresso (desbloqueio/data) muda entre indexações.
-    """
-    prog = local_progress_map(appid)
-    changed = False
-    for it in ent.get("items", []):
-        if it.get("block") is None:
-            continue
-        ts = prog.get((it["block"], it["bit"]), 0)
-        if ts and not it.get("achieved"):
-            it["achieved"], it["unlock"] = True, ts
-            changed = True
-        elif not ts and it.get("achieved"):
-            it["achieved"], it["unlock"] = False, 0
-            changed = True
-    return changed
-
-
-def enrich_achievements_local(games: list[dict], cfg: dict) -> None:
-    """achievements.json a partir SÓ dos bins locais (SLScheevo), sem API key.
-
-    Roda mesmo com steam_api_key vazia — é o que destrava as conquistas dos
-    jogos injetados (SLSsteam), onde a Web API devolve 403. Não sobrescreve
-    jogos que a Web API já enriqueceu (itens presentes); nesses só atualiza o
-    progresso. Raridade global (endpoint público, sem chave) é best-effort.
-    """
-    try:
-        store = json.loads(ACHIEVEMENTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        store = {}
-    now = time.time()
-    changed = False
-    tem_key = bool((cfg.get("steam_api_key") or "").strip())
-
     for g in games:
         if g.get("launcher") != "steam":
             continue
-        appid = g["id"].split(":", 1)[1]
-        if not (STEAM_STATS / f"UserGameStatsSchema_{appid}.bin").exists():
+        gid = g.get("id", "")
+        if ":" not in gid:
             continue
-        local = local_schema_map(appid)
-        if not local:
+        appid = gid.split(":", 1)[1]
+        og = owned.get(appid)
+        if not og:
             continue
-        ent = store.get(appid)
-        if isinstance(ent, dict) and ent.get("items"):
-            # Já coberto (Web API ou local anterior): só o progresso muda.
-            if not tem_key and _apply_local_only(ent, appid):
-                store[appid] = ent
-                changed = True
-            continue
-        glob = achievements_global(appid) or {}
-        prog = local_progress_map(appid)
-        items = []
-        for api, s in sorted(local.items()):
-            ts = prog.get((s["block"], s["bit"]), 0)
-            items.append({
-                "name": api,
-                "title": s["br"],
-                "desc": s["br_desc"],
-                "icon": f"{STEAM_IMG}/{appid}/{s['icon_hash']}" if s["icon_hash"] else "",
-                "icongray": f"{STEAM_IMG}/{appid}/{s['icongray_hash']}" if s["icongray_hash"] else "",
-                "achieved": bool(ts),
-                "unlock": ts,
-                "percent": glob.get(api, 0),
-                "block": s["block"],
-                "bit": s["bit"],
-            })
-        store[appid] = {"at": now, "_lang": "pt-BR", "_source": "local", "items": items}
-        changed = True
+        ent = cache.get(appid)
+        if isinstance(ent, dict) and now - ent.get("at", 0) <= PLAYER_TTL:
+            mins = ent.get("playtime_minutes", 0)
+        else:
+            mins = (og.get("playtime_forever") or 0) // 60
+            cache[appid] = {"playtime_minutes": mins, "at": now}
+            changed = True
+        g["playtime_minutes"] = mins
 
     if changed:
-        _atomic_write(ACHIEVEMENTS_FILE, json.dumps(store, ensure_ascii=False))
-
-
-def achievements_schema_en(api_key: str, appid: str) -> dict | None:
-    """apiname -> displayName em inglês (para casar com o schema local)."""
-    import urllib.parse
-    url = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?" + \
-        urllib.parse.urlencode({"key": api_key, "appid": appid,
-                                "l": "english", "format": "json"})
-    data = _get_json(url)
-    if not data:
-        return None
-    return {a.get("name", ""): a.get("displayName", "") or ""
-            for a in data.get("game", {}).get("availableGameStats", {}).get("achievements", []) or []}
+        _atomic_write(PLAYER_CACHE, json.dumps(cache, ensure_ascii=False))
 
 
 def steam_id64() -> str | None:
@@ -1381,19 +924,11 @@ def main() -> int:
     except Exception as exc:
         print(f"[aviso] steam-meta: {exc}", file=sys.stderr)
 
-    # Dados do JOGADOR (tempo de jogo + conquistas) via Web API, cache 24h.
+    # Dados do JOGADOR (tempo de jogo) via Web API, cache 24h.
     try:
         enrich_player(steam_games, cfg)
     except Exception as exc:
         print(f"[aviso] player: {exc}", file=sys.stderr)
-
-    # Detalhe das conquistas (ícone/descrição/raridade) → achievements.json.
-    # Web API (se houver chave) + local (sempre, cobre jogos injetados/SLSsteam).
-    try:
-        enrich_achievements(steam_games, cfg)
-        enrich_achievements_local(steam_games, cfg)
-    except Exception as exc:
-        print(f"[aviso] achievements: {exc}", file=sys.stderr)
 
     # Recomputa após owned+slssteam pra Lutris deduplicar contra biblioteca completa.
     all_steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}

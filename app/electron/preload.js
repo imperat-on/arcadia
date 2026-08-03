@@ -82,10 +82,6 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   trailerDownloadUrl: (id, url) => ipcRenderer.invoke("trailer:downloadUrl", { id, url }),
   trailerDownloadAll: () => ipcRenderer.invoke("trailer:downloadAll"),
   trailerPickCookies: () => ipcRenderer.invoke("trailer:pickCookies"),
-  achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
-  slscheevoStatus: () => ipcRenderer.invoke("slscheevo:status"),
-  // "Setup" agora = detectar/ativar o plugin que o usuário já colocou (não baixa).
-  slscheevoSetup: () => ipcRenderer.invoke("plugins:install", "slscheevo"),
   sourcesList: () => ipcRenderer.invoke("sources:list"),
   sourcesAdd: (url) => ipcRenderer.invoke("sources:add", url),
   sourcesRemove: (id) => ipcRenderer.invoke("sources:remove", id),
@@ -108,7 +104,6 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
-  achievementsRecent: () => ipcRenderer.invoke("achievements:recent"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),
   legendarySetup: () => ipcRenderer.invoke("runner:legendary:setup"),
   legendaryLibrary: () => ipcRenderer.invoke("runner:legendary:library"),
@@ -141,11 +136,6 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("trailer:dlprogress", h)
     return () => ipcRenderer.removeListener("trailer:dlprogress", h)
-  },
-  onAchievementUnlocked: (cb) => {
-    const h = (_e, data) => cb(data)
-    ipcRenderer.on("achievement:unlocked", h)
-    return () => ipcRenderer.removeListener("achievement:unlocked", h)
   },
   onAppFocus: (cb) => {
     const h = (_e, data) => cb(data)

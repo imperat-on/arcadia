@@ -13,7 +13,6 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
     ...(game.developer ? [[t("gameoverview.detalhes.desenvolvedora"), game.developer] as [string, string]] : []),
     ...(game.publisher ? [[t("gameoverview.detalhes.publicadora"), game.publisher] as [string, string]] : []),
     ...(horas != null ? [[t("gameoverview.detalhes.tempo_jogo"), t("gameoverview.tempo.horas_minutos", { h: String(horas), m: String(game.playtime_minutes! % 60) })]] as [string, string][] : []),
-    ...(game.achievements_total ? [[t("gameoverview.detalhes.conquistas"), `${game.achievements_done || 0}/${game.achievements_total}`] as [string, string]] : []),
     ...(game.players ? [[t("gameoverview.detalhes.jogadores"), game.players] as [string, string]] : []),
   ]
 
