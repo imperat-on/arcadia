@@ -10,7 +10,6 @@ import { DownloadsView } from "./DownloadsView"
 import { SourcesView } from "./SourcesView"
 import { aplicarA11y } from "./AccessibilityView"
 import { SettingsView } from "./SettingsView"
-import { PlayingBadge } from "./PlayingBadge"
 import { StoreView } from "./StoreView"
 import { HomeView } from "./HomeView"
 import { PluginsView } from "./PluginsView"
@@ -19,11 +18,9 @@ import { GamePage } from "./GamePage"
 import { GameSettingsDialog } from "./GameSettingsDialog"
 import { LaunchModeDialog } from "./LaunchModeDialog"
 import { AddGameDialog } from "./AddGameDialog"
-import { avisarJogando } from "./PlayingBadge"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
-import { AchievementToasts } from "../ps5-launcher/AchievementToasts"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 
 export function DesktopLauncher() {
@@ -56,7 +53,6 @@ export function DesktopLauncher() {
 
   const jogar = useCallback((g: Game, mode?: "steam" | "exe") => {
     window.launcherAPI?.launch(g.launch_cmd, g.id, mode)
-    avisarJogando(g)
     window.launcherAPI?.getConfig().then((c) => {
       if (c?.disable_playtime_tracking !== true) window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
     })
@@ -213,8 +209,6 @@ export function DesktopLauncher() {
         )}
       </main>
 
-      <PlayingBadge />
-      <AchievementToasts />
       {jogoConfig && <GameSettingsDialog game={jogoConfig} onClose={() => { setJogoConfig(null); carregar() }} />}
       {escolhendoLaunch && (
         <LaunchModeDialog

@@ -80,7 +80,6 @@ export interface AppConfig {
   accent?: string
   sources?: Sources
   slssteam_path?: string
-  slscheevo_path?: string
   psn_npsso?: string
   trailer_auto?: boolean
   youtube_cookies?: string
@@ -132,18 +131,6 @@ export interface NewsItem {
   date: string // ISO 8601
 }
 
-/** Conquista detalhada (Steam), do achievements.json gerado pelo index.py. */
-export interface AchievementItem {
-  name: string // id interno
-  title: string
-  desc: string
-  icon: string // colorida
-  icongray: string // cinza (bloqueada)
-  achieved: boolean
-  unlock: number // epoch do desbloqueio (0 = bloqueada)
-  percent: number // % global de jogadores (raridade)
-}
-
 export interface YoutubeResult {
   id: string
   url: string
@@ -159,26 +146,10 @@ export interface IntegrationsStatus {
   heroic: boolean
 }
 
-/** Estatísticas agregadas do perfil (nível/insígnias, estilo Steam). */
+/** Estatísticas agregadas do perfil (jogos/horas jogadas). */
 export interface ProfileStats {
   jogos: number
   playtime_hours: number
-  ach_done: number
-  ach_total: number
-  ach_raras: number // desbloqueadas com ≤10% global
-  jogos_100: number // jogos 100% completos
-}
-
-/** Item do feed de atividade (conquista desbloqueada recentemente). */
-export interface RecentAchievement {
-  appid: string
-  game: string // título do jogo
-  cover: string
-  title: string // título da conquista
-  desc: string
-  icon: string
-  percent: number
-  unlock: number // epoch
 }
 
 /** Item da fila de downloads (Epic via Legendary). */
@@ -387,7 +358,7 @@ declare global {
         } | null
       }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
-      storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; slscheevo?: boolean; luatools?: boolean; steamDir: string; adicionados?: string[] }>
+      storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; luatools?: boolean; steamDir: string; adicionados?: string[] }>
       /** Loja Steam: busca no catálogo Hubcap. */
       storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
       /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */
@@ -525,8 +496,6 @@ declare global {
       trailerDownloadAll: () => Promise<{ ok: boolean; count?: number; error?: string }>
       /** Escolhe o arquivo cookies.txt do YouTube (restrição de idade). */
       trailerPickCookies: () => Promise<{ ok: boolean; path?: string }>
-      /** Conquistas detalhadas do jogo (ícone/descrição/raridade/data). */
-      achievementsGet: (appid: string) => Promise<AchievementItem[]>
       /** Foco real da janela vindo do processo principal (cobre gamescope). */
       onAppFocus: (cb: (focused: boolean) => void) => () => void
       /** Transições de jogo rodando (true = abriu, false = fechou). */
@@ -554,16 +523,8 @@ declare global {
       onUpdateProgress: (cb: (p: { etapa: UpdateEtapa }) => void) => () => void
       /** Download da loja concluído — oferecer restart da Steam. */
       onStoreDownloaded: (cb: (data: { appid: string; title: string }) => void) => () => void
-      /** Conquista desbloqueada em tempo real (toast estilo PS5). */
-      onAchievementUnlocked: (
-        cb: (data: { appid: string; title: string; desc: string; icon: string; percent: number; unlock: number }) => void,
-      ) => () => void
-      /** SLScheevo: binário instalado + nº de schemas gerados. */
-      slscheevoStatus: () => Promise<{ installed: boolean; schemas: number }>
-      /** Estatísticas do perfil (nível/insígnias), ou null se indisponível. */
+      /** Estatísticas do perfil (jogos/horas jogadas), ou null se indisponível. */
       profileStats: () => Promise<ProfileStats | null>
-      /** Feed: últimas conquistas desbloqueadas (qualquer jogo), por data desc. */
-      achievementsRecent: () => Promise<RecentAchievement[]>
       /** Legendary (Epic): binário instalado + sessão ativa. */
       legendaryStatus: () => Promise<{ installed: boolean; logged: boolean; user?: string }>
       /** Baixa o Legendary e abre o login Epic num terminal. */
@@ -603,9 +564,7 @@ declare global {
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */
       pickFile: () => Promise<{ ok: boolean; path?: string }>
-      /** Baixa o SLScheevo e abre a sessão interativa de login num terminal. */
-      slscheevoSetup: () => Promise<{ ok: boolean; error?: string }>
-      /** Plugins opcionais (SLSsteam, SLScheevo, luatools). */
+      /** Plugins opcionais (SLSsteam, luatools). */
       pluginsList: () => Promise<{ ok: boolean; plugins: { id: string; name: string; descKey: string; installed: boolean; enabled: boolean }[] }>
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>

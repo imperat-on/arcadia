@@ -1,5 +1,5 @@
 // Plugins opcionais do Arcadia: mantém o core como mostrador de jogos puro.
-// SLSsteam/SLScheevo/luatools só habilitam features quando instalados/ativos.
+// SLSsteam/luatools só habilitam features quando instalados/ativos.
 
 const fs = require("fs")
 const path = require("path")
@@ -11,11 +11,10 @@ const BIN_DIR = path.join(DATA_DIR, "bin")
 const REGISTRY = path.join(BIN_DIR, "plugins.json")
 const CONFIG = path.join(DATA_DIR, "config.json")
 const SLSSTEAM_SO = path.join(HOME, ".local/share/SLSsteam/SLSsteam.so")
-const SLSCHEEVO = path.join(BIN_DIR, "SLScheevo-Linux")
 
 // Arcadia é um CARREGADOR de plugins, não um instalador. Ele NÃO baixa nem
-// hospeda SLSsteam/SLScheevo — apenas DETECTA se o usuário já colocou o arquivo
-// no sistema (caminho padrão ou informado por ele no config). Zero URLs aqui.
+// hospeda SLSsteam — apenas DETECTA se o usuário já colocou o arquivo no
+// sistema (caminho padrão ou informado por ele no config). Zero URLs aqui.
 function readConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG, "utf-8")) || {} } catch { return {} }
 }
@@ -33,12 +32,6 @@ const PLUGINS = {
     name: "plugins.slssteam_nome",
     descKey: "plugins.slssteam_desc",
     installed: () => detectar("slssteam_path", SLSSTEAM_SO),
-  },
-  slscheevo: {
-    id: "slscheevo",
-    name: "plugins.slscheevo_nome",
-    descKey: "plugins.slscheevo_desc",
-    installed: () => detectar("slscheevo_path", SLSCHEEVO),
   },
   "luatools-fixes": {
     id: "luatools-fixes",

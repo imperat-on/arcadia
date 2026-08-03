@@ -6,7 +6,7 @@ import { fmtBytes, fmtMiB } from "../tamanho"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
 import {
-  AchievementsPanel, GameMediaGallery, GameDescription, ProtonDBPanel,
+  GameMediaGallery, GameDescription, ProtonDBPanel,
   ControllerPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
   stripHtml,
 } from "./GameDetailPanels"
@@ -58,7 +58,6 @@ export function GamePage({
   const [sys, setSys] = useState<Sysinfo | null>(null)
   const [sysBusy, setSysBusy] = useState(true)
   const [installPath, setInstallPath] = useState("")
-  const [cheevoAtivo, setCheevoAtivo] = useState(false)
   const [fixesAtivo, setFixesAtivo] = useState(false)
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
@@ -75,7 +74,6 @@ export function GamePage({
     if (!instalado) { setInstallPath(""); return }
     window.launcherAPI?.storeInstallDir(g).then((r) => setInstallPath(r?.path || ""))
     window.launcherAPI?.storeStatus().then((s) => {
-      setCheevoAtivo(Boolean(s?.slscheevo))
       setFixesAtivo(Boolean(s?.luatools))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,7 +82,6 @@ export function GamePage({
   useEffect(() => {
     const off = window.launcherAPI?.onPluginsChanged?.(() => {
       window.launcherAPI?.storeStatus().then((s) => {
-        setCheevoAtivo(Boolean(s?.slscheevo))
         setFixesAtivo(Boolean(s?.luatools))
       })
     })
@@ -305,7 +302,6 @@ export function GamePage({
               {instalado && fixesAtivo && <FixesPanel appid={steamAppid} installPath={installPath} />}
               <ControllerPanel support={sys?.controller_support} />
               <LanguagesPanel languages={sys?.languages} />
-              {cheevoAtivo && <AchievementsPanel appid={steamAppid} />}
               {/* Avaliações + comentários abaixo da descrição. */}
               <ReviewsPanel appid={steamAppid} />
               <CommentsPanel appid={steamAppid} />

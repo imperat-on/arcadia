@@ -1,9 +1,8 @@
 "use client"
 
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react"
+import { forwardRef, useEffect, useMemo, useState } from "react"
 import type { Game } from "./types"
-import type { AchievementItem, NewsItem } from "../../global"
-import { userLocale } from "../../i18n/locale"
+import type { NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 
 interface GameOverviewProps {
@@ -72,69 +71,6 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const relacionadas = useMemo(() => noticiasRelacionadas(game, news), [game, news])
   const destaque = relacionadas[0] ?? null
   const [somTrailer, setSomTrailer] = useState(false)
-
-  // Conquistas detalhadas (estilo SuccessStory): busca ao abrir o overview.
-  const [achievements, setAchievements] = useState<AchievementItem[] | null>(null)
-  const [cheevoAtivo, setCheevoAtivo] = useState(false)
-  const achievementsScrollRef = useRef<HTMLDivElement>(null)
-  const appFocusedRef = useRef(appFocused)
-  appFocusedRef.current = appFocused
-
-  useEffect(() => {
-    const carregar = () => window.launcherAPI?.storeStatus().then((s) => setCheevoAtivo(Boolean(s?.slscheevo)))
-    carregar()
-    return window.launcherAPI?.onPluginsChanged?.(() => carregar())
-  }, [])
-
-  // Analógico DIREITO rola a coluna de conquistas (mesma física do
-  // useGamepadNav: zona morta, resposta quadrática e inércia).
-  useEffect(() => {
-    let raf = 0
-    let rest: number[] | null = null
-    let vel = 0
-    const loop = () => {
-      // Janela sem foco: não rola (input iria para o jogo E para o overview).
-      if (!appFocusedRef.current || !document.hasFocus()) {
-        vel = 0
-        raf = requestAnimationFrame(loop)
-        return
-      }
-      const pads = navigator.getGamepads ? navigator.getGamepads() : []
-      const gp = Array.from(pads).find((p) => p) || null
-      const el = achievementsScrollRef.current
-      if (gp && el) {
-        if (!rest) rest = Array.from(gp.axes)
-        let ry = 0
-        for (let ai = 2; ai < gp.axes.length; ai++) {
-          const v = (gp.axes[ai] ?? 0) - (rest[ai] ?? 0)
-          if (Math.abs(v) > Math.abs(ry)) ry = v
-        }
-        const target = Math.abs(ry) > 0.15 ? Math.sign(ry) * ry * ry * 46 : 0
-        vel += (target - vel) * 0.25
-        if (Math.abs(vel) > 0.05) el.scrollTop += vel
-      }
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [])
-  useEffect(() => {
-    let vivo = true
-    const api = window.launcherAPI
-    const appid = game.id.startsWith("steam:") ? game.id.split(":")[1] : ""
-    if (!api || !appid || !cheevoAtivo) {
-      setAchievements([])
-      return
-    }
-    api.achievementsGet(appid).then((items) => {
-      if (vivo) setAchievements(Array.isArray(items) ? items : [])
-    }).catch(() => {
-      if (vivo) setAchievements([])
-    })
-    return () => {
-      vivo = false
-    }
-  }, [game.id, cheevoAtivo])
 
   // Trailer local resolvido NA HORA (sem o delay de 1,5s da home e sem
   // baixar nada): undefined = carregando, null = não existe, string = path.
@@ -210,7 +146,6 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     [t("gameoverview.detalhes.lancamento"), game.year || meta?.release_date],
     [t("gameoverview.detalhes.jogadores"), game.players],
     [t("gameoverview.detalhes.tempo_jogo"), game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined],
-    [t("gameoverview.detalhes.conquistas"), game.achievements_total ? (game.achievements_done != null ? `${game.achievements_done} / ${game.achievements_total}` : `${game.achievements_total}`) : undefined],
     [t("gameoverview.detalhes.hltb_main"), hltb?.main ? tempoDeJogo(hltb.main, t) : undefined],
     [t("gameoverview.detalhes.hltb_main_extra"), hltb?.mainExtra ? tempoDeJogo(hltb.mainExtra, t) : undefined],
     [t("gameoverview.detalhes.hltb_100"), hltb?.completionist ? tempoDeJogo(hltb.completionist, t) : undefined],
@@ -281,8 +216,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           </div>
         </section>
 
-        {/* Corpo: trailer + detalhes (+ coluna de conquistas quando houver) */}
-        <section className={`mt-8 grid min-h-0 flex-1 gap-6 ${achievements?.length ? "grid-cols-[1.5fr_1fr_1fr]" : "grid-cols-[1.6fr_1fr]"} ${closing ? "ov-out" : ""}`}>
+        {/* Corpo: trailer + detalhes */}
+        <section className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.6fr_1fr] ${closing ? "ov-out" : ""}`}>
           {/* Trailer — clicar liga/desliga o som. Sem trailer local, mostra a
               notícia relacionada. */}
           {trailer !== null ? (
@@ -375,54 +310,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                   <span className="text-right font-light text-white/90">{valor}</span>
                 </div>
               ))}
-              {/* Barra de progresso das conquistas do jogador */}
-              {cheevoAtivo && game.achievements_total != null && game.achievements_total > 0 && game.achievements_done != null && (
-                <div className="pt-4">
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${Math.round((game.achievements_done / game.achievements_total) * 100)}%`, background: "var(--accent)" }}
-                    />
-                  </div>
-                  <span className="mt-2 block text-right text-[11px] text-white/40">
-                    {t("gameoverview.conquistas_porcentagem", { pct: String(Math.round((game.achievements_done / game.achievements_total) * 100)) })}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
-
-          {/* Conquistas — coluna própria com progresso e lista rolável */}
-          {cheevoAtivo && achievements != null && achievements.length > 0 && (
-            <div className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w3"}`}>
-              <div className="flex items-center gap-4 px-6 pt-5">
-                <span className="flex shrink-0 items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-                  {t("gameoverview.conquistas")}
-                </span>
-                <span className="ml-auto shrink-0 text-xs font-light tabular-nums text-white/50">
-                  {achievements.filter((a) => a.achieved).length} / {achievements.length}
-                </span>
-              </div>
-              <div className="mx-6 mt-3 h-1 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${Math.round((achievements.filter((a) => a.achieved).length / achievements.length) * 100)}%`, background: "var(--accent)" }}
-                />
-              </div>
-              <div ref={achievementsScrollRef} className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 pt-2">
-                {[...achievements]
-                  .sort((a, b) => {
-                    if (a.achieved !== b.achieved) return a.achieved ? -1 : 1
-                    if (a.achieved) return (b.unlock || 0) - (a.unlock || 0)
-                    return (a.percent || 999) - (b.percent || 999)
-                  })
-                  .map((a) => (
-                    <AchievementRow key={a.name} a={a} />
-                  ))}
-              </div>
-            </div>
-          )}
         </section>
 
         {/* Dica de controle */}
@@ -440,52 +329,6 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     </div>
   )
 })
-
-function AchievementRow({ a }: { a: AchievementItem }) {
-  const { t } = useI18n()
-  const pct = typeof a.percent === "number" ? a.percent : parseFloat(String(a.percent)) || 0
-  const rara = pct > 0 && pct <= 10
-  return (
-    <div
-      tabIndex={0}
-      className={`flex items-start gap-4 rounded-xl px-3 py-3 outline-none transition-colors focus:bg-white/[0.06] ${a.achieved ? "" : "opacity-50"}`}
-    >
-      <img
-        src={a.achieved ? a.icon : a.icongray || a.icon}
-        alt=""
-        className={`h-12 w-12 shrink-0 rounded-lg ring-1 ${a.achieved ? "ring-white/15" : "ring-white/10"}`}
-        loading="lazy"
-        draggable={false}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <h5 className={`truncate text-sm ${a.achieved ? "font-medium text-white/95" : "font-normal text-white/70"}`}>
-            {a.title}
-          </h5>
-          <span className="shrink-0 text-[11px] tabular-nums text-white/40">
-            {a.achieved && a.unlock
-              ? new Date(a.unlock * 1000).toLocaleDateString(userLocale())
-              : t("gameoverview.conquista.bloqueada")}
-          </span>
-        </div>
-        {a.desc && (
-          <p className="mt-0.5 line-clamp-2 text-xs font-light leading-relaxed text-white/55">{a.desc}</p>
-        )}
-        <div className="mt-1.5 flex items-center gap-2">
-          <div className="h-[3px] w-20 overflow-hidden rounded-full bg-white/10">
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${Math.min(100, pct)}%`, background: rara ? "#ffd23f" : "rgba(255,255,255,0.35)" }}
-            />
-          </div>
-          <span className={`text-[10px] ${rara ? "text-[#ffd23f]/80" : "text-white/35"}`}>
-            {t("gameoverview.conquista.porcentagem_jogadores", { pct: pct.toFixed(1).replace(".", ",") })}{rara ? t("gameoverview.conquista.rara") : ""}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function Glyph({ kind }: { kind: "cross" | "circle" }) {
   const cfg = kind === "cross"

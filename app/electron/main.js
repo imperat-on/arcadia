@@ -1,6 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
 const { getNews } = require("./news")
-const { startAchievementWatcher } = require("./achievements")
 const plugins = require("./plugins")
 const updater = require("./updater")
 const path = require("path")
@@ -103,10 +102,100 @@ let jogoAtivo = null
 // Snapshot da sessão encerrada: o interval limpa jogoAtivo antes do marcar
 // fechar a sessão, então o registro de playtime local se ancora aqui.
 let ultimoJogoAtivo = null
-// Intervals do createWindow. Se a janela for recriada sem matar o processo
+// Interval do poll de jogo. Se a janela for recriada sem matar o processo
 // (comum no macOS ou em reinicializações), evita acumular timers antigos.
-let gamescopeFocusInterval = null
 let runningGameInterval = null
+// Foco real da janela (no gamescope o Chromium acha que está focado mesmo
+// com o jogo por cima) — o renderer trava gamepad/trailer com isso.
+let focado = true
+// Vigia de jogo rodando (todos os modos): avisa o renderer nas transições
+// abriu/fechou. O card "jogando" do modo desktop se ancora nisso.
+let jogoRodando = false
+// O poll SÓ arma quando lançamos um jogo (armarPollJogo) e desarma após 2
+// ciclos sem sinal — idle não paga pgrep a cada 3s. No gamescope o mesmo
+// tick resolve o foco (ARCADIA_GAMESCOPE=1), sem intervalo extra de 2s.
+let sinalDeVida = 0
+const armarPollJogo = () => {
+  if (runningGameInterval) return
+  sinalDeVida = 0
+  runningGameInterval = setInterval(() => {
+    const tick = () => {
+      if (jogoAtivo) {
+        try {
+          process.kill(-jogoAtivo.pid, 0)
+          marcar(true)
+          sinalDeVida = 0
+          return
+        } catch {
+          // Grupo do wrapper (ex: steam://rungameid) morreu. NÃO marca false
+          // aqui — o pgrep abaixo confirma se o jogo real ainda vive.
+          // ultimoJogoAtivo é preservado.
+          jogoAtivo = null
+        }
+      }
+      execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+        const rodando = !err
+        marcar(rodando)
+        if (rodando) {
+          sinalDeVida = 0
+          return
+        }
+        // Idle (sem jogo nosso e pgrep sem processo): 2 ciclos e desarma.
+        if (++sinalDeVida >= 2) {
+          clearInterval(runningGameInterval)
+          runningGameInterval = null
+        }
+      })
+    }
+    if (process.env.ARCADIA_GAMESCOPE === "1") {
+      // Foco do gamescope usa o mesmo tick — evita um pgrep extra por ciclo.
+      execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+        const jogoRodando = !err // exit 0 = achou processo
+        const ativo = !jogoRodando
+        if (ativo !== focado) {
+          focado = ativo
+          if (win && !win.isDestroyed()) win.webContents.send("app:focus", ativo)
+        }
+        tick()
+      })
+    } else {
+      tick()
+    }
+  }, 3000)
+}
+// Primário: grupo de processos do jogo que NÓS lançamos (jogoAtivo) — cobre
+// custom/umu/legendary/lutris. Fallback: padrão clássico (jogos Steam, que
+// são filhos do cliente Steam, não nossos).
+const marcar = (rodando) => {
+  if (rodando === jogoRodando) return
+  jogoRodando = rodando
+  if (win && !win.isDestroyed()) win.webContents.send("game:running", rodando)
+  if (!rodando) {
+    // Sessão encerrada: soma o tempo jogado no override (só fora da Steam —
+    // a Steam já traz playtime real do indexer).
+    const snap = ultimoJogoAtivo
+    ultimoJogoAtivo = null
+    if (snap && snap.gameId && snap.startedAt) {
+      try {
+        const min = Math.round((Date.now() - snap.startedAt) / 60000)
+        if (min >= 1) {
+          const prev = Number(readOverrides(OVERRIDES)[snap.gameId]?.playtime_added_minutes) || 0
+          setOverride(OVERRIDES, snap.gameId, { playtime_added_minutes: prev + min })
+          if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+        }
+      } catch {}
+    }
+  }
+  // Jogo fechou: roda o script pós-jogo configurado (se houver).
+  if (!rodando && postGameScript) {
+    const script = postGameScript
+    postGameScript = ""
+    try {
+      const p = spawn(script, [], { detached: true, stdio: "ignore" })
+      p.unref()
+    } catch {}
+  }
+}
 // yt-dlp precisa achar o Deno para resolver o desafio JS do YouTube (necessário
 // em vídeos com restrição de idade). Aceitamos tanto a cópia em bin/ quanto a do
 // sistema, e garantimos os diretórios padrão: no gamescope o PATH herdado pode
@@ -736,9 +825,16 @@ async function fetchJson(url) {
   return r.json()
 }
 
+// Cache por mtime (padrão de _cfgCache): readAllGameSettings roda no readLibrary
+// e em vários handlers; setGameSettings invalida ao gravar.
+let _gsCache = { mtimeMs: -1, data: {} }
 function readAllGameSettings() {
   try {
-    return JSON.parse(fs.readFileSync(GAME_SETTINGS, "utf-8"))
+    const m = fs.statSync(GAME_SETTINGS).mtimeMs
+    if (m !== _gsCache.mtimeMs) {
+      _gsCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(GAME_SETTINGS, "utf-8")) }
+    }
+    return _gsCache.data
   } catch {
     return {}
   }
@@ -755,6 +851,7 @@ function setGameSettings(id, patch) {
   all[id] = { ...(all[id] || {}), ...(patch || {}) }
   try {
     fs.writeFileSync(GAME_SETTINGS, JSON.stringify(all, null, 2))
+    _gsCache = { mtimeMs: fs.statSync(GAME_SETTINGS).mtimeMs, data: all }
   } catch {
     /* disco cheio/permissão: segue sem salvar */
   }
@@ -792,6 +889,7 @@ function limparAposDesinstalar(id, { removePrefix, removeSettings } = {}) {
       delete all[id]
       try {
         fs.writeFileSync(GAME_SETTINGS, JSON.stringify(all, null, 2))
+        _gsCache = { mtimeMs: fs.statSync(GAME_SETTINGS).mtimeMs, data: all }
       } catch {}
     }
     try {
@@ -1194,7 +1292,7 @@ function limparPendentesIndexados() {
   const atuais = readJsonFile(PENDING_GAMES, [])
   if (!atuais.length) return
   let reais
-  try { reais = JSON.parse(fs.readFileSync(LIB, "utf-8")) } catch { return }
+  try { reais = readLibrary() } catch { return }
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {
@@ -1256,7 +1354,6 @@ function heroicConnected() {
 }
 
 let win
-let pararAchievementWatcher = null
 function createWindow() {
   const cfgIni = readConfig()
   win = new BrowserWindow({
@@ -1334,100 +1431,14 @@ function createWindow() {
     // rede que pode nem ter resposta.
     procurarAtualizacao(win)
   })
-  // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
-  // marca o item no achievements.json NA HORA — sem isso o painel só
-  // atualizava no próximo reindex da biblioteca.
-  if (pararAchievementWatcher) pararAchievementWatcher()
-  pararAchievementWatcher = startAchievementWatcher((payload) => {
-    try {
-      const arq = path.join(DATA_DIR, "achievements.json")
-      const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
-      const it = (store?.[payload.appid]?.items || []).find((x) => `${x.block}|${x.bit}` === payload.key)
-      if (it && !it.achieved) {
-        it.achieved = true
-        it.unlock = payload.unlock
-        fs.writeFileSync(arq, JSON.stringify(store))
-      }
-    } catch {}
-    if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", payload)
-  })
   // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
   // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
   win.on("blur", () => win?.webContents.send("app:focus", false))
   win.on("focus", () => win?.webContents.send("app:focus", true))
 
   // Modo gamescope: o Electron roda no X aninhado e NÃO recebe blur/focus
-  // quando o jogo abre no desktop. Em vez de janela ativa (Wayland não tem
-  // API pra isso), detecta o PROCESSO do jogo: qualquer executável rodando
-  // de steamapps/common, compatdata (Proton) ou prefixos Heroic/Lutris.
-  // pgrep nunca casa consigo mesmo; poll de 2s.
-  if (process.env.ARCADIA_GAMESCOPE === "1") {
-    let focado = true
-    if (gamescopeFocusInterval) clearInterval(gamescopeFocusInterval)
-    gamescopeFocusInterval = setInterval(() => {
-      execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
-        const jogoRodando = !err // exit 0 = achou processo
-        const ativo = !jogoRodando
-        if (ativo !== focado) {
-          focado = ativo
-          if (win && !win.isDestroyed()) win.webContents.send("app:focus", ativo)
-        }
-      })
-    }, 2000)
-  }
-
-  // Vigia de jogo rodando (todos os modos): avisa o renderer nas transições
-  // abriu/fechou. O card "jogando" do modo desktop se ancora nisso.
-  // Primário: grupo de processos do jogo que NÓS lançamos (jogoAtivo) — cobre
-  // custom/umu/legendary/lutris. Fallback: padrão clássico (jogos Steam, que
-  // são filhos do cliente Steam, não nossos).
-  let jogoRodando = false
-  const marcar = (rodando) => {
-    if (rodando === jogoRodando) return
-    jogoRodando = rodando
-    if (win && !win.isDestroyed()) win.webContents.send("game:running", rodando)
-    if (!rodando) {
-      // Sessão encerrada: soma o tempo jogado no override (só fora da Steam —
-      // a Steam já traz playtime real do indexer).
-      const snap = ultimoJogoAtivo
-      ultimoJogoAtivo = null
-      if (snap && snap.gameId && snap.startedAt) {
-        try {
-          const min = Math.round((Date.now() - snap.startedAt) / 60000)
-          if (min >= 1) {
-            const prev = Number(readOverrides(OVERRIDES)[snap.gameId]?.playtime_added_minutes) || 0
-            setOverride(OVERRIDES, snap.gameId, { playtime_added_minutes: prev + min })
-            if (win && !win.isDestroyed()) win.webContents.send("library:changed")
-          }
-        } catch {}
-      }
-    }
-    // Jogo fechou: roda o script pós-jogo configurado (se houver).
-    if (!rodando && postGameScript) {
-      const script = postGameScript
-      postGameScript = ""
-      try {
-        const p = spawn(script, [], { detached: true, stdio: "ignore" })
-        p.unref()
-      } catch {}
-    }
-  }
-  if (runningGameInterval) clearInterval(runningGameInterval)
-  runningGameInterval = setInterval(() => {
-    if (jogoAtivo) {
-      try {
-        process.kill(-jogoAtivo.pid, 0)
-        marcar(true)
-        return
-      } catch {
-        // Grupo do wrapper (ex: steam://rungameid) morreu. NÃO marca false
-        // aqui — o pgrep abaixo confirma se o jogo real ainda vive.
-        // ultimoJogoAtivo é preservado.
-        jogoAtivo = null
-      }
-    }
-    execFile("pgrep", ["-f", PADRAO_JOGO], (err) => marcar(!err))
-  }, 3000)
+  // quando o jogo abre no desktop. O foco é resolvido dentro do poll de jogo
+  // (armarPollJogo, escopo do módulo) — sem jogo rodando não há pgrep.
 }
 
 // Pré-configura a partition do webview da loja Steam: cookies de idade para
@@ -1607,6 +1618,7 @@ app.whenReady().then(() => {
           startedAt: Date.now(),
         }
         ultimoJogoAtivo = jogoAtivo
+        armarPollJogo()
       }
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
@@ -1938,7 +1950,7 @@ app.whenReady().then(() => {
     if (cfg?.language && cfg.language !== idiomaAntes) {
       avisarBiblioteca(janela, true)
     }
-    if (Object.prototype.hasOwnProperty.call(cfg || {}, "slssteam_path") || Object.prototype.hasOwnProperty.call(cfg || {}, "slscheevo_path")) {
+    if (Object.prototype.hasOwnProperty.call(cfg || {}, "slssteam_path")) {
       janela?.webContents.send("plugins:changed")
     }
     return r
@@ -2048,7 +2060,6 @@ app.whenReady().then(() => {
   ipcMain.handle("store:status", () => ({
     ...steamstore.status(),
     slssteam: plugins.isEnabled("slssteam"),
-    slscheevo: plugins.isEnabled("slscheevo"),
     luatools: plugins.isEnabled("luatools-fixes"),
   }))
   ipcMain.handle("store:search", async (_e, query) => {
@@ -2230,119 +2241,18 @@ app.whenReady().then(() => {
     }
   })
 
-  // Detalhe das conquistas do jogo (ícone/descrição/raridade/data).
-  ipcMain.handle("achievements:get", async (_e, appid) => {
-    try {
-      const store = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
-      const local = store?.[appid]?.items || []
-      if (local.length) return local
-    } catch {}
-    return conquistasSteamComunity(appid)
-  })
-
-  // Fallback p/ jogos fora da biblioteca: página pública de conquistas do
-  // steamcommunity (HTML — o modo ?xml=1 não existe mais). Devolve nome,
-  // descrição, ícone e % global de desbloqueio. Cache em RAM por 6h.
-  const _conquistasCache = new Map()
-  async function conquistasSteamComunity(appid) {
-    appid = String(appid || "").replace(/^steam:/, "")
-    if (!appid) return []
-    const hit = _conquistasCache.get(appid)
-    if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.data
-    let out = []
-    try {
-      const url = `https://steamcommunity.com/stats/${encodeURIComponent(appid)}/achievements?l=portuguese`
-      const r = await fetchRede(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "arcadia" } })
-      if (r.ok) {
-        const html = await r.text()
-        const unesc = (s) => String(s || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim()
-        for (const m of html.matchAll(/<div class="achieveRow[^"]*"[^>]*>([\s\S]*?)<div style="clear: both;">/gi)) {
-          const b = m[1]
-          const icon = (/<img src="([^"]+)"/i.exec(b) || [])[1] || ""
-          const title = unesc((/<h3>([\s\S]*?)<\/h3>/i.exec(b) || [])[1])
-          if (!title) continue
-          const desc = unesc((/<h5>([\s\S]*?)<\/h5>/i.exec(b) || [])[1])
-          const percent = parseFloat((/achievePercent">\s*([\d.,]+)%/i.exec(b) || [])[1]?.replace(",", ".") || "") || 0
-          out.push({ name: title, title, desc, icon, icongray: icon, achieved: false, unlock: 0, percent })
-        }
-      }
-    } catch {}
-    if (_conquistasCache.size > 20) _conquistasCache.clear()
-    _conquistasCache.set(appid, { at: Date.now(), data: out })
-    return out
-  }
-
-  // Estatísticas do perfil: nível e insígnias (estilo Steam) — agrega
-  // library.json + achievements.json.
+  // Estatísticas do perfil: jogos e horas jogadas (agregado de library.json).
   ipcMain.handle("profile:stats", () => {
     try {
-      const lib = JSON.parse(fs.readFileSync(LIB, "utf-8"))
-      let ach = {}
-      try {
-        ach = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
-      } catch {}
-      let achDone = 0, achTotal = 0, achRaras = 0, jogos100 = 0, playMin = 0
+      const lib = readLibrary()
+      let playMin = 0
       for (const g of lib) playMin += g.playtime_minutes || 0
-      for (const ent of Object.values(ach)) {
-        const items = ent?.items || []
-        let done = 0
-        for (const a of items) {
-          achTotal++
-          if (a.achieved) {
-            achDone++
-            done++
-            const pct = typeof a.percent === "number" ? a.percent : parseFloat(a.percent) || 100
-            if (pct <= 10) achRaras++
-          }
-        }
-        if (items.length && done === items.length) jogos100++
-      }
       return {
         jogos: lib.length,
         playtime_hours: Math.round(playMin / 60),
-        ach_done: achDone,
-        ach_total: achTotal,
-        ach_raras: achRaras,
-        jogos_100: jogos100,
       }
     } catch {
       return null
-    }
-  })
-
-  // Feed de atividade: últimas conquistas desbloqueadas em qualquer jogo.
-  ipcMain.handle("achievements:recent", () => {
-    try {
-      const ach = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
-      let lib = []
-      try {
-        lib = JSON.parse(fs.readFileSync(LIB, "utf-8"))
-      } catch {}
-      const jogos = {}
-      for (const g of lib) {
-        if (g.id?.startsWith("steam:")) jogos[g.id.split(":")[1]] = g
-      }
-      const feed = []
-      for (const [appid, ent] of Object.entries(ach)) {
-        for (const a of ent?.items || []) {
-          if (a.achieved && a.unlock > 0) {
-            feed.push({
-              appid,
-              game: jogos[appid]?.title || `App ${appid}`,
-              cover: jogos[appid]?.cover || "",
-              title: a.title,
-              desc: a.desc,
-              icon: a.icon,
-              percent: a.percent,
-              unlock: a.unlock,
-            })
-          }
-        }
-      }
-      feed.sort((x, y) => y.unlock - x.unlock)
-      return feed.slice(0, 20)
-    } catch {
-      return []
     }
   })
 
@@ -2438,7 +2348,7 @@ app.whenReady().then(() => {
     if (!fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
     let lib = []
     try {
-      lib = JSON.parse(fs.readFileSync(LIB, "utf-8"))
+      lib = readLibrary()
     } catch {
       return { ok: false, error: "biblioteca não lida" }
     }
@@ -2838,20 +2748,6 @@ app.whenReady().then(() => {
     return { ok: true, path: p }
   })
 
-  // --- SLScheevo: conquistas em jogos injetados (SLSsteam) -----------------
-  const SLSCHEEVO = path.join(BIN_DIR, "SLScheevo-Linux")
-  const STEAM_STATS = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
-
-  // Status: binário instalado? quantos schemas já foram gerados?
-  ipcMain.handle("slscheevo:status", () => {
-    let schemas = 0
-    try {
-      schemas = fs.readdirSync(STEAM_STATS)
-        .filter((f) => f.startsWith("UserGameStatsSchema_")).length
-    } catch {}
-    return { installed: plugins.isEnabled("slscheevo"), schemas }
-  })
-
   createWindow()
 
   // Links externos abertos pela página da loja Steam (Community Hub, publisher,
@@ -2888,7 +2784,6 @@ app.on("window-all-closed", () => {
 // Ao sair, derruba o download ativo para não deixar o Legendary órfão (os
 // downloads são detached, então não morrem junto do app sozinhos).
 app.on("before-quit", () => {
-  try { pararAchievementWatcher?.() } catch {}
   try { require("./downloadmanager").killActive() } catch {}
   // Garante que metadados baixados na sessão atual não se percam se o app for
   // fechado antes do debounce de 1500ms do sysinfo cache.

@@ -10,7 +10,6 @@ import { GamePage } from "./GamePage"
 import { StoreGamePage } from "./StoreGamePage"
 import { UninstallDialog } from "./UninstallDialog"
 import { EditMetadata } from "../ps5-launcher/EditMetadata"
-import { avisarJogando } from "./PlayingBadge"
 
 import { AddGameDialog } from "./AddGameDialog"
 import { LaunchModeDialog } from "./LaunchModeDialog"
@@ -92,7 +91,6 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
     window.launcherAPI?.launch(g.launch_cmd, g.id, mode).then((r) => {
       if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
     })
-    avisarJogando(g)
     window.launcherAPI?.getConfig().then((c) => {
       if (c?.disable_playtime_tracking !== true) salvar(g.id, { last_played: Date.now() })
     })

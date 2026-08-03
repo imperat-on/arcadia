@@ -58,7 +58,7 @@ function status() {
 }
 
 // Login interativo: o `legendary auth` precisa de TTY (abre URL, usuário cola
-// o código). Abre num terminal, mesmo padrão do SLScheevo.
+// o código). Abre num terminal.
 function login() {
   const terms = ["kitty", "kgx", "gnome-terminal", "konsole", "alacritty", "xterm"]
   const term = terms.find((t) => {

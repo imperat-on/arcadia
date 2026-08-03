@@ -167,18 +167,6 @@ body {
   animation: ovExit var(--dur-1) ease-in both;
 }
 
-/* Toast de conquista (estilo troféu PS5) */
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes toastOut {
-  from { opacity: 1; }
-  to { opacity: 0; transform: translateY(-12px); }
-}
-.toast-in { animation: toastIn var(--dur-2) var(--ease) both; }
-.toast-out { animation: toastOut var(--dur-2) ease-in both; }
-
 /* Tela de boot (vídeo, estilo PS5) */
 @keyframes bootOut {
   from { opacity: 1; }
