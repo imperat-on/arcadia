@@ -59,3 +59,7 @@ sources.json
 sources/
 torrent_state.json
 bin/gemini-scan
+
+# Lixo/estado de runtime
+operacao
+vkd3d-proton.cache.write

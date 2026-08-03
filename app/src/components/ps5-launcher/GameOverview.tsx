@@ -139,6 +139,44 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   // Trailer local resolvido NA HORA (sem o delay de 1,5s da home e sem
   // baixar nada): undefined = carregando, null = não existe, string = path.
   const [trailer, setTrailer] = useState<string | null | undefined>(undefined)
+
+  // Fallback remoto (Steam sysinfo) pros campos de detalhe vazios.
+  const [meta, setMeta] = useState<{
+    short_description?: string
+    about?: string
+    developers?: string[]
+    publishers?: string[]
+    release_date?: string
+    movies?: Array<{ id?: string | number; name?: string; thumb?: string; mp4?: string; webm?: string; hls?: string }>
+    header?: string
+  } | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    setMeta(null)
+    const precisaEnriquecer = !game.description || !game.developer || !game.publisher || !game.genre
+    if (!precisaEnriquecer) return
+    const api = window.launcherAPI
+    if (!api?.gameSysinfo) return
+    api.gameSysinfo(game).then((r: any) => {
+      if (vivo && r && typeof r === "object") setMeta(r?.info ?? null)
+    }).catch(() => {})
+    return () => { vivo = false }
+  }, [game.id])
+  // HowLongToBeat: tempos de jogo (horas). Falha silenciosa — sem linha na UI.
+  const [hltb, setHltb] = useState<{ main: number; mainExtra: number; completionist: number } | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    setHltb(null)
+    const api = window.launcherAPI
+    if (!api?.hltbGet || !game.title) return
+    api.hltbGet(game.title).then((r) => {
+      if (!vivo || !r) return
+      setHltb({ main: r.main || 0, mainExtra: r.mainExtra || 0, completionist: r.completionist || 0 })
+    }).catch(() => {})
+    return () => { vivo = false }
+  }, [game.id])
   useEffect(() => {
     let vivo = true
     const api = window.launcherAPI
@@ -156,14 +194,26 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     }
   }, [game.id])
 
+  // Fallback: sem trailer local, usa o primeiro vídeo remoto do sysinfo.
+  useEffect(() => {
+    if (trailer !== null) return
+    const m = meta?.movies?.[0]
+    if (!m) return
+    const remoto = m.mp4 || m.webm || m.hls
+    if (remoto) setTrailer(remoto)
+  }, [meta, trailer])
+
   const detalhes: [string, string | number | undefined][] = [
-    [t("gameoverview.detalhes.desenvolvedora"), game.developer],
-    [t("gameoverview.detalhes.publicadora"), game.publisher],
+    [t("gameoverview.detalhes.desenvolvedora"), game.developer || meta?.developers?.[0]],
+    [t("gameoverview.detalhes.publicadora"), game.publisher || meta?.publishers?.[0]],
     [t("gameoverview.detalhes.genero"), game.genre],
-    [t("gameoverview.detalhes.lancamento"), game.year],
+    [t("gameoverview.detalhes.lancamento"), game.year || meta?.release_date],
     [t("gameoverview.detalhes.jogadores"), game.players],
     [t("gameoverview.detalhes.tempo_jogo"), game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined],
     [t("gameoverview.detalhes.conquistas"), game.achievements_total ? (game.achievements_done != null ? `${game.achievements_done} / ${game.achievements_total}` : `${game.achievements_total}`) : undefined],
+    [t("gameoverview.detalhes.hltb_main"), hltb?.main ? tempoDeJogo(hltb.main, t) : undefined],
+    [t("gameoverview.detalhes.hltb_main_extra"), hltb?.mainExtra ? tempoDeJogo(hltb.mainExtra, t) : undefined],
+    [t("gameoverview.detalhes.hltb_100"), hltb?.completionist ? tempoDeJogo(hltb.completionist, t) : undefined],
     [t("gameoverview.detalhes.metacritic"), game.metacritic ? `${game.metacritic} / 100` : undefined],
     [t("gameoverview.detalhes.fonte"), game.launcher],
   ]
@@ -209,7 +259,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               <h1 className="game-name truncate text-4xl font-light tracking-wide">{game.title}</h1>
             )}
             <p className="mt-3 line-clamp-3 max-w-[560px] text-[15px] font-light leading-relaxed text-white/65">
-              {game.description || t("gameoverview.sem_descricao")}
+              {game.description || meta?.short_description || t("gameoverview.sem_descricao")}
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {game.year && <Tag>{game.year}</Tag>}
@@ -249,6 +299,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     loop
                     muted={!somTrailer}
                     playsInline
+                    onError={() => setTrailer(null)}
                     className="h-full w-full object-cover"
                   />
                 )}
@@ -308,6 +359,16 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               {t("gameoverview.detalhes")}
             </span>
             <div className="mt-4 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
+              {detalhes.filter(([, v]) => v).length <= 1 && game.launcher === "steam" && meta === null && (
+                <div className="space-y-3 py-3">
+                  {[0,1,2,3].map(i => (
+                    <div key={i} className="flex items-center justify-between gap-4">
+                      <div className="h-3 w-20 rounded bg-white/5 animate-pulse" />
+                      <div className="h-3 w-32 rounded bg-white/5 animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              )}
               {detalhes.filter(([, v]) => v).map(([label, valor], i, arr) => (
                 <div key={label} className={`flex items-baseline justify-between gap-4 py-3 text-sm ${i < arr.length - 1 ? "border-b border-white/[0.07]" : ""}`}>
                   <span className="shrink-0 text-white/45">{label}</span>
@@ -365,9 +426,15 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
         </section>
 
         {/* Dica de controle */}
-        <div className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/40 ${closing ? "ov-out" : "ov-w4"}`}>
-          <span>{t("gameoverview.controle.jogar")}</span>
-          <button onClick={onClose} className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]">{t("gameoverview.controle.voltar")}</button>
+        <div className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/60 ${closing ? "ov-out" : "ov-w4"}`}>
+          <span className="flex items-center gap-2">
+            <Glyph kind="cross" />
+            <span>{t("gameoverview.controle.jogar")}</span>
+          </span>
+          <button onClick={onClose} className="flex items-center gap-2 outline-none transition-colors hover:text-white focus-visible:text-[color:var(--accent)]">
+            <Glyph kind="circle" />
+            <span>{t("gameoverview.controle.voltar")}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -417,5 +484,20 @@ function AchievementRow({ a }: { a: AchievementItem }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function Glyph({ kind }: { kind: "cross" | "circle" }) {
+  const cfg = kind === "cross"
+    ? { ch: "✕", bg: "rgba(0,114,206,0.22)", border: "rgba(0,114,206,0.55)", fg: "#7ec8ff" }
+    : { ch: "○", bg: "rgba(240,53,59,0.22)", border: "rgba(240,53,59,0.55)", fg: "#ff8085" }
+  return (
+    <span
+      aria-hidden
+      className="inline-flex h-6 w-6 items-center justify-center rounded-full border text-[13px] font-semibold leading-none"
+      style={{ background: cfg.bg, borderColor: cfg.border, color: cfg.fg }}
+    >
+      {cfg.ch}
+    </span>
   )
 }

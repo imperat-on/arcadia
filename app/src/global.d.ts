@@ -492,6 +492,7 @@ declare global {
       /** Entra no modo console (PS5, tela cheia) — fecha o desktop. */
       enterConsole: () => Promise<{ ok: boolean; error?: string }>
       toggleFullscreen: () => Promise<void>
+      setFullscreen: (on: boolean) => Promise<void>
       setZoom: (z: number) => Promise<number>
       rebuildMeta: () => Promise<Game[]>
       integrationsStatus: () => Promise<IntegrationsStatus>
@@ -500,6 +501,8 @@ declare global {
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       /** Caminho local (file://) do trailer já baixado, ou "" se não houver. */
       trailerPath: (id: string) => Promise<{ path: string }>
+      /** HowLongToBeat: tempos de jogo em horas (min), ou null se falhar. */
+      hltbGet: (titulo: string) => Promise<{ main: number; mainExtra: number; completionist: number; ts: number } | null>
       /** Baixa o trailer do YouTube via yt-dlp. Devolve o caminho local. */
       trailerDownload: (
         id: string,
@@ -530,6 +533,10 @@ declare global {
       onGameRunning: (cb: (running: boolean) => void) => () => void
       /** Biblioteca mudou no disco (download concluído, desinstalação). */
       onLibraryChanged: (cb: () => void) => () => void
+      /** Falha no lançamento do jogo (main process → renderer). */
+      onLaunchError: (cb: (payload: { gameId?: string; error: string }) => void) => () => void
+      /** Avisos do lançamento (ex.: wrapper não instalado). */
+      onLaunchWarning: (cb: (payload: { gameId?: string; warnings: string[] }) => void) => () => void
       /** Este clone pode receber atualização automática? */
       updateState: () => Promise<UpdateState>
       /** Compara o commit local com o do GitHub. */
@@ -578,10 +585,6 @@ declare global {
       onDmProgress: (cb: (items: DmItem[]) => void) => () => void
       /** Wine: versões instaladas + disponíveis, instalar/remover. */
       wineList: () => Promise<{ installed: WineVer[]; available: WineVer[]; error?: string }>
-      wineInstall: (id: string, kind?: "ge-proton" | "wine-ge") => Promise<{ ok: boolean; error?: string }>
-      wineRemove: (id: string) => Promise<{ ok: boolean }>
-      /** Progresso de download de uma versão de Wine/Proton. */
-      onWineProgress: (cb: (p: { id: string; done: number; total: number }) => void) => () => void
       /** Ferramentas do prefixo do jogo (winecfg/regedit/explorer/winetricks/wineboot). */
       prefixTool: (
         appid: string,
