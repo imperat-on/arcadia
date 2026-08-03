@@ -622,16 +622,6 @@ def enrich_player(games: list[dict], cfg: dict) -> None:
 
     api_lang = _get_steam_lang()
 
-    # Playtime: local (1 chamada já feita, sem rede aqui).
-    for g in games:
-        if g.get("launcher") != "steam":
-            continue
-        og = owned.get(g["id"].split(":", 1)[1])
-        if og:
-            mins = og.get("playtime_forever") or 0
-            if mins > 0:
-                g["playtime_minutes"] = mins
-
     # Conquistas: 1 chamada de rede por jogo — o gargalo. Paraleliza os que
     # estão sem cache ou vencidos; o merge roda serial depois.
     alvos = [g for g in games if g.get("launcher") == "steam"]

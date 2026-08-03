@@ -100,6 +100,9 @@ let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
 // é o que fecha/vigia de forma universal (custom, umu, legendary, lutris).
 let jogoAtivo = null
+// Snapshot da sessão encerrada: o interval limpa jogoAtivo antes do marcar
+// fechar a sessão, então o registro de playtime local se ancora aqui.
+let ultimoJogoAtivo = null
 // Intervals do createWindow. Se a janela for recriada sem matar o processo
 // (comum no macOS ou em reinicializações), evita acumular timers antigos.
 let gamescopeFocusInterval = null
@@ -660,43 +663,52 @@ function exeLaunchCmd(id, exe, linux) {
   const g = { exe }
   let v = null
   if (s.wineVersion) {
-    v = [...wm.installed(), ...wm.steamProtons()].find((w) => w.id === s.wineVersion)
+    v = wm.steamProtons().find((w) => w.id === s.wineVersion)
   }
 
-  // Proton (vindo do compatibilitytools.d da Steam): NUNCA pelo wine direto.
-  // Vai de UMU (igual ao Heroic) ou, sem UMU, pelo script `proton run`.
-  if (v?.kind === "steam") {
-    if (fs.existsSync(UMU)) {
-      return { cmd: ["python3", UMU, g.exe], env: { PROTONPATH: v.path, WINEPREFIX: prefixo, GAMEID: "arcadia" } }
+  // Proton da Steam: não usar wine direto — Proton provê o Steam Runtime +
+  // WINEDLLOVERRIDES corretos.
+  if (v?.kind === "steam" && fs.existsSync(path.join(v.path, "proton"))) {
+    // Migrar prefixo layout wine-puro (<prefix>/drive_c) pra layout Proton
+    // (<prefix>/pfx/drive_c). Sem isso Proton refuse ou faz merda.
+    const drivec = path.join(prefixo, "drive_c")
+    const pfxDrivec = path.join(prefixo, "pfx", "drive_c")
+    if (fs.existsSync(drivec) && !fs.existsSync(pfxDrivec)) {
+      try {
+        fs.mkdirSync(path.join(prefixo, "pfx"), { recursive: true })
+        for (const entry of fs.readdirSync(prefixo)) {
+          if (entry === "pfx") continue
+          fs.renameSync(path.join(prefixo, entry), path.join(prefixo, "pfx", entry))
+        }
+      } catch (e) { console.warn("arcadia: falha migrando prefixo:", e.message) }
     }
-    const proton = path.join(v.path, "proton")
-    if (fs.existsSync(proton)) {
+    // UMU (Heroic): normaliza runtime + prefixo + overrides. É como Heroic
+    // lança tudo — funciona pra Steam Proton e GE-Proton igual.
+    const umuRun = path.join(os.homedir(), ".config", "heroic", "tools", "runtimes", "umu", "umu-run")
+    if (fs.existsSync(umuRun)) {
       return {
-        cmd: [proton, "run", g.exe],
+        cmd: [umuRun, g.exe],
         env: {
-          STEAM_COMPAT_DATA_PATH: prefixo,
-          STEAM_COMPAT_CLIENT_INSTALL_PATH: path.join(os.homedir(), ".steam", "steam"),
-          STEAM_COMPAT_APP_ID: "0",
           WINEPREFIX: prefixo,
+          GAMEID: "arcadia",
+          PROTONPATH: v.path,
+          STORE: "none",
         },
       }
     }
+    // Fallback: script proton direto.
+    return {
+      cmd: [path.join(v.path, "proton"), "run", g.exe],
+      env: {
+        STEAM_COMPAT_DATA_PATH: prefixo,
+        STEAM_COMPAT_CLIENT_INSTALL_PATH: path.join(os.homedir(), ".steam", "steam"),
+        STEAM_COMPAT_APP_ID: "0",
+        WINEPREFIX: prefixo,
+      },
+    }
   }
 
-  // Wine comum (GE-Proton do Arcadia, Wine-GE, sistema): wine direto + DXVK
-  // manual no prefixo (rodar wine direto não ativa DXVK sozinho). Só instala
-  // se o prefixo já existe — na 1ª execução o wine cria o prefixo antes.
-  const wine = v?.wine && fs.existsSync(v.wine) ? v.wine : wm.bestWine()
-  if (fs.existsSync(path.join(prefixo, "drive_c", "windows", "system32"))) {
-    try {
-      wm.installGraphicsLibs(prefixo, wine, {
-        dxvk: s.autoDXVK !== false,
-        nvapi: Boolean(s.autoNVAPI),
-        vkd3d: Boolean(s.autoVKD3D),
-      })
-    } catch {}
-  }
-  return { cmd: [wine, g.exe], env: { WINEPREFIX: prefixo } }
+  return null
 }
 
 // --- Configurações por jogo (diálogo estilo Heroic) -------------------------
@@ -803,6 +815,24 @@ function binExists(cmd) {
     .some((dir) => fs.existsSync(path.join(dir, cmd)))
 }
 
+// Valida binários do comando de launch ANTES do spawn. Retorna mensagem de
+// erro ou null se OK. Wrappers (gamescope/gamemoderun/mangohud) já são
+// validados em applyGameSettings.
+function validarBinariosLaunch(cmd, gameId) {
+  const bin = cmd[0]
+  if (!bin) return "cmd[0] vazio"
+  // Bin principal — se é caminho absoluto, exigir existência.
+  if (bin.startsWith("/") && !fs.existsSync(bin)) {
+    return `Binário não existe: ${bin}`
+  }
+  // Executável do jogo (heurística: último arg com .exe ou path absoluto)
+  const exe = cmd.find(a => /\.(exe|bat|msi)$/i.test(a) || (a.startsWith("/") && a !== bin))
+  if (exe && exe.startsWith("/") && !fs.existsSync(exe)) {
+    return `Executável do jogo não existe: ${exe}`
+  }
+  return null
+}
+
 // Monta env/args de lançamento a partir das configurações do jogo.
 // Retorna { cmd, env, warnings } já com gamescope (se ligado) e variáveis.
 /**
@@ -895,7 +925,7 @@ function applyGameSettings(cmd, s, gameId) {
     }
     if (s.wineVersion) {
       const wm = require("./winemanager")
-      const v = [...wm.installed(), ...wm.steamProtons()].find((w) => w.id === s.wineVersion)
+      const v = wm.steamProtons().find((w) => w.id === s.wineVersion)
       if (v?.wine && fs.existsSync(v.wine)) {
         finalCmd = [...finalCmd, "--wine", v.wine]
         // Instala DXVK/NVAPI/VKD3D no prefixo efetivo — rodar o wine direto
@@ -1061,6 +1091,13 @@ function readLibrary() {
       if (p && p.id && !jaTem.has(p.id)) games.push(p)
     }
     applyOverrides(games, readOverrides(OVERRIDES))
+    // Tempo de sessão local (jogos NÃO-Steam): o renderer recebe o playtime
+    // já somado. A Steam não entra — o indexer traz o playtime real dela.
+    for (const g of games) {
+      if (g.playtime_added_minutes) {
+        g.playtime_minutes = (Number(g.playtime_minutes) || 0) + Number(g.playtime_added_minutes)
+      }
+    }
     // Executável definido na aba Localizações torna o jogo jogável: o launch já
     // roda esse .exe (exeLaunchCmd), mas sem marcar installed a UI só oferecia
     // "Instalar" e o botão Jogar nunca aparecia.
@@ -1349,6 +1386,22 @@ function createWindow() {
     if (rodando === jogoRodando) return
     jogoRodando = rodando
     if (win && !win.isDestroyed()) win.webContents.send("game:running", rodando)
+    if (!rodando) {
+      // Sessão encerrada: soma o tempo jogado no override (só fora da Steam —
+      // a Steam já traz playtime real do indexer).
+      const snap = ultimoJogoAtivo
+      ultimoJogoAtivo = null
+      if (snap && snap.gameId && snap.startedAt) {
+        try {
+          const min = Math.round((Date.now() - snap.startedAt) / 60000)
+          if (min >= 1) {
+            const prev = Number(readOverrides(OVERRIDES)[snap.gameId]?.playtime_added_minutes) || 0
+            setOverride(OVERRIDES, snap.gameId, { playtime_added_minutes: prev + min })
+            if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+          }
+        } catch {}
+      }
+    }
     // Jogo fechou: roda o script pós-jogo configurado (se houver).
     if (!rodando && postGameScript) {
       const script = postGameScript
@@ -1362,15 +1415,16 @@ function createWindow() {
   if (runningGameInterval) clearInterval(runningGameInterval)
   runningGameInterval = setInterval(() => {
     if (jogoAtivo) {
-      // Sinal 0: só testa se o grupo de processos ainda existe.
       try {
         process.kill(-jogoAtivo.pid, 0)
         marcar(true)
+        return
       } catch {
+        // Grupo do wrapper (ex: steam://rungameid) morreu. NÃO marca false
+        // aqui — o pgrep abaixo confirma se o jogo real ainda vive.
+        // ultimoJogoAtivo é preservado.
         jogoAtivo = null
-        marcar(false)
       }
-      return
     }
     execFile("pgrep", ["-f", PADRAO_JOGO], (err) => marcar(!err))
   }, 3000)
@@ -1429,25 +1483,33 @@ app.whenReady().then(() => {
     let envExtra = {}
     if (typeof gameId === "string" && gameId.startsWith("custom:")) {
       const built = customLaunchCmd(gameId)
-      rawCmd = built?.cmd
-      envExtra = built?.env || {}
+      if (!built) {
+        return { ok: false, error: `Jogo custom não encontrado em custom_games.json (id: ${gameId}).` }
+      }
+      rawCmd = built.cmd
+      envExtra = built.env || {}
     } else if (typeof gameId === "string" && mode !== "steam") {
       // Override "Executável" (aba Localizações): roda o exe escolhido em vez do
       // launch_cmd padrão da loja. Sem modo, só quando há exePath configurado.
       const exe = getGameSettings(gameId).exePath
       if (exe) {
         const built = exeLaunchCmd(gameId, exe)
+        if (!built) {
+          return { ok: false, error: "Executável configurado não encontrado (exePath vazio)." }
+        }
         if (built?.cmd?.length) {
           rawCmd = built.cmd
           envExtra = built.env || {}
         }
       }
     }
-    if (!Array.isArray(rawCmd) || rawCmd.length === 0) return { ok: false }
+    if (!Array.isArray(rawCmd) || rawCmd.length === 0) {
+      return { ok: false, error: "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações." }
+    }
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
     // em diante o cmd[0] já não é mais o binário da Steam.
     rawCmd = steamSilencioso(rawCmd)
-    const sls = plugins.isEnabled("slssteam") ? steamComInjecao(rawCmd) : { cmd: rawCmd, env: {} }
+    const sls = plugins.isEnabled("slssteam") ? steamComInjecao(rawCmd) : { cmd: rawCmd, env: {}, avisos: [] }
     rawCmd = sls.cmd
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
@@ -1469,20 +1531,33 @@ app.whenReady().then(() => {
       }
       warnings.push(...sls.avisos)
       for (const w of warnings) console.warn("arcadia:", w)
+      if (warnings.length && win && !win.isDestroyed()) {
+        win.webContents.send("game:launchWarning", { gameId, warnings })
+      }
       // Jogo custom: SEMPRE roda no prefixo dele (padrão ou customizado) —
       // sem isso caía no ~/.wine do sistema e o jogo não abria.
       if (typeof gameId === "string" && gameId.startsWith("custom:")) {
         env.WINEPREFIX = env.WINEPREFIX || s.prefixPath || defaultPrefix(gameId)
       }
 
-      // Logs detalhados (aba AVANÇADO): stdout/stderr do jogo em logs/<id>.log.
+      // Log SEMPRE ligado: stdout/stderr do jogo em logs/<id>.log (append com
+      // rotação simples). verboseLogs só controla DXVK_HUD/WINEDEBUG — falha
+      // de log não bloqueia o launch.
       let stdio = "ignore"
-      if (s.verboseLogs) {
+      try {
+        fs.mkdirSync(LOG_DIR, { recursive: true })
+        const logPath = path.join(LOG_DIR, `${String(gameId || "jogo").replace(/[^a-z0-9._-]/gi, "_")}.log`)
+        // Rotação simples: se >5MB, renomeia pra .old (sobrescreve .old anterior)
         try {
-          fs.mkdirSync(LOG_DIR, { recursive: true })
-          const fd = fs.openSync(path.join(LOG_DIR, `${String(gameId || "jogo").replace(/[^a-z0-9._-]/gi, "_")}.log`), "a")
-          stdio = ["ignore", fd, fd]
+          const st = fs.statSync(logPath)
+          if (st.size > 5 * 1024 * 1024) fs.renameSync(logPath, logPath + ".old")
         } catch {}
+        const fd = fs.openSync(logPath, "a")
+        fs.writeSync(fd, `\n\n=== ${new Date().toISOString()} launch: ${JSON.stringify(cmd)} ===\n`)
+        stdio = ["ignore", fd, fd]
+      } catch (e) {
+        console.warn("arcadia: log fd falhou:", e.message)
+        // segue com "ignore" — não bloqueia launch por falha de log
       }
 
       // Script pré-jogo (aba AVANÇADO): espera terminar (máx. 60s) antes de lançar.
@@ -1502,11 +1577,36 @@ app.whenReady().then(() => {
         setTimeout(() => win?.minimize(), 2000)
       }
 
+      // Valida binários ANTES de qualquer spawn (steam URI ou direto).
+      const binErro = validarBinariosLaunch(cmd, gameId)
+      if (binErro) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send("game:launchError", { gameId, error: binErro })
+        }
+        return { ok: false, error: binErro }
+      }
+
       const soltar = (c) => {
         const child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+        child.on("error", (err) => {
+          console.warn("arcadia: spawn erro:", err.message)
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", { gameId, error: `spawn falhou: ${err.message}` })
+          }
+        })
+        // unref DEPOIS do listener registrado
         child.unref()
         // Registra o grupo de processos do jogo (o spawn detached vira líder).
-        jogoAtivo = { pid: child.pid, alvo: c[c.length - 1] }
+        // launcher sai da biblioteca (o payload do launch só traz gameId).
+        const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
+        jogoAtivo = {
+          pid: child.pid,
+          alvo: c[c.length - 1],
+          gameId: gameId || "",
+          launcher: lib?.launcher || "",
+          startedAt: Date.now(),
+        }
+        ultimoJogoAtivo = jogoAtivo
       }
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
@@ -1546,7 +1646,11 @@ app.whenReady().then(() => {
                   setTimeout(run, 1200)
                 }, 3000) // cliente subiu: espera a UI estabilizar
               } else if (++tentativas > 30) {
-                clearInterval(esperar) // ~60s sem sinal: desiste silenciosamente
+                clearInterval(esperar) // ~60s sem sinal: desiste
+                if (win && !win.isDestroyed()) {
+                  win.webContents.send("game:launchError", { gameId, error: "Steam não iniciou em 60s." })
+                }
+                return
               }
             })
           }, 2000)
@@ -2095,21 +2199,7 @@ app.whenReady().then(() => {
 
   // --- Wine manager + ferramentas de prefixo --------------------------------
   const wm = require("./winemanager")
-  ipcMain.handle("wine:list", async () => {
-    try {
-      return await wm.catalog()
-    } catch (e) {
-      return { installed: [...wm.installed(), ...wm.steamProtons()], available: [], error: String(e.message || e) }
-    }
-  })
-  ipcMain.handle("wine:install", async (_e, { id, kind } = {}) => {
-    try {
-      return await wm.install(id, kind, (p) => win.webContents.send("wine:progress", p))
-    } catch (e) {
-      return { ok: false, error: String(e.message || e) }
-    }
-  })
-  ipcMain.handle("wine:remove", (_e, id) => wm.remove(id))
+  ipcMain.handle("wine:list", () => ({ installed: require("./winemanager").steamProtons(), available: [] }))
   ipcMain.handle("wine:prefixTool", async (_e, { appid, tool, wine, prefix } = {}) => {
     try {
       return await wm.prefixTool(appid, tool, { wine, prefix })
@@ -2431,6 +2521,9 @@ app.whenReady().then(() => {
   ipcMain.handle("app:toggleFullscreen", () => {
     if (win) win.setFullScreen(!win.isFullScreen())
   })
+  ipcMain.handle("app:setFullscreen", (_e, on) => {
+    if (win) win.setFullScreen(Boolean(on))
+  })
   ipcMain.handle("app:setZoom", (_e, z) => {
     const factor = Math.min(2, Math.max(0.7, Number(z) || 1))
     if (win) win.webContents.setZoomFactor(factor)
@@ -2451,6 +2544,15 @@ app.whenReady().then(() => {
     }
     await runIndexer()
     return readLibrary()
+  })
+
+  // HowLongToBeat: tempos de jogo (falha silenciosa, sem linha na UI).
+  ipcMain.handle("hltb:get", async (_e, titulo) => {
+    try {
+      return await require("./hltb").hltbBuscar(titulo)
+    } catch {
+      return null
+    }
   })
 
   // Status das integrações para a aba Integrações.

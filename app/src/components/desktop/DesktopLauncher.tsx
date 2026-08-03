@@ -10,7 +10,6 @@ import { DownloadsView } from "./DownloadsView"
 import { SourcesView } from "./SourcesView"
 import { aplicarA11y } from "./AccessibilityView"
 import { SettingsView } from "./SettingsView"
-import { WineSection } from "../ps5-launcher/WineManager"
 import { PlayingBadge } from "./PlayingBadge"
 import { StoreView } from "./StoreView"
 import { HomeView } from "./HomeView"
@@ -209,11 +208,6 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
             {!jogoPagina && view === "fontes" && <SourcesView />}
-            {!jogoPagina && view === "wine" && (
-              <div className="h-full overflow-y-auto px-8 py-6">
-                <WineSection />
-              </div>
-            )}
             {!jogoPagina && view === "config" && <SettingsView sub={configSub} onSaved={carregar} />}
           </>
         )}

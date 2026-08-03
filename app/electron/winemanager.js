@@ -1,36 +1,43 @@
-// Wine/Proton version manager: lista/baixa GE-Proton e Wine-GE (releases do
-// GloriousEggroll) e detecta Protons da Steam. Instalados vão para
-// ~/.local/share/arcadia/wine/ (baixados) ou são lidos de
-// ~/.steam/steam/steamapps/common/Proton* (Steam). Prefixos por jogo ficam em
-// ~/.local/share/arcadia/prefixes/<appid>/.
+// Wine/Proton manager: detecta Protons da Steam (oficiais e customizados em
+// compatibilitytools.d). Sem download/gerenciamento próprio — a Steam cuida
+// disso. Prefixos por jogo ficam em ~/.local/share/arcadia/prefixes/<appid>/.
 
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
-const { spawn, execFile } = require("child_process")
-const { fetchRede } = require("./httpfetch")
+const { spawn } = require("child_process")
 
 const DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
-const WINE_DIR = path.join(DATA_DIR, "wine")
 const PREFIX_DIR = path.join(DATA_DIR, "prefixes")
-
-const API = "https://api.github.com/repos"
-const REPOS = {
-  "ge-proton": `${API}/GloriousEggroll/proton-ge-custom/releases?per_page=30`,
-  "wine-ge": `${API}/GloriousEggroll/wine-ge-custom/releases?per_page=30`,
-}
 
 // Pastas onde a Steam guarda os Protons oficiais (steamapps/common) e os
 // customizados instalados pelo usuário (compatibilitytools.d — GE-Proton via
-// ProtonUp-Qt ou manual).
-const STEAM_COMMON = [
-  path.join(os.homedir(), ".steam", "steam", "steamapps", "common"),
-  path.join(os.homedir(), ".local", "share", "Steam", "steamapps", "common"),
-  path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps", "common"), // flatpak
-  path.join(os.homedir(), ".steam", "steam", "compatibilitytools.d"),
-  path.join(os.homedir(), ".local", "share", "Steam", "compatibilitytools.d"),
-  path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "compatibilitytools.d"), // flatpak
-]
+// ProtonUp-Qt ou manual). Além dos locais padrão, inclui libraries.vdf de
+// bibliotecas Steam extras (steamstore.steamLibraries()).
+function steamCommonDirs() {
+  const base = [
+    path.join(os.homedir(), ".steam", "steam", "steamapps", "common"),
+    path.join(os.homedir(), ".local", "share", "Steam", "steamapps", "common"),
+    path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps", "common"), // flatpak
+    path.join(os.homedir(), ".steam", "steam", "compatibilitytools.d"),
+    path.join(os.homedir(), ".local", "share", "Steam", "compatibilitytools.d"),
+    path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "compatibilitytools.d"), // flatpak
+  ]
+  try {
+    // require lazy: steamstore não requer winemanager (grep confirmou), mas
+    // lazy evita qualquer ciclo futuro no top-level.
+    const { steamLibraries } = require("./steamstore")
+    for (const lib of steamLibraries() || []) {
+      // lib.path é ".../steamapps" → common = ".../steamapps/common"
+      const common = path.join(lib.path, "common")
+      if (!base.includes(common)) base.push(common)
+      // libraries.vdf também podem hospedar compatibilitytools.d (raro mas ok)
+      const compat = path.join(path.dirname(lib.path), "compatibilitytools.d")
+      if (!base.includes(compat)) base.push(compat)
+    }
+  } catch {}
+  return base
+}
 
 function safeId(appid) {
   return String(appid).replace(/[^a-z0-9._-]/gi, "_")
@@ -50,38 +57,12 @@ function prefixBase(appid) {
   return base
 }
 
-async function gh(url) {
-  const r = await fetchRede(url, { headers: { "User-Agent": "arcadia" }, signal: AbortSignal.timeout(20000) })
-  if (!r.ok) throw new Error(`GitHub ${r.status}`)
-  return r.json()
-}
-
-// Versões instaladas = subpastas de wine/ com bin/wine dentro.
-// Aceita duas estruturas: GE-Proton (files/bin/wine) e Wine-GE (bin/wine direto).
-function installed() {
-  try {
-    return fs
-      .readdirSync(WINE_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => {
-        const dir = path.join(WINE_DIR, d.name)
-        const wineFiles = path.join(dir, "files", "bin", "wine")
-        const wineDirect = path.join(dir, "bin", "wine")
-        const wine = fs.existsSync(wineFiles) ? wineFiles : fs.existsSync(wineDirect) ? wineDirect : ""
-        return { id: d.name, name: d.name, path: dir, wine }
-      })
-      .filter((v) => v.wine)
-  } catch {
-    return []
-  }
-}
-
 // Protons da Steam detectados: oficiais em steamapps/common/Proton* e
 // customizados em compatibilitytools.d/<qualquer-nome> (têm compatibilitytool.vdf).
 function steamProtons() {
   const seen = new Set()
   const out = []
-  for (const common of STEAM_COMMON) {
+  for (const common of steamCommonDirs()) {
     const isCompatDir = /compatibilitytools\.d$/.test(common)
     try {
       const dirs = fs.readdirSync(common, { withFileTypes: true })
@@ -113,161 +94,19 @@ function steamProtons() {
   return out
 }
 
-// Lista de releases disponíveis no GitHub para um tipo (ge-proton | wine-ge).
-async function available(kind) {
-  const rels = await gh(REPOS[kind])
-  if (!Array.isArray(rels)) return []
-  return rels
-    .map((rel) => {
-      const assets = rel.assets || []
-      // Prefere o asset x86_64 (desktop); ignora aarch64 e arquivos de assinatura.
-      const asset =
-        assets.find((a) => /x86_64\.tar\.(gz|xz)$/.test(a.name || "")) ||
-        assets.find((a) => /\.tar\.(gz|xz)$/.test(a.name || "") && !/aarch64|sha512|sha256|\.sig/i.test(a.name || ""))
-      if (!asset) return null
-      const id = asset.name.replace(/\.tar\.(gz|xz)$/, "")
-      return {
-        id,
-        name: rel.name || rel.tag_name || id,
-        url: asset.browser_download_url,
-        size: Math.round((asset.size || 0) / 1024 / 1024),
-        releaseDate: rel.published_at || rel.created_at || "",
-        kind,
-      }
-    })
-    .filter(Boolean)
-    // Wine-GE: ignora builds específicas de LoL (têm patches exclusivos).
-    .filter((v) => (kind === "wine-ge" ? !/LoL/i.test(v.id) : true))
-}
-
-// Catálogo completo: instalados (Arcadia) + Protons da Steam + disponíveis.
-// Os "available" vêm da API do GitHub (60 req/h sem token!) — por isso ficam
-// cacheados em disco por 6h; se a API falha (403/rate limit), usa o cache.
-const CATALOG_CACHE = path.join(DATA_DIR, "wine_catalog_cache.json")
-const CATALOG_TTL = 6 * 60 * 60 * 1000
-
-async function catalog() {
-  const inst = installed().map((v) => ({
-    ...v,
-    // Classificação pela estrutura real: GE-Proton tem files/bin/wine;
-    // Wine-GE (Lutris) tem bin/wine direto, sem pasta files/.
-    kind: /\/files\/bin\/wine$/.test(v.wine) ? "ge-proton" : "wine-ge",
-  }))
-  const steam = steamProtons()
-
-  let cache = null
-  try {
-    cache = JSON.parse(fs.readFileSync(CATALOG_CACHE, "utf-8"))
-  } catch {}
-
-  if (cache?.available && Date.now() - (cache.ts || 0) < CATALOG_TTL) {
-    return { installed: [...inst, ...steam], available: cache.available.filter((a) => !inst.some((i) => i.id === a.id)) }
-  }
-
-  try {
-    const [ge, wg] = await Promise.all([available("ge-proton"), available("wine-ge")])
-    const avail = [...ge, ...wg]
-    try {
-      fs.writeFileSync(CATALOG_CACHE, JSON.stringify({ ts: Date.now(), available: avail }, null, 2))
-    } catch {}
-    return { installed: [...inst, ...steam], available: avail.filter((a) => !inst.some((i) => i.id === a.id)) }
-  } catch (e) {
-    // API fora (rate limit/rede): serve o cache mesmo velho.
-    if (cache?.available) {
-      return { installed: [...inst, ...steam], available: cache.available.filter((a) => !inst.some((i) => i.id === a.id)), stale: true }
-    }
-    throw e
-  }
-}
-
-// Baixa e extrai uma versão (.tar.gz ou .tar.xz) em wine/<id>/, reportando progresso.
-async function install(id, kind, onProgress) {
-  const list = await available(kind || "ge-proton")
-  const av = list.find((a) => a.id === id)
-  if (!av) throw new Error("versão não encontrada")
-  fs.mkdirSync(WINE_DIR, { recursive: true })
-
-  // Detecta a extensão real do asset (GE-Proton usa .tar.gz, Wine-GE usa .tar.xz).
-  const ext = /\.tar\.xz$/.test(av.url) ? ".tar.xz" : ".tar.gz"
-  const tarFlag = ext === ".tar.xz" ? "-xJf" : "-xzf"
-  const tgz = path.join(WINE_DIR, id + ext)
-
-  const res = await fetchRede(av.url)
-  if (!res.ok || !res.body) throw new Error(`download falhou: HTTP ${res.status}`)
-  const total = Number(res.headers.get("content-length") || 0)
-  const file = fs.createWriteStream(tgz)
-  const reader = res.body.getReader()
-  let done = 0
-  try {
-    for (;;) {
-      const { done: fin, value } = await reader.read()
-      if (fin) break
-      file.write(value)
-      done += value.length
-      onProgress?.({ id, done, total })
-    }
-    await new Promise((r) => file.end(r))
-  } catch (e) {
-    // Conexão caiu no meio do stream: fecha o handle e descarta o arquivo
-    // parcial — sem isso o fd ficava aberto e o .tar.gz/.tar.xz incompleto
-    // ficava perdido em wine/.
-    await new Promise((r) => file.close(r))
-    fs.rmSync(tgz, { force: true })
-    throw e
-  }
-
-  await new Promise((res2, rej) =>
-    execFile("tar", [tarFlag, tgz, "-C", WINE_DIR], (e) => (e ? rej(e) : res2())),
-  )
-  fs.rmSync(tgz, { force: true })
-
-  // O tar às vezes extrai com um nome de pasta diferente do id (ex: Wine-GE
-  // baixa "wine-lutris-GE-Proton8-25" mas extrai "lutris-GE-Proton8-25").
-  // Renomeamos a pasta extraída para o id esperado.
-  const destino = path.join(WINE_DIR, id)
-  if (!fs.existsSync(destino)) {
-    const candidatas = fs
-      .readdirSync(WINE_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      // A pasta extraída é a que "casa" com o id ignorando o prefixo "wine-".
-      .filter((n) => n === id || n === id.replace(/^wine-/, "") || id.endsWith(n) || n.endsWith(id.replace(/^wine-/, "")))
-      .filter((n) => n !== id)
-    if (candidatas.length) {
-      fs.renameSync(path.join(WINE_DIR, candidatas[0]), destino)
-    }
-  }
-  return { ok: true }
-}
-
-function remove(id) {
-  const dir = path.join(WINE_DIR, id)
-  // startsWith(WINE_DIR) sozinho deixa passar irmãos tipo "wine-outra-pasta"
-  // (que também começa com o texto de WINE_DIR); exige o separador de path.
-  if (!(dir === WINE_DIR || dir.startsWith(WINE_DIR + path.sep))) return { ok: false }
-  fs.rmSync(dir, { recursive: true, force: true })
-  return { ok: true }
-}
-
-// Melhor binário de wine disponível: GE-Proton baixado > wine do sistema.
-function bestWine() {
-  const inst = installed()
-  if (inst.length) return inst[inst.length - 1].wine
-  return "wine" // PATH do sistema (pode não existir — o caller trata o erro)
-}
-
 function prefixOf(appid) {
   return path.join(prefixBase(appid), safeId(appid))
 }
 
 // Bootstrap do prefixo (wineboot) se ainda não existe drive_c.
-// opts.prefix sobrescreve o prefixo padrão (caminho customizado do jogo).
+// opts: { wine: binário obrigatório, prefix: prefixo customizado }.
 async function verifyWinePrefix(appid, opts = {}) {
+  if (!opts.wine) return { ok: false, error: "wine binary não fornecido" }
   const prefix = opts.prefix || prefixOf(appid)
   if (fs.existsSync(path.join(prefix, "drive_c"))) return { ok: true, prefix }
   fs.mkdirSync(prefix, { recursive: true })
   await new Promise((res) => {
-    const child = spawn(opts.wine || bestWine(), ["wineboot", "-u"], {
+    const child = spawn(opts.wine, ["wineboot", "-u"], {
       env: { ...process.env, WINEPREFIX: prefix },
       detached: true,
       stdio: "ignore",
@@ -276,14 +115,17 @@ async function verifyWinePrefix(appid, opts = {}) {
     child.on("error", res)
     setTimeout(res, 60000) // não trava o fluxo se o wineboot demorar
   })
+  try {
+    installGraphicsLibs(prefix, opts.wine, { dxvk: true, vkd3d: true })
+  } catch {}
   return { ok: true, prefix }
 }
 
 // Ferramentas do prefixo: winecfg / regedit / explorer / winetricks / wineboot.
-// opts: { wine: caminho do binário escolhido, prefix: prefixo customizado }.
+// opts: { wine: binário escolhido, prefix: prefixo customizado }.
 async function prefixTool(appid, tool, opts = {}) {
   const { prefix } = await verifyWinePrefix(appid, opts)
-  const wine = opts.wine || bestWine()
+  const wine = opts.wine
   const env = { ...process.env, WINEPREFIX: prefix }
   let cmd, args
   if (tool === "winetricks") {
@@ -311,7 +153,7 @@ async function prefixTool(appid, tool, opts = {}) {
 // Executa um .exe/.msi/.bat dentro do prefixo do jogo.
 async function runExe(appid, exePath, opts = {}) {
   const { prefix } = await verifyWinePrefix(appid, opts)
-  const wine = opts.wine || bestWine()
+  const wine = opts.wine
   try {
     const child = spawn(wine, [exePath], {
       env: { ...process.env, WINEPREFIX: prefix },
@@ -359,17 +201,11 @@ function installGraphicsLibs(prefix, winePath, { dxvk = true, nvapi = false, vkd
 }
 
 module.exports = {
-  installed,
-  available,
-  catalog,
-  install,
-  remove,
   verifyWinePrefix,
   prefixTool,
   runExe,
   installGraphicsLibs,
   prefixOf,
   steamProtons,
-  WINE_DIR,
   PREFIX_DIR,
 }

@@ -6,7 +6,7 @@ import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
-export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "wine" | "config"
+export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "config"
 export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
@@ -16,8 +16,7 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "plugins", label: "Componentes", labelKey: "sidebar.plugins", icon: <IconPlugin /> },
   { id: "downloads", label: "Downloads", labelKey: "sidebar.downloads", icon: <IconDownload /> },
   { id: "fontes", label: "Fontes", labelKey: "sidebar.fontes", icon: <IconFontes /> },
-  { id: "wine", label: "Wine Manager", labelKey: "sidebar.wine", icon: <IconWine /> },
-  { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
+    { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
 ]
 
 const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string }[] = [
@@ -339,17 +338,6 @@ function IconFontes() {
     <svg {...s}>
       <path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
       <path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7L12.5 19" />
-    </svg>
-  )
-}
-
-// Wine: taça com haste e base — silhueta limpa, sem folhagem.
-function IconWine() {
-  return (
-    <svg {...s}>
-      <path d="M6 4h12l-1 5.5A5 5 0 0 1 12 14a5 5 0 0 1-5-4.5z" />
-      <path d="M12 14v5" />
-      <path d="M8 20h8" />
     </svg>
   )
 }
