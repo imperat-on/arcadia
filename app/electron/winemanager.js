@@ -18,10 +18,29 @@ function steamCommonDirs() {
   const base = [
     path.join(os.homedir(), ".steam", "steam", "steamapps", "common"),
     path.join(os.homedir(), ".local", "share", "Steam", "steamapps", "common"),
-    path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps", "common"), // flatpak
+    path.join(
+      os.homedir(),
+      ".var",
+      "app",
+      "com.valvesoftware.Steam",
+      ".local",
+      "share",
+      "Steam",
+      "steamapps",
+      "common",
+    ), // flatpak
     path.join(os.homedir(), ".steam", "steam", "compatibilitytools.d"),
     path.join(os.homedir(), ".local", "share", "Steam", "compatibilitytools.d"),
-    path.join(os.homedir(), ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "compatibilitytools.d"), // flatpak
+    path.join(
+      os.homedir(),
+      ".var",
+      "app",
+      "com.valvesoftware.Steam",
+      ".local",
+      "share",
+      "Steam",
+      "compatibilitytools.d",
+    ), // flatpak
   ]
   try {
     // require lazy: steamstore não requer winemanager (grep confirmou), mas
@@ -185,7 +204,10 @@ function installGraphicsLibs(prefix, winePath, { dxvk = true, nvapi = false, vkd
   if (vkd3d) fontes.push("vkd3d-proton")
   let copiados = 0
   for (const lib of fontes) {
-    for (const [arch, dest] of [["x86_64-windows", sys32], ["i386-windows", wow64]]) {
+    for (const [arch, dest] of [
+      ["x86_64-windows", sys32],
+      ["i386-windows", wow64],
+    ]) {
       const src = path.join(base, "lib", "wine", lib, arch)
       if (!fs.existsSync(src) || !fs.existsSync(dest)) continue
       for (const f of fs.readdirSync(src)) {

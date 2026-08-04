@@ -136,7 +136,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             const mBundle = /^\/bundle\/(\d+)/.exec(p)
             if (mBundle) return "bundle:" + mBundle[1]
             return p || "/"
-          } catch { return u }
+          } catch {
+            return u
+          }
         }
         const w = webRef.current
         const stack = historicoRef.current
@@ -151,7 +153,12 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         if (stack.length < 1) return false
         const anterior = stack[stack.length - 1]
         voltandoRef.current = true
-        try { w.loadURL(anterior) } catch { voltandoRef.current = false; return false }
+        try {
+          w.loadURL(anterior)
+        } catch {
+          voltandoRef.current = false
+          return false
+        }
         return true
       },
       abrirTeclado: () => {
@@ -175,8 +182,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           remover: t("common.remover"),
           restart: t("desktop.restart_steam"),
         })
-        const accent = getComputedStyle(document.documentElement)
-          .getPropertyValue("--accent").trim() || "#00a8ff"
+        const accent =
+          getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() ||
+          "#00a8ff"
         el.send("arcadia:tema", { accent })
       } catch {}
     }
@@ -230,7 +238,10 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       }
       if (e?.channel !== "arcadia:acao") return
       const { tipo, appid, title } = arg
-      if (tipo === "restart") { acoes.reiniciarSteam(); return }
+      if (tipo === "restart") {
+        acoes.reiniciarSteam()
+        return
+      }
       if (!appid) return
       const jogo = { appid: String(appid), title: String(title || appid) }
       if (tipo === "baixar") acoes.baixar(jogo)
@@ -247,10 +258,17 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     // query/tracking). Se o pathname já é o do topo, apenas atualiza a URL no
     // topo — assim um B corresponde a uma volta real, não à undo de uma query.
     const pathnameDe = (u: string) => {
-      try { return new URL(u).pathname.replace(/\/+$/, "") || "/" } catch { return u }
+      try {
+        return new URL(u).pathname.replace(/\/+$/, "") || "/"
+      } catch {
+        return u
+      }
     }
     const empilhar = (novaUrl: string) => {
-      if (voltandoRef.current) { voltandoRef.current = false; return }
+      if (voltandoRef.current) {
+        voltandoRef.current = false
+        return
+      }
       const stack = historicoRef.current
       const topo = stack[stack.length - 1]
       if (topo === novaUrl) return
@@ -262,7 +280,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       // Não deixa a pilha crescer sem limite em sessões longas.
       if (stack.length > 60) stack.splice(0, stack.length - 60)
     }
-    const onNavigate = (e: any) => { if (e?.url) empilhar(String(e.url)) }
+    const onNavigate = (e: any) => {
+      if (e?.url) empilhar(String(e.url))
+    }
     const onNavigateInPage = (e: any) => {
       if (e?.isMainFrame === false) return
       if (e?.url) empilhar(String(e.url))
@@ -322,7 +342,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         const target = Math.abs(ry) > 0.15 ? Math.sign(ry) * ry * ry * 46 : 0
         vel += (target - vel) * 0.25
         if (Math.abs(vel) > 0.5) {
-          try { webRef.current?.send("arcadia:scroll", { dy: vel }) } catch {}
+          try {
+            webRef.current?.send("arcadia:scroll", { dy: vel })
+          } catch {}
         }
       }
       raf = requestAnimationFrame(loop)
@@ -338,11 +360,12 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   useEffect(() => {
     let raf = 0
     let rest: number[] | null = null
-    let x = 0, y = 0            // posição atual do cursor, coords do webview
-    let iniciada = false        // já centralizei ao aparecer no controle?
-    let prevA = false           // edge do botão A
+    let x = 0,
+      y = 0 // posição atual do cursor, coords do webview
+    let iniciada = false // já centralizei ao aparecer no controle?
+    let prevA = false // edge do botão A
     let ultimoEnvio = 0
-    const MAX_PX_S = 900        // velocidade máxima ~= tela em ~1.5s
+    const MAX_PX_S = 900 // velocidade máxima ~= tela em ~1.5s
 
     const loop = (agora: number) => {
       const w = webRef.current
@@ -361,13 +384,20 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       }
       const pads = navigator.getGamepads ? navigator.getGamepads() : []
       const gp = Array.from(pads).find((p) => p) || null
-      if (!gp) { raf = requestAnimationFrame(loop); return }
+      if (!gp) {
+        raf = requestAnimationFrame(loop)
+        return
+      }
       if (!rest) rest = Array.from(gp.axes)
 
-      const rect = (w.getBoundingClientRect?.() as DOMRect | undefined)
+      const rect = w.getBoundingClientRect?.() as DOMRect | undefined
       const W = rect?.width || window.innerWidth
       const H = rect?.height || window.innerHeight
-      if (!iniciada) { x = W / 2; y = H / 2; iniciada = true }
+      if (!iniciada) {
+        x = W / 2
+        y = H / 2
+        iniciada = true
+      }
 
       // Mesma física do scroll: repouso calibrado, deadzone, quadrática.
       const lx = (gp.axes[0] ?? 0) - (rest[0] ?? 0)
@@ -381,7 +411,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (dx || dy) {
         x = Math.max(0, Math.min(W, x + dx))
         y = Math.max(0, Math.min(H, y + dy))
-        try { w.send("arcadia:cursor", { x, y }) } catch {}
+        try {
+          w.send("arcadia:cursor", { x, y })
+        } catch {}
       }
       ultimoEnvio = agora
 
@@ -390,7 +422,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       // com noFocusMove, então não vai duplicar.
       const a = Boolean(gp.buttons[0]?.pressed)
       if (a && !prevA) {
-        try { w.send("arcadia:clique") } catch {}
+        try {
+          w.send("arcadia:clique")
+        } catch {}
       }
       prevA = a
 
@@ -406,7 +440,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     const w = webRef.current
     if (!w) return
     const v = !(tecladoAberto || Boolean(acoes.escolhendo))
-    try { w.send("arcadia:cursorVisivel", { v }) } catch {}
+    try {
+      w.send("arcadia:cursorVisivel", { v })
+    } catch {}
   }, [tecladoAberto, acoes.escolhendo])
 
   return (
@@ -442,7 +478,8 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             livre: l.free,
           }))}
           onEscolher={(steamDir) =>
-            acoes.escolhendo && acoes.confirmarBaixar(acoes.escolhendo.jogo, acoes.escolhendo.info, steamDir)
+            acoes.escolhendo &&
+            acoes.confirmarBaixar(acoes.escolhendo.jogo, acoes.escolhendo.info, steamDir)
           }
           onFechar={() => acoes.setEscolhendo(null)}
         />
@@ -455,7 +492,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         onTexto={(v) => {
           // Toda tecla vai pra Steam via IPC; o autocomplete deles roda no
           // input focado e a lista volta pela porta arcadia:sugestoes.
-          try { webRef.current?.send("arcadia:tecla", { value: v }) } catch {}
+          try {
+            webRef.current?.send("arcadia:tecla", { value: v })
+          } catch {}
         }}
         onEscolherSugestao={(appid) => {
           tecladoFechouEmRef.current = Date.now()
@@ -464,7 +503,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           const alvo =
             `https://store.steampowered.com/app/${encodeURIComponent(appid)}/` +
             `?cc=br${l ? `&l=${l}` : ""}`
-          try { webRef.current?.loadURL(alvo) } catch {}
+          try {
+            webRef.current?.loadURL(alvo)
+          } catch {}
         }}
         onFechar={() => {
           tecladoFechouEmRef.current = Date.now()
@@ -472,7 +513,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           setSugestoesLoja([])
           // Limpa o campo dentro do webview pra não ficar termo fantasma da
           // busca anterior aparecendo se abrir de novo.
-          try { webRef.current?.send("arcadia:limparBusca") } catch {}
+          try {
+            webRef.current?.send("arcadia:limparBusca")
+          } catch {}
         }}
         onConfirmar={(texto) => {
           tecladoFechouEmRef.current = Date.now()
@@ -483,7 +526,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           const alvo =
             `https://store.steampowered.com/search/?term=${encodeURIComponent(termo)}` +
             `&cc=br${l ? `&l=${l}` : ""}`
-          try { webRef.current?.loadURL(alvo) } catch {}
+          try {
+            webRef.current?.loadURL(alvo)
+          } catch {}
         }}
       />
 

@@ -16,7 +16,17 @@ import { LaunchModeDialog } from "./LaunchModeDialog"
 import { useI18n } from "../../i18n/I18nContext"
 
 // Biblioteca do modo desktop: busca, filtros e grade de capas 2:3.
-export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { games: Game[]; tilesColor?: boolean; alwaysTitles?: boolean; onRefresh?: () => void }) {
+export function LibraryView({
+  games,
+  tilesColor,
+  alwaysTitles,
+  onRefresh,
+}: {
+  games: Game[]
+  tilesColor?: boolean
+  alwaysTitles?: boolean
+  onRefresh?: () => void
+}) {
   const { t } = useI18n()
   const [busca, setBusca] = useState("")
   const [catFiltro, setCatFiltro] = useState("todas")
@@ -48,7 +58,11 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
     setRecemDesinstalados((prev) => {
       if (!prev.size) return prev
       const vivos = new Set(games.map((g) => g.id))
-      const next = new Set([...prev].filter((id) => vivos.has(id) && games.find((g) => g.id === id)?.installed === false))
+      const next = new Set(
+        [...prev].filter(
+          (id) => vivos.has(id) && games.find((g) => g.id === id)?.installed === false,
+        ),
+      )
       return next.size === prev.size ? prev : next
     })
   }, [games])
@@ -66,9 +80,11 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
     const q = busca.trim().toLowerCase()
     if (q) l = l.filter((g) => g.title.toLowerCase().includes(q))
     // Favoritos primeiro, depois ordem alfabética.
-    return [...l].sort((a, b) => Number(b.favorite || false) - Number(a.favorite || false) || a.title.localeCompare(b.title))
+    return [...l].sort(
+      (a, b) =>
+        Number(b.favorite || false) - Number(a.favorite || false) || a.title.localeCompare(b.title),
+    )
   }, [games, catFiltro, soInstalados, busca, recemDesinstalados])
-
 
   const salvar = (id: string, patch: Record<string, unknown>) =>
     window.launcherAPI?.setOverride(id, patch).then(() => onRefresh?.())
@@ -151,8 +167,17 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
       {/* Topbar: busca + filtros */}
       <div className="flex items-center gap-3 px-8 pb-4 pt-6">
         <div className="relative flex-1">
-          <svg className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+          <svg
+            className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
           </svg>
           <input
             value={busca}
@@ -168,16 +193,22 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
             onChange={(e) => setCatFiltro(e.target.value)}
             className="appearance-none rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-medium text-white/70 outline-none transition-colors focus:border-[color:var(--accent)]"
           >
-            <option value="todas" className="bg-[#16161a]">{t("library.categorias")}</option>
+            <option value="todas" className="bg-[#16161a]">
+              {t("library.categorias")}
+            </option>
             {categorias.map((c) => (
-              <option key={c} value={c} className="bg-[#16161a]">{c}</option>
+              <option key={c} value={c} className="bg-[#16161a]">
+                {c}
+              </option>
             ))}
           </select>
         )}
         <button
           onClick={() => setSoInstalados((v) => !v)}
           className={`rounded-xl border px-3.5 py-2.5 text-xs font-medium transition-colors ${
-            soInstalados ? "border-[color:var(--accent)] text-white" : "border-white/10 text-white/55 hover:text-white"
+            soInstalados
+              ? "border-[color:var(--accent)] text-white"
+              : "border-white/10 text-white/55 hover:text-white"
           }`}
         >
           {t("library.so_instalados")}
@@ -194,7 +225,10 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
       {/* Cabeçalho da grade */}
       <div className="flex items-center gap-4 px-8 pb-2">
         <h2 className="ui-title">
-          {t("library.todos_jogos")} <span className="ml-1 rounded-md bg-white/10 px-2 py-0.5 text-xs text-white/70">{lista.length}</span>
+          {t("library.todos_jogos")}{" "}
+          <span className="ml-1 rounded-md bg-white/10 px-2 py-0.5 text-xs text-white/70">
+            {lista.length}
+          </span>
         </h2>
       </div>
 
@@ -213,34 +247,50 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
                 onInstall={() => instalar(g)}
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
-                onOpen={() => g2.launcher === "steam" ? setPaginaLoja(g2) : setPagina(g2)}
+                onOpen={() => (g2.launcher === "steam" ? setPaginaLoja(g2) : setPagina(g2))}
                 onPlay={() => pedirJogar(g2)}
               />
             )
           })}
         </div>
-        {lista.length === 0 && (
-          <div className="ui-empty">{t("library.vazio")}</div>
-        )}
+        {lista.length === 0 && <div className="ui-empty">{t("library.vazio")}</div>}
       </div>
 
       {/* Diálogo de instalação (escolher pasta, ver espaço em disco) */}
       {instalando && <InstallDialog game={instalando} onClose={() => setInstalando(null)} />}
 
       {/* Adicionar jogo manualmente */}
-      {adicionando && <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => onRefresh?.()} />}
+      {adicionando && (
+        <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => onRefresh?.()} />
+      )}
 
       {/* Editar jogo custom (título, executável, imagens, instalador) */}
       {editandoCustom && (
-        <AddGameDialog editGame={editandoCustom} onClose={() => setEditandoCustom(null)} onAdded={() => onRefresh?.()} />
+        <AddGameDialog
+          editGame={editandoCustom}
+          onClose={() => setEditandoCustom(null)}
+          onAdded={() => onRefresh?.()}
+        />
       )}
 
       {/* Diálogo de configurações do jogo (estilo Heroic) */}
-      {configurando && <GameSettingsDialog game={configurando} onClose={() => { setConfigurando(null); onRefresh?.() }} />}
+      {configurando && (
+        <GameSettingsDialog
+          game={configurando}
+          onClose={() => {
+            setConfigurando(null)
+            onRefresh?.()
+          }}
+        />
+      )}
       {escolhendoLaunch && (
         <LaunchModeDialog
           game={escolhendoLaunch}
-          onEscolher={(m) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); jogar(g, m) }}
+          onEscolher={(m) => {
+            const g = escolhendoLaunch
+            setEscolhendoLaunch(null)
+            jogar(g, m)
+          }}
           onClose={() => setEscolhendoLaunch(null)}
         />
       )}
@@ -260,11 +310,21 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           onBaixar={() => instalar(paginaLoja)}
           onAdicionar={() => {}}
           onRemover={() => {
-            window.launcherAPI?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, "")).then(() => onRefresh?.())
+            window.launcherAPI
+              ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
+              .then(() => onRefresh?.())
             setPaginaLoja(null)
           }}
           onConfig={() => setConfigurando(paginaLoja)}
-          onJogar={paginaLoja.installed !== false ? () => { const g = paginaLoja; setPaginaLoja(null); pedirJogar(g) } : undefined}
+          onJogar={
+            paginaLoja.installed !== false
+              ? () => {
+                  const g = paginaLoja
+                  setPaginaLoja(null)
+                  pedirJogar(g)
+                }
+              : undefined
+          }
           naBiblioteca
           ocupado={false}
         />
@@ -286,7 +346,8 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
           }}
           onImportar={() => {
             window.launcherAPI?.gameImport(pagina).then((r) => {
-              if (!r?.ok && r?.error !== "cancelado") window.alert(r?.error || t("library.falha_importar"))
+              if (!r?.ok && r?.error !== "cancelado")
+                window.alert(r?.error || t("library.falha_importar"))
             })
           }}
           onConfig={() => setConfigurando(pagina)}
@@ -298,7 +359,11 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 
       {/* Desinstalação (não-Steam): opções de prefixo/configs */}
       {desinstalando && (
-        <UninstallDialog game={desinstalando} onConfirm={confirmarDesinstalar} onClose={() => setDesinstalando(null)} />
+        <UninstallDialog
+          game={desinstalando}
+          onConfirm={confirmarDesinstalar}
+          onClose={() => setDesinstalando(null)}
+        />
       )}
 
       {/* Metadados (edição + busca online de descrição/artes) */}
@@ -325,19 +390,34 @@ export function LibraryView({ games, tilesColor, alwaysTitles, onRefresh }: { ga
 
 function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
   const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
-  const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
-  const [fase, setFase] = useState<"cover" | "portrait" | "header" | "none">(
-    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"
-  )
-  useEffect(() => setFase(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"), [game.id, game.cover])
-  const src =
-    fase === "cover" ? game.cover || portraitUrl
-    : fase === "portrait" ? portraitUrl
-    : fase === "header" ? headerUrl
+  const portraitUrl = appid
+    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
     : ""
+  const headerUrl = appid
+    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`
+    : ""
+  const [fase, setFase] = useState<"cover" | "portrait" | "header" | "none">(
+    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover",
+  )
+  useEffect(
+    () => setFase(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"),
+    [game.id, game.cover],
+  )
+  const src =
+    fase === "cover"
+      ? game.cover || portraitUrl
+      : fase === "portrait"
+        ? portraitUrl
+        : fase === "header"
+          ? headerUrl
+          : ""
   const isLandscape = /\/(?:library_)?header\.jpg/i.test(src)
-  if (!src) return <div className="flex h-full items-center justify-center px-3 text-center text-xs text-white/30">{game.title}</div>
+  if (!src)
+    return (
+      <div className="flex h-full items-center justify-center px-3 text-center text-xs text-white/30">
+        {game.title}
+      </div>
+    )
   return (
     <img
       src={src}
@@ -345,12 +425,32 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
       loading="lazy"
       className={`h-full w-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
       draggable={false}
-      onError={() => setFase((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))}
+      onError={() =>
+        setFase((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))
+      }
     />
   )
 }
 
-function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, onOpen, onPlay }: { game: Game; tilesColor?: boolean; alwaysTitles?: boolean; onInstall?: () => void; onConfig?: () => void; onMenu?: (x: number, y: number) => void; onOpen?: () => void; onPlay?: () => void }) {
+function Card({
+  game: g,
+  tilesColor,
+  alwaysTitles,
+  onInstall,
+  onConfig,
+  onMenu,
+  onOpen,
+  onPlay,
+}: {
+  game: Game
+  tilesColor?: boolean
+  alwaysTitles?: boolean
+  onInstall?: () => void
+  onConfig?: () => void
+  onMenu?: (x: number, y: number) => void
+  onOpen?: () => void
+  onPlay?: () => void
+}) {
   const { t } = useI18n()
   const instalado = g.installed !== false
   const acao = () => {
@@ -398,10 +498,22 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
                 title={t("library.config_jogo")}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white backdrop-blur-sm transition-all hover:scale-110 hover:bg-white/[0.2]"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="4" y1="6" x2="20" y2="6" /><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
-                  <line x1="4" y1="12" x2="20" y2="12" /><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
-                  <line x1="4" y1="18" x2="20" y2="18" /><circle cx="7" cy="18" r="2" fill="currentColor" stroke="none" />
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                  <circle cx="7" cy="18" r="2" fill="currentColor" stroke="none" />
                 </svg>
               </button>
               {/* Jogar */}
@@ -412,7 +524,10 @@ function Card({ game: g, tilesColor, alwaysTitles, onInstall, onConfig, onMenu, 
                 }}
                 title={t("library.jogar")}
                 className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
-                style={{ background: "var(--accent)", boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)" }}
+                style={{
+                  background: "var(--accent)",
+                  boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)",
+                }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                   <path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.52.86z" />

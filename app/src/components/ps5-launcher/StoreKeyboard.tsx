@@ -85,7 +85,9 @@ export function StoreKeyboard({
       <div ref={ref} className="flex h-full w-full flex-col">
         <div className="mx-auto w-[1100px] max-w-[95vw] pt-10">
           <div className="rounded-xl border border-white/12 bg-white/[0.04] px-6 py-4">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-white/35">{t("store.buscar_titulo")}</div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-white/35">
+              {t("store.buscar_titulo")}
+            </div>
             <div className="mt-1 min-h-[36px] text-3xl font-light text-white">
               {texto || <span className="text-white/25">{t("store.keyboard.digite")}</span>}
               <span className="ml-0.5 animate-pulse text-[color:var(--accent)]">|</span>
@@ -117,8 +119,12 @@ export function StoreKeyboard({
                       <div className="h-[64px] w-[138px] shrink-0 rounded bg-white/10" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-base font-semibold text-white/95">{s.title}</div>
-                      {s.preco && <div className="mt-1 truncate text-sm text-white/60">{s.preco}</div>}
+                      <div className="truncate text-base font-semibold text-white/95">
+                        {s.title}
+                      </div>
+                      {s.preco && (
+                        <div className="mt-1 truncate text-sm text-white/60">{s.preco}</div>
+                      )}
                     </div>
                   </button>
                 ))}

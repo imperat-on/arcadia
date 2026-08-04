@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: transparent; overflow: hidden; }
+  body {
+    width: 360px;
+    height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  #toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 344px;
+    padding: 12px 14px;
+    background: rgba(28, 28, 34, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    animation: slide-in 300ms ease-out;
+  }
+  #toast.saindo { animation: fade-out 300ms ease-in forwards; }
+  #icon-wrap {
+    width: 48px; height: 48px; flex-shrink: 0;
+    border-radius: 8px; overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+  }
+  #icon { width: 48px; height: 48px; object-fit: cover; display: none; }
+  #texts { display: flex; flex-direction: column; min-width: 0; }
+  #heading {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.18em; color: #f5a623;
+  }
+  #title {
+    font-size: 13px; font-weight: 600; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #desc {
+    font-size: 12px; color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(60px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fade-out {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(30px); }
+  }
+</style>
+</head>
+<body>
+  <div id="toast">
+    <div id="icon-wrap"><span id="icon-fallback">🏆</span><img id="icon" alt="" /></div>
+    <div id="texts">
+      <div id="heading"></div>
+      <div id="title"></div>
+      <div id="desc"></div>
+    </div>
+  </div>
+  <audio id="som" src="sounds/unlock.wav" autoplay></audio>
+  <script>
+    const q = new URLSearchParams(location.search)
+    document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
+    document.getElementById("title").textContent = q.get("title") || ""
+    document.getElementById("desc").textContent = q.get("desc") || " "
+    const icon = q.get("icon")
+    if (icon) {
+      const img = document.getElementById("icon")
+      img.src = icon
+      img.onload = () => {
+        img.style.display = "block"
+        document.getElementById("icon-fallback").style.display = "none"
+      }
+    }
+    setTimeout(() => {
+      document.getElementById("toast").classList.add("saindo")
+      setTimeout(() => window.close(), 300)
+    }, 5000)
+  </script>
+</body>
+</html>

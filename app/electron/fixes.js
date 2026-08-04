@@ -38,14 +38,22 @@ function ensureDirs() {
 }
 
 function readFile(p) {
-  try { return fs.readFileSync(p, "utf-8") } catch { return null }
+  try {
+    return fs.readFileSync(p, "utf-8")
+  } catch {
+    return null
+  }
 }
 function writeFile(p, data) {
   ensureDirs()
   fs.writeFileSync(p, data)
 }
 function fileMtimeMs(p) {
-  try { return fs.statSync(p).mtimeMs } catch { return 0 }
+  try {
+    return fs.statSync(p).mtimeMs
+  } catch {
+    return 0
+  }
 }
 function isFresh(p) {
   return fileMtimeMs(p) > 0 && Date.now() - fileMtimeMs(p) < REFRESH_TTL_MS
@@ -63,14 +71,23 @@ async function fetchText(url, opts = {}) {
 
 // Percent-encode RFC-3986 (equivalente a crackfix.url_encode do Lua).
 function urlEncode(s) {
-  return String(s || "").replace(/[^A-Za-z0-9\-._~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`)
+  return String(s || "").replace(
+    /[^A-Za-z0-9\-._~]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  )
 }
 
 // ─── Index de fixes (luatools.work) ─────────────────────────────────────────
 async function loadFixesIndex() {
   if (isFresh(FIXES_INDEX_CACHE)) {
     const raw = readFile(FIXES_INDEX_CACHE)
-    if (raw) { try { return JSON.parse(raw) } catch { /* cai no fetch */ } }
+    if (raw) {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        /* cai no fetch */
+      }
+    }
   }
   try {
     const body = await fetchText(INDEX_URL)
@@ -78,7 +95,13 @@ async function loadFixesIndex() {
     return JSON.parse(body)
   } catch {
     const raw = readFile(FIXES_INDEX_CACHE)
-    if (raw) { try { return JSON.parse(raw) } catch { return null } }
+    if (raw) {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return null
+      }
+    }
     return null
   }
 }
@@ -109,7 +132,13 @@ async function checkOnlineFix(appid) {
 async function loadRyuuIndex() {
   if (isFresh(RYUU_INDEX_CACHE)) {
     const raw = readFile(RYUU_INDEX_CACHE)
-    if (raw) { try { return JSON.parse(raw) } catch { /* refetch */ } }
+    if (raw) {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        /* refetch */
+      }
+    }
   }
   try {
     const body = await fetchText(RYUU_CATALOG_URL)
@@ -117,7 +146,13 @@ async function loadRyuuIndex() {
     return JSON.parse(body)
   } catch {
     const raw = readFile(RYUU_INDEX_CACHE)
-    if (raw) { try { return JSON.parse(raw) } catch { return null } }
+    if (raw) {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return null
+      }
+    }
     return null
   }
 }
@@ -162,7 +197,10 @@ function pickEntry(entries) {
 function sanitizeUrl(href) {
   const s = String(href || "")
   if (!s) return null
-  return s.replace(/[\s"<>\\^`{|}]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`)
+  return s.replace(
+    /[\s"<>\\^`{|}]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  )
 }
 
 async function checkCrackFix(appid) {
@@ -201,14 +239,24 @@ async function checkCrackFix(appid) {
 }
 
 // ─── Aplicação (download + extract + manifests) ─────────────────────────────
-function tmpState(appid) { return path.join(TMP_DIR, `fix_${appid}_state.json`) }
-function tmpZip(appid) { return path.join(TMP_DIR, `fix_${appid}.zip`) }
-function tmpHeaders(appid) { return path.join(TMP_DIR, `fix_${appid}_headers.txt`) }
+function tmpState(appid) {
+  return path.join(TMP_DIR, `fix_${appid}_state.json`)
+}
+function tmpZip(appid) {
+  return path.join(TMP_DIR, `fix_${appid}.zip`)
+}
+function tmpHeaders(appid) {
+  return path.join(TMP_DIR, `fix_${appid}_headers.txt`)
+}
 
 function readState(appid) {
   const raw = readFile(tmpState(appid))
   if (!raw) return { status: "done" }
-  try { return JSON.parse(raw) } catch { return { status: "downloading" } }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return { status: "downloading" }
+  }
 }
 
 function writeState(appid, s) {
@@ -217,7 +265,11 @@ function writeState(appid, s) {
 
 function cleanupTmp(appid) {
   for (const p of [tmpState(appid), tmpZip(appid), tmpHeaders(appid)]) {
-    try { fs.unlinkSync(p) } catch { /* ok */ }
+    try {
+      fs.unlinkSync(p)
+    } catch {
+      /* ok */
+    }
   }
 }
 
@@ -246,7 +298,11 @@ async function applyFix({ appid, url, type, installPath }) {
     const cred = readRyuuAuth()
     const line = ryuuAuthHeaderLine(cred)
     if (!line) {
-      return { ok: false, errorCode: "authentication", error: "Ryuu authentication is required. Add your session cookie or X-Auth-Key first." }
+      return {
+        ok: false,
+        errorCode: "authentication",
+        error: "Ryuu authentication is required. Add your session cookie or X-Auth-Key first.",
+      }
     }
     headerFile = tmpHeaders(a)
     fs.writeFileSync(headerFile, line, { mode: 0o600 })
@@ -265,7 +321,11 @@ async function applyFix({ appid, url, type, installPath }) {
     EXTRACT_NESTED: "1",
     SEVENZ: sevenz || "",
     FIX_TYPE: type || "generic",
-    LD_LIBRARY_PATH: "", LD_PRELOAD: "", LD_AUDIT: "", STEAM_RUNTIME_LIBRARY_PATH: "", STEAM_ZENITY: "",
+    LD_LIBRARY_PATH: "",
+    LD_PRELOAD: "",
+    LD_AUDIT: "",
+    STEAM_RUNTIME_LIBRARY_PATH: "",
+    STEAM_ZENITY: "",
   }
   const log = path.join(DATA_DIR, "fix.log")
   const logFd = fs.openSync(log, "a")
@@ -305,7 +365,10 @@ function manifestPath(installPath, kind) {
 function readManifest(installPath, kind) {
   const raw = readFile(manifestPath(installPath, kind))
   if (!raw) return []
-  return raw.split("\n").map((l) => l.trim()).filter(Boolean)
+  return raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
 }
 
 function isFixed(installPath) {
@@ -325,8 +388,16 @@ function buildLauncherRedirect(installPath) {
 
 function unfix(installPath) {
   if (!installPath) return { ok: false, error: "no_install_path" }
-  try { fs.unlinkSync(manifestPath(installPath, "dlls")) } catch { /* ok */ }
-  try { fs.unlinkSync(manifestPath(installPath, "launchers")) } catch { /* ok */ }
+  try {
+    fs.unlinkSync(manifestPath(installPath, "dlls"))
+  } catch {
+    /* ok */
+  }
+  try {
+    fs.unlinkSync(manifestPath(installPath, "launchers"))
+  } catch {
+    /* ok */
+  }
   return { ok: true }
 }
 
@@ -373,14 +444,21 @@ function readRyuuAuth() {
     try {
       const parsed = JSON.parse(raw)
       if (ryuuAuthHeaderLine(parsed)) return parsed
-    } catch { /* cai no legado */ }
+    } catch {
+      /* cai no legado */
+    }
   }
   // Migração do formato antigo (texto cru salvo como Bearer): trata como
   // X-Auth-Key. Escreve por cima no formato novo e apaga o legado.
   const legado = readFile(RYUU_AUTH_FILE_LEGACY)
   if (legado && legado.trim()) {
     const cred = { kind: "key", value: legado.trim() }
-    try { writeRyuuAuth(cred); fs.unlinkSync(RYUU_AUTH_FILE_LEGACY) } catch { /* ok */ }
+    try {
+      writeRyuuAuth(cred)
+      fs.unlinkSync(RYUU_AUTH_FILE_LEGACY)
+    } catch {
+      /* ok */
+    }
     return cred
   }
   return null
@@ -402,8 +480,16 @@ function getRyuuAuthStatus() {
   return { configured: Boolean(cred), kind: cred?.kind || null }
 }
 function clearRyuuAuth() {
-  try { fs.unlinkSync(RYUU_AUTH_FILE) } catch { /* ok */ }
-  try { fs.unlinkSync(RYUU_AUTH_FILE_LEGACY) } catch { /* ok */ }
+  try {
+    fs.unlinkSync(RYUU_AUTH_FILE)
+  } catch {
+    /* ok */
+  }
+  try {
+    fs.unlinkSync(RYUU_AUTH_FILE_LEGACY)
+  } catch {
+    /* ok */
+  }
   return { ok: true }
 }
 

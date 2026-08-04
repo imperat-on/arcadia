@@ -2,10 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { AppConfig, IntegrationsStatus } from "../../global"
-import {
-  IntegrationsSection,
-  MetadataSection,
-} from "../ps5-launcher/SettingsPanel"
+import { IntegrationsSection, MetadataSection } from "../ps5-launcher/SettingsPanel"
 import { GeneralSection } from "./GeneralSection"
 import { StoreSetup } from "./StoreSetup"
 import { AccessibilityView } from "./AccessibilityView"

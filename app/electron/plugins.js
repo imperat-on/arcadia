@@ -16,7 +16,11 @@ const SLSSTEAM_SO = path.join(HOME, ".local/share/SLSsteam/SLSsteam.so")
 // hospeda SLSsteam — apenas DETECTA se o usuário já colocou o arquivo no
 // sistema (caminho padrão ou informado por ele no config). Zero URLs aqui.
 function readConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG, "utf-8")) || {} } catch { return {} }
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG, "utf-8")) || {}
+  } catch {
+    return {}
+  }
 }
 
 // Existe no caminho custom (config) OU no caminho padrão?
@@ -42,7 +46,11 @@ const PLUGINS = {
 }
 
 function readRegistry() {
-  try { return JSON.parse(fs.readFileSync(REGISTRY, "utf-8")) || {} } catch { return {} }
+  try {
+    return JSON.parse(fs.readFileSync(REGISTRY, "utf-8")) || {}
+  } catch {
+    return {}
+  }
 }
 
 function writeRegistry(reg) {

@@ -58,7 +58,7 @@ a different UI on top.
 - **Downloads** — serial queue for Epic (Legendary) and Steam
   (DepotDownloader), with real progress in MiB, speed and ETA;
   pause/resume/cancel with cleanup of partials.
-- **Achievements** — in-game toast pop-ups and SLScheevo integration.
+- **Achievements** — SLScheevo integration with a real-time unlock panel.
 - **Trailers** — YouTube search and download via `yt-dlp`.
 
 ## Requirements
@@ -136,7 +136,7 @@ Arcadia leans on the work of these projects:
   the Millennium-less LuaTools bridge (Lumen sidecar and wrapper) that
   Arcadia's SLSsteam setup ships alongside.
 - [SLScheevo](https://github.com/xamionex/SLScheevo) — the achievement
-  unlocker that Arcadia pairs with to drive the in-game toast pop-ups.
+  unlocker that Arcadia pairs with for achievement tracking.
 
 Huge thanks to their authors and contributors.
 

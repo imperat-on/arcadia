@@ -5,19 +5,29 @@ import { useI18n } from "../../i18n/I18nContext"
 
 export function StoreSetup() {
   const { t } = useI18n()
-  const [status, setStatus] = useState<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; steamDir: string } | null>(null)
+  const [status, setStatus] = useState<{
+    dotnet?: string
+    depotdownloader: boolean
+    hubcapKey: boolean
+    slssteam: boolean
+    steamDir: string
+  } | null>(null)
   const [apiKey, setApiKey] = useState("")
   const [busy, setBusy] = useState("")
   const [msg, setMsg] = useState("")
 
-  const recarregar = () => window.launcherAPI?.storeStatus().then((s) => setStatus(s as typeof status))
+  const recarregar = () =>
+    window.launcherAPI?.storeStatus().then((s) => setStatus(s as typeof status))
   useEffect(() => {
     recarregar()
     window.launcherAPI?.getConfig().then((c) => setApiKey(c?.hubcap_api_key || ""))
   }, [])
 
   const salvarKey = async () => {
-    await window.launcherAPI?.setConfig({ hubcap_api_key: apiKey.trim() } as Record<string, unknown>)
+    await window.launcherAPI?.setConfig({ hubcap_api_key: apiKey.trim() } as Record<
+      string,
+      unknown
+    >)
     recarregar()
     setMsg(t("common.salvo"))
     setTimeout(() => setMsg(""), 2500)
@@ -31,7 +41,19 @@ export function StoreSetup() {
     recarregar()
   }
 
-  const StatusCard = ({ titulo, ok, detalhe, acao, onAcao }: { titulo: string; ok: boolean; detalhe: string; acao?: string; onAcao?: () => void }) => (
+  const StatusCard = ({
+    titulo,
+    ok,
+    detalhe,
+    acao,
+    onAcao,
+  }: {
+    titulo: string
+    ok: boolean
+    detalhe: string
+    acao?: string
+    onAcao?: () => void
+  }) => (
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white">{titulo}</h3>
@@ -55,10 +77,14 @@ export function StoreSetup() {
 
   return (
     <section className="mb-8">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">{t("settings.steam")}</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">
+        {t("settings.steam")}
+      </h3>
       <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
         <div>
-          <label className="mb-1.5 block text-[13px] text-white/70">{t("store_setup.chave_hubcap")}</label>
+          <label className="mb-1.5 block text-[13px] text-white/70">
+            {t("store_setup.chave_hubcap")}
+          </label>
           <div className="flex gap-2">
             <input
               value={apiKey}
@@ -79,8 +105,18 @@ export function StoreSetup() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-          <StatusCard titulo=".NET 9" ok={Boolean(status?.dotnet)} detalhe={t("store_setup.dotnet_desc")} acao={busy === "dotnet" ? t("store_setup.instalando") : t("contextmenu.instalar")} onAcao={instalarDotnet} />
-          <StatusCard titulo="DepotDownloader" ok={Boolean(status?.depotdownloader)} detalhe={t("store_setup.depotdownloader_desc")} />
+          <StatusCard
+            titulo=".NET 9"
+            ok={Boolean(status?.dotnet)}
+            detalhe={t("store_setup.dotnet_desc")}
+            acao={busy === "dotnet" ? t("store_setup.instalando") : t("contextmenu.instalar")}
+            onAcao={instalarDotnet}
+          />
+          <StatusCard
+            titulo="DepotDownloader"
+            ok={Boolean(status?.depotdownloader)}
+            detalhe={t("store_setup.depotdownloader_desc")}
+          />
         </div>
         {msg && <p className="text-[12px] text-white/55">{msg}</p>}
       </div>

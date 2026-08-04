@@ -29,7 +29,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLang = (l: string) => {
     setLangState(l)
     setMsgs(ALL_MSGS[l] || ALL_MSGS["en-US"])
-    try { localStorage.setItem("arcadia_lang", l) } catch {}
+    try {
+      localStorage.setItem("arcadia_lang", l)
+    } catch {}
     // O processo principal também precisa saber: é o idioma que ele manda para
     // a Steam e para a loja da Microsoft ao buscar descrições e requisitos.
     window.launcherAPI?.setConfig({ language: l })
@@ -39,7 +41,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // main não continuar assumindo inglês.
   useEffect(() => {
     let salvo: string | null = null
-    try { salvo = localStorage.getItem("arcadia_lang") } catch {}
+    try {
+      salvo = localStorage.getItem("arcadia_lang")
+    } catch {}
     if (!salvo) setLang(lang)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -57,9 +61,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const locale = toLocale(lang)
 
   return (
-    <I18nContext.Provider value={{ lang, t, locale, setLang }}>
-      {children}
-    </I18nContext.Provider>
+    <I18nContext.Provider value={{ lang, t, locale, setLang }}>{children}</I18nContext.Provider>
   )
 }
 

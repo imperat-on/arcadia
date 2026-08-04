@@ -9,16 +9,31 @@ import { useI18n } from "../../i18n/I18nContext"
 // à biblioteca — Windows (via Wine) ou Linux nativo. Salvo em custom_games.json.
 
 function slug(t: string) {
-  return t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+  return t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
 }
 
-export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => void; onAdded: () => void; editGame?: Game | null }) {
+export function AddGameDialog({
+  onClose,
+  onAdded,
+  editGame,
+}: {
+  onClose: () => void
+  onAdded: () => void
+  editGame?: Game | null
+}) {
   const { t } = useI18n()
   const editando = Boolean(editGame)
   const custom = !editGame || editGame.launcher === "custom" // seções de Wine/exe
   const [titulo, setTitulo] = useState(editGame?.title || "")
   const [descricao, setDescricao] = useState(editGame?.description || "")
-  const [platform, setPlatform] = useState<"windows" | "linux">(editGame?.platform === "linux" ? "linux" : "windows")
+  const [platform, setPlatform] = useState<"windows" | "linux">(
+    editGame?.platform === "linux" ? "linux" : "windows",
+  )
   const [exe, setExe] = useState(editGame?.exe || "")
   const [prefix, setPrefix] = useState("")
   const [prefixPadrao, setPrefixPadrao] = useState("")
@@ -32,10 +47,7 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
   const [capaEscolhida, setCapaEscolhida] = useState("")
 
   // Editando: o id é o do próprio jogo (preserva configs/arte). Novo: do slug.
-  const id = useMemo(
-    () => editGame?.id || `custom:${slug(titulo) || "jogo"}`,
-    [titulo, editGame],
-  )
+  const id = useMemo(() => editGame?.id || `custom:${slug(titulo) || "jogo"}`, [titulo, editGame])
 
   // Debounce: 700ms após parar de digitar, busca capas e mostra previews.
   useEffect(() => {
@@ -81,7 +93,11 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
 
   const rodarInstalador = async () => {
     setBusy(true)
-    await window.launcherAPI?.customGameRunInstaller({ appid: id, wine: wineEscolhido, prefix: prefixoEfetivo || undefined })
+    await window.launcherAPI?.customGameRunInstaller({
+      appid: id,
+      wine: wineEscolhido,
+      prefix: prefixoEfetivo || undefined,
+    })
     setBusy(false)
   }
 
@@ -89,7 +105,9 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
     if (capaEscolhida) return
     const q = titulo.trim()
     if (q.length < 3) return
-    const lista = candidatas.length ? candidatas : (await window.launcherAPI?.searchArt(id, q, "cover"))?.candidatos || []
+    const lista = candidatas.length
+      ? candidatas
+      : (await window.launcherAPI?.searchArt(id, q, "cover"))?.candidatos || []
     const capa = lista[0]
     if (capa?.url) {
       const r = await window.launcherAPI?.downloadArt(id, "cover", capa.url)
@@ -100,7 +118,11 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
     }
     const s = await window.launcherAPI?.storeSearch(q)
     const loja = (s?.jogos || [])[0]
-    const url = loja?.cover || (loja?.appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${loja.appid}/library_600x900.jpg` : "")
+    const url =
+      loja?.cover ||
+      (loja?.appid
+        ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${loja.appid}/library_600x900.jpg`
+        : "")
     if (url) await window.launcherAPI?.setOverride(id, { cover: url })
   }
 
@@ -131,7 +153,9 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
       : await window.launcherAPI?.customGameAdd({ id, title: titulo.trim(), platform, exe })
     if (!r?.ok) {
       setBusy(false)
-      return setErro(r?.error || (editando ? t("addgame.erro_falha_salvar") : t("addgame.erro_falha_adicionar")))
+      return setErro(
+        r?.error || (editando ? t("addgame.erro_falha_salvar") : t("addgame.erro_falha_adicionar")),
+      )
     }
     await salvarCapaAutomatica()
     setBusy(false)
@@ -153,16 +177,35 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
   )
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between px-6 pt-5">
-          <h2 className="text-lg font-light tracking-wide text-white">{editando ? t("addgame.editar_jogo", { title: editGame?.title || "" }) : t("addgame.titulo_jogo")}</h2>
-          <button onClick={onClose} className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          <h2 className="text-lg font-light tracking-wide text-white">
+            {editando
+              ? t("addgame.editar_jogo", { title: editGame?.title || "" })
+              : t("addgame.titulo_jogo")}
+          </h2>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -184,7 +227,9 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
             <ArteBtn kind="logo" label={t("addgame.logo")} />
           </div>
           {/* Preview da busca automática de capa */}
-          {buscandoArte && <p className="mb-3 text-[12px] text-white/40">{t("addgame.buscando_capas")}</p>}
+          {buscandoArte && (
+            <p className="mb-3 text-[12px] text-white/40">{t("addgame.buscando_capas")}</p>
+          )}
           {!buscandoArte && candidatas.length > 0 && (
             <div className="mb-4 flex gap-2.5">
               {candidatas.map((c) => (
@@ -202,10 +247,25 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
                     capaEscolhida === c.url ? "border-[color:var(--accent)]" : "border-transparent"
                   }`}
                 >
-                  <img src={c.thumb || c.url} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
+                  <img
+                    src={c.thumb || c.url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    draggable={false}
+                  />
                   {capaEscolhida === c.url && (
                     <span className="absolute inset-0 flex items-center justify-center bg-black/40">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--accent)"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     </span>
@@ -217,73 +277,129 @@ export function AddGameDialog({ onClose, onAdded, editGame }: { onClose: () => v
 
           {custom ? (
             <>
-          <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.plataforma")}</label>
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value as "windows" | "linux")}
-            className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
-          >
-            <option value="windows" className="bg-[#16161a]">{t("addgame.windows")}</option>
-            <option value="linux" className="bg-[#16161a]">{t("addgame.linux_nativo")}</option>
-          </select>
+              <label className="mb-1.5 block text-[12px] text-white/60">
+                {t("addgame.plataforma")}
+              </label>
+              <select
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value as "windows" | "linux")}
+                className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
+              >
+                <option value="windows" className="bg-[#16161a]">
+                  {t("addgame.windows")}
+                </option>
+                <option value="linux" className="bg-[#16161a]">
+                  {t("addgame.linux_nativo")}
+                </option>
+              </select>
 
-          {platform === "windows" && (
-            <>
-              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.prefixo_wine")}</label>
-              <div className="mb-4 flex gap-2">
-                <input
-                  value={prefixoEfetivo}
-                  onChange={(e) => setPrefix(e.target.value)}
-                  spellCheck={false}
-                  className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
-                />
-                <button onClick={pickPrefix} title={t("install.escolher_pasta")} className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              {platform === "windows" && (
+                <>
+                  <label className="mb-1.5 block text-[12px] text-white/60">
+                    {t("addgame.prefixo_wine")}
+                  </label>
+                  <div className="mb-4 flex gap-2">
+                    <input
+                      value={prefixoEfetivo}
+                      onChange={(e) => setPrefix(e.target.value)}
+                      spellCheck={false}
+                      className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
+                    />
+                    <button
+                      onClick={pickPrefix}
+                      title={t("install.escolher_pasta")}
+                      className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <label className="mb-1.5 block text-[12px] text-white/60">
+                    {t("addgame.versao_wine")}
+                  </label>
+                  <div className="relative mb-4">
+                    <svg
+                      className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M8 22h8M12 15v7M7 3h10l-1 7a4 4 0 0 1-8 0L7 3z" />
+                    </svg>
+                    <select
+                      value={wineVersion}
+                      onChange={(e) => setWineVersion(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
+                    >
+                      <option value="" className="bg-[#16161a]">
+                        {t("addgame.padrao_sistema")}
+                      </option>
+                      {wines.map((w) => (
+                        <option key={w.id} value={w.id} className="bg-[#16161a]">
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </div>
+                </>
+              )}
+
+              <label className="mb-1.5 block text-[12px] text-white/60">
+                {t("addgame.selecionar_exe")}
+              </label>
+              <div className="mb-2 flex gap-2">
+                <button
+                  onClick={pickExe}
+                  className={`flex flex-1 items-center justify-between rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                    exe ? "border-white/15 text-white/80" : "border-white/10 text-white/35"
+                  } bg-white/[0.04] hover:border-white/25`}
+                >
+                  <span className="truncate">{exe || t("addgame.selecionar_exe")}</span>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0 text-white/50"
+                  >
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                 </button>
               </div>
-
-              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.versao_wine")}</label>
-              <div className="relative mb-4">
-                <svg className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 22h8M12 15v7M7 3h10l-1 7a4 4 0 0 1-8 0L7 3z" />
-                </svg>
-                <select
-                  value={wineVersion}
-                  onChange={(e) => setWineVersion(e.target.value)}
-                  className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
-                >
-                  <option value="" className="bg-[#16161a]">{t("addgame.padrao_sistema")}</option>
-                  {wines.map((w) => (
-                    <option key={w.id} value={w.id} className="bg-[#16161a]">{w.name}</option>
-                  ))}
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </div>
-            </>
-          )}
-
-          <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.selecionar_exe")}</label>
-          <div className="mb-2 flex gap-2">
-            <button
-              onClick={pickExe}
-              className={`flex flex-1 items-center justify-between rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
-                exe ? "border-white/15 text-white/80" : "border-white/10 text-white/35"
-              } bg-white/[0.04] hover:border-white/25`}
-            >
-              <span className="truncate">{exe || t("addgame.selecionar_exe")}</span>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/50">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-            </button>
-          </div>
             </>
           ) : (
             <>
-              <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.descricao")}</label>
+              <label className="mb-1.5 block text-[12px] text-white/60">
+                {t("addgame.descricao")}
+              </label>
               <textarea
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
