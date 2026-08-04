@@ -203,23 +203,6 @@ export function LibraryView({
             ))}
           </select>
         )}
-        <button
-          onClick={() => setSoInstalados((v) => !v)}
-          className={`rounded-xl border px-3.5 py-2.5 text-xs font-medium transition-colors ${
-            soInstalados
-              ? "border-[color:var(--accent)] text-white"
-              : "border-white/10 text-white/55 hover:text-white"
-          }`}
-        >
-          {t("library.so_instalados")}
-        </button>
-        <button
-          onClick={() => setAdicionando(true)}
-          className="rounded-xl px-4 py-2.5 text-xs font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
-          style={{ background: "var(--accent)" }}
-        >
-          {t("library.adicionar_jogo")}
-        </button>
       </div>
 
       {/* Cabeçalho da grade */}
