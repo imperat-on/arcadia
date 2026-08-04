@@ -107,7 +107,11 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
       >
         <div
           className="px-6 py-4 text-[15px] font-semibold tracking-wide uppercase truncate sticky top-0 z-10"
-          style={{ background: BG_HEADER, color: CONSOLE ? "#fff" : "var(--text)", backdropFilter: "blur(8px)" }}
+          style={{
+            background: BG_HEADER,
+            color: CONSOLE ? "#fff" : "var(--text)",
+            backdropFilter: "blur(8px)",
+          }}
         >
           {t("editmetadata.titulo")} — {game.title}
         </div>
@@ -252,8 +256,7 @@ function ArtField({
   const { t } = useI18n()
   // Rascunho vence a arte atual. O caminho vem cru do Electron: vira file://
   // só para a prévia (o que é salvo no disco continua sem prefixo).
-  const preview =
-    draft === null ? null : draft ? "file://" + draft : atual || null
+  const preview = draft === null ? null : draft ? "file://" + draft : atual || null
 
   const labelMap: Record<string, string> = {
     cover: t("editmetadata.capa"),

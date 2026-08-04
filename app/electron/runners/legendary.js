@@ -46,9 +46,7 @@ function status() {
   let user = ""
   try {
     // O Legendary guarda a sessão em ~/.config/legendary/user.json
-    const u = JSON.parse(
-      fs.readFileSync(path.join(LEGENDARY_CFG, "user.json"), "utf-8"),
-    )
+    const u = JSON.parse(fs.readFileSync(path.join(LEGENDARY_CFG, "user.json"), "utf-8"))
     logged = Boolean(u && (u.refresh_token || u.access_token))
     user = u.displayName || u.account_id || ""
   } catch {

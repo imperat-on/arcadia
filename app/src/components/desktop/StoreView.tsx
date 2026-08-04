@@ -82,7 +82,10 @@ export function StoreView({
     window.launcherAPI?.storeRecent?.("all", POR_PAGINA, catPag * POR_PAGINA).then((r) => {
       if (meu !== gerCat.current) return
       setCatCarregando(false)
-      if (r?.ok) { setCatalogo(r.jogos || []); setCatTotal(r.total || 0) }
+      if (r?.ok) {
+        setCatalogo(r.jogos || [])
+        setCatTotal(r.total || 0)
+      }
     })
   }, [catPag])
 
@@ -105,7 +108,8 @@ export function StoreView({
     let ultimoFrame = 0
     let repouso: number[] | null = null
     const deadzone = 0.18
-    const seletorClicavel = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role='button'], [tabindex]:not([tabindex='-1'])"
+    const seletorClicavel =
+      "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role='button'], [tabindex]:not([tabindex='-1'])"
 
     const ocultarCursor = () => {
       cursorVisivelRef.current = false
@@ -116,7 +120,9 @@ export function StoreView({
     const superficieCursor = () => {
       const container = containerLojaRef.current
       if (!container) return null
-      const superficies = Array.from(container.querySelectorAll<HTMLElement>("[data-gamepad-cursor-surface]"))
+      const superficies = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-gamepad-cursor-surface]"),
+      )
       for (let i = superficies.length - 1; i >= 0; i--) {
         const superficie = superficies[i]
         const rect = superficie.getBoundingClientRect()
@@ -162,7 +168,9 @@ export function StoreView({
 
     const loop = (agora: number) => {
       const container = containerLojaRef.current
-      const gamepad = Array.from(navigator.getGamepads?.() || []).find((controle): controle is Gamepad => Boolean(controle))
+      const gamepad = Array.from(navigator.getGamepads?.() || []).find(
+        (controle): controle is Gamepad => Boolean(controle),
+      )
       const pausado = !document.hasFocus()
       const deltaTempo = ultimoFrame ? Math.min(0.05, (agora - ultimoFrame) / 1000) : 1 / 60
       ultimoFrame = agora
@@ -174,10 +182,19 @@ export function StoreView({
         if (cursorX || cursorY) {
           const limite = (superficieCursor() || container).getBoundingClientRect()
           if (!cursorVisivelRef.current) {
-            cursorPosRef.current = { x: limite.left + limite.width / 2, y: limite.top + limite.height / 2 }
+            cursorPosRef.current = {
+              x: limite.left + limite.width / 2,
+              y: limite.top + limite.height / 2,
+            }
           }
-          cursorPosRef.current.x = Math.max(limite.left + 10, Math.min(limite.right - 10, cursorPosRef.current.x + cursorX * 1200 * deltaTempo))
-          cursorPosRef.current.y = Math.max(limite.top + 10, Math.min(limite.bottom - 10, cursorPosRef.current.y + cursorY * 1200 * deltaTempo))
+          cursorPosRef.current.x = Math.max(
+            limite.left + 10,
+            Math.min(limite.right - 10, cursorPosRef.current.x + cursorX * 1200 * deltaTempo),
+          )
+          cursorPosRef.current.y = Math.max(
+            limite.top + 10,
+            Math.min(limite.bottom - 10, cursorPosRef.current.y + cursorY * 1200 * deltaTempo),
+          )
           cursorVisivelRef.current = true
           container.classList.add("cursor-none")
           if (cursorGamepadRef.current) {
@@ -298,17 +315,47 @@ export function StoreView({
     if (!bigPicture) return
     onAtalhos?.({
       voltar: () => {
-        if (tecladoAberto) { setTecladoAberto(false); return true }
-        if (pagina) { setPagina(null); return true }
-        if (configGame) { setConfigGame(null); return true }
-        if (metodo) { setMetodo(null); return true }
-        if (escolhendo) { setEscolhendo(null); return true }
-        if (busca) { limpar(); return true }
+        if (tecladoAberto) {
+          setTecladoAberto(false)
+          return true
+        }
+        if (pagina) {
+          setPagina(null)
+          return true
+        }
+        if (configGame) {
+          setConfigGame(null)
+          return true
+        }
+        if (metodo) {
+          setMetodo(null)
+          return true
+        }
+        if (escolhendo) {
+          setEscolhendo(null)
+          return true
+        }
+        if (busca) {
+          limpar()
+          return true
+        }
         return false
       },
       abrirTeclado: () => setTecladoAberto(true),
     })
-  }, [bigPicture, onAtalhos, tecladoAberto, pagina, configGame, metodo, escolhendo, busca, limpar, setMetodo, setEscolhendo])
+  }, [
+    bigPicture,
+    onAtalhos,
+    tecladoAberto,
+    pagina,
+    configGame,
+    metodo,
+    escolhendo,
+    busca,
+    limpar,
+    setMetodo,
+    setEscolhendo,
+  ])
 
   // Sugestões pro teclado no formato SugestaoLoja (com img/preco quando existirem).
   const sugestoesKB = useMemo<SugestaoLoja[]>(() => {
@@ -359,7 +406,10 @@ export function StoreView({
           <input
             ref={inputRef}
             value={busca}
-            onChange={(e) => { ignorarSug.current = false; setBusca(e.target.value) }}
+            onChange={(e) => {
+              ignorarSug.current = false
+              setBusca(e.target.value)
+            }}
             onKeyDown={aoTeclar}
             onClick={() => {
               if (!bigPicture) return
@@ -376,7 +426,15 @@ export function StoreView({
               title={t("common.cancelar")}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-white/35 transition-colors hover:text-white"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
             </button>
@@ -386,7 +444,10 @@ export function StoreView({
               {sugestoes.map((s, i) => (
                 <button
                   key={s.appid}
-                  onMouseDown={(e) => { e.preventDefault(); pesquisar(s.title) }}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    pesquisar(s.title)
+                  }}
                   onMouseEnter={() => setSugSel(i)}
                   className={`block w-full truncate px-3.5 py-2 text-left text-[13px] transition-colors ${i === sugSel ? "bg-white/[0.09] text-white" : "text-white/80 hover:bg-white/[0.07] hover:text-white"}`}
                 >
@@ -421,61 +482,78 @@ export function StoreView({
         return (
           <>
             <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-6">
-              {carregando && esqueletos.map((i) => (
-                <div key={`sk${i}`} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-                  <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
-                  <div className="p-3">
-                    <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
-                    <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+              {carregando &&
+                esqueletos.map((i) => (
+                  <div
+                    key={`sk${i}`}
+                    className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]"
+                  >
+                    <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
+                    <div className="p-3">
+                      <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
+                      <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+                    </div>
                   </div>
-                </div>
-              ))}
-              {!carregando && itens.map((j) => (
-                <CartaoLoja
-                  key={j.appid}
-                  jogo={j}
-                  naBiblioteca={bloqueados.has(j.appid)}
-                  adicionado={jaAdicionados.has(j.appid)}
-                  onOpen={() => setPagina(j)}
-                  t={t}
-                />
-              ))}
+                ))}
+              {!carregando &&
+                itens.map((j) => (
+                  <CartaoLoja
+                    key={j.appid}
+                    jogo={j}
+                    naBiblioteca={bloqueados.has(j.appid)}
+                    adicionado={jaAdicionados.has(j.appid)}
+                    onOpen={() => setPagina(j)}
+                    t={t}
+                  />
+                ))}
             </div>
             {mostraCat && !carregando && catTotal > POR_PAGINA && (
               <Paginacao
                 pag={catPag}
                 totalPags={Math.ceil(catTotal / POR_PAGINA)}
-                onIr={(p) => { setCatPag(p); window.scrollTo?.(0, 0) }}
+                onIr={(p) => {
+                  setCatPag(p)
+                  window.scrollTo?.(0, 0)
+                }}
               />
             )}
           </>
         )
       })()}
 
-      {pagina && (() => {
-        const naBiblioteca = bloqueados.has(pagina.appid)
-        const game = naBiblioteca ? gamePorAppid.get(pagina.appid) : undefined
-        return (
-          <StoreGamePage
-            jogo={pagina}
-            game={game}
-            onClose={() => setPagina(null)}
-            onBaixar={() => baixar(pagina)}
-            onAdicionar={() => adicionar(pagina)}
-            onRemover={() => remover(pagina)}
-            onConfig={game ? () => setConfigGame(game) : undefined}
-            onJogar={game && game.installed !== false ? () => window.launcherAPI?.launch(game.launch_cmd, game.id) : undefined}
-            naBiblioteca={naBiblioteca}
-            ocupado={acaoBusy !== ""}
-          />
-        )
-      })()}
+      {pagina &&
+        (() => {
+          const naBiblioteca = bloqueados.has(pagina.appid)
+          const game = naBiblioteca ? gamePorAppid.get(pagina.appid) : undefined
+          return (
+            <StoreGamePage
+              jogo={pagina}
+              game={game}
+              onClose={() => setPagina(null)}
+              onBaixar={() => baixar(pagina)}
+              onAdicionar={() => adicionar(pagina)}
+              onRemover={() => remover(pagina)}
+              onConfig={game ? () => setConfigGame(game) : undefined}
+              onJogar={
+                game && game.installed !== false
+                  ? () => window.launcherAPI?.launch(game.launch_cmd, game.id)
+                  : undefined
+              }
+              naBiblioteca={naBiblioteca}
+              ocupado={acaoBusy !== ""}
+            />
+          )
+        })()}
 
       {metodo && (
         <MetodoDownloadDialog
           jogo={metodo.jogo}
           opcoes={metodo.opcoes}
-          onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
+          onDepot={() => {
+            const j = metodo.jogo
+            setMetodo(null)
+            baixarDepot(j)
+          }}
           onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
           onClose={() => setMetodo(null)}
           depotDisponivel={slsAtivo}
@@ -486,7 +564,9 @@ export function StoreView({
         <EscolhaDownloadDialog
           escolhendo={escolhendo}
           onCancel={() => setEscolhendo(null)}
-          onConfirm={(steamDir, sel) => confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)}
+          onConfirm={(steamDir, sel) =>
+            confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)
+          }
           titulo={t("store.instalar_em", { title: escolhendo.jogo.title })}
         />
       )}
@@ -494,7 +574,12 @@ export function StoreView({
       {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
 
       {toast && (
-        <div className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>{toast}</div>
+        <div
+          className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
+          onClick={() => setToast("")}
+        >
+          {toast}
+        </div>
       )}
 
       {/* Teclado virtual: só no Big Picture. No desktop existe teclado físico. */}
@@ -506,9 +591,15 @@ export function StoreView({
           onTexto={(v) => setBusca(v)}
           onEscolherSugestao={(appid) => {
             const s = sugestoes.find((x) => x.appid === appid)
-            if (s) { setTecladoAberto(false); pesquisar(s.title) }
+            if (s) {
+              setTecladoAberto(false)
+              pesquisar(s.title)
+            }
           }}
-          onConfirmar={(texto) => { setTecladoAberto(false); if (texto) pesquisar(texto) }}
+          onConfirmar={(texto) => {
+            setTecladoAberto(false)
+            if (texto) pesquisar(texto)
+          }}
           onFechar={() => setTecladoAberto(false)}
         />
       )}
@@ -518,7 +609,15 @@ export function StoreView({
 
 // Paginação numérica (1-based na UI, 0-based no estado). Mostra vizinhas +
 // elipse + primeira/última, no estilo do print.
-function Paginacao({ pag, totalPags, onIr }: { pag: number; totalPags: number; onIr: (p: number) => void }) {
+function Paginacao({
+  pag,
+  totalPags,
+  onIr,
+}: {
+  pag: number
+  totalPags: number
+  onIr: (p: number) => void
+}) {
   const atual = pag + 1
   const nums: (number | "…")[] = []
   const push = (n: number | "…") => nums.push(n)
@@ -530,12 +629,24 @@ function Paginacao({ pag, totalPags, onIr }: { pag: number; totalPags: number; o
     push(n)
     ant = n
   }
-  const Btn = ({ children, on, ativo, off }: { children: React.ReactNode; on?: () => void; ativo?: boolean; off?: boolean }) => (
+  const Btn = ({
+    children,
+    on,
+    ativo,
+    off,
+  }: {
+    children: React.ReactNode
+    on?: () => void
+    ativo?: boolean
+    off?: boolean
+  }) => (
     <button
       onClick={on}
       disabled={off}
       className={`min-w-9 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors disabled:opacity-30 ${
-        ativo ? "bg-[color:var(--accent)] text-black" : "border border-white/10 text-white/70 hover:border-white/25 hover:text-white"
+        ativo
+          ? "bg-[color:var(--accent)] text-black"
+          : "border border-white/10 text-white/70 hover:border-white/25 hover:text-white"
       }`}
     >
       {children}
@@ -543,15 +654,23 @@ function Paginacao({ pag, totalPags, onIr }: { pag: number; totalPags: number; o
   )
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 pb-8 pt-2">
-      <Btn on={() => onIr(pag - 1)} off={atual <= 1}>‹</Btn>
+      <Btn on={() => onIr(pag - 1)} off={atual <= 1}>
+        ‹
+      </Btn>
       {nums.map((n, i) =>
         n === "…" ? (
-          <span key={`e${i}`} className="px-1 text-white/30">…</span>
+          <span key={`e${i}`} className="px-1 text-white/30">
+            …
+          </span>
         ) : (
-          <Btn key={n} on={() => onIr(n - 1)} ativo={n === atual}>{n}</Btn>
+          <Btn key={n} on={() => onIr(n - 1)} ativo={n === atual}>
+            {n}
+          </Btn>
         ),
       )}
-      <Btn on={() => onIr(pag + 1)} off={atual >= totalPags}>›</Btn>
+      <Btn on={() => onIr(pag + 1)} off={atual >= totalPags}>
+        ›
+      </Btn>
     </div>
   )
 }

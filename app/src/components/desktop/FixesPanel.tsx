@@ -11,7 +11,13 @@ type FixCheck = {
   ok: boolean
   generic?: { available: boolean; status: number; url?: string }
   online?: { available: boolean; status: number; url?: string }
-  crack?: { available: boolean; status: number; url?: string; badge?: string; requiresAuth?: boolean }
+  crack?: {
+    available: boolean
+    status: number
+    url?: string
+    badge?: string
+    requiresAuth?: boolean
+  }
   authConfigured?: boolean
 }
 
@@ -22,9 +28,50 @@ type ApplyState =
   | { kind: "failed"; error: string; errorCode?: string }
   | { kind: "done" }
 
-const ICON_CRACK = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="M8.5 9l-1 1 1 1M15.5 9l1 1-1 1M12 8v8" /></svg>
-const ICON_ONLINE = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07 19.07 4.93" /></svg>
-const ICON_UNFIX = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="M9 12l2 2 4-4" /></svg>
+const ICON_CRACK = (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
+    <path d="M8.5 9l-1 1 1 1M15.5 9l1 1-1 1M12 8v8" />
+  </svg>
+)
+const ICON_ONLINE = (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07 19.07 4.93" />
+  </svg>
+)
+const ICON_UNFIX = (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
+    <path d="M9 12l2 2 4-4" />
+  </svg>
+)
 
 export function FixesPanel({ appid, installPath }: { appid: string; installPath: string }) {
   const { t } = useI18n()
@@ -39,13 +86,17 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
     if (!appid) return
     window.launcherAPI?.fixesCheck(appid).then((r) => setCheck(r || null))
     if (installPath) {
-      window.launcherAPI?.fixesInstalled({ appid, installPath }).then((r) => setApplied(Boolean(r?.installed)))
+      window.launcherAPI
+        ?.fixesInstalled({ appid, installPath })
+        .then((r) => setApplied(Boolean(r?.installed)))
     }
   }
 
   useEffect(() => {
     recarregar()
-    return () => { if (pollRef.current) window.clearInterval(pollRef.current) }
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appid, installPath])
 
@@ -55,15 +106,29 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
       const s = await window.launcherAPI?.fixesStatus(appid)
       if (!s) return
       if (s.status === "downloading") {
-        setState({ kind: "downloading", bytesRead: s.bytesRead || 0, totalBytes: s.totalBytes || 0 })
+        setState({
+          kind: "downloading",
+          bytesRead: s.bytesRead || 0,
+          totalBytes: s.totalBytes || 0,
+        })
       } else if (s.status === "extracting") {
         setState({ kind: "extracting" })
       } else if (s.status === "failed") {
-        setState({ kind: "failed", error: s.error || t("fixes.erro_generico"), errorCode: s.errorCode })
-        if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null }
+        setState({
+          kind: "failed",
+          error: s.error || t("fixes.erro_generico"),
+          errorCode: s.errorCode,
+        })
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current)
+          pollRef.current = null
+        }
       } else if (s.status === "done") {
         setState({ kind: "done" })
-        if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null }
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current)
+          pollRef.current = null
+        }
         recarregar()
       }
     }, 400)
@@ -78,7 +143,11 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
     setState({ kind: "downloading", bytesRead: 0, totalBytes: 0 })
     const r = await window.launcherAPI?.fixesApply({ appid, url, type: tipo, installPath })
     if (!r?.ok) {
-      setState({ kind: "failed", error: r?.error || t("fixes.erro_generico"), errorCode: r?.errorCode })
+      setState({
+        kind: "failed",
+        error: r?.error || t("fixes.erro_generico"),
+        errorCode: r?.errorCode,
+      })
       if (r?.errorCode === "authentication") setShowAuth(true)
       return
     }
@@ -87,7 +156,10 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
 
   const cancelar = async () => {
     await window.launcherAPI?.fixesCancel(appid)
-    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null }
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
     setState({ kind: "idle" })
   }
 
@@ -107,14 +179,26 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
 
   if (!check) {
     return (
-      <div className="rounded-2xl p-5" style={{ background: "rgba(255,255,255,0.025)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)" }}>
+      <div
+        className="rounded-2xl p-5"
+        style={{
+          background: "rgba(255,255,255,0.025)",
+          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
+        }}
+      >
         <p className="text-[12px] text-white/40">{t("fixes.carregando")}</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-2xl p-5" style={{ background: "rgba(255,255,255,0.025)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+    <div
+      className="rounded-2xl p-5"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
+      }}
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
           <span className="h-3 w-[2px] rounded-full" style={{ background: "var(--accent)" }} />
@@ -132,7 +216,10 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
         <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
           <div className="mb-2 flex items-center justify-between text-[12px] text-white/70">
             <span>{state.kind === "downloading" ? t("fixes.baixando") : t("fixes.extraindo")}</span>
-            <button onClick={cancelar} className="text-[11px] font-semibold text-[#ff6b81] hover:underline">
+            <button
+              onClick={cancelar}
+              className="text-[11px] font-semibold text-[#ff6b81] hover:underline"
+            >
               {t("common.cancelar")}
             </button>
           </div>
@@ -141,7 +228,10 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
               <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                 <div
                   className="h-full rounded-full"
-                  style={{ width: `${Math.round((state.bytesRead / state.totalBytes) * 100)}%`, background: "var(--accent)" }}
+                  style={{
+                    width: `${Math.round((state.bytesRead / state.totalBytes) * 100)}%`,
+                    background: "var(--accent)",
+                  }}
                 />
               </div>
               <p className="mt-1.5 text-[10.5px] text-white/40">
@@ -149,14 +239,19 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
               </p>
             </>
           )}
-          {state.kind === "extracting" && <div className="h-1.5 animate-pulse rounded-full bg-white/[0.08]" />}
+          {state.kind === "extracting" && (
+            <div className="h-1.5 animate-pulse rounded-full bg-white/[0.08]" />
+          )}
         </div>
       )}
       {state.kind === "failed" && (
         <div className="mb-4 rounded-xl border border-[#ff6b81]/30 bg-[#ff6b81]/[0.06] p-3">
           <p className="text-[12px] text-[#ffb3c0]">{state.error}</p>
           {state.errorCode === "authentication" && (
-            <button onClick={() => setShowAuth(true)} className="mt-1 text-[11px] font-semibold text-[#ff6b81] hover:underline">
+            <button
+              onClick={() => setShowAuth(true)}
+              className="mt-1 text-[11px] font-semibold text-[#ff6b81] hover:underline"
+            >
               {t("fixes.adicionar_chave")}
             </button>
           )}
@@ -173,7 +268,13 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
         <FixButton
           icon={ICON_CRACK}
           label={t("fixes.crack")}
-          sub={check.crack?.available ? (check.crack.badge ? `(${check.crack.badge})` : t("fixes.disponivel")) : t("fixes.indisponivel")}
+          sub={
+            check.crack?.available
+              ? check.crack.badge
+                ? `(${check.crack.badge})`
+                : t("fixes.disponivel")
+              : t("fixes.indisponivel")
+          }
           available={Boolean(check.crack?.available)}
           disabled={busy || !check.crack?.available}
           onClick={() => aplicar("crack", check.crack?.url)}
@@ -210,10 +311,18 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
 
       {/* Modal auth ryuu */}
       {showAuth && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowAuth(false)}>
-          <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowAuth(false)}
+        >
+          <div
+            className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="mb-2 text-[15px] font-semibold text-white">{t("fixes.auth_titulo")}</h3>
-            <p className="mb-4 text-[12.5px] leading-relaxed text-white/55">{t("fixes.auth_desc")}</p>
+            <p className="mb-4 text-[12.5px] leading-relaxed text-white/55">
+              {t("fixes.auth_desc")}
+            </p>
             <input
               value={authKey}
               onChange={(e) => setAuthKey(e.target.value)}
@@ -222,7 +331,10 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
               className="mb-4 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowAuth(false)} className="rounded-full px-4 py-2 text-[12.5px] text-white/60 hover:text-white">
+              <button
+                onClick={() => setShowAuth(false)}
+                className="rounded-full px-4 py-2 text-[12.5px] text-white/60 hover:text-white"
+              >
                 {t("common.cancelar")}
               </button>
               <button
@@ -265,7 +377,9 @@ function FixButton({
           : "border-white/[0.06] bg-white/[0.02] text-white/40"
       } disabled:cursor-not-allowed disabled:opacity-50`}
     >
-      <span className={available && !disabled ? "text-[color:var(--accent)]" : "text-white/30"}>{icon}</span>
+      <span className={available && !disabled ? "text-[color:var(--accent)]" : "text-white/30"}>
+        {icon}
+      </span>
       <span className="text-[12px] font-semibold leading-tight">{label}</span>
       <span className="text-[10px] leading-tight opacity-70">{sub}</span>
     </button>

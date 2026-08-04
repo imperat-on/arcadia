@@ -15,7 +15,9 @@ interface NewsViewProps {
 function Fallback({ source }: { source: string }) {
   return (
     <div className="flex h-full w-full items-center justify-center bg-[#050505]">
-      <span className="text-sm font-semibold uppercase tracking-[0.2em] text-white/30">{source}</span>
+      <span className="text-sm font-semibold uppercase tracking-[0.2em] text-white/30">
+        {source}
+      </span>
     </div>
   )
 }
@@ -34,7 +36,10 @@ function Imagem({ src, source, alt }: { src: string; source: string; alt: string
   )
 }
 
-function tempoRelativo(iso: string, t: (key: string, params?: Record<string, string>) => string): string {
+function tempoRelativo(
+  iso: string,
+  t: (key: string, params?: Record<string, string>) => string,
+): string {
   if (!iso) return ""
   const diff = Date.now() - new Date(iso).getTime()
   if (isNaN(diff)) return ""
@@ -66,11 +71,17 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
   const vertical = ordenadas.slice(5, 13)
 
   return (
-    <div ref={ref} className="h-full w-full overflow-y-auto overflow-x-hidden bg-black text-white antialiased">
+    <div
+      ref={ref}
+      className="h-full w-full overflow-y-auto overflow-x-hidden bg-black text-white antialiased"
+    >
       <div className="mx-auto max-w-[1400px] px-10 py-6">
         {/* Cabeçalho */}
         <div className="mb-6 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
           {t("news.titulo")}
         </div>
 
@@ -78,7 +89,10 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
           <div className="flex flex-col gap-6">
             <div className="aspect-[21/10] w-full animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.03]" />
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-44 w-full animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.03]" />
+              <div
+                key={i}
+                className="h-44 w-full animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.03]"
+              />
             ))}
           </div>
         ) : !active ? (
@@ -97,9 +111,13 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
               </div>
               <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-8 md:p-12">
-                <h2 className="max-w-3xl text-3xl font-medium leading-tight tracking-tight md:text-4xl">{active.title}</h2>
+                <h2 className="max-w-3xl text-3xl font-medium leading-tight tracking-tight md:text-4xl">
+                  {active.title}
+                </h2>
                 <span className="text-sm text-white/50">{tempoRelativo(active.date, t)}</span>
-                <p className="mt-1 line-clamp-2 max-w-2xl text-base leading-relaxed text-white/75">{active.summary}</p>
+                <p className="mt-1 line-clamp-2 max-w-2xl text-base leading-relaxed text-white/75">
+                  {active.summary}
+                </p>
               </div>
             </button>
 
@@ -119,9 +137,13 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
                         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
                       </div>
                       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 p-7">
-                        <h3 className="line-clamp-2 text-xl font-medium leading-snug tracking-tight md:text-2xl">{item.title}</h3>
+                        <h3 className="line-clamp-2 text-xl font-medium leading-snug tracking-tight md:text-2xl">
+                          {item.title}
+                        </h3>
                         <span className="text-sm text-white/50">{tempoRelativo(item.date, t)}</span>
-                        <p className="mt-1 line-clamp-3 max-w-xl text-sm leading-relaxed text-white/75">{item.summary}</p>
+                        <p className="mt-1 line-clamp-3 max-w-xl text-sm leading-relaxed text-white/75">
+                          {item.summary}
+                        </p>
                       </div>
                     </button>
                   ) : (
@@ -130,9 +152,13 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
                       onClick={() => onOpen(item.url)}
                       className="group flex min-h-[320px] w-full flex-col gap-1.5 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-7 text-left outline-none transition-all duration-300 hover:border-white/25 focus-visible:border-[color:var(--accent)] focus-visible:shadow-[0_0_0_2px_var(--accent)] md:p-9"
                     >
-                      <h3 className="line-clamp-2 text-xl font-medium leading-snug tracking-tight md:text-2xl">{item.title}</h3>
+                      <h3 className="line-clamp-2 text-xl font-medium leading-snug tracking-tight md:text-2xl">
+                        {item.title}
+                      </h3>
                       <span className="text-sm text-white/50">— {tempoRelativo(item.date, t)}</span>
-                      <p className="mt-4 line-clamp-[6] max-w-xl text-base leading-relaxed text-white/70">{item.summary}</p>
+                      <p className="mt-4 line-clamp-[6] max-w-xl text-base leading-relaxed text-white/70">
+                        {item.summary}
+                      </p>
                     </button>
                   )
                 })}
@@ -152,12 +178,16 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
                       <Imagem src={item.image} source={item.source} alt={item.title} />
                       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
                       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 p-5">
-                        <h3 className="line-clamp-2 text-lg font-medium leading-snug tracking-tight">{item.title}</h3>
+                        <h3 className="line-clamp-2 text-lg font-medium leading-snug tracking-tight">
+                          {item.title}
+                        </h3>
                         <span className="text-xs text-white/50">{tempoRelativo(item.date, t)}</span>
                       </div>
                     </div>
                     <div className="flex flex-1 flex-col p-5 pt-4">
-                      <p className="line-clamp-4 text-sm leading-relaxed text-white/70">{item.summary}</p>
+                      <p className="line-clamp-4 text-sm leading-relaxed text-white/70">
+                        {item.summary}
+                      </p>
                     </div>
                   </button>
                 ))}

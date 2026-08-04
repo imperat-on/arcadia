@@ -112,7 +112,8 @@ function botao(rotulo, tipo, { primario = false, perigo = false, off = false } =
   b.disabled = off
   b.style.cssText = [
     "appearance:none",
-    "border:1px solid " + (primario ? "transparent" : perigo ? "rgba(255,107,129,.5)" : "rgba(255,255,255,.16)"),
+    "border:1px solid " +
+      (primario ? "transparent" : perigo ? "rgba(255,107,129,.5)" : "rgba(255,255,255,.16)"),
     "cursor:" + (off ? "default" : "pointer"),
     "opacity:" + (off ? ".5" : "1"),
     "padding:8px 16px",
@@ -123,16 +124,23 @@ function botao(rotulo, tipo, { primario = false, perigo = false, off = false } =
     "white-space:nowrap",
     "transition:filter .12s,transform .06s",
     "color:" + (primario ? "#04121f" : perigo ? "#ff6b81" : "#dbe7ff"),
-    "background:" + (primario ? "var(--arc-accent,#00a8ff)" : perigo ? "transparent" : "rgba(30,38,52,.9)"),
+    "background:" +
+      (primario ? "var(--arc-accent,#00a8ff)" : perigo ? "transparent" : "rgba(30,38,52,.9)"),
   ].join(";")
-  if (!off) b.addEventListener("click", (e) => { e.preventDefault(); acao(tipo) })
+  if (!off)
+    b.addEventListener("click", (e) => {
+      e.preventDefault()
+      acao(tipo)
+    })
   return b
 }
 
 // (Re)desenha os botões conforme o estado atual, sem remexer na posição.
 function montarBotoes(wrap) {
   wrap.innerHTML = ""
-  wrap.appendChild(botao(estado.ocupado ? "…" : labels.baixar, "baixar", { primario: true, off: estado.ocupado }))
+  wrap.appendChild(
+    botao(estado.ocupado ? "…" : labels.baixar, "baixar", { primario: true, off: estado.ocupado }),
+  )
   if (estado.adicionado) {
     wrap.appendChild(botao(labels.remover, "remover", { perigo: true, off: estado.ocupado }))
   } else {
@@ -169,18 +177,27 @@ function sync() {
   const host = document.querySelector(".apphub_OtherSiteInfo")
   if (host) {
     // Inline, antes do botão Community Hub (à esquerda dele).
-    wrap.style.cssText = "display:inline-flex;align-items:center;gap:8px;margin-right:10px;vertical-align:middle;font-family:'Motiva Sans',Arial,sans-serif"
+    wrap.style.cssText =
+      "display:inline-flex;align-items:center;gap:8px;margin-right:10px;vertical-align:middle;font-family:'Motiva Sans',Arial,sans-serif"
     host.insertBefore(wrap, host.firstChild)
   } else {
     // Fallback: barra fixa no topo direito.
     wrap.style.cssText = [
-      "position:fixed", "top:0", "right:0", "display:inline-flex",
-      "align-items:center", "gap:8px", "padding:10px 14px",
-      "background:rgba(8,12,18,.92)", "backdrop-filter:blur(6px)",
+      "position:fixed",
+      "top:0",
+      "right:0",
+      "display:inline-flex",
+      "align-items:center",
+      "gap:8px",
+      "padding:10px 14px",
+      "background:rgba(8,12,18,.92)",
+      "backdrop-filter:blur(6px)",
       "border-left:1px solid rgba(255,255,255,.1)",
       "border-bottom:1px solid rgba(255,255,255,.1)",
-      "border-radius:0 0 0 12px", "box-shadow:0 6px 20px rgba(0,0,0,.35)",
-      "font-family:'Motiva Sans',Arial,sans-serif", "z-index:2147483000",
+      "border-radius:0 0 0 12px",
+      "box-shadow:0 6px 20px rgba(0,0,0,.35)",
+      "font-family:'Motiva Sans',Arial,sans-serif",
+      "z-index:2147483000",
     ].join(";")
     document.body.appendChild(wrap)
   }
@@ -274,7 +291,11 @@ function pedirTecladoBusca() {
   // NÃO blurar: a Steam só gera sugestões enquanto o input está focado. O
   // teclado virtual vive no host (documento diferente), então esse foco aqui
   // dentro do webview não briga com nada do overlay.
-  if (el) { try { el.focus() } catch {} }
+  if (el) {
+    try {
+      el.focus()
+    } catch {}
+  }
   ipcRenderer.sendToHost("arcadia:pedirTeclado", { valor })
 }
 
@@ -299,8 +320,10 @@ function garantirCursor() {
   el.id = CURSOR_ID
   el.style.cssText = [
     "position:fixed",
-    "top:0", "left:0",
-    `width:${CURSOR_SIZE}px`, `height:${CURSOR_SIZE}px`,
+    "top:0",
+    "left:0",
+    `width:${CURSOR_SIZE}px`,
+    `height:${CURSOR_SIZE}px`,
     "border-radius:50%",
     "background:radial-gradient(circle at 35% 35%, #ffffff 0%, #dbe7ff 55%, rgba(0,168,255,.6) 100%)",
     "box-shadow:0 0 0 2px rgba(0,168,255,.55), 0 6px 18px rgba(0,0,0,.5)",
@@ -318,7 +341,14 @@ function garantirCursor() {
 function ehClicavel(el) {
   for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {
     const tag = cur.tagName
-    if (tag === "A" || tag === "BUTTON" || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return true
+    if (
+      tag === "A" ||
+      tag === "BUTTON" ||
+      tag === "INPUT" ||
+      tag === "SELECT" ||
+      tag === "TEXTAREA"
+    )
+      return true
     if (cur.getAttribute && cur.getAttribute("role") === "button") return true
     if (cur.onclick) return true
     const cursorCss = getComputedStyle(cur).cursor
@@ -330,10 +360,17 @@ function ehClicavel(el) {
 function sinteticoMouse(tipo, alvo, x, y) {
   if (!alvo) return
   try {
-    alvo.dispatchEvent(new MouseEvent(tipo, {
-      bubbles: true, cancelable: true, view: window,
-      clientX: x, clientY: y, button: 0, buttons: tipo === "mousedown" ? 1 : 0,
-    }))
+    alvo.dispatchEvent(
+      new MouseEvent(tipo, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: x,
+        clientY: y,
+        button: 0,
+        buttons: tipo === "mousedown" ? 1 : 0,
+      }),
+    )
   } catch {}
 }
 
@@ -358,15 +395,18 @@ function moverHover(x, y) {
   if (el) {
     // Feedback visual: fica ligeiramente maior/mais brilhante sobre clicáveis.
     if (alvo && ehClicavel(alvo)) {
-      el.style.background = "radial-gradient(circle at 35% 35%, #ffffff 0%, #ffffff 55%, var(--arc-accent,#00a8ff) 100%)"
+      el.style.background =
+        "radial-gradient(circle at 35% 35%, #ffffff 0%, #ffffff 55%, var(--arc-accent,#00a8ff) 100%)"
     } else {
-      el.style.background = "radial-gradient(circle at 35% 35%, #ffffff 0%, #dbe7ff 55%, rgba(0,168,255,.6) 100%)"
+      el.style.background =
+        "radial-gradient(circle at 35% 35%, #ffffff 0%, #dbe7ff 55%, rgba(0,168,255,.6) 100%)"
     }
   }
 }
 
 ipcRenderer.on("arcadia:cursor", (_e, { x = -9999, y = -9999 } = {}) => {
-  cursorX = x; cursorY = y
+  cursorX = x
+  cursorY = y
   const el = garantirCursor()
   el.style.opacity = "1"
   // -CURSOR_SIZE/2 pra centralizar a bolinha em (x, y).
@@ -386,7 +426,8 @@ ipcRenderer.on("arcadia:cursorVisivel", (_e, { v = true } = {}) => {
 })
 
 ipcRenderer.on("arcadia:clique", () => {
-  const x = cursorX, y = cursorY
+  const x = cursorX,
+    y = cursorY
   const alvo = document.elementFromPoint(x, y)
   if (!alvo) return
   sinteticoMouse("mousedown", alvo, x, y)
@@ -394,7 +435,11 @@ ipcRenderer.on("arcadia:clique", () => {
   // .click() cobre casos onde a Steam usa onclick da propriedade (não listener)
   // e também links <a href> — o dispatch de "click" também funciona, mas .click()
   // segue o caminho nativo do elemento e navega no href sem depender de handler.
-  try { alvo.click() } catch { sinteticoMouse("click", alvo, x, y) }
+  try {
+    alvo.click()
+  } catch {
+    sinteticoMouse("click", alvo, x, y)
+  }
 })
 
 function ligarBuscaLoja() {
@@ -406,17 +451,25 @@ function ligarBuscaLoja() {
     if (!t || !t.closest) return
     if (t.closest(SEARCH_SELECTOR)) pedirTecladoBusca()
   }
-  document.addEventListener("focusin", (e) => {
-    const t = e.target
-    if (t && t.matches && t.matches(SEARCH_SELECTOR)) pedirTecladoBusca()
-  }, true)
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      const t = e.target
+      if (t && t.matches && t.matches(SEARCH_SELECTOR)) pedirTecladoBusca()
+    },
+    true,
+  )
   document.addEventListener("mousedown", (e) => acionar(e.target), true)
-  document.addEventListener("click", (e) => {
-    if (e.target && e.target.closest && e.target.closest(SEARCH_SELECTOR)) {
-      e.preventDefault()
-    }
-    acionar(e.target)
-  }, true)
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (e.target && e.target.closest && e.target.closest(SEARCH_SELECTOR)) {
+        e.preventDefault()
+      }
+      acionar(e.target)
+    },
+    true,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +483,11 @@ function ligarBuscaLoja() {
 // ---------------------------------------------------------------------------
 function absolutizarUrl(u) {
   if (!u) return ""
-  try { return new URL(u, location.origin).href } catch { return u }
+  try {
+    return new URL(u, location.origin).href
+  } catch {
+    return u
+  }
 }
 
 function extrairSugestoes(container) {
@@ -512,7 +569,9 @@ function agendarSugestoes(termo) {
 ipcRenderer.on("arcadia:tecla", (_e, { value = "" } = {}) => {
   const el = acharCampoBusca()
   if (el) {
-    try { el.value = String(value) } catch {}
+    try {
+      el.value = String(value)
+    } catch {}
   }
   agendarSugestoes(String(value))
 })
@@ -523,7 +582,9 @@ ipcRenderer.on("arcadia:limparBusca", () => {
   const el = acharCampoBusca()
   if (!el) return
   el.value = ""
-  try { el.dispatchEvent(new Event("input", { bubbles: true })) } catch {}
+  try {
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+  } catch {}
 })
 
 function iniciar() {

@@ -70,45 +70,71 @@ function TorrentCard({ item: it }: { item: TorrentItem }) {
         />
       ) : (
         <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-white/40">
-            <path d="M12 3v12" /><path d="m7 11 5 5 5-5" /><path d="M5 21h14" />
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-white/40"
+          >
+            <path d="M12 3v12" />
+            <path d="m7 11 5 5 5-5" />
+            <path d="M5 21h14" />
           </svg>
         </div>
       )}
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="truncate text-base font-medium">{it.title || it.folderName || it.gameId}</h3>
+          <h3 className="truncate text-base font-medium">
+            {it.title || it.folderName || it.gameId}
+          </h3>
           <span className="shrink-0 text-xs text-white/50">
-            {it.erro
-              ? <span className="text-[#ff6b81]">{t("torrent.status.erro")}</span>
-              : it.completo
-                ? t("torrent.status.completo")
-                : it.pausado
-                  ? t("torrent.status.pausado")
-                  : it.cacheando
-                    ? t("torrent.status.cacheando")
-                    : t("torrent.status.baixando")}
+            {it.erro ? (
+              <span className="text-[#ff6b81]">{t("torrent.status.erro")}</span>
+            ) : it.completo ? (
+              t("torrent.status.completo")
+            ) : it.pausado ? (
+              t("torrent.status.pausado")
+            ) : it.cacheando ? (
+              t("torrent.status.cacheando")
+            ) : (
+              t("torrent.status.baixando")
+            )}
           </span>
         </div>
 
         <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${pct}%`, background: "var(--accent)", boxShadow: baixando ? "0 0 12px var(--accent)" : "none" }}
+            style={{
+              width: `${pct}%`,
+              background: "var(--accent)",
+              boxShadow: baixando ? "0 0 12px var(--accent)" : "none",
+            }}
           />
         </div>
 
         <div className="mt-2 flex items-baseline justify-between text-xs text-white/50">
           <span className="tabular-nums">
-            {it.cacheando
-              ? <span className="text-white/40">{it.erro || t("torrent.cacheando_desc")}</span>
-              : <>{fmtBytes(bytes)} / {fmtBytes(it.fileSize)} · {pct}%</>}
+            {it.cacheando ? (
+              <span className="text-white/40">{it.erro || t("torrent.cacheando_desc")}</span>
+            ) : (
+              <>
+                {fmtBytes(bytes)} / {fmtBytes(it.fileSize)} · {pct}%
+              </>
+            )}
           </span>
           {baixando && (
             <span className="tabular-nums text-white/70">
               {fmtBytes(it.downloadSpeed)}/s
-              {it.engine !== "http" && <> · {t("torrent.peers", { count: String(it.numPeers || 0) })}</>}
+              {it.engine !== "http" && (
+                <> · {t("torrent.peers", { count: String(it.numPeers || 0) })}</>
+              )}
               {it.engine === "http" && <> · HTTP</>}
             </span>
           )}
@@ -117,10 +143,17 @@ function TorrentCard({ item: it }: { item: TorrentItem }) {
 
       <div className="flex shrink-0 flex-col gap-2">
         {baixando && (
-          <Acao label={t("downloads.pausar")} onClick={() => window.launcherAPI?.torrentPause(it.gameId)} />
+          <Acao
+            label={t("downloads.pausar")}
+            onClick={() => window.launcherAPI?.torrentPause(it.gameId)}
+          />
         )}
         {it.pausado && !it.completo && (
-          <Acao label={t("downloads.retomar")} primaria onClick={() => window.launcherAPI?.torrentResume(it.gameId)} />
+          <Acao
+            label={t("downloads.retomar")}
+            primaria
+            onClick={() => window.launcherAPI?.torrentResume(it.gameId)}
+          />
         )}
         <Acao
           label={it.completo ? t("common.remover") : t("common.cancelar")}
@@ -131,7 +164,15 @@ function TorrentCard({ item: it }: { item: TorrentItem }) {
   )
 }
 
-function Acao({ label, onClick, primaria }: { label: string; onClick: () => void; primaria?: boolean }) {
+function Acao({
+  label,
+  onClick,
+  primaria,
+}: {
+  label: string
+  onClick: () => void
+  primaria?: boolean
+}) {
   return (
     <button
       onClick={onClick}

@@ -136,13 +136,20 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
         }}
       >
         {/* Cabeçalho */}
-        <div className="px-6 py-4 flex items-center justify-between shrink-0" style={{ background: "rgba(0,0,0,0.5)" }}>
+        <div
+          className="px-6 py-4 flex items-center justify-between shrink-0"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
           <div className="min-w-0">
             <h2 className="text-white text-lg font-bold truncate">
-              {downloading ? t("trailer.baixando_trailer") : preview ? t("trailer.preview") : t("trailer.escolher")}
+              {downloading
+                ? t("trailer.baixando_trailer")
+                : preview
+                  ? t("trailer.preview")
+                  : t("trailer.escolher")}
             </h2>
             <p className="text-xs text-[#8a93a6] truncate">
-              {game.title} —               {downloading || preview ? "" : t("trailer.resultados_youtube")}
+              {game.title} — {downloading || preview ? "" : t("trailer.resultados_youtube")}
             </p>
           </div>
           {!downloading && (
@@ -171,7 +178,10 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 {preview.duration ? ` · ${fmtDur(preview.duration)}` : ""}
               </div>
               <div className="mt-4">
-                <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.1)" }}>
+                <div
+                  className="h-2.5 rounded-full overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.1)" }}
+                >
                   <div
                     className="h-full rounded-full transition-all"
                     style={{ width: `${percent}%`, background: "var(--accent)" }}
@@ -234,7 +244,9 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
           /* ── Grade de resultados ───────────────────────────────────────── */
           <div className="overflow-y-auto p-5">
             {loading ? (
-              <div className="text-center text-[#8a93a6] py-16">{t("trailer.buscando_youtube")}</div>
+              <div className="text-center text-[#8a93a6] py-16">
+                {t("trailer.buscando_youtube")}
+              </div>
             ) : searchErr ? (
               <div className="text-center py-16 px-6">
                 <div className="text-[#ff6b6b]">{t("trailer.falha_busca")}</div>
@@ -253,7 +265,12 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                   >
                     <div className="relative flex-shrink-0" style={{ width: 160 }}>
                       {v.thumbnail ? (
-                        <img src={v.thumbnail} alt="" className="w-40 h-[90px] object-cover rounded-lg" loading="lazy" />
+                        <img
+                          src={v.thumbnail}
+                          alt=""
+                          className="w-40 h-[90px] object-cover rounded-lg"
+                          loading="lazy"
+                        />
                       ) : (
                         <div className="w-40 h-[90px] rounded-lg" style={{ background: "#000" }} />
                       )}
@@ -266,8 +283,13 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                         </span>
                       )}
                       {/* Selo de "play" para deixar claro que abre o vídeo */}
-                      <span className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity" style={{ background: "rgba(0,0,0,0.3)" }}>
-                        <svg width="34" height="34" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+                      <span
+                        className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                        style={{ background: "rgba(0,0,0,0.3)" }}
+                      >
+                        <svg width="34" height="34" viewBox="0 0 24 24" fill="#fff">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
                       </span>
                     </div>
                     <div className="min-w-0 flex-1">

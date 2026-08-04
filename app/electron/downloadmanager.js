@@ -40,14 +40,57 @@ function signalGroup(child, sig) {
   try {
     process.kill(-child.pid, sig) // -pid = grupo inteiro
   } catch {
-    try { child.kill(sig) } catch {}
+    try {
+      child.kill(sig)
+    } catch {}
   }
 }
 
 function persist() {
   try {
-    const sane = queue.map(({ appid, appName, title, cover, status, percent, done, total, eta, speed, error, installPath, installDir, engine, installdir, depots, token, dlcs, steamDir }) =>
-      ({ appid, appName, title, cover, status, percent, done, total, eta, speed, error, installPath, installDir, engine, installdir, depots, token, dlcs, steamDir }))
+    const sane = queue.map(
+      ({
+        appid,
+        appName,
+        title,
+        cover,
+        status,
+        percent,
+        done,
+        total,
+        eta,
+        speed,
+        error,
+        installPath,
+        installDir,
+        engine,
+        installdir,
+        depots,
+        token,
+        dlcs,
+        steamDir,
+      }) => ({
+        appid,
+        appName,
+        title,
+        cover,
+        status,
+        percent,
+        done,
+        total,
+        eta,
+        speed,
+        error,
+        installPath,
+        installDir,
+        engine,
+        installdir,
+        depots,
+        token,
+        dlcs,
+        steamDir,
+      }),
+    )
     // Atômico (ver writeConfig): a fila é gravada a cada 3s durante o
     // download, então é justamente o arquivo com mais chance de ser pego
     // pela metade num fechamento abrupto.
@@ -113,12 +156,15 @@ function next() {
     // re-busca o manifesto para ter total em MiB no progresso.
     const precisaSize = !(it.depots || []).length || (it.depots || []).some((d) => !d.size)
     const comDepots = precisaSize
-      ? ss.getManifest(appidLimpo).then((m) => {
-          if (m.ok && m.depots?.length) {
-            it.depots = m.depots
-            if (m.token) it.token = m.token
-          }
-        }).catch(() => {})
+      ? ss
+          .getManifest(appidLimpo)
+          .then((m) => {
+            if (m.ok && m.depots?.length) {
+              it.depots = m.depots
+              if (m.token) it.token = m.token
+            }
+          })
+          .catch(() => {})
       : Promise.resolve()
     comDepots.then(() => {
       ss.prepareDownload({
@@ -126,18 +172,20 @@ function next() {
         installdir: it.installdir,
         depots: it.depots || [],
         steamDir: it.steamDir || ss.findSteamDir(),
-      }).then((prep) => {
-        if (!prep.ok) return finish(it, "error", prep.error || "falha ao preparar o download")
-        // Um processo por depot, em sequência (estilo Acella). A fila fica no
-        // item para que pause/cancel/retomada saibam onde paramos.
-        it.fila = prep.cmds
-        it.filaIdx = 0
-        // Só os depots que realmente vão baixar entram no total. Somando todos
-        // (inclusive os pulados por falta de .manifest), a barra jamais
-        // chegaria a 100% e o ETA ficaria eternamente errado.
-        it.depotsBaixando = prep.cmds.map((c) => String(c.depotId))
-        iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args)
-      }).catch((e) => finish(it, "error", String(e)))
+      })
+        .then((prep) => {
+          if (!prep.ok) return finish(it, "error", prep.error || "falha ao preparar o download")
+          // Um processo por depot, em sequência (estilo Acella). A fila fica no
+          // item para que pause/cancel/retomada saibam onde paramos.
+          it.fila = prep.cmds
+          it.filaIdx = 0
+          // Só os depots que realmente vão baixar entram no total. Somando todos
+          // (inclusive os pulados por falta de .manifest), a barra jamais
+          // chegaria a 100% e o ETA ficaria eternamente errado.
+          it.depotsBaixando = prep.cmds.map((c) => String(c.depotId))
+          iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args)
+        })
+        .catch((e) => finish(it, "error", String(e)))
     })
     return
   }
@@ -168,11 +216,15 @@ function iniciarFilho(it, cmd, args) {
   let ultimoMiB = 0
   if (it.engine === "steam" && it.installDir) {
     const baixando = it.depotsBaixando ? new Set(it.depotsBaixando) : null
-    const totalMiB = (it.depots || [])
-      .filter((d) => !baixando || baixando.has(String(d.depotId)))
-      .reduce((acc, d) => acc + (Number(d.size) || 0), 0) / (1024 * 1024)
+    const totalMiB =
+      (it.depots || [])
+        .filter((d) => !baixando || baixando.has(String(d.depotId)))
+        .reduce((acc, d) => acc + (Number(d.size) || 0), 0) /
+      (1024 * 1024)
     if (totalMiB > 0) update(it.appid, { total: Math.round(totalMiB) })
-    dirSizeMiB(it.installDir, (mi) => { ultimoMiB = mi })
+    dirSizeMiB(it.installDir, (mi) => {
+      ultimoMiB = mi
+    })
     poller = setInterval(() => {
       dirSizeMiB(it.installDir, (atual) => {
         const speed = Math.max(0, (atual - ultimoMiB) / 3)
@@ -232,7 +284,10 @@ function iniciarFilho(it, cmd, args) {
   }
   child.stdout.on("data", (d) => onOut(String(d)))
   child.stderr.on("data", (d) => onOut(String(d)))
-  child.on("error", () => { if (poller) clearInterval(poller); finish(it, "error", "falha ao iniciar o download") })
+  child.on("error", () => {
+    if (poller) clearInterval(poller)
+    finish(it, "error", "falha ao iniciar o download")
+  })
   child.on("close", (code) => {
     if (poller) clearInterval(poller)
     if (it.status === "error" || it.status === "canceled") {
@@ -253,7 +308,9 @@ function iniciarFilho(it, cmd, args) {
       else {
         it.depotsFalhos = it.depotsFalhos || []
         it.depotsFalhos.push(fila[it.filaIdx]?.depotId || "?")
-        dlog(`depot ${fila[it.filaIdx]?.depotId} falhou (código ${code}) em ${it.title}: ${(ultimoErro || "").slice(0, 200)}`)
+        dlog(
+          `depot ${fila[it.filaIdx]?.depotId} falhou (código ${code}) em ${it.title}: ${(ultimoErro || "").slice(0, 200)}`,
+        )
       }
       if (it.filaIdx < fila.length - 1) {
         it.filaIdx++
@@ -288,7 +345,9 @@ function fmtEta(seg) {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   const ss = s % 60
-  return h > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+  return h > 0
+    ? `${h}h${String(m).padStart(2, "0")}m`
+    : `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
 }
 
 function finish(it, status, error = "") {
@@ -299,7 +358,9 @@ function finish(it, status, error = "") {
   // tira o item da fila logo depois — a tela fica só com o que interessa.
   if (status === "done") {
     if (doneFn) {
-      try { doneFn(it) } catch {}
+      try {
+        doneFn(it)
+      } catch {}
     }
     setTimeout(() => {
       queue = queue.filter((q) => q.appid !== it.appid)
@@ -313,7 +374,9 @@ function finish(it, status, error = "") {
 async function install({ appid, title, cover, installPath }) {
   const appName = String(appid).replace(/^epic:/, "")
   if (!appName || appName === appid) return { ok: false, error: "não é um jogo Epic" }
-  if (queue.some((q) => q.appid === appid && ["queued", "downloading", "paused"].includes(q.status))) {
+  if (
+    queue.some((q) => q.appid === appid && ["queued", "downloading", "paused"].includes(q.status))
+  ) {
     return { ok: true } // já está na fila
   }
   // Um item que falhou continuava na fila e o novo pedido criava um SEGUNDO
@@ -324,8 +387,17 @@ async function install({ appid, title, cover, installPath }) {
   const destino = installPath || GAMES_DIR
   fs.mkdirSync(destino, { recursive: true })
   queue.push({
-    appid, appName, title, cover,
-    status: "queued", percent: 0, done: 0, total: 0, eta: "", speed: 0, error: "",
+    appid,
+    appName,
+    title,
+    cover,
+    status: "queued",
+    percent: 0,
+    done: 0,
+    total: 0,
+    eta: "",
+    speed: 0,
+    error: "",
     installPath: destino,
   })
   persist()
@@ -345,9 +417,23 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
   installdir = ss.sanitizeInstallDir(installdir)
   const dir = steamDir || ss.findSteamDir()
   queue.push({
-    appid: id, appName: String(appid), title, cover,
-    engine: "steam", installdir, depots, token, dlcs, steamDir: dir,
-    status: "queued", percent: 0, done: 0, total: 0, eta: "", speed: 0, error: "",
+    appid: id,
+    appName: String(appid),
+    title,
+    cover,
+    engine: "steam",
+    installdir,
+    depots,
+    token,
+    dlcs,
+    steamDir: dir,
+    status: "queued",
+    percent: 0,
+    done: 0,
+    total: 0,
+    eta: "",
+    speed: 0,
+    error: "",
     installPath: path.join(dir, "steamapps", "common"),
     installDir: path.join(dir, "steamapps", "common", installdir),
   })
@@ -419,7 +505,12 @@ function waitExit(child, ms = 5000) {
   return new Promise((res) => {
     if (!child || child.exitCode !== null || child.signalCode) return res()
     let done = false
-    const fin = () => { if (!done) { done = true; res() } }
+    const fin = () => {
+      if (!done) {
+        done = true
+        res()
+      }
+    }
     child.once("close", fin)
     child.once("exit", fin)
     setTimeout(fin, ms)
@@ -462,7 +553,9 @@ async function cancel(appid) {
       u.stdout.on("data", (d) => (out += d))
       u.stderr.on("data", (d) => (out += d))
       u.on("close", (code) => {
-        dlog(`cancel: legendary uninstall ${it.appName} exit=${code} out=${out.trim().slice(0, 300)}`)
+        dlog(
+          `cancel: legendary uninstall ${it.appName} exit=${code} out=${out.trim().slice(0, 300)}`,
+        )
         res()
       })
       u.on("error", (e) => {
@@ -488,7 +581,9 @@ async function cancel(appid) {
     }
   } catch {}
   for (const alvo of new Set(candidatos)) {
-    const dentro = alvo.startsWith(base.endsWith(path.sep) ? base : base + path.sep) || alvo.startsWith(GAMES_DIR + path.sep)
+    const dentro =
+      alvo.startsWith(base.endsWith(path.sep) ? base : base + path.sep) ||
+      alvo.startsWith(GAMES_DIR + path.sep)
     if (baseOk && alvo && alvo !== "/" && dentro && fs.existsSync(alvo)) {
       try {
         fs.rmSync(alvo, { recursive: true, force: true })
@@ -525,4 +620,16 @@ function killActive() {
 }
 
 load()
-module.exports = { install, installSteam, pause, resume, retry, descartar, cancel, getQueue, onProgress, onDone, killActive }
+module.exports = {
+  install,
+  installSteam,
+  pause,
+  resume,
+  retry,
+  descartar,
+  cancel,
+  getQueue,
+  onProgress,
+  onDone,
+  killActive,
+}

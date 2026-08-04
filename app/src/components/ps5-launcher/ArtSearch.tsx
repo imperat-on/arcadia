@@ -73,9 +73,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
   // Marcar/desmarcar já refaz a busca: filtro que exige clicar em "Buscar"
   // passa a impressão de estar quebrado.
   const alternarResolucao = (v: string) => {
-    const next = resolucoes.includes(v)
-      ? resolucoes.filter((r) => r !== v)
-      : [...resolucoes, v]
+    const next = resolucoes.includes(v) ? resolucoes.filter((r) => r !== v) : [...resolucoes, v]
     setResolucoes(next)
     buscar(termo, next)
   }
@@ -117,7 +115,10 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
         role="dialog"
         aria-label={TITULOS[kind]}
       >
-        <div className="px-6 py-4 flex items-center gap-3" style={{ background: "rgba(0,0,0,0.5)" }}>
+        <div
+          className="px-6 py-4 flex items-center gap-3"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
           <span className="text-white text-[15px] font-semibold tracking-wide uppercase whitespace-nowrap">
             {TITULOS[kind]}
           </span>

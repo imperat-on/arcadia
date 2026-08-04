@@ -28,17 +28,24 @@ export function PluginsView() {
 
   // Salva o caminho no config e tenta detectar/ativar. Não baixa nada.
   const verificar = async (id: string) => {
-    setBusy(id); setMsg("")
+    setBusy(id)
+    setMsg("")
     const key = CAMINHO_KEY[id]
     if (key) await window.launcherAPI?.setConfig({ [key]: (caminhos[id] || "").trim() })
     const r = await window.launcherAPI?.pluginsInstall(id)
-    if (!r?.ok) setMsg(r?.error === "not_detected" ? t("plugins.nao_detectado_msg") : r?.error || t("plugins.falha"))
+    if (!r?.ok)
+      setMsg(
+        r?.error === "not_detected"
+          ? t("plugins.nao_detectado_msg")
+          : r?.error || t("plugins.falha"),
+      )
     await carregar()
     setBusy("")
   }
 
   const desativar = async (id: string) => {
-    setBusy(id); setMsg("")
+    setBusy(id)
+    setMsg("")
     const r = await window.launcherAPI?.pluginsRemove(id)
     if (!r?.ok) setMsg(r?.error || t("plugins.falha"))
     await carregar()
@@ -49,7 +56,11 @@ export function PluginsView() {
     <div className="h-full overflow-y-auto px-8 py-6">
       <h1 className="ui-title mb-1">{t("plugins.titulo")}</h1>
       <p className="ui-subtitle mb-6 max-w-3xl">{t("plugins.descricao")}</p>
-      {msg && <p className="mb-4 rounded-lg border border-[#ff6b81]/30 bg-[#ff6b81]/10 px-3 py-2 text-[13px] text-[#ffb3c0]">{msg}</p>}
+      {msg && (
+        <p className="mb-4 rounded-lg border border-[#ff6b81]/30 bg-[#ff6b81]/10 px-3 py-2 text-[13px] text-[#ffb3c0]">
+          {msg}
+        </p>
+      )}
       <div className="grid max-w-4xl gap-3">
         {plugins.map((p) => {
           const temCaminho = p.id in CAMINHO_KEY
@@ -59,11 +70,13 @@ export function PluginsView() {
                 <div>
                   <div className="mb-1 flex items-center gap-2">
                     <h3 className="text-base font-semibold text-white">{t(p.name)}</h3>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                      p.enabled
-                        ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
-                        : "bg-white/10 text-white/45"
-                    }`}>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                        p.enabled
+                          ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
+                          : "bg-white/10 text-white/45"
+                      }`}
+                    >
                       {p.enabled ? t("plugins.ativo") : t("plugins.desativado")}
                     </span>
                     {/* Status de detecção só faz sentido p/ plugins com arquivo físico. */}
@@ -73,7 +86,9 @@ export function PluginsView() {
                       </span>
                     )}
                   </div>
-                  <p className="max-w-xl text-[13px] leading-relaxed text-white/45">{t(p.descKey)}</p>
+                  <p className="max-w-xl text-[13px] leading-relaxed text-white/45">
+                    {t(p.descKey)}
+                  </p>
                 </div>
                 {p.enabled ? (
                   <button
@@ -97,7 +112,9 @@ export function PluginsView() {
               {/* Caminho manual: só p/ plugins baseados em arquivo, quando não detectados. */}
               {temCaminho && !p.installed && (
                 <div className="mt-4">
-                  <label className="mb-1.5 block text-[12px] text-white/50">{t("plugins.caminho_label")}</label>
+                  <label className="mb-1.5 block text-[12px] text-white/50">
+                    {t("plugins.caminho_label")}
+                  </label>
                   <input
                     value={caminhos[p.id] || ""}
                     onChange={(e) => setCaminhos((c) => ({ ...c, [p.id]: e.target.value }))}

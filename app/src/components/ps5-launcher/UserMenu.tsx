@@ -49,11 +49,7 @@ export function UserMenu({
 
   if (!open) return null
 
-  const item = (
-    label: string,
-    onClick: () => void,
-    opts?: { danger?: boolean; hint?: string },
-  ) => (
+  const item = (label: string, onClick: () => void, opts?: { danger?: boolean; hint?: string }) => (
     <button
       onClick={() => {
         onClose()
@@ -61,21 +57,15 @@ export function UserMenu({
       }}
       className="w-full flex items-center justify-between gap-6 px-4 py-2.5 text-sm text-left transition-colors"
       style={{ color: opts?.danger ? "#ff6b6b" : "#e8eaf0" }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.background = "rgba(255,255,255,0.07)")
-      }
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <span>{label}</span>
-      {opts?.hint && (
-        <span className="text-xs text-[#7a8aaa]">{opts.hint}</span>
-      )}
+      {opts?.hint && <span className="text-xs text-[#7a8aaa]">{opts.hint}</span>}
     </button>
   )
 
-  const divider = (
-    <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
-  )
+  const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
 
   return (
     <div

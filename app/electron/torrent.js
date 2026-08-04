@@ -122,7 +122,9 @@ function armarPolling() {
       const lista = readState()
       // Só consulta o worker Python se houver torrent vivo (HTTP é lido direto).
       let todos = {}
-      if (lista.some((i) => i.engine !== "http" && i.engine !== "debrid" && !i.completo && !i.pausado)) {
+      if (
+        lista.some((i) => i.engine !== "http" && i.engine !== "debrid" && !i.completo && !i.pausado)
+      ) {
         try {
           todos = (await rpc("status", {}, 30000)) || {}
         } catch {}
@@ -163,8 +165,39 @@ function armarPolling() {
       }
       // Jogos completos ficam registrados (para a UI mostrar "concluído")
       // até o usuário dispensar; os demais voltam ao estado vivo.
-      writeState(ativos.map(({ gameId, url, savePath, fileIndices, pausado, completo, title, engine, fileName, cover, fileSize, cacheando, erro }) =>
-        ({ gameId, url, savePath, fileIndices, pausado, completo, title, engine, fileName, cover, fileSize, cacheando, erro })))
+      writeState(
+        ativos.map(
+          ({
+            gameId,
+            url,
+            savePath,
+            fileIndices,
+            pausado,
+            completo,
+            title,
+            engine,
+            fileName,
+            cover,
+            fileSize,
+            cacheando,
+            erro,
+          }) => ({
+            gameId,
+            url,
+            savePath,
+            fileIndices,
+            pausado,
+            completo,
+            title,
+            engine,
+            fileName,
+            cover,
+            fileSize,
+            cacheando,
+            erro,
+          }),
+        ),
+      )
       if (onProgress) onProgress(ativos.map(({ _b, ...rest }) => rest))
       if (!ativos.some((a) => !a.completo && !a.pausado)) {
         clearInterval(statusTimer)
@@ -185,8 +218,9 @@ const debridJobs = new Map() // gameId -> AbortController (espera de cache)
 function temDebridConfigurado() {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "config.json"), "utf-8"))
-    return ["realdebrid_token", "torbox_token", "alldebrid_token", "premiumize_token"]
-      .some((k) => String(cfg[k] || "").trim())
+    return ["realdebrid_token", "torbox_token", "alldebrid_token", "premiumize_token"].some((k) =>
+      String(cfg[k] || "").trim(),
+    )
   } catch {
     return false
   }
@@ -250,19 +284,34 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
   const ctype = String(r.headers.get("content-type") || "")
   if (ctype.includes("text/html")) {
     r.body?.cancel().catch(() => {})
-    return { ok: false, error: "hoster não suportado (respondeu página HTML — precisa de resolvedor)" }
+    return {
+      ok: false,
+      error: "hoster não suportado (respondeu página HTML — precisa de resolvedor)",
+    }
   }
 
   const nomeFinal = fileName || nomeArquivoHttp(direta, r.headers.get("content-disposition"))
   const partFinal = path.join(savePath, nomeFinal + ".part")
   const rangeTotal = /\/(\d+)\s*$/.exec(String(r.headers.get("content-range") || ""))
-  const total = rangeTotal ? Number(rangeTotal[1]) : jaBaixado + (Number(r.headers.get("content-length")) || 0)
+  const total = rangeTotal
+    ? Number(rangeTotal[1])
+    : jaBaixado + (Number(r.headers.get("content-length")) || 0)
 
   // Download paralelo: servidor aceita range (206) e arquivo é grande.
   // CDNs de debrid limitam POR CONEXÃO — 8 segmentos ≈ 8x a velocidade.
   if (r.status === 206 && total >= 64 * 1024 * 1024) {
     await r.body?.cancel().catch(() => {})
-    return startHttpMulti({ gameId, direta, headersExtra, savePath, nomeFinal, total, title, cover, it })
+    return startHttpMulti({
+      gameId,
+      direta,
+      headersExtra,
+      savePath,
+      nomeFinal,
+      total,
+      title,
+      cover,
+      it,
+    })
   }
 
   const ctrl = new AbortController()
@@ -272,9 +321,16 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
   // Grava o estado (engine http + nome do arquivo) antes de começar a baixar.
   const lista = readState().filter((i) => i.gameId !== gameId)
   lista.push({
-    gameId, url, savePath, title: title || it?.title || nomeFinal,
-    engine: "http", fileName: nomeFinal, pausado: false, completo: false,
-    cover: cover || it?.cover || "", fileSize: total || 0,
+    gameId,
+    url,
+    savePath,
+    title: title || it?.title || nomeFinal,
+    engine: "http",
+    fileName: nomeFinal,
+    pausado: false,
+    completo: false,
+    cover: cover || it?.cover || "",
+    fileSize: total || 0,
   })
   writeState(lista)
   armarPolling()
@@ -286,7 +342,9 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
       cb(null, chunk)
     },
   })
-  pipeline(Readable.fromWeb(r.body), contador, fs.createWriteStream(partFinal, { flags: "a" }), { signal: ctrl.signal })
+  pipeline(Readable.fromWeb(r.body), contador, fs.createWriteStream(partFinal, { flags: "a" }), {
+    signal: ctrl.signal,
+  })
     .then(() => {
       httpDls.delete(gameId)
       if (h.bytes >= h.total && h.total > 0) {
@@ -314,7 +372,17 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
 const SEG_ALVO = 8
 const SEG_MIN_BYTES = 32 * 1024 * 1024 // 32MB por segmento
 
-async function startHttpMulti({ gameId, direta, headersExtra, savePath, nomeFinal, total, title, cover, it }) {
+async function startHttpMulti({
+  gameId,
+  direta,
+  headersExtra,
+  savePath,
+  nomeFinal,
+  total,
+  title,
+  cover,
+  it,
+}) {
   const n = Math.max(2, Math.min(SEG_ALVO, Math.floor(total / SEG_MIN_BYTES)))
   const tam = Math.ceil(total / n)
   const partes = Array.from({ length: n }, (_, i) => ({
@@ -322,7 +390,9 @@ async function startHttpMulti({ gameId, direta, headersExtra, savePath, nomeFina
     fim: Math.min(total, (i + 1) * tam) - 1,
     arq: path.join(savePath, `${nomeFinal}.part${i}`),
   }))
-  partes.forEach((p) => { p.alvo = p.fim - p.ini + 1 })
+  partes.forEach((p) => {
+    p.alvo = p.fim - p.ini + 1
+  })
 
   const ctrl = new AbortController()
   const h = { ctrl, total, bytes: 0, multi: true }
@@ -337,9 +407,16 @@ async function startHttpMulti({ gameId, direta, headersExtra, savePath, nomeFina
   // Estado (engine http) — idêntico ao modo stream único.
   const lista = readState().filter((i) => i.gameId !== gameId)
   lista.push({
-    gameId, url: direta, savePath, title: title || it?.title || nomeFinal,
-    engine: "http", fileName: nomeFinal, pausado: false, completo: false,
-    cover: cover || it?.cover || "", fileSize: total || 0,
+    gameId,
+    url: direta,
+    savePath,
+    title: title || it?.title || nomeFinal,
+    engine: "http",
+    fileName: nomeFinal,
+    pausado: false,
+    completo: false,
+    cover: cover || it?.cover || "",
+    fileSize: total || 0,
   })
   writeState(lista)
   armarPolling()
@@ -367,7 +444,9 @@ async function startHttpMulti({ gameId, direta, headersExtra, savePath, nomeFina
       signal: ctrl.signal,
     })
     if (rr.status !== 206 && !rr.ok) throw new Error(`HTTP ${rr.status}`)
-    await pipeline(Readable.fromWeb(rr.body), fs.createWriteStream(p.arq, { flags: "a" }), { signal: ctrl.signal })
+    await pipeline(Readable.fromWeb(rr.body), fs.createWriteStream(p.arq, { flags: "a" }), {
+      signal: ctrl.signal,
+    })
   }
 
   ;(async () => {
@@ -425,7 +504,17 @@ async function start({ gameId, url, savePath, fileIndices, title, cover }) {
     const ctrl = new AbortController()
     debridJobs.set(gameId, ctrl)
     const lista = readState().filter((i) => i.gameId !== gameId)
-    lista.push({ gameId, url, savePath, title: title || "", cover: cover || "", engine: "debrid", cacheando: true, pausado: false, completo: false })
+    lista.push({
+      gameId,
+      url,
+      savePath,
+      title: title || "",
+      cover: cover || "",
+      engine: "debrid",
+      cacheando: true,
+      pausado: false,
+      completo: false,
+    })
     writeState(lista)
     armarPolling()
     // Job de fundo: espera o debrid cachear e então inicia o download HTTP.
@@ -463,7 +552,16 @@ async function start({ gameId, url, savePath, fileIndices, title, cover }) {
       file_indices: fileIndices ?? null,
     })
     const lista = readState().filter((i) => i.gameId !== String(gameId))
-    lista.push({ gameId: String(gameId), url, savePath, fileIndices: fileIndices ?? null, title: title || "", cover: cover || "", pausado: false, completo: false })
+    lista.push({
+      gameId: String(gameId),
+      url,
+      savePath,
+      fileIndices: fileIndices ?? null,
+      title: title || "",
+      cover: cover || "",
+      pausado: false,
+      completo: false,
+    })
     writeState(lista)
     armarPolling()
     return { ok: true }
@@ -554,7 +652,10 @@ async function files(magnet, timeoutMs) {
 
 async function setLimit(bytesPerSecond) {
   try {
-    await rpc("action", { action: "set_download_limit", max_download_speed_bytes_per_second: bytesPerSecond })
+    await rpc("action", {
+      action: "set_download_limit",
+      max_download_speed_bytes_per_second: bytesPerSecond,
+    })
     return { ok: true }
   } catch (e) {
     return { ok: false, error: String(e.code || e.message || e) }
@@ -593,6 +694,15 @@ async function retomar() {
 }
 
 module.exports = {
-  start, pause, resume, cancel, files, setLimit, list, retomar,
-  onProgress: (cb) => { onProgress = cb },
+  start,
+  pause,
+  resume,
+  cancel,
+  files,
+  setLimit,
+  list,
+  retomar,
+  onProgress: (cb) => {
+    onProgress = cb
+  },
 }

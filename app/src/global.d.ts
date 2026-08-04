@@ -288,7 +288,11 @@ declare global {
     launcherPaths?: { home: string; dataDir: string }
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
-      launch: (cmd: string[], gameId?: string, mode?: "steam" | "exe") => Promise<{ ok: boolean; error?: string; warnings?: string[] }>
+      launch: (
+        cmd: string[],
+        gameId?: string,
+        mode?: "steam" | "exe",
+      ) => Promise<{ ok: boolean; error?: string; warnings?: string[] }>
       /** Fecha o jogo em execução (mata o processo do jogo). */
       closeGame: () => Promise<{ ok: boolean; error?: string }>
       fixesCheck: (appid: string) => Promise<{
@@ -296,15 +300,41 @@ declare global {
         appid?: string
         generic?: { available: boolean; status: number; url?: string }
         online?: { available: boolean; status: number; url?: string }
-        crack?: { available: boolean; status: number; url?: string; badge?: string; gameName?: string; requiresAuth?: boolean }
+        crack?: {
+          available: boolean
+          status: number
+          url?: string
+          badge?: string
+          gameName?: string
+          requiresAuth?: boolean
+        }
         authConfigured?: boolean
       }>
-      fixesApply: (opts: { appid: string; url: string; type: "generic" | "online" | "crack"; installPath: string }) => Promise<{ ok: boolean; error?: string; errorCode?: string }>
-      fixesStatus: (appid: string) => Promise<{ status: string; bytesRead?: number; totalBytes?: number; error?: string; errorCode?: string }>
+      fixesApply: (opts: {
+        appid: string
+        url: string
+        type: "generic" | "online" | "crack"
+        installPath: string
+      }) => Promise<{ ok: boolean; error?: string; errorCode?: string }>
+      fixesStatus: (appid: string) => Promise<{
+        status: string
+        bytesRead?: number
+        totalBytes?: number
+        error?: string
+        errorCode?: string
+      }>
       fixesCancel: (appid: string) => Promise<{ ok: boolean }>
-      fixesInstalled: (opts: { appid: string; installPath: string }) => Promise<{ ok: boolean; installed: boolean }>
-      fixesUnfix: (opts: { appid: string; installPath: string }) => Promise<{ ok: boolean; error?: string }>
-      fixesLauncherRedirect: (opts: { installPath: string }) => Promise<{ ok: boolean; redirect: string | null }>
+      fixesInstalled: (opts: {
+        appid: string
+        installPath: string
+      }) => Promise<{ ok: boolean; installed: boolean }>
+      fixesUnfix: (opts: {
+        appid: string
+        installPath: string
+      }) => Promise<{ ok: boolean; error?: string }>
+      fixesLauncherRedirect: (opts: {
+        installPath: string
+      }) => Promise<{ ok: boolean; redirect: string | null }>
       fixesSetRyuuAuth: (key: string) => Promise<{ ok: boolean }>
       fixesRyuuAuthStatus: () => Promise<{ configured: boolean }>
       fixesClearRyuuAuth: () => Promise<{ ok: boolean }>
@@ -322,22 +352,44 @@ declare global {
       /** Importa uma instalação existente do jogo (legendary import). */
       gameImport: (game: Game) => Promise<{ ok: boolean; error?: string }>
       /** Adiciona um jogo manualmente à biblioteca. */
-      customGameAdd: (data: { id: string; title: string; platform: "windows" | "linux"; exe: string }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
+      customGameAdd: (data: {
+        id: string
+        title: string
+        platform: "windows" | "linux"
+        exe: string
+      }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Edita um jogo custom existente (título/executável). */
-      customGameUpdate: (data: { id: string; title?: string; exe?: string }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
+      customGameUpdate: (data: {
+        id: string
+        title?: string
+        exe?: string
+      }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Roda um instalador .exe no prefixo (botão "Executar instalador antes"). */
-      customGameRunInstaller: (opts: { appid: string; wine?: string; prefix?: string }) => Promise<{ ok: boolean; error?: string }>
+      customGameRunInstaller: (opts: {
+        appid: string
+        wine?: string
+        prefix?: string
+      }) => Promise<{ ok: boolean; error?: string }>
       /** Tamanhos reais (Epic) + requisitos (Steam) da página do jogo. */
       gameSysinfo: (game: Game) => Promise<{
         ok: boolean
         error?: string
         info?: {
-          download_size?: number; disk_size?: number; version?: string
-          req_min?: string; req_rec?: string
-          appid?: string; short_description?: string; about?: string
-          publishers?: string[]; developers?: string[]; release_date?: string
-          controller_support?: string; languages?: string
-          header?: string; background?: string
+          download_size?: number
+          disk_size?: number
+          version?: string
+          req_min?: string
+          req_rec?: string
+          appid?: string
+          short_description?: string
+          about?: string
+          publishers?: string[]
+          developers?: string[]
+          release_date?: string
+          controller_support?: string
+          languages?: string
+          header?: string
+          background?: string
           screenshots?: { thumb: string; full: string }[]
           movies?: { id: number; name: string; thumb: string; mp4: string; webm: string }[]
         }
@@ -346,25 +398,55 @@ declare global {
       gameProtonDb: (appid: string | number) => Promise<{
         ok: boolean
         error?: string
-        info?: { tier?: string; score?: number | null; deckCompatibility?: string; total?: number; url?: string } | null
+        info?: {
+          tier?: string
+          score?: number | null
+          deckCompatibility?: string
+          total?: number
+          url?: string
+        } | null
       }>
       /** Estatísticas (SteamSpy) + resumo de reviews (Steam), APIs públicas. */
       gameStats: (appid: string | number) => Promise<{
         ok: boolean
         error?: string
         info?: {
-          owners?: string; ccu?: number; reviewDesc?: string; reviewPositivePct?: number | null; totalReviews?: number
-          comments?: { author: string; text: string; positive: boolean; hours: number; helpful: number }[]
+          owners?: string
+          ccu?: number
+          reviewDesc?: string
+          reviewPositivePct?: number | null
+          totalReviews?: number
+          comments?: {
+            author: string
+            text: string
+            positive: boolean
+            hours: number
+            helpful: number
+          }[]
         } | null
       }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
-      storeStatus: () => Promise<{ dotnet?: string; depotdownloader: boolean; hubcapKey: boolean; slssteam: boolean; luatools?: boolean; steamDir: string; adicionados?: string[] }>
+      storeStatus: () => Promise<{
+        dotnet?: string
+        depotdownloader: boolean
+        hubcapKey: boolean
+        slssteam: boolean
+        luatools?: boolean
+        steamDir: string
+        adicionados?: string[]
+      }>
       /** Loja Steam: busca no catálogo Hubcap. */
-      storeSearch: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[] }>
+      storeSearch: (query: string) => Promise<{
+        ok: boolean
+        error?: string
+        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[]
+      }>
       /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */
       storeWarm: () => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
-      storeSuggest: (query: string) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
+      storeSuggest: (
+        query: string,
+      ) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
       /** Loja Steam: mais jogados. Sem argumento, os da quinzena. Paginado. */
       storeRecent: (
         lista?: string,
@@ -400,9 +482,21 @@ declare global {
       /** Instala o .NET 9 local (necessário ao DepotDownloader). */
       storeEnsureDotnet: () => Promise<{ ok: boolean; error?: string; path?: string }>
       /** Adiciona o jogo só à biblioteca do Arcadia. Não toca na Steam. */
-      storeAddToLibrary: (payload: { appid: string; title?: string; cover?: string; capa?: string; hero?: string; heroi?: string }) => Promise<{ ok: boolean; error?: string }>
+      storeAddToLibrary: (payload: {
+        appid: string
+        title?: string
+        cover?: string
+        capa?: string
+        hero?: string
+        heroi?: string
+      }) => Promise<{ ok: boolean; error?: string }>
       /** Adiciona o jogo à Steam sem baixar (lua no stplug-in + AdditionalApps). */
-      storeAddToSteam: (payload: { appid: string; token?: string; dlcs?: string[]; title?: string }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
+      storeAddToSteam: (payload: {
+        appid: string
+        token?: string
+        dlcs?: string[]
+        title?: string
+      }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
       /** Pasta de instalação do jogo. */
       storeInstallDir: (game: Game) => Promise<{ path: string }>
       /** Bibliotecas Steam detectadas (multi-drive) com espaço livre. */
@@ -412,7 +506,9 @@ declare global {
       /** Remove jogo só da biblioteca do Arcadia. */
       storeRemoveFromLibrary: (appid: string) => Promise<{ ok: boolean; error?: string }>
       /** Remove jogo baixado/adicionado: pasta + appmanifest marcado + SLSsteam. */
-      storeRemoveDownloaded: (appid: string) => Promise<{ ok: boolean; removidos?: number; error?: string }>
+      storeRemoveDownloaded: (
+        appid: string,
+      ) => Promise<{ ok: boolean; removidos?: number; error?: string }>
       /** Reinicia a Steam com a SLSsteam carregada (jogos aparecem como owned). */
       slssteamLaunch: () => Promise<{ ok: boolean; error?: string }>
       refresh: () => Promise<Game[]>
@@ -473,7 +569,9 @@ declare global {
       /** Caminho local (file://) do trailer já baixado, ou "" se não houver. */
       trailerPath: (id: string) => Promise<{ path: string }>
       /** HowLongToBeat: tempos de jogo em horas (min), ou null se falhar. */
-      hltbGet: (titulo: string) => Promise<{ main: number; mainExtra: number; completionist: number; ts: number } | null>
+      hltbGet: (
+        titulo: string,
+      ) => Promise<{ main: number; mainExtra: number; completionist: number; ts: number } | null>
       /** Baixa o trailer do YouTube via yt-dlp. Devolve o caminho local. */
       trailerDownload: (
         id: string,
@@ -484,9 +582,7 @@ declare global {
         query: string,
       ) => Promise<{ ok: boolean; results?: YoutubeResult[]; error?: string }>
       /** URL direta (mp4) para pré-visualizar o vídeo num <video>. */
-      trailerStreamUrl: (
-        url: string,
-      ) => Promise<{ ok: boolean; url?: string; error?: string }>
+      trailerStreamUrl: (url: string) => Promise<{ ok: boolean; url?: string; error?: string }>
       /** Baixa um vídeo específico do YouTube como trailer do jogo. */
       trailerDownloadUrl: (
         id: string,
@@ -505,7 +601,9 @@ declare global {
       /** Falha no lançamento do jogo (main process → renderer). */
       onLaunchError: (cb: (payload: { gameId?: string; error: string }) => void) => () => void
       /** Avisos do lançamento (ex.: wrapper não instalado). */
-      onLaunchWarning: (cb: (payload: { gameId?: string; warnings: string[] }) => void) => () => void
+      onLaunchWarning: (
+        cb: (payload: { gameId?: string; warnings: string[] }) => void,
+      ) => () => void
       /** Este clone pode receber atualização automática? */
       updateState: () => Promise<UpdateState>
       /** Compara o commit local com o do GitHub. */
@@ -533,9 +631,16 @@ declare global {
       legendaryLibrary: () => Promise<{ ok: boolean; games?: Game[]; error?: string }>
       /** Download manager: fila + controle + evento de progresso. */
       dmQueue: () => Promise<DmItem[]>
-      dmInstall: (game: { appid: string; title: string; cover?: string; installPath?: string }) => Promise<{ ok: boolean; error?: string }>
+      dmInstall: (game: {
+        appid: string
+        title: string
+        cover?: string
+        installPath?: string
+      }) => Promise<{ ok: boolean; error?: string }>
       /** Espaço em disco (GiB) do path informado. */
-      diskSpace: (p?: string) => Promise<{ ok: boolean; total?: number; free?: number; error?: string }>
+      diskSpace: (
+        p?: string,
+      ) => Promise<{ ok: boolean; total?: number; free?: number; error?: string }>
       dmPause: (appid: string) => Promise<void>
       /** Recoloca na fila um download que falhou. */
       dmRetry: (appid: string) => Promise<void>
@@ -565,7 +670,16 @@ declare global {
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */
       pickFile: () => Promise<{ ok: boolean; path?: string }>
       /** Plugins opcionais (SLSsteam, luatools). */
-      pluginsList: () => Promise<{ ok: boolean; plugins: { id: string; name: string; descKey: string; installed: boolean; enabled: boolean }[] }>
+      pluginsList: () => Promise<{
+        ok: boolean
+        plugins: {
+          id: string
+          name: string
+          descKey: string
+          installed: boolean
+          enabled: boolean
+        }[]
+      }>
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
       /** Plugin ativado/desativado — telas de loja atualizam ações em tempo real. */
@@ -582,45 +696,82 @@ declare global {
       sourcesList: () => Promise<{ ok: boolean; sources: SourceInfo[] }>
       sourcesAdd: (url: string) => Promise<{ ok: boolean; source?: SourceInfo; error?: string }>
       sourcesRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
-      sourcesSync: () => Promise<{ ok: boolean; results: { id: string; ok: boolean; error?: string }[] }>
-      sourcesSearch: (query: string, limit?: number) => Promise<{ ok: boolean; results: SourceGame[] }>
-      sourcesGame: (ref: string) => Promise<{ ok: boolean; game?: SourceGameFull; source?: string; error?: string }>
+      sourcesSync: () => Promise<{
+        ok: boolean
+        results: { id: string; ok: boolean; error?: string }[]
+      }>
+      sourcesSearch: (
+        query: string,
+        limit?: number,
+      ) => Promise<{ ok: boolean; results: SourceGame[] }>
+      sourcesGame: (
+        ref: string,
+      ) => Promise<{ ok: boolean; game?: SourceGameFull; source?: string; error?: string }>
       /** Torrent (worker Python + libtorrent). Ids sempre "tor:...". */
-      torrentStart: (payload: { gameId: string; url: string; savePath?: string; fileIndices?: number[]; title?: string; cover?: string }) => Promise<{ ok: boolean; error?: string }>
+      torrentStart: (payload: {
+        gameId: string
+        url: string
+        savePath?: string
+        fileIndices?: number[]
+        title?: string
+        cover?: string
+      }) => Promise<{ ok: boolean; error?: string }>
       torrentPause: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentResume: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentCancel: (gameId: string) => Promise<{ ok: boolean; error?: string }>
-      torrentFiles: (magnet: string, timeoutMs?: number) => Promise<{ ok: boolean; name?: string; totalSize?: number; files?: TorrentFileInfo[]; error?: string }>
+      torrentFiles: (
+        magnet: string,
+        timeoutMs?: number,
+      ) => Promise<{
+        ok: boolean
+        name?: string
+        totalSize?: number
+        files?: TorrentFileInfo[]
+        error?: string
+      }>
       torrentSetLimit: (bytes: number) => Promise<{ ok: boolean; error?: string }>
       torrentList: () => Promise<{ ok: boolean; downloads: TorrentItem[] }>
       onTorrentProgress: (cb: (items: TorrentItem[]) => void) => () => void
       /** Conquistas do jogo (Steam): achievements.json local ou scrape da loja. */
-      achievementsGet: (appid: string) => Promise<Array<{
-        title: string
-        desc?: string
-        icon?: string
-        icongray?: string
-        apiname?: string
-        block?: number | null
-        bit?: number | null
-        achieved?: boolean
-        unlock?: number
-        percent?: number
-      }>>
+      achievementsGet: (appid: string) => Promise<
+        Array<{
+          title: string
+          desc?: string
+          icon?: string
+          icongray?: string
+          apiname?: string
+          block?: number | null
+          bit?: number | null
+          achieved?: boolean
+          unlock?: number
+          percent?: number
+        }>
+      >
       /** Conquista desbloqueada em tempo real (watcher do processo principal). */
-      onAchievementUnlocked: (cb: (payload: {
-        appid: string
-        key: string
-        title: string
-        desc?: string
-        icon?: string
-        percent?: number
-        unlock?: number
-      }) => void) => () => void
+      onAchievementUnlocked: (
+        cb: (payload: {
+          appid: string
+          key: string
+          title: string
+          desc?: string
+          icon?: string
+          percent?: number
+          unlock?: number
+        }) => void,
+      ) => () => void
       /** Força desbloqueio de uma conquista escrevendo no .bin do Steam (sem cliente Steam). */
-      achievementsForceUnlock: (appid: string, apiname: string) => Promise<{ ok: boolean; error?: string; epoch?: number }>
+      achievementsForceUnlock: (
+        appid: string,
+        apiname: string,
+      ) => Promise<{ ok: boolean; error?: string; epoch?: number }>
       /** Recarrega apiname/título/desc/ícones dos itens a partir dos UserGameStatsSchema_*.bin da Steam. */
-      achievementsSchemasLoad: () => Promise<{ ok: boolean; error?: string; updated?: number; iconsCopied?: number; total?: number }>
+      achievementsSchemasLoad: () => Promise<{
+        ok: boolean
+        error?: string
+        updated?: number
+        iconsCopied?: number
+        total?: number
+      }>
     }
   }
 }

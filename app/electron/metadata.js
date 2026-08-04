@@ -88,7 +88,9 @@ async function sgdbArt(sgdbId, kind, chave, opts) {
     largura: a.width,
     altura: a.height,
     // A API marca animados pelo mime (image/gif, video/webm…).
-    animado: Boolean(a.mime && a.mime !== "image/png" && a.mime !== "image/jpeg" && a.mime !== "image/webp"),
+    animado: Boolean(
+      a.mime && a.mime !== "image/png" && a.mime !== "image/jpeg" && a.mime !== "image/webp",
+    ),
     autor: a.author?.name || "",
   }))
 }
@@ -430,7 +432,10 @@ function extFromUrl(url, contentType) {
   } catch {
     /* URL torta: cai no content-type */
   }
-  const ct = String(contentType || "").split(";")[0].trim().toLowerCase()
+  const ct = String(contentType || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase()
   return MIME_EXT[ct] || ".png"
 }
 
@@ -491,7 +496,13 @@ const PSN_UA =
 
 // Prioridade de papel por tipo de arte (o 1º que existir ganha a lista).
 const PSN_ROLES = {
-  cover: ["PORTRAIT_BANNER", "MASTER", "GAMEHUB_COVER_ART", "EDITION_KEY_ART", "FOUR_BY_THREE_BANNER"],
+  cover: [
+    "PORTRAIT_BANNER",
+    "MASTER",
+    "GAMEHUB_COVER_ART",
+    "EDITION_KEY_ART",
+    "FOUR_BY_THREE_BANNER",
+  ],
   hero: ["SIXTEEN_BY_NINE_BANNER", "BACKGROUND", "EDITION_KEY_ART", "MASTER"],
   logo: ["LOGO"],
 }

@@ -36,9 +36,7 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="max-w-2xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.general")}</h2>
-      <p className="text-sm text-[#8a93a6] mb-8">
-        {t("settings.general_desc")}
-      </p>
+      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.general_desc")}</p>
 
       <Group title={t("settings.language")}>
         <Select
@@ -231,7 +229,9 @@ function ProcurarAtualizacao() {
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mb-8">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">{title}</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">
+        {title}
+      </h3>
       <div className="flex flex-col gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2">
         {children}
       </div>
@@ -345,7 +345,17 @@ function Path({
           title={value || placeholder}
           className="flex max-w-[260px] items-center gap-2 rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white"
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="shrink-0"
+          >
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span className="truncate">{value || placeholder || t("common.selecionar")}</span>

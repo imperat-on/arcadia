@@ -22,7 +22,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
-import { AchievementToast } from "../AchievementToast"
+import { AchievementToast } from "./AchievementToast"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -36,7 +36,11 @@ export function DesktopLauncher() {
   const [showProfile, setShowProfile] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [profile, setProfile] = useState<Profile>({})
-  const [cfg, setCfg] = useState<{ tiles_color?: boolean; always_titles?: boolean; library_sidebar?: boolean }>({})
+  const [cfg, setCfg] = useState<{
+    tiles_color?: boolean
+    always_titles?: boolean
+    library_sidebar?: boolean
+  }>({})
   const [librarySidebar, setLibrarySidebar] = useState(true)
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
@@ -55,16 +59,20 @@ export function DesktopLauncher() {
   const jogar = useCallback((g: Game, mode?: "steam" | "exe") => {
     window.launcherAPI?.launch(g.launch_cmd, g.id, mode)
     window.launcherAPI?.getConfig().then((c) => {
-      if (c?.disable_playtime_tracking !== true) window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
+      if (c?.disable_playtime_tracking !== true)
+        window.launcherAPI?.setOverride(g.id, { last_played: Date.now() })
     })
   }, [])
 
   // Jogo Steam com executável configurado tem duas formas de iniciar: abre o
   // menu de escolha. Nos demais casos joga direto.
-  const pedirJogar = useCallback((g: Game) => {
-    if (g.launcher === "steam" && g.temExe) setEscolhendoLaunch(g)
-    else jogar(g)
-  }, [jogar])
+  const pedirJogar = useCallback(
+    (g: Game) => {
+      if (g.launcher === "steam" && g.temExe) setEscolhendoLaunch(g)
+      else jogar(g)
+    },
+    [jogar],
+  )
 
   const instalar = useCallback((g: Game) => {
     if (g.launcher === "steam") {
@@ -108,8 +116,7 @@ export function DesktopLauncher() {
     })
     const conta = (items: { status?: string }[]) =>
       items.filter((i) => ["downloading", "queued", "paused"].includes(i.status || "")).length
-    const contaTorr = (items: TorrentItem[]) =>
-      items.filter((i) => !i.completo && !i.erro).length
+    const contaTorr = (items: TorrentItem[]) => items.filter((i) => !i.completo && !i.erro).length
     window.launcherAPI?.dmQueue().then((q) => {
       if (Array.isArray(q)) setDmAtivos(conta(q))
     })
@@ -118,7 +125,9 @@ export function DesktopLauncher() {
     })
     const offLib = window.launcherAPI?.onLibraryChanged(() => carregar())
     const offDm = window.launcherAPI?.onDmProgress((q) => setDmAtivos(conta(q)))
-    const offTorr = window.launcherAPI?.onTorrentProgress((items) => setTorrAtivos(contaTorr(items)))
+    const offTorr = window.launcherAPI?.onTorrentProgress((items) =>
+      setTorrAtivos(contaTorr(items)),
+    )
     const offDl = window.launcherAPI?.onStoreDownloaded((d) => setBaixado(d))
     return () => {
       offLib?.()
@@ -133,7 +142,11 @@ export function DesktopLauncher() {
       <WindowControls />
       <Sidebar
         view={view}
-        onView={(v) => { setShowProfile(false); setJogoPagina(null); setView(v) }}
+        onView={(v) => {
+          setShowProfile(false)
+          setJogoPagina(null)
+          setView(v)
+        }}
         downloadsActive={dmAtivos + torrAtivos}
         onQuit={() => window.launcherAPI?.quit()}
         onBigPicture={() => setConfirmBigPicture(true)}
@@ -145,12 +158,19 @@ export function DesktopLauncher() {
         games={games}
         librarySidebar={librarySidebar}
         onToggleLibrarySidebar={toggleLibrarySidebar}
-        onOpenGame={(g) => { setShowProfile(false); setView("biblioteca"); setJogoPagina(g) }}
+        onOpenGame={(g) => {
+          setShowProfile(false)
+          setView("biblioteca")
+          setJogoPagina(g)
+        }}
         onAddGame={() => setAdicionando(true)}
         activeGameId={jogoPagina?.id}
       />
 
-      <main key={showProfile ? "profile" : view} className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]">
+      <main
+        key={showProfile ? "profile" : view}
+        className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]"
+      >
         {showProfile ? (
           <ProfilePage
             open
@@ -180,10 +200,20 @@ export function DesktopLauncher() {
                 onAdicionar={() => {}}
                 onConfig={() => setJogoConfig(jogoPagina)}
                 onRemover={() => {
-                  window.launcherAPI?.storeRemoveFromLibrary(String(jogoPagina.id).replace(/^steam:/, "")).then(() => carregar())
+                  window.launcherAPI
+                    ?.storeRemoveFromLibrary(String(jogoPagina.id).replace(/^steam:/, ""))
+                    .then(() => carregar())
                   setJogoPagina(null)
                 }}
-                onJogar={jogoPagina.installed !== false ? () => { const g = jogoPagina; setJogoPagina(null); pedirJogar(g) } : undefined}
+                onJogar={
+                  jogoPagina.installed !== false
+                    ? () => {
+                        const g = jogoPagina
+                        setJogoPagina(null)
+                        pedirJogar(g)
+                      }
+                    : undefined
+                }
                 naBiblioteca
                 ocupado={false}
               />
@@ -193,32 +223,62 @@ export function DesktopLauncher() {
                 embedded
                 game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
-                onJogar={() => { const g = jogoPagina; setJogoPagina(null); pedirJogar(g) }}
+                onJogar={() => {
+                  const g = jogoPagina
+                  setJogoPagina(null)
+                  pedirJogar(g)
+                }}
                 onInstalar={() => instalar(jogoPagina)}
                 onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
                 onConfig={() => setJogoConfig(jogoPagina)}
               />
             )}
             {!jogoPagina && view === "inicio" && <HomeView games={games} />}
-            {!jogoPagina && view === "biblioteca" && <LibraryView games={games} tilesColor={cfg.tiles_color} alwaysTitles={cfg.always_titles} onRefresh={carregar} />}
+            {!jogoPagina && view === "biblioteca" && (
+              <LibraryView
+                games={games}
+                tilesColor={cfg.tiles_color}
+                alwaysTitles={cfg.always_titles}
+                onRefresh={carregar}
+              />
+            )}
             {!jogoPagina && view === "lojas" && <StoreView games={games} />}
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
             {!jogoPagina && view === "fontes" && <SourcesView />}
-            {!jogoPagina && view === "config" && <SettingsView sub={configSub} onSaved={carregar} />}
+            {!jogoPagina && view === "config" && (
+              <SettingsView sub={configSub} onSaved={carregar} />
+            )}
           </>
         )}
       </main>
 
-      {jogoConfig && <GameSettingsDialog game={jogoConfig} onClose={() => { setJogoConfig(null); carregar() }} />}
+      {jogoConfig && (
+        <GameSettingsDialog
+          game={jogoConfig}
+          onClose={() => {
+            setJogoConfig(null)
+            carregar()
+          }}
+        />
+      )}
       {escolhendoLaunch && (
         <LaunchModeDialog
           game={escolhendoLaunch}
-          onEscolher={(m) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); jogar(g, m) }}
+          onEscolher={(m) => {
+            const g = escolhendoLaunch
+            setEscolhendoLaunch(null)
+            jogar(g, m)
+          }}
           onClose={() => setEscolhendoLaunch(null)}
         />
       )}
-      {adicionando && <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => atualizarBiblioteca()} />}
+      {adicionando && (
+        <AddGameDialog
+          onClose={() => setAdicionando(false)}
+          onAdded={() => atualizarBiblioteca()}
+        />
+      )}
 
       {atualizacao.info && (
         <UpdateDialog info={atualizacao.info} onDepois={atualizacao.dispensar} />
@@ -227,7 +287,9 @@ export function DesktopLauncher() {
       {baixado && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl">
-            <h3 className="mb-2 text-lg font-semibold text-white">{t("desktop.store.download_concluido")}</h3>
+            <h3 className="mb-2 text-lg font-semibold text-white">
+              {t("desktop.store.download_concluido")}
+            </h3>
             <p className="mb-5 text-[13px] leading-relaxed text-white/60">
               <span className="font-medium text-white/90">"{baixado.title}"</span>
               {t("desktop.store.instalado")}
@@ -248,8 +310,18 @@ export function DesktopLauncher() {
                 className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
                 style={{ background: "var(--accent)" }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M23 4v6h-6" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
                 {t("desktop.restart_steam")}
               </button>
@@ -266,9 +338,17 @@ export function DesktopLauncher() {
       />
 
       {confirmBigPicture && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmBigPicture(false)}>
-          <div className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-2 text-lg font-semibold text-white">{t("desktop.entrar_big_picture")}</h3>
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setConfirmBigPicture(false)}
+        >
+          <div
+            className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-2 text-lg font-semibold text-white">
+              {t("desktop.entrar_big_picture")}
+            </h3>
             <p className="mb-5 text-[13px] leading-relaxed text-white/60">
               {t("desktop.big_picture_desc")}
             </p>

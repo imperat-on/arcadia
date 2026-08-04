@@ -52,12 +52,20 @@ export function ProfilePage({
     .slice(0, 10)
   const duasSemanas = Date.now() - 14 * 24 * 60 * 60 * 1000
   const horasRecentes = Math.round(
-    jogados.filter((g) => (g.last_played || 0) >= duasSemanas).reduce((s, g) => s + (g.playtime_minutes || 0), 0) / 60
+    jogados
+      .filter((g) => (g.last_played || 0) >= duasSemanas)
+      .reduce((s, g) => s + (g.playtime_minutes || 0), 0) / 60,
   )
   const launchers = Array.from(new Set(games.map((g) => g.launcher)))
 
   return (
-    <div ref={rootRef} className={embedded ? "gp-scope h-full overflow-y-auto" : "gp-scope fixed inset-0 z-50 overflow-y-auto"} style={embedded ? undefined : { background: "#000000" }}>
+    <div
+      ref={rootRef}
+      className={
+        embedded ? "gp-scope h-full overflow-y-auto" : "gp-scope fixed inset-0 z-50 overflow-y-auto"
+      }
+      style={embedded ? undefined : { background: "#000000" }}
+    >
       {/* Plano de fundo do perfil (imagem/GIF/vídeo) — cobre a TELA INTEIRA */}
       {!embedded && profile.background && (
         <>
@@ -117,7 +125,13 @@ export function ProfilePage({
 
       <div className="relative min-h-full pb-10">
         <section className="relative h-72 border-b border-white/[0.08] bg-[#17171a]">
-          {profile.background && <img src={profile.background} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" />}
+          {profile.background && (
+            <img
+              src={profile.background}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-70"
+            />
+          )}
           <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/65" />
           <button
             onClick={onEdit}
@@ -127,14 +141,24 @@ export function ProfilePage({
           </button>
           <div className="absolute bottom-10 left-8 flex items-center gap-5">
             <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-4xl font-bold text-white shadow-2xl ring-1 ring-white/15">
-              {profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : name[0].toUpperCase()}
+              {profile.avatar ? (
+                <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                name[0].toUpperCase()
+              )}
             </div>
             <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-bold text-white drop-shadow">{name}</h1>
-                {isOwner && <span className="rounded-md bg-white/10 px-2 py-1 text-xs text-white/60">{t("profile.dono")}</span>}
+                {isOwner && (
+                  <span className="rounded-md bg-white/10 px-2 py-1 text-xs text-white/60">
+                    {t("profile.dono")}
+                  </span>
+                )}
               </div>
-              <p className="mt-1 text-sm text-white/55">{t("profile.plataformas_conectadas", { count: String(launchers.length) })}</p>
+              <p className="mt-1 text-sm text-white/55">
+                {t("profile.plataformas_conectadas", { count: String(launchers.length) })}
+              </p>
             </div>
           </div>
         </section>
@@ -144,7 +168,9 @@ export function ProfilePage({
             <div className="mb-5 flex items-center justify-between gap-3">
               <h2 className="text-2xl font-bold text-white">{t("profile.atividade_recente")}</h2>
               {horasRecentes > 0 && (
-                <span className="text-sm text-white/55">{t("profile.horas_2semanas", { h: String(horasRecentes) })}</span>
+                <span className="text-sm text-white/55">
+                  {t("profile.horas_2semanas", { h: String(horasRecentes) })}
+                </span>
               )}
             </div>
             {jogados.length === 0 ? (
@@ -155,18 +181,28 @@ export function ProfilePage({
                   const horas = Math.round((g.playtime_minutes || 0) / 60)
                   const capsula = g.hero || g.cover
                   const data = g.last_played
-                    ? new Date(g.last_played).toLocaleDateString(userLocale(), { day: "2-digit", month: "2-digit" })
+                    ? new Date(g.last_played).toLocaleDateString(userLocale(), {
+                        day: "2-digit",
+                        month: "2-digit",
+                      })
                     : ""
                   return (
-                    <div key={g.id} className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25">
+                    <div
+                      key={g.id}
+                      className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25"
+                    >
                       <div className="flex items-center gap-4 p-3">
                         <GameCapsule src={capsula} title={g.title} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-white">{g.title}</div>
                         </div>
                         <div className="flex-none text-right">
-                          <div className="text-xs text-white/70">{t("profile.horas_registradas", { h: String(horas) })}</div>
-                          <div className="mt-1 text-[11px] text-white/40">{t("profile.ultima_vez", { data })}</div>
+                          <div className="text-xs text-white/70">
+                            {t("profile.horas_registradas", { h: String(horas) })}
+                          </div>
+                          <div className="mt-1 text-[11px] text-white/40">
+                            {t("profile.ultima_vez", { data })}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -179,7 +215,14 @@ export function ProfilePage({
           <aside className="space-y-4">
             <ProfileCard title={t("profile.estatisticas")}>
               <StatRow label={t("profile.estatisticas.jogos")} value={String(games.length)} />
-              <StatRow label={t("profile.estatisticas.horas")} value={stats ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) }) : t("profile.estatisticas.fallback")} />
+              <StatRow
+                label={t("profile.estatisticas.horas")}
+                value={
+                  stats
+                    ? t("profile.estatisticas.horas_display", { h: String(stats.playtime_hours) })
+                    : t("profile.estatisticas.fallback")
+                }
+              />
             </ProfileCard>
           </aside>
         </div>
@@ -198,14 +241,22 @@ function GameCapsule({ src, title }: { src: string; title: string }) {
     )
   }
   return (
-    <img src={src} alt={title} className="h-[69px] w-[184px] flex-none rounded-lg object-cover ring-1 ring-white/10" loading="lazy" onError={() => setBroken(true)} />
+    <img
+      src={src}
+      alt={title}
+      className="h-[69px] w-[184px] flex-none rounded-lg object-cover ring-1 ring-white/10"
+      loading="lazy"
+      onError={() => setBroken(true)}
+    />
   )
 }
 
 function ProfileCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035] shadow-xl shadow-black/25">
-      <h2 className="border-b border-white/[0.05] bg-white/[0.025] px-6 py-4 text-sm font-bold text-white">{title}</h2>
+      <h2 className="border-b border-white/[0.05] bg-white/[0.025] px-6 py-4 text-sm font-bold text-white">
+        {title}
+      </h2>
       <div className="space-y-3 p-6">{children}</div>
     </section>
   )
@@ -213,8 +264,10 @@ function ProfileCard({ title, children }: { title: string; children: React.React
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 rounded-lg"
-      style={{ background: "rgba(255,255,255,0.03)" }}>
+    <div
+      className="flex items-center justify-between px-4 py-2.5 rounded-lg"
+      style={{ background: "rgba(255,255,255,0.03)" }}
+    >
       <span className="text-sm text-[#c8d0e0]">{label}</span>
       <span className="text-sm font-bold text-white">{value}</span>
     </div>

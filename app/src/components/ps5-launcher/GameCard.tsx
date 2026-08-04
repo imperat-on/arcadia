@@ -24,28 +24,40 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
   const cardRef = useRef<HTMLButtonElement>(null)
   const { t } = useI18n()
   const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  const portraitUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : ""
-  const headerUrl = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : ""
-  const [faseCapa, setFaseCapa] = useState<"cover" | "portrait" | "header" | "none">(
-    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"
-  )
-  useEffect(() => setFaseCapa(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"), [game.id, game.cover])
-  const coverSrc =
-    faseCapa === "cover" ? game.cover || portraitUrl
-    : faseCapa === "portrait" ? portraitUrl
-    : faseCapa === "header" ? headerUrl
+  const portraitUrl = appid
+    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
     : ""
+  const headerUrl = appid
+    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`
+    : ""
+  const [faseCapa, setFaseCapa] = useState<"cover" | "portrait" | "header" | "none">(
+    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover",
+  )
+  useEffect(
+    () => setFaseCapa(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"),
+    [game.id, game.cover],
+  )
+  const coverSrc =
+    faseCapa === "cover"
+      ? game.cover || portraitUrl
+      : faseCapa === "portrait"
+        ? portraitUrl
+        : faseCapa === "header"
+          ? headerUrl
+          : ""
   const isLandscape = /\/(?:library_)?header\.jpg/i.test(coverSrc)
 
   const hasCover = Boolean(coverSrc)
   const fallbackGradient =
-    FALLBACK_GRADIENTS[game.launcher] ??
-    "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)"
+    FALLBACK_GRADIENTS[game.launcher] ?? "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)"
 
   return (
     <button
       ref={cardRef}
-      onClick={() => { onFocus(); onLaunch() }}
+      onClick={() => {
+        onFocus()
+        onLaunch()
+      }}
       className="relative flex-shrink-0 rounded-xl overflow-hidden cursor-pointer outline-none group"
       style={{
         width,
@@ -72,7 +84,11 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
             alt={game.title}
             className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"}`}
             loading="lazy"
-            onError={() => setFaseCapa((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))}
+            onError={() =>
+              setFaseCapa((f) =>
+                f === "cover" ? "portrait" : f === "portrait" ? "header" : "none",
+              )
+            }
           />
         ) : (
           /* Fallback art */
@@ -112,9 +128,7 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
       <div
         className="absolute inset-0 rounded-xl pointer-events-none"
         style={{
-          border: focused
-            ? "2px solid var(--accent)"
-            : "2px solid rgba(255,255,255,0.06)",
+          border: focused ? "2px solid var(--accent)" : "2px solid rgba(255,255,255,0.06)",
           boxShadow: focused
             ? "0 0 0 1px var(--accent), 0 8px 40px rgba(0,0,0,0.6), 0 0 55px color-mix(in srgb, var(--accent) 45%, transparent)"
             : "none",

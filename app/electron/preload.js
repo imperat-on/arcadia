@@ -39,7 +39,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   storeSearch: (query) => ipcRenderer.invoke("store:search", query),
   storeSuggest: (query) => ipcRenderer.invoke("store:suggest", query),
   storeWarm: () => ipcRenderer.invoke("store:warm"),
-  storeRecent: (lista, limite, offset) => ipcRenderer.invoke("store:recent", { lista, limite, offset }),
+  storeRecent: (lista, limite, offset) =>
+    ipcRenderer.invoke("store:recent", { lista, limite, offset }),
   /** Capa retrato alternativa (SteamGridDB), só para quem a Steam não publica. */
   storeInstallInfo: (appid) => ipcRenderer.invoke("store:installInfo", appid),
   storeInstall: (payload) => ipcRenderer.invoke("store:install", payload),
@@ -105,7 +106,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
   achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
-  achievementsForceUnlock: (appid, apiname) => ipcRenderer.invoke("achievements:force:unlock", { appid, apiname }),
+  achievementsForceUnlock: (appid, apiname) =>
+    ipcRenderer.invoke("achievements:force:unlock", { appid, apiname }),
   achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),
   legendarySetup: () => ipcRenderer.invoke("runner:legendary:setup"),
@@ -124,7 +126,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     return () => ipcRenderer.removeListener("dm:progress", h)
   },
   wineList: () => ipcRenderer.invoke("wine:list"),
-  prefixTool: (appid, tool, opts) => ipcRenderer.invoke("wine:prefixTool", { appid, tool, ...(opts || {}) }),
+  prefixTool: (appid, tool, opts) =>
+    ipcRenderer.invoke("wine:prefixTool", { appid, tool, ...(opts || {}) }),
   wineRunExe: (appid, opts) => ipcRenderer.invoke("wine:runExe", { appid, ...(opts || {}) }),
   gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", id),
   gameSettingsSet: (id, patch) => ipcRenderer.invoke("gamesettings:set", { id, patch }),
@@ -195,4 +198,3 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     return () => ipcRenderer.removeListener("game:launchWarning", h)
   },
 })
-

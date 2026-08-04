@@ -36,9 +36,7 @@ export function LibraryGrid({
   if (games.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-lg text-[#8a93a6]">
-          {emptyMessage || t("library.vazia")}
-        </p>
+        <p className="text-lg text-[#8a93a6]">{emptyMessage || t("library.vazia")}</p>
       </div>
     )
   }
@@ -53,7 +51,11 @@ export function LibraryGrid({
         {games.map((game, i) => {
           const focused = i === selectedIndex
           return (
-            <div key={game.id} ref={focused ? selRef : undefined} className="scroll-mt-24 scroll-mb-8">
+            <div
+              key={game.id}
+              ref={focused ? selRef : undefined}
+              className="scroll-mt-24 scroll-mb-8"
+            >
               <GameCard
                 game={game}
                 focused={focused}

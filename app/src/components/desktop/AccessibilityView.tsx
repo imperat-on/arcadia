@@ -91,7 +91,9 @@ export function AccessibilityView() {
 
   return (
     <div>
-      <h1 className="mb-8 text-2xl font-light tracking-wide text-white">{t("accessibility.titulo")}</h1>
+      <h1 className="mb-8 text-2xl font-light tracking-wide text-white">
+        {t("accessibility.titulo")}
+      </h1>
 
       <div className="max-w-2xl space-y-8 pb-10">
         {/* Zoom */}
@@ -115,7 +117,9 @@ export function AccessibilityView() {
           />
           <div className="mt-1 flex justify-between text-[10px] text-white/35">
             {ZOONS.map((z) => (
-              <span key={z} className={z === zoomTela ? "font-bold text-white" : ""}>{z}</span>
+              <span key={z} className={z === zoomTela ? "font-bold text-white" : ""}>
+                {z}
+              </span>
             ))}
           </div>
         </section>
@@ -139,10 +143,10 @@ export function AccessibilityView() {
 
         {/* CSS customizado */}
         <section>
-          <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">{t("accessibility.caminho_temas")}</h2>
-          <p className="mb-2 text-xs text-white/40">
-            {t("accessibility.pasta_css_desc")}
-          </p>
+          <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">
+            {t("accessibility.caminho_temas")}
+          </h2>
+          <p className="mb-2 text-xs text-white/40">{t("accessibility.pasta_css_desc")}</p>
           <div className="flex gap-2">
             <input
               value={cfg.custom_css_path || ""}
@@ -159,7 +163,16 @@ export function AccessibilityView() {
               title={t("common.escolher_pasta")}
               className="rounded-xl border border-white/10 bg-white/[0.06] px-3.5 text-white/80 transition-colors hover:bg-white/10"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
               </svg>
             </button>
@@ -169,7 +182,9 @@ export function AccessibilityView() {
         {/* Links */}
         <section className="flex gap-3">
           <button
-            onClick={() => window.launcherAPI?.openExternal(`file://${window.launcherPaths?.dataDir}/README.md`)}
+            onClick={() =>
+              window.launcherAPI?.openExternal(`file://${window.launcherPaths?.dataDir}/README.md`)
+            }
             className="rounded-xl border border-white/10 px-4 py-2 text-xs font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           >
             {t("accessibility.ajuda_readme")}
@@ -215,7 +230,15 @@ export function AccessibilityView() {
   )
 }
 
-function SelectFonte({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function SelectFonte({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}) {
   const { t } = useI18n()
   return (
     <label className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
@@ -226,14 +249,24 @@ function SelectFonte({ label, value, onChange }: { label: string; value: string;
         className="rounded-lg border border-white/10 bg-[#16161a] px-3 py-1.5 text-sm text-white outline-none focus:border-[color:var(--accent)]"
       >
         {FONTES.map((f) => (
-          <option key={f.id} value={f.id}>{f.labelKey ? t(f.labelKey) : f.label}</option>
+          <option key={f.id} value={f.id}>
+            {f.labelKey ? t(f.labelKey) : f.label}
+          </option>
         ))}
       </select>
     </label>
   )
 }
 
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Check({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
   return (
     <button
       onClick={() => onChange(!checked)}
@@ -243,11 +276,22 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
     >
       <span
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
-          checked ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-black" : "border-white/25"
+          checked
+            ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-black"
+            : "border-white/25"
         }`}
       >
         {checked && (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <polyline points="20 6 9 17 4 12" />
           </svg>
         )}

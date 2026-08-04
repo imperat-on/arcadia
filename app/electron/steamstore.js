@@ -43,7 +43,10 @@ const TWENTYTWO_URL = (appid) => `https://api.twentytwocloud.com/download?appid=
 function storeLog(msg) {
   try {
     fs.mkdirSync(path.join(BIN_DIR, "..", "logs"), { recursive: true })
-    fs.appendFileSync(path.join(BIN_DIR, "..", "logs", "store.log"), `[${new Date().toISOString()}] ${msg}\n`)
+    fs.appendFileSync(
+      path.join(BIN_DIR, "..", "logs", "store.log"),
+      `[${new Date().toISOString()}] ${msg}\n`,
+    )
   } catch {}
 }
 
@@ -100,7 +103,9 @@ async function ensureDotnet(onProgress) {
     c.on("error", () => res(1))
   })
   const bin = path.join(dir, "dotnet")
-  return code === 0 && fs.existsSync(bin) ? { ok: true, path: bin } : { ok: false, error: "falha ao instalar o .NET" }
+  return code === 0 && fs.existsSync(bin)
+    ? { ok: true, path: bin }
+    : { ok: false, error: "falha ao instalar o .NET" }
 }
 
 function depsOk() {
@@ -114,7 +119,8 @@ function depsOk() {
 
 // O repositório do Sushi é um repo git plano de <appid>.zip: uma única chamada
 // à árvore lista os ~5.800 de uma vez, muito mais barato que sondar um a um.
-const SUSHI_TREE = "https://api.github.com/repos/sushi-dev55-alt/sushitools-games-repo-alt/git/trees/main"
+const SUSHI_TREE =
+  "https://api.github.com/repos/sushi-dev55-alt/sushitools-games-repo-alt/git/trees/main"
 const SUSHI_TTL = 6 * 60 * 60 * 1000 // 6h: o repo muda devagar
 let sushiCache = { at: 0, ids: null }
 // O índice também vai para disco: em memória ele nascia vazio a cada abertura
@@ -297,7 +303,13 @@ async function itensDaLoja(appids) {
     const it = cache[id]
     if (it && agora - it.at < ITENS_TTL) {
       respondidos.add(id)
-      if (typeof it.tipo === "number") mapa.set(id, { tipo: it.tipo, capa: it.capa || "", heroi: it.heroi || "", icon: it.icon || "" })
+      if (typeof it.tipo === "number")
+        mapa.set(id, {
+          tipo: it.tipo,
+          capa: it.capa || "",
+          heroi: it.heroi || "",
+          icon: it.icon || "",
+        })
     } else faltando.push(id)
   }
   if (!faltando.length) return { mapa, respondidos }
@@ -325,7 +337,12 @@ async function itensDaLoja(appids) {
       for (const it of j?.response?.store_items || []) {
         const id = String(it.appid || "")
         if (!id || typeof it.type !== "number") continue
-        const dado = { tipo: it.type, capa: capaDeAssets(it.assets), heroi: heroiDeAssets(it.assets), icon: iconeDeAssets(it.assets) }
+        const dado = {
+          tipo: it.type,
+          capa: capaDeAssets(it.assets),
+          heroi: heroiDeAssets(it.assets),
+          icon: iconeDeAssets(it.assets),
+        }
         mapa.set(id, dado)
         cache[id] = { ...dado, at: agora }
       }
@@ -559,7 +576,9 @@ async function suggestDaSteam(q, chave) {
 // títulos (catálogo completo, sem key) e cada resultado é conferido contra
 // todos os provedores.
 async function search(query) {
-  const chave = String(query || "").trim().toLowerCase()
+  const chave = String(query || "")
+    .trim()
+    .toLowerCase()
   if (chave.length >= 2) {
     const hit = buscaCache.get(chave)
     if (hit && Date.now() - hit.at < BUSCA_TTL) return { ...hit.res, cache: true }
@@ -622,7 +641,8 @@ async function _searchReal(query, chave) {
         // O `tiny_image` é pequeno, mas vem com o hash do asset — para jogos
         // do esquema novo é a ÚNICA arte alcançável sem uma chamada extra.
         // O caminho antigo, montado só com o appid, fica de reserva.
-        cover: g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        cover:
+          g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
         preco: precoBusca(g.price),
         manifest: false,
       })
@@ -721,7 +741,14 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
       } catch (e) {
         if (guardado && Array.isArray(guardado.jogos)) {
           const fatia = guardado.jogos.slice(off, off + lim)
-          return { ok: true, jogos: fatia, offset: off, total: guardado.jogos.length, cache: true, velho: true }
+          return {
+            ok: true,
+            jogos: fatia,
+            offset: off,
+            total: guardado.jogos.length,
+            cache: true,
+            velho: true,
+          }
         }
         return { ok: false, error: String(e.message || e) }
       }
@@ -737,7 +764,8 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
     const fatia = await preparar(completa.slice(off, off + lim))
     return { jogos: fatia, offset: off, total: completa.length }
   }
-  const completaDo = (c) => (Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null)
+  const completaDo = (c) =>
+    Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null
   if (c && !velho) {
     const completa = completaDo(c)
     if (completa) {
@@ -803,7 +831,9 @@ function precoDestaque(centavos, moeda) {
   if (typeof centavos !== "number" || !moeda) return ""
   if (centavos === 0) return "Gratuito"
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: moeda }).format(centavos / 100)
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: moeda }).format(
+      centavos / 100,
+    )
   } catch {
     return ""
   }
@@ -872,7 +902,9 @@ function gameInstallDir(g) {
   }
   if (g?.launcher === "epic") {
     try {
-      const inst = JSON.parse(fs.readFileSync(path.join(home, ".config", "legendary", "installed.json"), "utf-8"))
+      const inst = JSON.parse(
+        fs.readFileSync(path.join(home, ".config", "legendary", "installed.json"), "utf-8"),
+      )
       const app = String(g.id).replace(/^epic:/, "")
       if (inst[app]?.install_path) return inst[app].install_path
     } catch {}
@@ -883,7 +915,12 @@ function gameInstallDir(g) {
 // Provedores de manifesto (estilo luatools): tentados EM ORDEM até um
 // devolver depots. Todos devolvem um zip no formato SteamTools (.lua+manifest).
 const PROVEDORES = [
-  { nome: "Morrenus", url: (appid, cfg) => `${HUBCAP_BASE}/manifest/${appid}?api_key=${cfg.hubcap_api_key || ""}`, headers: (cfg) => ({ Authorization: `Bearer ${cfg.hubcap_api_key}` }), precisaKey: true },
+  {
+    nome: "Morrenus",
+    url: (appid, cfg) => `${HUBCAP_BASE}/manifest/${appid}?api_key=${cfg.hubcap_api_key || ""}`,
+    headers: (cfg) => ({ Authorization: `Bearer ${cfg.hubcap_api_key}` }),
+    precisaKey: true,
+  },
   { nome: "Ryuu", url: (appid) => RYUU_URL(appid), headers: () => ({}) },
   { nome: "Sushi", url: (appid) => SUSHI_URL(appid), headers: () => ({}) },
   // Último da fila: o host não respondia nos testes (timeout, sem HTTP algum).
@@ -912,7 +949,9 @@ async function extrairProvedor(p, appid, cfg, outDir) {
     fs.rmSync(outDir, { recursive: true, force: true })
     fs.mkdirSync(outDir, { recursive: true })
     await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
-    try { fs.rmSync(zipPath, { force: true }) } catch {}
+    try {
+      fs.rmSync(zipPath, { force: true })
+    } catch {}
     const dados = lerLuas(outDir, appid)
     if (!dados.depots.length) return { ok: false, erro: "zip sem depots" }
     return { ok: true, dados }
@@ -961,7 +1000,9 @@ async function getManifest(appid) {
     if (respostas.length === 1 && comManifest === r.dados.depots.length) {
       fs.rmSync(outDirFinal, { recursive: true, force: true })
       fs.renameSync(outDir, outDirFinal)
-      storeLog(`manifesto ${appid}: ${p.nome} (${r.dados.depots.length} depots, todos com .manifest)`)
+      storeLog(
+        `manifesto ${appid}: ${p.nome} (${r.dados.depots.length} depots, todos com .manifest)`,
+      )
       const ret = { ok: true, appid: String(appid), ...r.dados, outDir: outDirFinal, fonte: p.nome }
       await enriquecerMetadata(appid, r.dados.depots, ret)
       return ret
@@ -996,7 +1037,13 @@ async function getManifest(appid) {
       if (noLider) {
         const mf = path.join(lider.outDir, `${noLider.depotId}_${noLider.manifestId}.manifest`)
         if (fs.existsSync(mf)) {
-          escolha = { manifestId: noLider.manifestId, key: noLider.key, size: noLider.size, mfPath: mf, fonte: lider.nome }
+          escolha = {
+            manifestId: noLider.manifestId,
+            key: noLider.key,
+            size: noLider.size,
+            mfPath: mf,
+            fonte: lider.nome,
+          }
         }
       }
       // 2ª preferência: qualquer provedor com o MESMO depot cujo .manifest
@@ -1009,8 +1056,19 @@ async function getManifest(appid) {
           if (fs.existsSync(mf)) {
             // A chave é constante por depot; se este provedor não tiver,
             // pega de qualquer .lua que mencione o depot.
-            const key = cand.key || respostas.map((r) => r.dados.depots.find((x) => x.depotId === d.depotId)?.key).find(Boolean) || ""
-            escolha = { manifestId: cand.manifestId, key, size: cand.size, mfPath: mf, fonte: outra.nome }
+            const key =
+              cand.key ||
+              respostas
+                .map((r) => r.dados.depots.find((x) => x.depotId === d.depotId)?.key)
+                .find(Boolean) ||
+              ""
+            escolha = {
+              manifestId: cand.manifestId,
+              key,
+              size: cand.size,
+              mfPath: mf,
+              fonte: outra.nome,
+            }
             break
           }
         }
@@ -1035,25 +1093,39 @@ async function getManifest(appid) {
 
   // Limpa os outDirs individuais — só o outDirFinal fica.
   for (const r of respostas) {
-    try { fs.rmSync(r.outDir, { recursive: true, force: true }) } catch {}
+    try {
+      fs.rmSync(r.outDir, { recursive: true, force: true })
+    } catch {}
   }
 
   if (!depotsFinais.length) {
     // Nada colável — devolve a mesma mensagem detalhada que o usuário já vê.
-    const detalhes = respostas.map((r) => `${r.nome}: ${r.dados.depots.length} depot(s), 0 com .manifest`)
+    const detalhes = respostas.map(
+      (r) => `${r.nome}: ${r.dados.depots.length} depot(s), 0 com .manifest`,
+    )
     return { ok: false, error: [...erros, ...detalhes].join(" · ") }
   }
 
   // Token e DLCs: preferir líder; se ele não tem, cair em qualquer que tenha.
   const token = lider.dados.token || respostas.find((r) => r.dados.token)?.dados.token || ""
-  const dlcs = lider.dados.dlcs.length ? lider.dados.dlcs : respostas.find((r) => r.dados.dlcs.length)?.dados.dlcs || []
+  const dlcs = lider.dados.dlcs.length
+    ? lider.dados.dlcs
+    : respostas.find((r) => r.dados.dlcs.length)?.dados.dlcs || []
 
   const extras = [...contribuidores].filter((f) => f !== lider.nome)
   const fonteStr = extras.length ? `${lider.nome} (+manifests de ${extras.join(",")})` : lider.nome
   storeLog(
     `manifesto ${appid}: ${fonteStr} (${depotsFinais.length} depots${pulados.length ? `, ${pulados.length} pulado(s)` : ""})`,
   )
-  const ret = { ok: true, appid: String(appid), depots: depotsFinais, token, dlcs, outDir: outDirFinal, fonte: fonteStr }
+  const ret = {
+    ok: true,
+    appid: String(appid),
+    depots: depotsFinais,
+    token,
+    dlcs,
+    outDir: outDirFinal,
+    fonte: fonteStr,
+  }
   await enriquecerMetadata(appid, depotsFinais, ret)
   return ret
 }
@@ -1063,7 +1135,10 @@ async function getManifest(appid) {
 async function enriquecerMetadata(appid, depots, resultado) {
   try {
     const info = await fetchAppInfo(appid)
-    if (!info) { storeLog(`meta ${appid}: api.steamcmd.net devolveu vazio`); return }
+    if (!info) {
+      storeLog(`meta ${appid}: api.steamcmd.net devolveu vazio`)
+      return
+    }
     if (resultado && info.installdir) resultado.installdir = info.installdir
     const meta = info.depotsMeta
     const gameName = info.name || ""
@@ -1097,18 +1172,26 @@ async function enriquecerMetadata(appid, depots, resultado) {
       } catch {}
     }
     // Nomes dos DLCs marcados originalmente (via config.dlcappid).
-    const dlcDireto = [...new Set(depots.map((d) => d.dlcAppid).filter((a) => a && !info.listofdlc.includes(a)))]
+    const dlcDireto = [
+      ...new Set(depots.map((d) => d.dlcAppid).filter((a) => a && !info.listofdlc.includes(a))),
+    ]
     if (dlcDireto.length) {
       const nomes = await Promise.all(dlcDireto.map((a) => fetchAppName(a).catch(() => "")))
       const mapa = {}
-      dlcDireto.forEach((a, i) => { if (nomes[i]) mapa[a] = nomes[i] })
+      dlcDireto.forEach((a, i) => {
+        if (nomes[i]) mapa[a] = nomes[i]
+      })
       for (const d of depots) {
         if (d.dlcAppid && mapa[d.dlcAppid]) d.name = mapa[d.dlcAppid]
       }
     }
     const enriched = depots.filter((d) => d.os || d.language || d.dlcAppid).length
-    storeLog(`meta ${appid}: ${enriched}/${depots.length} depots enriquecidos (${info.listofdlc.length} DLCs)`)
-  } catch (e) { storeLog(`meta ${appid}: ${e.message || e}`) }
+    storeLog(
+      `meta ${appid}: ${enriched}/${depots.length} depots enriquecidos (${info.listofdlc.length} DLCs)`,
+    )
+  } catch (e) {
+    storeLog(`meta ${appid}: ${e.message || e}`)
+  }
 }
 
 // api.steamcmd.net expõe PICS público: common.name, depots[].config.oslist,
@@ -1138,7 +1221,9 @@ async function fetchAppInfo(appid) {
     }
   }
   const listofdlc = String(app?.extended?.listofdlc || "")
-    .split(",").map((s) => s.trim()).filter(Boolean)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
   const installdir = app?.config?.installdir || ""
   return { depotsMeta: out, name: app?.common?.name || "", listofdlc, installdir }
 }
@@ -1168,7 +1253,12 @@ function lerLuas(outDir, appid) {
     while ((m = keyRe.exec(lua))) keys[m[1]] = m[2]
     const manRe = /setManifestid\(\s*(\d+)\s*,\s*"(\d+)"\s*(?:,\s*(\d+))?/g
     while ((m = manRe.exec(lua))) {
-      depots.push({ depotId: m[1], manifestId: m[2], key: keys[m[1]] || "", size: Number(m[3] || 0) })
+      depots.push({
+        depotId: m[1],
+        manifestId: m[2],
+        key: keys[m[1]] || "",
+        size: Number(m[3] || 0),
+      })
     }
     const tokRe = /addtoken\(\s*"([^"]+)"\s*\)/
     const t = tokRe.exec(lua)
@@ -1189,7 +1279,11 @@ function lerLuas(outDir, appid) {
 // arbitrário. Sem revalidar aqui, um `installdir` tipo "../../../tmp/evil"
 // sobrevive ao path.join e escreve fora de steamapps/common (path traversal).
 function sanitizeInstallDir(installdir) {
-  return String(installdir || "").replace(/[^A-Za-z0-9._ -]/g, "").trim() || "jogo"
+  return (
+    String(installdir || "")
+      .replace(/[^A-Za-z0-9._ -]/g, "")
+      .trim() || "jogo"
+  )
 }
 
 // Monta o spawn do download de um appid. Retorna { cmd, args, env }.
@@ -1215,9 +1309,12 @@ async function prepareDownload({ appid, installdir, depots, steamDir }) {
     }
     const args = [
       path.join(DEPS_DIR, "DepotDownloader.dll"),
-      "-app", String(appid),
-      "-depot", String(d.depotId),
-      "-manifest", String(d.manifestId),
+      "-app",
+      String(appid),
+      "-depot",
+      String(d.depotId),
+      "-manifest",
+      String(d.manifestId),
     ]
     // Sem o .manifest local o DepotDownloader precisa pedir um "manifest
     // request code" à Steam, e a conta anônima não recebe código para
@@ -1239,7 +1336,10 @@ async function prepareDownload({ appid, installdir, depots, steamDir }) {
       error: "nenhum depot com .manifest local — o provedor entregou o .lua sem os manifestos",
     }
   }
-  if (pulados.length) storeLog(`download ${appid}: ${pulados.length} depot(s) pulado(s) sem .manifest: ${pulados.join(",")}`)
+  if (pulados.length)
+    storeLog(
+      `download ${appid}: ${pulados.length} depot(s) pulado(s) sem .manifest: ${pulados.join(",")}`,
+    )
   return { ok: true, cmds, dest, pulados }
 }
 
@@ -1313,11 +1413,15 @@ function removeDownloaded(appid) {
   const id = String(appid)
   const achados = arcadiaDownloaded().filter((a) => a.appid === id)
   for (const a of achados) {
-    try { fs.rmSync(path.join(a.steamapps, `appmanifest_${id}.acf`), { force: true }) } catch {}
+    try {
+      fs.rmSync(path.join(a.steamapps, `appmanifest_${id}.acf`), { force: true })
+    } catch {}
     if (a.installdir) {
       const dir = path.join(a.steamapps, "common", a.installdir)
       if (dir.startsWith(path.join(a.steamapps, "common") + path.sep) && fs.existsSync(dir)) {
-        try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+        try {
+          fs.rmSync(dir, { recursive: true, force: true })
+        } catch {}
       }
     }
   }
@@ -1360,8 +1464,10 @@ function temNaSecao(y, secao, chave) {
   if (!corpo) return false
   const esc = String(chave).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   // Item de lista ("  - 730") ou chave de mapa ("  730: ...").
-  return new RegExp(`^\\s*(?:-\\s*${esc}\\s*(?:#.*)?|${esc}\\s*:)\\s*$`, "m").test(corpo) ||
+  return (
+    new RegExp(`^\\s*(?:-\\s*${esc}\\s*(?:#.*)?|${esc}\\s*:)\\s*$`, "m").test(corpo) ||
     new RegExp(`^\\s*${esc}\\s*:\\s*\\S`, "m").test(corpo)
+  )
 }
 
 /**
@@ -1440,7 +1546,10 @@ function registerSlssteam({ appid, token, dlcs }) {
     // AdditionalApps: lista de appids extras exibidos como owned.
     if (/^AdditionalApps:/m.test(y)) {
       y = y.replace(/^AdditionalApps:\s*$/m, `AdditionalApps:\n  - ${appidStr}`)
-      y = y.replace(/^(AdditionalApps:\s*\[)([^\]]*)\]/m, (_m, a, b) => `${a}${b ? b + ", " : ""}${appidStr}]`)
+      y = y.replace(
+        /^(AdditionalApps:\s*\[)([^\]]*)\]/m,
+        (_m, a, b) => `${a}${b ? b + ", " : ""}${appidStr}]`,
+      )
     } else {
       y += `\nAdditionalApps:\n  - ${appidStr}\n`
     }
@@ -1485,7 +1594,8 @@ function comandoSteam(cfg = readConfig()) {
   ]
   if (cfg.slssteam_path) inject.push(cfg.slssteam_path)
   const validos = inject.filter((p) => fs.existsSync(p))
-  if (validos.length >= 2) return { cmd: "steam", env: { LD_AUDIT: validos.join(":") }, injeta: true }
+  if (validos.length >= 2)
+    return { cmd: "steam", env: { LD_AUDIT: validos.join(":") }, injeta: true }
 
   return { cmd: "steam", env: {}, injeta: false }
 }
@@ -1494,7 +1604,10 @@ function comandoSteam(cfg = readConfig()) {
 function appidsInjetados() {
   const ids = new Set()
   try {
-    const y = fs.readFileSync(path.join(os.homedir(), ".config", "SLSsteam", "config.yaml"), "utf-8")
+    const y = fs.readFileSync(
+      path.join(os.homedir(), ".config", "SLSsteam", "config.yaml"),
+      "utf-8",
+    )
     const bloco = y.split(/^AdditionalApps:/m)[1] || ""
     for (const m of bloco.matchAll(/^\s*-\s*(\d+)/gm)) ids.add(m[1])
   } catch {}
@@ -1528,7 +1641,9 @@ function appidsInjetados() {
 function steamInjetada() {
   let pids = []
   try {
-    pids = String(require("child_process").execFileSync("pgrep", ["-x", "steam"], { encoding: "utf-8" }))
+    pids = String(
+      require("child_process").execFileSync("pgrep", ["-x", "steam"], { encoding: "utf-8" }),
+    )
       .split("\n")
       .filter(Boolean)
   } catch {
@@ -1572,7 +1687,9 @@ function launchSteamWithSls(cfg = readConfig()) {
         const estourou = ++tentativas > 120
         if (morreu || estourou) {
           clearInterval(esperar)
-          storeLog(`restart: steam ${morreu ? "morreu" : "timeout 120s"} em ${Date.now() - t0}ms — relançando via ${cmd}`)
+          storeLog(
+            `restart: steam ${morreu ? "morreu" : "timeout 120s"} em ${Date.now() - t0}ms — relançando via ${cmd}`,
+          )
           // Graça de 2s p/ o lock do cliente liberar antes de relançar.
           setTimeout(() => {
             const child = spawn(cmd, [], { detached: true, stdio: "ignore", env })
@@ -1595,7 +1712,11 @@ function steamBasePath() {
     path.join(home, ".steam", "debian-installation"),
     path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
   ]
-  return cands.find((p) => fs.existsSync(path.join(p, "steamapps")) || fs.existsSync(path.join(p, "config"))) || ""
+  return (
+    cands.find(
+      (p) => fs.existsSync(path.join(p, "steamapps")) || fs.existsSync(path.join(p, "config")),
+    ) || ""
+  )
 }
 
 // Apaga o que versões antigas do Arcadia gravaram em ~/.config/SLSsteam/
@@ -1609,7 +1730,8 @@ function limpaLegado(appid) {
   try {
     const lua = path.join(luaDir, `${id}.lua`)
     if (fs.existsSync(lua)) {
-      for (const m of fs.readFileSync(lua, "utf-8").matchAll(/addappid\s*\(\s*(\d+)/g)) depots.add(m[1])
+      for (const m of fs.readFileSync(lua, "utf-8").matchAll(/addappid\s*\(\s*(\d+)/g))
+        depots.add(m[1])
       fs.rmSync(lua, { force: true })
     }
     if (fs.existsSync(manDir)) {
@@ -1646,7 +1768,8 @@ function addToSteam(appid) {
           // setManifestid() prende a Steam a uma versão específica do depot;
           // se ela não bate com a do CDN, dá "content still encrypted". O
           // LuaTools comenta essas linhas para a Steam usar a versão atual.
-          const txt = fs.readFileSync(path.join(outDir, f), "utf-8")
+          const txt = fs
+            .readFileSync(path.join(outDir, f), "utf-8")
             .replace(/^(\s*)(setManifestid\()/gm, "$1-- $2")
           fs.writeFileSync(path.join(stplug, f), txt)
           luas++
@@ -1655,7 +1778,11 @@ function addToSteam(appid) {
         }
       }
     }
-    if (!luas) return { ok: false, error: "nenhum .lua no manifesto — baixe o manifesto antes (botão Baixar)" }
+    if (!luas)
+      return {
+        ok: false,
+        error: "nenhum .lua no manifesto — baixe o manifesto antes (botão Baixar)",
+      }
     return { ok: true, luas }
   } catch (e) {
     return { ok: false, error: String(e) }
@@ -1669,7 +1796,16 @@ function steamLibraries() {
   const raizes = [
     path.join(home, ".steam", "steam", "steamapps"),
     path.join(home, ".local", "share", "Steam", "steamapps"),
-    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps"),
+    path.join(
+      home,
+      ".var",
+      "app",
+      "com.valvesoftware.Steam",
+      ".local",
+      "share",
+      "Steam",
+      "steamapps",
+    ),
   ]
   const libs = []
   for (const raiz of raizes) {
@@ -1747,17 +1883,14 @@ function removeFromSteam(appid) {
   // Linha "  - <appid>" em AdditionalApps (formato bloco YAML).
   y = y.replace(new RegExp(`^\\s* -\\s*${id}\\s*(#.*)?$\\n?`, "m"), "")
   // Formato inline: AdditionalApps: [123, 456]
-  y = y.replace(
-    /^(AdditionalApps:\s*\[)([^\]]*)\]/m,
-    (_m, prefix, inner) => {
-      const ids = inner
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .filter((s) => s !== id)
-      return ids.length ? `${prefix}${ids.join(", ")}]` : "AdditionalApps: []"
-    },
-  )
+  y = y.replace(/^(AdditionalApps:\s*\[)([^\]]*)\]/m, (_m, prefix, inner) => {
+    const ids = inner
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => s !== id)
+    return ids.length ? `${prefix}${ids.join(", ")}]` : "AdditionalApps: []"
+  })
   // Token em AppTokens — SÓ dentro da seção AppTokens (antes o regex apagava
   // também a chave-pai do appid no DlcData, órfãos que crasham a Steam).
   y = removeChaveComFilhos(y, "AppTokens", id)
@@ -1771,7 +1904,9 @@ function removeFromSteam(appid) {
 }
 
 async function status() {
-  const dotnetSys = await new Promise((res) => execFile("dotnet", ["--version"], (e, stdout) => res(e ? "" : String(stdout).trim())))
+  const dotnetSys = await new Promise((res) =>
+    execFile("dotnet", ["--version"], (e, stdout) => res(e ? "" : String(stdout).trim())),
+  )
   // AppIds já registrados (AdditionalApps do config.yaml + .lua no stplug-in)
   // — cobre apps adicionados por qualquer ferramenta, a qualquer época.
   const adicionados = appidsInjetados()

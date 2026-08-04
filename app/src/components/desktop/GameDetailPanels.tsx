@@ -13,7 +13,13 @@ type Movie = { id: number; name: string; thumb: string; mp4: string; webm: strin
 type Shot = { thumb: string; full: string }
 
 // Galeria: player de trailer + faixa de miniaturas (trailers e screenshots).
-export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: Movie[]; screenshots?: Shot[] }) {
+export function GameMediaGallery({
+  movies = [],
+  screenshots = [],
+}: {
+  movies?: Movie[]
+  screenshots?: Shot[]
+}) {
   // Item selecionado: { tipo: "movie"|"shot", idx }. Começa no 1º trailer, ou
   // no 1º screenshot se não houver trailer.
   const temMovie = movies.length > 0
@@ -33,7 +39,10 @@ export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: M
   useEffect(() => {
     const v = vidRef.current
     if (!v || !mov || direto || !mov.hls) return
-    if (!Hls.isSupported()) { v.src = mov.hls; return }
+    if (!Hls.isSupported()) {
+      v.src = mov.hls
+      return
+    }
     const hls = new Hls()
     hls.loadSource(mov.hls)
     hls.attachMedia(v)
@@ -62,7 +71,12 @@ export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: M
             className="h-full w-full object-contain"
           />
         ) : screenshots[sel.idx] ? (
-          <img src={screenshots[sel.idx].full} alt="" className="h-full w-full object-contain" draggable={false} />
+          <img
+            src={screenshots[sel.idx].full}
+            alt=""
+            className="h-full w-full object-contain"
+            draggable={false}
+          />
         ) : null}
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -79,7 +93,9 @@ export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: M
               <img src={th.src} alt="" className="h-full w-full object-cover" draggable={false} />
               {th.play && (
                 <span className="absolute inset-0 flex items-center justify-center bg-black/30">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
                 </span>
               )}
             </button>
@@ -91,48 +107,85 @@ export function GameMediaGallery({ movies = [], screenshots = [] }: { movies?: M
 }
 
 const PROTON_CORES: Record<string, string> = {
-  platinum: "#b4c7dc", gold: "#cfb53b", silver: "#a7a7ad", bronze: "#cd7f32", borked: "#ff6b81",
+  platinum: "#b4c7dc",
+  gold: "#cfb53b",
+  silver: "#a7a7ad",
+  bronze: "#cd7f32",
+  borked: "#ff6b81",
 }
 
 // Painel ProtonDB: tier, Steam Deck e score. Só aparece se houver dados.
 export function ProtonDBPanel({ appid }: { appid: string }) {
   const { t } = useI18n()
-  const [data, setData] = useState<{ tier?: string; score?: number | null; deckCompatibility?: string; total?: number; url?: string } | null>(null)
+  const [data, setData] = useState<{
+    tier?: string
+    score?: number | null
+    deckCompatibility?: string
+    total?: number
+    url?: string
+  } | null>(null)
   const [carregou, setCarregou] = useState(false)
 
   useEffect(() => {
     let vivo = true
     setCarregou(false)
     window.launcherAPI?.gameProtonDb(appid).then((r) => {
-      if (vivo) { setData(r?.info || null); setCarregou(true) }
+      if (vivo) {
+        setData(r?.info || null)
+        setCarregou(true)
+      }
     })
-    return () => { vivo = false }
+    return () => {
+      vivo = false
+    }
   }, [appid])
 
   if (!carregou || !data) return null
   const tier = (data.tier || "").toLowerCase()
   const cor = PROTON_CORES[tier] || "#9aa0a6"
   const score = typeof data.score === "number" ? `${Math.round(data.score * 100)}%` : "—"
-  const deck = data.deckCompatibility ? t(`protondb.deck.${data.deckCompatibility.toLowerCase()}`) : ""
+  const deck = data.deckCompatibility
+    ? t(`protondb.deck.${data.deckCompatibility.toLowerCase()}`)
+    : ""
 
   return (
     <Panel title="ProtonDB">
       <div className="flex flex-col gap-3 text-[13px]">
         <Linha label={t("protondb.nivel")}>
-          <span className="rounded-md px-2.5 py-0.5 text-[12px] font-bold uppercase text-black" style={{ background: cor }}>
+          <span
+            className="rounded-md px-2.5 py-0.5 text-[12px] font-bold uppercase text-black"
+            style={{ background: cor }}
+          >
             {tier ? t(`protondb.tier.${tier}`) : "—"}
           </span>
         </Linha>
-        {deck && <Linha label={t("protondb.steam_deck")}><span className="text-white/80">{deck}</span></Linha>}
-        <Linha label={t("protondb.pontuacao")}><span className="text-white/80">{score}</span></Linha>
+        {deck && (
+          <Linha label={t("protondb.steam_deck")}>
+            <span className="text-white/80">{deck}</span>
+          </Linha>
+        )}
+        <Linha label={t("protondb.pontuacao")}>
+          <span className="text-white/80">{score}</span>
+        </Linha>
       </div>
       <button
         onClick={() => window.launcherAPI?.openExternal(data.url || "https://www.protondb.com")}
         className="mt-4 flex items-center gap-1.5 text-[12px] text-white/50 transition-colors hover:text-white/80"
       >
         {t("protondb.ver")}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
         </svg>
       </button>
     </Panel>
@@ -141,7 +194,15 @@ export function ProtonDBPanel({ appid }: { appid: string }) {
 
 // Card colapsável: clica no título oculta/mostra o corpo. Padrão: aberto.
 // `right` = conteúdo extra à direita do título (texto, ex.: contador).
-export function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+export function Panel({
+  title,
+  right,
+  children,
+}: {
+  title: string
+  right?: React.ReactNode
+  children: React.ReactNode
+}) {
   const [aberto, setAberto] = useState(true)
   return (
     <div
@@ -162,11 +223,21 @@ export function Panel({ title, right, children }: { title: string; right?: React
               style={{ background: aberto ? "var(--accent)" : "rgba(255,255,255,0.2)" }}
             />
             {title}
-            {right && <span className="ml-1 font-normal normal-case tracking-normal text-white/45">{right}</span>}
+            {right && (
+              <span className="ml-1 font-normal normal-case tracking-normal text-white/45">
+                {right}
+              </span>
+            )}
           </span>
           <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
-            strokeLinecap="round" strokeLinejoin="round"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
             className={`shrink-0 text-white/40 transition-transform ${aberto ? "" : "-rotate-90"}`}
           >
             <polyline points="6 9 12 15 18 9" />
@@ -190,9 +261,16 @@ function Linha({ label, children }: { label: string; children: React.ReactNode }
 // HTML → texto puro. Compartilhado com StoreGamePage (requisitos, descrição).
 export function stripHtml(s: string) {
   return String(s || "")
-    .replace(/<br\s*\/?>/gi, "\n").replace(/<\/li>/gi, "\n").replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/\n{3,}/g, "\n\n").trim()
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 // Sanitiza o HTML da descrição da Steam mantendo o mix imagem+texto.
@@ -229,7 +307,9 @@ export function GameDescription({ html, fallback }: { html?: string; fallback?: 
           className={`steam-desc text-[13px] leading-relaxed text-white/75 ${aberto ? "" : "max-h-[440px] overflow-hidden"}`}
           dangerouslySetInnerHTML={{ __html: limpo }}
         />
-        {!aberto && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#121216] to-transparent" />}
+        {!aberto && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#121216] to-transparent" />
+        )}
       </div>
       <button
         onClick={() => setAberto((v) => !v)}
@@ -251,11 +331,17 @@ export function ControllerPanel({ support }: { support?: string }) {
       <div className="flex items-center gap-3">
         <div className="flex gap-2 text-white/70">
           {/* Xbox */}
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-6.9 2.76c1.8-.8 4.6.3 6.9 2.3 2.3-2 5.1-3.1 6.9-2.3A10 10 0 0 0 12 2zM4.2 5.6A10 10 0 0 0 2.4 15c.4-2.5 2.6-6 4.9-8.3-1-.6-2.1-1-3.1-1.1zm15.6 0c-1 .1-2.1.5-3.1 1.1 2.3 2.3 4.5 5.8 4.9 8.3a10 10 0 0 0-1.8-9.4zM12 8.2c-1.7 1.4-5.4 6.2-5.9 9.6A10 10 0 0 0 12 22a10 10 0 0 0 5.9-4.2c-.5-3.4-4.2-8.2-5.9-9.6z" /></svg>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2a10 10 0 0 0-6.9 2.76c1.8-.8 4.6.3 6.9 2.3 2.3-2 5.1-3.1 6.9-2.3A10 10 0 0 0 12 2zM4.2 5.6A10 10 0 0 0 2.4 15c.4-2.5 2.6-6 4.9-8.3-1-.6-2.1-1-3.1-1.1zm15.6 0c-1 .1-2.1.5-3.1 1.1 2.3 2.3 4.5 5.8 4.9 8.3a10 10 0 0 0-1.8-9.4zM12 8.2c-1.7 1.4-5.4 6.2-5.9 9.6A10 10 0 0 0 12 22a10 10 0 0 0 5.9-4.2c-.5-3.4-4.2-8.2-5.9-9.6z" />
+          </svg>
           {/* PlayStation */}
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M9.5 3.2v16.3l3.4 1.1V7.6c0-.7.3-1.1.8-1 .6.2.7.8.7 1.5v4.6c2.1 1 3.8-.1 3.8-2.8 0-2.8-1-4-3.9-5C13.2 4.5 11.1 3.9 9.5 3.2zM14.6 17.9l5.5-2c.6-.2.7-.5.2-.7-.5-.2-1.5-.3-2.1-.1l-3.6 1.3v-2l.2-.1s1-.4 2.5-.5c1.5-.2 3.3 0 4.7.5 1.6.6 1.8 1.5.4 2l-7.8 2.8v-1.7zM3.4 17.7c-1.6-.5-1.9-1.4-1.2-1.9.7-.5 1.8-.9 1.8-.9l4.7-1.7v1.9l-3.4 1.2c-.6.2-.7.5-.2.7.5.2 1.5.3 2.1.1l1.5-.5v1.7c-.1 0-.2 0-.3.1-1.6.3-3.3.2-4.9-.3z" /></svg>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M9.5 3.2v16.3l3.4 1.1V7.6c0-.7.3-1.1.8-1 .6.2.7.8.7 1.5v4.6c2.1 1 3.8-.1 3.8-2.8 0-2.8-1-4-3.9-5C13.2 4.5 11.1 3.9 9.5 3.2zM14.6 17.9l5.5-2c.6-.2.7-.5.2-.7-.5-.2-1.5-.3-2.1-.1l-3.6 1.3v-2l.2-.1s1-.4 2.5-.5c1.5-.2 3.3 0 4.7.5 1.6.6 1.8 1.5.4 2l-7.8 2.8v-1.7zM3.4 17.7c-1.6-.5-1.9-1.4-1.2-1.9.7-.5 1.8-.9 1.8-.9l4.7-1.7v1.9l-3.4 1.2c-.6.2-.7.5-.2.7.5.2 1.5.3 2.1.1l1.5-.5v1.7c-.1 0-.2 0-.3.1-1.6.3-3.3.2-4.9-.3z" />
+          </svg>
         </div>
-        <span className="text-[13px] text-white/80">{t(s === "full" ? "controller.completo" : "controller.parcial")}</span>
+        <span className="text-[13px] text-white/80">
+          {t(s === "full" ? "controller.completo" : "controller.parcial")}
+        </span>
       </div>
     </Panel>
   )
@@ -264,7 +350,10 @@ export function ControllerPanel({ support }: { support?: string }) {
 function requisitosCurtos(html: string) {
   const texto = stripHtml(html)
     .replace(/^(Minimum|Recommended|Mínimos|Recomendados):?\s*/gim, "")
-    .replace(/\b(Requer um sistema operacional e processador de 64 bits|Requires a 64-bit processor and operating system)\b/gi, "")
+    .replace(
+      /\b(Requer um sistema operacional e processador de 64 bits|Requires a 64-bit processor and operating system)\b/gi,
+      "",
+    )
   const linhas = texto
     .split(/\n+/)
     .map((l) => l.replace(/^[-•]\s*/, "").trim())
@@ -284,7 +373,9 @@ export function RequirementsPanel({ min, rec }: { min?: string; rec?: string }) 
       <button
         onClick={() => setAba(id)}
         className={`flex-1 border-b px-3 py-2 text-[12px] font-medium transition-colors ${
-          aba === id ? "border-[color:var(--accent)] bg-white text-black" : "border-white/10 text-white/70 hover:bg-white/[0.05] hover:text-white"
+          aba === id
+            ? "border-[color:var(--accent)] bg-white text-black"
+            : "border-white/10 text-white/70 hover:bg-white/[0.05] hover:text-white"
         }`}
       >
         {label}
@@ -317,16 +408,30 @@ export function LanguagesPanel({ languages }: { languages?: string }) {
     if (!raw) return []
     // Corta em ", " no nível do texto, preservando as tags <strong>.
     const semNota = raw.replace(/<br\s*\/?>.*/is, "") // remove nota de rodapé
-    return semNota.split(/,\s*/).map((frag) => {
-      const audio = /\*/.test(frag)
-      const nome = stripHtml(frag).replace(/\*/g, "").trim()
-      return { nome, audio }
-    }).filter((l) => l.nome)
+    return semNota
+      .split(/,\s*/)
+      .map((frag) => {
+        const audio = /\*/.test(frag)
+        const nome = stripHtml(frag).replace(/\*/g, "").trim()
+        return { nome, audio }
+      })
+      .filter((l) => l.nome)
   }, [languages])
   if (linhas.length === 0) return null
   const Check = ({ on }: { on: boolean }) =>
     on ? (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="var(--accent)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
     ) : (
       <span className="text-white/20">—</span>
     )
@@ -345,9 +450,21 @@ export function LanguagesPanel({ languages }: { languages?: string }) {
           {linhas.map((l) => (
             <tr key={l.nome} className="border-t border-white/[0.05]">
               <td className="py-1.5 text-white/80">{l.nome}</td>
-              <td className="py-1.5"><div className="flex justify-center"><Check on /></div></td>
-              <td className="py-1.5"><div className="flex justify-center"><Check on={l.audio} /></div></td>
-              <td className="py-1.5"><div className="flex justify-center"><Check on /></div></td>
+              <td className="py-1.5">
+                <div className="flex justify-center">
+                  <Check on />
+                </div>
+              </td>
+              <td className="py-1.5">
+                <div className="flex justify-center">
+                  <Check on={l.audio} />
+                </div>
+              </td>
+              <td className="py-1.5">
+                <div className="flex justify-center">
+                  <Check on />
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -356,8 +473,25 @@ export function LanguagesPanel({ languages }: { languages?: string }) {
   )
 }
 
-type Comment = { steamid?: string; author: string; avatar?: string; text: string; positive: boolean; hours: number; hoursAtReview?: number; helpful: number; timestamp?: number }
-type Stats = { owners?: string; ccu?: number; reviewDesc?: string; reviewPositivePct?: number | null; totalReviews?: number; comments?: Comment[] }
+type Comment = {
+  steamid?: string
+  author: string
+  avatar?: string
+  text: string
+  positive: boolean
+  hours: number
+  hoursAtReview?: number
+  helpful: number
+  timestamp?: number
+}
+type Stats = {
+  owners?: string
+  ccu?: number
+  reviewDesc?: string
+  reviewPositivePct?: number | null
+  totalReviews?: number
+  comments?: Comment[]
+}
 
 // Hook compartilhado por Stats, Reviews e Comentários (um só fetch por appid).
 function useGameStats(appid: string) {
@@ -368,7 +502,9 @@ function useGameStats(appid: string) {
     window.launcherAPI?.gameStats(appid).then((r) => {
       if (vivo) setData(r?.info || null)
     })
-    return () => { vivo = false }
+    return () => {
+      vivo = false
+    }
   }, [appid])
   return data
 }
@@ -376,7 +512,10 @@ function useGameStats(appid: string) {
 function StatLine({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 text-[13px]">
-      <span className="flex items-center gap-2.5 font-semibold text-white/80">{icon}{label}</span>
+      <span className="flex items-center gap-2.5 font-semibold text-white/80">
+        {icon}
+        {label}
+      </span>
       <span className="text-white/90">{value}</span>
     </div>
   )
@@ -392,14 +531,34 @@ export function StatsPanel({ appid }: { appid: string }) {
       <div className="flex flex-col gap-3 text-[13px]">
         {typeof d.ccu === "number" && d.ccu > 0 && (
           <StatLine
-            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
+            icon={
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            }
             label={t("stats.jogadores_ativos")}
             value={fmtNum(d.ccu)}
           />
         )}
         {typeof d.reviewPositivePct === "number" && (
           <StatLine
-            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12 17.27 6.18 3.73-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+            icon={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="m12 17.27 6.18 3.73-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+              </svg>
+            }
             label={t("stats.avaliacao")}
             value={fmtNotaSteam(d.reviewPositivePct)}
           />
@@ -420,7 +579,9 @@ export function ReviewsPanel({ appid }: { appid: string }) {
   const [ordem, setOrdem] = useState<OrdemReview>("recentes")
   const [visiveis, setVisiveis] = useState(4)
 
-  useEffect(() => { setVisiveis(4) }, [appid, ordem])
+  useEffect(() => {
+    setVisiveis(4)
+  }, [appid, ordem])
 
   const comments = d?.comments || []
   if (!d || (comments.length === 0 && !d.totalReviews)) return null
@@ -436,21 +597,38 @@ export function ReviewsPanel({ appid }: { appid: string }) {
   const restam = ordenadas.length - visiveis
 
   return (
-    <Panel title={t("reviews.titulo")} right={<span className="text-white/35">({d.totalReviews ? d.totalReviews.toLocaleString() : comments.length})</span>}>
+    <Panel
+      title={t("reviews.titulo")}
+      right={
+        <span className="text-white/35">
+          ({d.totalReviews ? d.totalReviews.toLocaleString() : comments.length})
+        </span>
+      }
+    >
       {comments.length > 0 && (
         <>
           {/* Ordenação */}
           <div className="mb-4 flex items-center gap-1 border-b border-white/[0.06] pb-2 text-[11.5px] font-medium">
-            <SortBtn ativo={ordem === "recentes"} onClick={() => setOrdem("recentes")}>{t("reviews.recentes")}</SortBtn>
+            <SortBtn ativo={ordem === "recentes"} onClick={() => setOrdem("recentes")}>
+              {t("reviews.recentes")}
+            </SortBtn>
             <SortSep />
-            <SortBtn ativo={ordem === "melhores"} onClick={() => setOrdem("melhores")}>{t("reviews.melhor_pontuadas")}</SortBtn>
+            <SortBtn ativo={ordem === "melhores"} onClick={() => setOrdem("melhores")}>
+              {t("reviews.melhor_pontuadas")}
+            </SortBtn>
             <SortSep />
-            <SortBtn ativo={ordem === "votadas"} onClick={() => setOrdem("votadas")}>{t("reviews.mais_votadas")}</SortBtn>
+            <SortBtn ativo={ordem === "votadas"} onClick={() => setOrdem("votadas")}>
+              {t("reviews.mais_votadas")}
+            </SortBtn>
           </div>
 
           <div className="flex flex-col">
             {mostrando.map((c, i) => (
-              <ReviewCard key={`${c.steamid || i}-${c.timestamp || i}`} c={c} last={i === mostrando.length - 1} />
+              <ReviewCard
+                key={`${c.steamid || i}-${c.timestamp || i}`}
+                c={c}
+                last={i === mostrando.length - 1}
+              />
             ))}
           </div>
 
@@ -468,13 +646,22 @@ export function ReviewsPanel({ appid }: { appid: string }) {
   )
 }
 
-function SortBtn({ ativo, onClick, children }: { ativo: boolean; onClick: () => void; children: React.ReactNode }) {
+function SortBtn({
+  ativo,
+  onClick,
+  children,
+}: {
+  ativo: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
   return (
     <button
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 transition-colors ${ativo ? "text-white" : "text-white/45 hover:text-white/75"}`}
     >
-      {ativo ? "▾ " : ""}{children}
+      {ativo ? "▾ " : ""}
+      {children}
     </button>
   )
 }
@@ -502,11 +689,14 @@ function ReviewCard({ c, last }: { c: Comment; last: boolean }) {
               style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" }}
               onError={(e) => {
                 const el = e.currentTarget as HTMLImageElement
-                el.replaceWith(Object.assign(document.createElement("span"), {
-                  className: "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-black/80",
-                  style: `background:${cor}`,
-                  textContent: inicial,
-                }))
+                el.replaceWith(
+                  Object.assign(document.createElement("span"), {
+                    className:
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-black/80",
+                    style: `background:${cor}`,
+                    textContent: inicial,
+                  }),
+                )
               }}
             />
           ) : (
@@ -518,20 +708,27 @@ function ReviewCard({ c, last }: { c: Comment; last: boolean }) {
             </span>
           )}
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold text-white/90">{c.author || "Steam"}</div>
+            <div className="truncate text-[13px] font-semibold text-white/90">
+              {c.author || "Steam"}
+            </div>
             <div className="flex items-center gap-2 text-[11px] text-white/40">
               <span className={c.positive ? "text-[#4adf9a]" : "text-[#ff6b81]"}>
-                {c.positive ? "★" : "☆"} {t(c.positive ? "comentarios.recomenda" : "comentarios.nao_recomenda")}
+                {c.positive ? "★" : "☆"}{" "}
+                {t(c.positive ? "comentarios.recomenda" : "comentarios.nao_recomenda")}
               </span>
               {(c.hoursAtReview || c.hours) > 0 && (
-                <span>· {(c.hoursAtReview || c.hours)}h {t("comentarios.jogadas")}</span>
+                <span>
+                  · {c.hoursAtReview || c.hours}h {t("comentarios.jogadas")}
+                </span>
               )}
             </div>
           </div>
         </div>
         {quando && <span className="shrink-0 text-[11px] text-white/40">{quando}</span>}
       </div>
-      <p className="whitespace-pre-line pl-12 text-[13px] leading-relaxed text-white/75">{c.text}</p>
+      <p className="whitespace-pre-line pl-12 text-[13px] leading-relaxed text-white/75">
+        {c.text}
+      </p>
       {c.helpful > 0 && (
         <p className="mt-2 pl-12 text-[11px] text-white/35">
           👍 {c.helpful} {t("comentarios.util")}
@@ -551,7 +748,7 @@ function identiconColor(seed: string) {
 // "há 5 horas" / "há 3 dias" / "há 2 meses". Sem dep (Intl.RelativeTimeFormat).
 function tempoRelativo(ts: number, t: (k: string) => string): string {
   if (!ts) return ""
-  const diff = (Date.now() / 1000) - ts
+  const diff = Date.now() / 1000 - ts
   if (diff < 60) return t("tempo.agora")
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
   const [val, unit] = escalaTempo(diff)
@@ -566,5 +763,6 @@ function escalaTempo(seg: number): [number, Intl.RelativeTimeFormatUnit] {
 }
 
 // Mantido como stub p/ compatibilidade — CommentsPanel foi fundido em Reviews.
-export function CommentsPanel(_: { appid: string }) { return null }
-
+export function CommentsPanel(_: { appid: string }) {
+  return null
+}

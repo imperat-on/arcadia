@@ -134,10 +134,12 @@ export function GameRail({
               }}
             >
               {(() => {
-                const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-                const coverSrc = game.cover?.includes("/header.jpg") && appid
-                  ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
-                  : game.cover
+                const appid =
+                  game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
+                const coverSrc =
+                  game.cover?.includes("/header.jpg") && appid
+                    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
+                    : game.cover
                 const isLandscape = coverSrc?.includes("/header.jpg")
                 return coverSrc ? (
                   <img
