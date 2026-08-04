@@ -135,7 +135,7 @@ export function ProfilePage({
           <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/65" />
           <button
             onClick={onEdit}
-            className="absolute right-8 top-6 rounded-lg border border-white/20 bg-black/35 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition-colors hover:bg-white/10"
+            className="absolute right-20 top-6 rounded-lg border border-white/20 bg-black/35 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition-colors hover:bg-white/10"
           >
             {t("profile.editar_perfil")}
           </button>
@@ -235,7 +235,7 @@ function GameCapsule({ src, title }: { src: string; title: string }) {
   const [broken, setBroken] = useState(false)
   if (!src || broken) {
     return (
-      <div className="flex h-[69px] w-[184px] flex-none items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-2xl font-bold text-white/50 ring-1 ring-white/10">
+      <div className="flex h-[90px] w-[240px] flex-none items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-2xl font-bold text-white/50 ring-1 ring-white/10">
         {title[0]?.toUpperCase()}
       </div>
     )
@@ -244,7 +244,7 @@ function GameCapsule({ src, title }: { src: string; title: string }) {
     <img
       src={src}
       alt={title}
-      className="h-[69px] w-[184px] flex-none rounded-lg object-cover ring-1 ring-white/10"
+      className="h-[90px] w-[240px] flex-none rounded-lg object-cover ring-1 ring-white/10"
       loading="lazy"
       onError={() => setBroken(true)}
     />
