@@ -213,7 +213,9 @@ function loadIndex() {
 }
 
 function search(query, limit = 40) {
-  const q = String(query || "").trim().toLowerCase()
+  const q = String(query || "")
+    .trim()
+    .toLowerCase()
   if (!q) return []
   const out = []
   for (const g of loadIndex()) {
@@ -238,7 +240,9 @@ function getGame(ref) {
       _ultimoArquivo = { id, data: JSON.parse(fs.readFileSync(cachePath(id), "utf-8")) }
     }
     const d = _ultimoArquivo.data?.downloads?.[Number(i)]
-    return d ? { ok: true, game: d, source: _ultimoArquivo.data.name || "" } : { ok: false, error: "jogo não encontrado" }
+    return d
+      ? { ok: true, game: d, source: _ultimoArquivo.data.name || "" }
+      : { ok: false, error: "jogo não encontrado" }
   } catch (e) {
     return { ok: false, error: String(e.message || e) }
   }

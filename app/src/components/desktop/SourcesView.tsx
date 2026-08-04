@@ -74,7 +74,9 @@ export function SourcesView() {
       setResultados(r?.results || [])
       setBuscando(false)
     }, 250)
-    return () => { if (debounce.current) clearTimeout(debounce.current) }
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current)
+    }
   }, [query])
 
   const baixar = async (g: SourceGame) => {
@@ -83,7 +85,9 @@ export function SourcesView() {
     setErro("")
     const full = await window.launcherAPI?.sourcesGame(g.ref)
     const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
-    const uri = uris.find((u) => String(u).startsWith("magnet:")) || uris.find((u) => /^https?:\/\//.test(String(u)))
+    const uri =
+      uris.find((u) => String(u).startsWith("magnet:")) ||
+      uris.find((u) => /^https?:\/\//.test(String(u)))
     if (!uri) {
       setErro(t("fontes.sem_magnet"))
       setBaixando("")
@@ -138,12 +142,17 @@ export function SourcesView() {
         {fontes.length > 0 && (
           <div className="mt-5 flex flex-col gap-2">
             {fontes.map((f) => (
-              <div key={f.id} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <div
+                key={f.id}
+                className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+              >
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium text-white/90">
                     {f.name || f.url}
                     {typeof f.count === "number" && (
-                      <span className="ml-2 text-white/40">{t("fontes.jogos", { count: String(f.count) })}</span>
+                      <span className="ml-2 text-white/40">
+                        {t("fontes.jogos", { count: String(f.count) })}
+                      </span>
                     )}
                   </div>
                   <div className="truncate text-[11px] text-white/35">{f.url}</div>
@@ -174,11 +183,16 @@ export function SourcesView() {
             )}
             <div className="mt-4 flex flex-col gap-2 pb-8">
               {resultados.map((g) => (
-                <div key={g.ref} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div
+                  key={g.ref}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                >
                   <div className="min-w-0">
                     <div className="truncate text-[13px] font-medium text-white/90">{g.title}</div>
                     <div className="text-[11px] text-white/35">
-                      {g.fileSize}{g.fileSize && g.src ? " · " : ""}{g.src}
+                      {g.fileSize}
+                      {g.fileSize && g.src ? " · " : ""}
+                      {g.src}
                     </div>
                   </div>
                   <button
@@ -195,9 +209,7 @@ export function SourcesView() {
           </>
         )}
 
-        {fontes.length === 0 && (
-          <div className="ui-empty mt-8">{t("fontes.vazio")}</div>
-        )}
+        {fontes.length === 0 && <div className="ui-empty mt-8">{t("fontes.vazio")}</div>}
       </div>
     </div>
   )

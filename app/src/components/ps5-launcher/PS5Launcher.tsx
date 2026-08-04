@@ -28,7 +28,7 @@ import type { Profile, NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { LaunchModeDialog } from "../desktop/LaunchModeDialog"
-import { AchievementToast } from "../AchievementToast"
+import { AchievementToast } from "../desktop/AchievementToast"
 
 const MOCK_GAMES: Game[] = [
   {
@@ -89,8 +89,6 @@ const MOCK_GAMES: Game[] = [
 ]
 
 const TAB_COUNT = TABS.length
-
-
 
 interface LaunchToast {
   title: string
@@ -186,7 +184,10 @@ export function PS5Launcher() {
   const [destinosEpic, setDestinosEpic] = useState<DestinoOpcao[]>([])
   // Jogo Steam sem manifesto em nenhum provedor: o único caminho que resta é
   // a própria Steam, e a pessoa decide se quer.
-  const [semManifesto, setSemManifesto] = useState<{ jogo: { appid: string; title: string }; motivo: string } | null>(null)
+  const [semManifesto, setSemManifesto] = useState<{
+    jogo: { appid: string; title: string }
+    motivo: string
+  } | null>(null)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
 
   // Instalação de jogo Steam pelo NOSSO downloader (manifesto + DepotDownloader),
@@ -211,7 +212,10 @@ export function PS5Launcher() {
       const cfg = await api?.getConfig()
       const home = window.launcherPaths?.home || "~"
       const bases = [
-        { caminho: cfg?.default_install_path || `${home}/Games/Arcadia`, rotulo: t("ps5.destino.pasta_padrao") },
+        {
+          caminho: cfg?.default_install_path || `${home}/Games/Arcadia`,
+          rotulo: t("ps5.destino.pasta_padrao"),
+        },
         ...((await api?.storeLibraries()) || []).map((l) => ({
           caminho: `${l.steamDir}/Arcadia`,
           rotulo: t("ps5.destino.disco_steam"),
@@ -236,7 +240,9 @@ export function PS5Launcher() {
   // Badge da fila na TopBar (ativos = downloading/queued/paused).
   useEffect(() => {
     const conta = (items: { status?: string }[]) =>
-      items.filter((i) => i.status === "downloading" || i.status === "queued" || i.status === "paused").length
+      items.filter(
+        (i) => i.status === "downloading" || i.status === "queued" || i.status === "paused",
+      ).length
     window.launcherAPI?.dmQueue().then((q) => {
       if (Array.isArray(q)) setDmAtivos(conta(q))
     })
@@ -340,7 +346,16 @@ export function PS5Launcher() {
     const g = selectedGame
     const api = window.launcherAPI
     if (!g || !api || !trailerAutoRef.current) return
-    if (showSettings || showProfile || showEditProfile || menuOpen || gameRunning || ctxGame || trailerPickGame) return
+    if (
+      showSettings ||
+      showProfile ||
+      showEditProfile ||
+      menuOpen ||
+      gameRunning ||
+      ctxGame ||
+      trailerPickGame
+    )
+      return
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
     if (gridMode || newsMode || storeMode) return // essas abas têm visual próprio
     let cancelled = false
@@ -361,7 +376,21 @@ export function PS5Launcher() {
       clearTimeout(t)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selId, showSettings, showProfile, showEditProfile, menuOpen, gameRunning, ctxGame, trailerPickGame, gridMode, newsMode, storeMode, boot, perfilGate])
+  }, [
+    selId,
+    showSettings,
+    showProfile,
+    showEditProfile,
+    menuOpen,
+    gameRunning,
+    ctxGame,
+    trailerPickGame,
+    gridMode,
+    newsMode,
+    storeMode,
+    boot,
+    perfilGate,
+  ])
 
   // Notícias: busca alinhada ao RELÓGIO (marcos de 5 min — :00,:05,:10…).
   // O slot também gira o destaque da aba (rotação a cada 5 min).
@@ -383,9 +412,12 @@ export function PS5Launcher() {
     let timer = 0
     const buscar = () => {
       if (!news.length) setNewsLoading(true)
-      api.getNews().then((n) => {
-        if (Array.isArray(n) && n.length) setNews(n)
-      }).finally(() => setNewsLoading(false))
+      api
+        .getNews()
+        .then((n) => {
+          if (Array.isArray(n) && n.length) setNews(n)
+        })
+        .finally(() => setNewsLoading(false))
     }
     const agendar = () => {
       const agora = Date.now()
@@ -450,9 +482,16 @@ export function PS5Launcher() {
 
   // Navegação por controle no overview (D-pad move o foco, A ativa, B fecha).
   const overviewNavActive =
-    overviewOpen && appFocused &&
-    !showSettings && !showProfile && !showEditProfile && !menuOpen &&
-    !ctxGame && !editGame && !trailerPickGame && !gameRunning
+    overviewOpen &&
+    appFocused &&
+    !showSettings &&
+    !showProfile &&
+    !showEditProfile &&
+    !menuOpen &&
+    !ctxGame &&
+    !editGame &&
+    !trailerPickGame &&
+    !gameRunning
   useGamepadNav(overviewRef, overviewNavActive, () => closeOverview())
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
@@ -512,42 +551,45 @@ export function PS5Launcher() {
 
   // Instalar OU abrir, conforme o estado do jogo. Instalar não trava o launcher
   // (não é sessão de jogo) — só abrir seta gameRunning.
-  const _activate = useCallback((game?: Game | null) => {
-    if (!game) return
+  const _activate = useCallback(
+    (game?: Game | null) => {
+      if (!game) return
 
-    // Não instalado: redireciona para a instalação de cada loja.
-    if (game.installed === false) {
-      if (game.launcher === "epic") {
-        // Pergunta o destino ANTES de baixar. Antes disto o download começava
-        // na hora, na pasta padrão, sem nenhuma confirmação — o desktop já
-        // perguntava (InstallDialog), o console não.
-        setInstalarGame(game)
-      } else if (game.launcher === "steam") {
-        // Pelo NOSSO downloader: busca o manifesto nos provedores e baixa com
-        // o DepotDownloader, igual ao botão Baixar da loja. O cliente da Steam
-        // só entra se nenhum provedor tiver o manifesto (diálogo de saída).
-        baixarSteamRef.current(game)
-      } else {
-        // heroic/lutris: cai no launch_cmd (o próprio runner trata).
-        window.launcherAPI?.launch(game.launch_cmd)
+      // Não instalado: redireciona para a instalação de cada loja.
+      if (game.installed === false) {
+        if (game.launcher === "epic") {
+          // Pergunta o destino ANTES de baixar. Antes disto o download começava
+          // na hora, na pasta padrão, sem nenhuma confirmação — o desktop já
+          // perguntava (InstallDialog), o console não.
+          setInstalarGame(game)
+        } else if (game.launcher === "steam") {
+          // Pelo NOSSO downloader: busca o manifesto nos provedores e baixa com
+          // o DepotDownloader, igual ao botão Baixar da loja. O cliente da Steam
+          // só entra se nenhum provedor tiver o manifesto (diálogo de saída).
+          baixarSteamRef.current(game)
+        } else {
+          // heroic/lutris: cai no launch_cmd (o próprio runner trata).
+          window.launcherAPI?.launch(game.launch_cmd)
+        }
+        return
       }
-      return
-    }
 
-    // Este jogo já foi lançado? Rodando de fato, o botão é "Parar"; ainda
-    // abrindo, ignora — um segundo toque não pode lançar duas vezes nem matar
-    // o processo que está subindo.
-    if (jogoAtivoRef.current.jogo?.id === game.id) {
-      if (jogoAtivoRef.current.rodando) jogoAtivoRef.current.parar()
-      return
-    }
+      // Este jogo já foi lançado? Rodando de fato, o botão é "Parar"; ainda
+      // abrindo, ignora — um segundo toque não pode lançar duas vezes nem matar
+      // o processo que está subindo.
+      if (jogoAtivoRef.current.jogo?.id === game.id) {
+        if (jogoAtivoRef.current.rodando) jogoAtivoRef.current.parar()
+        return
+      }
 
-    if (game.launcher === "steam" && game.temExe) {
-      setEscolhendoLaunch(game)
-      return
-    }
-    abrirJogo(game)
-  }, [abrirJogo])
+      if (game.launcher === "steam" && game.temExe) {
+        setEscolhendoLaunch(game)
+        return
+      }
+      abrirJogo(game)
+    },
+    [abrirJogo],
+  )
 
   const _launch_selected = useCallback(() => {
     _activate(viewGames[selectedIndex])
@@ -571,31 +613,28 @@ export function PS5Launcher() {
         const atual = selectedGameRef.current?.id
         setGames(lib)
         if (!atual) return
-        const i = lib.filter((g: Game) => showHiddenRef.current || !g.hidden).findIndex((g: Game) => g.id === atual)
+        const i = lib
+          .filter((g: Game) => showHiddenRef.current || !g.hidden)
+          .findIndex((g: Game) => g.id === atual)
         if (i >= 0) setSelectedIndex(i)
       })
     })
   }, [])
 
   // Salva metadados editados à mão. Mesmo caminho do ocultar: overrides.json.
-  const _save_meta = useCallback(
-    (game: Game, patch: Record<string, unknown>) => {
-      if (!Object.keys(patch).length) return // nada mudou
-      const api = window.launcherAPI
-      if (api) {
-        api.setOverride(game.id, patch).then((lib) => {
-          if (Array.isArray(lib)) setGames(lib)
-        })
-      } else {
-        setGames((prev) =>
-          prev.map((g) => (g.id === game.id ? { ...g, ...patch } : g)),
-        )
-      }
-      setToast({ title: t("ps5.toast.metadados_salvos", { title: game.title }), visible: true })
-      setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
-    },
-    [],
-  )
+  const _save_meta = useCallback((game: Game, patch: Record<string, unknown>) => {
+    if (!Object.keys(patch).length) return // nada mudou
+    const api = window.launcherAPI
+    if (api) {
+      api.setOverride(game.id, patch).then((lib) => {
+        if (Array.isArray(lib)) setGames(lib)
+      })
+    } else {
+      setGames((prev) => prev.map((g) => (g.id === game.id ? { ...g, ...patch } : g)))
+    }
+    setToast({ title: t("ps5.toast.metadados_salvos", { title: game.title }), visible: true })
+    setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
+  }, [])
 
   // Oculta/reexibe um jogo. Persiste em overrides.json e sobrevive ao re-scan.
   const _toggle_hidden = useCallback((game: Game) => {
@@ -607,9 +646,7 @@ export function PS5Launcher() {
       })
     } else {
       // Modo navegador (mock): reflete só na memória.
-      setGames((prev) =>
-        prev.map((g) => (g.id === game.id ? { ...g, hidden: nowHidden } : g)),
-      )
+      setGames((prev) => prev.map((g) => (g.id === game.id ? { ...g, hidden: nowHidden } : g)))
     }
     setToast({
       title: nowHidden
@@ -637,23 +674,27 @@ export function PS5Launcher() {
     const COOLDOWN = 160
 
     const N = viewGames.length
-    const step = (d: number) =>
-      setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + d)))
+    const step = (d: number) => setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + d)))
 
     const handleKey = (e: KeyboardEvent) => {
       if (uiBlockedRef.current) return // painel de config aberto
       const now = Date.now()
       if (now - lastNav < COOLDOWN) return
 
-      if (e.key === "ArrowLeft") { lastNav = now; step(-1) }
-      else if (e.key === "ArrowRight") { lastNav = now; step(1) }
-      else if (e.key === "ArrowUp") { lastNav = now; if (gridMode) step(-columns) }
-      else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowLeft") {
+        lastNav = now
+        step(-1)
+      } else if (e.key === "ArrowRight") {
+        lastNav = now
+        step(1)
+      } else if (e.key === "ArrowUp") {
+        lastNav = now
+        if (gridMode) step(-columns)
+      } else if (e.key === "ArrowDown") {
         lastNav = now
         if (gridMode) step(columns)
         else if (selectedGameRef.current) setOverviewOpen(true) // trilho: abre overview
-      }
-      else if (e.key === "Enter" || e.key === " ") _launch_selected()
+      } else if (e.key === "Enter" || e.key === " ") _launch_selected()
       else if (e.key === "F5" || e.key === "r") _refresh_library()
     }
     window.addEventListener("keydown", handleKey)
@@ -665,8 +706,10 @@ export function PS5Launcher() {
     let raf = 0
     let prev: boolean[] = []
     let restAxes: number[] | null = null
-    let sx = 0, sy = 0 // direção estável (x,y)
-    let cx = 0, cy = 0 // candidata
+    let sx = 0,
+      sy = 0 // direção estável (x,y)
+    let cx = 0,
+      cy = 0 // candidata
     let candSince = 0
     let holdStart = 0
     let lastRepeat = 0
@@ -694,13 +737,22 @@ export function PS5Launcher() {
       if (!x && !y && typeof h === "number" && h >= -1.05 && h <= 1.05) {
         const near = (t: number) => Math.abs(h - t) < 0.1
         if (near(-1)) y = -1
-        else if (near(-0.714)) { x = 1; y = -1 }
-        else if (near(-0.428)) x = 1
-        else if (near(-0.142)) { x = 1; y = 1 }
-        else if (near(0.142)) y = 1
-        else if (near(0.428)) { x = -1; y = 1 }
-        else if (near(0.714)) x = -1
-        else if (near(1)) { x = -1; y = -1 }
+        else if (near(-0.714)) {
+          x = 1
+          y = -1
+        } else if (near(-0.428)) x = 1
+        else if (near(-0.142)) {
+          x = 1
+          y = 1
+        } else if (near(0.142)) y = 1
+        else if (near(0.428)) {
+          x = -1
+          y = 1
+        } else if (near(0.714)) x = -1
+        else if (near(1)) {
+          x = -1
+          y = -1
+        }
       }
       return [x, y]
     }
@@ -784,11 +836,7 @@ export function PS5Launcher() {
               lastRepeat = now
             }
           }
-          if (
-            (sx || sy) &&
-            now - holdStart > INITIAL_DELAY &&
-            now - lastRepeat > REPEAT
-          ) {
+          if ((sx || sy) && now - holdStart > INITIAL_DELAY && now - lastRepeat > REPEAT) {
             move(sx, sy)
             lastRepeat = now
             lastStep = now
@@ -800,7 +848,10 @@ export function PS5Launcher() {
             setCtxGame(selectedGameRef.current)
           }
         } else {
-          sx = 0; sy = 0; cx = 0; cy = 0
+          sx = 0
+          sy = 0
+          cx = 0
+          cy = 0
         }
         prev = gp.buttons.map((b) => b.pressed)
       }
@@ -938,8 +989,12 @@ export function PS5Launcher() {
           game={selectedGame}
           news={news}
           appFocused={appFocused}
-          rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
-          abrindo={Boolean(selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id)}
+          rodando={Boolean(
+            selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id,
+          )}
+          abrindo={Boolean(
+            selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
+          )}
           closing={overviewClosing}
           onClose={() => closeOverview()}
           onLaunch={(g) => {
@@ -953,9 +1008,19 @@ export function PS5Launcher() {
 
       {/* Seleção de perfil (aparece depois do vídeo de boot, em crossfade) */}
       {perfilGate && (
-        <div ref={perfilRef} className={`gp-scope fixed inset-0 z-[75] ${perfilSaindo ? "perfil-gate-out" : "perfil-gate-in"}`}>
+        <div
+          ref={perfilRef}
+          className={`gp-scope fixed inset-0 z-[75] ${perfilSaindo ? "perfil-gate-out" : "perfil-gate-in"}`}
+        >
           <ProfileSelect
-            profiles={[{ name: profile?.name || t("profile.jogador"), avatar: profile?.avatar, background: profile?.background, owner: true }]}
+            profiles={[
+              {
+                name: profile?.name || t("profile.jogador"),
+                avatar: profile?.avatar,
+                background: profile?.background,
+                owner: true,
+              },
+            ]}
             onSelect={confirmarPerfil}
             onAdd={() => {
               setPerfilGate(false)
@@ -975,13 +1040,10 @@ export function PS5Launcher() {
         key={boot || perfilGate ? "intro" : activeTab}
         className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
       >
-        {storeMode ? (
-          /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
+        {storeMode /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
              pela `key`): remontar destruía o webview e a loja da Steam
              recarregava do zero — vários segundos de tela preta a cada visita.
-             Aqui fica só o espaço; o conteúdo é o bloco persistente abaixo. */
-          null
-        ) : newsMode ? (
+             Aqui fica só o espaço; o conteúdo é o bloco persistente abaixo. */ ? null : newsMode ? (
           <div className="flex-1 min-h-0 pt-20">
             <NewsView
               ref={newsRef}
@@ -1020,16 +1082,18 @@ export function PS5Launcher() {
                 onLaunch={_activate}
               />
             ) : (
-              <div className="px-10 py-10 text-[#8a93a6]">
-                {t("ps5.biblioteca.vazia")}
-              </div>
+              <div className="px-10 py-10 text-[#8a93a6]">{t("ps5.biblioteca.vazia")}</div>
             )}
 
             {/* Hero embaixo à esquerda, com as ações */}
             <HeroSection
               game={selectedGame}
-              rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
-              abrindo={Boolean(selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id)}
+              rodando={Boolean(
+                selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id,
+              )}
+              abrindo={Boolean(
+                selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
+              )}
               onLaunch={_launch_selected}
               onMore={() => setCtxGame(selectedGame)}
             />
@@ -1088,9 +1152,7 @@ export function PS5Launcher() {
       />
 
       {/* Downloads (fila Epic) */}
-      {showDownloads && (
-        <DownloadManager ref={dmRef} onClose={() => setShowDownloads(false)} />
-      )}
+      {showDownloads && <DownloadManager ref={dmRef} onClose={() => setShowDownloads(false)} />}
 
       {/* Destino da instalação (jogos Epic). Só depois de escolher é que o
           download entra na fila. */}
@@ -1130,7 +1192,11 @@ export function PS5Launcher() {
           }))}
           onEscolher={(steamDir) => {
             if (!acoesLoja.escolhendo) return
-            acoesLoja.confirmarBaixar(acoesLoja.escolhendo.jogo, acoesLoja.escolhendo.info, steamDir)
+            acoesLoja.confirmarBaixar(
+              acoesLoja.escolhendo.jogo,
+              acoesLoja.escolhendo.info,
+              steamDir,
+            )
             setShowDownloads(true)
           }}
           onFechar={() => acoesLoja.setEscolhendo(null)}
@@ -1168,8 +1234,14 @@ export function PS5Launcher() {
               <button
                 autoFocus
                 onClick={() => {
-                  window.launcherAPI?.launch(["steam", `steam://install/${semManifesto.jogo.appid}`])
-                  setToast({ title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }), visible: true })
+                  window.launcherAPI?.launch([
+                    "steam",
+                    `steam://install/${semManifesto.jogo.appid}`,
+                  ])
+                  setToast({
+                    title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }),
+                    visible: true,
+                  })
                   setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
                   setSemManifesto(null)
                 }}
@@ -1225,7 +1297,11 @@ export function PS5Launcher() {
       {escolhendoLaunch && (
         <LaunchModeDialog
           game={escolhendoLaunch}
-          onEscolher={(mode) => { const g = escolhendoLaunch; setEscolhendoLaunch(null); abrirJogo(g, mode) }}
+          onEscolher={(mode) => {
+            const g = escolhendoLaunch
+            setEscolhendoLaunch(null)
+            abrirJogo(g, mode)
+          }}
           onClose={() => setEscolhendoLaunch(null)}
         />
       )}

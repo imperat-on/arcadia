@@ -72,10 +72,10 @@
   /* Blur. Um só vocabulário de vidro para todo o app, em cima do preto OLED.
      Três intensidades e uma tônica de superfície translúcida — assim popover,
      card e overlay pertencem à mesma peça em vez de cada um borrar do seu jeito. */
-  --blur-1: 8px;   /* chips, badges, botões de vidro */
-  --blur-2: 18px;  /* cards, popovers, sidebar */
-  --blur-3: 32px;  /* overlays de tela cheia, diálogos */
-  --glass: rgba(255, 255, 255, 0.045);       /* véu sobre o preto */
+  --blur-1: 8px; /* chips, badges, botões de vidro */
+  --blur-2: 18px; /* cards, popovers, sidebar */
+  --blur-3: 32px; /* overlays de tela cheia, diálogos */
+  --glass: rgba(255, 255, 255, 0.045); /* véu sobre o preto */
   --glass-strong: rgba(255, 255, 255, 0.075);
   --glass-border: rgba(255, 255, 255, 0.09);
 }
@@ -102,7 +102,8 @@ body {
   overflow: hidden;
 }
 
-/* PS5-style scrollbar */::-webkit-scrollbar {
+/* PS5-style scrollbar */
+::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
@@ -119,20 +120,42 @@ body {
 
 /* Animações usadas pelos componentes */
 @keyframes fadeSlideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.animate-fade-slide-up { animation: fadeSlideUp var(--dur-3) var(--ease) forwards; }
+.animate-fade-slide-up {
+  animation: fadeSlideUp var(--dur-3) var(--ease) forwards;
+}
 
 @keyframes bgFade {
-  from { opacity: 0.15; }
-  to { opacity: 1; }
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 1;
+  }
 }
-.animate-bg-fade { animation: bgFade var(--dur-3) var(--ease); }
+.animate-bg-fade {
+  animation: bgFade var(--dur-3) var(--ease);
+}
 
 @keyframes letterBlink {
-  0%, 70%, 100% { opacity: 0.42; text-shadow: none; }
-  20% { opacity: 1; text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent); }
+  0%,
+  70%,
+  100% {
+    opacity: 0.42;
+    text-shadow: none;
+  }
+  20% {
+    opacity: 1;
+    text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
 }
 .arcadia-blink span {
   animation: letterBlink 2.1s ease-in-out infinite;
@@ -148,18 +171,34 @@ body {
 /* Transição do overview (aba Jogos, seta para baixo): conteúdo sobe com fade
    escalonado ao abrir e desliza de volta ao fechar — não é um modal estático. */
 @keyframes ovFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes ovRise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes ovExit {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
-.ov-bg-in { animation: ovFadeIn var(--dur-2) var(--ease) both; }
+.ov-bg-in {
+  animation: ovFadeIn var(--dur-2) var(--ease) both;
+}
 .ov-rise {
   animation: ovRise var(--dur-3) var(--ease) both;
 }
@@ -169,8 +208,12 @@ body {
 
 /* Tela de boot (vídeo, estilo PS5) */
 @keyframes bootOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 .boot-out {
   animation: bootOut 0.6s ease both;
@@ -179,21 +222,36 @@ body {
 
 /* Seleção de perfil (boot → "Quem está jogando?") */
 @keyframes ps5-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.55; }
-  50% { transform: scale(1.08); opacity: 0.85; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.85;
+  }
 }
 @keyframes ps5-drift {
-  0% { transform: translate3d(-2%, -1%, 0); }
-  50% { transform: translate3d(2%, 1%, 0); }
-  100% { transform: translate3d(-2%, -1%, 0); }
+  0% {
+    transform: translate3d(-2%, -1%, 0);
+  }
+  50% {
+    transform: translate3d(2%, 1%, 0);
+  }
+  100% {
+    transform: translate3d(-2%, -1%, 0);
+  }
 }
 .ps5-glow {
   background:
     radial-gradient(55% 45% at 50% 60%, rgba(212, 162, 78, 0.14) 0%, transparent 70%),
     radial-gradient(35% 30% at 18% 25%, rgba(58, 74, 110, 0.35) 0%, transparent 70%),
-    radial-gradient(45% 35% at 82% 72%, rgba(212, 162, 78, 0.10) 0%, transparent 70%);
+    radial-gradient(45% 35% at 82% 72%, rgba(212, 162, 78, 0.1) 0%, transparent 70%);
   filter: blur(40px);
-  animation: ps5-pulse 6s ease-in-out infinite, ps5-drift 14s ease-in-out infinite;
+  animation:
+    ps5-pulse 6s ease-in-out infinite,
+    ps5-drift 14s ease-in-out infinite;
   /* Promove a camada: o blur (caro) é rasterizado UMA vez e só transformado a
      cada frame, em vez de re-borrar. Ganho real em GPU fraca (Steam Deck). */
   will-change: transform;
@@ -208,10 +266,10 @@ body {
 }
 .ps5-slot[data-focus="true"] .ps5-avatar,
 .ps5-avatar:focus-visible {
-  transform: scale(1.10);
+  transform: scale(1.1);
   opacity: 1;
   box-shadow:
-    inset 0 0 0 3px rgba(255,255,255,0.95),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.95),
     0 0 0 6px var(--accent),
     0 0 40px 4px color-mix(in oklab, var(--accent) 60%, transparent);
 }
@@ -222,10 +280,16 @@ body {
 
 /* Crossfade boot → seleção de perfil */
 @keyframes perfilGateIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-.perfil-gate-in { animation: perfilGateIn 0.9s ease both; }
+.perfil-gate-in {
+  animation: perfilGateIn 0.9s ease both;
+}
 .boot-out {
   animation-duration: 0.9s;
 }
@@ -233,8 +297,12 @@ body {
 /* Saída da seleção de perfil (Fase 1): fade rápido dos elementos, enquanto a
    home se revela por baixo com máscara expandindo do centro. */
 @keyframes perfilGateOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 .perfil-gate-out {
   animation: perfilGateOut 0.36s ease-out both;
@@ -243,78 +311,168 @@ body {
 
 /* Coreografia pós-login (3 fases, ease-out pronunciado) */
 @keyframes homeMaskIn {
-  from { clip-path: inset(26% 36% 26% 36% round 48px); opacity: 0.4; }
-  to { clip-path: inset(0 0 0 0 round 0); opacity: 1; }
+  from {
+    clip-path: inset(26% 36% 26% 36% round 48px);
+    opacity: 0.4;
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 0);
+    opacity: 1;
+  }
 }
 @keyframes loginFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes loginRise {
-  from { opacity: 0; transform: translateY(56px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(56px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes loginRail {
-  from { opacity: 0; transform: translateX(44px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(44px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* Fase 1: fundo revelado do centro (máscara arredondada expandindo) */
-.pos-login.home-reveal { animation: homeMaskIn 0.85s var(--ease-out) both; }
+.pos-login.home-reveal {
+  animation: homeMaskIn 0.85s var(--ease-out) both;
+}
 
 /* Fase 2: navegação em fade puro; herói sobe de baixo */
-.pos-login .anim-nav { animation: loginFade 0.8s ease-out 0.35s both; }
-.pos-login .anim-rise { animation: loginRise 0.85s var(--ease-out) 0.3s both; }
+.pos-login .anim-nav {
+  animation: loginFade 0.8s ease-out 0.35s both;
+}
+.pos-login .anim-rise {
+  animation: loginRise 0.85s var(--ease-out) 0.3s both;
+}
 
 /* Fase 3: texto em fade; capas em cascata da esquerda para a direita */
-.pos-login .anim-fade { animation: loginFade 0.7s ease-out 0.55s both; }
-.pos-login .rail-anim > * { animation: loginRail 0.55s var(--ease-out) both; }
-.pos-login .rail-anim > *:nth-child(1) { animation-delay: 0.50s; }
-.pos-login .rail-anim > *:nth-child(2) { animation-delay: 0.56s; }
-.pos-login .rail-anim > *:nth-child(3) { animation-delay: 0.62s; }
-.pos-login .rail-anim > *:nth-child(4) { animation-delay: 0.68s; }
-.pos-login .rail-anim > *:nth-child(5) { animation-delay: 0.74s; }
-.pos-login .rail-anim > *:nth-child(6) { animation-delay: 0.80s; }
-.pos-login .rail-anim > *:nth-child(7) { animation-delay: 0.86s; }
-.pos-login .rail-anim > *:nth-child(8) { animation-delay: 0.92s; }
-.pos-login .rail-anim > *:nth-child(9) { animation-delay: 0.98s; }
-.pos-login .rail-anim > *:nth-child(10) { animation-delay: 1.04s; }
-.pos-login .rail-anim > *:nth-child(11) { animation-delay: 1.10s; }
-.pos-login .rail-anim > *:nth-child(n+12) { animation-delay: 1.16s; }
+.pos-login .anim-fade {
+  animation: loginFade 0.7s ease-out 0.55s both;
+}
+.pos-login .rail-anim > * {
+  animation: loginRail 0.55s var(--ease-out) both;
+}
+.pos-login .rail-anim > *:nth-child(1) {
+  animation-delay: 0.5s;
+}
+.pos-login .rail-anim > *:nth-child(2) {
+  animation-delay: 0.56s;
+}
+.pos-login .rail-anim > *:nth-child(3) {
+  animation-delay: 0.62s;
+}
+.pos-login .rail-anim > *:nth-child(4) {
+  animation-delay: 0.68s;
+}
+.pos-login .rail-anim > *:nth-child(5) {
+  animation-delay: 0.74s;
+}
+.pos-login .rail-anim > *:nth-child(6) {
+  animation-delay: 0.8s;
+}
+.pos-login .rail-anim > *:nth-child(7) {
+  animation-delay: 0.86s;
+}
+.pos-login .rail-anim > *:nth-child(8) {
+  animation-delay: 0.92s;
+}
+.pos-login .rail-anim > *:nth-child(9) {
+  animation-delay: 0.98s;
+}
+.pos-login .rail-anim > *:nth-child(10) {
+  animation-delay: 1.04s;
+}
+.pos-login .rail-anim > *:nth-child(11) {
+  animation-delay: 1.1s;
+}
+.pos-login .rail-anim > *:nth-child(n + 12) {
+  animation-delay: 1.16s;
+}
 
 /* Coreografia do overview (seta p/ baixo na aba Jogos) — ease-out premium */
 
 /* Fase 1: o card focado encolhe e desliza até o cabeçalho (hero animation) */
 @keyframes ovHeroCard {
-  from { opacity: 0.9; transform: translate(34vw, 32vh) scale(1.9); }
-  to { opacity: 1; transform: translate(0, 0) scale(1); }
+  from {
+    opacity: 0.9;
+    transform: translate(34vw, 32vh) scale(1.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
 }
 /* Título/descrição/meta: sobem e se ancoram ao lado do card reduzido */
 @keyframes ovHeroText {
-  from { opacity: 0; transform: translateY(42px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(42px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 /* Fase 2: sombra de contraste subindo da borda inferior */
 @keyframes ovShade {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 /* Fase 3: widgets do hub sobem em cascata */
 @keyframes ovWidget {
-  from { opacity: 0; transform: translateY(52px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(52px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ov-hero-card {
   transform-origin: top left;
   animation: ovHeroCard 0.7s var(--ease-out) both;
 }
-.ov-hero-text { animation: ovHeroText 0.7s var(--ease-out) 0.22s both; }
-.ov-shade { animation: ovShade 0.65s var(--ease-out) 0.1s both; }
-.ov-w1 { animation: ovWidget 0.65s var(--ease-out) 0.38s both; }
-.ov-w2 { animation: ovWidget 0.65s var(--ease-out) 0.50s both; }
-.ov-w3 { animation: ovWidget 0.65s var(--ease-out) 0.62s both; }
-.ov-w4 { animation: ovWidget 0.65s var(--ease-out) 0.74s both; }
+.ov-hero-text {
+  animation: ovHeroText 0.7s var(--ease-out) 0.22s both;
+}
+.ov-shade {
+  animation: ovShade 0.65s var(--ease-out) 0.1s both;
+}
+.ov-w1 {
+  animation: ovWidget 0.65s var(--ease-out) 0.38s both;
+}
+.ov-w2 {
+  animation: ovWidget 0.65s var(--ease-out) 0.5s both;
+}
+.ov-w3 {
+  animation: ovWidget 0.65s var(--ease-out) 0.62s both;
+}
+.ov-w4 {
+  animation: ovWidget 0.65s var(--ease-out) 0.74s both;
+}
 
 /* ─── Modo desktop ─────────────────────────────────────────────────────────
    O desktop não tinha movimento nenhum: a troca de seção era um corte seco e
@@ -323,35 +481,73 @@ body {
 
 /* Troca de seção pela barra lateral. A `key` da view reinicia a animação. */
 @keyframes viewIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
   /* transform: none (não translateY(0)) para o elemento não virar bloco
      contedor de position:fixed depois da animação — senão o menu de contexto
      ancora no <main> em vez do viewport e sai deslocado. */
-  to { opacity: 1; transform: none; }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-.view-in { animation: viewIn var(--dur-3) var(--ease) both; }
+.view-in {
+  animation: viewIn var(--dur-3) var(--ease) both;
+}
 
 /* Entrada escalonada da grade. O atraso é por posição e para na 12ª: além
    disso a espera passa a incomodar mais do que a animação ajuda. */
 @keyframes cardIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .grid-stagger > * {
   animation: cardIn var(--dur-2) var(--ease) both;
 }
-.grid-stagger > *:nth-child(1)  { animation-delay: 0ms; }
-.grid-stagger > *:nth-child(2)  { animation-delay: 20ms; }
-.grid-stagger > *:nth-child(3)  { animation-delay: 40ms; }
-.grid-stagger > *:nth-child(4)  { animation-delay: 60ms; }
-.grid-stagger > *:nth-child(5)  { animation-delay: 80ms; }
-.grid-stagger > *:nth-child(6)  { animation-delay: 100ms; }
-.grid-stagger > *:nth-child(7)  { animation-delay: 120ms; }
-.grid-stagger > *:nth-child(8)  { animation-delay: 140ms; }
-.grid-stagger > *:nth-child(9)  { animation-delay: 160ms; }
-.grid-stagger > *:nth-child(10) { animation-delay: 180ms; }
-.grid-stagger > *:nth-child(11) { animation-delay: 200ms; }
-.grid-stagger > *:nth-child(n + 12) { animation-delay: 220ms; }
+.grid-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.grid-stagger > *:nth-child(2) {
+  animation-delay: 20ms;
+}
+.grid-stagger > *:nth-child(3) {
+  animation-delay: 40ms;
+}
+.grid-stagger > *:nth-child(4) {
+  animation-delay: 60ms;
+}
+.grid-stagger > *:nth-child(5) {
+  animation-delay: 80ms;
+}
+.grid-stagger > *:nth-child(6) {
+  animation-delay: 100ms;
+}
+.grid-stagger > *:nth-child(7) {
+  animation-delay: 120ms;
+}
+.grid-stagger > *:nth-child(8) {
+  animation-delay: 140ms;
+}
+.grid-stagger > *:nth-child(9) {
+  animation-delay: 160ms;
+}
+.grid-stagger > *:nth-child(10) {
+  animation-delay: 180ms;
+}
+.grid-stagger > *:nth-child(11) {
+  animation-delay: 200ms;
+}
+.grid-stagger > *:nth-child(n + 12) {
+  animation-delay: 220ms;
+}
 
 /* Estados interativos com um tempo só. Antes cada botão trazia a sua própria
    duração de transição, e nenhuma batia com a de baixo. */
@@ -372,10 +568,18 @@ input,
    equivalente do desktop: aqui a navegação é por gamepad, mais lenta, e a
    tela inteira muda de conteúdo de uma vez. */
 @keyframes tabIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.tab-in { animation: tabIn var(--dur-3) var(--ease-out) both; }
+.tab-in {
+  animation: tabIn var(--dur-3) var(--ease-out) both;
+}
 
 /* O trilho de capas e a grade são navegados com o controle: a resposta ao
    mover a seleção precisa ser imediata, senão parece atraso de input. Só a
@@ -419,8 +623,12 @@ input,
 }
 /* Troca de destaque: um fade curto, sem deslocar nada. */
 @keyframes lojaHeroiIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .loja-heroi__arte {
   position: absolute;
@@ -436,8 +644,14 @@ input,
   animation: lojaTileIn 320ms var(--ease-out) both;
 }
 @keyframes lojaTileIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .loja-tile__capa {
@@ -599,59 +813,135 @@ input,
   animation: lojaAbaIn var(--dur-2) var(--ease-out) both;
 }
 @keyframes lojaAbaIn {
-  from { transform: scaleX(0.3); opacity: 0; }
-  to { transform: scaleX(1); opacity: 1; }
+  from {
+    transform: scaleX(0.3);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
 }
 
-
-
-
 /* Descrição rica da Steam (about_the_game): mix imagem+texto. */
-.steam-desc img, .steam-desc video { max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; }
-.steam-desc .bb_h1, .steam-desc .bb_h2 { font-size: 18px; font-weight: 600; color: #fff; margin: 18px 0 8px; }
-.steam-desc h1, .steam-desc h2 { font-size: 18px; font-weight: 600; color: #fff; margin: 18px 0 8px; }
-.steam-desc h3 { font-size: 15px; font-weight: 600; color: #fff; margin: 14px 0 6px; }
-.steam-desc p { margin: 8px 0; }
-.steam-desc ul { list-style: disc; padding-left: 20px; margin: 8px 0; }
-.steam-desc li { margin: 3px 0; }
-.steam-desc a { color: var(--accent); }
-.steam-desc strong, .steam-desc b { color: rgba(255,255,255,0.92); }
-
+.steam-desc img,
+.steam-desc video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 12px 0;
+  display: block;
+}
+.steam-desc .bb_h1,
+.steam-desc .bb_h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin: 18px 0 8px;
+}
+.steam-desc h1,
+.steam-desc h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin: 18px 0 8px;
+}
+.steam-desc h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  margin: 14px 0 6px;
+}
+.steam-desc p {
+  margin: 8px 0;
+}
+.steam-desc ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.steam-desc li {
+  margin: 3px 0;
+}
+.steam-desc a {
+  color: var(--accent);
+}
+.steam-desc strong,
+.steam-desc b {
+  color: rgba(255, 255, 255, 0.92);
+}
 
 /* ─── Vidro (blur) ─────────────────────────────────────────────────────────
    Classes utilitárias de superfície translúcida. Usar em vez de repetir
    backdrop-filter solto: garante o mesmo véu/borda sobre o OLED em todo lugar.
    .glass-3 tem fallback opaco quando o compositor não suporta blur. */
-.glass-1,.glass-2,.glass-3{
-  background:var(--glass);
-  border:1px solid var(--glass-border);
-  -webkit-backdrop-filter:blur(var(--blur-1));
-  backdrop-filter:blur(var(--blur-1));
+.glass-1,
+.glass-2,
+.glass-3 {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--blur-1));
+  backdrop-filter: blur(var(--blur-1));
 }
-.glass-2{background:var(--glass);-webkit-backdrop-filter:blur(var(--blur-2));backdrop-filter:blur(var(--blur-2))}
-.glass-3{background:var(--glass-strong);-webkit-backdrop-filter:blur(var(--blur-3)) saturate(1.3);backdrop-filter:blur(var(--blur-3)) saturate(1.3)}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .glass-1{background:#0b0b0d}.glass-2{background:#0d0d10}.glass-3{background:rgba(6,6,8,.92)}
+.glass-2 {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--blur-2));
+  backdrop-filter: blur(var(--blur-2));
+}
+.glass-3 {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur-3)) saturate(1.3);
+  backdrop-filter: blur(var(--blur-3)) saturate(1.3);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-1 {
+    background: #0b0b0d;
+  }
+  .glass-2 {
+    background: #0d0d10;
+  }
+  .glass-3 {
+    background: rgba(6, 6, 8, 0.92);
+  }
 }
 /* Wordmark autêntico do Arcadia. */
-.wordmark{font-family:var(--font-brand);letter-spacing:.24em;font-weight:400}
+.wordmark {
+  font-family: var(--font-brand);
+  letter-spacing: 0.24em;
+  font-weight: 400;
+}
 /* Nomes de jogo com cara de console. */
-.game-name{font-family:var(--font-display);letter-spacing:.01em}
+.game-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
 
 /* Reforço de blur nos overlays. Os diálogos nasceram com backdrop-blur-sm (4px),
    fraco demais sobre o preto OLED — o fundo vazava nítido atrás do modal. Subimos
    a escala das três variantes usadas no app para um vidro real, cinematográfico,
    com um leve saturate que dá profundidade sem clarear o preto. Um ponto só,
    em vez de mexer em 25 arquivos. */
-.backdrop-blur-sm{-webkit-backdrop-filter:blur(10px) saturate(1.2)!important;backdrop-filter:blur(10px) saturate(1.2)!important}
-.backdrop-blur-md{-webkit-backdrop-filter:blur(20px) saturate(1.25)!important;backdrop-filter:blur(20px) saturate(1.25)!important}
-.backdrop-blur-xl,.backdrop-blur-2xl{-webkit-backdrop-filter:blur(36px) saturate(1.35)!important;backdrop-filter:blur(36px) saturate(1.35)!important}
+.backdrop-blur-sm {
+  -webkit-backdrop-filter: blur(10px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) saturate(1.2) !important;
+}
+.backdrop-blur-md {
+  -webkit-backdrop-filter: blur(20px) saturate(1.25) !important;
+  backdrop-filter: blur(20px) saturate(1.25) !important;
+}
+.backdrop-blur-xl,
+.backdrop-blur-2xl {
+  -webkit-backdrop-filter: blur(36px) saturate(1.35) !important;
+  backdrop-filter: blur(36px) saturate(1.35) !important;
+}
 
 /* ─── Arrastar a janela de qualquer lugar (modo desktop frameless) ──────────
    A raiz vira região de arraste; tudo que é interativo ou selecionável volta a
    ser no-drag, senão o clique/seleção viraria movimento de janela. Um <input>
    ainda precisa de no-drag para receber foco e permitir selecionar texto. */
-.app-drag { -webkit-app-region: drag; }
+.app-drag {
+  -webkit-app-region: drag;
+}
 /* Tudo que é interativo, seleção-de-texto, OU rolável precisa ser no-drag.
    Sem excluir áreas roláveis, o Electron intercepta o wheel e o scroll trava
    por 1-2s antes de voltar (bug conhecido do drag region em cima de scroll). */
@@ -670,20 +960,94 @@ input,
 .app-drag .overflow-auto,
 .app-drag .overflow-y-scroll,
 .app-drag .overflow-x-scroll,
-.app-drag [class*="overflow-"] { -webkit-app-region: no-drag; }
+.app-drag [class*="overflow-"] {
+  -webkit-app-region: no-drag;
+}
 
 /* UI polish helpers (desktop) */
-.ui-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);border-radius:16px;box-shadow:0 18px 48px rgba(0,0,0,.22)}
-.ui-card-soft{border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);border-radius:14px}
-.ui-input{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:white;transition:border-color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease)}
-.ui-input:focus{border-color:color-mix(in srgb,var(--accent) 70%,transparent);background:rgba(255,255,255,.055);outline:none}
-.ui-btn-primary{background:var(--accent);color:black;font-weight:700;transition:transform var(--dur-1) var(--ease),filter var(--dur-1) var(--ease)}
-.ui-btn-primary:not(:disabled):hover{transform:translateY(-1px);filter:brightness(1.05)}
-.ui-btn-secondary{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.03);color:rgba(255,255,255,.78);transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.ui-btn-secondary:not(:disabled):hover{border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.07);color:white}
-.ui-title{font-size:1.5rem;line-height:2rem;font-weight:650;letter-spacing:-.02em;color:white}
-.ui-subtitle{font-size:.875rem;line-height:1.35rem;color:rgba(255,255,255,.42)}
-.ui-section-title{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.58)}
-.ui-empty{display:flex;min-height:280px;align-items:center;justify-content:center;color:rgba(255,255,255,.35);text-align:center}
-*:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 80%,white 10%);outline-offset:2px}
-button:disabled,input:disabled,select:disabled{cursor:not-allowed}
+.ui-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+.ui-card-soft {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 14px;
+}
+.ui-input {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: white;
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
+}
+.ui-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+}
+.ui-btn-primary {
+  background: var(--accent);
+  color: black;
+  font-weight: 700;
+  transition:
+    transform var(--dur-1) var(--ease),
+    filter var(--dur-1) var(--ease);
+}
+.ui-btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.ui-btn-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.78);
+  transition:
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+.ui-btn-secondary:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.07);
+  color: white;
+}
+.ui-title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: white;
+}
+.ui-subtitle {
+  font-size: 0.875rem;
+  line-height: 1.35rem;
+  color: rgba(255, 255, 255, 0.42);
+}
+.ui-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+.ui-empty {
+  display: flex;
+  min-height: 280px;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+*:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 80%, white 10%);
+  outline-offset: 2px;
+}
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+}

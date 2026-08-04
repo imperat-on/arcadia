@@ -17,8 +17,7 @@ type Alvo = { el: HTMLElement; cx: number; cy: number }
 const ALCANCE = 1.5
 
 function focaveis(root: HTMLElement, cx: number, cy: number, alcance = ALCANCE): Alvo[] {
-  const sel =
-    'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  const sel = 'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
   const limiteX = window.innerWidth * alcance
   const limiteY = window.innerHeight * alcance
   const out: Alvo[] = []
@@ -67,9 +66,7 @@ function bestInDirection(
 /** O elemento está, ao menos em parte, dentro da viewport? */
 function naTela(el: HTMLElement): boolean {
   const r = el.getBoundingClientRect()
-  return (
-    r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
-  )
+  return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
 }
 
 /**
@@ -239,8 +236,10 @@ export function useGamepadNav(
     let raf = 0
     let prev: boolean[] = []
     let rest: number[] | null = null
-    let sx = 0, sy = 0 // direção estável
-    let cx = 0, cy = 0 // direção candidata
+    let sx = 0,
+      sy = 0 // direção estável
+    let cx = 0,
+      cy = 0 // direção candidata
     let candSince = 0
     let holdStart = 0
     let lastRepeat = 0
@@ -271,16 +270,25 @@ export function useGamepadNav(
       }
       // D-pad como hat (eixo 9)
       const h = gp.axes[9]
-      if ((!x && !y) && typeof h === "number" && h >= -1.05 && h <= 1.05) {
+      if (!x && !y && typeof h === "number" && h >= -1.05 && h <= 1.05) {
         const near = (t: number) => Math.abs(h - t) < 0.1
         if (near(-1)) y = -1
-        else if (near(-0.714)) { x = 1; y = -1 }
-        else if (near(-0.428)) x = 1
-        else if (near(-0.142)) { x = 1; y = 1 }
-        else if (near(0.142)) y = 1
-        else if (near(0.428)) { x = -1; y = 1 }
-        else if (near(0.714)) x = -1
-        else if (near(1)) { x = -1; y = -1 }
+        else if (near(-0.714)) {
+          x = 1
+          y = -1
+        } else if (near(-0.428)) x = 1
+        else if (near(-0.142)) {
+          x = 1
+          y = 1
+        } else if (near(0.142)) y = 1
+        else if (near(0.428)) {
+          x = -1
+          y = 1
+        } else if (near(0.714)) x = -1
+        else if (near(1)) {
+          x = -1
+          y = -1
+        }
       }
       return [x, y]
     }
@@ -338,7 +346,7 @@ export function useGamepadNav(
         const now = Date.now()
         const primed = prev.length > 0
         if (!rest) rest = Array.from(gp.axes) // calibração (tb usada pelo scrollOnly)
-        const [rx, ry] = (scrollOnly || noFocusMove) ? [0, 0] : dirOf(gp)
+        const [rx, ry] = scrollOnly || noFocusMove ? [0, 0] : dirOf(gp)
         if (rx !== cx || ry !== cy) {
           cx = rx
           cy = ry
@@ -355,11 +363,7 @@ export function useGamepadNav(
             lastRepeat = now
           }
         }
-        if (
-          (sx || sy) &&
-          now - holdStart > INITIAL_DELAY &&
-          now - lastRepeat > REPEAT
-        ) {
+        if ((sx || sy) && now - holdStart > INITIAL_DELAY && now - lastRepeat > REPEAT) {
           move(sx, sy)
           lastRepeat = now
           lastStep = now

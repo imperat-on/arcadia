@@ -26,7 +26,17 @@ export function UninstallDialog({
     })
   }, [game.id])
 
-  const Check = ({ checked, onChange, label, obs }: { checked: boolean; onChange: (v: boolean) => void; label: React.ReactNode; obs: string }) => (
+  const Check = ({
+    checked,
+    onChange,
+    label,
+    obs,
+  }: {
+    checked: boolean
+    onChange: (v: boolean) => void
+    label: React.ReactNode
+    obs: string
+  }) => (
     <label className="mb-4 flex cursor-pointer items-start gap-3">
       <input
         type="checkbox"
@@ -37,7 +47,8 @@ export function UninstallDialog({
           checked
             ? {
                 background: "var(--accent)",
-                backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>\")",
+                backgroundImage:
+                  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>\")",
                 backgroundSize: "12px",
                 backgroundPosition: "center",
                 backgroundRepeat: "no-repeat",
@@ -53,16 +64,31 @@ export function UninstallDialog({
   )
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="w-[540px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
           <h2 className="text-lg font-semibold text-white">{t("uninstall.titulo")}</h2>
-          <button onClick={onClose} className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -74,7 +100,12 @@ export function UninstallDialog({
         <Check
           checked={removePrefix}
           onChange={setRemovePrefix}
-          label={<>{t("uninstall.remover_prefixo")}: <span className="text-white/55">{prefix || "…"}</span></>}
+          label={
+            <>
+              {t("uninstall.remover_prefixo")}:{" "}
+              <span className="text-white/55">{prefix || "…"}</span>
+            </>
+          }
           obs={t("uninstall.obs_remover")}
         />
         <Check
@@ -88,7 +119,10 @@ export function UninstallDialog({
           <button
             onClick={() => onConfirm({ removePrefix, removeSettings })}
             className="rounded-lg border px-6 py-2 text-[12px] font-semibold tracking-wider transition-colors hover:bg-white/[0.06]"
-            style={{ borderColor: "color-mix(in srgb, var(--accent) 60%, transparent)", color: "var(--accent)" }}
+            style={{
+              borderColor: "color-mix(in srgb, var(--accent) 60%, transparent)",
+              color: "var(--accent)",
+            }}
           >
             {t("uninstall.sim")}
           </button>

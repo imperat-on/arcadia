@@ -65,10 +65,13 @@ function progressMap(file) {
     const bits = bval.bits
     if (bits && typeof bits === "object") {
       for (const [idx, binfo] of Object.entries(bits)) {
-        if (binfo && typeof binfo === "object" && (Number(binfo.bits) & 1)) {
+        if (binfo && typeof binfo === "object" && Number(binfo.bits) & 1) {
           const k = `${blk}|${idx}`
           if (!(k in out)) out[k] = Number(binfo.unlock_time) || 0
         }
+        // A primeira vez que este appid aparece (bin criado depois do boot),
+        // guarda o estado atual como snapshot pra evitar re-notificar.
+        if (!snapshots.has(appid)) snapshots.set(appid, prev)
       }
     }
   }
@@ -150,14 +153,18 @@ function writeAchievementUnlock(file, block, bit, epoch = Math.floor(Date.now() 
   // data é máscara de bits int32; bit >= 31 vira negativo — writeInt32 preserva.
   blkMap.data = Number(blkMap.data) | (1 << (Number(bit) & 31))
   blkMap.AchievementTimes =
-    blkMap.AchievementTimes && typeof blkMap.AchievementTimes === "object" ? blkMap.AchievementTimes : {}
+    blkMap.AchievementTimes && typeof blkMap.AchievementTimes === "object"
+      ? blkMap.AchievementTimes
+      : {}
   blkMap.AchievementTimes[b] = epoch
 
   // Regrava embrulhado no mapa "cache" (único mapa da raiz — como a Steam
   // gera). Chaves numéricas dos blocos vêm antes das strings no objeto, mas
   // o parser lê o primeiro mapa da raiz como raiz achatada, então ok.
   const buf = writeKV({ cache: kv })
-  try { fs.copyFileSync(file, file + ".arcadia.bak") } catch {}
+  try {
+    fs.copyFileSync(file, file + ".arcadia.bak")
+  } catch {}
   const tmp = file + ".tmp"
   fs.writeFileSync(tmp, buf)
   fs.renameSync(tmp, file)
@@ -193,7 +200,7 @@ function startSteamBinWatcher(onUnlock) {
     if (!m) return
     const appid = m[2]
     const file = path.join(STATS_DIR, fname)
-    const prev = snapshots.get(appid) || snap(appid, file)
+    const prev = snapshots.get(appid) || new Set()
     const curMap = progressMap(file)
     const cur = new Set(Object.keys(curMap))
     // índice pode ter mudado (reindexação) — recarrega leve
@@ -215,9 +222,14 @@ function startSteamBinWatcher(onUnlock) {
       } else if (!it && curMap[k] > 0) {
         // Progresso novo sem entrada no índice: achievements.json ausente ou
         // sem esta conquista. Antes falhava em silêncio (sem toast, sem pista).
-        console.warn(`[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto — rode index.py)`)
+        console.warn(
+          `[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto — rode index.py)`,
+        )
       }
     }
+    // Bin criado depois do boot (não estava no snapshot inicial):
+    // guarda o estado atual p/ não re-notificar no próximo poll.
+    if (!snapshots.has(appid)) snapshots.set(appid, prev)
   }
 
   let debounce = null
@@ -260,8 +272,13 @@ function parseAchievementsHtml(page) {
     const titleM = /<h3>([\s\S]*?)<\/h3>/.exec(b)
     if (!iconM || !titleM) continue
     const descM = /<h5>([\s\S]*?)<\/h5>/.exec(b)
-    const unesc = (s) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    const unesc = (s) =>
+      s
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
     out.push({
       title: unesc(titleM[1]).trim(),
       desc: descM ? unesc(descM[1]).trim() : "",
@@ -275,7 +292,9 @@ function parseAchievementsHtml(page) {
 // Conquistas de QUALQUER jogo Steam (loja incluso), fetch direto da página
 // pública — Steam pede consentimento de idade pros maiores de 18.
 function fetchConsentUrl(appid) {
-  return "https://steamcommunity.com/stats/" + appid + "/achievements?l=brazilian&gid=0&birthyear=2005"
+  return (
+    "https://steamcommunity.com/stats/" + appid + "/achievements?l=brazilian&gid=0&birthyear=2005"
+  )
 }
 
 // Conquistas do jogo (não precisa estar na biblioteca). Cache próprio em
@@ -301,7 +320,10 @@ async function fetchAchievementsForApp(appid) {
   // Fallback: página pede confirmação de idade — refaz com consentimento.
   let items = parseAchievementsHtml(page)
   if (!items.length && page.includes("app_agegate")) {
-    const res2 = await fetch(fetchConsentUrl(appid) + "&agree_to_agegate=1", { headers, signal: ctl })
+    const res2 = await fetch(fetchConsentUrl(appid) + "&agree_to_agegate=1", {
+      headers,
+      signal: ctl,
+    })
     if (res2.ok) items = parseAchievementsHtml(await res2.text())
   }
 

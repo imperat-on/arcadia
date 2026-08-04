@@ -2,7 +2,11 @@
 // daqui (require("./achievements")) — os nomes públicos de antes são
 // preservados por compatibilidade.
 
-const { startSteamBinWatcher, fetchAchievementsForApp, writeAchievementUnlock } = require("./steam_bin")
+const {
+  startSteamBinWatcher,
+  fetchAchievementsForApp,
+  writeAchievementUnlock,
+} = require("./steam_bin")
 const { loadAchievements, saveAchievements, loadItemIndex } = require("./schema")
 const { hasSteamBinFor } = require("./manager")
 

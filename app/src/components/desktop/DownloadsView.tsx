@@ -31,14 +31,13 @@ export function DownloadsView() {
         </h1>
         <span className="text-sm text-white/40">
           {t("downloads.ativos", { count: String(ativos.length) })}
-          {parados.length > 0 && ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
+          {parados.length > 0 &&
+            ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
         </span>
       </div>
 
       {items.length === 0 ? (
-        <div className="ui-empty">
-          {t("downloads.vazio")}
-        </div>
+        <div className="ui-empty">{t("downloads.vazio")}</div>
       ) : (
         <div className="flex max-w-[900px] flex-col gap-4 pb-8">
           {ativos.map((it) => (

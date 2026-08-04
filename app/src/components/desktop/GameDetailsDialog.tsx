@@ -8,16 +8,39 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
   const horas = game.playtime_minutes != null ? Math.floor(game.playtime_minutes / 60) : null
   const campos: [string, string][] = [
     [t("gameoverview.detalhes.fonte"), game.launcher],
-    ...(game.genre ? [[t("gameoverview.detalhes.genero"), String(game.genre)] as [string, string]] : []),
-    ...(game.year ? [[t("gameoverview.detalhes.lancamento"), String(game.year)] as [string, string]] : []),
-    ...(game.developer ? [[t("gameoverview.detalhes.desenvolvedora"), game.developer] as [string, string]] : []),
-    ...(game.publisher ? [[t("gameoverview.detalhes.publicadora"), game.publisher] as [string, string]] : []),
-    ...(horas != null ? [[t("gameoverview.detalhes.tempo_jogo"), t("gameoverview.tempo.horas_minutos", { h: String(horas), m: String(game.playtime_minutes! % 60) })]] as [string, string][] : []),
-    ...(game.players ? [[t("gameoverview.detalhes.jogadores"), game.players] as [string, string]] : []),
+    ...(game.genre
+      ? [[t("gameoverview.detalhes.genero"), String(game.genre)] as [string, string]]
+      : []),
+    ...(game.year
+      ? [[t("gameoverview.detalhes.lancamento"), String(game.year)] as [string, string]]
+      : []),
+    ...(game.developer
+      ? [[t("gameoverview.detalhes.desenvolvedora"), game.developer] as [string, string]]
+      : []),
+    ...(game.publisher
+      ? [[t("gameoverview.detalhes.publicadora"), game.publisher] as [string, string]]
+      : []),
+    ...(horas != null
+      ? ([
+          [
+            t("gameoverview.detalhes.tempo_jogo"),
+            t("gameoverview.tempo.horas_minutos", {
+              h: String(horas),
+              m: String(game.playtime_minutes! % 60),
+            }),
+          ],
+        ] as [string, string][])
+      : []),
+    ...(game.players
+      ? [[t("gameoverview.detalhes.jogadores"), game.players] as [string, string]]
+      : []),
   ]
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="flex max-h-[85vh] w-[520px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -25,15 +48,34 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
         {/* Hero */}
         <div className="relative h-[180px] w-full shrink-0 overflow-hidden bg-black">
           {game.hero || game.cover ? (
-            <img src={game.hero || game.cover} alt="" className="h-full w-full object-cover" draggable={false} />
+            <img
+              src={game.hero || game.cover}
+              alt=""
+              className="h-full w-full object-cover"
+              draggable={false}
+            />
           ) : null}
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0d0d10]" />
-          <button onClick={onClose} className="absolute right-3 top-3 rounded-md bg-black/50 p-1.5 text-white/70 transition-colors hover:bg-black/70 hover:text-white">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          <button
+            onClick={onClose}
+            className="absolute right-3 top-3 rounded-md bg-black/50 p-1.5 text-white/70 transition-colors hover:bg-black/70 hover:text-white"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
-          <h2 className="absolute bottom-3 left-5 right-5 truncate text-xl font-light text-white drop-shadow">{game.title}</h2>
+          <h2 className="absolute bottom-3 left-5 right-5 truncate text-xl font-light text-white drop-shadow">
+            {game.title}
+          </h2>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

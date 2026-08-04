@@ -13,7 +13,9 @@ const { fetchRede } = require("./httpfetch")
 // na ordem RD → TorBox → AllDebrid → Premiumize.
 function lerConfig() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".local/share/arcadia/config.json"), "utf-8"))
+    return JSON.parse(
+      fs.readFileSync(path.join(os.homedir(), ".local/share/arcadia/config.json"), "utf-8"),
+    )
   } catch {
     return {}
   }
@@ -22,23 +24,30 @@ function lerConfig() {
 async function realDebrid(url, token) {
   const r = await fetchRede("https://api.real-debrid.com/rest/1.0/unrestrict/link", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
     body: `link=${encodeURIComponent(url)}`,
     signal: AbortSignal.timeout(15000),
   })
   if (!r.ok) throw new Error(`Real-Debrid: HTTP ${r.status} (token inválido ou conta expirada?)`)
   const j = await r.json()
-  if (!j?.download) throw new Error("Real-Debrid não liberou este link (hoster fora do catálogo deles)")
+  if (!j?.download)
+    throw new Error("Real-Debrid não liberou este link (hoster fora do catálogo deles)")
   return { url: j.download }
 }
 
 async function allDebrid(url, token) {
-  const r = await fetchRede(`https://api.alldebrid.com/v4/link/unlock?agent=arcadia&apikey=${encodeURIComponent(token)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `link=${encodeURIComponent(url)}`,
-    signal: AbortSignal.timeout(15000),
-  })
+  const r = await fetchRede(
+    `https://api.alldebrid.com/v4/link/unlock?agent=arcadia&apikey=${encodeURIComponent(token)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `link=${encodeURIComponent(url)}`,
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const j = await r.json()
   if (j?.status !== "success" || !j?.data?.link) {
     const msg = j?.error?.message || `HTTP ${r.status}`
@@ -48,12 +57,15 @@ async function allDebrid(url, token) {
 }
 
 async function premiumize(url, token) {
-  const r = await fetchRede(`https://www.premiumize.me/api/transfer/directdl?apikey=${encodeURIComponent(token)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `src=${encodeURIComponent(url)}`,
-    signal: AbortSignal.timeout(15000),
-  })
+  const r = await fetchRede(
+    `https://www.premiumize.me/api/transfer/directdl?apikey=${encodeURIComponent(token)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `src=${encodeURIComponent(url)}`,
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const j = await r.json()
   if (j?.status !== "success" || !j?.content?.[0]?.link) {
     throw new Error(`Premiumize: ${j?.message || `HTTP ${r.status}`}`)
@@ -94,7 +106,11 @@ async function torBox(url, token) {
     const jl = await lista.json()
     const dados = jl?.data
     const info = Array.isArray(dados) ? dados.find((x) => x?.id === webId) : dados
-    if (info?.download_finished || info?.download_state === "completed" || info?.download_state === "cached") {
+    if (
+      info?.download_finished ||
+      info?.download_state === "completed" ||
+      info?.download_state === "cached"
+    ) {
       const files = info.files || []
       // Pega o maior (evita samples/nfo dentro de zips estranhos).
       fileId = files.sort((a, b) => (b.size || 0) - (a.size || 0))[0]?.id
@@ -102,12 +118,16 @@ async function torBox(url, token) {
     }
     await new Promise((r) => setTimeout(r, 3000))
   }
-  if (fileId == null) throw new Error("TorBox: link ainda não cacheado (tente de novo em alguns minutos)")
+  if (fileId == null)
+    throw new Error("TorBox: link ainda não cacheado (tente de novo em alguns minutos)")
 
-  const link = await fetchRede(`https://api.torbox.app/v1/api/webdl/requestdl?token=${encodeURIComponent(token)}&web_id=${webId}&file_id=${fileId}`, {
-    headers: auth,
-    signal: AbortSignal.timeout(15000),
-  })
+  const link = await fetchRede(
+    `https://api.torbox.app/v1/api/webdl/requestdl?token=${encodeURIComponent(token)}&web_id=${webId}&file_id=${fileId}`,
+    {
+      headers: auth,
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const jd = await link.json()
   if (!jd?.data) throw new Error(`TorBox: ${jd?.detail || "requestdl sem URL"}`)
   return { url: String(jd.data) }
@@ -160,23 +180,36 @@ async function pollDebrid(limite, fn, signal) {
 }
 
 async function rdMagnet(magnet, token, signal) {
-  const H = { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" }
+  const H = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  }
   const add = await fetchRede("https://api.real-debrid.com/rest/1.0/torrents/addMagnet", {
-    method: "POST", headers: H, body: `magnet=${encodeURIComponent(magnet)}`,
+    method: "POST",
+    headers: H,
+    body: `magnet=${encodeURIComponent(magnet)}`,
     signal: AbortSignal.timeout(15000),
   })
   const j = await add.json()
   if (!j?.id) throw new Error(`Real-Debrid addMagnet: HTTP ${add.status}`)
   await fetchRede(`https://api.real-debrid.com/rest/1.0/torrents/selectFiles/${j.id}`, {
-    method: "POST", headers: H, body: "files=all", signal: AbortSignal.timeout(15000),
+    method: "POST",
+    headers: H,
+    body: "files=all",
+    signal: AbortSignal.timeout(15000),
   })
-  const info = await pollDebrid(MAGNET_POLL_LIMITE, async () => {
-    const r = await fetchRede(`https://api.real-debrid.com/rest/1.0/torrents/info/${j.id}`, {
-      headers: H, signal: AbortSignal.timeout(15000),
-    })
-    const d = await r.json()
-    return d?.status === "downloaded" ? d : null
-  }, signal)
+  const info = await pollDebrid(
+    MAGNET_POLL_LIMITE,
+    async () => {
+      const r = await fetchRede(`https://api.real-debrid.com/rest/1.0/torrents/info/${j.id}`, {
+        headers: H,
+        signal: AbortSignal.timeout(15000),
+      })
+      const d = await r.json()
+      return d?.status === "downloaded" ? d : null
+    },
+    signal,
+  )
   if (!info) throw new Error("Real-Debrid: torrent não cacheou em 30min")
   // links[] segue a ordem dos arquivos SELECIONADOS: pega o maior (o jogo).
   const sel = (info.files || []).filter((f) => f.selected).sort((a, b) => b.bytes - a.bytes)
@@ -192,27 +225,43 @@ async function tbMagnet(magnet, token, signal) {
   const form = new FormData()
   form.append("magnet", magnet)
   const add = await fetchRede("https://api.torbox.app/v1/api/torrents/createtorrent", {
-    method: "POST", headers: H, body: form, signal: AbortSignal.timeout(15000),
+    method: "POST",
+    headers: H,
+    body: form,
+    signal: AbortSignal.timeout(15000),
   })
   const j = await add.json()
-  if (!j?.success || !j?.data?.torrent_id) throw new Error(`TorBox createtorrent: ${j?.detail || "falha"}`)
+  if (!j?.success || !j?.data?.torrent_id)
+    throw new Error(`TorBox createtorrent: ${j?.detail || "falha"}`)
   const id = j.data.torrent_id
-  const ok = await pollDebrid(MAGNET_POLL_LIMITE, async () => {
-    // ?id= É necessário: sem filtro a mylist só traz os ~60 mais recentes,
-    // e um torrent cacheado há meses (o TorBox reuso o cache antigo) nunca
-    // apareceria — foi o bug do "cacheado mas nunca inicia".
-    const r = await fetchRede(`https://api.torbox.app/v1/api/torrents/mylist?id=${id}`, {
-      headers: H, signal: AbortSignal.timeout(15000),
-    })
-    const dados = (await r.json())?.data
-    // Com id vem objeto único; defensivamente aceita lista também.
-    const d = Array.isArray(dados) ? dados.find((x) => x?.id === id) : dados
-    return d && (d.download_finished || d.download_state === "completed" || d.download_state === "cached") ? true : null
-  }, signal)
+  const ok = await pollDebrid(
+    MAGNET_POLL_LIMITE,
+    async () => {
+      // ?id= É necessário: sem filtro a mylist só traz os ~60 mais recentes,
+      // e um torrent cacheado há meses (o TorBox reuso o cache antigo) nunca
+      // apareceria — foi o bug do "cacheado mas nunca inicia".
+      const r = await fetchRede(`https://api.torbox.app/v1/api/torrents/mylist?id=${id}`, {
+        headers: H,
+        signal: AbortSignal.timeout(15000),
+      })
+      const dados = (await r.json())?.data
+      // Com id vem objeto único; defensivamente aceita lista também.
+      const d = Array.isArray(dados) ? dados.find((x) => x?.id === id) : dados
+      return d &&
+        (d.download_finished || d.download_state === "completed" || d.download_state === "cached")
+        ? true
+        : null
+    },
+    signal,
+  )
   if (!ok) throw new Error("TorBox: torrent não cacheou em 30min")
-  const dl = await fetchRede(`https://api.torbox.app/v1/api/torrents/requestdl?token=${encodeURIComponent(token)}&torrent_id=${id}&zip_link=true`, {
-    headers: H, signal: AbortSignal.timeout(15000),
-  })
+  const dl = await fetchRede(
+    `https://api.torbox.app/v1/api/torrents/requestdl?token=${encodeURIComponent(token)}&torrent_id=${id}&zip_link=true`,
+    {
+      headers: H,
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const jd = await dl.json()
   if (!jd?.data) throw new Error(`TorBox requestdl: ${jd?.detail || "sem URL"}`)
   return { url: String(jd.data) }
@@ -220,14 +269,18 @@ async function tbMagnet(magnet, token, signal) {
 
 // AllDebrid: POSTs form-encoded no v4.1 (mesmo formato validado do Hydra).
 async function adPost(endpoint, token, params) {
-  const r = await fetchRede(`https://api.alldebrid.com/${endpoint}?agent=arcadia&apikey=${encodeURIComponent(token)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ agent: "arcadia", ...params }).toString(),
-    signal: AbortSignal.timeout(15000),
-  })
+  const r = await fetchRede(
+    `https://api.alldebrid.com/${endpoint}?agent=arcadia&apikey=${encodeURIComponent(token)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ agent: "arcadia", ...params }).toString(),
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const j = await r.json()
-  if (j?.status !== "success") throw new Error(`AllDebrid: ${j?.error?.message || `HTTP ${r.status}`}`)
+  if (j?.status !== "success")
+    throw new Error(`AllDebrid: ${j?.error?.message || `HTTP ${r.status}`}`)
   return j.data
 }
 
@@ -248,11 +301,15 @@ async function adMagnet(magnet, token, signal) {
   const id = m0?.id
   if (!id) throw new Error("AllDebrid: upload sem id")
 
-  const pronto = await pollDebrid(MAGNET_POLL_LIMITE, async () => {
-    const st = await adPost("v4.1/magnet/status", token, { id: String(id) })
-    const m = Array.isArray(st?.magnets) ? st.magnets[0] : st?.magnets
-    return m?.status === "Ready" || m?.statusCode === 4 ? m : null
-  }, signal)
+  const pronto = await pollDebrid(
+    MAGNET_POLL_LIMITE,
+    async () => {
+      const st = await adPost("v4.1/magnet/status", token, { id: String(id) })
+      const m = Array.isArray(st?.magnets) ? st.magnets[0] : st?.magnets
+      return m?.status === "Ready" || m?.statusCode === 4 ? m : null
+    },
+    signal,
+  )
   if (!pronto) throw new Error("AllDebrid: torrent não cacheou em 30min")
 
   let arquivos = []
@@ -304,7 +361,8 @@ async function resolverMagnet(magnet, { signal } = {}) {
   return null
 }
 
-const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+const UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 // Sonda uma URL candidata: true se responde binário (não HTML/erro).
 async function ehBinario(url, headers = {}) {
@@ -354,10 +412,18 @@ async function rootz(url) {
   const html = await pagina.text()
   const token = /\\?"pageToken\\?"\s*:\s*\\?"([^"\\]+)/.exec(html)?.[1]
   if (!token) throw new Error("rootz: pageToken não encontrado")
-  const r = await fetchRede(`https://www.rootz.so/api/files/download-by-short?shortId=${encodeURIComponent(id)}`, {
-    headers: { "User-Agent": UA, Accept: "application/json", Referer: pageUrl, "X-Page-Token": token },
-    signal: AbortSignal.timeout(15000),
-  })
+  const r = await fetchRede(
+    `https://www.rootz.so/api/files/download-by-short?shortId=${encodeURIComponent(id)}`,
+    {
+      headers: {
+        "User-Agent": UA,
+        Accept: "application/json",
+        Referer: pageUrl,
+        "X-Page-Token": token,
+      },
+      signal: AbortSignal.timeout(15000),
+    },
+  )
   const j = await r.json()
   const data = j?.data
   if (!j?.success || !data?.fileId) throw new Error(j?.error || "rootz: arquivo não encontrado")

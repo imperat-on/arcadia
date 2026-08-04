@@ -7,7 +7,10 @@ const path = require("path")
 const os = require("os")
 
 const ACHIEVEMENTS_FILE = path.join(os.homedir(), ".local/share/arcadia/achievements.json")
-const ACHIEVEMENTS_STORE_FILE = path.join(os.homedir(), ".local/share/arcadia/achievements_store.json")
+const ACHIEVEMENTS_STORE_FILE = path.join(
+  os.homedir(),
+  ".local/share/arcadia/achievements_store.json",
+)
 const STORE_TTL_MS = 30 * 24 * 3600 * 1000
 
 // Lê achievements.json por inteiro: { appid: { items: [...] } }. Devolve {}

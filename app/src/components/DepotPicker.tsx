@@ -17,7 +17,9 @@ function agrupar(depots: DepotInfo[]): Grupo[] {
   // Só o que pertence ao jogo: base + DLC + idioma. Ignora shared/runtimes
   // (sharedinstall=1 tipo Steamworks Redistributables), depots sem classificação
   // e macOS (Arcadia roda no Linux/Proton — depots Mac são peso morto).
-  const relevantes = depots.filter((d) => !d.shared && d.os !== "macos" && (d.dlcAppid || d.language || d.os))
+  const relevantes = depots.filter(
+    (d) => !d.shared && d.os !== "macos" && (d.dlcAppid || d.language || d.os),
+  )
 
   const buckets = new Map<string, DepotInfo[]>()
   const push = (k: string, d: DepotInfo) => {
@@ -44,7 +46,7 @@ function labelDepot(d: DepotInfo): string {
 }
 
 function sizeGiB(depots: DepotInfo[]): number {
-  return depots.reduce((a, d) => a + (Number(d.size) || 0), 0) / (1024 ** 3)
+  return depots.reduce((a, d) => a + (Number(d.size) || 0), 0) / 1024 ** 3
 }
 
 // Seleção padrão: base do OS atual + inglês. Sem DLC.
@@ -81,7 +83,8 @@ export function DepotPicker({
   const toggleDepot = (id: string) => {
     setSel((prev) => {
       const n = new Set(prev)
-      if (n.has(id)) n.delete(id); else n.add(id)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
       return n
     })
   }
@@ -90,7 +93,8 @@ export function DepotPicker({
       const n = new Set(prev)
       const todosMarcados = g.depots.every((d) => n.has(d.depotId))
       for (const d of g.depots) {
-        if (todosMarcados) n.delete(d.depotId); else n.add(d.depotId)
+        if (todosMarcados) n.delete(d.depotId)
+        else n.add(d.depotId)
       }
       return n
     })
@@ -115,12 +119,14 @@ export function DepotPicker({
                 className="mb-1 flex w-full items-center justify-between text-left text-[13px] text-white/90"
               >
                 <span className="font-medium">
-                  <span className="mr-2">{marcadosG === g.depots.length ? "☑" : marcadosG > 0 ? "◪" : "☐"}</span>
+                  <span className="mr-2">
+                    {marcadosG === g.depots.length ? "☑" : marcadosG > 0 ? "◪" : "☐"}
+                  </span>
                   {g.titulo}
                 </span>
                 <span className="text-[11px] text-white/45">{fmtGiB(gsize)}</span>
               </button>
-              {(
+              {
                 <div className="ml-6 flex flex-col gap-0.5">
                   {g.depots.map((d) => (
                     <button
@@ -132,11 +138,13 @@ export function DepotPicker({
                         <span className="mr-2">{sel.has(d.depotId) ? "☑" : "☐"}</span>
                         {labelDepot(d)}
                       </span>
-                      <span className="text-white/35">{fmtGiB((Number(d.size) || 0) / (1024 ** 3))}</span>
+                      <span className="text-white/35">
+                        {fmtGiB((Number(d.size) || 0) / 1024 ** 3)}
+                      </span>
                     </button>
                   ))}
                 </div>
-              )}
+              }
             </div>
           )
         })}
@@ -177,8 +185,14 @@ export function EscolhaDownloadDialog({
 }) {
   const [lib, setLib] = useState<string>(escolhendo.libs[0]?.steamDir || "")
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onCancel}>
-      <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="w-[560px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="mb-3 text-base font-semibold text-white">{titulo}</h3>
         <div className="mb-3 flex flex-col gap-1.5">
           {escolhendo.libs.map((l) => (

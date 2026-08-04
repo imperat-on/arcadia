@@ -36,11 +36,35 @@ const BLOCK_OFERTA =
 // plural PT/EN. "fone" pega "fones" mas não "fonema"/"telefone"; "intel" pega
 // "Intel" mas não "Intelligent" (o \b final falha no meio da palavra).
 const HW = [
-  "gpu", "cpu", "ssd", "hd externo", "placa de v[íi]deo", "placa-m[ãa]e",
-  "monitor", "headset", "fone", "teclado", "gabinete", "cooler",
-  "fonte de alimenta", "notebook", "smartphone", "celular", "processador",
-  "cadeira gamer", "power ?bank", "roteador", "smart ?tv", "geladeira",
-  "carregador", "rtx", "gtx", "geforce", "radeon", "ryzen", "intel",
+  "gpu",
+  "cpu",
+  "ssd",
+  "hd externo",
+  "placa de v[íi]deo",
+  "placa-m[ãa]e",
+  "monitor",
+  "headset",
+  "fone",
+  "teclado",
+  "gabinete",
+  "cooler",
+  "fonte de alimenta",
+  "notebook",
+  "smartphone",
+  "celular",
+  "processador",
+  "cadeira gamer",
+  "power ?bank",
+  "roteador",
+  "smart ?tv",
+  "geladeira",
+  "carregador",
+  "rtx",
+  "gtx",
+  "geforce",
+  "radeon",
+  "ryzen",
+  "intel",
 ]
 const BLOCK_HW = new RegExp(`\\b(${HW.join("|")})(?:es|s)?\\b`, "i")
 
@@ -93,7 +117,10 @@ function pegar(bloco, tag) {
   const m = bloco.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"))
   if (!m) return ""
   // remove CDATA se houver
-  return m[1].replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim()
+  return m[1]
+    .replace(/^<!\[CDATA\[/, "")
+    .replace(/\]\]>$/, "")
+    .trim()
 }
 
 // Sobe a resolução da imagem. Quase todo feed manda thumbnail, que esticado no
@@ -126,8 +153,7 @@ function melhorarImagem(url) {
 
 // Primeira imagem do item (media:content / media:thumbnail / enclosure / <img>).
 function pegarImagem(bloco) {
-  const attr =
-    bloco.match(/<(?:media:content|media:thumbnail|enclosure)[^>]*\burl="([^"]+)"/i)
+  const attr = bloco.match(/<(?:media:content|media:thumbnail|enclosure)[^>]*\burl="([^"]+)"/i)
   if (attr) return melhorarImagem(attr[1])
   const img = bloco.match(/<img[^>]*\bsrc="([^"]+)"/i)
   if (img) return melhorarImagem(img[1])
@@ -139,7 +165,10 @@ async function buscarFeed(feed) {
   // Feed de notícias sem timeout pendurava a aba Notícias indefinidamente.
   // 8s: os feeds respondem em 3–10s. Com 20s, um único feed pendurado segurava
   // o Promise.all inteiro e, no caso sem cache, a aba junto.
-  const r = await fetchRede(feed.url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) })
+  const r = await fetchRede(feed.url, {
+    headers: { "User-Agent": UA },
+    signal: AbortSignal.timeout(8000),
+  })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const xml = await r.text()
   const itens = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || []
@@ -162,9 +191,7 @@ async function buscarFeed(feed) {
 
 // Junta todas as fontes, ordena por data desc, remove duplicados e corta.
 async function getNews(limite = 40) {
-  const listas = await Promise.all(
-    FEEDS.map((f) => buscarFeed(f).catch(() => [])),
-  )
+  const listas = await Promise.all(FEEDS.map((f) => buscarFeed(f).catch(() => [])))
   const vistos = new Set()
   const todas = []
   for (const lista of listas) {

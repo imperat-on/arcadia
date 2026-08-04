@@ -20,7 +20,10 @@ const UA =
 const SEEK_HASHES_FALLBACK = []
 
 function normalizar(s) {
-  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
 }
 
 function carregarCache() {
@@ -43,11 +46,17 @@ function salvarCache(c) {
 }
 
 async function descobrirHash() {
-  const html = await (await fetchRede("https://howlongtobeat.com/", { headers: { "User-Agent": UA } })).text()
+  const html = await (
+    await fetchRede("https://howlongtobeat.com/", { headers: { "User-Agent": UA } })
+  ).text()
   const m1 = html.match(/_next\/static\/chunks\/pages\/(_app-[a-f0-9]+\.js)/i)
   if (!m1) return null
   const bundleUrl = `https://howlongtobeat.com/_next/static/chunks/pages/${m1[1]}`
-  const js = await (await fetchRede(bundleUrl, { headers: { "User-Agent": UA, Referer: "https://howlongtobeat.com/" } })).text()
+  const js = await (
+    await fetchRede(bundleUrl, {
+      headers: { "User-Agent": UA, Referer: "https://howlongtobeat.com/" },
+    })
+  ).text()
   const m2 =
     js.match(/["']\/api\/seek\/["']\s*\+\s*["']([a-f0-9]+)["']/i) ||
     js.match(/["']\/api\/seek\/["']\.concat\(\s*["']([a-f0-9]+)["']/i) ||
@@ -62,7 +71,15 @@ async function seek(hash, titulo) {
     searchPage: 1,
     size: 5,
     searchOptions: {
-      games: { userId: 0, platform: "", sortCategory: "popular", rangeCategory: "main", rangeTime: { min: null, max: null }, gameplay: { perspective: "", flow: "", genre: "" }, modifier: "" },
+      games: {
+        userId: 0,
+        platform: "",
+        sortCategory: "popular",
+        rangeCategory: "main",
+        rangeTime: { min: null, max: null },
+        gameplay: { perspective: "", flow: "", genre: "" },
+        modifier: "",
+      },
       users: { sortCategory: "postcount" },
       filter: "",
       sort: 0,
@@ -90,7 +107,12 @@ async function hltbBuscar(titulo) {
   const cache = carregarCache()
   const c = cache[key]
   if (c && Date.now() - Number(c.ts || 0) < TTL_MS) {
-    return { main: c.main || 0, mainExtra: c.mainExtra || 0, completionist: c.completionist || 0, ts: c.ts }
+    return {
+      main: c.main || 0,
+      mainExtra: c.mainExtra || 0,
+      completionist: c.completionist || 0,
+      ts: c.ts,
+    }
   }
   let hash = null
   try {

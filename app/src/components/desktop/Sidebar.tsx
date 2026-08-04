@@ -6,7 +6,8 @@ import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
-export type DesktopView = "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "config"
+export type DesktopView =
+  "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "config"
 export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
@@ -16,7 +17,7 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "plugins", label: "Componentes", labelKey: "sidebar.plugins", icon: <IconPlugin /> },
   { id: "downloads", label: "Downloads", labelKey: "sidebar.downloads", icon: <IconDownload /> },
   { id: "fontes", label: "Fontes", labelKey: "sidebar.fontes", icon: <IconFontes /> },
-    { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
+  { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
 ]
 
 const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string }[] = [
@@ -70,29 +71,82 @@ export function Sidebar({
     const l = games.filter((g) => !g.hidden)
     const q = buscaJogos.trim().toLowerCase()
     const f = q ? l.filter((g) => g.title.toLowerCase().includes(q)) : l
-    return [...f].sort((a, b) => Number(b.favorite || false) - Number(a.favorite || false) || a.title.localeCompare(b.title))
+    return [...f].sort(
+      (a, b) =>
+        Number(b.favorite || false) - Number(a.favorite || false) || a.title.localeCompare(b.title),
+    )
   }, [games, buscaJogos])
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col" style={{ background: "var(--sidebar-bg)" }}>
+    <aside
+      className="flex h-full w-64 shrink-0 flex-col"
+      style={{ background: "var(--sidebar-bg)" }}
+    >
       <div className="px-6 pb-5 pt-9">
-        <button onClick={() => setProfileMenu((v) => !v)} className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]">
+        <button
+          onClick={() => setProfileMenu((v) => !v)}
+          className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]"
+        >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
-            {profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" draggable={false} /> : nome[0]?.toUpperCase()}
+            {profile.avatar ? (
+              <img
+                src={profile.avatar}
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
+            ) : (
+              nome[0]?.toUpperCase()
+            )}
           </div>
           <div className="min-w-0">
-            <div className="wordmark arcadia-blink text-[10px] uppercase text-white/55" aria-label="Arcadia">
-              {"Arcadia".split("").map((ch, i) => <span key={i} style={{ animationDelay: `${i * 0.14}s` }}>{ch}</span>)}
+            <div
+              className="wordmark arcadia-blink text-[10px] uppercase text-white/55"
+              aria-label="Arcadia"
+            >
+              {"Arcadia".split("").map((ch, i) => (
+                <span key={i} style={{ animationDelay: `${i * 0.14}s` }}>
+                  {ch}
+                </span>
+              ))}
             </div>
-            <div className="truncate text-[13px] font-medium text-white/80 group-hover:text-white">{nome}</div>
+            <div className="truncate text-[13px] font-medium text-white/80 group-hover:text-white">
+              {nome}
+            </div>
           </div>
         </button>
         {profileMenu && (
           <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-[#16161c]/95 shadow-2xl shadow-black/50 backdrop-blur">
-            <ProfileMenuItem label={t("profile.meu_perfil")} onClick={() => { setProfileMenu(false); onProfile() }} />
-            <ProfileMenuItem label={t("profile.atualizar_biblioteca")} onClick={() => { setProfileMenu(false); onRefresh() }} />
-            <ProfileMenuItem label={t("settings.title")} onClick={() => { setProfileMenu(false); onConfigSub("gerais"); onView("config") }} />
+            <ProfileMenuItem
+              label={t("profile.meu_perfil")}
+              onClick={() => {
+                setProfileMenu(false)
+                onProfile()
+              }}
+            />
+            <ProfileMenuItem
+              label={t("profile.atualizar_biblioteca")}
+              onClick={() => {
+                setProfileMenu(false)
+                onRefresh()
+              }}
+            />
+            <ProfileMenuItem
+              label={t("settings.title")}
+              onClick={() => {
+                setProfileMenu(false)
+                onConfigSub("gerais")
+                onView("config")
+              }}
+            />
             <div className="h-px bg-white/10" />
-            <ProfileMenuItem danger label={t("profile.sair")} onClick={() => { setProfileMenu(false); onQuit() }} />
+            <ProfileMenuItem
+              danger
+              label={t("profile.sair")}
+              onClick={() => {
+                setProfileMenu(false)
+                onQuit()
+              }}
+            />
           </div>
         )}
       </div>
@@ -106,11 +160,16 @@ export function Sidebar({
               <button
                 onClick={() => onView(it.id)}
                 className={`relative flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-[15px] transition-colors ${
-                  active ? "bg-white/[0.07] text-white" : "text-white/50 hover:bg-white/[0.04] hover:text-white/85"
+                  active
+                    ? "bg-white/[0.07] text-white"
+                    : "text-white/50 hover:bg-white/[0.04] hover:text-white/85"
                 }`}
               >
                 {active && (
-                  <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full" style={{ background: "var(--accent)" }} />
+                  <span
+                    className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full"
+                    style={{ background: "var(--accent)" }}
+                  />
                 )}
                 {it.icon}
                 {t(it.labelKey)}
@@ -137,7 +196,9 @@ export function Sidebar({
                           onView("config")
                         }}
                         className={`flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] transition-colors ${
-                          ativo ? "bg-white/[0.06] text-white" : "text-white/45 hover:bg-white/[0.03] hover:text-white/85"
+                          ativo
+                            ? "bg-white/[0.06] text-white"
+                            : "text-white/45 hover:bg-white/[0.03] hover:text-white/85"
                         }`}
                       >
                         <span
@@ -156,7 +217,7 @@ export function Sidebar({
       </nav>
 
       {/* Lista de jogos estilo Hydra (permanente em todas as abas) */}
-      {(
+      {
         <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-white/[0.06] pt-2">
           <div className="flex items-center gap-1 px-4 pb-1">
             <button
@@ -164,18 +225,60 @@ export function Sidebar({
               className="flex flex-1 items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-white/50 transition-colors hover:text-white/80"
               title={librarySidebar ? t("sidebar.ocultar_jogos") : t("sidebar.mostrar_jogos")}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                className={`transition-transform ${librarySidebar ? "" : "-rotate-90"}`}>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`transition-transform ${librarySidebar ? "" : "-rotate-90"}`}
+              >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
               {t("sidebar.jogos")}
-              <span className="ml-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white/60">{jogos.length}</span>
+              <span className="ml-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white/60">
+                {jogos.length}
+              </span>
             </button>
-            <button onClick={onAddGame} title={t("sidebar.adicionar_jogo")} className="rounded p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+            <button
+              onClick={onAddGame}
+              title={t("sidebar.adicionar_jogo")}
+              className="rounded p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
             </button>
-            <button onClick={onRefresh} title={t("sidebar.atualizar")} className="rounded p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+            <button
+              onClick={onRefresh}
+              title={t("sidebar.atualizar")}
+              className="rounded p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M23 4v6h-6" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
             </button>
           </div>
 
@@ -201,20 +304,29 @@ export function Sidebar({
                     title={g.title}
                   >
                     {activeGameId === g.id && (
-                      <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full" style={{ background: "var(--accent)" }} />
+                      <span
+                        className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full"
+                        style={{ background: "var(--accent)" }}
+                      />
                     )}
                     <GameIcon game={g} />
-                    <span className={`truncate text-[13px] ${activeGameId === g.id ? "text-white" : "text-white/75"}`}>{g.title}</span>
+                    <span
+                      className={`truncate text-[13px] ${activeGameId === g.id ? "text-white" : "text-white/75"}`}
+                    >
+                      {g.title}
+                    </span>
                   </button>
                 ))}
                 {jogos.length === 0 && (
-                  <p className="px-2 py-4 text-center text-[12px] text-white/30">{t("library.vazio")}</p>
+                  <p className="px-2 py-4 text-center text-[12px] text-white/30">
+                    {t("library.vazio")}
+                  </p>
                 )}
               </div>
             </>
           )}
         </div>
-      )}
+      }
 
       {/* Rodapé */}
       <div className="mt-auto px-6 py-4">
@@ -223,15 +335,40 @@ export function Sidebar({
           className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2.5 text-left text-[13px] font-semibold text-white/70 transition-colors hover:border-[color:var(--accent)] hover:text-white"
           title={t("sidebar.modo_tela_cheia")}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8m-4-4v4" />
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8m-4-4v4" />
           </svg>
           {t("sidebar.bigpicture")}
         </button>
         <div className="flex items-center justify-between text-xs text-white/35">
-          <span>{t("app.name")} · {t("sidebar.modo_desktop")}</span>
-          <button onClick={onQuit} className="flex items-center gap-1.5 text-white/50 transition-colors hover:text-white" title={t("sidebar.sair")}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <span>
+            {t("app.name")} · {t("sidebar.modo_desktop")}
+          </span>
+          <button
+            onClick={onQuit}
+            className="flex items-center gap-1.5 text-white/50 transition-colors hover:text-white"
+            title={t("sidebar.sair")}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
               <line x1="12" x2="12" y1="2" y2="12" />
             </svg>
@@ -249,16 +386,35 @@ function GameIcon({ game }: { game: Game }) {
   const [fase, setFase] = useState(0)
   const src = fontes[fase]
   if (src) {
-    return <img src={src} alt="" onError={() => setFase((f) => f + 1)} draggable={false} className="h-7 w-7 shrink-0 rounded-md object-cover" />
+    return (
+      <img
+        src={src}
+        alt=""
+        onError={() => setFase((f) => f + 1)}
+        draggable={false}
+        className="h-7 w-7 shrink-0 rounded-md object-cover"
+      />
+    )
   }
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-bold text-white/70" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
+    <span
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-bold text-white/70"
+      style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}
+    >
       {game.title[0]?.toUpperCase() || "?"}
     </span>
   )
 }
 
-function ProfileMenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+function ProfileMenuItem({
+  label,
+  onClick,
+  danger,
+}: {
+  label: string
+  onClick: () => void
+  danger?: boolean
+}) {
   return (
     <button
       onClick={onClick}
@@ -273,7 +429,16 @@ function ProfileMenuItem({ label, onClick, danger }: { label: string; onClick: (
    Set autoral, não Lucide. Uma gramática só: grade 24, cantos vivos, um
    acento diagonal a 45° que reaparece em cada símbolo (o "corte" do Arcadia).
    Traço fino e geométrico para casar com o wordmark Michroma sobre o OLED. */
-const s = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" } as const
+const s = {
+  width: 18,
+  height: 18,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const
 
 // Início: telhado chanfrado + núcleo, o corte diagonal marca a "porta".
 function IconHome() {
@@ -365,4 +530,3 @@ function IconA11y() {
     </svg>
   )
 }
-
