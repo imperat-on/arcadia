@@ -421,6 +421,12 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           </div>
         </section>
 
+        {/* Conquistas — progresso do jogo em tempo real */}
+        <AchievementsRow
+          appid={String((game as any).appid || game.id?.replace("steam:", "") || "")}
+          closing={closing}
+        />
+
         {/* Dica de controle */}
         <div
           className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/60 ${closing ? "ov-out" : "ov-w4"}`}
@@ -441,6 +447,90 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     </div>
   )
 })
+
+function AchievementsRow({ appid, closing }: { appid: string; closing: boolean }) {
+  const { t } = useI18n()
+  const [items, setItems] = useState<any[] | null>(null)
+  const [conquista, setConquista] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (!appid) return
+    let vivo = true
+    window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
+      if (vivo && arr?.length) setItems(arr)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [appid])
+
+  useEffect(() => {
+    if (!appid) return
+    const off = window.launcherAPI?.onAchievementUnlocked((p: any) => {
+      if (p.appid !== appid) return
+      setConquista({ ...p, _ts: Date.now() })
+      setTimeout(() => setConquista(null), 5000)
+      // Atualiza a lista para refletir o unlock
+      window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
+        if (arr?.length) setItems(arr)
+      })
+    })
+    return off
+  }, [appid])
+
+  if (!appid || !items?.length) return null
+
+  const desbloq = items.filter((i: any) => i.achieved).length
+  const pct = Math.round((desbloq / items.length) * 100)
+  const recentes = [...items]
+    .filter((i: any) => i.achieved && i.icon)
+    .sort((a: any, b: any) => (b.unlock || 0) - (a.unlock || 0))
+    .slice(0, 10)
+
+  return (
+    <div className={`mt-8 ${closing ? "ov-out" : ""}`}>
+      <div className="flex items-center gap-3">
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: "var(--accent)" }}
+        />
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/50">
+          {t("conquistas.titulo")} · {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
+        </h3>
+        {conquista && (
+          <span className="animate-slide-in rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">
+            {conquista.title}
+          </span>
+        )}
+      </div>
+      {/* Barra de progresso */}
+      <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.08]">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${pct}%`,
+            background: "var(--accent)",
+          }}
+        />
+      </div>
+      {/* Ícones das conquistas recentes */}
+      {recentes.length > 0 && (
+        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
+          {recentes.map((i: any) => (
+            <img
+              key={i.apiname}
+              src={i.icon}
+              alt={i.title}
+              title={i.title}
+              className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+              loading="lazy"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function Glyph({ kind }: { kind: "cross" | "circle" }) {
   const cfg =
