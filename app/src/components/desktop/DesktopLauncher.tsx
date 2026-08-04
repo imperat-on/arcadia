@@ -22,6 +22,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
+import { AchievementToast } from "../AchievementToast"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -289,6 +290,7 @@ export function DesktopLauncher() {
           </div>
         </div>
       )}
+      <AchievementToast />
     </div>
   )
 }
