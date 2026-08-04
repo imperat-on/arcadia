@@ -277,7 +277,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
         {/* Corpo: trailer + detalhes */}
         <section
-          className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.6fr_1fr] ${closing ? "ov-out" : ""}`}
+          className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.4fr_1fr_1fr] ${closing ? "ov-out" : ""}`}
         >
           {/* Trailer — clicar liga/desliga o som. Sem trailer local, mostra a
               notícia relacionada. */}
@@ -419,13 +419,14 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                 ))}
             </div>
           </div>
-        </section>
 
-        {/* Conquistas — progresso do jogo em tempo real */}
-        <AchievementsRow
-          appid={String((game as any).appid || game.id?.replace("steam:", "") || "")}
-          closing={closing}
-        />
+          {/* Conquistas — painel estilo Steam no terceiro bloco */}
+          <AchievementsCard
+            appid={String((game as any).appid || game.id?.replace("steam:", "") || "")}
+            t={t}
+            closing={closing}
+          />
+        </section>
 
         {/* Dica de controle */}
         <div
@@ -448,10 +449,13 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   )
 })
 
-function AchievementsRow({ appid, closing }: { appid: string; closing: boolean }) {
-  const { t } = useI18n()
+function AchievementsCard({
+  appid,
+  t,
+  closing,
+}: { appid: string; t: any; closing: boolean }) {
   const [items, setItems] = useState<any[] | null>(null)
-  const [conquista, setConquista] = useState<any | null>(null)
+  const [recente, setRecente] = useState<string | null>(null)
 
   useEffect(() => {
     if (!appid) return
@@ -459,18 +463,15 @@ function AchievementsRow({ appid, closing }: { appid: string; closing: boolean }
     window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
       if (vivo && arr?.length) setItems(arr)
     })
-    return () => {
-      vivo = false
-    }
+    return () => { vivo = false }
   }, [appid])
 
   useEffect(() => {
     if (!appid) return
     const off = window.launcherAPI?.onAchievementUnlocked((p: any) => {
       if (p.appid !== appid) return
-      setConquista({ ...p, _ts: Date.now() })
-      setTimeout(() => setConquista(null), 5000)
-      // Atualiza a lista para refletir o unlock
+      setRecente(p.key)
+      setTimeout(() => setRecente(null), 2500)
       window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
         if (arr?.length) setItems(arr)
       })
@@ -482,52 +483,82 @@ function AchievementsRow({ appid, closing }: { appid: string; closing: boolean }
 
   const desbloq = items.filter((i: any) => i.achieved).length
   const pct = Math.round((desbloq / items.length) * 100)
-  const recentes = [...items]
-    .filter((i: any) => i.achieved && i.icon)
-    .sort((a: any, b: any) => (b.unlock || 0) - (a.unlock || 0))
-    .slice(0, 10)
+  const ordenadas = [...items].sort((a: any, b: any) => {
+    if (a.achieved !== b.achieved) return a.achieved ? -1 : 1
+    return (b.unlock || 0) - (a.unlock || 0)
+  })
 
   return (
-    <div className={`mt-8 ${closing ? "ov-out" : ""}`}>
-      <div className="flex items-center gap-3">
+    <div
+      className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w3"}`}
+    >
+      {/* Cabeçalho */}
+      <div className="flex items-center gap-2 border-b border-white/[0.06] px-6 py-4">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
           style={{ background: "var(--accent)" }}
         />
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.24em] text-white/50">
-          {t("conquistas.titulo")} · {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
-        </h3>
-        {conquista && (
-          <span className="animate-slide-in rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">
-            {conquista.title}
-          </span>
-        )}
+        <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
+          {t("conquistas.titulo")}
+        </span>
+        <span className="ml-auto rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold text-white/50">
+          {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
+        </span>
       </div>
+
       {/* Barra de progresso */}
-      <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.08]">
+      <div className="mx-6 mt-3 h-0.5 rounded-full bg-white/[0.06]">
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${pct}%`,
-            background: "var(--accent)",
-          }}
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, background: "var(--accent)" }}
         />
       </div>
-      {/* Ícones das conquistas recentes */}
-      {recentes.length > 0 && (
-        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
-          {recentes.map((i: any) => (
-            <img
-              key={i.apiname}
-              src={i.icon}
-              alt={i.title}
-              title={i.title}
-              className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
-              loading="lazy"
-            />
-          ))}
-        </div>
-      )}
+
+      {/* Lista de conquistas */}
+      <div className="flex-1 space-y-0.5 overflow-y-auto px-4 py-3">
+        {ordenadas.map((it: any) => {
+          const key = `${it.block}|${it.bit}`
+          const ehRecem = recente === key
+          return (
+            <div
+              key={it.apiname || `${it.block}.${it.bit}`}
+              className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors ${
+                ehRecem ? "bg-accent/10 ring-1 ring-accent/30" : ""
+              } ${it.achieved ? "" : "opacity-35"}`}
+            >
+              {it.icon ? (
+                <img
+                  src={it.achieved ? it.icon : it.icongray || it.icon}
+                  alt=""
+                  className="h-9 w-9 shrink-0 rounded-md object-cover"
+                  style={{ filter: it.achieved ? "none" : "grayscale(1)" }}
+                />
+              ) : (
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/5 text-xs">
+                  🏆
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div
+                  className={`truncate text-[11px] font-medium leading-tight ${
+                    it.achieved ? "text-white/90" : "text-white/35"
+                  }`}
+                >
+                  {it.title || it.apiname}
+                </div>
+                <div className="truncate text-[10px] leading-tight text-white/25">
+                  {it.desc || " "}
+                </div>
+              </div>
+              {it.achieved && (
+                <svg viewBox="0 0 24 24" fill="var(--accent)" className="h-3.5 w-3.5 shrink-0">
+                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                </svg>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
