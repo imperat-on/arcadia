@@ -30,7 +30,14 @@ export type ManifestInfo = {
   installdir?: string
 }
 
-export type JogoLoja = { appid: string; title: string; cover?: string; capa?: string; hero?: string; heroi?: string }
+export type JogoLoja = {
+  appid: string
+  title: string
+  cover?: string
+  capa?: string
+  hero?: string
+  heroi?: string
+}
 
 export type Biblioteca = { path: string; steamDir: string; free: number }
 
@@ -94,17 +101,22 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
     status()
     const offLib = window.launcherAPI?.onLibraryChanged(() => status())
     const offPlugins = window.launcherAPI?.onPluginsChanged?.(() => status())
-    return () => { offLib?.(); offPlugins?.() }
+    return () => {
+      offLib?.()
+      offPlugins?.()
+    }
   }, [])
 
   // Jogos que não devem oferecer Baixar/Add: já adicionados à Steam ou já
   // presentes na biblioteca do Arcadia. Ocultos (hidden) não contam: "Remover"
   // da loja só oculta o jogo indexado, e sem este filtro o botão continuava
   // "Na biblioteca" depois de removido.
-  const bloqueados = new Set([
-    ...jaAdicionados,
-    ...games.filter((g) => !g.hidden).map((g) => String(g.id).replace(/^steam:/, "")),
-  ].filter((appid) => !removidosLocal.has(appid)))
+  const bloqueados = new Set(
+    [
+      ...jaAdicionados,
+      ...games.filter((g) => !g.hidden).map((g) => String(g.id).replace(/^steam:/, "")),
+    ].filter((appid) => !removidosLocal.has(appid)),
+  )
 
   // Buscar o manifesto passa por vários provedores e pode levar dezenas de
   // segundos. Guardamos por appid para que Add logo depois de Baixar no mesmo
@@ -160,7 +172,15 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         const magnet = uris.find((u) => String(u).startsWith("magnet:"))
         const http = uris.find((u) => /^https?:\/\//.test(String(u)))
         const uri = magnet || http
-        if (uri) opcoes.push({ ref: cand.ref, magnet: String(uri), fonte: cand.src, tituloFonte: cand.title, fileSize: cand.fileSize, http: !magnet })
+        if (uri)
+          opcoes.push({
+            ref: cand.ref,
+            magnet: String(uri),
+            fonte: cand.src,
+            tituloFonte: cand.title,
+            fileSize: cand.fileSize,
+            http: !magnet,
+          })
       }
       return opcoes.length ? opcoes : null
     } catch {
@@ -231,37 +251,46 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
 
   // Confirma o download via torrent na pasta escolhida (padrão: mesma do
   // InstallDialog — config.default_install_path ou ~/Games/Arcadia).
-  const confirmarTorrent = useCallback(
-    async (jogo: JogoLoja, magnet: string, savePath: string) => {
-      setMetodo(null)
-      setBusy(jogo.appid)
-      try {
-        const r = await window.launcherAPI?.torrentStart({
-          gameId: jogo.appid,
-          url: magnet,
-          savePath,
-          title: jogo.title,
-          cover: `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`,
-        })
-        setToast(r?.ok ? `"${jogo.title}" entrou nos downloads via torrent.` : r?.error || "Falha ao iniciar o torrent")
-      } catch (e) {
-        setToast(`Falha ao iniciar o torrent: ${e}`)
-      } finally {
-        setBusy("")
-      }
-    },
-    [],
-  )
+  const confirmarTorrent = useCallback(async (jogo: JogoLoja, magnet: string, savePath: string) => {
+    setMetodo(null)
+    setBusy(jogo.appid)
+    try {
+      const r = await window.launcherAPI?.torrentStart({
+        gameId: jogo.appid,
+        url: magnet,
+        savePath,
+        title: jogo.title,
+        cover: `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_600x900.jpg`,
+      })
+      setToast(
+        r?.ok
+          ? `"${jogo.title}" entrou nos downloads via torrent.`
+          : r?.error || "Falha ao iniciar o torrent",
+      )
+    } catch (e) {
+      setToast(`Falha ao iniciar o torrent: ${e}`)
+    } finally {
+      setBusy("")
+    }
+  }, [])
 
   const confirmarBaixar = useCallback(
-    async (jogo: JogoLoja, info: ManifestInfo, steamDir?: string, depotsEscolhidos?: DepotInfo[]) => {
+    async (
+      jogo: JogoLoja,
+      info: ManifestInfo,
+      steamDir?: string,
+      depotsEscolhidos?: DepotInfo[],
+    ) => {
       setEscolhendo(null)
       setBusy(jogo.appid)
       try {
         const r = await window.launcherAPI?.storeInstall({
           appid: jogo.appid,
           title: jogo.title,
-          cover: jogo.capa || jogo.cover || `https://steamcdn-a.akamaihd.net/steam/apps/${jogo.appid}/library_600x900.jpg`,
+          cover:
+            jogo.capa ||
+            jogo.cover ||
+            `https://steamcdn-a.akamaihd.net/steam/apps/${jogo.appid}/library_600x900.jpg`,
           installdir: info.installdir || jogo.title.replace(/[^A-Za-z0-9]/g, ""),
           depots: depotsEscolhidos && depotsEscolhidos.length ? depotsEscolhidos : info.depots,
           token: info.token,
@@ -272,7 +301,11 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         if (r?.plugin) {
           setToast(`Requer o plugin ${r.plugin} (aba Plugins).`)
         } else {
-          setToast(r?.ok ? `"${jogo.title}" entrou na fila de downloads${via}.` : r?.error || "Falha ao enfileirar")
+          setToast(
+            r?.ok
+              ? `"${jogo.title}" entrou na fila de downloads${via}.`
+              : r?.error || "Falha ao enfileirar",
+          )
         }
       } catch (e) {
         setToast(`Falha ao enfileirar: ${e}`)
@@ -324,7 +357,13 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
           })
         }
         const faltaPlugin = "plugin" in r && r.plugin
-        setToast(faltaPlugin ? "Configure uma integração local em Plugins para habilitar estas ações." : r?.ok ? `"${jogo.title}" adicionado à biblioteca.` : r?.error || "Falha ao adicionar")
+        setToast(
+          faltaPlugin
+            ? "Configure uma integração local em Plugins para habilitar estas ações."
+            : r?.ok
+              ? `"${jogo.title}" adicionado à biblioteca.`
+              : r?.error || "Falha ao adicionar",
+        )
       } catch (e) {
         setToast(`Falha ao adicionar: ${e}`)
       } finally {

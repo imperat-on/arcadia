@@ -10,77 +10,92 @@ interface DownloadManagerProps {
 }
 
 // Tela de downloads estilo PS5: um card por jogo, barra azul-glow, MB/s e ETA.
-export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(function DownloadManager(
-  { onClose },
-  ref,
-) {
-  const { t } = useI18n()
-  const [items, setItems] = useState<DmItem[]>([])
+export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
+  function DownloadManager({ onClose }, ref) {
+    const { t } = useI18n()
+    const [items, setItems] = useState<DmItem[]>([])
 
-  useEffect(() => {
-    window.launcherAPI?.dmQueue().then((q) => {
-      if (Array.isArray(q)) setItems(q)
-    })
-    return window.launcherAPI?.onDmProgress((q) => {
-      if (Array.isArray(q)) setItems(q)
-    })
-  }, [])
+    useEffect(() => {
+      window.launcherAPI?.dmQueue().then((q) => {
+        if (Array.isArray(q)) setItems(q)
+      })
+      return window.launcherAPI?.onDmProgress((q) => {
+        if (Array.isArray(q)) setItems(q)
+      })
+    }, [])
 
-  // Ativos e não concluídos em seções separadas. O desktop recebeu isso no
-  // commit 717a793 e esta tela ficou para trás: os cards vinham misturados sob
-  // "Baixando agora", com o contador dizendo "N ativo(s)" ao lado de itens em
-  // erro — a tela se contradizia.
-  const ativos = items.filter((i) => ["downloading", "queued", "paused"].includes(i.status))
-  const parados = items.filter((i) => !["downloading", "queued", "paused"].includes(i.status))
-  const baixando = ativos.some((i) => i.status === "downloading")
+    // Ativos e não concluídos em seções separadas. O desktop recebeu isso no
+    // commit 717a793 e esta tela ficou para trás: os cards vinham misturados sob
+    // "Baixando agora", com o contador dizendo "N ativo(s)" ao lado de itens em
+    // erro — a tela se contradizia.
+    const ativos = items.filter((i) => ["downloading", "queued", "paused"].includes(i.status))
+    const parados = items.filter((i) => !["downloading", "queued", "paused"].includes(i.status))
+    const baixando = ativos.some((i) => i.status === "downloading")
 
-  return (
-    <div ref={ref} className="gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl">
-      <div className="mx-auto max-w-[1100px] px-10 py-8">
-        {/* Cabeçalho */}
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-          {t("downloads.titulo")}
-        </div>
-        <div className="mb-8 flex items-baseline justify-between">
-          <h1 className="text-3xl font-light tracking-wide">
-            {baixando ? t("downloads.baixando_agora") : ativos.length ? t("downloads.status.na_fila") : t("downloads.fila")}
-          </h1>
-          <span className="text-sm text-white/40">
-            {t("downloads.ativos", { count: String(ativos.length) })}
-            {parados.length > 0 && ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
-          </span>
-        </div>
-
-        {items.length === 0 ? (
-          <div className="flex min-h-[300px] items-center justify-center text-white/35">
-            {t("downloads.vazio")}
+    return (
+      <div
+        ref={ref}
+        className="gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
+      >
+        <div className="mx-auto max-w-[1100px] px-10 py-8">
+          {/* Cabeçalho */}
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: "var(--accent)" }}
+            />
+            {t("downloads.titulo")}
           </div>
-        ) : (
-          <div className="flex flex-col gap-4 pb-10">
-            {ativos.map((it) => (
-              <DmCard key={it.appid} item={it} />
-            ))}
-            {parados.length > 0 && (
-              <>
-                <h2 className="mt-4 text-sm font-medium text-white/45">{t("downloads.nao_concluidos")}</h2>
-                {parados.map((it) => (
-                  <DmCard key={it.appid} item={it} />
-                ))}
-              </>
-            )}
+          <div className="mb-8 flex items-baseline justify-between">
+            <h1 className="text-3xl font-light tracking-wide">
+              {baixando
+                ? t("downloads.baixando_agora")
+                : ativos.length
+                  ? t("downloads.status.na_fila")
+                  : t("downloads.fila")}
+            </h1>
+            <span className="text-sm text-white/40">
+              {t("downloads.ativos", { count: String(ativos.length) })}
+              {parados.length > 0 &&
+                ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
+            </span>
           </div>
-        )}
 
-        <div className="flex items-center justify-end gap-6 pb-2 text-xs text-white/40">
-          <button onClick={onClose} className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]">
-            {t("gameoverview.controle.voltar")}
-          </button>
+          {items.length === 0 ? (
+            <div className="flex min-h-[300px] items-center justify-center text-white/35">
+              {t("downloads.vazio")}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 pb-10">
+              {ativos.map((it) => (
+                <DmCard key={it.appid} item={it} />
+              ))}
+              {parados.length > 0 && (
+                <>
+                  <h2 className="mt-4 text-sm font-medium text-white/45">
+                    {t("downloads.nao_concluidos")}
+                  </h2>
+                  {parados.map((it) => (
+                    <DmCard key={it.appid} item={it} />
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-6 pb-2 text-xs text-white/40">
+            <button
+              onClick={onClose}
+              className="outline-none transition-colors hover:text-white/70 focus-visible:text-[color:var(--accent)]"
+            >
+              {t("gameoverview.controle.voltar")}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  )
-})
+    )
+  },
+)
 
 export function DmCard({ item: it }: { item: DmItem }) {
   const { t } = useI18n()
@@ -90,11 +105,18 @@ export function DmCard({ item: it }: { item: DmItem }) {
   const [cancelando, setCancelando] = useState(false)
   // A URL salva no item pode falhar (404, CDN offline). Sem fallback a tela
   // mostra o ícone de imagem quebrada em vez do placeholder.
-  const appidSteam = String(it.appid).startsWith("steam:") ? String(it.appid).replace(/^steam:/, "") : ""
-  const fallbackSteam = appidSteam ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidSteam}/library_600x900.jpg` : ""
+  const appidSteam = String(it.appid).startsWith("steam:")
+    ? String(it.appid).replace(/^steam:/, "")
+    : ""
+  const fallbackSteam = appidSteam
+    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidSteam}/library_600x900.jpg`
+    : ""
   const [coverSrc, setCoverSrc] = useState(it.cover)
   const [coverQuebrou, setCoverQuebrou] = useState(false)
-  useEffect(() => { setCoverSrc(it.cover); setCoverQuebrou(false) }, [it.cover])
+  useEffect(() => {
+    setCoverSrc(it.cover)
+    setCoverQuebrou(false)
+  }, [it.cover])
   const baixando = it.status === "downloading"
   const pausado = it.status === "paused"
   const ativo = baixando || pausado || it.status === "queued"
@@ -125,7 +147,9 @@ export function DmCard({ item: it }: { item: DmItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-4">
           <h3 className="truncate text-base font-medium">{it.title}</h3>
-          <span className="shrink-0 text-xs text-white/50">{t("downloads.status." + it.status)}</span>
+          <span className="shrink-0 text-xs text-white/50">
+            {t("downloads.status." + it.status)}
+          </span>
         </div>
 
         {/* Barra de progresso azul-glow */}
@@ -143,27 +167,43 @@ export function DmCard({ item: it }: { item: DmItem }) {
         <div className="mt-2 flex items-baseline justify-between text-xs text-white/50">
           <span className="tabular-nums">
             {it.total > 0
-              ? t("downloads.progresso", { done: fmtMiB(it.done), total: fmtMiB(it.total), pct: String(pct) })
+              ? t("downloads.progresso", {
+                  done: fmtMiB(it.done),
+                  total: fmtMiB(it.total),
+                  pct: String(pct),
+                })
               : it.done > 0
                 ? t("downloads.progresso_parcial", { done: fmtMiB(it.done), pct: String(pct) })
-                : it.status === "queued" ? t("downloads.aguardando") : `${pct}%`}
+                : it.status === "queued"
+                  ? t("downloads.aguardando")
+                  : `${pct}%`}
           </span>
           {baixando && (
             <span className="tabular-nums text-white/70">
-              {it.speed > 0 ? t("downloads.velocidade", { speed: it.speed.toFixed(1) }) : ""} {it.eta ? t("downloads.eta", { eta: it.eta }) : ""}
+              {it.speed > 0 ? t("downloads.velocidade", { speed: it.speed.toFixed(1) }) : ""}{" "}
+              {it.eta ? t("downloads.eta", { eta: it.eta }) : ""}
             </span>
           )}
-          {it.status === "error" && <span className="text-[#ff6b81]">{it.error || t("downloads.falhou")}</span>}
+          {it.status === "error" && (
+            <span className="text-[#ff6b81]">{it.error || t("downloads.falhou")}</span>
+          )}
         </div>
       </div>
 
       {/* Ações */}
       <div className="flex shrink-0 flex-col gap-2">
         {baixando && (
-          <Acao label={t("downloads.pausar")} onClick={() => window.launcherAPI?.dmPause(it.appid)} />
+          <Acao
+            label={t("downloads.pausar")}
+            onClick={() => window.launcherAPI?.dmPause(it.appid)}
+          />
         )}
         {pausado && (
-          <Acao label={t("downloads.retomar")} primaria onClick={() => window.launcherAPI?.dmResume(it.appid)} />
+          <Acao
+            label={t("downloads.retomar")}
+            primaria
+            onClick={() => window.launcherAPI?.dmResume(it.appid)}
+          />
         )}
         {ativo && (
           <Acao
@@ -179,8 +219,15 @@ export function DmCard({ item: it }: { item: DmItem }) {
             sempre, e mandar baixar de novo criava um card duplicado. */}
         {it.status === "error" && (
           <>
-            <Acao label={t("downloads.tentar_novamente")} primaria onClick={() => window.launcherAPI?.dmRetry(it.appid)} />
-            <Acao label={t("common.remover")} onClick={() => window.launcherAPI?.dmDismiss(it.appid)} />
+            <Acao
+              label={t("downloads.tentar_novamente")}
+              primaria
+              onClick={() => window.launcherAPI?.dmRetry(it.appid)}
+            />
+            <Acao
+              label={t("common.remover")}
+              onClick={() => window.launcherAPI?.dmDismiss(it.appid)}
+            />
           </>
         )}
       </div>
@@ -188,7 +235,17 @@ export function DmCard({ item: it }: { item: DmItem }) {
   )
 }
 
-function Acao({ label, onClick, primaria, perigo }: { label: string; onClick: () => void; primaria?: boolean; perigo?: boolean }) {
+function Acao({
+  label,
+  onClick,
+  primaria,
+  perigo,
+}: {
+  label: string
+  onClick: () => void
+  primaria?: boolean
+  perigo?: boolean
+}) {
   return (
     <button
       onClick={onClick}

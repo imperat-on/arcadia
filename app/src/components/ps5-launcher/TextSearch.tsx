@@ -63,7 +63,10 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
         role="dialog"
         aria-label={t("textsearch.buscar_descricao")}
       >
-        <div className="px-6 py-4 flex items-center gap-3" style={{ background: "rgba(0,0,0,0.5)" }}>
+        <div
+          className="px-6 py-4 flex items-center gap-3"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
           <span className="text-white text-[15px] font-semibold tracking-wide uppercase whitespace-nowrap">
             {t("textsearch.buscar_descricao")}
           </span>

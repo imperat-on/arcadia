@@ -83,7 +83,14 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     developers?: string[]
     publishers?: string[]
     release_date?: string
-    movies?: Array<{ id?: string | number; name?: string; thumb?: string; mp4?: string; webm?: string; hls?: string }>
+    movies?: Array<{
+      id?: string | number
+      name?: string
+      thumb?: string
+      mp4?: string
+      webm?: string
+      hls?: string
+    }>
     header?: string
   } | null>(null)
 
@@ -94,24 +101,42 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     if (!precisaEnriquecer) return
     const api = window.launcherAPI
     if (!api?.gameSysinfo) return
-    api.gameSysinfo(game).then((r: any) => {
-      if (vivo && r && typeof r === "object") setMeta(r?.info ?? null)
-    }).catch(() => {})
-    return () => { vivo = false }
+    api
+      .gameSysinfo(game)
+      .then((r: any) => {
+        if (vivo && r && typeof r === "object") setMeta(r?.info ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
   }, [game.id])
   // HowLongToBeat: tempos de jogo (horas). Falha silenciosa — sem linha na UI.
-  const [hltb, setHltb] = useState<{ main: number; mainExtra: number; completionist: number } | null>(null)
+  const [hltb, setHltb] = useState<{
+    main: number
+    mainExtra: number
+    completionist: number
+  } | null>(null)
 
   useEffect(() => {
     let vivo = true
     setHltb(null)
     const api = window.launcherAPI
     if (!api?.hltbGet || !game.title) return
-    api.hltbGet(game.title).then((r) => {
-      if (!vivo || !r) return
-      setHltb({ main: r.main || 0, mainExtra: r.mainExtra || 0, completionist: r.completionist || 0 })
-    }).catch(() => {})
-    return () => { vivo = false }
+    api
+      .hltbGet(game.title)
+      .then((r) => {
+        if (!vivo || !r) return
+        setHltb({
+          main: r.main || 0,
+          mainExtra: r.mainExtra || 0,
+          completionist: r.completionist || 0,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
   }, [game.id])
   useEffect(() => {
     let vivo = true
@@ -120,11 +145,14 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
       setTrailer(null)
       return
     }
-    api.trailerPath(game.id).then((r) => {
-      if (vivo) setTrailer(r?.path || null)
-    }).catch(() => {
-      if (vivo) setTrailer(null)
-    })
+    api
+      .trailerPath(game.id)
+      .then((r) => {
+        if (vivo) setTrailer(r?.path || null)
+      })
+      .catch(() => {
+        if (vivo) setTrailer(null)
+      })
     return () => {
       vivo = false
     }
@@ -145,16 +173,31 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     [t("gameoverview.detalhes.genero"), game.genre],
     [t("gameoverview.detalhes.lancamento"), game.year || meta?.release_date],
     [t("gameoverview.detalhes.jogadores"), game.players],
-    [t("gameoverview.detalhes.tempo_jogo"), game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined],
+    [
+      t("gameoverview.detalhes.tempo_jogo"),
+      game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined,
+    ],
     [t("gameoverview.detalhes.hltb_main"), hltb?.main ? tempoDeJogo(hltb.main, t) : undefined],
-    [t("gameoverview.detalhes.hltb_main_extra"), hltb?.mainExtra ? tempoDeJogo(hltb.mainExtra, t) : undefined],
-    [t("gameoverview.detalhes.hltb_100"), hltb?.completionist ? tempoDeJogo(hltb.completionist, t) : undefined],
-    [t("gameoverview.detalhes.metacritic"), game.metacritic ? `${game.metacritic} / 100` : undefined],
+    [
+      t("gameoverview.detalhes.hltb_main_extra"),
+      hltb?.mainExtra ? tempoDeJogo(hltb.mainExtra, t) : undefined,
+    ],
+    [
+      t("gameoverview.detalhes.hltb_100"),
+      hltb?.completionist ? tempoDeJogo(hltb.completionist, t) : undefined,
+    ],
+    [
+      t("gameoverview.detalhes.metacritic"),
+      game.metacritic ? `${game.metacritic} / 100` : undefined,
+    ],
     [t("gameoverview.detalhes.fonte"), game.launcher],
   ]
 
   return (
-    <div ref={ref} className="gp-scope fixed inset-0 z-40 overflow-hidden bg-black text-white antialiased">
+    <div
+      ref={ref}
+      className="gp-scope fixed inset-0 z-40 overflow-hidden bg-black text-white antialiased"
+    >
       {/* Fundo: hero à DIREITA, afundando num gradiente OLED pesado — a arte
           fica como clima, nunca atrapalha a leitura */}
       <div className={closing ? "ov-out absolute inset-0" : "ov-bg-in absolute inset-0"}>
@@ -163,7 +206,10 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
             src={game.hero}
             alt=""
             className="absolute inset-y-0 right-0 h-full w-[70%] object-cover object-right"
-            style={{ maskImage: "linear-gradient(to left, black 30%, transparent 95%)", WebkitMaskImage: "linear-gradient(to left, black 30%, transparent 95%)" }}
+            style={{
+              maskImage: "linear-gradient(to left, black 30%, transparent 95%)",
+              WebkitMaskImage: "linear-gradient(to left, black 30%, transparent 95%)",
+            }}
             draggable={false}
           />
         )}
@@ -189,7 +235,12 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
           <div className={`min-w-0 flex-1 pt-1 ${closing ? "" : "ov-hero-text"}`}>
             {game.logo ? (
-              <img src={game.logo} alt={game.title} className="max-h-16 max-w-[380px] object-contain object-left" draggable={false} />
+              <img
+                src={game.logo}
+                alt={game.title}
+                className="max-h-16 max-w-[380px] object-contain object-left"
+                draggable={false}
+              />
             ) : (
               <h1 className="game-name truncate text-4xl font-light tracking-wide">{game.title}</h1>
             )}
@@ -209,15 +260,25 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               style={{ boxShadow: "0 10px 40px -10px rgba(255,255,255,0.35)" }}
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                {rodando ? <rect x="6" y="6" width="12" height="12" rx="1.5" /> : <path d="M8 5v14l11-7z" />}
+                {rodando ? (
+                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                ) : (
+                  <path d="M8 5v14l11-7z" />
+                )}
               </svg>
-              {rodando ? t("gameoverview.parar_jogo") : abrindo ? t("common.abrindo") : t("gameoverview.jogar_agora")}
+              {rodando
+                ? t("gameoverview.parar_jogo")
+                : abrindo
+                  ? t("common.abrindo")
+                  : t("gameoverview.jogar_agora")}
             </button>
           </div>
         </section>
 
         {/* Corpo: trailer + detalhes */}
-        <section className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.6fr_1fr] ${closing ? "ov-out" : ""}`}>
+        <section
+          className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.6fr_1fr] ${closing ? "ov-out" : ""}`}
+        >
           {/* Trailer — clicar liga/desliga o som. Sem trailer local, mostra a
               notícia relacionada. */}
           {trailer !== null ? (
@@ -241,13 +302,40 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
                 <span className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg bg-black/50 ring-1 ring-white/15 backdrop-blur-md">
                   {somTrailer ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M11 5 6 9H2v6h4l5 4V5Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></svg>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                    >
+                      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+                      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                    </svg>
                   ) : (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M11 5 6 9H2v6h4l5 4V5Z" /><line x1="22" x2="16" y1="9" y2="15" /><line x1="16" x2="22" y1="9" y2="15" /></svg>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                    >
+                      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+                      <line x1="22" x2="16" y1="9" y2="15" />
+                      <line x1="16" x2="22" y1="9" y2="15" />
+                    </svg>
                   )}
                 </span>
                 <span className="absolute bottom-4 left-5 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: "var(--accent)" }}
+                  />
                   {t("gameoverview.trailer")}
                 </span>
               </div>
@@ -274,13 +362,20 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                   <>
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 p-6">
-                      <h5 className="line-clamp-2 max-w-[90%] text-lg font-normal text-white/95">{destaque.title}</h5>
-                      <p className="mt-1 text-xs tracking-wide text-white/50">{tempoRelativo(destaque.date, t)}</p>
+                      <h5 className="line-clamp-2 max-w-[90%] text-lg font-normal text-white/95">
+                        {destaque.title}
+                      </h5>
+                      <p className="mt-1 text-xs tracking-wide text-white/50">
+                        {tempoRelativo(destaque.date, t)}
+                      </p>
                     </div>
                   </>
                 )}
                 <span className="absolute left-5 top-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: "var(--accent)" }}
+                  />
                   {t("gameoverview.noticias")}
                 </span>
               </div>
@@ -288,39 +383,56 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           )}
 
           {/* Detalhes — fundo quase sólido para leitura perfeita sobre a arte */}
-          <div className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w2"}`}>
+          <div
+            className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w2"}`}
+          >
             <span className="flex items-center gap-2 px-6 pt-5 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ background: "var(--accent)" }}
+              />
               {t("gameoverview.detalhes")}
             </span>
             <div className="mt-4 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
-              {detalhes.filter(([, v]) => v).length <= 1 && game.launcher === "steam" && meta === null && (
-                <div className="space-y-3 py-3">
-                  {[0,1,2,3].map(i => (
-                    <div key={i} className="flex items-center justify-between gap-4">
-                      <div className="h-3 w-20 rounded bg-white/5 animate-pulse" />
-                      <div className="h-3 w-32 rounded bg-white/5 animate-pulse" />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {detalhes.filter(([, v]) => v).map(([label, valor], i, arr) => (
-                <div key={label} className={`flex items-baseline justify-between gap-4 py-3 text-sm ${i < arr.length - 1 ? "border-b border-white/[0.07]" : ""}`}>
-                  <span className="shrink-0 text-white/45">{label}</span>
-                  <span className="text-right font-light text-white/90">{valor}</span>
-                </div>
-              ))}
+              {detalhes.filter(([, v]) => v).length <= 1 &&
+                game.launcher === "steam" &&
+                meta === null && (
+                  <div className="space-y-3 py-3">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center justify-between gap-4">
+                        <div className="h-3 w-20 rounded bg-white/5 animate-pulse" />
+                        <div className="h-3 w-32 rounded bg-white/5 animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              {detalhes
+                .filter(([, v]) => v)
+                .map(([label, valor], i, arr) => (
+                  <div
+                    key={label}
+                    className={`flex items-baseline justify-between gap-4 py-3 text-sm ${i < arr.length - 1 ? "border-b border-white/[0.07]" : ""}`}
+                  >
+                    <span className="shrink-0 text-white/45">{label}</span>
+                    <span className="text-right font-light text-white/90">{valor}</span>
+                  </div>
+                ))}
             </div>
           </div>
         </section>
 
         {/* Dica de controle */}
-        <div className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/60 ${closing ? "ov-out" : "ov-w4"}`}>
+        <div
+          className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/60 ${closing ? "ov-out" : "ov-w4"}`}
+        >
           <span className="flex items-center gap-2">
             <Glyph kind="cross" />
             <span>{t("gameoverview.controle.jogar")}</span>
           </span>
-          <button onClick={onClose} className="flex items-center gap-2 outline-none transition-colors hover:text-white focus-visible:text-[color:var(--accent)]">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-2 outline-none transition-colors hover:text-white focus-visible:text-[color:var(--accent)]"
+          >
             <Glyph kind="circle" />
             <span>{t("gameoverview.controle.voltar")}</span>
           </button>
@@ -331,9 +443,10 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 })
 
 function Glyph({ kind }: { kind: "cross" | "circle" }) {
-  const cfg = kind === "cross"
-    ? { ch: "✕", bg: "rgba(0,114,206,0.22)", border: "rgba(0,114,206,0.55)", fg: "#7ec8ff" }
-    : { ch: "○", bg: "rgba(240,53,59,0.22)", border: "rgba(240,53,59,0.55)", fg: "#ff8085" }
+  const cfg =
+    kind === "cross"
+      ? { ch: "✕", bg: "rgba(0,114,206,0.22)", border: "rgba(0,114,206,0.55)", fg: "#7ec8ff" }
+      : { ch: "○", bg: "rgba(240,53,59,0.22)", border: "rgba(240,53,59,0.55)", fg: "#ff8085" }
   return (
     <span
       aria-hidden

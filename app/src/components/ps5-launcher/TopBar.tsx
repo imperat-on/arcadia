@@ -23,8 +23,23 @@ interface TopBarProps {
 }
 
 // Ícones das abas (traço 1.8, estilo lucide — combina com o resto do app).
-const IconeBase = ({ className = "", children }: { className?: string; children: React.ReactNode }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+const IconeBase = ({
+  className = "",
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
     {children}
   </svg>
 )
@@ -139,7 +154,16 @@ export function TopBar({
           className="relative text-white/75 transition-colors hover:text-white"
           style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" x2="12" y1="15" y2="3" />

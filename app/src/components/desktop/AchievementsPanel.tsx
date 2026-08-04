@@ -31,7 +31,9 @@ export function AchievementsPanel({ appid }: { appid: string }) {
     setFeedback(null)
     const r = await window.launcherAPI?.achievementsSchemasLoad()
     setFeedback({
-      texto: r?.ok ? t("conquistas.schemas_ok", { n: String(r.updated ?? 0) }) : t("conquistas.schemas_erro"),
+      texto: r?.ok
+        ? t("conquistas.schemas_ok", { n: String(r.updated ?? 0) })
+        : t("conquistas.schemas_erro"),
       cor: r?.ok ? "ok" : "erro",
     })
     setTimeout(() => setFeedback(null), 3000)
@@ -47,7 +49,9 @@ export function AchievementsPanel({ appid }: { appid: string }) {
     window.launcherAPI?.achievementsGet(appid).then((arr) => {
       if (vivo) setItems(arr || [])
     })
-    return () => { vivo = false }
+    return () => {
+      vivo = false
+    }
   }, [appid])
 
   // Tempo real: marca a conquista desbloqueada no painel aberto.
@@ -79,7 +83,9 @@ export function AchievementsPanel({ appid }: { appid: string }) {
             },
           ]
         }
-        return prev.map((x, i) => (i === idx ? { ...x, achieved: true, unlock: payload.unlock } : x))
+        return prev.map((x, i) =>
+          i === idx ? { ...x, achieved: true, unlock: payload.unlock } : x,
+        )
       })
     })
     return off
@@ -93,11 +99,13 @@ export function AchievementsPanel({ appid }: { appid: string }) {
     if (!window.confirm(t("conquistas.desbloquear_confirmar", { titulo: it.title }))) return
     const r = await window.launcherAPI?.achievementsForceUnlock(appid, it.apiname!)
     if (r?.ok) {
-      setItems((prev) => prev?.map((x) => (x === it ? { ...x, achieved: true, unlock: r.epoch } : x)))
+      setItems((prev) =>
+        prev?.map((x) => (x === it ? { ...x, achieved: true, unlock: r.epoch } : x)),
+      )
       window.alert(t("conquistas.desbloquear_ok"))
     } else {
       // Erro do main pode ser chave i18n (ex.: bin nunca criado) — traduz se for.
-      const msg = r?.error && r.error.startsWith("conquistas.") ? t(r.error) : (r?.error || "")
+      const msg = r?.error && r.error.startsWith("conquistas.") ? t(r.error) : r?.error || ""
       window.alert(msg)
     }
   }
@@ -118,7 +126,9 @@ export function AchievementsPanel({ appid }: { appid: string }) {
             </button>
           </span>
           {feedback && (
-            <span className={`text-[11px] ${feedback.cor === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+            <span
+              className={`text-[11px] ${feedback.cor === "ok" ? "text-emerald-400" : "text-red-400"}`}
+            >
               {feedback.texto}
             </span>
           )}
@@ -127,7 +137,13 @@ export function AchievementsPanel({ appid }: { appid: string }) {
     >
       {/* Aviso estilo Steam: conquistas offline não sincronizam */}
       <div className="mb-3 flex items-center gap-2 rounded-md border border-[#f5a623]/40 bg-[#f5a623]/15 px-3 py-2">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 shrink-0 text-[#f5a623]">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          className="h-3.5 w-3.5 shrink-0 text-[#f5a623]"
+        >
           <polyline points="12 2 22 22 2 22" />
         </svg>
         <span className="text-[12px] text-[#f5a623]">{t("conquistas.aviso_offline")}</span>
@@ -154,7 +170,10 @@ export function AchievementsPanel({ appid }: { appid: string }) {
       {items && items.length > 0 && (
         <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
           {items.map((it) => (
-            <div key={it.title + (it.block ?? "") + (it.bit ?? "")} className="flex items-center gap-3 rounded-md p-2 hover:bg-white/[0.04]">
+            <div
+              key={it.title + (it.block ?? "") + (it.bit ?? "")}
+              className="flex items-center gap-3 rounded-md p-2 hover:bg-white/[0.04]"
+            >
               {it.icon || it.icongray ? (
                 <img
                   src={it.achieved ? it.icon : it.icongray || it.icon}
@@ -166,7 +185,9 @@ export function AchievementsPanel({ appid }: { appid: string }) {
               ) : (
                 <div className="h-12 w-12 shrink-0 rounded-md bg-white/5 ring-1 ring-white/10" />
               )}
-              <div className={`min-w-0 truncate text-[13px] ${it.achieved ? "font-semibold text-white" : "text-white/40"}`}>
+              <div
+                className={`min-w-0 truncate text-[13px] ${it.achieved ? "font-semibold text-white" : "text-white/40"}`}
+              >
                 {it.title}
               </div>
               {!it.achieved && it.apiname && (
@@ -176,7 +197,17 @@ export function AchievementsPanel({ appid }: { appid: string }) {
                   className="ml-auto shrink-0 rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   {/* cadeado aberto */}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                  >
                     <rect x="3" y="11" width="18" height="11" rx="2" />
                     <path d="M7 11V7a5 5 0 0 1 9.9-1" />
                   </svg>

@@ -1,9 +1,11 @@
 "use client"
 
-// Toast global de conquista desbloqueada (estilo PS5 "Jogando X"): canto
-// inferior direito, fila FIFO com no máximo 3, auto-hide 6s. Independente do
-// painel — o watcher do main process entrega o payload mesmo com a loja fechada.
+// Toast de conquista desbloqueada dentro do launcher (sem som — o som fica
+// na janela nativa do electron/notify.js): canto inferior direito, fila com
+// no máximo 3, auto-hide ~5s. Independente do painel — o watcher do main
+// process entrega o payload mesmo com a loja fechada.
 import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 
 type PayloadConquista = {
   appid: string
@@ -15,9 +17,10 @@ type PayloadConquista = {
   unlock?: number
 }
 
-type ItemToast = PayloadConquista & { _id: number; saindo?: boolean }
+type ItemToast = PayloadConquista & { _id: number }
 
 export function AchievementToast() {
+  const { t } = useI18n()
   const [filas, setFilas] = useState<ItemToast[]>([])
 
   useEffect(() => {
@@ -31,7 +34,12 @@ export function AchievementToast() {
     <>
       <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex flex-col gap-2">
         {filas.map((f) => (
-          <ToastItem key={f._id} item={f} onFechar={() => setFilas((prev) => prev.filter((x) => x._id !== f._id))} />
+          <ToastItem
+            key={f._id}
+            item={f}
+            heading={t("conquistas.desbloquear_ok")}
+            onFechar={() => setFilas((prev) => prev.filter((x) => x._id !== f._id))}
+          />
         ))}
       </div>
       <style>{`
@@ -42,12 +50,20 @@ export function AchievementToast() {
   )
 }
 
-function ToastItem({ item, onFechar }: { item: ItemToast; onFechar: () => void }) {
+function ToastItem({
+  item,
+  heading,
+  onFechar,
+}: {
+  item: ItemToast
+  heading: string
+  onFechar: () => void
+}) {
   const [saindo, setSaindo] = useState(false)
 
-  // Auto-hide 6s: marca saindo (anima 200ms), depois remove da fila.
+  // Auto-hide ~5s: marca saindo (anima 200ms), depois remove da fila.
   useEffect(() => {
-    const t = setTimeout(() => setSaindo(true), 6000)
+    const t = setTimeout(() => setSaindo(true), 5000)
     return () => clearTimeout(t)
   }, [])
 
@@ -71,17 +87,31 @@ function ToastItem({ item, onFechar }: { item: ItemToast; onFechar: () => void }
         className="absolute right-2 top-2 text-white/40 transition-colors hover:text-white"
         aria-label="Fechar"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       </button>
       {item.icon ? (
         <img src={item.icon} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
       ) : (
-        <div className="h-12 w-12 shrink-0 rounded-md bg-white/10" />
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-white/10 text-2xl">
+          🏆
+        </div>
       )}
       <div className="flex min-w-0 flex-col">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f5a623]">Conquista Desbloqueada</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f5a623]">
+          {heading}
+        </div>
         <div className="truncate text-[13px] font-semibold text-white">{item.title}</div>
         <div className="truncate text-[12px] text-white/55">{item.desc || " "}</div>
       </div>

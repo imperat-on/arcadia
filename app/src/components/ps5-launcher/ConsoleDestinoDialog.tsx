@@ -65,7 +65,9 @@ export function ConsoleDestinoDialog({
 
         <div className="mt-6 flex flex-col gap-2">
           {opcoes.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-white/35">{carregando ?? t("ps5.destino.procurando")}</p>
+            <p className="py-6 text-center text-[13px] text-white/35">
+              {carregando ?? t("ps5.destino.procurando")}
+            </p>
           ) : (
             opcoes.map((o) => {
               const cabe = o.livre == null || tamanho == null || o.livre >= tamanho
@@ -78,11 +80,17 @@ export function ConsoleDestinoDialog({
                   className="flex items-center justify-between rounded-xl border border-white/10 px-5 py-4 text-left outline-none transition-colors hover:border-white/25 focus:border-[color:var(--accent)] disabled:opacity-40"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm text-white/90">{encurtar(o.caminho)}</span>
-                    {o.rotulo && <span className="block text-[11px] text-white/40">{o.rotulo}</span>}
+                    <span className="block truncate text-sm text-white/90">
+                      {encurtar(o.caminho)}
+                    </span>
+                    {o.rotulo && (
+                      <span className="block text-[11px] text-white/40">{o.rotulo}</span>
+                    )}
                   </span>
                   <span className="shrink-0 pl-4 text-xs text-white/45">
-                    {cabe ? `${fmtGiB(o.livre)} ${t("ps5.destino.livres")}` : t("ps5.destino.sem_espaco")}
+                    {cabe
+                      ? `${fmtGiB(o.livre)} ${t("ps5.destino.livres")}`
+                      : t("ps5.destino.sem_espaco")}
                   </span>
                 </button>
               )

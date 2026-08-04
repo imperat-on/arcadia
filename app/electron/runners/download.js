@@ -9,8 +9,7 @@ const RUNNERS_DIR = path.join(os.homedir(), ".config", "arcadia", "runners")
 
 // Repo do Legendary mudou de dono — a API antiga (derrod) redireciona; usar o
 // id numérico que segue o redirect automaticamente.
-const LEGENDARY_RELEASE =
-  "https://api.github.com/repositories/249938026/releases/latest"
+const LEGENDARY_RELEASE = "https://api.github.com/repositories/249938026/releases/latest"
 
 async function downloadLegendary() {
   fs.mkdirSync(RUNNERS_DIR, { recursive: true })
@@ -20,9 +19,7 @@ async function downloadLegendary() {
   const asset = (rel.assets || []).find((a) => a.name === "legendary")
   if (!asset) throw new Error("asset 'legendary' não encontrado na release")
   const dest = path.join(RUNNERS_DIR, "legendary")
-  const buf = Buffer.from(
-    await fetch(asset.browser_download_url).then((r) => r.arrayBuffer()),
-  )
+  const buf = Buffer.from(await fetch(asset.browser_download_url).then((r) => r.arrayBuffer()))
   fs.writeFileSync(dest, buf)
   fs.chmodSync(dest, 0o755)
   return dest

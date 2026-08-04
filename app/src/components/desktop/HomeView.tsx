@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
-import { CartaoLoja, StoreGamePage, useGameSysinfo, useI18n, useStoreActions, type ItemLoja } from "./storeShared"
+import {
+  CartaoLoja,
+  StoreGamePage,
+  useGameSysinfo,
+  useI18n,
+  useStoreActions,
+  type ItemLoja,
+} from "./storeShared"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
 
-const CATEGORIAS = [
-  { id: "top100in2weeks", labelKey: "store.mais_baixados_semana" },
-] as const
+const CATEGORIAS = [{ id: "top100in2weeks", labelKey: "store.mais_baixados_semana" }] as const
 
 export function HomeView({ games = [] }: { games?: Game[] }) {
   const { t } = useI18n()
@@ -39,12 +44,17 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
   useEffect(() => {
     let vivo = true
     setCarregando(true)
-    window.launcherAPI?.storeRecent(categoria).then((r) => {
-      if (vivo && r?.ok) setRecentes(r.jogos || [])
-    }).finally(() => {
-      if (vivo) setCarregando(false)
-    })
-    return () => { vivo = false }
+    window.launcherAPI
+      ?.storeRecent(categoria)
+      .then((r) => {
+        if (vivo && r?.ok) setRecentes(r.jogos || [])
+      })
+      .finally(() => {
+        if (vivo) setCarregando(false)
+      })
+    return () => {
+      vivo = false
+    }
   }, [categoria])
 
   useEffect(() => {
@@ -62,7 +72,11 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
 
   return (
     <div className="h-full overflow-y-auto bg-[#08080a]">
-      {hero ? <HomeHero jogo={hero} onOpen={() => setPagina(hero)} /> : <div className="h-[42vh] min-h-[300px] animate-pulse bg-white/[0.04]" />}
+      {hero ? (
+        <HomeHero jogo={hero} onOpen={() => setPagina(hero)} />
+      ) : (
+        <div className="h-[42vh] min-h-[300px] animate-pulse bg-white/[0.04]" />
+      )}
 
       <div className="px-8 py-6">
         <div className="mb-6 flex items-center justify-between">
@@ -72,7 +86,9 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
                 key={c.id}
                 onClick={() => setCategoria(c.id)}
                 className={`rounded-lg border px-4 py-2 text-[13px] font-medium transition-colors ${
-                  c.id === categoria ? "border-white/80 bg-white text-black" : "border-white/10 bg-white/[0.02] text-white/70 hover:text-white"
+                  c.id === categoria
+                    ? "border-white/80 bg-white text-black"
+                    : "border-white/10 bg-white/[0.02] text-white/70 hover:text-white"
                 }`}
               >
                 {t(c.labelKey)}
@@ -93,22 +109,30 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
         </h2>
 
         <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4 pb-10">
-          {carregando && esqueletos.map((i) => (
-            <div key={`sk${i}`} className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-              <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
-              <div className="p-3"><div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" /><div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" /></div>
-            </div>
-          ))}
-          {!carregando && recentes.map((j) => (
-            <CartaoLoja
-              key={j.appid}
-              jogo={j}
-              naBiblioteca={bloqueados.has(j.appid)}
-              adicionado={jaAdicionados.has(j.appid)}
-              onOpen={() => setPagina(j)}
-              t={t}
-            />
-          ))}
+          {carregando &&
+            esqueletos.map((i) => (
+              <div
+                key={`sk${i}`}
+                className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]"
+              >
+                <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
+                <div className="p-3">
+                  <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
+                  <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+                </div>
+              </div>
+            ))}
+          {!carregando &&
+            recentes.map((j) => (
+              <CartaoLoja
+                key={j.appid}
+                jogo={j}
+                naBiblioteca={bloqueados.has(j.appid)}
+                adicionado={jaAdicionados.has(j.appid)}
+                onOpen={() => setPagina(j)}
+                t={t}
+              />
+            ))}
         </div>
       </div>
 
@@ -117,7 +141,10 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
           jogo={pagina}
           onClose={() => setPagina(null)}
           onBaixar={() => baixar(pagina)}
-          onAdicionar={() => { adicionar(pagina); setPagina(null) }}
+          onAdicionar={() => {
+            adicionar(pagina)
+            setPagina(null)
+          }}
           naBiblioteca={bloqueados.has(pagina.appid)}
           ocupado={acaoBusy !== ""}
         />
@@ -127,7 +154,11 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
         <MetodoDownloadDialog
           jogo={metodo.jogo}
           opcoes={metodo.opcoes}
-          onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
+          onDepot={() => {
+            const j = metodo.jogo
+            setMetodo(null)
+            baixarDepot(j)
+          }}
           onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
           onClose={() => setMetodo(null)}
           depotDisponivel={slsAtivo}
@@ -138,13 +169,20 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
         <EscolhaDownloadDialog
           escolhendo={escolhendo}
           onCancel={() => setEscolhendo(null)}
-          onConfirm={(steamDir, sel) => confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)}
+          onConfirm={(steamDir, sel) =>
+            confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)
+          }
           titulo={t("store.instalar_em", { title: escolhendo.jogo.title })}
         />
       )}
 
       {toast && (
-        <div className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>{toast}</div>
+        <div
+          className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
+          onClick={() => setToast("")}
+        >
+          {toast}
+        </div>
       )}
     </div>
   )
@@ -154,17 +192,34 @@ function HomeHero({ jogo, onOpen }: { jogo: ItemLoja; onOpen: () => void }) {
   const info = useGameSysinfo(jogo.appid)
   const desc = info?.short_description || ""
   const hero = `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
-  const header = jogo.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`
+  const header =
+    jogo.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`
   return (
-    <button onClick={onOpen} className="relative block h-[44vh] min-h-[330px] w-full overflow-hidden bg-black text-left">
-      <img src={hero} alt="" className="h-full w-full object-cover opacity-90" draggable={false} onError={(e) => { (e.currentTarget as HTMLImageElement).src = header }} />
+    <button
+      onClick={onOpen}
+      className="relative block h-[44vh] min-h-[330px] w-full overflow-hidden bg-black text-left"
+    >
+      <img
+        src={hero}
+        alt=""
+        className="h-full w-full object-cover opacity-90"
+        draggable={false}
+        onError={(e) => {
+          ;(e.currentTarget as HTMLImageElement).src = header
+        }}
+      />
       <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/25 to-black/35" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-transparent to-transparent" />
       <div className="absolute bottom-10 left-8 max-w-[720px]">
-        <h1 className="mb-5 text-4xl font-semibold tracking-wide text-white drop-shadow-lg">{jogo.title}</h1>
-        {desc && <p className="max-w-[680px] text-[14px] leading-relaxed text-white/80 drop-shadow-lg">{desc}</p>}
+        <h1 className="mb-5 text-4xl font-semibold tracking-wide text-white drop-shadow-lg">
+          {jogo.title}
+        </h1>
+        {desc && (
+          <p className="max-w-[680px] text-[14px] leading-relaxed text-white/80 drop-shadow-lg">
+            {desc}
+          </p>
+        )}
       </div>
     </button>
   )
 }
-

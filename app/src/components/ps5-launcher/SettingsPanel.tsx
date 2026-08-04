@@ -22,12 +22,7 @@ interface SettingsPanelProps {
 
 type Section = "temas"
 
-export function SettingsPanel({
-  open,
-  onClose,
-  onSaved,
-  onUiChange,
-}: SettingsPanelProps) {
+export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPanelProps) {
   const { t } = useI18n()
   const [section, setSection] = useState<Section>("temas")
   const [cfg, setCfg] = useState<AppConfig>({})
@@ -75,14 +70,14 @@ export function SettingsPanel({
   ]
 
   return (
-    <div
-      ref={rootRef}
-      className="gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl"
-    >
+    <div ref={rootRef} className="gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
       {/* Sidebar */}
       <aside className="flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
         <div className="mb-6 flex items-center gap-2 px-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
           {t("settings.configuracoes")}
         </div>
         {NAV.map((n) => {
@@ -99,7 +94,10 @@ export function SettingsPanel({
               }}
             >
               {active && (
-                <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full" style={{ background: "var(--accent)" }} />
+                <span
+                  className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full"
+                  style={{ background: "var(--accent)" }}
+                />
               )}
               <span className="opacity-80">{n.icon}</span>
               {n.label}
@@ -167,17 +165,10 @@ export function SettingsPanel({
   )
 }
 
-
 /* --------------------------------------------------------------------- */
 /* Integrações                                                           */
 /* --------------------------------------------------------------------- */
-function Toggle({
-  on,
-  onChange,
-}: {
-  on: boolean
-  onChange: (v: boolean) => void
-}) {
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   const { t } = useI18n()
   return (
     <button
@@ -220,7 +211,11 @@ export function IntegrationsSection({
   // o usuário conferir/editar). Início: todos fechados — visual limpo.
   const [debridAberto, setDebridAberto] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
-  const [legendary, setLegendary] = useState<{ installed: boolean; logged: boolean; user?: string } | null>(null)
+  const [legendary, setLegendary] = useState<{
+    installed: boolean
+    logged: boolean
+    user?: string
+  } | null>(null)
   const [legendaryBusy, setLegendaryBusy] = useState(false)
   const [legendaryErr, setLegendaryErr] = useState("")
   const src = cfg.sources ?? {}
@@ -246,10 +241,10 @@ export function IntegrationsSection({
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.integracoes")}</h2>
-      <p className="text-sm text-[#8a93a6] mb-8">
-        {t("settings.integracoes.desc")}
-      </p>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">
+        {t("settings.integracoes")}
+      </h2>
+      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.integracoes.desc")}</p>
 
       {/* Steam */}
       <IntegrationCard
@@ -258,9 +253,7 @@ export function IntegrationsSection({
         enabled={on("steam")}
         onToggle={(v) => onToggle("steam", v)}
       >
-        <p className="text-xs text-[#8a93a6] mb-3">
-          {t("settings.steam.desc")}
-        </p>
+        <p className="text-xs text-[#8a93a6] mb-3">{t("settings.steam.desc")}</p>
         <input
           type="password"
           value={apiKey}
@@ -335,7 +328,7 @@ export function IntegrationsSection({
         <p className="mb-3 text-xs text-[#8a93a6]">
           {t("settings.epic.desc")}
           {legendary?.logged && legendary.user ? (
-            <>{" "}{t("settings.epic.logado", { user: legendary.user || "" })}</>
+            <> {t("settings.epic.logado", { user: legendary.user || "" })}</>
           ) : null}
         </p>
         <button
@@ -362,9 +355,7 @@ export function IntegrationsSection({
               : t("settings.epic.baixar_login")}
         </button>
         {legendaryErr && <p className="mt-2 text-xs text-[#ff6b81]">{legendaryErr}</p>}
-        <p className="mt-2 text-[11px] text-[#6b7280]">
-          {t("settings.epic.nota")}
-        </p>
+        <p className="mt-2 text-[11px] text-[#6b7280]">{t("settings.epic.nota")}</p>
       </IntegrationCard>
     </div>
   )
@@ -385,9 +376,7 @@ function IntegrationCard({
 }) {
   const { t } = useI18n()
   return (
-    <div
-      className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
-    >
+    <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-base font-semibold text-white">{title}</h3>
         <div className="flex items-center gap-3">
@@ -493,10 +482,10 @@ export function ThemeSection({
 
   return (
     <div className="max-w-2xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.temas.titulo")}</h2>
-      <p className="text-sm text-[#8a93a6] mb-8">
-        {t("settings.temas.desc")}
-      </p>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">
+        {t("settings.temas.titulo")}
+      </h2>
+      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.temas.desc")}</p>
 
       <ScaleControl
         label={t("settings.temas.escala")}
@@ -526,7 +515,9 @@ export function ThemeSection({
 
       {/* Cor de destaque */}
       <div className="mb-4">
-        <span className="text-sm font-semibold text-[#a8b3cc]">{t("settings.temas.cor_destaque")}</span>
+        <span className="text-sm font-semibold text-[#a8b3cc]">
+          {t("settings.temas.cor_destaque")}
+        </span>
         <div className="flex flex-wrap gap-3 mt-3">
           {ACCENTS.map((a) => {
             const active = a.hex.toLowerCase() === accent.toLowerCase()
@@ -551,7 +542,9 @@ export function ThemeSection({
           console não tinha nenhum — quem só usa o Big Picture ficava preso ao
           idioma detectado na primeira execução. */}
       <div className="mt-10">
-        <h3 className="text-sm uppercase tracking-wider text-[#8a93a6] mb-4">{t("settings.language")}</h3>
+        <h3 className="text-sm uppercase tracking-wider text-[#8a93a6] mb-4">
+          {t("settings.language")}
+        </h3>
         <div className="flex gap-3">
           {IDIOMAS.map((i) => {
             const active = lang === i.id
@@ -573,9 +566,7 @@ export function ThemeSection({
         </div>
       </div>
 
-      <p className="text-xs text-[#6b7280] mt-6">
-        {t("settings.temas.nota")}
-      </p>
+      <p className="text-xs text-[#6b7280] mt-6">{t("settings.temas.nota")}</p>
     </div>
   )
 }
@@ -643,15 +634,13 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.metadados.titulo")}</h2>
-      <p className="text-sm text-[#8a93a6] mb-8">
-        {t("settings.metadados.desc")}
-      </p>
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">
+        {t("settings.metadados.titulo")}
+      </h2>
+      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.metadados.desc")}</p>
 
       {/* Chave do SteamGridDB: libera a busca de arte em "Editar metadados" */}
-      <div
-        className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
-      >
+      <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#9b6bff" }} />
@@ -667,9 +656,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             {sgdbKey ? t("common.conectado") : t("common.sem_chave")}
           </span>
         </div>
-        <p className="text-xs text-[#8a93a6] mb-3">
-          {t("settings.steamgriddb.desc")}
-        </p>
+        <p className="text-xs text-[#8a93a6] mb-3">{t("settings.steamgriddb.desc")}</p>
         <input
           type="password"
           value={sgdbKey}
@@ -688,16 +675,12 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       </div>
 
       {/* Trailers: baixados do YouTube (yt-dlp) e tocados no fundo (estilo PS5) */}
-      <div
-        className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
-      >
+      <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="flex items-center gap-2.5 mb-3">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ff4d6d" }} />
           <h3 className="text-base font-semibold text-white">{t("settings.trailers")}</h3>
         </div>
-        <p className="text-xs text-[#8a93a6] mb-4">
-          {t("settings.trailers.desc")}
-        </p>
+        <p className="text-xs text-[#8a93a6] mb-4">{t("settings.trailers.desc")}</p>
 
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm text-white">{t("settings.trailers.auto_tocar")}</span>
@@ -719,13 +702,10 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         </button>
         {dlAll && (
           <p className="text-xs text-[#8a93a6] mt-3">
-            {dlAll.total ? `${dlAll.done}/${dlAll.total}` : ""}{" "}
-            {dlAll.title && `— ${dlAll.title}`}
+            {dlAll.total ? `${dlAll.done}/${dlAll.total}` : ""} {dlAll.title && `— ${dlAll.title}`}
           </p>
         )}
-        <p className="text-[11px] text-[#6b7280] mt-2">
-          {t("settings.trailers.hint")}
-        </p>
+        <p className="text-[11px] text-[#6b7280] mt-2">{t("settings.trailers.hint")}</p>
 
         {/* Cookies do YouTube: só para vídeos com restrição de idade */}
         <div className="mt-5 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
@@ -741,16 +721,18 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
               {cookies ? t("common.configurado") : t("common.nao_usado")}
             </span>
           </div>
-          <p className="text-xs text-[#8a93a6] mb-3">
-            {t("settings.trailers.cookies_desc")}
-          </p>
+          <p className="text-xs text-[#8a93a6] mb-3">{t("settings.trailers.cookies_desc")}</p>
           <div
             className="rounded-lg p-3 mb-3 text-xs text-[#8a93a6]"
             style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
-            <div className="text-[#a8b3cc] font-semibold mb-1">{t("settings.trailers.cookies_instrucoes")}</div>
-            {t("settings.trailers.cookies_passo1")}<br />
-            {t("settings.trailers.cookies_passo2")}<br />
+            <div className="text-[#a8b3cc] font-semibold mb-1">
+              {t("settings.trailers.cookies_instrucoes")}
+            </div>
+            {t("settings.trailers.cookies_passo1")}
+            <br />
+            {t("settings.trailers.cookies_passo2")}
+            <br />
             {t("settings.trailers.cookies_passo3")}
           </div>
           <div className="flex items-center gap-3">
@@ -795,15 +777,13 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             {t("common.sem_chave")}
           </span>
         </div>
-        <p className="text-xs text-[#8a93a6]">
-          {t("settings.igdb.desc")}
-        </p>
+        <p className="text-xs text-[#8a93a6]">{t("settings.igdb.desc")}</p>
       </div>
 
-      <h3 className="text-base font-semibold text-white mb-1">{t("settings.igdb.o_que_buscado")}</h3>
-      <p className="text-xs text-[#8a93a6] mb-4">
-        {t("settings.igdb.coletados_desc")}
-      </p>
+      <h3 className="text-base font-semibold text-white mb-1">
+        {t("settings.igdb.o_que_buscado")}
+      </h3>
+      <p className="text-xs text-[#8a93a6] mb-4">{t("settings.igdb.coletados_desc")}</p>
       <div className="grid grid-cols-2 gap-2.5 mb-8">
         {items.map((it) => (
           <div
@@ -831,11 +811,13 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
         disabled={busy}
         className="px-6 py-2.5 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
       >
-        {busy ? t("settings.igdb.reconstruindo") : done ? t("settings.igdb.atualizado") : t("settings.igdb.reconstruir")}
+        {busy
+          ? t("settings.igdb.reconstruindo")
+          : done
+            ? t("settings.igdb.atualizado")
+            : t("settings.igdb.reconstruir")}
       </button>
-      <p className="text-xs text-[#6b7280] mt-3">
-        {t("settings.igdb.reconstruir_hint")}
-      </p>
+      <p className="text-xs text-[#6b7280] mt-3">{t("settings.igdb.reconstruir_hint")}</p>
     </div>
   )
 }
@@ -875,7 +857,16 @@ function IconTag() {
 
 function IconWine() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M8 22h8" />
       <path d="M12 15v7" />
       <path d="M5 3h14l-1.5 7.5a5.5 5.5 0 0 1-11 0L5 3z" />
@@ -886,15 +877,44 @@ function IconWine() {
 // Debrids: catálogo estático (nome, descrição i18n, chave da config).
 // Ordem casa com a de tentativa no backend (RD → TorBox → AllDebrid → Premiumize).
 type DebridId = "realdebrid" | "torbox" | "alldebrid" | "premiumize"
-const DEBRIDS: { chave: DebridId; nome: string; descKey: string; configKey: "realdebrid_token" | "torbox_token" | "alldebrid_token" | "premiumize_token" }[] = [
-  { chave: "realdebrid", nome: "Real-Debrid", descKey: "settings.realdebrid.desc", configKey: "realdebrid_token" },
+const DEBRIDS: {
+  chave: DebridId
+  nome: string
+  descKey: string
+  configKey: "realdebrid_token" | "torbox_token" | "alldebrid_token" | "premiumize_token"
+}[] = [
+  {
+    chave: "realdebrid",
+    nome: "Real-Debrid",
+    descKey: "settings.realdebrid.desc",
+    configKey: "realdebrid_token",
+  },
   { chave: "torbox", nome: "TorBox", descKey: "settings.torbox.desc", configKey: "torbox_token" },
-  { chave: "alldebrid", nome: "AllDebrid", descKey: "settings.alldebrid.desc", configKey: "alldebrid_token" },
-  { chave: "premiumize", nome: "Premiumize", descKey: "settings.premiumize.desc", configKey: "premiumize_token" },
+  {
+    chave: "alldebrid",
+    nome: "AllDebrid",
+    descKey: "settings.alldebrid.desc",
+    configKey: "alldebrid_token",
+  },
+  {
+    chave: "premiumize",
+    nome: "Premiumize",
+    descKey: "settings.premiumize.desc",
+    configKey: "premiumize_token",
+  },
 ]
 
 function DebridItem({
-  nome, descKey, token, conectado, salvo, aberto, onToggle, onChange, onSave, t,
+  nome,
+  descKey,
+  token,
+  conectado,
+  salvo,
+  aberto,
+  onToggle,
+  onChange,
+  onSave,
+  t,
 }: {
   nome: string
   descKey: string
@@ -915,19 +935,40 @@ function DebridItem({
       >
         <span className="flex items-center gap-2">
           <svg
-            width="12" height="12" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
             className="text-white/60 transition-transform"
             style={{ transform: aberto ? "rotate(90deg)" : "none" }}
-          ><polyline points="9 18 15 12 9 6" /></svg>
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
           <span className="text-sm font-semibold text-white">{nome}</span>
           {conectado && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4adf9a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#4adf9a"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
           )}
         </span>
-        <span className="text-[11px] font-medium" style={{ color: conectado ? "#4adf9a" : "#8a93a6" }}>
+        <span
+          className="text-[11px] font-medium"
+          style={{ color: conectado ? "#4adf9a" : "#8a93a6" }}
+        >
           {conectado ? t("common.conectado") : t("common.nao_conectado")}
         </span>
       </button>

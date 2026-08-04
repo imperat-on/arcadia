@@ -77,8 +77,18 @@ export function InstallDialog({
             onClick={() => !busy && onClose(false)}
             className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -86,28 +96,54 @@ export function InstallDialog({
         {/* Tamanhos */}
         <div className="mb-5 flex gap-8">
           <div className="flex items-center gap-2.5">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" x2="12" y1="15" y2="3" />
             </svg>
             <div>
               <div className="text-[11px] text-white/45">{t("install.tamanho_download")}</div>
-              <div className="text-sm font-medium text-white"><GiB v={tamanhoGb} /></div>
+              <div className="text-sm font-medium text-white">
+                <GiB v={tamanhoGb} />
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="7" rx="2" /><rect x="2" y="14" width="20" height="7" rx="2" />
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="3" width="20" height="7" rx="2" />
+              <rect x="2" y="14" width="20" height="7" rx="2" />
             </svg>
             <div>
               <div className="text-[11px] text-white/45">{t("install.tamanho_instalado")}</div>
-              <div className="text-sm font-medium text-white"><GiB v={tamanhoGb} /></div>
+              <div className="text-sm font-medium text-white">
+                <GiB v={tamanhoGb} />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Local */}
-        <label className="mb-1.5 block text-[13px] text-white/70">{t("install.selecione_local")}</label>
+        <label className="mb-1.5 block text-[13px] text-white/70">
+          {t("install.selecione_local")}
+        </label>
         <div className="mb-2 flex gap-2">
           <input
             value={installPath}
@@ -120,7 +156,16 @@ export function InstallDialog({
             title={t("install.escolher_pasta")}
             className="rounded-lg border border-white/10 bg-white/[0.05] px-3 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
           </button>
@@ -134,7 +179,8 @@ export function InstallDialog({
           </span>
           {tamanhoGb != null && disk.free != null && (
             <>
-              {" "}{t("install.pos_instalacao")}{" "}
+              {" "}
+              {t("install.pos_instalacao")}{" "}
               <span className="font-semibold text-white/80">
                 <GiB v={Math.max(0, disk.free - tamanhoGb)} />
               </span>

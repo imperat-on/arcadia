@@ -61,7 +61,13 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
                   boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
                 }}
               >
-                {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("hero.jogar")}
+                {rodando
+                  ? t("hero.parar")
+                  : abrindo
+                    ? t("hero.abrindo")
+                    : game.installed === false
+                      ? t("hero.instalar")
+                      : t("hero.jogar")}
               </button>
               <button
                 onClick={onMore}
@@ -98,14 +104,21 @@ export function LauncherIcon({ launcher, size = 14 }: { launcher: string; size?:
   if (launcher === "heroic") {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        <path
+          d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+          stroke="currentColor"
+          strokeWidth="2"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
   // lutris
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 3c1.93 0 3.5 1.57 3.5 3.5S13.93 14 12 14s-3.5-1.57-3.5-3.5S10.07 7 12 7zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 17.18 9.64 17 12 17s4.53.18 6.24 1.19c.48.38.76.97.76 1.58V20z"/>
+      <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 3c1.93 0 3.5 1.57 3.5 3.5S13.93 14 12 14s-3.5-1.57-3.5-3.5S10.07 7 12 7zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 17.18 9.64 17 12 17s4.53.18 6.24 1.19c.48.38.76.97.76 1.58V20z" />
     </svg>
   )
 }
