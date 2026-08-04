@@ -28,6 +28,7 @@ import type { Profile, NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { LaunchModeDialog } from "../desktop/LaunchModeDialog"
+import { AchievementToast } from "../AchievementToast"
 
 const MOCK_GAMES: Game[] = [
   {
@@ -1231,6 +1232,7 @@ export function PS5Launcher() {
 
       {/* Toast notification */}
       <Toast visible={toast.visible} title={toast.title} />
+      <AchievementToast />
     </div>
   )
 }

@@ -1,4 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
+const {
+  startAchievementWatcher,
+  fetchAchievementsForApp,
+} = require("./achievements")
 const { getNews } = require("./news")
 const plugins = require("./plugins")
 const updater = require("./updater")
@@ -1354,6 +1358,27 @@ function heroicConnected() {
 }
 
 let win
+// Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
+// marca o item no achievements.json NA HORA — sem isso o painel só
+// atualizava no próximo reindex da biblioteca.
+let pararAchievementWatcher = null
+
+// Callback único de desbloqueio: marca o item no achievements.json (o painel
+// lê de lá) e avisa o renderer.
+function onUnlockAchievement(payload) {
+  try {
+    const arq = path.join(DATA_DIR, "achievements.json")
+    const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
+    const it = (store?.[payload.appid]?.items || []).find((x) => `${x.block}|${x.bit}` === payload.key)
+    if (it && !it.achieved) {
+      it.achieved = true
+      it.unlock = payload.unlock
+      fs.writeFileSync(arq, JSON.stringify(store))
+    }
+  } catch {}
+  if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", payload)
+}
+
 function createWindow() {
   const cfgIni = readConfig()
   win = new BrowserWindow({
@@ -1435,6 +1460,10 @@ function createWindow() {
   // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
   win.on("blur", () => win?.webContents.send("app:focus", false))
   win.on("focus", () => win?.webContents.send("app:focus", true))
+  // Vigia de conquistas: toast em tempo real + marca o item no
+  // achievements.json (o painel lê de lá; sem isso só atualizava no reindex).
+  if (pararAchievementWatcher) pararAchievementWatcher()
+  pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
 
   // Modo gamescope: o Electron roda no X aninhado e NÃO recebe blur/focus
   // quando o jogo abre no desktop. O foco é resolvido dentro do poll de jogo
@@ -1481,6 +1510,57 @@ app.whenReady().then(() => {
     require("./steamstore").aquecer().catch(() => {})
   }, 5000)
   ipcMain.handle("library:get", async () => curarCapasSteam(readLibrary()))
+  ipcMain.handle("achievements:get", async (_e, appid) => {
+    try {
+      const store = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
+      const local = store?.[appid]?.items || []
+      if (local.length) return local
+    } catch {}
+    try {
+      return await fetchAchievementsForApp(appid)
+    } catch {
+      return []
+    }
+  })
+
+  // Força desbloqueio de UMA conquista escrevendo direto no .bin do Steam
+  // (sem cliente Steam rodando). Acha o accountId no nome do .bin existente e
+  // o block|bit no schema; se o .bin nunca foi criado (jogo nunca rodou),
+  // devolve erro amigável — não dá pra criar do zero sem saber o accountId.
+  ipcMain.handle("achievements:force:unlock", async (_e, { appid, apiname } = {}) => {
+    try {
+      const steamBin = require("./achievements/steam_bin")
+      let accountId = null
+      for (const f of fs.readdirSync(steamBin.STATS_DIR)) {
+        const m = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
+        if (m && m[2] === String(appid)) { accountId = m[1]; break }
+      }
+      if (!accountId) {
+        return { ok: false, error: "conquistas.desbloquear_erro_sem_bin" }
+      }
+      const schema = require("./achievements/schema")
+      const items = schema.loadAchievements()?.[String(appid)]?.items || []
+      const item = items.find((i) => i.apiname === apiname)
+      if (!item || item.block == null || item.bit == null) {
+        return { ok: false, error: "apiname sem block|bit no schema" }
+      }
+      const file = path.join(steamBin.STATS_DIR, `UserGameStats_${accountId}_${appid}.bin`)
+      return steamBin.writeAchievementUnlock(file, item.block, item.bit)
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // Recarrega apiname/título/desc/ícones dos itens do achievements.json a partir
+  // dos UserGameStatsSchema_*.bin da Steam (ponte pro cadeado de "Desbloquear").
+  ipcMain.handle("achievements:schemas:load", async () => {
+    try {
+      const { loadAllSchemas } = require("./achievements/loader")
+      return { ok: true, ...loadAllSchemas() }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
 
   ipcMain.handle("game:launch", async (_e, payload) => {
     // Aceita { cmd, gameId } (novo) ou o array cmd direto (legado).
@@ -2749,6 +2829,10 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Popula apiname nos itens via UserGameStatsSchema_*.bin (faz a ponte pro
+  // cadeado de "Desbloquear" funcionar). Se não tem schema, é no-op.
+  try { require("./achievements/loader").loadAllSchemas() } catch {}
 
   // Links externos abertos pela página da loja Steam (Community Hub, publisher,
   // etc.): manda pro navegador do sistema em vez de abrir janela presa dentro

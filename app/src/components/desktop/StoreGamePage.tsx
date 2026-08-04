@@ -12,6 +12,7 @@ import {
   GameMediaGallery, GameDescription, ProtonDBPanel,
   ControllerPanel, RequirementsPanel, LanguagesPanel, StatsPanel, ReviewsPanel, CommentsPanel,
 } from "./GameDetailPanels"
+import { AchievementsPanel } from "./AchievementsPanel"
 import { FixesPanel } from "./FixesPanel"
 
 type ItemLoja = { appid: string; title: string; cover?: string; capa?: string; heroi?: string; manifest?: boolean }
@@ -261,6 +262,7 @@ export function StoreGamePage({
           <div className="flex flex-col gap-4">
             <ProtonDBPanel appid={jogo.appid} />
             <StatsPanel appid={jogo.appid} />
+            <AchievementsPanel appid={jogo.appid} />
             <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
             <LanguagesPanel languages={info?.languages} />
             <ControllerPanel support={info?.controller_support} />

@@ -104,6 +104,9 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
+  achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
+  achievementsForceUnlock: (appid, apiname) => ipcRenderer.invoke("achievements:force:unlock", { appid, apiname }),
+  achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),
   legendarySetup: () => ipcRenderer.invoke("runner:legendary:setup"),
   legendaryLibrary: () => ipcRenderer.invoke("runner:legendary:library"),
@@ -146,6 +149,11 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("game:running", h)
     return () => ipcRenderer.removeListener("game:running", h)
+  },
+  onAchievementUnlocked: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("achievement:unlocked", h)
+    return () => ipcRenderer.removeListener("achievement:unlocked", h)
   },
   onLibraryChanged: (cb) => {
     const h = () => cb()

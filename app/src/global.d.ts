@@ -594,6 +594,33 @@ declare global {
       torrentSetLimit: (bytes: number) => Promise<{ ok: boolean; error?: string }>
       torrentList: () => Promise<{ ok: boolean; downloads: TorrentItem[] }>
       onTorrentProgress: (cb: (items: TorrentItem[]) => void) => () => void
+      /** Conquistas do jogo (Steam): achievements.json local ou scrape da loja. */
+      achievementsGet: (appid: string) => Promise<Array<{
+        title: string
+        desc?: string
+        icon?: string
+        icongray?: string
+        apiname?: string
+        block?: number | null
+        bit?: number | null
+        achieved?: boolean
+        unlock?: number
+        percent?: number
+      }>>
+      /** Conquista desbloqueada em tempo real (watcher do processo principal). */
+      onAchievementUnlocked: (cb: (payload: {
+        appid: string
+        key: string
+        title: string
+        desc?: string
+        icon?: string
+        percent?: number
+        unlock?: number
+      }) => void) => () => void
+      /** Força desbloqueio de uma conquista escrevendo no .bin do Steam (sem cliente Steam). */
+      achievementsForceUnlock: (appid: string, apiname: string) => Promise<{ ok: boolean; error?: string; epoch?: number }>
+      /** Recarrega apiname/título/desc/ícones dos itens a partir dos UserGameStatsSchema_*.bin da Steam. */
+      achievementsSchemasLoad: () => Promise<{ ok: boolean; error?: string; updated?: number; iconsCopied?: number; total?: number }>
     }
   }
 }

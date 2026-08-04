@@ -63,3 +63,6 @@ bin/gemini-scan
 # Lixo/estado de runtime
 operacao
 vkd3d-proton.cache.write
+achievements_store.json
+achievements_watch.json
+achievement_icons/
