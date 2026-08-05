@@ -7,13 +7,15 @@
 const fs = require("fs")
 const path = require("path")
 const { getClient } = require("./client")
+const { caminhoConta } = require("./conta")
 
 const DATA_DIR =
   process.env.ARCADIA_DATA_DIR ||
   path.join(process.env.HOME || process.env.USERPROFILE || ".", ".local", "share", "arcadia")
-const QUEUE_PATH = path.join(DATA_DIR, "sync_queue.json")
-const STATE_PATH = path.join(DATA_DIR, "sync_state.json")
-const ACH_PATH = path.join(DATA_DIR, "achievements.json")
+// Fila, estado e metadados são POR CONTA (conta.js escopa por username)
+const QUEUE_PATH = () => caminhoConta(path.join(DATA_DIR, "sync_queue.json"))
+const STATE_PATH = () => caminhoConta(path.join(DATA_DIR, "sync_state.json"))
+const ACH_PATH = () => caminhoConta(path.join(DATA_DIR, "achievements.json"))
 
 // ---------- util ----------
 
@@ -47,11 +49,11 @@ function normalizeTs(v) {
 // ---------- fila ----------
 
 function loadQueue() {
-  return readJson(QUEUE_PATH, [])
+  return readJson(QUEUE_PATH(), [])
 }
 
 function saveQueue(q) {
-  writeAtomic(QUEUE_PATH, JSON.stringify(q))
+  writeAtomic(QUEUE_PATH(), JSON.stringify(q))
 }
 
 /** Enfileira desbloqueios com dedupe por (appid, apiname) — earliest wins. */
@@ -78,7 +80,7 @@ function queueLength() {
 // ---------- estado ----------
 
 function loadState() {
-  return readJson(STATE_PATH, { lastPullAt: null, lastSyncAt: null, lastError: null })
+  return readJson(STATE_PATH(), { lastPullAt: null, lastSyncAt: null, lastError: null })
 }
 
 function getState() {
@@ -87,7 +89,7 @@ function getState() {
 }
 
 function saveState(patch) {
-  writeAtomic(STATE_PATH, JSON.stringify({ ...loadState(), ...patch }))
+  writeAtomic(STATE_PATH(), JSON.stringify({ ...loadState(), ...patch }))
 }
 
 // ---------- erros retryáveis ----------
@@ -154,7 +156,7 @@ async function pullDelta() {
  * timestamp anterior → mantém local (o próximo push corrige o servidor).
  */
 function applyPulled(rows) {
-  const store = readJson(ACH_PATH, {})
+  const store = readJson(ACH_PATH(), {})
   let mudou = false
   for (const r of rows) {
     const app = store[r.appid] || (store[r.appid] = { at: Date.now(), items: [] })
@@ -183,7 +185,7 @@ function applyPulled(rows) {
       mudou = true
     }
   }
-  if (mudou) writeAtomic(ACH_PATH, JSON.stringify(store))
+  if (mudou) writeAtomic(ACH_PATH(), JSON.stringify(store))
 }
 
 // ---------- engine ----------
