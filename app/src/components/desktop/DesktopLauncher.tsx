@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import type { Profile, TorrentItem } from "../../global"
 import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
@@ -23,7 +23,7 @@ import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 import { AchievementToast } from "./AchievementToast"
-import { AccountProvider } from "../account/AccountContext"
+import { AccountProvider, useAccount } from "../account/AccountContext"
 import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
@@ -50,6 +50,16 @@ export function DesktopLauncher() {
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
+  const autoLoginAberto = useRef(false)
+  const { status: contaStatus } = useAccount()
+
+  // Primeira vez (sem sessão salva): abre a tela de login/sign-up sozinha.
+  useEffect(() => {
+    if (contaStatus === "deslogado" && !autoLoginAberto.current) {
+      autoLoginAberto.current = true
+      setContaAberta(true)
+    }
+  }, [contaStatus])
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
@@ -162,7 +172,7 @@ export function DesktopLauncher() {
         onConfigSub={setConfigSub}
         profile={profile}
         onProfile={() => setShowProfile(true)}
-        onAccount={() => setContaAberta(true)}
+        onLogout={() => setContaAberta(true)}
         onRefresh={atualizarBiblioteca}
         games={games}
         librarySidebar={librarySidebar}
