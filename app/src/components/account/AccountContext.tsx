@@ -120,7 +120,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const setAvatar = useCallback(async (filePath: string) => {
     try {
       const r = await window.launcherAPI?.accountSetAvatar(filePath)
-      if (r?.ok && r.avatar_url) setPerfil((p) => ({ username: p?.username ?? null, avatar_url: r.avatar_url ?? null, ...p }))
+      if (r?.ok && r.avatar_url) {
+        // ATENÇÃO: o spread tem que vir ANTES — se vier depois, o avatar_url
+        // ANTIGO do ...p sobrescreve o novo (bug: só atualizava no restart).
+        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), avatar_url: r.avatar_url ?? null }))
+      }
       return r || { ok: false, error: "API indisponível" }
     } catch (e) {
       return { ok: false, error: e?.message || "exceção" }
