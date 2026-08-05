@@ -32,7 +32,9 @@ import { SyncStatusIndicator } from "./SyncStatusIndicator"
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
 // Só 1x por execução — se o usuário fechar no ✕, não reabre sozinho.
-function AutoOpenLogin({ onOpen }: { onOpen: () => void }) {
+// Enquanto o status resolve (carregando) ou antes do diálogo abrir, renderiza
+// um splash preto por cima do launcher — elimina o flash de fundo do app.
+function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado: boolean }) {
   const { status } = useAccount()
   const abriu = useRef(false)
   useEffect(() => {
@@ -41,6 +43,10 @@ function AutoOpenLogin({ onOpen }: { onOpen: () => void }) {
       onOpen()
     }
   }, [status, onOpen])
+  if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  if (status === "deslogado" && !dispensado && !abriu.current) {
+    return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  }
   return null
 }
 
@@ -65,6 +71,7 @@ export function DesktopLauncher() {
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
+  const [contaDispensada, setContaDispensada] = useState(false)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
@@ -161,7 +168,10 @@ export function DesktopLauncher() {
   return (
     <AccountProvider>
       <FriendsProvider>
-      <AutoOpenLogin onOpen={() => setContaAberta(true)} />
+      <AutoOpenLogin
+        onOpen={() => setContaAberta(true)}
+        dispensado={contaDispensada}
+      />
       <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <WindowControls />
       <Sidebar
@@ -397,7 +407,13 @@ export function DesktopLauncher() {
         </div>
       )}
       <AchievementToast />
-      <AuthDialog open={contaAberta} onClose={() => setContaAberta(false)} />
+      <AuthDialog
+        open={contaAberta}
+        onClose={() => {
+          setContaAberta(false)
+          setContaDispensada(true)
+        }}
+      />
       <SyncStatusIndicator />
       </div>
       </FriendsProvider>
