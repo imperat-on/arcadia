@@ -303,6 +303,9 @@ declare global {
     apiname: string
     unlocked_at: string
     updated_at: string
+    title?: string | null
+    icon?: string | null
+    percent?: number | null
   }
 
   /** Lista estruturada de relações do usuário logado. */

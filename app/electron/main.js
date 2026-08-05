@@ -1468,7 +1468,16 @@ function onUnlockAchievement(payload) {
       try {
         if (it.apiname) {
           const syncMod = require("./supabase/sync")
-          syncMod.enqueue([{ appid: payload.appid, apiname: it.apiname, unlocked_at: payload.unlock }])
+          syncMod.enqueue([
+            {
+              appid: payload.appid,
+              apiname: it.apiname,
+              unlocked_at: payload.unlock,
+              title: it.title,
+              icon: it.icon,
+              percent: it.percent,
+            },
+          ])
           syncMod.scheduleNow()
         }
       } catch {}

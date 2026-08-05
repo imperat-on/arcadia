@@ -937,5 +937,8 @@
   "amigos.voltar": "Volver",
   "amigos.conquistas_recentes": "Logros recientes",
   "amigos.sem_conquistas": "Aún sin logros públicos",
-  "amigos.pendente_perfil": "Solicitud pendiente — aún no son amigos"
+  "amigos.pendente_perfil": "Solicitud pendiente — aún no son amigos",
+  "amigos.total_conquistas": "Logros",
+  "amigos.platinadas": "Platinados",
+  "amigos.jogos": "Juegos"
 }
