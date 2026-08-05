@@ -948,5 +948,6 @@
   "avatar.crop_dica": "Arrastra el cuadrado para mover · arrastra la esquina para redimensionar",
   "avatar.crop_aplicar": "Aplicar",
   "avatar.crop_cancelar": "Cancelar",
-  "avatar.crop_processando": "Procesando…"
+  "avatar.crop_processando": "Procesando…",
+  "account.username_ajustado": "Nombre de usuario ajustado: {pedido} ya estaba en uso. Tu cuenta se creó como {real}."
 }

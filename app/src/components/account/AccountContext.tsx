@@ -43,9 +43,9 @@ interface AccountCtx {
     email: string,
     username: string,
     password: string,
-  ) => Promise<{ ok: boolean; error?: string }>
+  ) => Promise<{ ok: boolean; error?: string; usernameReal?: string }>
   /** Login com username + senha. */
-  signIn: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>
+  signIn: (username: string, password: string) => Promise<{ ok: boolean; error?: string; usernameReal?: string }>
   signOut: () => Promise<void>
   /** Sobe o avatar pro servidor e devolve a URL pública. */
   setAvatar: (filePath: string) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
