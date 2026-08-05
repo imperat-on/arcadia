@@ -34,7 +34,16 @@ import { SyncStatusIndicator } from "./SyncStatusIndicator"
 // Só 1x por execução — se o usuário fechar no ✕, não reabre sozinho.
 // Splash cobre até a sessão E o perfil online estarem prontos — senão o nome
 // pisca: mostra o username puro antes do display_name chegar do servidor.
-function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado: boolean }) {
+function AutoOpenLogin({
+  onOpen,
+  dispensado,
+  onLogado,
+}: {
+  onOpen: () => void
+  dispensado: boolean
+  /** Chamado quando uma sessão aparece (login) — reseta o modo "pós sign-out". */
+  onLogado?: () => void
+}) {
   const { status, perfil } = useAccount()
   const abriu = useRef(false)
   useEffect(() => {
@@ -43,6 +52,9 @@ function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado:
       onOpen()
     }
   }, [status, onOpen])
+  useEffect(() => {
+    if (status === "logado") onLogado?.()
+  }, [status, onLogado])
   if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
   // Sessão pronta, mas perfil online ainda não carregou (display_name/avatar) —
   // segura o splash até resolver (evita o flash do nome)
@@ -122,6 +134,9 @@ export function DesktopLauncher() {
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
+  // Pós sign-out: a tela de login fica OBRIGATÓRIA (X não fecha) até logar —
+  // evita o estado "meia-conta" (tela antiga sem dados de ninguém).
+  const [aposLogout, setAposLogout] = useState(false)
   const [contaDispensada, setContaDispensada] = useState(false)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
@@ -222,6 +237,7 @@ export function DesktopLauncher() {
       <AutoOpenLogin
         onOpen={() => setContaAberta(true)}
         dispensado={contaDispensada}
+        onLogado={() => setAposLogout(false)}
       />
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
@@ -240,7 +256,10 @@ export function DesktopLauncher() {
         onConfigSub={setConfigSub}
         profile={profile}
         onProfile={() => setShowProfile(true)}
-        onLogout={() => setContaAberta(true)}
+        onLogout={() => {
+          setContaAberta(true)
+          setAposLogout(true)
+        }}
         onRefresh={atualizarBiblioteca}
         games={games}
         librarySidebar={librarySidebar}
@@ -461,7 +480,10 @@ export function DesktopLauncher() {
       <AchievementToast />
       <AuthDialog
         open={contaAberta}
+        semFechar={aposLogout}
         onClose={() => {
+          // Pós sign-out: X não dispensa (login obrigatório até escolher conta)
+          if (aposLogout) return
           setContaAberta(false)
           setContaDispensada(true)
         }}
