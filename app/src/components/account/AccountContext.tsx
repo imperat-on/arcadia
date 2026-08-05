@@ -52,21 +52,29 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signUp = useCallback(async (email: string, username: string, password: string) => {
-    return (
-      (await window.launcherAPI?.accountSignUp({ email, username, password })) || {
-        ok: false,
-        error: "API indisponível",
-      }
-    )
+    try {
+      return (
+        (await window.launcherAPI?.accountSignUp({ email, username, password })) || {
+          ok: false,
+          error: "API indisponível",
+        }
+      )
+    } catch (e) {
+      return { ok: false, error: e?.message || "exceção" }
+    }
   }, [])
 
   const signIn = useCallback(async (username: string, password: string) => {
-    return (
-      (await window.launcherAPI?.accountSignIn({ username, password })) || {
-        ok: false,
-        error: "API indisponível",
-      }
-    )
+    try {
+      return (
+        (await window.launcherAPI?.accountSignIn({ username, password })) || {
+          ok: false,
+          error: "API indisponível",
+        }
+      )
+    } catch (e) {
+      return { ok: false, error: e?.message || "exceção" }
+    }
   }, [])
 
   const signOut = useCallback(async () => {
