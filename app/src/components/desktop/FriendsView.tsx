@@ -129,7 +129,10 @@ export function FriendsView() {
 
   const botaoAcao = (label: string, onClick: () => void, cor: "azul" | "verde" | "laranja" | "cinza" = "azul") => (
     <button
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation() // não dispara o clique do card
+        onClick()
+      }}
       className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-40 ${
         cor === "azul"
           ? "bg-[#0072ce]/85 text-white hover:bg-[#0072ce] hover:shadow-[0_0_18px_rgba(0,114,206,0.4)]"
@@ -145,7 +148,7 @@ export function FriendsView() {
   )
 
   const card = (
-    p: { id: string; username: string; avatar_url?: string | null; since?: string | null },
+    p: { id: string; username: string; avatar_url?: string | null; since?: string | null; status?: "pending" | "accepted" | null },
     acoes?: React.ReactNode,
     clicavel = false,
   ) => (
@@ -269,12 +272,14 @@ export function FriendsView() {
           data?.incoming?.length ?? 0,
           <div className="flex flex-col gap-2">
             {data?.incoming.map((p) =>
-              card(p, (
+              card(
+                { ...p, status: "pending" },
                 <>
                   {botaoAcao(t("amigos.aceitar"), () => aceitar(p.id), "verde")}
                   {botaoAcao(t("amigos.recusar"), () => recusar(p.id), "cinza")}
-                </>
-              )),
+                </>,
+                true,
+              ),
             )}
           </div>,
           "#f5a623",
@@ -287,7 +292,11 @@ export function FriendsView() {
           data?.outgoing?.length ?? 0,
           <div className="flex flex-col gap-2">
             {data?.outgoing.map((p) =>
-              card(p, botaoAcao(t("amigos.cancelar"), () => recusar(p.id), "cinza")),
+              card(
+                { ...p, status: "pending" },
+                botaoAcao(t("amigos.cancelar"), () => recusar(p.id), "cinza"),
+                true,
+              ),
             )}
           </div>,
         )}
@@ -304,7 +313,11 @@ export function FriendsView() {
         ) : (
           <div className="flex flex-col gap-2">
             {data?.friends.map((p) =>
-              card(p, botaoAcao(t("amigos.ver_perfil"), () => setAmigoPerfil(p), "cinza"), true),
+              card(
+                { ...p, status: "accepted" },
+                botaoAcao(t("amigos.ver_perfil"), () => setAmigoPerfil({ ...p, status: "accepted" }), "cinza"),
+                true,
+              ),
             )}
           </div>
         ),
