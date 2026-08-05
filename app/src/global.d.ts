@@ -365,11 +365,11 @@ declare global {
         email: string
         username: string
         password: string
-      }) => Promise<{ ok: boolean; error?: string }>
+      }) => Promise<{ ok: boolean; error?: string; usernameReal?: string }>
       accountSignIn: (payload: {
         username: string
         password: string
-      }) => Promise<{ ok: boolean; error?: string }>
+      }) => Promise<{ ok: boolean; error?: string; usernameReal?: string }>
       accountSignOut: () => Promise<{ ok: boolean; error?: string }>
       onAuthChanged: (
         cb: (data: { event: string; session: AccountSession | null }) => void,

@@ -150,7 +150,17 @@ async function signUp({ email, username, password } = {}) {
   if (!data?.session) {
     return { ok: false, error: "confirmacao_necessaria" } // "Confirm email" ainda ligado
   }
-  return { ok: true, session: data.session, user: data.user }
+  // Colisão de username: o trigger handle_new_user pode ter renomeado o perfil
+  // (joao → joao_1) SEM atualizar o user_metadata do auth. Busca o username
+  // REAL criado pra UI exibir certo ("sua conta é joao_1", não "joao").
+  let usernameReal = u
+  try {
+    const p = await myProfile()
+    if (p?.ok && p.profile?.username) usernameReal = p.profile.username
+  } catch {
+    /* fallback: mantém o username pedido */
+  }
+  return { ok: true, session: data.session, user: data.user, usernameReal }
 }
 
 /** Login com username + senha (resolve o email da conta via RPC). */

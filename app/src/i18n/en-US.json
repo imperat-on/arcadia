@@ -948,5 +948,6 @@
   "avatar.crop_dica": "Drag the square to move · drag the corner to resize",
   "avatar.crop_aplicar": "Apply",
   "avatar.crop_cancelar": "Cancel",
-  "avatar.crop_processando": "Processing…"
+  "avatar.crop_processando": "Processing…",
+  "account.username_ajustado": "Username adjusted: {pedido} was already taken. Your account was created as {real}."
 }
