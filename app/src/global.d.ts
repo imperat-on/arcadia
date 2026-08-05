@@ -356,6 +356,11 @@ declare global {
       accountSetAvatar: (
         filePath: string,
       ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
+      accountSetAvatarBytes: (
+        bytes: Uint8Array,
+        mime: string,
+        ext: string,
+      ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
       accountSignUp: (payload: {
         email: string
         username: string

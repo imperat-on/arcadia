@@ -277,9 +277,21 @@ async function setAvatar(filePath) {
   // Valida dimensão (512 máx) e re-encoda estáticos em ≤256px (GIF passa).
   const proc = processaAvatar(buf, extOk ? ext : ".png")
   if (proc.erro) return { ok: false, error: proc.erro }
-  buf = proc.buf
-  const mime = proc.mime
-  const extFinal = proc.ext
+
+  return uploadAvatarBytes(me, proc.buf, proc.mime, proc.ext)
+}
+
+/** Avatar vindo do RECORTE interativo (renderer): bytes prontos (PNG 256²). */
+async function setAvatarBytes(buf, mime, ext) {
+  const { data: ud, error: ue } = await getClient().auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  if (!buf || !buf.length) return { ok: false, error: "avatar_ilegivel" }
+  return uploadAvatarBytes(ud.user.id, Buffer.from(buf), mime || "image/png", ext || ".png")
+}
+
+/** Upload + gravação da URL (comum ao caminho de arquivo e bytes recortados). */
+async function uploadAvatarBytes(me, buf, mime, extFinal) {
+  if (buf.length > AVATAR_MAX) return { ok: false, error: "avatar_grande" }
 
   // Avatar atual (pra limpeza do arquivo antigo depois)
   const { data: atual } = await getClient()
@@ -317,4 +329,4 @@ async function setAvatar(filePath) {
   return { ok: true, avatar_url: avatarUrl }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, caminhoDeArquivo, dimensoesDeImagem, processaAvatar }
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, setAvatarBytes, caminhoDeArquivo, dimensoesDeImagem, processaAvatar }

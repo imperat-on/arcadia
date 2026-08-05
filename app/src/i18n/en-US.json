@@ -943,5 +943,9 @@
   "amigos.jogos": "Games",
   "editprofile.avatar_erro": "Failed to upload avatar to server",
   "editprofile.avatar_grande": "Image too large (max 5MB)",
-  "editprofile.avatar_dimensoes": "Dimensions too large (max 512×512px)"
+  "editprofile.avatar_dimensoes": "Dimensions too large (max 512×512px)",
+  "avatar.crop_titulo": "Crop avatar",
+  "avatar.crop_dica": "Drag the square to move · drag the corner to resize",
+  "avatar.crop_aplicar": "Apply",
+  "avatar.crop_cancelar": "Cancel"
 }

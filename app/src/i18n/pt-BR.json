@@ -943,5 +943,9 @@
   "amigos.jogos": "Jogos",
   "editprofile.avatar_erro": "Falha ao subir o avatar pro servidor",
   "editprofile.avatar_grande": "Imagem muito grande (máx. 5MB)",
-  "editprofile.avatar_dimensoes": "Dimensões grandes demais (máx. 512×512px)"
+  "editprofile.avatar_dimensoes": "Dimensões grandes demais (máx. 512×512px)",
+  "avatar.crop_titulo": "Recortar avatar",
+  "avatar.crop_dica": "Arraste o quadrado para mover · arraste o canto para redimensionar",
+  "avatar.crop_aplicar": "Aplicar",
+  "avatar.crop_cancelar": "Cancelar"
 }
