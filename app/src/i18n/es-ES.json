@@ -940,5 +940,6 @@
   "amigos.pendente_perfil": "Solicitud pendiente — aún no son amigos",
   "amigos.total_conquistas": "Logros",
   "amigos.platinadas": "Platinados",
-  "amigos.jogos": "Juegos"
+  "amigos.jogos": "Juegos",
+  "editprofile.avatar_erro": "Error al subir el avatar al servidor"
 }

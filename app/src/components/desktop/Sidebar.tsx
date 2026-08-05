@@ -81,10 +81,10 @@ export function Sidebar({
   const logado = contaStatus === "logado"
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
-  // Identidade: logado → conta online (username + avatar do servidor);
-  // deslogado → perfil local. O avatar da conta tem prioridade quando existe.
+  // Identidade: logado → conta online (display_name > username + avatar do
+  // servidor); deslogado → perfil local. O avatar da conta tem prioridade.
   const nome = logado
-    ? contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
+    ? contaPerfil?.display_name || contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
     : profile.name || t("profile.jogador")
   const avatarUrl = logado ? contaPerfil?.avatar_url || profile.avatar : profile.avatar
 
