@@ -301,6 +301,14 @@ declare global {
     outgoing: FriendProfile[]
   }
 
+  /** Estado do sync de conquistas (espelhado do main process). */
+  interface SyncState {
+    lastPullAt: number | null
+    lastSyncAt: number | null
+    lastError: string | null
+    queueLen: number
+  }
+
   interface Window {
     /** Modo da UI: console (PS5) ou desktop (estilo Heroic). */
     launcherMode?: "console" | "desktop"
@@ -331,6 +339,10 @@ declare global {
       friendsCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsList: () => Promise<{ ok: boolean; data?: FriendsListData; error?: string }>
       onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
+      /** Sync de conquistas (Supabase). */
+      syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
+      syncState: () => Promise<SyncState>
+      onSyncState: (cb: (st: SyncState) => void) => () => void
       launch: (
         cmd: string[],
         gameId?: string,

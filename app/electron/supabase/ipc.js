@@ -5,6 +5,7 @@
 const { ipcMain } = require("electron")
 const auth = require("./auth")
 const friends = require("./friends")
+const sync = require("./sync")
 const { getClient, attachAuthPersistence } = require("./client")
 
 function registerAccountIpc(broadcast) {
@@ -15,7 +16,10 @@ function registerAccountIpc(broadcast) {
   // Realtime de amigos: liga ao logar, desliga ao sair.
   const realtime = friends.watchRequests((channel, payload) => broadcast(channel, payload))
 
-  // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime.
+  // Estado do sync de conquistas → renderer (indicador + botão).
+  sync.onSyncState((st) => broadcast("sync:state", st))
+
+  // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
   getClient().auth.onAuthStateChange((event, session) => {
     broadcast("account:changed", {
       event,
@@ -29,7 +33,10 @@ function registerAccountIpc(broadcast) {
           }
         : null,
     })
-    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") realtime.start()
+    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      realtime.start()
+      sync.reconcile().catch(() => {}) // sobe a fila + baixa delta
+    }
     if (event === "SIGNED_OUT" || event === "USER_DELETED") realtime.stop()
   })
 
@@ -43,6 +50,9 @@ function registerAccountIpc(broadcast) {
   ipcMain.handle("friends:accept", async (_e, userId) => friends.accept(userId))
   ipcMain.handle("friends:cancel", async (_e, userId) => friends.cancel(userId))
   ipcMain.handle("friends:list", async () => friends.list())
+
+  ipcMain.handle("sync:now", async () => sync.syncNow())
+  ipcMain.handle("sync:state", async () => sync.getState())
 
   return () => realtime.stop()
 }

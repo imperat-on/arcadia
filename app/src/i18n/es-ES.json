@@ -912,5 +912,9 @@
   "amigos.nao_logado": "Inicia sesión para usar amigos",
   "amigos.nao_logado_hint": "Ve a Cuenta en línea en el menú de perfil.",
   "amigos.erro_busca": "La búsqueda falló",
-  "amigos.erro_geral": "La operación falló"
+  "amigos.erro_geral": "La operación falló",
+  "sync.ok": "Sincronizado",
+  "sync.sincronizando": "Sincronizando…",
+  "sync.fila": "{n} pendiente(s)",
+  "sync.erro": "Error de sync"
 }
