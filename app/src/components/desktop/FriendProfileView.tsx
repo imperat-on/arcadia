@@ -16,6 +16,7 @@ interface Props {
 type ConquistaEnriquecida = FriendAchievement & {
   title?: string
   icon?: string
+  percent?: number | null
   unlockLocal?: number
 }
 
@@ -143,32 +144,77 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
         )}
 
         {conquistas && conquistas.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {conquistas.map((c) => (
-              <div
-                key={c.appid + c.apiname}
-                className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-all hover:border-[#00a8ff]/40 hover:bg-white/[0.05]"
-              >
-                {c.icon ? (
-                  <img
-                    src={c.icon}
-                    alt=""
-                    className="h-10 w-10 rounded-lg border border-white/10 object-cover"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#0072ce]/30 to-[#00a8ff]/10 text-lg text-[#7fd0ff]">
-                    🏆
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <div className="truncate text-xs font-medium text-white">{c.title || c.apiname}</div>
-                  <div className="text-[10px] text-white/35">
-                    {formatarData(c.unlocked_at)} · {c.appid}
-                  </div>
+          <>
+            {/* Resumo estilo "meu perfil" */}
+            <div className="mb-4 grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="text-xl font-bold text-[#7fd0ff]">{conquistas.length}</div>
+                <div className="text-[10px] uppercase tracking-wider text-white/35">
+                  {t("amigos.total_conquistas")}
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="text-xl font-bold text-[#4adf9a]">
+                  {conquistas.filter((c) => c.percent != null && c.percent >= 100).length > 0
+                    ? `${Math.round(
+                        (conquistas.filter((c) => c.percent != null && c.percent >= 100).length / conquistas.length) * 100,
+                      )}%`
+                    : "—"}
+                </div>
+                <div className="text-[10px] uppercase tracking-wider text-white/35">
+                  {t("amigos.platinadas")}
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="text-xl font-bold text-[#f5a623]">
+                  {new Set(conquistas.map((c) => c.appid)).size}
+                </div>
+                <div className="text-[10px] uppercase tracking-wider text-white/35">
+                  {t("amigos.jogos")}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {conquistas.map((c) => (
+                <div
+                  key={c.appid + c.apiname}
+                  className="group flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-all hover:border-[#00a8ff]/40 hover:bg-white/[0.05]"
+                >
+                  <div className="flex items-start gap-2.5">
+                    {c.icon ? (
+                      <img
+                        src={c.icon}
+                        alt=""
+                        className="h-11 w-11 shrink-0 rounded-lg border border-white/10 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#0072ce]/30 to-[#00a8ff]/10 text-lg text-[#7fd0ff]">
+                        🏆
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium text-white">
+                        {c.title || c.apiname}
+                      </div>
+                      <div className="mt-0.5 truncate text-[10px] text-white/35">{c.appid}</div>
+                    </div>
+                    {c.percent != null && (
+                      <span className="shrink-0 rounded-full bg-[#4adf9a]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#4adf9a]">
+                        {Math.round(c.percent)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between border-t border-white/5 pt-2">
+                    <span className="text-[10px] text-white/35">
+                      {formatarData(c.unlocked_at)}
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#4adf9a]">✓</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
         </div>
       )}
