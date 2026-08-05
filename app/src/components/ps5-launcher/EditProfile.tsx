@@ -79,6 +79,16 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const patch = async (p: Partial<Profile>) => {
     onChange({ ...profile, ...p })
     await window.launcherAPI?.setConfig({ profile: p })
+    // Logado: sincroniza os campos aprovados pro servidor (perfil único).
+    if (conta?.status === "logado") {
+      await conta.updatePerfil({
+        display_name: p.name,
+        summary: p.summary,
+        country: p.country,
+        city: p.city,
+        showcase: p.showcase,
+      })
+    }
   }
 
   const setField = (k: keyof typeof fields, v: string) => {

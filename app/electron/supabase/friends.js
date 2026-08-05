@@ -26,7 +26,7 @@ async function search(query) {
   const client = getClient()
   const { data: profiles, error } = await client
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, avatar_url, display_name")
     .ilike("username", q + "%")
     .limit(20)
   if (error) return { ok: false, error: error.message }
@@ -49,6 +49,7 @@ async function search(query) {
   const results = encontrados.map((p) => ({
     id: p.id,
     username: p.username,
+    display_name: p.display_name ?? null,
     avatar_url: p.avatar_url ?? null,
     status: relByUser[p.id]?.status ?? null,
     incoming: relByUser[p.id]?.requester_id === p.id,
@@ -132,15 +133,16 @@ async function list() {
   if (ids.size) {
     const { data: profs } = await client
       .from("profiles")
-      .select("id, username, avatar_url")
+      .select("id, username, avatar_url, display_name")
       .in("id", [...ids])
     for (const p of profs || []) {
-      perfil[p.id] = { username: p.username, avatar_url: p.avatar_url ?? null }
+      perfil[p.id] = { username: p.username, avatar_url: p.avatar_url ?? null, display_name: p.display_name ?? null }
     }
   }
   const mk = (info) => ({
     id: info.id,
     username: perfil[info.id]?.username || "?",
+    display_name: perfil[info.id]?.display_name ?? null,
     avatar_url: perfil[info.id]?.avatar_url ?? null,
     since: info.since ?? null,
   })

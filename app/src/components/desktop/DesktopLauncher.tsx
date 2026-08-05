@@ -50,6 +50,43 @@ function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado:
   return null
 }
 
+// Espelha o perfil ONLINE no perfil local em memória — identidade única.
+// Logado: name=display_name||username, avatar=avatar_url, summary/country/city/showcase.
+// Deslogado: restaura o perfil local original (guardado no 1º merge).
+function ProfileBridge({
+  perfilLocal,
+  setPerfilLocal,
+}: {
+  perfilLocal: Profile
+  setPerfilLocal: React.Dispatch<React.SetStateAction<Profile>>
+}) {
+  const { perfil } = useAccount()
+  const original = useRef<Profile | null>(null)
+
+  useEffect(() => {
+    if (!perfil) {
+      if (original.current) {
+        setPerfilLocal(original.current)
+        original.current = null
+      }
+      return
+    }
+    if (!original.current) original.current = perfilLocal
+    setPerfilLocal((p) => ({
+      ...p,
+      name: perfil.display_name || perfil.username || p.name,
+      avatar: perfil.avatar_url || p.avatar,
+      summary: perfil.summary ?? p.summary,
+      country: perfil.country ?? p.country,
+      city: perfil.city ?? p.city,
+      showcase: perfil.showcase ?? p.showcase,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfil])
+
+  return null
+}
+
 export function DesktopLauncher() {
   const { t } = useI18n()
   const [view, setView] = useState<DesktopView>("inicio")
@@ -172,6 +209,7 @@ export function DesktopLauncher() {
         onOpen={() => setContaAberta(true)}
         dispensado={contaDispensada}
       />
+      <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <WindowControls />
       <Sidebar
