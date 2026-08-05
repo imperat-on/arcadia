@@ -29,6 +29,21 @@ import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
 import { SyncStatusIndicator } from "./SyncStatusIndicator"
 
+// Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
+// na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
+// Só 1x por execução — se o usuário fechar no ✕, não reabre sozinho.
+function AutoOpenLogin({ onOpen }: { onOpen: () => void }) {
+  const { status } = useAccount()
+  const abriu = useRef(false)
+  useEffect(() => {
+    if (status === "deslogado" && !abriu.current) {
+      abriu.current = true
+      onOpen()
+    }
+  }, [status, onOpen])
+  return null
+}
+
 export function DesktopLauncher() {
   const { t } = useI18n()
   const [view, setView] = useState<DesktopView>("inicio")
@@ -50,16 +65,6 @@ export function DesktopLauncher() {
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
-  const autoLoginAberto = useRef(false)
-  const { status: contaStatus } = useAccount()
-
-  // Primeira vez (sem sessão salva): abre a tela de login/sign-up sozinha.
-  useEffect(() => {
-    if (contaStatus === "deslogado" && !autoLoginAberto.current) {
-      autoLoginAberto.current = true
-      setContaAberta(true)
-    }
-  }, [contaStatus])
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
@@ -156,6 +161,7 @@ export function DesktopLauncher() {
   return (
     <AccountProvider>
       <FriendsProvider>
+      <AutoOpenLogin onOpen={() => setContaAberta(true)} />
       <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <WindowControls />
       <Sidebar
