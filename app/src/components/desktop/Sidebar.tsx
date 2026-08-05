@@ -5,9 +5,17 @@ import { useMemo, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
+import { useFriends } from "../account/FriendsContext"
 
 export type DesktopView =
-  "inicio" | "biblioteca" | "lojas" | "plugins" | "downloads" | "fontes" | "config"
+  | "inicio"
+  | "biblioteca"
+  | "lojas"
+  | "plugins"
+  | "downloads"
+  | "fontes"
+  | "amigos"
+  | "config"
 export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
@@ -17,6 +25,7 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "plugins", label: "Componentes", labelKey: "sidebar.plugins", icon: <IconPlugin /> },
   { id: "downloads", label: "Downloads", labelKey: "sidebar.downloads", icon: <IconDownload /> },
   { id: "fontes", label: "Fontes", labelKey: "sidebar.fontes", icon: <IconFontes /> },
+  { id: "amigos", label: "Amigos", labelKey: "amigos.titulo", icon: <IconUsers /> },
   { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
 ]
 
@@ -65,6 +74,7 @@ export function Sidebar({
   activeGameId?: string
 }) {
   const { t } = useI18n()
+  const { pedidos } = useFriends()
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
   const nome = profile.name || t("profile.jogador")
@@ -188,6 +198,14 @@ export function Sidebar({
                     style={{ background: "var(--accent)" }}
                   >
                     {downloadsActive}
+                  </span>
+                )}
+                {it.id === "amigos" && pedidos > 0 && (
+                  <span
+                    className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-black"
+                    style={{ background: "#f5a623" }}
+                  >
+                    {pedidos}
                   </span>
                 )}
               </button>
@@ -502,6 +520,18 @@ function IconDownload() {
       <path d="M12 4v9" />
       <path d="m8 10 4 4 4-4" />
       <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+    </svg>
+  )
+}
+
+// Amigos: dois usuários (cabeça + ombros) lado a lado.
+function IconUsers() {
+  return (
+    <svg {...s}>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <path d="M16 5.5a3.2 3.2 0 0 1 0 6" />
+      <path d="M17 13.6a5.5 5.5 0 0 1 3.5 5.4" />
     </svg>
   )
 }
