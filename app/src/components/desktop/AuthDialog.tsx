@@ -330,11 +330,6 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
               </div>
             )}
           </div>
-
-          {/* Rodapé */}
-          <div className="arc-fade-up mt-6 text-center text-[11px] text-white/25" style={{ animationDelay: "160ms" }}>
-            Open source · Sem verificação · Suas conquistas, sua conta
-          </div>
         </div>
       </div>
     </div>
