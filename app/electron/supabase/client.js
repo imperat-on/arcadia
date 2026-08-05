@@ -6,6 +6,10 @@
 "use strict"
 
 const { createClient } = require("@supabase/supabase-js")
+// Electron 33 roda Node 20, que NÃO tem WebSocket nativo (só Node 22+). Sem
+// isso o supabase-js estoura ao inicializar o cliente Realtime. O pacote `ws`
+// fornece a implementação; a opção vai em `realtime.transport`.
+const WebSocket = require("ws")
 const config = require("./config")
 const sessionStore = require("./session")
 
@@ -19,6 +23,7 @@ function getClient() {
         autoRefreshToken: true,
         detectSessionInUrl: false,
       },
+      realtime: { transport: WebSocket },
     })
   }
   return client
