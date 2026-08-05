@@ -17,12 +17,26 @@ export type AccountStatus = "carregando" | "deslogado" | "logado"
 export interface PerfilOnline {
   username: string | null
   avatar_url: string | null
+  display_name?: string | null
+  summary?: string | null
+  country?: string | null
+  city?: string | null
+  showcase?: string[]
 }
+
+/** Campos que o perfil local espelha do online (whitelist). */
+export const CAMPOS_ESPELHO: Array<keyof PerfilOnline> = [
+  "display_name",
+  "summary",
+  "country",
+  "city",
+  "showcase",
+]
 
 interface AccountCtx {
   status: AccountStatus
   session: AccountSession | null
-  /** Perfil online (username/avatar do servidor) — atualizado após login. */
+  /** Perfil online (username/avatar/campos do servidor) — após login. */
   perfil: PerfilOnline | null
   /** Cadastro: email + username + senha (sem verificação). */
   signUp: (
@@ -35,6 +49,8 @@ interface AccountCtx {
   signOut: () => Promise<void>
   /** Sobe o avatar pro servidor e devolve a URL pública. */
   setAvatar: (filePath: string) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
+  /** Grava campos do perfil online (display_name, summary, country, city, showcase). */
+  updatePerfil: (campos: Partial<PerfilOnline>) => Promise<{ ok: boolean; error?: string }>
 }
 
 const Ctx = createContext<AccountCtx | null>(null)
@@ -104,7 +120,20 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const setAvatar = useCallback(async (filePath: string) => {
     try {
       const r = await window.launcherAPI?.accountSetAvatar(filePath)
-      if (r?.ok && r.avatar_url) setPerfil((p) => ({ username: p?.username ?? null, avatar_url: r.avatar_url ?? null }))
+      if (r?.ok && r.avatar_url) setPerfil((p) => ({ username: p?.username ?? null, avatar_url: r.avatar_url ?? null, ...p }))
+      return r || { ok: false, error: "API indisponível" }
+    } catch (e) {
+      return { ok: false, error: e?.message || "exceção" }
+    }
+  }, [])
+
+  const updatePerfil = useCallback(async (campos: Partial<PerfilOnline>) => {
+    try {
+      const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase }
+      const r = await window.launcherAPI?.accountUpdateProfile(alvo)
+      if (r?.ok) {
+        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), ...campos }))
+      }
       return r || { ok: false, error: "API indisponível" }
     } catch (e) {
       return { ok: false, error: e?.message || "exceção" }
@@ -112,7 +141,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar }}>
+    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, updatePerfil }}>
       {children}
     </Ctx.Provider>
   )

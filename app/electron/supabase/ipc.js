@@ -62,6 +62,10 @@ function registerAccountIpc(broadcast) {
     await garantirSessao()
     return auth.myProfile()
   })
+  ipcMain.handle("account:updateProfile", async (_e, campos) => {
+    await garantirSessao()
+    return auth.updateProfile(campos || {})
+  })
   ipcMain.handle("account:setAvatar", async (_e, filePath) => {
     await garantirSessao()
     return auth.setAvatar(filePath)

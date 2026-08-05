@@ -97,7 +97,7 @@ async function status() {
   return { session: data.session, error: null }
 }
 
-/** Perfil online do usuário logado (username + avatar do servidor). */
+/** Perfil online do usuário logado (username + avatar + campos do perfil). */
 async function myProfile() {
   const { data: ud, error: ue } = await getClient().auth.getUser()
   if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
@@ -105,14 +105,45 @@ async function myProfile() {
 
   const { data, error } = await getClient()
     .from("profiles")
-    .select("username, avatar_url")
+    .select("username, avatar_url, display_name, summary, country, city, showcase")
     .eq("id", me)
     .maybeSingle()
   if (error) return { ok: false, error: error.message }
   return {
     ok: true,
-    profile: { username: data?.username ?? null, avatar_url: data?.avatar_url ?? null },
+    profile: {
+      username: data?.username ?? null,
+      avatar_url: data?.avatar_url ?? null,
+      display_name: data?.display_name ?? null,
+      summary: data?.summary ?? null,
+      country: data?.country ?? null,
+      city: data?.city ?? null,
+      showcase: Array.isArray(data?.showcase) ? data.showcase : [],
+    },
   }
+}
+
+// Whitelist de campos editáveis do perfil online (nunca username/email/id).
+const CAMPOS_PERFIL = ["display_name", "summary", "country", "city", "showcase"]
+
+/** Grava campos do perfil online (whitelist). RLS: só a própria linha. */
+async function updateProfile(campos) {
+  const { data: ud, error: ue } = await getClient().auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  const me = ud.user.id
+
+  const alvo = {}
+  for (const k of CAMPOS_PERFIL) {
+    if (campos && campos[k] !== undefined) alvo[k] = campos[k]
+  }
+  if (!Object.keys(alvo).length) return { ok: false, error: "sem_campos" }
+
+  const { error } = await getClient()
+    .from("profiles")
+    .update(alvo)
+    .eq("id", me)
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
 }
 
 /**
@@ -152,4 +183,4 @@ async function setAvatar(filePath) {
   return { ok: true, avatar_url: avatarUrl }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, setAvatar }
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar }

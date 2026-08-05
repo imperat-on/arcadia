@@ -290,6 +290,7 @@ declare global {
   interface FriendProfile {
     id: string
     username: string
+    display_name?: string | null
     avatar_url?: string | null
     status?: "pending" | "accepted" | null
     incoming?: boolean
@@ -334,9 +335,24 @@ declare global {
       accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
       accountProfile: () => Promise<{
         ok: boolean
-        profile?: { username: string | null; avatar_url: string | null }
+        profile?: {
+          username: string | null
+          avatar_url: string | null
+          display_name?: string | null
+          summary?: string | null
+          country?: string | null
+          city?: string | null
+          showcase?: string[]
+        }
         error?: string
       }>
+      accountUpdateProfile: (campos: {
+        display_name?: string
+        summary?: string
+        country?: string
+        city?: string
+        showcase?: string[]
+      }) => Promise<{ ok: boolean; error?: string }>
       accountSetAvatar: (
         filePath: string,
       ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
