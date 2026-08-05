@@ -26,7 +26,7 @@ async function search(query) {
   const client = getClient()
   const { data: profiles, error } = await client
     .from("profiles")
-    .select("id, username")
+    .select("id, username, avatar_url")
     .ilike("username", q + "%")
     .limit(20)
   if (error) return { ok: false, error: error.message }
@@ -49,6 +49,7 @@ async function search(query) {
   const results = encontrados.map((p) => ({
     id: p.id,
     username: p.username,
+    avatar_url: p.avatar_url ?? null,
     status: relByUser[p.id]?.status ?? null,
     incoming: relByUser[p.id]?.requester_id === p.id,
   }))
@@ -102,7 +103,7 @@ async function cancel(friendId) {
   return { ok: true }
 }
 
-/** Lista: amigos aceitos, pedidos recebidos e enviados (com username). */
+/** Lista: amigos aceitos, pedidos recebidos e enviados (com username, avatar e created_at). */
 async function list() {
   const me = await requireUserId()
   if (!me) return { ok: false, error: "nao_logado" }
@@ -110,7 +111,7 @@ async function list() {
   const client = getClient()
   const { data: rels, error } = await client
     .from("friendships")
-    .select("user_a, user_b, status, requester_id")
+    .select("user_a, user_b, status, requester_id, created_at")
     .or(`user_a.eq.${me},user_b.eq.${me}`)
   if (error) return { ok: false, error: error.message }
 
@@ -121,20 +122,28 @@ async function list() {
   for (const r of rels || []) {
     const other = r.user_a === me ? r.user_b : r.user_a
     ids.add(other)
-    if (r.status === "accepted") friends.push(other)
-    else if (r.requester_id === me) outgoing.push(other)
-    else incoming.push(other)
+    const info = { id: other, since: r.created_at ?? null }
+    if (r.status === "accepted") friends.push(info)
+    else if (r.requester_id === me) outgoing.push(info)
+    else incoming.push(info)
   }
 
-  const names = {}
+  const perfil = {}
   if (ids.size) {
     const { data: profs } = await client
       .from("profiles")
-      .select("id, username")
+      .select("id, username, avatar_url")
       .in("id", [...ids])
-    for (const p of profs || []) names[p.id] = p.username
+    for (const p of profs || []) {
+      perfil[p.id] = { username: p.username, avatar_url: p.avatar_url ?? null }
+    }
   }
-  const mk = (id) => ({ id, username: names[id] || "?" })
+  const mk = (info) => ({
+    id: info.id,
+    username: perfil[info.id]?.username || "?",
+    avatar_url: perfil[info.id]?.avatar_url ?? null,
+    since: info.since ?? null,
+  })
 
   return {
     ok: true,
@@ -144,6 +153,34 @@ async function list() {
       outgoing: outgoing.map(mk),
     },
   }
+}
+
+/** Conquistas recentes do amigo (RPC security definer — só entre amigos). */
+async function friendAchievements(friendId) {
+  const me = await requireUserId()
+  if (!me) return { ok: false, error: "nao_logado" }
+  if (!friendId || friendId === me) return { ok: false, error: "destino_invalido" }
+
+  const { data, error } = await getClient().rpc("friend_achievements", {
+    p_friend: friendId,
+  })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, achievements: data || [] }
+}
+
+/** Remove amigo aceito (policy friends_delete_accepted — qualquer membro do par). */
+async function removeFriend(friendId) {
+  const me = await requireUserId()
+  if (!me) return { ok: false, error: "nao_logado" }
+  if (!friendId || friendId === me) return { ok: false, error: "destino_invalido" }
+
+  const { error } = await getClient()
+    .from("friendships")
+    .delete()
+    .or(`and(user_a.eq.${me},user_b.eq.${friendId}),and(user_a.eq.${friendId},user_b.eq.${me})`)
+    .eq("status", "accepted")
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
 }
 
 /**
@@ -185,4 +222,14 @@ function watchRequests(broadcast) {
   return { start, stop }
 }
 
-module.exports = { canonicalPair, search, send, accept, cancel, list, watchRequests }
+module.exports = {
+  canonicalPair,
+  search,
+  send,
+  accept,
+  cancel,
+  list,
+  friendAchievements,
+  removeFriend,
+  watchRequests,
+}

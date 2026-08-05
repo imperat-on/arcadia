@@ -213,6 +213,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   friendsAccept: (userId) => ipcRenderer.invoke("friends:accept", userId),
   friendsCancel: (userId) => ipcRenderer.invoke("friends:cancel", userId),
   friendsList: () => ipcRenderer.invoke("friends:list"),
+  friendsAchievements: (userId) => ipcRenderer.invoke("friends:achievements", userId),
+  friendsRemove: (userId) => ipcRenderer.invoke("friends:remove", userId),
   onFriendRequest: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("friends:request", h)
