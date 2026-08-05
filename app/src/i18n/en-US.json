@@ -937,5 +937,8 @@
   "amigos.voltar": "Back",
   "amigos.conquistas_recentes": "Recent achievements",
   "amigos.sem_conquistas": "No public achievements yet",
-  "amigos.pendente_perfil": "Request pending — you're not friends yet"
+  "amigos.pendente_perfil": "Request pending — you're not friends yet",
+  "amigos.total_conquistas": "Achievements",
+  "amigos.platinadas": "Platinum",
+  "amigos.jogos": "Games"
 }

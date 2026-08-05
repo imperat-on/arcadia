@@ -121,6 +121,9 @@ async function pushDelta() {
     appid: i.appid,
     apiname: i.apiname,
     unlocked_at: normalizeTs(i.unlocked_at),
+    title: i.title ?? null,
+    icon: i.icon ?? null,
+    percent: i.percent ?? null,
   }))
   const { error } = await getClient().rpc("sync_achievements", { p_items })
   if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
