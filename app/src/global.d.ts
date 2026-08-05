@@ -286,6 +286,21 @@ declare global {
     user: { id: string; email?: string; username?: string }
   }
 
+  /** Perfil de usuário no contexto de amigos. */
+  interface FriendProfile {
+    id: string
+    username: string
+    status?: "pending" | "accepted" | null
+    incoming?: boolean
+  }
+
+  /** Lista estruturada de relações do usuário logado. */
+  interface FriendsListData {
+    friends: FriendProfile[]
+    incoming: FriendProfile[]
+    outgoing: FriendProfile[]
+  }
+
   interface Window {
     /** Modo da UI: console (PS5) ou desktop (estilo Heroic). */
     launcherMode?: "console" | "desktop"
@@ -307,6 +322,15 @@ declare global {
       onAuthChanged: (
         cb: (data: { event: string; session: AccountSession | null }) => void,
       ) => () => void
+      /** Amigos (Supabase). */
+      friendsSearch: (
+        query: string,
+      ) => Promise<{ ok: boolean; results?: FriendProfile[]; error?: string }>
+      friendsSend: (userId: string) => Promise<{ ok: boolean; error?: string }>
+      friendsAccept: (userId: string) => Promise<{ ok: boolean; error?: string }>
+      friendsCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>
+      friendsList: () => Promise<{ ok: boolean; data?: FriendsListData; error?: string }>
+      onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
       launch: (
         cmd: string[],
         gameId?: string,

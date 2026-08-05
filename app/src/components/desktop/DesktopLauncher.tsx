@@ -24,7 +24,9 @@ import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 import { AchievementToast } from "./AchievementToast"
 import { AccountProvider } from "../account/AccountContext"
+import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
+import { FriendsView } from "./FriendsView"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -142,6 +144,7 @@ export function DesktopLauncher() {
 
   return (
     <AccountProvider>
+      <FriendsProvider>
       <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <WindowControls />
       <Sidebar
@@ -251,6 +254,7 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
             {!jogoPagina && view === "fontes" && <SourcesView />}
+            {!jogoPagina && view === "amigos" && <FriendsView />}
             {!jogoPagina && view === "config" && (
               <SettingsView sub={configSub} onSaved={carregar} />
             )}
@@ -378,6 +382,7 @@ export function DesktopLauncher() {
       <AchievementToast />
       <AuthDialog open={contaAberta} onClose={() => setContaAberta(false)} />
       </div>
+      </FriendsProvider>
     </AccountProvider>
   )
 }
