@@ -926,5 +926,7 @@
   "account.entrar_btn": "Sign in",
   "account.erro_senha_curta": "Password must be at least 6 characters.",
   "account.erro_usuario_nao_existe": "That user doesn't exist.",
-  "account.erro_credenciais": "Wrong username or password."
+  "account.erro_credenciais": "Wrong username or password.",
+  "account.enviando": "Please wait…",
+  "account.logado_ok": "You're connected. Let's play!"
 }
