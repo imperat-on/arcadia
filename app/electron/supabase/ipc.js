@@ -6,6 +6,7 @@ const { ipcMain } = require("electron")
 const auth = require("./auth")
 const friends = require("./friends")
 const sync = require("./sync")
+const biblioteca = require("./biblioteca")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
 
 // Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
@@ -30,6 +31,9 @@ function registerAccountIpc(broadcast, onConta) {
   // Estado do sync de conquistas → renderer (indicador + botão).
   sync.onSyncState((st) => broadcast("sync:state", st))
 
+  // Biblioteca/horas sincronizadas → renderer recarrega a biblioteca.
+  biblioteca.onChanged((channel) => broadcast(channel, { source: "biblioteca" }))
+
   // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
   getClient().auth.onAuthStateChange((event, session) => {
     const username = session?.user?.user_metadata?.username || null
@@ -47,7 +51,8 @@ function registerAccountIpc(broadcast, onConta) {
     })
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       realtime.start()
-      sync.reconcile().catch(() => {}) // sobe a fila + baixa delta
+      sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
+      biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
       // Troca o escopo dos arquivos locais pra conta logada
       onConta?.(username)
     }
