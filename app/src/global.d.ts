@@ -318,6 +318,10 @@ declare global {
       getLibrary: () => Promise<Game[]>
       /** Conta online (Supabase) — fluxo por código enviado por email (OTP). */
       accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
+      accountSignUp: (payload: {
+        email: string
+        username: string
+      }) => Promise<{ ok: boolean; error?: string }>
       accountRequestCode: (payload: {
         email: string
         username?: string
