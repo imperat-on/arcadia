@@ -879,7 +879,7 @@
   "torrent.status.erro": "Error",
   "torrent.cacheando_desc": "El debrid está descargando el torrent a su servidor — la descarga comienza sola cuando esté listo.",
   "account.titulo": "Cuenta Arcadia",
-  "account.descricao": "Entra con tu correo — enviamos un código de 6 dígitos para probar que el correo es tuyo.",
+  "account.descricao": "Entra con tu usuario y contraseña.",
   "account.email": "Correo",
   "account.username": "Nombre de usuario (solo cuentas nuevas)",
   "account.username_hint": "3-20 caracteres: minúsculas, números y _",
@@ -917,9 +917,14 @@
   "sync.sincronizando": "Sincronizando…",
   "sync.fila": "{n} pendiente(s)",
   "sync.erro": "Error de sync",
-  "account.descricao_criar": "Crea tu cuenta al instante, sin verificación. Solo elige un nombre de usuario.",
+  "account.descricao_criar": "Crea tu cuenta al instante, sin verificación de correo.",
   "account.modo_criar": "Crear cuenta",
   "account.modo_entrar": "Entrar",
   "account.criar_conta_btn": "Crear cuenta",
-  "account.erro_confirmacao": "La confirmación de correo sigue activada en Supabase (Authentication → Providers → Email → Confirm email OFF)."
+  "account.erro_confirmacao": "La confirmación de correo sigue activada en Supabase (Authentication → Providers → Email → Confirm email OFF).",
+  "account.senha": "Contraseña (mín. 6 caracteres)",
+  "account.entrar_btn": "Entrar",
+  "account.erro_senha_curta": "La contraseña necesita al menos 6 caracteres.",
+  "account.erro_usuario_nao_existe": "Ese usuario no existe.",
+  "account.erro_credenciais": "Usuario o contraseña incorrectos."
 }

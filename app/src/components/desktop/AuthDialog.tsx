@@ -1,10 +1,8 @@
 "use client"
 
 // Diálogo de conta online (Supabase).
-// Dois modos:
-//  - "criar": cadastro INSTANTÂNEO — email + username, sem verificação
-//    (projeto open-source libertário: zero fricção).
-//  - "entrar": conta existente — email → código de 6 dígitos (prova de posse).
+// Cadastro: EMAIL + USERNAME + SENHA (sem verificação — projeto libertário).
+// Login: USERNAME + SENHA (o email é resolvido no main via RPC login_email).
 import { useEffect, useRef, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { useAccount } from "../account/AccountContext"
@@ -14,31 +12,24 @@ interface AuthDialogProps {
   onClose: () => void
 }
 
-type Passo = "email" | "codigo" | "logado"
 type Modo = "criar" | "entrar"
 
 export function AuthDialog({ open, onClose }: AuthDialogProps) {
   const { t } = useI18n()
-  const { status, session, signUp, requestCode, verifyCode, signOut } = useAccount()
+  const { status, session, signUp, signIn, signOut } = useAccount()
 
-  const [passo, setPasso] = useState<Passo>("email")
   const [modo, setModo] = useState<Modo>("criar")
   const [email, setEmail] = useState("")
   const [username, setUsername] = useState("")
-  const [token, setToken] = useState("")
+  const [senha, setSenha] = useState("")
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
-  const emailRef = useRef<HTMLInputElement>(null)
-
-  // Sincroniza o passo com o estado real da conta.
-  useEffect(() => {
-    if (open && status === "logado") setPasso("logado")
-    if (open && status === "deslogado" && passo === "logado") setPasso("email")
-  }, [open, status, passo])
+  const firstRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (open) setTimeout(() => emailRef.current?.focus(), 50)
-  }, [open])
+    if (open && status === "logado") return // fica na tela "logado"
+    if (open) setTimeout(() => firstRef.current?.focus(), 50)
+  }, [open, status])
 
   if (!open) return null
 
@@ -54,8 +45,12 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
         return t("account.erro_username")
       case "username_ocupado":
         return t("account.erro_ocupado")
-      case "codigo_invalido":
-        return t("account.erro_codigo")
+      case "senha_curta":
+        return t("account.erro_senha_curta")
+      case "usuario_nao_existe":
+        return t("account.erro_usuario_nao_existe")
+      case "credenciais_invalidas":
+        return t("account.erro_credenciais")
       case "confirmacao_necessaria":
         return t("account.erro_confirmacao")
       default:
@@ -66,46 +61,33 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
   const continuar = async () => {
     setErro(null)
     setEnviando(true)
-    if (modo === "criar") {
-      const r = await signUp(email.trim(), username.trim())
-      setEnviando(false)
-      if (!r.ok) {
-        setErro(erroKey(r.error))
-        return
-      }
-      setPasso("logado")
-    } else {
-      const r = await requestCode(email.trim())
-      setEnviando(false)
-      if (!r.ok) {
-        setErro(erroKey(r.error))
-        return
-      }
-      setPasso("codigo")
-    }
-  }
-
-  const confirmar = async () => {
-    setErro(null)
-    setEnviando(true)
-    const r = await verifyCode(email.trim(), token.trim())
+    const r =
+      modo === "criar"
+        ? await signUp(email.trim(), username.trim(), senha)
+        : await signIn(username.trim(), senha)
     setEnviando(false)
     if (!r.ok) {
       setErro(erroKey(r.error))
       return
     }
-    setPasso("logado")
+    // logado: limpa campos pra próxima vez
+    setSenha("")
   }
 
   const trocarModo = (m: Modo) => {
     setModo(m)
     setErro(null)
-    setToken("")
-    setPasso("email")
+    setSenha("")
   }
 
   const inputCls =
     "rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#00a8ff]"
+
+  const podeEnviar =
+    !enviando &&
+    (modo === "criar"
+      ? email.trim() && username.trim() && senha.length >= 6
+      : username.trim() && senha.length >= 1)
 
   return (
     <div
@@ -124,7 +106,30 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
           </button>
         </div>
 
-        {passo === "email" && (
+        {status === "logado" && session ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0072ce] text-sm font-bold text-white">
+                {(session.user?.username?.[0] || session.user?.email?.[0] || "?").toUpperCase()}
+              </div>
+              <div className="min-w-0 leading-tight">
+                <div className="truncate text-sm font-semibold text-white">
+                  {session.user?.username || session.user?.email}
+                </div>
+                <div className="truncate text-xs text-white/40">{session.user?.email}</div>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                await signOut()
+                setSenha("")
+              }}
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-[#ff6b6b] transition-colors hover:bg-white/5"
+            >
+              {t("account.sair")}
+            </button>
+          </div>
+        ) : (
           <div className="flex flex-col gap-3">
             {/* Seletor de modo */}
             <div className="flex rounded-lg border border-white/10 p-0.5">
@@ -145,100 +150,46 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
               {modo === "criar" ? t("account.descricao_criar") : t("account.descricao")}
             </p>
 
+            {modo === "criar" && (
+              <input
+                ref={firstRef}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t("account.email")}
+                className={inputCls}
+              />
+            )}
+
             <input
-              ref={emailRef}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t("account.email")}
+              ref={modo === "criar" ? undefined : firstRef}
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder={t("account.username")}
+              autoCapitalize="none"
               className={inputCls}
             />
-
             {modo === "criar" && (
-              <>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder={t("account.username")}
-                  className={inputCls}
-                />
-                <p className="text-[11px] text-white/40">{t("account.username_hint")}</p>
-              </>
+              <p className="text-[11px] text-white/40">{t("account.username_hint")}</p>
             )}
+
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder={t("account.senha")}
+              className={inputCls}
+            />
 
             {erro && <p className="text-sm text-[#ff6b6b]">{erro}</p>}
 
             <button
               onClick={continuar}
-              disabled={
-                enviando ||
-                !email.trim() ||
-                (modo === "criar" && !username.trim())
-              }
+              disabled={!podeEnviar}
               className="mt-1 rounded-lg bg-[#0072ce] px-4 py-2 text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-40"
             >
-              {enviando
-                ? "…"
-                : modo === "criar"
-                  ? t("account.criar_conta_btn")
-                  : t("account.enviar_codigo")}
-            </button>
-          </div>
-        )}
-
-        {passo === "codigo" && (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-white/60">
-              {t("account.codigo_enviado", { email: email.trim() })}
-            </p>
-            <input
-              value={token}
-              onChange={(e) => setToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
-              inputMode="numeric"
-              autoFocus
-              className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-center text-xl tracking-[0.5em] text-white placeholder-white/30 outline-none focus:border-[#00a8ff]"
-            />
-            {erro && <p className="text-sm text-[#ff6b6b]">{erro}</p>}
-            <button
-              onClick={confirmar}
-              disabled={enviando || token.length !== 6}
-              className="mt-1 rounded-lg bg-[#0072ce] px-4 py-2 text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-40"
-            >
-              {enviando ? "…" : t("account.confirmar")}
-            </button>
-            <button
-              onClick={() => setPasso("email")}
-              className="text-xs text-white/40 transition-colors hover:text-white/70"
-            >
-              ← {t("account.voltar")}
-            </button>
-          </div>
-        )}
-
-        {passo === "logado" && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0072ce] text-sm font-bold text-white">
-                {(session?.user?.username?.[0] || session?.user?.email?.[0] || "?").toUpperCase()}
-              </div>
-              <div className="min-w-0 leading-tight">
-                <div className="truncate text-sm font-semibold text-white">
-                  {session?.user?.username || session?.user?.email}
-                </div>
-                <div className="truncate text-xs text-white/40">{session?.user?.email}</div>
-              </div>
-            </div>
-            <button
-              onClick={async () => {
-                await signOut()
-                setToken("")
-                setPasso("email")
-              }}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-[#ff6b6b] transition-colors hover:bg-white/5"
-            >
-              {t("account.sair")}
+              {enviando ? "…" : modo === "criar" ? t("account.criar_conta_btn") : t("account.entrar_btn")}
             </button>
           </div>
         )}

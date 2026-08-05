@@ -321,14 +321,11 @@ declare global {
       accountSignUp: (payload: {
         email: string
         username: string
+        password: string
       }) => Promise<{ ok: boolean; error?: string }>
-      accountRequestCode: (payload: {
-        email: string
-        username?: string
-      }) => Promise<{ ok: boolean; error?: string }>
-      accountVerifyCode: (payload: {
-        email: string
-        token: string
+      accountSignIn: (payload: {
+        username: string
+        password: string
       }) => Promise<{ ok: boolean; error?: string }>
       accountSignOut: () => Promise<{ ok: boolean; error?: string }>
       onAuthChanged: (
