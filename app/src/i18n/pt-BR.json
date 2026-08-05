@@ -947,5 +947,6 @@
   "avatar.crop_titulo": "Recortar avatar",
   "avatar.crop_dica": "Arraste o quadrado para mover · arraste o canto para redimensionar",
   "avatar.crop_aplicar": "Aplicar",
-  "avatar.crop_cancelar": "Cancelar"
+  "avatar.crop_cancelar": "Cancelar",
+  "avatar.crop_processando": "Processando…"
 }

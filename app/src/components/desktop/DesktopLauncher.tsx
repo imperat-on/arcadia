@@ -55,7 +55,9 @@ function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado:
 
 // Espelha o perfil ONLINE no perfil local em memória — identidade única.
 // Logado: name=display_name||username, avatar=avatar_url, summary/country/city/showcase.
-// Deslogado: restaura o perfil local original (guardado no 1º merge).
+// Deslogado: restaura o perfil local original (guardado no 1º merge DA SESSÃO).
+// IMPORTANTE: o original é capturado ANTES do merge e resetado ao deslogar,
+// senão a SEGUNDA sessão captura o perfil já mergeado da primeira (vazamento).
 function ProfileBridge({
   perfilLocal,
   setPerfilLocal,
@@ -65,16 +67,23 @@ function ProfileBridge({
 }) {
   const { perfil } = useAccount()
   const original = useRef<Profile | null>(null)
+  const jaInicializou = useRef(false)
 
   useEffect(() => {
     if (!perfil) {
       if (original.current) {
         setPerfilLocal(original.current)
         original.current = null
+        jaInicializou.current = false
       }
       return
     }
-    if (!original.current) original.current = perfilLocal
+    // Salva o original ANTES do primeiro merge (perfil local PURO,
+    // nunca mergeado de sessão anterior — jaInicializou garante isso)
+    if (!jaInicializou.current) {
+      original.current = perfilLocal
+      jaInicializou.current = true
+    }
     setPerfilLocal((p) => ({
       ...p,
       // Logado: o servidor é a fonte da verdade — SEM fallback pro local,
