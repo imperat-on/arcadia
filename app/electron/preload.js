@@ -199,6 +199,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   },
   // Conta online (Supabase) — fluxo por código enviado por email (OTP).
   accountStatus: () => ipcRenderer.invoke("account:status"),
+  accountSignUp: (payload) => ipcRenderer.invoke("account:signUp", payload),
   accountRequestCode: (payload) => ipcRenderer.invoke("account:requestCode", payload),
   accountVerifyCode: (payload) => ipcRenderer.invoke("account:verifyCode", payload),
   accountSignOut: () => ipcRenderer.invoke("account:signOut"),

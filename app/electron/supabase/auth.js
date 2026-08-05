@@ -8,10 +8,43 @@
 //  - Recuperação de acesso = pedir um código novo (mesmo fluxo).
 "use strict"
 
+const crypto = require("crypto")
 const { getClient } = require("./client")
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/
+
+/**
+ * Cadastro instantâneo (libertário: SEM verificação de email).
+ * Pré-requisito: "Confirm email" DESLIGADO no painel do Supabase
+ * (Authentication → Providers → Email). Sem isso o signUp não devolve
+ * sessão e o app avisa.
+ * Senha aleatória gerada internamente — o usuário nunca digita senha; a
+ * sessão vem pronta e é persistida em session.json.
+ */
+async function signUp({ email, username } = {}) {
+  const e = String(email || "").trim().toLowerCase()
+  if (!EMAIL_RE.test(e)) return { ok: false, error: "email_invalido" }
+
+  const u = String(username || "").trim().toLowerCase()
+  if (!USERNAME_RE.test(u)) return { ok: false, error: "username_invalido" }
+
+  const chk = await usernameAvailable(u)
+  if (!chk.ok) return chk
+  if (!chk.available) return { ok: false, error: "username_ocupado" }
+
+  const password = crypto.randomBytes(24).toString("base64url")
+  const { data, error } = await getClient().auth.signUp({
+    email: e,
+    password,
+    options: { data: { username: u } },
+  })
+  if (error) return { ok: false, error: error.message }
+  if (!data?.session) {
+    return { ok: false, error: "confirmacao_necessaria" } // "Confirm email" ainda ligado
+  }
+  return { ok: true, session: data.session, user: data.user }
+}
 
 /** Pré-checagem via RPC (segura contra colisão de username). */
 async function usernameAvailable(username) {
@@ -72,4 +105,4 @@ async function status() {
   return { session: data.session, error: null }
 }
 
-module.exports = { usernameAvailable, requestCode, verifyCode, signOut, status }
+module.exports = { signUp, usernameAvailable, requestCode, verifyCode, signOut, status }

@@ -41,6 +41,7 @@ function registerAccountIpc(broadcast) {
   })
 
   ipcMain.handle("account:status", async () => auth.status())
+  ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
   ipcMain.handle("account:requestCode", async (_e, payload) => auth.requestCode(payload || {}))
   ipcMain.handle("account:verifyCode", async (_e, payload) => auth.verifyCode(payload || {}))
   ipcMain.handle("account:signOut", async () => auth.signOut())

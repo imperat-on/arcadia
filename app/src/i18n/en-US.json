@@ -879,7 +879,7 @@
   "torrent.status.erro": "Error",
   "torrent.cacheando_desc": "The debrid is downloading the torrent to their server — the download starts automatically when ready.",
   "account.titulo": "Arcadia Account",
-  "account.descricao": "Sign in with your email. First time here? We create your account with a code sent by email.",
+  "account.descricao": "Sign in with your email — we send a 6-digit code to prove the email is yours.",
   "account.email": "Email",
   "account.username": "Username (new accounts only)",
   "account.username_hint": "3-20 chars: lowercase, numbers and _",
@@ -916,5 +916,10 @@
   "sync.ok": "Synced",
   "sync.sincronizando": "Syncing…",
   "sync.fila": "{n} pending",
-  "sync.erro": "Sync error"
+  "sync.erro": "Sync error",
+  "account.descricao_criar": "Create your account instantly, no verification. Just pick a username.",
+  "account.modo_criar": "Create account",
+  "account.modo_entrar": "Sign in",
+  "account.criar_conta_btn": "Create account",
+  "account.erro_confirmacao": "Email confirmation is still enabled in Supabase (Authentication → Providers → Email → Confirm email OFF)."
 }

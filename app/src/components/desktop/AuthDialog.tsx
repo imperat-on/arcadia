@@ -1,7 +1,10 @@
 "use client"
 
-// Diálogo de conta online (Supabase): entrar / criar conta com código OTP.
-// Fluxo: email (+ username p/ conta nova) → código de 6 dígitos → logado.
+// Diálogo de conta online (Supabase).
+// Dois modos:
+//  - "criar": cadastro INSTANTÂNEO — email + username, sem verificação
+//    (projeto open-source libertário: zero fricção).
+//  - "entrar": conta existente — email → código de 6 dígitos (prova de posse).
 import { useEffect, useRef, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { useAccount } from "../account/AccountContext"
@@ -12,12 +15,14 @@ interface AuthDialogProps {
 }
 
 type Passo = "email" | "codigo" | "logado"
+type Modo = "criar" | "entrar"
 
 export function AuthDialog({ open, onClose }: AuthDialogProps) {
   const { t } = useI18n()
-  const { status, session, requestCode, verifyCode, signOut } = useAccount()
+  const { status, session, signUp, requestCode, verifyCode, signOut } = useAccount()
 
   const [passo, setPasso] = useState<Passo>("email")
+  const [modo, setModo] = useState<Modo>("criar")
   const [email, setEmail] = useState("")
   const [username, setUsername] = useState("")
   const [token, setToken] = useState("")
@@ -41,16 +46,43 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
     if (e.key === "Escape") onClose()
   }
 
-  const enviarCodigo = async () => {
+  const erroKey = (raw?: string) => {
+    switch (raw) {
+      case "email_invalido":
+        return t("account.erro_email")
+      case "username_invalido":
+        return t("account.erro_username")
+      case "username_ocupado":
+        return t("account.erro_ocupado")
+      case "codigo_invalido":
+        return t("account.erro_codigo")
+      case "confirmacao_necessaria":
+        return t("account.erro_confirmacao")
+      default:
+        return t("account.erro_geral") + (raw ? ` (${raw})` : "")
+    }
+  }
+
+  const continuar = async () => {
     setErro(null)
     setEnviando(true)
-    const r = await requestCode(email.trim(), username.trim() || undefined)
-    setEnviando(false)
-    if (!r.ok) {
-      setErro(erroKey(r.error))
-      return
+    if (modo === "criar") {
+      const r = await signUp(email.trim(), username.trim())
+      setEnviando(false)
+      if (!r.ok) {
+        setErro(erroKey(r.error))
+        return
+      }
+      setPasso("logado")
+    } else {
+      const r = await requestCode(email.trim())
+      setEnviando(false)
+      if (!r.ok) {
+        setErro(erroKey(r.error))
+        return
+      }
+      setPasso("codigo")
     }
-    setPasso("codigo")
   }
 
   const confirmar = async () => {
@@ -65,20 +97,15 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
     setPasso("logado")
   }
 
-  const erroKey = (raw?: string) => {
-    switch (raw) {
-      case "email_invalido":
-        return t("account.erro_email")
-      case "username_invalido":
-        return t("account.erro_username")
-      case "username_ocupado":
-        return t("account.erro_ocupado")
-      case "codigo_invalido":
-        return t("account.erro_codigo")
-      default:
-        return t("account.erro_geral") + (raw ? ` (${raw})` : "")
-    }
+  const trocarModo = (m: Modo) => {
+    setModo(m)
+    setErro(null)
+    setToken("")
+    setPasso("email")
   }
+
+  const inputCls =
+    "rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#00a8ff]"
 
   return (
     <div
@@ -99,31 +126,63 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
 
         {passo === "email" && (
           <div className="flex flex-col gap-3">
-            <p className="text-sm text-white/60">{t("account.descricao")}</p>
+            {/* Seletor de modo */}
+            <div className="flex rounded-lg border border-white/10 p-0.5">
+              {(["criar", "entrar"] as Modo[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => trocarModo(m)}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    modo === m ? "bg-[#0072ce] text-white" : "text-white/50 hover:text-white/80"
+                  }`}
+                >
+                  {m === "criar" ? t("account.modo_criar") : t("account.modo_entrar")}
+                </button>
+              ))}
+            </div>
+
+            <p className="text-sm text-white/60">
+              {modo === "criar" ? t("account.descricao_criar") : t("account.descricao")}
+            </p>
+
             <input
               ref={emailRef}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t("account.email")}
-              className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#00a8ff]"
+              className={inputCls}
             />
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={t("account.username")}
-              title={t("account.username_hint")}
-              className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#00a8ff]"
-            />
-            <p className="text-[11px] text-white/40">{t("account.username_hint")}</p>
+
+            {modo === "criar" && (
+              <>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder={t("account.username")}
+                  className={inputCls}
+                />
+                <p className="text-[11px] text-white/40">{t("account.username_hint")}</p>
+              </>
+            )}
+
             {erro && <p className="text-sm text-[#ff6b6b]">{erro}</p>}
+
             <button
-              onClick={enviarCodigo}
-              disabled={enviando || !email.trim()}
+              onClick={continuar}
+              disabled={
+                enviando ||
+                !email.trim() ||
+                (modo === "criar" && !username.trim())
+              }
               className="mt-1 rounded-lg bg-[#0072ce] px-4 py-2 text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-40"
             >
-              {enviando ? "…" : t("account.enviar_codigo")}
+              {enviando
+                ? "…"
+                : modo === "criar"
+                  ? t("account.criar_conta_btn")
+                  : t("account.enviar_codigo")}
             </button>
           </div>
         )}
