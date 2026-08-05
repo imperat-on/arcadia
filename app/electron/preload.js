@@ -218,4 +218,12 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("friends:request", h)
     return () => ipcRenderer.removeListener("friends:request", h)
   },
+  // Sync de conquistas (Supabase)
+  syncNow: () => ipcRenderer.invoke("sync:now"),
+  syncState: () => ipcRenderer.invoke("sync:state"),
+  onSyncState: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("sync:state", h)
+    return () => ipcRenderer.removeListener("sync:state", h)
+  },
 })

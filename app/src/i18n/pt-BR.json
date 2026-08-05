@@ -912,5 +912,9 @@
   "amigos.nao_logado": "Entre na sua conta para usar os amigos",
   "amigos.nao_logado_hint": "Acesse Conta online no menu do perfil.",
   "amigos.erro_busca": "Falha na busca",
-  "amigos.erro_geral": "Falha na operação"
+  "amigos.erro_geral": "Falha na operação",
+  "sync.ok": "Sincronizado",
+  "sync.sincronizando": "Sincronizando…",
+  "sync.fila": "{n} pendente(s)",
+  "sync.erro": "Erro no sync"
 }
