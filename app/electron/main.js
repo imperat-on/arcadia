@@ -1670,7 +1670,25 @@ const { caminhoConta, definirConta, conta } = require("./supabase/conta")
 
   ipcMain.handle("library:get", async () => {
     await contaPronta
-    return curarCapasSteam(readLibrary())
+    const games = readLibrary()
+    // Enriquecimento de capas/ícones NUNCA pode bloquear a resposta — se a
+    // rede do Steam Store travar, o renderer ficaria com a lista vazia.
+    // Devolve a lista NA HORA e cura as capas em background; só avisa o
+    // renderer se a cura MUDOU alguma capa (senão vira loop de reload).
+    const antes = games.map((g) => g.icon || g.cover || "").join("|")
+    const cura = curarCapasSteam(games)
+    const trava = new Promise((res) => setTimeout(() => res(null), 15000))
+    Promise.race([cura, trava])
+      .then(() => {
+        const depois = games.map((g) => g.icon || g.cover || "").join("|")
+        if (antes !== depois) {
+          for (const w of require("electron").BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed()) w.webContents.send("library:changed")
+          }
+        }
+      })
+      .catch(() => {})
+    return games
   })
   ipcMain.handle("achievements:get", async (_e, appid) => {
     try {
