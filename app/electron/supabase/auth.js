@@ -14,12 +14,95 @@ const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 const SENHA_MIN = 6
 
 const AVATAR_MAX = 5 * 1024 * 1024 // 5MB (limite do bucket — GIFs animados são pesados)
+const AVATAR_DIM_MAX = 512 // dimensão máxima do avatar (qualquer formato)
+const AVATAR_ENC = 256 // estáticos são re-encodados em ≤256px (economiza storage)
 const AVATAR_EXT = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".gif": "image/gif",
+}
+
+/**
+ * Lê as dimensões do cabeçalho da imagem (PNG/GIF/JPEG/WebP) SEM lib —
+ * ~40 linhas puras; roda em Node puro (testável sem Electron).
+ */
+function dimensoesDeImagem(buf) {
+  if (!buf || buf.length < 16) return null
+  // PNG: "�PNG" + IHDR — w/h big-endian nos bytes 16/20
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    if (buf.length < 24) return null
+    return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
+  }
+  // GIF: "GIF87a"/"GIF89a" — w/h little-endian nos bytes 6/8
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) {
+    return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) }
+  }
+  // JPEG: 0xFFD8 — varre marcadores até achar SOF (C0-CF, sem C4/C8/CC)
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) {
+        i++
+        continue
+      }
+      const m = buf[i + 1]
+      if (m >= 0xc0 && m <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(m)) {
+        return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) }
+      }
+      i += 2 + buf.readUInt16BE(i + 2)
+    }
+    return null
+  }
+  // WebP: "RIFF....WEBP" com chunk VP8 / VP8L / VP8X
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45) {
+    const vp8 = buf.toString("ascii", 12, 16)
+    if (vp8 === "VP8 ") return { w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff }
+    if (vp8 === "VP8L") {
+      const b = buf.readUInt32LE(21)
+      return { w: (b & 0x3fff) + 1, h: ((b >> 14) & 0x3fff) + 1 }
+    }
+    if (vp8 === "VP8X") return { w: 1 + buf.readUIntLE(24, 3), h: 1 + buf.readUIntLE(27, 3) }
+    return null
+  }
+  return null
+}
+
+/**
+ * Prepara o avatar: valida dimensão (512 máx) e re-encoda estáticos em ≤256px
+ * (nativeImage do Electron — só disponível no app real; GIF passa direto,
+ * preservando a animação, apenas com o teto de dimensão).
+ */
+function processaAvatar(buf, ext) {
+  const dims = dimensoesDeImagem(buf)
+  if (dims && (dims.w > AVATAR_DIM_MAX || dims.h > AVATAR_DIM_MAX)) {
+    return { erro: "avatar_dimensoes" }
+  }
+  if (ext === ".gif") return { buf, ext, mime: "image/gif" } // animação preservada
+  if (dims && (dims.w > AVATAR_ENC || dims.h > AVATAR_ENC)) {
+    try {
+      const { nativeImage } = require("electron") // lazy: Node puro não tem
+      const img = nativeImage.createFromBuffer(buf)
+      if (!img.isEmpty()) {
+        const escala = Math.min(AVATAR_ENC / dims.w, AVATAR_ENC / dims.h)
+        const red = img.resize({
+          width: Math.max(1, Math.round(dims.w * escala)),
+          height: Math.max(1, Math.round(dims.h * escala)),
+        })
+        if (ext === ".jpg" || ext === ".jpeg") {
+          const j = red.toJPEG(85)
+          if (j && j.length) return { buf: j, ext: ".jpg", mime: "image/jpeg" }
+        } else {
+          const p = red.toPNG()
+          if (p && p.length) return { buf: p, ext: ".png", mime: "image/png" }
+        }
+      }
+    } catch {
+      /* fallback: original */
+    }
+  }
+  return { buf, ext, mime: AVATAR_EXT[ext] || "image/png" }
 }
 
 /**
@@ -191,7 +274,12 @@ async function setAvatar(filePath) {
 
   const ext = (path.extname(caminhoDeArquivo(filePath)) || "").toLowerCase()
   const extOk = AVATAR_EXT[ext]
-  const mime = extOk || "image/png"
+  // Valida dimensão (512 máx) e re-encoda estáticos em ≤256px (GIF passa).
+  const proc = processaAvatar(buf, extOk ? ext : ".png")
+  if (proc.erro) return { ok: false, error: proc.erro }
+  buf = proc.buf
+  const mime = proc.mime
+  const extFinal = proc.ext
 
   // Avatar atual (pra limpeza do arquivo antigo depois)
   const { data: atual } = await getClient()
@@ -204,7 +292,7 @@ async function setAvatar(filePath) {
     ? urlAntiga.split("/").pop()
     : null
 
-  const nome = `${me}-${Date.now()}${extOk ? ext : ".png"}`
+  const nome = `${me}-${Date.now()}${extFinal}`
   const { error: upErr } = await getClient()
     .storage.from("avatars")
     .upload(nome, buf, { upsert: false, contentType: mime })
@@ -229,4 +317,4 @@ async function setAvatar(filePath) {
   return { ok: true, avatar_url: avatarUrl }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, caminhoDeArquivo }
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, caminhoDeArquivo, dimensoesDeImagem, processaAvatar }
