@@ -48,16 +48,6 @@ function IconLock() {
   )
 }
 
-function IconTrophy() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-5 w-5">
-      <path d="M8 4h8v5a4 4 0 0 1-8 0V4Z" />
-      <path d="M8 5H4v2a3 3 0 0 0 3 3h1M16 5h4v2a3 3 0 0 1-3 3h-1" />
-      <path d="M12 13v3M9 20h6M10 16h4l.5 4h-5l.5-4Z" />
-    </svg>
-  )
-}
-
 export function AuthDialog({ open, onClose }: AuthDialogProps) {
   const { t } = useI18n()
   const { status, session, signUp, signIn, signOut } = useAccount()
@@ -190,12 +180,6 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
         <div className="flex w-full max-w-[420px] flex-col items-center">
           {/* Logo */}
           <div className="arc-fade-up mb-8 flex flex-col items-center" style={{ animationDelay: "0ms" }}>
-            <div className="relative mb-4">
-              <div className="absolute inset-0 rounded-2xl bg-[#0072ce]/40 blur-2xl" />
-              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-[#00a8ff]/30 bg-gradient-to-br from-[#0072ce]/30 to-[#00a8ff]/10 text-[#7fd0ff] shadow-[0_0_40px_rgba(0,114,206,0.35)]">
-                <IconTrophy />
-              </div>
-            </div>
             <div className="text-3xl font-bold tracking-[0.18em] text-white">
               ARCAD<span className="text-[#00a8ff]">IA</span>
             </div>
