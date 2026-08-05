@@ -179,8 +179,8 @@ const marcar = (rodando) => {
       try {
         const min = Math.round((Date.now() - snap.startedAt) / 60000)
         if (min >= 1) {
-          const prev = Number(readOverrides(OVERRIDES)[snap.gameId]?.playtime_added_minutes) || 0
-          setOverride(OVERRIDES, snap.gameId, { playtime_added_minutes: prev + min })
+          const prev = Number(readOverrides(caminhoConta(OVERRIDES))[snap.gameId]?.playtime_added_minutes) || 0
+          setOverride(caminhoConta(OVERRIDES), snap.gameId, { playtime_added_minutes: prev + min })
           if (win && !win.isDestroyed()) win.webContents.send("library:changed")
         }
       } catch {}
@@ -623,7 +623,7 @@ let _profileCache = null
 function loadProfileCache() {
   if (_profileCache) return _profileCache
   try {
-    _profileCache = JSON.parse(fs.readFileSync(PROFILE_CACHE, "utf-8"))
+    _profileCache = JSON.parse(fs.readFileSync(caminhoConta(PROFILE_CACHE), "utf-8"))
   } catch {
     _profileCache = {}
   }
@@ -631,7 +631,7 @@ function loadProfileCache() {
 }
 function saveProfileCache() {
   try {
-    fs.writeFileSync(PROFILE_CACHE, JSON.stringify(_profileCache))
+    fs.writeFileSync(caminhoConta(PROFILE_CACHE), JSON.stringify(_profileCache))
   } catch {
     /* disco cheio: ignora */
   }
@@ -783,7 +783,7 @@ const UMU = path.join(os.homedir(), ".config", "heroic", "tools", "runtimes", "u
 // Windows: wine/Proton escolhido + exe. Linux: [exe].
 // Retorna { cmd, env } — env traz PROTONPATH/STEAM_COMPAT_* quando é Proton.
 function customLaunchCmd(id) {
-  const g = readJsonFile(CUSTOM_GAMES, []).find((x) => x.id === id)
+  const g = readJsonFile(caminhoConta(CUSTOM_GAMES), []).find((x) => x.id === id)
   if (!g) return null
   const linux = g.platform === "linux"
   return exeLaunchCmd(id, g.exe, linux)
@@ -890,9 +890,9 @@ async function fetchJson(url) {
 let _gsCache = { mtimeMs: -1, data: {} }
 function readAllGameSettings() {
   try {
-    const m = fs.statSync(GAME_SETTINGS).mtimeMs
+    const m = fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs
     if (m !== _gsCache.mtimeMs) {
-      _gsCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(GAME_SETTINGS, "utf-8")) }
+      _gsCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(caminhoConta(GAME_SETTINGS), "utf-8")) }
     }
     return _gsCache.data
   } catch {
@@ -910,8 +910,8 @@ function setGameSettings(id, patch) {
   const all = readAllGameSettings()
   all[id] = { ...(all[id] || {}), ...(patch || {}) }
   try {
-    fs.writeFileSync(GAME_SETTINGS, JSON.stringify(all, null, 2))
-    _gsCache = { mtimeMs: fs.statSync(GAME_SETTINGS).mtimeMs, data: all }
+    fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
+    _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
   } catch {
     /* disco cheio/permissão: segue sem salvar */
   }
@@ -948,8 +948,8 @@ function limparAposDesinstalar(id, { removePrefix, removeSettings } = {}) {
     if (all[id]) {
       delete all[id]
       try {
-        fs.writeFileSync(GAME_SETTINGS, JSON.stringify(all, null, 2))
-        _gsCache = { mtimeMs: fs.statSync(GAME_SETTINGS).mtimeMs, data: all }
+        fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
+        _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
       } catch {}
     }
     try {
@@ -1203,7 +1203,7 @@ function xboxLocale(cfg) {
 // (structured clone), então devolver a referência cacheada é seguro.
 let _libCache = { chave: "", games: [] }
 function _libMtimeKey() {
-  return [LIB, CUSTOM_GAMES, OVERRIDES, PENDING_GAMES, GAME_SETTINGS]
+  return [caminhoConta(LIB), caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS)]
     .map((p) => {
       try {
         return fs.statSync(p).mtimeMs
@@ -1225,7 +1225,7 @@ function capaSteamRuim(appid, cover) {
 }
 
 async function curarCapasSteam(games) {
-  const overrides = readOverrides(OVERRIDES)
+  const overrides = readOverrides(caminhoConta(OVERRIDES))
   // Alvo: jogo Steam com capa ruim OU sem ícone (a lista da sidebar usa ícone).
   const alvos = games
     .map((g) => ({ g, appid: /^steam:(\d+)$/.exec(String(g.id || ""))?.[1] }))
@@ -1238,7 +1238,7 @@ async function curarCapasSteam(games) {
     const { itensDaLoja } = require("./steamstore")
     const { mapa } = await itensDaLoja(alvos.map((a) => a.appid))
     let mudou = false
-    const pendentes = readJsonFile(PENDING_GAMES, [])
+    const pendentes = readJsonFile(caminhoConta(PENDING_GAMES), [])
     for (const { g, appid } of alvos) {
       const it = mapa.get(appid)
       if (!it) continue
@@ -1253,7 +1253,7 @@ async function curarCapasSteam(games) {
         mudou = true
       }
     }
-    if (mudou) fs.writeFileSync(PENDING_GAMES, JSON.stringify(pendentes, null, 2))
+    if (mudou) fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(pendentes, null, 2))
   } catch {}
   return games
 }
@@ -1262,14 +1262,14 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const games = JSON.parse(fs.readFileSync(LIB, "utf-8"))
-    games.push(...readJsonFile(CUSTOM_GAMES, []))
+    const games = JSON.parse(fs.readFileSync(caminhoConta(LIB), "utf-8"))
+    games.push(...readJsonFile(caminhoConta(CUSTOM_GAMES), []))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
-    for (const p of readJsonFile(PENDING_GAMES, [])) {
+    for (const p of readJsonFile(caminhoConta(PENDING_GAMES), [])) {
       if (p && p.id && !jaTem.has(p.id)) games.push(p)
     }
-    applyOverrides(games, readOverrides(OVERRIDES))
+    applyOverrides(games, readOverrides(caminhoConta(OVERRIDES)))
     // Tempo de sessão local (jogos NÃO-Steam): o renderer recebe o playtime
     // já somado. A Steam não entra — o indexer traz o playtime real dela.
     for (const g of games) {
@@ -1353,7 +1353,7 @@ function avisarBiblioteca(win, reindexar = true) {
 function adicionarStubPendente(appid, title, art = {}) {
   const id = "steam:" + appid
   if (readLibrary().some((g) => g.id === id)) return
-  const atuais = readJsonFile(PENDING_GAMES, [])
+  const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
   if (atuais.some((g) => g && g.id === id)) return
   const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appid
   atuais.push({
@@ -1367,13 +1367,13 @@ function adicionarStubPendente(appid, title, art = {}) {
     logo: `${base}/logo.png`,
     pendente: true,
   })
-  fs.writeFileSync(PENDING_GAMES, JSON.stringify(atuais, null, 2))
+  fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(atuais, null, 2))
 }
 
 // Após o indexer rodar, qualquer stub cujo id já apareça em library.json é
 // removido — a entrada real substitui o stub sem duplicar.
 function limparPendentesIndexados() {
-  const atuais = readJsonFile(PENDING_GAMES, [])
+  const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
   if (!atuais.length) return
   let reais
   try {
@@ -1384,16 +1384,16 @@ function limparPendentesIndexados() {
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {
-    fs.writeFileSync(PENDING_GAMES, JSON.stringify(restantes, null, 2))
+    fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(restantes, null, 2))
   }
 }
 
 function removerStubPendente(appid) {
   const id = "steam:" + appid
-  const atuais = readJsonFile(PENDING_GAMES, [])
+  const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
   const restantes = atuais.filter((g) => g && g.id !== id)
   if (restantes.length !== atuais.length)
-    fs.writeFileSync(PENDING_GAMES, JSON.stringify(restantes, null, 2))
+    fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(restantes, null, 2))
   return restantes.length !== atuais.length
 }
 
@@ -1452,7 +1452,7 @@ let pararAchievementWatcher = null
 function onUnlockAchievement(payload) {
   let novo = false
   try {
-    const arq = path.join(DATA_DIR, "achievements.json")
+    const arq = caminhoConta(path.join(DATA_DIR, "achievements.json"))
     const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
     const it = (store?.[payload.appid]?.items || []).find(
       (x) => `${x.block}|${x.bit}` === payload.key,
@@ -1623,11 +1623,22 @@ app.whenReady().then(() => {
   // Conta online (Supabase): registra IPC de auth e espelha eventos pro renderer.
   try {
     const { registerAccountIpc } = require("./supabase/ipc")
-    registerAccountIpc((channel, payload) => {
-      for (const w of require("electron").BrowserWindow.getAllWindows()) {
-        if (!w.isDestroyed()) w.webContents.send(channel, payload)
-      }
-    })
+const { caminhoConta, definirConta, conta } = require("./supabase/conta")
+    registerAccountIpc(
+      (channel, payload) => {
+        for (const w of require("electron").BrowserWindow.getAllWindows()) {
+          if (!w.isDestroyed()) w.webContents.send(channel, payload)
+        }
+      },
+      (username) => {
+        // Troca o escopo dos arquivos locais (library/achievements/horas...)
+        // pra conta logada (ou guest quando null) e recarrega a UI.
+        definirConta(username)
+        for (const w of require("electron").BrowserWindow.getAllWindows()) {
+          if (!w.isDestroyed()) w.webContents.send("library:changed")
+        }
+      },
+    )
   } catch (e) {
     console.error("[supabase] falha ao registrar IPC de conta:", e)
   }
@@ -1640,10 +1651,26 @@ app.whenReady().then(() => {
       .aquecer()
       .catch(() => {})
   }, 5000)
-  ipcMain.handle("library:get", async () => curarCapasSteam(readLibrary()))
+  // Garante que o escopo da conta do boot (sessão restaurada) já está ativo
+  // antes de o renderer ler library/conquistas — sem isso a UI pisca com os
+  // dados guest e só depois troca (mesmo bug do "nome antigo").
+  const { restoreSession } = require("./supabase/client")
+  const contaPronta = restoreSession()
+    .then((r) => {
+      if (r?.session?.user?.user_metadata?.username) {
+        definirConta(r.session.user.user_metadata.username)
+      }
+      return null
+    })
+    .catch(() => null)
+
+  ipcMain.handle("library:get", async () => {
+    await contaPronta
+    return curarCapasSteam(readLibrary())
+  })
   ipcMain.handle("achievements:get", async (_e, appid) => {
     try {
-      const store = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "achievements.json"), "utf-8"))
+      const store = JSON.parse(fs.readFileSync(caminhoConta(path.join(DATA_DIR, "achievements.json")), "utf-8"))
       const local = store?.[appid]?.items || []
       if (local.length) return local
     } catch {}
@@ -2008,7 +2035,7 @@ app.whenReady().then(() => {
   ipcMain.handle("customgame:add", (_e, { id, title, platform, exe } = {}) => {
     try {
       if (!title || !exe) return { ok: false, error: "título e executável são obrigatórios" }
-      const all = readJsonFile(CUSTOM_GAMES, [])
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
       if (all.some((g) => g.id === id))
         return { ok: false, error: "já existe um jogo com esse nome" }
       all.push({
@@ -2019,7 +2046,7 @@ app.whenReady().then(() => {
         exe,
         installed: true,
       })
-      fs.writeFileSync(CUSTOM_GAMES, JSON.stringify(all, null, 2))
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
       return { ok: true, games: readLibrary() }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -2029,12 +2056,12 @@ app.whenReady().then(() => {
   // Edita um jogo custom existente (título/executável). O id é preservado.
   ipcMain.handle("customgame:update", (_e, { id, title, exe } = {}) => {
     try {
-      const all = readJsonFile(CUSTOM_GAMES, [])
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
       const g = all.find((x) => x.id === id)
       if (!g) return { ok: false, error: "jogo não encontrado" }
       if (title) g.title = title
       if (exe) g.exe = exe
-      fs.writeFileSync(CUSTOM_GAMES, JSON.stringify(all, null, 2))
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
       return { ok: true, games: readLibrary() }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -2097,9 +2124,9 @@ app.whenReady().then(() => {
       const legendary = g?.launch_cmd?.[0] || ""
       if (launcher === "custom") {
         // Jogo adicionado manualmente: só sai do custom_games.json.
-        const rest = readJsonFile(CUSTOM_GAMES, []).filter((x) => x.id !== id)
+        const rest = readJsonFile(caminhoConta(CUSTOM_GAMES), []).filter((x) => x.id !== id)
         try {
-          fs.writeFileSync(CUSTOM_GAMES, JSON.stringify(rest, null, 2))
+          fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
         } catch {}
         limparAposDesinstalar(id, { removePrefix, removeSettings })
         if (win && !win.isDestroyed()) win.webContents.send("library:changed")
@@ -2138,7 +2165,7 @@ app.whenReady().then(() => {
   ipcMain.handle("overrides:set", (_e, { id, patch } = {}) => {
     if (!id) return readLibrary()
     try {
-      setOverride(OVERRIDES, id, patch)
+      setOverride(caminhoConta(OVERRIDES), id, patch)
     } catch (e) {
       /* disco cheio/permissão: segue com o que já havia */
     }
@@ -2438,7 +2465,7 @@ app.whenReady().then(() => {
       }
       // Reexibe: um "Remover" anterior pode ter marcado hidden=true (jogo
       // indexado); sem limpar aqui o Add não trazia o jogo de volta.
-      setOverride(OVERRIDES, "steam:" + appid, { hidden: null })
+      setOverride(caminhoConta(OVERRIDES), "steam:" + appid, { hidden: null })
       adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
       avisarBiblioteca(win)
       return { ok: true }
@@ -2451,7 +2478,7 @@ app.whenReady().then(() => {
       const id = "steam:" + String(appid || "")
       const removed = removerStubPendente(String(appid || ""))
       if (!removed && readLibrary().some((g) => g.id === id))
-        setOverride(OVERRIDES, id, { hidden: true })
+        setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
@@ -2930,7 +2957,7 @@ app.whenReady().then(() => {
     try {
       fs.mkdirSync(ART_DIR, { recursive: true })
       const { path: dest } = await downloadTo(url, base, fs)
-      const velha = artToDelete(readOverrides(OVERRIDES)[id]?.[kind], ART_DIR, path.sep)
+      const velha = artToDelete(readOverrides(caminhoConta(OVERRIDES))[id]?.[kind], ART_DIR, path.sep)
       if (velha) {
         try {
           fs.unlinkSync(velha)
@@ -2982,7 +3009,7 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
     // Apaga a arte anterior, se era nossa (não mexe no cache da Steam).
-    const velha = artToDelete(readOverrides(OVERRIDES)[id]?.[kind], ART_DIR, path.sep)
+    const velha = artToDelete(readOverrides(caminhoConta(OVERRIDES))[id]?.[kind], ART_DIR, path.sep)
     if (velha) {
       try {
         fs.unlinkSync(velha)

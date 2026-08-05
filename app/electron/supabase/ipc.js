@@ -19,7 +19,7 @@ function garantirSessao() {
   return restorePromise
 }
 
-function registerAccountIpc(broadcast) {
+function registerAccountIpc(broadcast, onConta) {
   // Persistência da sessão em session.json (SIGNED_IN/TOKEN_REFRESHED → salva;
   // SIGNED_OUT/USER_DELETED → limpa).
   attachAuthPersistence()
@@ -32,6 +32,7 @@ function registerAccountIpc(broadcast) {
 
   // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
   getClient().auth.onAuthStateChange((event, session) => {
+    const username = session?.user?.user_metadata?.username || null
     broadcast("account:changed", {
       event,
       session: session
@@ -39,7 +40,7 @@ function registerAccountIpc(broadcast) {
             user: {
               id: session.user?.id,
               email: session.user?.email,
-              username: session.user?.user_metadata?.username,
+              username,
             },
           }
         : null,
@@ -47,8 +48,14 @@ function registerAccountIpc(broadcast) {
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       realtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta
+      // Troca o escopo dos arquivos locais pra conta logada
+      onConta?.(username)
     }
-    if (event === "SIGNED_OUT" || event === "USER_DELETED") realtime.stop()
+    if (event === "SIGNED_OUT" || event === "USER_DELETED") {
+      realtime.stop()
+      // Volta pro escopo guest (raiz) — conta nova não vê dados da anterior
+      onConta?.(null)
+    }
   })
 
   // Inicia a restauração da sessão salva já no registro (paralelo ao boot).
