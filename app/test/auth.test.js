@@ -1,40 +1,46 @@
 // Testes do auth — partes offline (sem rede): validações antes de qualquer
-// chamada de rede. O signUp com dados válidos chama o RPC username_available
-// (rede) e fica para o teste manual (f5-4).
+// chamada de rede. O signUp/signIn com dados válidos chama o Supabase (rede)
+// e fica para o teste manual (f5-4).
 "use strict"
 
 const test = require("node:test")
 const assert = require("node:assert/strict")
-const path = require("node:path")
 
 const auth = require("../electron/supabase/auth.js")
 
+// ---------- signUp ----------
 test("signUp: email inválido falha sem rede", async () => {
-  const r = await auth.signUp({ email: "nao-email", username: "teste" })
+  const r = await auth.signUp({ email: "nao-email", username: "teste", password: "123456" })
   assert.deepEqual(r, { ok: false, error: "email_invalido" })
 })
 
 test("signUp: username inválido falha sem rede", async () => {
-  const r = await auth.signUp({ email: "a@b.com", username: "AB" })
+  const r = await auth.signUp({ email: "a@b.com", username: "AB", password: "123456" })
   assert.deepEqual(r, { ok: false, error: "username_invalido" })
 })
 
 test("signUp: username com caractere proibido falha", async () => {
-  const r = await auth.signUp({ email: "a@b.com", username: "teste@x" })
+  const r = await auth.signUp({ email: "a@b.com", username: "teste@x", password: "123456" })
   assert.deepEqual(r, { ok: false, error: "username_invalido" })
 })
 
-test("signUp: email vazio falha", async () => {
-  const r = await auth.signUp({ email: "", username: "teste" })
-  assert.deepEqual(r, { ok: false, error: "email_invalido" })
+test("signUp: senha curta (< 6) falha sem rede", async () => {
+  const r = await auth.signUp({ email: "a@b.com", username: "teste", password: "123" })
+  assert.deepEqual(r, { ok: false, error: "senha_curta" })
 })
 
-test("requestCode: email inválido falha sem rede", async () => {
-  const r = await auth.requestCode({ email: "x" })
-  assert.deepEqual(r, { ok: false, error: "email_invalido" })
+test("signUp: sem senha falha", async () => {
+  const r = await auth.signUp({ email: "a@b.com", username: "teste" })
+  assert.deepEqual(r, { ok: false, error: "senha_curta" })
 })
 
-test("verifyCode: token malformado falha sem rede", async () => {
-  const r = await auth.verifyCode({ email: "a@b.com", token: "123" })
-  assert.deepEqual(r, { ok: false, error: "codigo_invalido" })
+// ---------- signIn ----------
+test("signIn: username inválido falha sem rede", async () => {
+  const r = await auth.signIn({ username: "AB", password: "123456" })
+  assert.deepEqual(r, { ok: false, error: "username_invalido" })
+})
+
+test("signIn: sem senha falha", async () => {
+  const r = await auth.signIn({ username: "teste" })
+  assert.deepEqual(r, { ok: false, error: "senha_curta" })
 })
