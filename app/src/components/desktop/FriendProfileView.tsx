@@ -67,6 +67,7 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
 
   const cor = corDeUsername(amigo.username)
   const corClara = `hsl(${cor.replace(/hsl\((\d+).*/, "$1")} 90% 60%)`
+  const aceito = amigo.status === "accepted"
 
   return (
     <div className="arc-fade-up flex h-full flex-col overflow-y-auto">
@@ -100,20 +101,23 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
           <div>
             <div className="text-2xl font-bold text-white">{amigo.username}</div>
             <div className="mt-1 text-sm text-white/40">
-              {t("amigos.desde")} {formatarData(amigo.since)}
+              {aceito
+                ? `${t("amigos.desde")} ${formatarData(amigo.since)}`
+                : t("amigos.pendente_perfil")}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Conquistas */}
-      <div className="mt-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-white/50">
-            {t("amigos.conquistas_recentes")}
-            {conquistas ? ` (${conquistas.length})` : ""}
-          </h3>
-        </div>
+      {/* Conquistas — só entre amigos aceitos (privacidade) */}
+      {aceito && (
+        <div className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-white/50">
+              {t("amigos.conquistas_recentes")}
+              {conquistas ? ` (${conquistas.length})` : ""}
+            </h3>
+          </div>
 
         {erro && (
           <div className="rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.07] px-3.5 py-2.5 text-xs text-[#ff6b81]">
@@ -166,36 +170,39 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
             ))}
           </div>
         )}
-      </div>
+        </div>
+      )}
 
-      {/* Ações */}
-      <div className="mt-auto pt-8">
-        {confirmandoRemover ? (
-          <div className="flex items-center gap-2 rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.06] p-3">
-            <span className="text-sm text-white/70">{t("amigos.confirmar_remover")}</span>
+      {/* Ações — só entre amigos aceitos */}
+      {aceito && (
+        <div className="mt-auto pt-8">
+          {confirmandoRemover ? (
+            <div className="flex items-center gap-2 rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.06] p-3">
+              <span className="text-sm text-white/70">{t("amigos.confirmar_remover")}</span>
+              <button
+                onClick={remover}
+                disabled={removendo}
+                className="ml-auto rounded-lg bg-[#ff6b81] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+              >
+                {removendo ? "…" : t("amigos.remover")}
+              </button>
+              <button
+                onClick={() => setConfirmandoRemover(false)}
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:text-white"
+              >
+                {t("amigos.cancelar")}
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={remover}
-              disabled={removendo}
-              className="ml-auto rounded-lg bg-[#ff6b81] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+              onClick={() => setConfirmandoRemover(true)}
+              className="rounded-lg border border-white/10 px-4 py-2 text-xs font-medium text-white/50 transition-colors hover:border-[#ff6b81]/40 hover:text-[#ff6b81]"
             >
-              {removendo ? "…" : t("amigos.remover")}
+              {t("amigos.remover")}
             </button>
-            <button
-              onClick={() => setConfirmandoRemover(false)}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:text-white"
-            >
-              {t("amigos.cancelar")}
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmandoRemover(true)}
-            className="rounded-lg border border-white/10 px-4 py-2 text-xs font-medium text-white/50 transition-colors hover:border-[#ff6b81]/40 hover:text-[#ff6b81]"
-          >
-            {t("amigos.remover")}
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

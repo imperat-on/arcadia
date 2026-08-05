@@ -936,5 +936,6 @@
   "amigos.removido": "Amigo eliminado",
   "amigos.voltar": "Volver",
   "amigos.conquistas_recentes": "Logros recientes",
-  "amigos.sem_conquistas": "Aún sin logros públicos"
+  "amigos.sem_conquistas": "Aún sin logros públicos",
+  "amigos.pendente_perfil": "Solicitud pendiente — aún no son amigos"
 }

@@ -936,5 +936,6 @@
   "amigos.removido": "Friend removed",
   "amigos.voltar": "Back",
   "amigos.conquistas_recentes": "Recent achievements",
-  "amigos.sem_conquistas": "No public achievements yet"
+  "amigos.sem_conquistas": "No public achievements yet",
+  "amigos.pendente_perfil": "Request pending — you're not friends yet"
 }
