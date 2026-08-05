@@ -6,6 +6,7 @@ import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import { useFriends } from "../account/FriendsContext"
+import { useAccount } from "../account/AccountContext"
 
 export type DesktopView =
   | "inicio"
@@ -46,7 +47,7 @@ export function Sidebar({
   onConfigSub,
   profile,
   onProfile,
-  onAccount,
+  onLogout,
   onRefresh,
   games,
   librarySidebar,
@@ -64,7 +65,8 @@ export function Sidebar({
   onConfigSub: (s: ConfigSub) => void
   profile: Profile
   onProfile: () => void
-  onAccount?: () => void
+  /** Chamado após logout (o launcher reabre a tela de login). */
+  onLogout?: () => void
   onRefresh: () => void
   games: Game[]
   librarySidebar: boolean
@@ -75,6 +77,8 @@ export function Sidebar({
 }) {
   const { t } = useI18n()
   const { pedidos } = useFriends()
+  const { status: contaStatus, signOut } = useAccount()
+  const logado = contaStatus === "logado"
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
   const nome = profile.name || t("profile.jogador")
@@ -151,19 +155,15 @@ export function Sidebar({
               }}
             />
             <ProfileMenuItem
-              label={t("account.menu")}
-              onClick={() => {
-                setProfileMenu(false)
-                onAccount?.()
-              }}
-            />
-            <div className="h-px bg-white/10" />
-            <ProfileMenuItem
               danger
-              label={t("profile.sair")}
+              label={logado ? t("account.sair") : t("profile.sair")}
               onClick={() => {
                 setProfileMenu(false)
-                onQuit()
+                if (logado) {
+                  signOut().then(() => onLogout?.())
+                } else {
+                  onQuit()
+                }
               }}
             />
           </div>
