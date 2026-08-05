@@ -191,11 +191,12 @@ async function removeFriend(friendId) {
  */
 function watchRequests(broadcast) {
   let channel = null
+  let iniciando = null // serializa starts concorrentes (SIGNED_IN duplo do boot)
 
-  const stop = () => {
+  const stop = async () => {
     if (channel) {
       try {
-        getClient().removeChannel(channel)
+        await getClient().removeChannel(channel)
       } catch {
         /* ignore */
       }
@@ -203,22 +204,31 @@ function watchRequests(broadcast) {
     }
   }
 
-  const start = async () => {
-    stop()
-    const me = await requireUserId()
-    if (!me) return
-    channel = getClient().channel(`friends-${me}`)
-    channel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "friendships",
-        filter: `user_b=eq.${me}`,
-      },
-      (payload) => broadcast("friends:request", { from: payload.new?.requester_id }),
-    )
-    channel.subscribe()
+  const start = () => {
+    // SIGNED_IN pode disparar 2x no boot (restauração de sessão em 2 pontos);
+    // sem serialização, o 2º start adiciona .on() DEPOIS do subscribe() →
+    // "cannot add postgres_changes callbacks after subscribe()".
+    if (iniciando) return iniciando
+    iniciando = (async () => {
+      await stop()
+      const me = await requireUserId()
+      if (!me) return
+      channel = getClient().channel(`friends-${me}`)
+      channel.on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "friendships",
+          filter: `user_b=eq.${me}`,
+        },
+        (payload) => broadcast("friends:request", { from: payload.new?.requester_id }),
+      )
+      channel.subscribe()
+    })().finally(() => {
+      iniciando = null
+    })
+    return iniciando
   }
 
   return { start, stop }

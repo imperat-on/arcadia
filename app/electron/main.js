@@ -10,6 +10,10 @@ const fs = require("fs")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
+// Escopo por conta dos arquivos locais — PRECISA estar no escopo do módulo
+// (readLibrary e outros helpers rodam fora do whenReady; require dentro de
+// bloco deixava "caminhoConta is not defined" → biblioteca vazia).
+const { caminhoConta, definirConta, conta } = require("./supabase/conta")
 const { readOverrides, setOverride, applyOverrides, artToDelete } = require("./overrides")
 const {
   sgdbSearch,
@@ -1627,7 +1631,6 @@ app.whenReady().then(() => {
   // Conta online (Supabase): registra IPC de auth e espelha eventos pro renderer.
   try {
     const { registerAccountIpc } = require("./supabase/ipc")
-const { caminhoConta, definirConta, conta } = require("./supabase/conta")
     registerAccountIpc(
       (channel, payload) => {
         for (const w of require("electron").BrowserWindow.getAllWindows()) {
