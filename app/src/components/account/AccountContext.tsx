@@ -67,9 +67,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [perfil, setPerfil] = useState<PerfilOnline | null>(null)
 
   const carregarPerfil = useCallback(async () => {
-    const r = await window.launcherAPI?.accountProfile()
-    if (r?.ok) setPerfil(r.profile ?? null)
-  }, [])
+    try {
+      const r = await window.launcherAPI?.accountProfile()
+      if (r?.ok && r.profile) {
+        setPerfil(r.profile)
+        return
+      }
+    } catch {
+      /* rede falhou — fallback mínimo abaixo */
+    }
+    // Fallback com o username da sessão (evita splash eterno se a rede falhar)
+    setPerfil({ username: session?.user?.username ?? null, avatar_url: null })
+  }, [session?.user?.username])
 
   useEffect(() => {
     let vivo = true

@@ -32,10 +32,10 @@ import { SyncStatusIndicator } from "./SyncStatusIndicator"
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
 // Só 1x por execução — se o usuário fechar no ✕, não reabre sozinho.
-// Enquanto o status resolve (carregando) ou antes do diálogo abrir, renderiza
-// um splash preto por cima do launcher — elimina o flash de fundo do app.
+// Splash cobre até a sessão E o perfil online estarem prontos — senão o nome
+// pisca: mostra o username puro antes do display_name chegar do servidor.
 function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado: boolean }) {
-  const { status } = useAccount()
+  const { status, perfil } = useAccount()
   const abriu = useRef(false)
   useEffect(() => {
     if (status === "deslogado" && !abriu.current) {
@@ -44,6 +44,9 @@ function AutoOpenLogin({ onOpen, dispensado }: { onOpen: () => void; dispensado:
     }
   }, [status, onOpen])
   if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  // Sessão pronta, mas perfil online ainda não carregou (display_name/avatar) —
+  // segura o splash até resolver (evita o flash do nome)
+  if (status === "logado" && !perfil) return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
   if (status === "deslogado" && !dispensado && !abriu.current) {
     return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
   }
