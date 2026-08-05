@@ -912,5 +912,9 @@
   "amigos.nao_logado": "Sign in to use friends",
   "amigos.nao_logado_hint": "Go to Online account in the profile menu.",
   "amigos.erro_busca": "Search failed",
-  "amigos.erro_geral": "Operation failed"
+  "amigos.erro_geral": "Operation failed",
+  "sync.ok": "Synced",
+  "sync.sincronizando": "Syncing…",
+  "sync.fila": "{n} pending",
+  "sync.erro": "Sync error"
 }

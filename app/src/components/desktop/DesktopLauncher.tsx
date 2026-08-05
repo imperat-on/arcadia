@@ -27,6 +27,7 @@ import { AccountProvider } from "../account/AccountContext"
 import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
+import { SyncStatusIndicator } from "./SyncStatusIndicator"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -381,6 +382,7 @@ export function DesktopLauncher() {
       )}
       <AchievementToast />
       <AuthDialog open={contaAberta} onClose={() => setContaAberta(false)} />
+      <SyncStatusIndicator />
       </div>
       </FriendsProvider>
     </AccountProvider>

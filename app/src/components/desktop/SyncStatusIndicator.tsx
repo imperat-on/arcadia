@@ -1,0 +1,63 @@
+"use client"
+
+// Indicador de sincronização de conquistas (canto inferior direito).
+// Só aparece logado. Mostra: sincronizando (spin), ok, fila pendente ou erro,
+// com botão "Sincronizar agora".
+import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
+import { useAccount } from "../account/AccountContext"
+
+export function SyncStatusIndicator() {
+  const { t } = useI18n()
+  const { status } = useAccount()
+  const [st, setSt] = useState<SyncState | null>(null)
+  const [sincronizando, setSincronizando] = useState(false)
+
+  useEffect(() => {
+    if (status !== "logado") {
+      setSt(null)
+      return
+    }
+    let vivo = true
+    window.launcherAPI?.syncState().then((s) => vivo && setSt(s))
+    const off = window.launcherAPI?.onSyncState((s) => vivo && setSt(s))
+    return () => {
+      vivo = false
+      off?.()
+    }
+  }, [status])
+
+  if (status !== "logado" || !st) return null
+
+  const sincronizar = async () => {
+    setSincronizando(true)
+    await window.launcherAPI?.syncNow()
+    setSincronizando(false)
+  }
+
+  const temErro = !!st.lastError
+  const temFila = st.queueLen > 0
+  const cor = temErro ? "#ff6b6b" : temFila ? "#f5a623" : "#4ade80"
+  const texto = temErro
+    ? t("sync.erro")
+    : sincronizando
+      ? t("sync.sincronizando")
+      : temFila
+        ? t("sync.fila", { n: String(st.queueLen) })
+        : t("sync.ok")
+
+  return (
+    <button
+      onClick={sincronizar}
+      title={st.lastError || undefined}
+      className="fixed bottom-4 right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[#16161c]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[#1d1d24]"
+    >
+      <span
+        className={`h-2 w-2 rounded-full ${sincronizando ? "animate-pulse" : ""}`}
+        style={{ background: cor }}
+      />
+      {sincronizando ? t("sync.sincronizando") : texto}
+      {temFila && !sincronizando && <span className="text-white/40">↻</span>}
+    </button>
+  )
+}

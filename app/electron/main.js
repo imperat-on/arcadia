@@ -1462,6 +1462,16 @@ function onUnlockAchievement(payload) {
       it.unlock = payload.unlock
       fs.writeFileSync(arq, JSON.stringify(store))
       novo = true
+      // Conta online: enfileira o desbloqueio pro sync (só se o item tem
+      // apiname — sem ele não dá pra referenciar na nuvem). Nunca bloqueia
+      // o caminho do launch: enqueue é síncrono local e o sync roda depois.
+      try {
+        if (it.apiname) {
+          const syncMod = require("./supabase/sync")
+          syncMod.enqueue([{ appid: payload.appid, apiname: it.apiname, unlocked_at: payload.unlock }])
+          syncMod.scheduleNow()
+        }
+      } catch {}
     }
   } catch {}
   // Só dispara toast e IPC se a conquista era realmente nova — evita flood
