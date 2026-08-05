@@ -61,10 +61,16 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
   const [senha, setSenha] = useState("")
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  // Username REAL criado (pode diferir do pedido se o trigger renomeou por
+  // colisão: joao → joao_1). O user_metadata do session traz o pedido.
+  const [usernameReal, setUsernameReal] = useState<string | null>(null)
   const firstRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (open) setTimeout(() => firstRef.current?.focus(), 250)
+    if (open) {
+      setUsernameReal(null)
+      setTimeout(() => firstRef.current?.focus(), 250)
+    }
   }, [open, modo])
 
   if (!open) return null
@@ -106,6 +112,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
         setErro(erroKey(r.error))
         return
       }
+      if (modo === "criar" && r.usernameReal) setUsernameReal(r.usernameReal)
       setSenha("")
     } catch (e) {
       setErro(t("account.erro_geral") + ` (${e?.message || "exceção"})`)
@@ -207,13 +214,18 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-semibold text-white">
-                    {session.user?.username || session.user?.email}
+                    {usernameReal || session.user?.username || session.user?.email}
                   </div>
                   <div className="mt-0.5 text-xs text-white/40">{session.user?.email}</div>
                 </div>
                 <div className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-xs text-white/50">
                   {t("account.logado_ok")}
                 </div>
+                {usernameReal && usernameReal !== session.user?.username && (
+                  <div className="mt-2 w-full rounded-xl border border-[#ffb454]/20 bg-[#ffb454]/[0.06] px-4 py-2.5 text-center text-xs text-[#ffb454]">
+                    {t("account.username_ajustado", { pedido: session.user?.username, real: usernameReal })}
+                  </div>
+                )}
                 <button
                   onClick={async () => {
                     await signOut()
