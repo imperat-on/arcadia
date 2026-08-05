@@ -171,7 +171,10 @@ async function updateProfile(campos) {
 /**
  * Sobe o avatar (arquivo local) pro Storage público e grava a URL em
  * profiles.avatar_url — assim amigos veem a foto. Exige o bucket "avatars"
- * (migracao-2026-08-05-avatar-bucket.sql).
+ * (migracao-2026-08-05-avatar-bucket-gif.sql + policies v2).
+ * Nome ÚNICO por upload (<userid>-<ts>.<ext>): a URL muda a cada troca →
+ * sem problema de cache no <img> (o antigo era sempre o mesmo nome e o
+ * navegador mostrava a imagem velha). Remove o arquivo antigo depois.
  */
 async function setAvatar(filePath) {
   const { data: ud, error: ue } = await getClient().auth.getUser()
@@ -186,13 +189,25 @@ async function setAvatar(filePath) {
   }
   if (buf.length > AVATAR_MAX) return { ok: false, error: "avatar_grande" }
 
-  const ext = (path.extname(filePath) || "").toLowerCase()
-  const mime = AVATAR_EXT[ext] || "image/png"
-  const nome = `${me}${ext && AVATAR_EXT[ext] ? ext : ".png"}`
+  const ext = (path.extname(caminhoDeArquivo(filePath)) || "").toLowerCase()
+  const extOk = AVATAR_EXT[ext]
+  const mime = extOk || "image/png"
 
+  // Avatar atual (pra limpeza do arquivo antigo depois)
+  const { data: atual } = await getClient()
+    .from("profiles")
+    .select("avatar_url")
+    .eq("id", me)
+    .maybeSingle()
+  const urlAntiga = atual?.avatar_url || ""
+  const nomeAntigo = urlAntiga.startsWith(`${getClient().supabaseUrl}/storage/v1/object/public/avatars/`)
+    ? urlAntiga.split("/").pop()
+    : null
+
+  const nome = `${me}-${Date.now()}${extOk ? ext : ".png"}`
   const { error: upErr } = await getClient()
     .storage.from("avatars")
-    .upload(nome, buf, { upsert: true, contentType: mime })
+    .upload(nome, buf, { upsert: false, contentType: mime })
   if (upErr) return { ok: false, error: upErr.message }
 
   const avatarUrl = `${getClient().supabaseUrl}/storage/v1/object/public/avatars/${nome}`
@@ -201,6 +216,15 @@ async function setAvatar(filePath) {
     .update({ avatar_url: avatarUrl })
     .eq("id", me)
   if (dbErr) return { ok: false, error: dbErr.message }
+
+  // Limpeza do arquivo antigo (best effort — nunca derruba o upload)
+  if (nomeAntigo && nomeAntigo !== nome) {
+    try {
+      await getClient().storage.from("avatars").remove([nomeAntigo])
+    } catch {
+      /* ignore */
+    }
+  }
 
   return { ok: true, avatar_url: avatarUrl }
 }
