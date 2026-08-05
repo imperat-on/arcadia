@@ -6,6 +6,7 @@ import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
 import { useAccountOptional } from "../account/AccountContext"
+import { AvatarCrop } from "./AvatarCrop"
 
 interface EditProfileProps {
   open: boolean
@@ -100,25 +101,52 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     )
   }
 
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+
+  // Upload do avatar pra conta (comum aos fluxos direto e recortado)
+  const subirAvatar = async (pathOuBytes: string | Uint8Array, mime?: string, ext?: string) => {
+    if (!conta) return
+    const up =
+      typeof pathOuBytes === "string"
+        ? await conta.setAvatar(pathOuBytes)
+        : await conta.setAvatarBytes(pathOuBytes, mime || "image/png", ext || ".png")
+    if (up.ok && up.avatar_url) {
+      onChange({ ...profile, avatar: up.avatar_url })
+      await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
+      return true
+    }
+    const msgs: Record<string, string> = {
+      avatar_grande: t("editprofile.avatar_grande"),
+      avatar_dimensoes: t("editprofile.avatar_dimensoes"),
+    }
+    window.alert(msgs[up.error || ""] || t("editprofile.avatar_erro") + (up.error ? ` (${up.error})` : ""))
+    return false
+  }
+
   const pick = async (kind: "avatar" | "background") => {
     const r = await window.launcherAPI?.pickImage(kind)
     if (r?.ok && r.path) {
       const key = kind === "avatar" ? "avatar" : "background"
       if (kind === "avatar" && conta?.status === "logado") {
-        // Logado: sobe pro servidor (Storage) e usa a URL pública — assim
-        // amigos veem a foto. Se falhar, avisa em vez de cair no local
-        // silenciosamente (senão parece que mudou e ninguém vê).
-        const up = await conta.setAvatar(r.path)
-        if (up.ok && up.avatar_url) {
-          onChange({ ...profile, [key]: up.avatar_url })
-          await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
+        // GIF: vai direto (o main valida tamanho/dimensão e preserva animação)
+        if (/\.gif$/i.test(r.path)) {
+          await subirAvatar(r.path)
           return
         }
-        const msgs: Record<string, string> = {
-          avatar_grande: t("editprofile.avatar_grande"),
-          avatar_dimensoes: t("editprofile.avatar_dimensoes"),
+        // Estático: se for grande, abre o RECORTE interativo; senão, direto
+        const img = new Image()
+        img.onload = async () => {
+          if (img.naturalWidth > 256 || img.naturalHeight > 256) {
+            setCropSrc(r.path)
+          } else {
+            await subirAvatar(r.path)
+          }
         }
-        window.alert(msgs[up.error || ""] || t("editprofile.avatar_erro") + (up.error ? ` (${up.error})` : ""))
+        img.onerror = () => {
+          // não conseguiu ler dimensões — deixa o main decidir
+          subirAvatar(r.path)
+        }
+        img.src = r.path
         return
       }
       // O main já salvou o caminho limpo no config; aqui só atualizamos a
@@ -451,6 +479,19 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
           </div>
         )}
       </main>
+
+      {/* Recorte interativo de avatar (imagem estática grande) */}
+      {cropSrc && (
+        <AvatarCrop
+          src={cropSrc}
+          t={t}
+          onCancel={() => setCropSrc(null)}
+          onConfirm={async (bytes, mime, ext) => {
+            setCropSrc(null)
+            await subirAvatar(bytes, mime, ext)
+          }}
+        />
+      )}
     </div>
   )
 }

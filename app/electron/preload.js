@@ -202,6 +202,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   accountProfile: () => ipcRenderer.invoke("account:profile"),
   accountUpdateProfile: (campos) => ipcRenderer.invoke("account:updateProfile", campos),
   accountSetAvatar: (filePath) => ipcRenderer.invoke("account:setAvatar", filePath),
+  accountSetAvatarBytes: (bytes, mime, ext) => ipcRenderer.invoke("account:setAvatarBytes", bytes, mime, ext),
   accountSignUp: (payload) => ipcRenderer.invoke("account:signUp", payload),
   accountSignIn: (payload) => ipcRenderer.invoke("account:signIn", payload),
   accountSignOut: () => ipcRenderer.invoke("account:signOut"),

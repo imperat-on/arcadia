@@ -70,6 +70,10 @@ function registerAccountIpc(broadcast) {
     await garantirSessao()
     return auth.setAvatar(filePath)
   })
+  ipcMain.handle("account:setAvatarBytes", async (_e, buf, mime, ext) => {
+    await garantirSessao()
+    return auth.setAvatarBytes(buf, mime, ext)
+  })
   ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
   ipcMain.handle("account:signIn", async (_e, payload) => auth.signIn(payload || {}))
   ipcMain.handle("account:signOut", async () => auth.signOut())

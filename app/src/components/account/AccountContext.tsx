@@ -49,6 +49,12 @@ interface AccountCtx {
   signOut: () => Promise<void>
   /** Sobe o avatar pro servidor e devolve a URL pública. */
   setAvatar: (filePath: string) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
+  /** Sobe o avatar recortado (bytes prontos, ex: PNG 256² do recorte). */
+  setAvatarBytes: (
+    bytes: Uint8Array,
+    mime: string,
+    ext: string,
+  ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
   /** Grava campos do perfil online (display_name, summary, country, city, showcase). */
   updatePerfil: (campos: Partial<PerfilOnline>) => Promise<{ ok: boolean; error?: string }>
 }
@@ -131,6 +137,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const setAvatarBytes = useCallback(async (bytes: Uint8Array, mime: string, ext: string) => {
+    try {
+      const r = await window.launcherAPI?.accountSetAvatarBytes(bytes, mime, ext)
+      if (r?.ok && r.avatar_url) {
+        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), avatar_url: r.avatar_url ?? null }))
+      }
+      return r || { ok: false, error: "API indisponível" }
+    } catch (e) {
+      return { ok: false, error: e?.message || "exceção" }
+    }
+  }, [])
+
   const updatePerfil = useCallback(async (campos: Partial<PerfilOnline>) => {
     try {
       const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase }
@@ -145,7 +163,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, updatePerfil }}>
+    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, setAvatarBytes, updatePerfil }}>
       {children}
     </Ctx.Provider>
   )
