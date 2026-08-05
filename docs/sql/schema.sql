@@ -156,3 +156,19 @@ language sql security invoker set search_path = public as $$
 $$;
 
 grant execute on function public.username_available(text) to authenticated;
+
+-- ---------- RPC: login por username ----------
+-- Resolve o email da conta pelo username (login com usuário + senha).
+-- SECURITY DEFINER: lê auth.users; chamável por anon (necessário antes do
+-- login). Nota: expõe o email de um username conhecido — trade-off aceito
+-- no modelo libertário (sem verificação de email).
+create or replace function public.login_email(p_username text)
+returns text
+language sql security definer set search_path = public as $$
+  select email
+  from auth.users
+  where raw_user_meta_data->>'username' = lower(btrim(p_username))
+  limit 1;
+$$;
+
+grant execute on function public.login_email(text) to anon, authenticated;

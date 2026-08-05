@@ -16,12 +16,14 @@ export type AccountStatus = "carregando" | "deslogado" | "logado"
 interface AccountCtx {
   status: AccountStatus
   session: AccountSession | null
-  /** Cadastro instantâneo (sem verificação de email). */
-  signUp: (email: string, username: string) => Promise<{ ok: boolean; error?: string }>
-  /** Envia o código OTP por email (entrar em conta existente). */
-  requestCode: (email: string) => Promise<{ ok: boolean; error?: string }>
-  /** Valida o código de 6 dígitos e completa o login. */
-  verifyCode: (email: string, token: string) => Promise<{ ok: boolean; error?: string }>
+  /** Cadastro: email + username + senha (sem verificação). */
+  signUp: (
+    email: string,
+    username: string,
+    password: string,
+  ) => Promise<{ ok: boolean; error?: string }>
+  /** Login com username + senha. */
+  signIn: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>
   signOut: () => Promise<void>
 }
 
@@ -49,27 +51,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const signUp = useCallback(async (email: string, username: string) => {
+  const signUp = useCallback(async (email: string, username: string, password: string) => {
     return (
-      (await window.launcherAPI?.accountSignUp({ email, username })) || {
+      (await window.launcherAPI?.accountSignUp({ email, username, password })) || {
         ok: false,
         error: "API indisponível",
       }
     )
   }, [])
 
-  const requestCode = useCallback(async (email: string) => {
+  const signIn = useCallback(async (username: string, password: string) => {
     return (
-      (await window.launcherAPI?.accountRequestCode({ email })) || {
-        ok: false,
-        error: "API indisponível",
-      }
-    )
-  }, [])
-
-  const verifyCode = useCallback(async (email: string, token: string) => {
-    return (
-      (await window.launcherAPI?.accountVerifyCode({ email, token })) || {
+      (await window.launcherAPI?.accountSignIn({ username, password })) || {
         ok: false,
         error: "API indisponível",
       }
@@ -81,9 +74,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <Ctx.Provider value={{ status, session, signUp, requestCode, verifyCode, signOut }}>
-      {children}
-    </Ctx.Provider>
+    <Ctx.Provider value={{ status, session, signUp, signIn, signOut }}>{children}</Ctx.Provider>
   )
 }
 

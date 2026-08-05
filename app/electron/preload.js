@@ -197,11 +197,10 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("game:launchWarning", h)
     return () => ipcRenderer.removeListener("game:launchWarning", h)
   },
-  // Conta online (Supabase) — fluxo por código enviado por email (OTP).
+  // Conta online (Supabase) — cadastro email+username+senha; login username+senha.
   accountStatus: () => ipcRenderer.invoke("account:status"),
   accountSignUp: (payload) => ipcRenderer.invoke("account:signUp", payload),
-  accountRequestCode: (payload) => ipcRenderer.invoke("account:requestCode", payload),
-  accountVerifyCode: (payload) => ipcRenderer.invoke("account:verifyCode", payload),
+  accountSignIn: (payload) => ipcRenderer.invoke("account:signIn", payload),
   accountSignOut: () => ipcRenderer.invoke("account:signOut"),
   onAuthChanged: (cb) => {
     const h = (_e, data) => cb(data)
