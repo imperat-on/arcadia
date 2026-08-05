@@ -44,3 +44,19 @@ test("signIn: sem senha falha", async () => {
   const r = await auth.signIn({ username: "teste" })
   assert.deepEqual(r, { ok: false, error: "senha_curta" })
 })
+
+// ---------- caminhoDeArquivo (file:// com cache-buster do pickImage) ----------
+test("caminhoDeArquivo: file:// com ?t= vira caminho puro", () => {
+  assert.equal(
+    auth.caminhoDeArquivo("file:///opt/arcadia/avatar.png?t=1754412345678"),
+    "/opt/arcadia/avatar.png",
+  )
+})
+
+test("caminhoDeArquivo: caminho cru e com espaços URL-encoded", () => {
+  assert.equal(auth.caminhoDeArquivo("/tmp/minha foto.png"), "/tmp/minha foto.png")
+  assert.equal(
+    auth.caminhoDeArquivo("file:///tmp/minha%20foto.gif?t=1"),
+    "/tmp/minha foto.gif",
+  )
+})

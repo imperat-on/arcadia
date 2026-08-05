@@ -23,6 +23,22 @@ const AVATAR_EXT = {
 }
 
 /**
+ * O pickImage do launcher devolve "file:///caminho/avatar.png?t=123" (URL com
+ * cache-buster). O fs não lê isso — normaliza pra caminho puro.
+ */
+function caminhoDeArquivo(p) {
+  let s = String(p || "")
+  if (s.startsWith("file://")) s = s.slice("file://".length)
+  s = s.split("?")[0].split("#")[0]
+  try {
+    s = decodeURIComponent(s)
+  } catch {
+    /* caminho já era cru */
+  }
+  return s
+}
+
+/**
  * Cadastro: email + username + senha, SEM verificação de email.
  * Pré-requisito: "Confirm email" DESLIGADO no painel do Supabase
  * (Authentication → Sign In / Providers → Email). Sem isso o signUp não
@@ -164,7 +180,7 @@ async function setAvatar(filePath) {
 
   let buf
   try {
-    buf = fs.readFileSync(filePath)
+    buf = fs.readFileSync(caminhoDeArquivo(filePath))
   } catch {
     return { ok: false, error: "avatar_ilegivel" }
   }
@@ -189,4 +205,4 @@ async function setAvatar(filePath) {
   return { ok: true, avatar_url: avatarUrl }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar }
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, caminhoDeArquivo }
