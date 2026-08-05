@@ -181,6 +181,10 @@ const marcar = (rodando) => {
         if (min >= 1) {
           const prev = Number(readOverrides(caminhoConta(OVERRIDES))[snap.gameId]?.playtime_added_minutes) || 0
           setOverride(caminhoConta(OVERRIDES), snap.gameId, { playtime_added_minutes: prev + min })
+          // Horas jogadas sobem pra conta (delta acumulado no servidor)
+          try {
+            require("./supabase/biblioteca").agendarPush()
+          } catch {}
           if (win && !win.isDestroyed()) win.webContents.send("library:changed")
         }
       } catch {}
@@ -2047,6 +2051,10 @@ const { caminhoConta, definirConta, conta } = require("./supabase/conta")
         installed: true,
       })
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
+      // Sincroniza a coleção com a conta (jogos seguem entre máquinas)
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
       return { ok: true, games: readLibrary() }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -2062,6 +2070,10 @@ const { caminhoConta, definirConta, conta } = require("./supabase/conta")
       if (title) g.title = title
       if (exe) g.exe = exe
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
+      // Renomeou → título novo sobe pra conta
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
       return { ok: true, games: readLibrary() }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -2127,6 +2139,10 @@ const { caminhoConta, definirConta, conta } = require("./supabase/conta")
         const rest = readJsonFile(caminhoConta(CUSTOM_GAMES), []).filter((x) => x.id !== id)
         try {
           fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
+        } catch {}
+        // Remove da coleção da conta no servidor
+        try {
+          require("./supabase/biblioteca").agendarPush()
         } catch {}
         limparAposDesinstalar(id, { removePrefix, removeSettings })
         if (win && !win.isDestroyed()) win.webContents.send("library:changed")
