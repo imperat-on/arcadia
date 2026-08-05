@@ -12,6 +12,9 @@ import { useAccount } from "../account/AccountContext"
 interface AuthDialogProps {
   open: boolean
   onClose: () => void
+  /** true = pós sign-out: o diálogo não pode ser dispensado (X/Escape/backdrop
+   *  desativados) até o usuário escolher uma conta. */
+  semFechar?: boolean
 }
 
 type Modo = "criar" | "entrar"
@@ -48,7 +51,7 @@ function IconLock() {
   )
 }
 
-export function AuthDialog({ open, onClose }: AuthDialogProps) {
+export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
   const { t } = useI18n()
   const { status, session, signUp, signIn, signOut } = useAccount()
 
@@ -67,7 +70,7 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
   if (!open) return null
 
   const onEsc = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose()
+    if (e.key === "Escape" && !semFechar) onClose()
   }
 
   const erroKey = (raw?: string) => {
@@ -167,14 +170,16 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
         />
       </div>
 
-      {/* Botão fechar */}
-      <button
-        onClick={onClose}
-        className="absolute right-5 top-5 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition-all hover:border-white/20 hover:text-white"
-        aria-label="Fechar"
-      >
-        ✕
-      </button>
+      {/* Botão fechar (escondido quando pós sign-out — login é obrigatório) */}
+      {!semFechar && (
+        <button
+          onClick={onClose}
+          className="absolute right-5 top-5 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition-all hover:border-white/20 hover:text-white"
+          aria-label="Fechar"
+        >
+          ✕
+        </button>
+      )}
 
       <div className="relative flex h-full w-full items-center justify-center p-6">
         <div className="flex w-full max-w-[420px] flex-col items-center">
