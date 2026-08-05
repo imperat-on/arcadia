@@ -67,3 +67,8 @@ vkd3d-proton.cache.write
 achievements_store.json
 achievements_watch.json
 achievement_icons/
+
+# Conta online (Supabase): sessão e fila de sync NUNCA sobem
+session.json
+session.json.bak
+sync_queue.json
