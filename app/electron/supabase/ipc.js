@@ -6,7 +6,18 @@ const { ipcMain } = require("electron")
 const auth = require("./auth")
 const friends = require("./friends")
 const sync = require("./sync")
-const { getClient, attachAuthPersistence } = require("./client")
+const { getClient, attachAuthPersistence, restoreSession } = require("./client")
+
+// Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
+// sessão existente aguarda essa promise antes de responder — elimina o race
+// entre o boot e a primeira consulta do renderer (bug: pedia login toda hora).
+let restorePromise = null
+function garantirSessao() {
+  if (!restorePromise) {
+    restorePromise = restoreSession().catch(() => null)
+  }
+  return restorePromise
+}
 
 function registerAccountIpc(broadcast) {
   // Persistência da sessão em session.json (SIGNED_IN/TOKEN_REFRESHED → salva;
@@ -40,21 +51,54 @@ function registerAccountIpc(broadcast) {
     if (event === "SIGNED_OUT" || event === "USER_DELETED") realtime.stop()
   })
 
-  ipcMain.handle("account:status", async () => auth.status())
+  // Inicia a restauração da sessão salva já no registro (paralelo ao boot).
+  garantirSessao()
+
+  ipcMain.handle("account:status", async () => {
+    await garantirSessao()
+    return auth.status()
+  })
   ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
   ipcMain.handle("account:signIn", async (_e, payload) => auth.signIn(payload || {}))
   ipcMain.handle("account:signOut", async () => auth.signOut())
 
-  ipcMain.handle("friends:search", async (_e, query) => friends.search(query))
-  ipcMain.handle("friends:send", async (_e, userId) => friends.send(userId))
-  ipcMain.handle("friends:accept", async (_e, userId) => friends.accept(userId))
-  ipcMain.handle("friends:cancel", async (_e, userId) => friends.cancel(userId))
-  ipcMain.handle("friends:list", async () => friends.list())
-  ipcMain.handle("friends:achievements", async (_e, userId) => friends.friendAchievements(userId))
-  ipcMain.handle("friends:remove", async (_e, userId) => friends.removeFriend(userId))
+  ipcMain.handle("friends:search", async (_e, query) => {
+    await garantirSessao()
+    return friends.search(query)
+  })
+  ipcMain.handle("friends:send", async (_e, userId) => {
+    await garantirSessao()
+    return friends.send(userId)
+  })
+  ipcMain.handle("friends:accept", async (_e, userId) => {
+    await garantirSessao()
+    return friends.accept(userId)
+  })
+  ipcMain.handle("friends:cancel", async (_e, userId) => {
+    await garantirSessao()
+    return friends.cancel(userId)
+  })
+  ipcMain.handle("friends:list", async () => {
+    await garantirSessao()
+    return friends.list()
+  })
+  ipcMain.handle("friends:achievements", async (_e, userId) => {
+    await garantirSessao()
+    return friends.friendAchievements(userId)
+  })
+  ipcMain.handle("friends:remove", async (_e, userId) => {
+    await garantirSessao()
+    return friends.removeFriend(userId)
+  })
 
-  ipcMain.handle("sync:now", async () => sync.syncNow())
-  ipcMain.handle("sync:state", async () => sync.getState())
+  ipcMain.handle("sync:now", async () => {
+    await garantirSessao()
+    return sync.syncNow()
+  })
+  ipcMain.handle("sync:state", async () => {
+    await garantirSessao()
+    return sync.getState()
+  })
 
   return () => realtime.stop()
 }
