@@ -5,6 +5,7 @@ import type { Profile } from "../../global"
 import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { useAccountOptional } from "../account/AccountContext"
 
 interface EditProfileProps {
   open: boolean
@@ -42,6 +43,7 @@ const COUNTRIES = [
 
 export function EditProfile({ open, profile, games, onClose, onChange }: EditProfileProps) {
   const { t } = useI18n()
+  const conta = useAccountOptional() // null fora do provider (modo console)
   const [section, setSection] = useState<Section>("geral")
   const [fields, setFields] = useState({
     name: "",
@@ -91,9 +93,19 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const pick = async (kind: "avatar" | "background") => {
     const r = await window.launcherAPI?.pickImage(kind)
     if (r?.ok && r.path) {
+      const key = kind === "avatar" ? "avatar" : "background"
+      if (kind === "avatar" && conta?.status === "logado") {
+        // Logado: sobe pro servidor (Storage) e usa a URL pública — assim
+        // amigos veem a foto. Se falhar, mantém o caminho local.
+        const up = await conta.setAvatar(r.path)
+        if (up.ok && up.avatar_url) {
+          onChange({ ...profile, [key]: up.avatar_url })
+          await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
+          return
+        }
+      }
       // O main já salvou o caminho limpo no config; aqui só atualizamos a
       // visualização (com ?t= para refletir na hora).
-      const key = kind === "avatar" ? "avatar" : "background"
       onChange({ ...profile, [key]: r.path })
     }
   }

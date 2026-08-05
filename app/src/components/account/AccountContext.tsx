@@ -1,7 +1,8 @@
 "use client"
 
 // Estado global da conta online (Supabase) no renderer.
-// Consome a accountAPI exposta pelo preload; escuta onAuthChanged.
+// Consome a accountAPI exposta pelo preload; escuta onAuthChanged; mantém o
+// perfil online (username + avatar do servidor) atualizado após o login.
 import {
   createContext,
   useCallback,
@@ -13,9 +14,16 @@ import {
 
 export type AccountStatus = "carregando" | "deslogado" | "logado"
 
+export interface PerfilOnline {
+  username: string | null
+  avatar_url: string | null
+}
+
 interface AccountCtx {
   status: AccountStatus
   session: AccountSession | null
+  /** Perfil online (username/avatar do servidor) — atualizado após login. */
+  perfil: PerfilOnline | null
   /** Cadastro: email + username + senha (sem verificação). */
   signUp: (
     email: string,
@@ -25,6 +33,8 @@ interface AccountCtx {
   /** Login com username + senha. */
   signIn: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>
   signOut: () => Promise<void>
+  /** Sobe o avatar pro servidor e devolve a URL pública. */
+  setAvatar: (filePath: string) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
 }
 
 const Ctx = createContext<AccountCtx | null>(null)
@@ -32,24 +42,33 @@ const Ctx = createContext<AccountCtx | null>(null)
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AccountStatus>("carregando")
   const [session, setSession] = useState<AccountSession | null>(null)
+  const [perfil, setPerfil] = useState<PerfilOnline | null>(null)
+
+  const carregarPerfil = useCallback(async () => {
+    const r = await window.launcherAPI?.accountProfile()
+    if (r?.ok) setPerfil(r.profile ?? null)
+  }, [])
 
   useEffect(() => {
     let vivo = true
-    window.launcherAPI?.accountStatus().then((r) => {
+    window.launcherAPI?.accountStatus().then(async (r) => {
       if (!vivo) return
       setSession(r?.session ?? null)
       setStatus(r?.session ? "logado" : "deslogado")
+      if (r?.session) await carregarPerfil()
     })
     const off = window.launcherAPI?.onAuthChanged((data) => {
       if (!vivo) return
       setSession(data.session)
       setStatus(data.session ? "logado" : "deslogado")
+      if (data.session) carregarPerfil()
+      else setPerfil(null)
     })
     return () => {
       vivo = false
       off?.()
     }
-  }, [])
+  }, [carregarPerfil])
 
   const signUp = useCallback(async (email: string, username: string, password: string) => {
     try {
@@ -79,10 +98,23 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await window.launcherAPI?.accountSignOut()
+    setPerfil(null)
+  }, [])
+
+  const setAvatar = useCallback(async (filePath: string) => {
+    try {
+      const r = await window.launcherAPI?.accountSetAvatar(filePath)
+      if (r?.ok && r.avatar_url) setPerfil((p) => ({ username: p?.username ?? null, avatar_url: r.avatar_url ?? null }))
+      return r || { ok: false, error: "API indisponível" }
+    } catch (e) {
+      return { ok: false, error: e?.message || "exceção" }
+    }
   }, [])
 
   return (
-    <Ctx.Provider value={{ status, session, signUp, signIn, signOut }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar }}>
+      {children}
+    </Ctx.Provider>
   )
 }
 
@@ -90,4 +122,10 @@ export function useAccount() {
   const ctx = useContext(Ctx)
   if (!ctx) throw new Error("useAccount precisa estar dentro de <AccountProvider>")
   return ctx
+}
+
+/** Igual ao useAccount, mas devolve null fora do provider (para componentes
+ *  compartilhados com o modo console, que não tem o provider). */
+export function useAccountOptional() {
+  return useContext(Ctx)
 }
