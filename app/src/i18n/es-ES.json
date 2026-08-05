@@ -926,5 +926,7 @@
   "account.entrar_btn": "Entrar",
   "account.erro_senha_curta": "La contraseña necesita al menos 6 caracteres.",
   "account.erro_usuario_nao_existe": "Ese usuario no existe.",
-  "account.erro_credenciais": "Usuario o contraseña incorrectos."
+  "account.erro_credenciais": "Usuario o contraseña incorrectos.",
+  "account.enviando": "Espere…",
+  "account.logado_ok": "Estás conectado. ¡A jugar!"
 }
