@@ -941,5 +941,7 @@
   "amigos.total_conquistas": "Achievements",
   "amigos.platinadas": "Platinum",
   "amigos.jogos": "Games",
-  "editprofile.avatar_erro": "Failed to upload avatar to server"
+  "editprofile.avatar_erro": "Failed to upload avatar to server",
+  "editprofile.avatar_grande": "Image too large (max 5MB)",
+  "editprofile.avatar_dimensoes": "Dimensions too large (max 512×512px)"
 }

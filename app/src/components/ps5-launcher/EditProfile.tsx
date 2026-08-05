@@ -114,7 +114,11 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
           await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
           return
         }
-        window.alert(t("editprofile.avatar_erro") + (up.error ? ` (${up.error})` : ""))
+        const msgs: Record<string, string> = {
+          avatar_grande: t("editprofile.avatar_grande"),
+          avatar_dimensoes: t("editprofile.avatar_dimensoes"),
+        }
+        window.alert(msgs[up.error || ""] || t("editprofile.avatar_erro") + (up.error ? ` (${up.error})` : ""))
         return
       }
       // O main já salvou o caminho limpo no config; aqui só atualizamos a

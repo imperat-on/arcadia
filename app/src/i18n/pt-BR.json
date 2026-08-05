@@ -941,5 +941,7 @@
   "amigos.total_conquistas": "Conquistas",
   "amigos.platinadas": "Platinadas",
   "amigos.jogos": "Jogos",
-  "editprofile.avatar_erro": "Falha ao subir o avatar pro servidor"
+  "editprofile.avatar_erro": "Falha ao subir o avatar pro servidor",
+  "editprofile.avatar_grande": "Imagem muito grande (máx. 5MB)",
+  "editprofile.avatar_dimensoes": "Dimensões grandes demais (máx. 512×512px)"
 }
