@@ -106,13 +106,16 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       const key = kind === "avatar" ? "avatar" : "background"
       if (kind === "avatar" && conta?.status === "logado") {
         // Logado: sobe pro servidor (Storage) e usa a URL pública — assim
-        // amigos veem a foto. Se falhar, mantém o caminho local.
+        // amigos veem a foto. Se falhar, avisa em vez de cair no local
+        // silenciosamente (senão parece que mudou e ninguém vê).
         const up = await conta.setAvatar(r.path)
         if (up.ok && up.avatar_url) {
           onChange({ ...profile, [key]: up.avatar_url })
           await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
           return
         }
+        window.alert(t("editprofile.avatar_erro") + (up.error ? ` (${up.error})` : ""))
+        return
       }
       // O main já salvou o caminho limpo no config; aqui só atualizamos a
       // visualização (com ?t= para refletir na hora).

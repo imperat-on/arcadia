@@ -940,5 +940,6 @@
   "amigos.pendente_perfil": "Request pending — you're not friends yet",
   "amigos.total_conquistas": "Achievements",
   "amigos.platinadas": "Platinum",
-  "amigos.jogos": "Games"
+  "amigos.jogos": "Games",
+  "editprofile.avatar_erro": "Failed to upload avatar to server"
 }

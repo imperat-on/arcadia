@@ -940,5 +940,6 @@
   "amigos.pendente_perfil": "Pedido pendente — vocês ainda não são amigos",
   "amigos.total_conquistas": "Conquistas",
   "amigos.platinadas": "Platinadas",
-  "amigos.jogos": "Jogos"
+  "amigos.jogos": "Jogos",
+  "editprofile.avatar_erro": "Falha ao subir o avatar pro servidor"
 }
