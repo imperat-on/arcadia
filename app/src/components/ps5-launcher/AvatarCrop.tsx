@@ -19,11 +19,20 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [crop, setCrop] = useState({ x: 0, y: 0, size: 0 }) // em px NATURAIS (quadrado)
   const [preview, setPreview] = useState("")
+  const [processando, setProcessando] = useState(false)
+  const ignorar = useRef(false) // se true, o toBlob callback não dispara (modal fechou)
   const [arrastando, setArrastando] = useState<null | { tipo: "mover" | "redimensionar"; inix: number; iniy: number; orig: { x: number; y: number; size: number } }>(null)
 
   const imgRef = useRef<HTMLImageElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Ao desmontar (cancel/fechar), descarta callbacks de toBlob pendentes
+  useEffect(() => {
+    return () => {
+      ignorar.current = true
+    }
+  }, [])
 
   // Carrega a imagem e inicializa o quadrado (centralizado, cobrindo o menor
   // lado por inteiro — "recorte certinho" desde o início)
@@ -100,13 +109,16 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
   const onPointerUp = () => setArrastando(null)
 
   const aplicar = () => {
-    // Redesenha ANTES de exportar (garante que o canvas tem o frame atual)
-    if (!desenha()) return
+    if (processando || !desenha()) return
     const c = canvasRef.current
     if (!c) return
+    setProcessando(true)
     c.toBlob((blob) => {
-      if (!blob) return
-      blob.arrayBuffer().then((ab) => onConfirm(new Uint8Array(ab), MIME, ".png"))
+      if (!blob || ignorar.current) return
+      blob.arrayBuffer().then((ab) => {
+        if (ignorar.current) return
+        onConfirm(new Uint8Array(ab), MIME, ".png")
+      })
     }, MIME)
   }
 
@@ -172,14 +184,15 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
         </div>
 
         <div className="mt-5 flex justify-end gap-3">
-          <button onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/5 hover:text-white">
+          <button onClick={onCancel} disabled={processando} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-30">
             {t("avatar.crop_cancelar")}
           </button>
           <button
             onClick={aplicar}
-            className="rounded-lg bg-gradient-to-r from-[#0072ce] to-[#00a8ff] px-5 py-2 text-sm font-semibold text-white transition-all hover:brightness-110"
+            disabled={processando}
+            className="rounded-lg bg-gradient-to-r from-[#0072ce] to-[#00a8ff] px-5 py-2 text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
           >
-            {t("avatar.crop_aplicar")}
+            {processando ? t("avatar.crop_processando") : t("avatar.crop_aplicar")}
           </button>
         </div>
       </div>

@@ -92,8 +92,10 @@ function loadSession() {
       return JSON.parse(ss.decryptString(Buffer.from(box.data, "base64")).toString("utf8"))
     }
     return JSON.parse(unb64(box.data))
-  } catch {
-    // arquivo corrompido: renomeia pra .bak e devolve null (não quebra o app)
+  } catch (err) {
+    // arquivo corrompido ou chave mudou (keyring): renomeia pra .bak,
+    // loga o erro, e devolve null (usuário faz login de novo)
+    console.error("[session] Falha ao decriptar sessão — keyring do SO mudou?", err?.message || err)
     try {
       fs.renameSync(sessionPath(), `${sessionPath()}.bak`)
     } catch {
