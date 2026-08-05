@@ -130,7 +130,8 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       const key = kind === "avatar" ? "avatar" : "background"
       if (kind === "avatar" && conta?.status === "logado") {
         // GIF: vai direto (o main valida tamanho/dimensão e preserva animação)
-        if (/\.gif$/i.test(r.path)) {
+        // ATENÇÃO: o path tem ?t= no final (cache-buster) — o $ não casa
+        if (/\.gif(\?|$)/i.test(r.path)) {
           await subirAvatar(r.path)
           return
         }
