@@ -928,5 +928,13 @@
   "account.erro_usuario_nao_existe": "That user doesn't exist.",
   "account.erro_credenciais": "Wrong username or password.",
   "account.enviando": "Please wait…",
-  "account.logado_ok": "You're connected. Let's play!"
+  "account.logado_ok": "You're connected. Let's play!",
+  "amigos.desde": "Friends since",
+  "amigos.ver_perfil": "View profile",
+  "amigos.remover": "Remove friend",
+  "amigos.confirmar_remover": "Remove this friend?",
+  "amigos.removido": "Friend removed",
+  "amigos.voltar": "Back",
+  "amigos.conquistas_recentes": "Recent achievements",
+  "amigos.sem_conquistas": "No public achievements yet"
 }
