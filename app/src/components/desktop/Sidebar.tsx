@@ -37,6 +37,7 @@ export function Sidebar({
   onConfigSub,
   profile,
   onProfile,
+  onAccount,
   onRefresh,
   games,
   librarySidebar,
@@ -54,6 +55,7 @@ export function Sidebar({
   onConfigSub: (s: ConfigSub) => void
   profile: Profile
   onProfile: () => void
+  onAccount?: () => void
   onRefresh: () => void
   games: Game[]
   librarySidebar: boolean
@@ -136,6 +138,13 @@ export function Sidebar({
                 setProfileMenu(false)
                 onConfigSub("gerais")
                 onView("config")
+              }}
+            />
+            <ProfileMenuItem
+              label={t("account.menu")}
+              onClick={() => {
+                setProfileMenu(false)
+                onAccount?.()
               }}
             />
             <div className="h-px bg-white/10" />

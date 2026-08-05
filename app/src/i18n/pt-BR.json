@@ -877,5 +877,21 @@
   "settings.desconectar": "Desconectar",
   "torrent.status.cacheando": "Cacheando no debrid",
   "torrent.status.erro": "Erro",
-  "torrent.cacheando_desc": "O debrid está baixando o torrent pro servidor dele — o download começa sozinho quando liberar."
+  "torrent.cacheando_desc": "O debrid está baixando o torrent pro servidor dele — o download começa sozinho quando liberar.",
+  "account.titulo": "Conta Arcadia",
+  "account.descricao": "Entre com seu email. Se for sua primeira vez, criamos sua conta com um código enviado por email.",
+  "account.email": "Email",
+  "account.username": "Nome de usuário (só para conta nova)",
+  "account.username_hint": "3-20 caracteres: minúsculas, números e _",
+  "account.enviar_codigo": "Enviar código",
+  "account.codigo_enviado": "Enviamos um código de 6 dígitos para {email}. Confira também o spam.",
+  "account.confirmar": "Confirmar",
+  "account.voltar": "voltar",
+  "account.sair": "Sair da conta",
+  "account.erro_email": "Email inválido.",
+  "account.erro_username": "Nome de usuário inválido (3-20: minúsculas, números, _).",
+  "account.erro_ocupado": "Esse nome de usuário já está em uso.",
+  "account.erro_codigo": "Código inválido ou expirado.",
+  "account.erro_geral": "Falha na operação",
+  "account.menu": "Conta online"
 }

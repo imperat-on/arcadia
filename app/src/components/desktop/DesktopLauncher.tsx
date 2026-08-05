@@ -23,6 +23,8 @@ import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 import { AchievementToast } from "./AchievementToast"
+import { AccountProvider } from "../account/AccountContext"
+import { AuthDialog } from "./AuthDialog"
 
 export function DesktopLauncher() {
   const { t } = useI18n()
@@ -44,6 +46,7 @@ export function DesktopLauncher() {
   const [librarySidebar, setLibrarySidebar] = useState(true)
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
+  const [contaAberta, setContaAberta] = useState(false)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
@@ -138,7 +141,8 @@ export function DesktopLauncher() {
   }, [carregar])
 
   return (
-    <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
+    <AccountProvider>
+      <div className="app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
       <WindowControls />
       <Sidebar
         view={view}
@@ -154,6 +158,7 @@ export function DesktopLauncher() {
         onConfigSub={setConfigSub}
         profile={profile}
         onProfile={() => setShowProfile(true)}
+        onAccount={() => setContaAberta(true)}
         onRefresh={atualizarBiblioteca}
         games={games}
         librarySidebar={librarySidebar}
@@ -371,6 +376,8 @@ export function DesktopLauncher() {
         </div>
       )}
       <AchievementToast />
-    </div>
+      <AuthDialog open={contaAberta} onClose={() => setContaAberta(false)} />
+      </div>
+    </AccountProvider>
   )
 }
