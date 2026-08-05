@@ -877,5 +877,21 @@
   "settings.desconectar": "Disconnect",
   "torrent.status.cacheando": "Caching on debrid",
   "torrent.status.erro": "Error",
-  "torrent.cacheando_desc": "The debrid is downloading the torrent to their server — the download starts automatically when ready."
+  "torrent.cacheando_desc": "The debrid is downloading the torrent to their server — the download starts automatically when ready.",
+  "account.titulo": "Arcadia Account",
+  "account.descricao": "Sign in with your email. First time here? We create your account with a code sent by email.",
+  "account.email": "Email",
+  "account.username": "Username (new accounts only)",
+  "account.username_hint": "3-20 chars: lowercase, numbers and _",
+  "account.enviar_codigo": "Send code",
+  "account.codigo_enviado": "We sent a 6-digit code to {email}. Check your spam too.",
+  "account.confirmar": "Confirm",
+  "account.voltar": "back",
+  "account.sair": "Sign out",
+  "account.erro_email": "Invalid email.",
+  "account.erro_username": "Invalid username (3-20: lowercase, numbers, _).",
+  "account.erro_ocupado": "That username is already taken.",
+  "account.erro_codigo": "Invalid or expired code.",
+  "account.erro_geral": "Operation failed",
+  "account.menu": "Online account"
 }

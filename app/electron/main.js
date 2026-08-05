@@ -1601,6 +1601,17 @@ function configurarLojaSteam() {
 app.whenReady().then(() => {
   configurarLojaSteam()
   startSysinfoPrefetch()
+  // Conta online (Supabase): registra IPC de auth e espelha eventos pro renderer.
+  try {
+    const { registerAccountIpc } = require("./supabase/ipc")
+    registerAccountIpc((channel, payload) => {
+      for (const w of require("electron").BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send(channel, payload)
+      }
+    })
+  } catch (e) {
+    console.error("[supabase] falha ao registrar IPC de conta:", e)
+  }
   // Não há prefetch de vitrine: a loja é a página web da Steam embutida
   // (StoreConsole/webview), que se cacheia sozinha. O que vale a pena é abrir
   // a conexão com a Steam cedo — a primeira requisição do processo custa ~3,4s

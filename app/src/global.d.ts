@@ -281,6 +281,11 @@ export interface GameSettings {
 }
 
 declare global {
+  /** Sessão da conta online (Supabase) — só dados seguros, nunca tokens. */
+  interface AccountSession {
+    user: { id: string; email?: string; username?: string }
+  }
+
   interface Window {
     /** Modo da UI: console (PS5) ou desktop (estilo Heroic). */
     launcherMode?: "console" | "desktop"
@@ -288,6 +293,20 @@ declare global {
     launcherPaths?: { home: string; dataDir: string }
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
+      /** Conta online (Supabase) — fluxo por código enviado por email (OTP). */
+      accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
+      accountRequestCode: (payload: {
+        email: string
+        username?: string
+      }) => Promise<{ ok: boolean; error?: string }>
+      accountVerifyCode: (payload: {
+        email: string
+        token: string
+      }) => Promise<{ ok: boolean; error?: string }>
+      accountSignOut: () => Promise<{ ok: boolean; error?: string }>
+      onAuthChanged: (
+        cb: (data: { event: string; session: AccountSession | null }) => void,
+      ) => () => void
       launch: (
         cmd: string[],
         gameId?: string,
