@@ -46,6 +46,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const { t } = useI18n()
   const conta = useAccountOptional() // null fora do provider (modo console)
   const [section, setSection] = useState<Section>("geral")
+  // Recorte de avatar — hook tem que ficar ANTES do `if (!open) return null`
+  // (senão o nº de hooks muda entre renders e o React derruba tudo → tela preta)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
   const [fields, setFields] = useState({
     name: "",
     realName: "",
@@ -100,8 +103,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       450,
     )
   }
-
-  const [cropSrc, setCropSrc] = useState<string | null>(null)
 
   // Upload do avatar pra conta (comum aos fluxos direto e recortado)
   const subirAvatar = async (pathOuBytes: string | Uint8Array, mime?: string, ext?: string) => {
