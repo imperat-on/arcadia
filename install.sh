@@ -28,15 +28,15 @@ fi
 # (extrai Proton/Wine e o SLSsteam), findutils, git e node/npm (front-end).
 echo "==> 0/4 Verificando dependências de sistema"
 FALTAM=()
-for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg tar find git node npm; do
+for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg tar find git node npm unzip; do
     command -v "$cmd" >/dev/null 2>&1 || FALTAM+=("$cmd")
 done
 
 if [ ${#FALTAM[@]} -gt 0 ]; then
     echo "    Faltando: ${FALTAM[*]}"
     # Mapeia comandos -> pacotes por distro.
-    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm )
-    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm )
+    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm [unzip]=unzip )
+    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm [unzip]=unzip )
     PKGS=()
     if command -v pacman >/dev/null 2>&1; then
         for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
@@ -73,10 +73,26 @@ npm install
 # O binário do Electron (~100MB) é baixado por um postinstall que, em algumas
 # configs de npm, é pulado ou falha silenciosamente — deixando o app sem "motor"
 # e o arcadia.sh reclamando de "No such file or directory". Garante aqui.
-if ! node -e "require('electron')" >/dev/null 2>&1; then
+# Checamos o binário DE VERDADE: o require('electron') só devolve o caminho do
+# binário como string e "passa" mesmo com o download ausente/corrompido.
+if [ ! -x "node_modules/electron/dist/electron" ]; then
     echo "    Electron: binário ausente, baixando…"
-    node node_modules/electron/install.js 2>/dev/null || npm rebuild electron || \
+    node node_modules/electron/install.js 2>/dev/null || npm rebuild electron
+    # O install.js do electron usa o extract-zip 2.0.1, que trava silenciosamente
+    # (sai com exit 0 sem extrair nada) em Node >= 22. Se o binário continuar
+    # ausente, extraímos na mão o zip que ele já baixou no cache (~/.cache/electron).
+    if [ ! -x "node_modules/electron/dist/electron" ]; then
+        VER="$(node -p "require('./node_modules/electron/package.json').version")"
+        ZIP="$(find "$HOME/.cache/electron" -name "electron-v${VER}-linux-x64.zip" -print -quit 2>/dev/null)"
+        if [ -n "$ZIP" ]; then
+            echo "    install.js não extraiu o binário — extraindo do cache com unzip…"
+            unzip -o -q "$ZIP" -d node_modules/electron/dist
+            printf 'electron' > node_modules/electron/path.txt
+        fi
+    fi
+    if [ ! -x "node_modules/electron/dist/electron" ]; then
         echo "    AVISO: falha ao baixar o Electron — rode 'cd app && npm rebuild electron'"
+    fi
 fi
 
 # O dist/ não vai no git (é gerado). O arcadia.sh reconstrói sozinho quando
