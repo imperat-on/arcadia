@@ -332,6 +332,14 @@ declare global {
       getLibrary: () => Promise<Game[]>
       /** Conta online (Supabase) — fluxo por código enviado por email (OTP). */
       accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
+      accountProfile: () => Promise<{
+        ok: boolean
+        profile?: { username: string | null; avatar_url: string | null }
+        error?: string
+      }>
+      accountSetAvatar: (
+        filePath: string,
+      ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
       accountSignUp: (payload: {
         email: string
         username: string
