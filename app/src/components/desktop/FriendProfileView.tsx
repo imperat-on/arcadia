@@ -100,7 +100,12 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
             </div>
           )}
           <div>
-            <div className="text-2xl font-bold text-white">{amigo.username}</div>
+            <div className="text-2xl font-bold text-white">
+              {amigo.display_name || amigo.username}
+              {amigo.display_name && amigo.display_name !== amigo.username && (
+                <span className="ml-2 text-sm font-normal text-white/30">@{amigo.username}</span>
+              )}
+            </div>
             <div className="mt-1 text-sm text-white/40">
               {aceito
                 ? `${t("amigos.desde")} ${formatarData(amigo.since)}`

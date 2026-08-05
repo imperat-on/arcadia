@@ -148,7 +148,7 @@ export function FriendsView() {
   )
 
   const card = (
-    p: { id: string; username: string; avatar_url?: string | null; since?: string | null; status?: "pending" | "accepted" | null },
+    p: { id: string; username: string; display_name?: string | null; avatar_url?: string | null; since?: string | null; status?: "pending" | "accepted" | null },
     acoes?: React.ReactNode,
     clicavel = false,
   ) => (
@@ -164,7 +164,12 @@ export function FriendsView() {
       <div className="flex min-w-0 items-center gap-3">
         <Avatar nome={p.username} url={p.avatar_url} />
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-sm font-medium text-white/90">{p.username}</div>
+          <div className="truncate text-sm font-medium text-white/90">
+            {p.display_name || p.username}
+            {p.display_name && p.display_name !== p.username && (
+              <span className="ml-2 text-[10px] text-white/30">@{p.username}</span>
+            )}
+          </div>
           {p.since && (
             <div className="text-[11px] text-white/35">
               {t("amigos.desde")} {formatarData(p.since)}
