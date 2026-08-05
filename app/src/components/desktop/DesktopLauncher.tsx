@@ -74,12 +74,14 @@ function ProfileBridge({
     if (!original.current) original.current = perfilLocal
     setPerfilLocal((p) => ({
       ...p,
-      name: perfil.display_name || perfil.username || p.name,
-      avatar: perfil.avatar_url || p.avatar,
-      summary: perfil.summary ?? p.summary,
-      country: perfil.country ?? p.country,
-      city: perfil.city ?? p.city,
-      showcase: perfil.showcase ?? p.showcase,
+      // Logado: o servidor é a fonte da verdade — SEM fallback pro local,
+      // senão a conta anterior vaza campos (summary/país/avatar...).
+      name: perfil.display_name || perfil.username || "",
+      avatar: perfil.avatar_url || "",
+      summary: perfil.summary ?? "",
+      country: perfil.country ?? "",
+      city: perfil.city ?? "",
+      showcase: Array.isArray(perfil.showcase) ? perfil.showcase : [],
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil])
