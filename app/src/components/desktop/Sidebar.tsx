@@ -77,11 +77,16 @@ export function Sidebar({
 }) {
   const { t } = useI18n()
   const { pedidos } = useFriends()
-  const { status: contaStatus, signOut } = useAccount()
+  const { status: contaStatus, session: contaSession, perfil: contaPerfil, signOut } = useAccount()
   const logado = contaStatus === "logado"
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
-  const nome = profile.name || t("profile.jogador")
+  // Identidade: logado → conta online (username + avatar do servidor);
+  // deslogado → perfil local. O avatar da conta tem prioridade quando existe.
+  const nome = logado
+    ? contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
+    : profile.name || t("profile.jogador")
+  const avatarUrl = logado ? contaPerfil?.avatar_url || profile.avatar : profile.avatar
 
   const jogos = useMemo(() => {
     const l = games.filter((g) => !g.hidden)
@@ -103,9 +108,9 @@ export function Sidebar({
           className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]"
         >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
-            {profile.avatar ? (
+            {avatarUrl ? (
               <img
-                src={profile.avatar}
+                src={avatarUrl}
                 alt=""
                 className="h-full w-full object-cover"
                 draggable={false}

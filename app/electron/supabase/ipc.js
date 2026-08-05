@@ -58,6 +58,14 @@ function registerAccountIpc(broadcast) {
     await garantirSessao()
     return auth.status()
   })
+  ipcMain.handle("account:profile", async () => {
+    await garantirSessao()
+    return auth.myProfile()
+  })
+  ipcMain.handle("account:setAvatar", async (_e, filePath) => {
+    await garantirSessao()
+    return auth.setAvatar(filePath)
+  })
   ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
   ipcMain.handle("account:signIn", async (_e, payload) => auth.signIn(payload || {}))
   ipcMain.handle("account:signOut", async () => auth.signOut())

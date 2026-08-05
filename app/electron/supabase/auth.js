@@ -5,11 +5,16 @@
 // resolve o email via RPC login_email (security definer, chamável por anon).
 "use strict"
 
+const fs = require("fs")
+const path = require("path")
 const { getClient } = require("./client")
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 const SENHA_MIN = 6
+
+const AVATAR_MAX = 2 * 1024 * 1024 // 2MB (limite do bucket)
+const AVATAR_EXT = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }
 
 /**
  * Cadastro: email + username + senha, SEM verificação de email.
@@ -92,4 +97,59 @@ async function status() {
   return { session: data.session, error: null }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status }
+/** Perfil online do usuário logado (username + avatar do servidor). */
+async function myProfile() {
+  const { data: ud, error: ue } = await getClient().auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  const me = ud.user.id
+
+  const { data, error } = await getClient()
+    .from("profiles")
+    .select("username, avatar_url")
+    .eq("id", me)
+    .maybeSingle()
+  if (error) return { ok: false, error: error.message }
+  return {
+    ok: true,
+    profile: { username: data?.username ?? null, avatar_url: data?.avatar_url ?? null },
+  }
+}
+
+/**
+ * Sobe o avatar (arquivo local) pro Storage público e grava a URL em
+ * profiles.avatar_url — assim amigos veem a foto. Exige o bucket "avatars"
+ * (migracao-2026-08-05-avatar-bucket.sql).
+ */
+async function setAvatar(filePath) {
+  const { data: ud, error: ue } = await getClient().auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  const me = ud.user.id
+
+  let buf
+  try {
+    buf = fs.readFileSync(filePath)
+  } catch {
+    return { ok: false, error: "avatar_ilegivel" }
+  }
+  if (buf.length > AVATAR_MAX) return { ok: false, error: "avatar_grande" }
+
+  const ext = (path.extname(filePath) || "").toLowerCase()
+  const mime = AVATAR_EXT[ext] || "image/png"
+  const nome = `${me}${ext && AVATAR_EXT[ext] ? ext : ".png"}`
+
+  const { error: upErr } = await getClient()
+    .storage.from("avatars")
+    .upload(nome, buf, { upsert: true, contentType: mime })
+  if (upErr) return { ok: false, error: upErr.message }
+
+  const avatarUrl = `${getClient().supabaseUrl}/storage/v1/object/public/avatars/${nome}`
+  const { error: dbErr } = await getClient()
+    .from("profiles")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", me)
+  if (dbErr) return { ok: false, error: dbErr.message }
+
+  return { ok: true, avatar_url: avatarUrl }
+}
+
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, setAvatar }

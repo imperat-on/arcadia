@@ -199,6 +199,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   },
   // Conta online (Supabase) — cadastro email+username+senha; login username+senha.
   accountStatus: () => ipcRenderer.invoke("account:status"),
+  accountProfile: () => ipcRenderer.invoke("account:profile"),
+  accountSetAvatar: (filePath) => ipcRenderer.invoke("account:setAvatar", filePath),
   accountSignUp: (payload) => ipcRenderer.invoke("account:signUp", payload),
   accountSignIn: (payload) => ipcRenderer.invoke("account:signIn", payload),
   accountSignOut: () => ipcRenderer.invoke("account:signOut"),
