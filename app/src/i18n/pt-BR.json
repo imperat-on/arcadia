@@ -928,5 +928,13 @@
   "account.erro_usuario_nao_existe": "Esse usuário não existe.",
   "account.erro_credenciais": "Usuário ou senha incorretos.",
   "account.enviando": "Aguarde…",
-  "account.logado_ok": "Você está conectado. Bora jogar!"
+  "account.logado_ok": "Você está conectado. Bora jogar!",
+  "amigos.desde": "Amigos desde",
+  "amigos.ver_perfil": "Ver perfil",
+  "amigos.remover": "Remover amigo",
+  "amigos.confirmar_remover": "Remover este amigo?",
+  "amigos.removido": "Amigo removido",
+  "amigos.voltar": "Voltar",
+  "amigos.conquistas_recentes": "Conquistas recentes",
+  "amigos.sem_conquistas": "Nenhuma conquista pública ainda"
 }

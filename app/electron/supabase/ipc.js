@@ -50,6 +50,8 @@ function registerAccountIpc(broadcast) {
   ipcMain.handle("friends:accept", async (_e, userId) => friends.accept(userId))
   ipcMain.handle("friends:cancel", async (_e, userId) => friends.cancel(userId))
   ipcMain.handle("friends:list", async () => friends.list())
+  ipcMain.handle("friends:achievements", async (_e, userId) => friends.friendAchievements(userId))
+  ipcMain.handle("friends:remove", async (_e, userId) => friends.removeFriend(userId))
 
   ipcMain.handle("sync:now", async () => sync.syncNow())
   ipcMain.handle("sync:state", async () => sync.getState())

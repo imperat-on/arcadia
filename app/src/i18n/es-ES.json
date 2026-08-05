@@ -928,5 +928,13 @@
   "account.erro_usuario_nao_existe": "Ese usuario no existe.",
   "account.erro_credenciais": "Usuario o contraseña incorrectos.",
   "account.enviando": "Espere…",
-  "account.logado_ok": "Estás conectado. ¡A jugar!"
+  "account.logado_ok": "Estás conectado. ¡A jugar!",
+  "amigos.desde": "Amigos desde",
+  "amigos.ver_perfil": "Ver perfil",
+  "amigos.remover": "Eliminar amigo",
+  "amigos.confirmar_remover": "¿Eliminar este amigo?",
+  "amigos.removido": "Amigo eliminado",
+  "amigos.voltar": "Volver",
+  "amigos.conquistas_recentes": "Logros recientes",
+  "amigos.sem_conquistas": "Aún sin logros públicos"
 }

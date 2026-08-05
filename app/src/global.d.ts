@@ -290,8 +290,19 @@ declare global {
   interface FriendProfile {
     id: string
     username: string
+    avatar_url?: string | null
     status?: "pending" | "accepted" | null
     incoming?: boolean
+    /** ISO da data em que a amizade foi aceita (presente na lista). */
+    since?: string | null
+  }
+
+  /** Conquista pública de um amigo (RPC friend_achievements). */
+  interface FriendAchievement {
+    appid: string
+    apiname: string
+    unlocked_at: string
+    updated_at: string
   }
 
   /** Lista estruturada de relações do usuário logado. */
@@ -339,6 +350,10 @@ declare global {
       friendsAccept: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsList: () => Promise<{ ok: boolean; data?: FriendsListData; error?: string }>
+      friendsAchievements: (
+        userId: string,
+      ) => Promise<{ ok: boolean; achievements?: FriendAchievement[]; error?: string }>
+      friendsRemove: (userId: string) => Promise<{ ok: boolean; error?: string }>
       onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
       /** Sync de conquistas (Supabase). */
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
