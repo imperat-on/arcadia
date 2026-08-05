@@ -13,8 +13,14 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 const SENHA_MIN = 6
 
-const AVATAR_MAX = 2 * 1024 * 1024 // 2MB (limite do bucket)
-const AVATAR_EXT = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }
+const AVATAR_MAX = 5 * 1024 * 1024 // 5MB (limite do bucket — GIFs animados são pesados)
+const AVATAR_EXT = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+}
 
 /**
  * Cadastro: email + username + senha, SEM verificação de email.
