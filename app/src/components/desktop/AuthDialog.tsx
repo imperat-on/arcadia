@@ -61,17 +61,23 @@ export function AuthDialog({ open, onClose }: AuthDialogProps) {
   const continuar = async () => {
     setErro(null)
     setEnviando(true)
-    const r =
-      modo === "criar"
-        ? await signUp(email.trim(), username.trim(), senha)
-        : await signIn(username.trim(), senha)
-    setEnviando(false)
-    if (!r.ok) {
-      setErro(erroKey(r.error))
-      return
+    try {
+      const r =
+        modo === "criar"
+          ? await signUp(email.trim(), username.trim(), senha)
+          : await signIn(username.trim(), senha)
+      if (!r.ok) {
+        setErro(erroKey(r.error))
+        return
+      }
+      // logado: limpa campos pra próxima vez
+      setSenha("")
+    } catch (e) {
+      // Nunca deixar o botão preso em "..." — qualquer exceção vira erro visível.
+      setErro(t("account.erro_geral") + ` (${e?.message || "exceção"})`)
+    } finally {
+      setEnviando(false)
     }
-    // logado: limpa campos pra próxima vez
-    setSenha("")
   }
 
   const trocarModo = (m: Modo) => {
