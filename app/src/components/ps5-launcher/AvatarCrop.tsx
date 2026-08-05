@@ -25,32 +25,40 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Carrega a imagem e inicializa o quadrado (centralizado, 80% do menor lado)
+  // Carrega a imagem e inicializa o quadrado (centralizado, cobrindo o menor
+  // lado por inteiro — "recorte certinho" desde o início)
   useEffect(() => {
     const el = new Image()
     el.onload = () => {
       const w = el.naturalWidth
       const h = el.naturalHeight
-      const size = Math.round(Math.min(w, h) * 0.8)
+      const size = Math.min(w, h)
       setImg(el)
       setCrop({ x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size })
     }
     el.src = src
   }, [src])
 
-  // Preview ao vivo (256×256) a cada mudança do crop
-  useEffect(() => {
-    if (!img || !crop.size) return
+  // Desenha o recorte no canvas 256×256 (usado pelo preview e pelo Apply)
+  const desenha = useCallback(() => {
+    if (!img || !crop.size) return false
     const c = canvasRef.current
-    if (!c) return
+    if (!c) return false
     c.width = SAIDA
     c.height = SAIDA
     const ctx = c.getContext("2d")
-    if (!ctx) return
+    if (!ctx) return false
     ctx.clearRect(0, 0, SAIDA, SAIDA)
     ctx.drawImage(img, crop.x, crop.y, crop.size, crop.size, 0, 0, SAIDA, SAIDA)
-    setPreview(c.toDataURL(MIME))
+    return true
   }, [img, crop])
+
+  // Preview ao vivo (256×256) a cada mudança do crop
+  useEffect(() => {
+    if (!desenha()) return
+    const c = canvasRef.current
+    if (c) setPreview(c.toDataURL(MIME))
+  }, [desenha])
 
   // Escala: px exibidos → px naturais (a imagem é exibida com aspect preservado)
   const escala = useCallback(() => {
@@ -92,6 +100,8 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
   const onPointerUp = () => setArrastando(null)
 
   const aplicar = () => {
+    // Redesenha ANTES de exportar (garante que o canvas tem o frame atual)
+    if (!desenha()) return
     const c = canvasRef.current
     if (!c) return
     c.toBlob((blob) => {
@@ -118,11 +128,25 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
               <>
                 {/* quadrado + borda + alça (o boxShadow gigante escurece o resto) */}
                 <div
-                  className="absolute cursor-move touch-none border-2 border-[#00a8ff]"
-                  style={{ left: `${sx}%`, top: `${sy}%`, width: `${ss}%`, aspectRatio: "1", boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)" }}
+                  className="absolute cursor-move touch-none"
+                  style={{
+                    left: `${sx}%`,
+                    top: `${sy}%`,
+                    width: `${ss}%`,
+                    aspectRatio: "1",
+                    border: "2px solid #00a8ff",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.15)",
+                  }}
                   onPointerDown={(e) => onPointerDown(e, "mover")}
                   onPointerMove={onPointerMove}
                 >
+                  {/* linhas de terço (regra dos terços — fica "certo") */}
+                  <div className="pointer-events-none absolute inset-0 opacity-40">
+                    <div className="absolute left-1/3 top-0 h-full w-px bg-white/70" />
+                    <div className="absolute left-2/3 top-0 h-full w-px bg-white/70" />
+                    <div className="absolute top-1/3 left-0 w-full h-px bg-white/70" />
+                    <div className="absolute top-2/3 left-0 w-full h-px bg-white/70" />
+                  </div>
                   <div
                     className="absolute -bottom-1.5 -right-1.5 h-5 w-5 cursor-nwse-resize rounded-md border-2 border-white bg-[#00a8ff]"
                     onPointerDown={(e) => {
@@ -134,9 +158,11 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
                 </div>
               </>
             )}
+            {/* canvas invisível que materializa o recorte (preview + apply) */}
+            <canvas ref={canvasRef} className="hidden" width={SAIDA} height={SAIDA} />
           </div>
 
-          {/* Preview 256×256 */}
+          {/* Preview 256×256 (círculo — como fica no perfil) */}
           <div className="flex flex-col items-center gap-2">
             <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/[0.04]">
               {preview ? <img src={preview} alt="" className="h-full w-full object-cover" /> : <div className="text-[10px] text-white/30">…</div>}
