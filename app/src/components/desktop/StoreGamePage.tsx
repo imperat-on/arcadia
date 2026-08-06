@@ -63,6 +63,16 @@ export function StoreGamePage({
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
   const [slsAtivo, setSlsAtivo] = useState(false)
+  // Jogo rodando (tempo real, via game:active do main): o botão JOGAR vira
+  // RODANDO + PARAR enquanto o jogo desta página está em execução.
+  const [rodando, setRodando] = useState(false)
+
+  useEffect(() => {
+    const off = window.launcherAPI?.onGameActive((info2) => {
+      setRodando(Boolean(info2.rodando && info2.gameId && info2.gameId === game?.id))
+    })
+    return () => off?.()
+  }, [game?.id])
   const [fixesAtivo, setFixesAtivo] = useState(false)
   const voltarRef = useRef<HTMLButtonElement>(null)
 
@@ -333,13 +343,31 @@ export function StoreGamePage({
                 </>
               ) : instalado ? (
                 <>
-                  {onJogar && (
+                  {onJogar && (rodando ? (
+                    <>
+                      <PrimaryBtn onClick={() => {}} disabled label={t("gamepage.rodando")}>
+                        <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
+                          <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                        </svg>
+                      </PrimaryBtn>
+                      <button
+                        onClick={() => window.launcherAPI?.closeGame()}
+                        className="flex items-center gap-2 rounded-full bg-[#ef4444] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="5" y="5" width="14" height="14" rx="2" />
+                        </svg>
+                        {t("gamepage.parar")}
+                      </button>
+                    </>
+                  ) : (
                     <PrimaryBtn onClick={onJogar} disabled={ocupado} label={t("gamepage.jogar")}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     </PrimaryBtn>
-                  )}
+                  ))}
                   {fixesAtivo && (
                     <GhostBtn onClick={() => setFixesAberto(true)} disabled={ocupado} label="Fixes">
                       <svg
