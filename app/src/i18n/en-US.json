@@ -231,6 +231,8 @@
   "gamepage.importar_jogo": "IMPORT GAME",
   "gamepage.instalar": "INSTALL",
   "gamepage.jogar": "PLAY",
+  "gamepage.rodando": "RUNNING",
+  "gamepage.parar": "STOP",
   "gamepage.lancado_em": "Released on",
   "gamepage.loja": "Store:",
   "gamepage.minimos": "Minimum",

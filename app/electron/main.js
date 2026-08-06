@@ -193,7 +193,15 @@ const armarPollJogo = () => {
 const marcar = (rodando) => {
   if (rodando === jogoRodando) return
   jogoRodando = rodando
-  if (win && !win.isDestroyed()) win.webContents.send("game:running", rodando)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send("game:running", rodando)
+    // Canal com o gameId: o botão Running/Stop da página do jogo (desktop)
+    // precisa saber QUAL jogo está rodando — o boolean do game:running não
+    // basta. gameId vazio = jogo detectado mas não lançado por nós (ex:
+    // aberto direto pela Steam) — o renderer não associa a página.
+    const id = rodando ? jogoAtivo?.gameId || ultimoJogoAtivo?.gameId || "" : ""
+    win.webContents.send("game:active", { rodando, gameId: id })
+  }
   if (!rodando) {
     // Sessão encerrada: soma o tempo jogado no override (só fora da Steam —
     // a Steam já traz playtime real do indexer).
