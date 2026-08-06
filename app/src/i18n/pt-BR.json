@@ -452,6 +452,8 @@
   "profile.horas_registradas": "{h} h registradas",
   "profile.ultima_vez": "última vez em {data}",
   "profile.nenhum_jogado": "Nenhum jogo jogado ainda.",
+  "profile.todos_jogos": "Todos os jogos",
+  "profile.todos_jogos_contagem": "{count} jogos",
   "profile.jogador": "Jogador",
   "profile.meu_perfil": "Meu perfil",
   "profile.mostrar_ocultos": "Mostrar jogos ocultos",
