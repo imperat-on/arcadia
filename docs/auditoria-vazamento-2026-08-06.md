@@ -15,7 +15,7 @@ corrigidos, 1 migração SQL pendente (v7) para o servidor.
 
 | # | Severidade | Achado | Evidência | Decisão |
 |---|---|---|---|---|
-| F1 | 🟡 | RPCs restritos executáveis por ANON (sync_achievements, pull_achievements, push_library, pull_library, friend_achievements) — o servidor regrantou execute ao anon apesar dos revokes da v6 | HTTP 200/204 anon em todos | **Migração v7** gerada (revokes explícitos anon+public) — clipboard + SQL Editor pendente. Sem vazamento de dados: RLS self-only bloqueia com uid null (retornos vazios) |
+| F1 | 🟡 | RPCs restritos executáveis por ANON (sync_achievements, pull_achievements, push_library, pull_library, friend_achievements) — o servidor regrantou execute ao anon apesar dos revokes da v6 | HTTP 200/204 anon em todos | **RESOLVIDO** — v7 rodada no SQL Editor (2026-08-06): todos os 5 agora retornam HTTP 401 `permission denied for function`; `login_check` e `username_available` continuam 200 (login/cadastro intactos) |
 | F2 | 🟡 | `config.json` com permissão 644 — contém a hubcap_api_key em claro; qualquer usuário do sistema Linux lê | `ls -la config.json` = `-rw-r--r--` | **Corrigido**: `chmod 600` no `readConfig()` (main.js) |
 | F3 | 🟢 | Enumeração de usernames (perfil public + oráculo login_check `usuario_nao_existe` vs `senha_errada`) | select profiles sem filtro retornou todos | Aceitável por design: usernames não são secretos; cadastro também é anon. Documentado |
 | F4 | 🟢 | Red team: PATCH no perfil da vítima | HTTP 204 mas **0 linhas** (RLS bloqueou silenciosamente — display_name intacto) | Seguro — sem policy de UPDATE = default deny |
@@ -38,7 +38,7 @@ corrigidos, 1 migração SQL pendente (v7) para o servidor.
 
 ## Pendência do usuário
 
-- **Rodar a v7 no SQL Editor** (clipboard): `docs/sql/migracao-2026-08-06-seguranca-v7-revokes.sql` — revokes explícitos dos RPCs restritos. Sem ela os RPCs continuam chamáveis por anon (sem vazamento de dados, mas fora do menor privilégio). Após rodar, um teste rápido: chamar `sync_achievements` sem sessão deve dar HTTP 403.
+- ~~Rodar a v7 no SQL Editor~~ — **RODADA E VERIFICADA (2026-08-06)**: RPCs restritos → HTTP 401 anon; login/cadastro (login_check, username_available) → 200 intactos.
 
 ## Validação
 
