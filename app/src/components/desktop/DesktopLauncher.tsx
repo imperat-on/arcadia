@@ -350,6 +350,11 @@ export function DesktopLauncher() {
                 games={games}
                 onClose={() => setView("inicio")}
                 onEdit={() => setShowEditProfile(true)}
+                onJogoClick={(g) => {
+                  // Mesma tela de quando clica no jogo na Biblioteca.
+                  setView("biblioteca")
+                  setJogoPagina(g)
+                }}
               />
             )}
             {!jogoPagina && view === "config" && (

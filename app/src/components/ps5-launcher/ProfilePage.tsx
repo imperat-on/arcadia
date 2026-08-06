@@ -8,21 +8,23 @@ import { useI18n } from "../../i18n/I18nContext"
 
 interface ProfilePageProps {
   open: boolean
-  navActive: boolean
   profile: Profile
   games: Game[]
   onClose: () => void
   onEdit: () => void
+  onJogoClick?: (g: Game) => void
   embedded?: boolean
+  navActive?: boolean
 }
 
 export function ProfilePage({
   open,
-  navActive,
+  navActive = true,
   profile,
   games,
   onClose,
   onEdit,
+  onJogoClick,
   embedded = false,
 }: ProfilePageProps) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -179,7 +181,11 @@ export function ProfilePage({
               ) : (
                 <div className="grid grid-cols-4 gap-3">
                   {todosJogos.map((game) => (
-                    <JogoTile key={game.id} game={game} />
+                    <JogoTile
+                      key={game.id}
+                      game={game}
+                      onClick={onJogoClick ? () => onJogoClick(game) : undefined}
+                    />
                   ))}
                 </div>
               )}
@@ -271,26 +277,32 @@ function formatarHoras(min?: number): string {
   return m >= 60 ? `${Math.round(m / 60)}h` : `${m}min`
 }
 
-function JogoTile({ game }: { game: Game }) {
+function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
   const [broken, setBroken] = useState(false)
   const horas = formatarHoras(game.playtime_minutes)
+  const cls =
+    "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
   if (!game.cover || broken) {
     return (
-      <div
-        className="relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
+      <button
+        className={cls}
         style={{ aspectRatio: "2/3" }}
         title={game.title}
+        onClick={onClick}
+        disabled={!onClick}
       >
         {game.title[0]?.toUpperCase()}
         <HorasBadge horas={horas} />
-      </div>
+      </button>
     )
   }
   return (
-    <div
-      className="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition-transform hover:scale-[1.03]"
+    <button
+      className="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition-transform hover:scale-[1.03] hover:ring-white/25"
       style={{ aspectRatio: "2/3" }}
       title={game.title}
+      onClick={onClick}
+      disabled={!onClick}
     >
       <img
         src={game.cover}
@@ -306,7 +318,7 @@ function JogoTile({ game }: { game: Game }) {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6 opacity-0 transition-opacity group-hover:opacity-100">
         <span className="block truncate text-[11px] font-semibold text-white">{game.title}</span>
       </div>
-    </div>
+    </button>
   )
 }
 
