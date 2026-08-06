@@ -60,6 +60,58 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open, onClose)
 
+  // ── Vitrine (destaques) ── hooks SEMPRE antes do early return ─────────
+  // Fonte da verdade LOCAL durante a edição: a prop profile só reflete o
+  // round-trip assíncrono do patch e pode estar stale (perfil online buscado
+  // no login). Ler dela em cliques rápidos fazia a contagem bugar, perder
+  // seleção e até zerar a vitrine. Persistência é DEBOUNCED: N cliques
+  // rápidos = UMA chamada com a lista final.
+  const [showcaseSel, setShowcaseSel] = useState<string[]>(() => profile.showcase ?? [])
+  const showcaseRef = useRef<string[]>(showcaseSel)
+  const showcaseTimer = useRef<number | null>(null)
+  // Guarda a versão MAIS RECENTE do salvar: closures de renders antigos teriam
+  // profile/onChange stale — o flush do fechar usa a atual.
+  const salvarShowcaseRef = useRef<(lista: string[]) => void>(() => {})
+  salvarShowcaseRef.current = (lista) => {
+    onChange({ ...profile, showcase: lista })
+    window.launcherAPI?.setConfig({ profile: { showcase: lista } }).catch(() => {})
+    if (conta?.status === "logado") {
+      conta.updatePerfil({ showcase: lista }).catch(() => {})
+    }
+  }
+
+  // Fecha salvando o que estiver pendente (o debounce de 400ms pode não ter
+  // disparado ainda — sem isso o ÚLTIMO clique se perdia).
+  const fecharRef = useRef<() => void>(() => {})
+  fecharRef.current = () => {
+    if (showcaseTimer.current) {
+      window.clearTimeout(showcaseTimer.current)
+      showcaseTimer.current = null
+      salvarShowcaseRef.current(showcaseRef.current)
+    }
+    onClose()
+  }
+
+  const toggleShowcase = (id: string) => {
+    const atual = showcaseRef.current
+    let next: string[]
+    if (atual.includes(id)) {
+      next = atual.filter((x) => x !== id)
+    } else if (atual.length >= MAX_SHOWCASE) {
+      return // limite atingido
+    } else {
+      next = [...atual, id]
+    }
+    // UI imediata (ref + state) — nunca fica fora de sincronia
+    showcaseRef.current = next
+    setShowcaseSel(next)
+    if (showcaseTimer.current) window.clearTimeout(showcaseTimer.current)
+    showcaseTimer.current = window.setTimeout(() => {
+      showcaseTimer.current = null
+      salvarShowcaseRef.current(showcaseRef.current)
+    }, 400)
+  }
+
   useEffect(() => {
     if (!open) return
     setFields({
@@ -73,7 +125,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && fecharRef.current()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
@@ -164,19 +216,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     { id: "destaques", label: t("editprofile.nav.destaques") },
   ]
 
-  const showcase = profile.showcase ?? []
-  const toggleShowcase = (id: string) => {
-    let next: string[]
-    if (showcase.includes(id)) {
-      next = showcase.filter((x) => x !== id)
-    } else if (showcase.length >= MAX_SHOWCASE) {
-      return // limite atingido
-    } else {
-      next = [...showcase, id]
-    }
-    patch({ showcase: next })
-  }
-
   return (
     <div ref={rootRef} className="gp-scope fixed inset-0 z-[60] flex overflow-hidden bg-black">
       {profile.background && (
@@ -191,7 +230,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       {/* Sidebar */}
       <aside className="relative m-4 flex w-72 shrink-0 flex-col gap-1 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 shadow-2xl shadow-black/50 backdrop-blur-xl">
         <button
-          onClick={onClose}
+          onClick={() => fecharRef.current()}
           className="text-sm text-[#8a93a6] hover:text-white transition-colors mb-4 text-left flex items-center gap-2"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -434,7 +473,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                 {t("editprofile.destaques_desc", { max: String(MAX_SHOWCASE) })}{" "}
                 <span className="text-white font-medium">
                   {t("editprofile.destaques_selecionados", {
-                    selected: String(showcase.length),
+                    selected: String(showcaseSel.length),
                     max: String(MAX_SHOWCASE),
                   })}
                 </span>
@@ -445,9 +484,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
               {games
                 .filter((g) => g.cover)
                 .map((g) => {
-                  const idx = showcase.indexOf(g.id)
+                  const idx = showcaseSel.indexOf(g.id)
                   const selected = idx !== -1
-                  const full = !selected && showcase.length >= MAX_SHOWCASE
+                  const full = !selected && showcaseSel.length >= MAX_SHOWCASE
                   return (
                     <button
                       key={g.id}
