@@ -202,6 +202,7 @@ function HomeHero({ jogo, onOpen }: { jogo: ItemLoja; onOpen: () => void }) {
       <img
         src={hero}
         alt=""
+        decoding="async"
         className="h-full w-full object-cover opacity-90"
         draggable={false}
         onError={(e) => {

@@ -1,4 +1,24 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
+
+// ── INSTÂNCIA ÚNICA ───────────────────────────────────────────────────
+// Um segundo lançamento (atalho, arcadia.sh, loja) só FOCA a janela que já
+// está aberta. Sem este lock, cada execução abria outra cópia: RAM dobra
+// (~900MB por cópia) e duas instâncias gravando o mesmo config.json/estado
+// corrompem dados. O handler referencia a global `win` (declarada mais
+// abaixo) — só executa quando o evento dispara, já com win inicializada.
+const lockUnico = app.requestSingleInstanceLock()
+if (!lockUnico) {
+  app.quit()
+} else {
+  app.on("second-instance", () => {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+  })
+}
+
 const { startAchievementWatcher, fetchAchievementsForApp } = require("./achievements")
 const { iniciarVigia } = require("./achievements/cracked_watcher")
 const { getNews } = require("./news")

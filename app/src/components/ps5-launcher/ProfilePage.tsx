@@ -358,6 +358,7 @@ function ShowcaseTile({ game }: { game: Game }) {
         alt={game.title}
         className="h-full w-full object-cover"
         loading="lazy"
+        decoding="async"
         onError={() => setBroken(true)}
       />
     </div>

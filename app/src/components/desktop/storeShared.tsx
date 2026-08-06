@@ -70,6 +70,7 @@ export function StoreImg({
       src={src}
       alt=""
       loading="lazy"
+      decoding="async"
       className={`h-full w-full ${retrato ? "object-contain" : "object-cover"}`}
       draggable={false}
       onError={() => setFase((f) => f + 1)}
