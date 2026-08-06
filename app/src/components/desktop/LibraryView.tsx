@@ -302,9 +302,8 @@ export function LibraryView({
           onJogar={
             paginaLoja.installed !== false
               ? () => {
-                  const g = paginaLoja
-                  setPaginaLoja(null)
-                  pedirJogar(g)
+                  // Fica na página do jogo ao lançar (não volta pra Library).
+                  pedirJogar(paginaLoja)
                 }
               : undefined
           }
@@ -319,9 +318,8 @@ export function LibraryView({
           game={pagina}
           onClose={() => setPagina(null)}
           onJogar={() => {
-            const g = pagina
-            setPagina(null)
-            pedirJogar(g)
+            // Fica na página do jogo ao lançar (não volta pra Library).
+            pedirJogar(pagina)
           }}
           onInstalar={() => {
             setPagina(null)
