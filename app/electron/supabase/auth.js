@@ -163,17 +163,21 @@ async function signUp({ email, username, password } = {}) {
   return { ok: true, session: data.session, user: data.user, usernameReal }
 }
 
-/** Login com username + senha (resolve o email da conta via RPC). */
+/** Login com username + senha (verifica a senha no SQL; o email só sai
+ *  DEPOIS da senha correta — login_email foi removido por vazar emails ao anon). */
 async function signIn({ username, password } = {}) {
   const u = String(username || "").trim().toLowerCase()
   const p = String(password || "")
   if (!USERNAME_RE.test(u)) return { ok: false, error: "username_invalido" }
   if (!p) return { ok: false, error: "senha_curta" }
 
-  const { data: email, error: rpcErr } = await getClient().rpc("login_email", {
+  const { data: check, error: rpcErr } = await getClient().rpc("login_check", {
     p_username: u,
+    p_password: p,
   })
   if (rpcErr) return { ok: false, error: rpcErr.message }
+  if (!check?.ok) return { ok: false, error: check?.error || "usuario_nao_existe" }
+  const email = check.email
   if (!email) return { ok: false, error: "usuario_nao_existe" }
 
   const { data, error } = await getClient().auth.signInWithPassword({
@@ -265,10 +269,36 @@ async function updateProfile(campos) {
  * Sobe o avatar (arquivo local) pro Storage público e grava a URL em
  * profiles.avatar_url — assim amigos veem a foto. Exige o bucket "avatars"
  * (migracao-2026-08-05-avatar-bucket-gif.sql + policies v2).
- * Nome ÚNICO por upload (<userid>-<ts>.<ext>): a URL muda a cada troca →
+ * Nome ÚNICO por upload (<userid>/<ts>.<ext>): a URL muda a cada troca →
  * sem problema de cache no <img> (o antigo era sempre o mesmo nome e o
  * navegador mostrava a imagem velha). Remove o arquivo antigo depois.
+ * SEGURANÇA (auditoria A-05): só sobe o que for IMAGEM de verdade — magic
+ * bytes validados; nada de publicar arquivo arbitrário do disco em bucket público.
  */
+
+// Magic bytes aceitos: PNG, JPEG, WebP, GIF (em ordem).
+const MAGIC = [
+  { sig: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], tipo: "png" },
+  { sig: [0xff, 0xd8, 0xff], tipo: "jpg" },
+  { sig: [0x52, 0x49, 0x46, 0x46], tipo: "webp" }, // RIFF....WEBP
+  { sig: [0x47, 0x49, 0x46, 0x38], tipo: "gif" },
+]
+
+function magicDeImagem(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null
+  for (const m of MAGIC) {
+    if (buf.subarray(0, m.sig.length).equals(Buffer.from(m.sig))) {
+      if (m.tipo === "webp") {
+        // RIFF + "WEBP" nos bytes 8-11
+        if (buf.toString("latin1", 8, 12) === "WEBP") return "webp"
+        continue
+      }
+      return m.tipo
+    }
+  }
+  return null
+}
+
 async function setAvatar(filePath) {
   const { data: ud, error: ue } = await getClient().auth.getUser()
   if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
@@ -281,6 +311,9 @@ async function setAvatar(filePath) {
     return { ok: false, error: "avatar_ilegivel" }
   }
   if (buf.length > AVATAR_MAX) return { ok: false, error: "avatar_grande" }
+  // Só imagem de verdade (magic bytes) — senão o arquivo ia parar num bucket
+  // público (ex.: ~/.ssh/id_rsa renomeado pra .png).
+  if (!magicDeImagem(buf)) return { ok: false, error: "avatar_nao_imagem" }
 
   const ext = (path.extname(caminhoDeArquivo(filePath)) || "").toLowerCase()
   const extOk = AVATAR_EXT[ext]
@@ -296,6 +329,10 @@ async function setAvatarBytes(buf, mime, ext) {
   const { data: ud, error: ue } = await getClient().auth.getUser()
   if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
   if (!buf || !buf.length) return { ok: false, error: "avatar_ilegivel" }
+  if (buf.length > AVATAR_MAX) return { ok: false, error: "avatar_grande" }
+  // Magic bytes: o renderer pode mandar QUALQUER byte (mime/ext não provam
+  // nada) — sem imagem de verdade, nada sobe pro bucket público.
+  if (!magicDeImagem(Buffer.from(buf))) return { ok: false, error: "avatar_nao_imagem" }
   return uploadAvatarBytes(ud.user.id, Buffer.from(buf), mime || "image/png", ext || ".png")
 }
 
@@ -311,10 +348,13 @@ async function uploadAvatarBytes(me, buf, mime, extFinal) {
     .maybeSingle()
   const urlAntiga = atual?.avatar_url || ""
   const nomeAntigo = urlAntiga.startsWith(`${getClient().supabaseUrl}/storage/v1/object/public/avatars/`)
-    ? urlAntiga.split("/").pop()
+    ? urlAntiga.split("/public/avatars/")[1]
     : null
 
-  const nome = `${me}-${Date.now()}${extFinal}`
+  // Path <uid>/<arquivo>: a política do storage exige o uid no PREFIXO do
+  // caminho (storage.foldername(name)[1] = auth.uid()) — nome plano antigo
+  // (uid-ts.gif) quebraria o upload depois da migração v6.
+  const nome = `${me}/${Date.now()}${extFinal}`
   const { error: upErr } = await getClient()
     .storage.from("avatars")
     .upload(nome, buf, { upsert: false, contentType: mime })

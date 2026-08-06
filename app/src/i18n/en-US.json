@@ -949,5 +949,8 @@
   "avatar.crop_aplicar": "Apply",
   "avatar.crop_cancelar": "Cancel",
   "avatar.crop_processando": "Processing…",
-  "account.username_ajustado": "Username adjusted: {pedido} was already taken. Your account was created as {real}."
+  "account.username_ajustado": "Username adjusted: {pedido} was already taken. Your account was created as {real}.",
+  "account.erro_senha_errada": "Incorrect password.",
+  "account.erro_muitas_tentativas": "Too many attempts. Wait 10 minutes and try again.",
+  "account.erro_sem_senha": "This account has no password set."
 }

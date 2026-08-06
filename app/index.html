@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP (auditoria A-06): script só do próprio bundle — sem inline, sem
+         eval. Imagens/media https amplos (capas Steam, avatares Supabase,
+         thumbnails de notícias). Conexões https+wss (Supabase REST/realtime). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: file: https:; media-src 'self' blob: file: https:; connect-src 'self' https: wss:; frame-src 'self' https://store.steampowered.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <link
       rel="preload"

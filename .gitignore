@@ -72,3 +72,11 @@ achievement_icons/
 session.json
 session.json.bak
 sync_queue.json
+
+# Dados locais por conta + sessão (NUNCA versionar)
+contas/
+sync_state.json
+session.json
+session.json.bak
+profile_cache.json
+logs/
