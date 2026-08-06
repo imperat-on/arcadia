@@ -13,7 +13,7 @@ interface EditProfileProps {
   profile: Profile
   games: Game[]
   onClose: () => void
-  onChange: (p: Profile) => void
+  onChange: (p: Profile | ((atual: Profile) => Profile)) => void
 }
 
 type Section = "geral" | "avatar" | "fundo" | "destaques"
@@ -69,11 +69,14 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const [showcaseSel, setShowcaseSel] = useState<string[]>(() => profile.showcase ?? [])
   const showcaseRef = useRef<string[]>(showcaseSel)
   const showcaseTimer = useRef<number | null>(null)
+  // Último campo digitado com debounce pendente — o fechar flusha (senão
+  // digitar e fechar rápido PERDE o campo silenciosamente).
+  const pendenteField = useRef<{ k: keyof typeof fields; v: string } | null>(null)
   // Guarda a versão MAIS RECENTE do salvar: closures de renders antigos teriam
   // profile/onChange stale — o flush do fechar usa a atual.
   const salvarShowcaseRef = useRef<(lista: string[]) => void>(() => {})
   salvarShowcaseRef.current = (lista) => {
-    onChange({ ...profile, showcase: lista })
+    onChange((atual) => ({ ...atual, showcase: lista }))
     window.launcherAPI?.setConfig({ profile: { showcase: lista } }).catch(() => {})
     if (conta?.status === "logado") {
       conta.updatePerfil({ showcase: lista }).catch(() => {})
@@ -88,6 +91,18 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       window.clearTimeout(showcaseTimer.current)
       showcaseTimer.current = null
       salvarShowcaseRef.current(showcaseRef.current)
+    }
+    // Flush do campo digitado com debounce pendente (mesmo bug do showcase:
+    // o timeout de 450ms pode não ter disparado antes do fechar).
+    if (timer.current) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+      const pend = pendenteField.current
+      if (pend) {
+        pendenteField.current = null
+        const { k, v } = pend
+        patch({ [k]: k === "name" ? v.trim() || t("profile.padrao_jogador") : v })
+      }
     }
     onClose()
   }
@@ -133,7 +148,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   if (!open) return null
 
   const patch = async (p: Partial<Profile>) => {
-    onChange({ ...profile, ...p })
+    // Forma FUNCIONAL: mergeia sobre o estado MAIS RECENTE do parent — com
+    // `{...profile, ...p}` (closure) um patch atrasado REVERTIA campos já
+    // salvos por outro patch (ex.: digitar nome e mexer na vitrine em rajada).
+    onChange((atual) => ({ ...atual, ...p }))
     await window.launcherAPI?.setConfig({ profile: p })
     // Logado: sincroniza os campos aprovados pro servidor (perfil único).
     if (conta?.status === "logado") {
@@ -149,11 +167,14 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
   const setField = (k: keyof typeof fields, v: string) => {
     setFields((f) => ({ ...f, [k]: v }))
+    // Guarda o pendente: fechar o modal com o debounce ainda correndo (450ms)
+    // perdia o campo silenciosamente — o fechar faz o flush deste ref.
+    pendenteField.current = { k, v }
     if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(
-      () => patch({ [k]: k === "name" ? v.trim() || t("profile.padrao_jogador") : v }),
-      450,
-    )
+    timer.current = window.setTimeout(() => {
+      pendenteField.current = null
+      patch({ [k]: k === "name" ? v.trim() || t("profile.padrao_jogador") : v })
+    }, 450)
   }
 
   // Upload do avatar pra conta (comum aos fluxos direto e recortado)
@@ -164,7 +185,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         ? await conta.setAvatar(pathOuBytes)
         : await conta.setAvatarBytes(pathOuBytes, mime || "image/png", ext || ".png")
     if (up.ok && up.avatar_url) {
-      onChange({ ...profile, avatar: up.avatar_url })
+      onChange((atual) => ({ ...atual, avatar: up.avatar_url }))
       await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
       return true
     }
@@ -205,7 +226,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       }
       // O main já salvou o caminho limpo no config; aqui só atualizamos a
       // visualização (com ?t= para refletir na hora).
-      onChange({ ...profile, [key]: r.path })
+      onChange((atual) => ({ ...atual, [key]: r.path }))
     }
   }
 
