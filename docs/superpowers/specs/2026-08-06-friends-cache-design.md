@@ -24,10 +24,10 @@ paralelizar as 2 queries. Mesmo padrão do `library:get` (cache + não-bloqueant
   - Cache em `contas/<user>/friends_cache.json` = `{ ts, data }` — escrita atômica
     (tmp + rename) + `chmod 600`, no escopo da conta (caminho via `caminhoConta`,
     padrão do sync_state).
-  - TTL de 60s. Se cache válido e `!forcar`: retorna `{ ok, data: cache }` IMEDIATO
-    e dispara `buscarFresco()` em background; ao terminar, avisa via callback
+  - TTL de 60s. Se cache válido e `!forcar`: retorna `{ ok, data: cache, deCache: true }`
+    IMEDIATO e dispara `buscarFresco()` em background; ao terminar, avisa via callback
     `onAtualizado(data)` (registrado pelo ipc.js → broadcast `friends:changed`).
-  - Sem cache (ou `forcar`): `buscarFresco()` síncrono e retorna.
+  - Sem cache (ou `forcar`): `buscarFresco()` síncrono, retorna `{ ok, data, deCache: false }`.
 - **`buscarFresco(me, cacheFile)`**: `Promise.all` das 2 queries
   (friendships + profiles `.in()`), monta `{ friends, incoming, outgoing }`,
   grava o cache e retorna. (~1.4s → ~0.6s)
