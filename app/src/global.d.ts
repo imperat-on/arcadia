@@ -699,6 +699,7 @@ declare global {
       onAppFocus: (cb: (focused: boolean) => void) => () => void
       /** Transições de jogo rodando (true = abriu, false = fechou). */
       onGameRunning: (cb: (running: boolean) => void) => () => void
+      onGameActive: (cb: (info: { rodando: boolean; gameId: string }) => void) => () => void
       /** Biblioteca mudou no disco (download concluído, desinstalação). */
       onLibraryChanged: (cb: () => void) => () => void
       /** Falha no lançamento do jogo (main process → renderer). */
