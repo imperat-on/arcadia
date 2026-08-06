@@ -31,6 +31,7 @@ const ARQS_CONTA = [
   "game_settings.json",
   "profile_cache.json",
   "sync_queue.json",
+  "friends_cache.json",
 ]
 
 // Marcador: quando existe, a raiz já foi herdada por alguma conta — as

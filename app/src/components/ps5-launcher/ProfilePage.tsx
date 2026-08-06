@@ -6,6 +6,7 @@ import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
 import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
+import { useFriends } from "../account/FriendsContext"
 
 interface ProfilePageProps {
   open: boolean
@@ -33,17 +34,17 @@ export function ProfilePage({
   const { t } = useI18n()
   const conta = useAccountOptional()
   const ehDono = conta?.perfil?.username === OWNER_USERNAME
+  // Amigos vêm do FriendsContext (cache + atualização automática) — a 1ª
+  // pintura do perfil é instantânea, sem fetch próprio aqui.
+  const { data: amigosData } = useFriends()
+  const friends = amigosData?.friends ?? []
 
   // Estatísticas reais (jogos/playtime).
   const [stats, setStats] = useState<ProfileStats | null>(null)
-  const [friends, setFriends] = useState<FriendProfile[]>([])
   
   useEffect(() => {
     if (!open) return
     window.launcherAPI?.profileStats().then(setStats)
-    window.launcherAPI?.friendsList().then((r) => {
-      if (r.ok && r.data) setFriends(r.data.friends)
-    })
     if (embedded) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)

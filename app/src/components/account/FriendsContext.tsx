@@ -25,8 +25,8 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
   const { status } = useAccount()
   const [data, setData] = useState<FriendsListData | null>(null)
 
-  const refresh = useCallback(async () => {
-    const r = await window.launcherAPI?.friendsList()
+  const refresh = useCallback(async (forcar?: boolean) => {
+    const r = await window.launcherAPI?.friendsList(forcar ? { forcar: true } : undefined)
     if (r?.ok && r.data) setData(r.data)
   }, [])
 
@@ -35,12 +35,21 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     else setData(null)
   }, [status, refresh])
 
-  // Realtime: pedido novo → atualiza a lista.
+  // Realtime: pedido novo → lista fresca na hora (sem cache — o badge não atrasa).
   useEffect(() => {
     if (status !== "logado") return
-    const off = window.launcherAPI?.onFriendRequest(() => refresh())
+    const off = window.launcherAPI?.onFriendRequest(() => refresh(true))
     return () => off?.()
   }, [status, refresh])
+
+  // Background do cache (friends.js): pinta o fresco quando a busca termina.
+  useEffect(() => {
+    if (status !== "logado") return
+    const off = window.launcherAPI?.onFriendsChanged((dados) => {
+      if (dados) setData(dados)
+    })
+    return () => off?.()
+  }, [status])
 
   const pedidos = data?.incoming?.length ?? 0
 

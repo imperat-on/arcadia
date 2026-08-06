@@ -221,13 +221,18 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   friendsSend: (userId) => ipcRenderer.invoke("friends:send", userId),
   friendsAccept: (userId) => ipcRenderer.invoke("friends:accept", userId),
   friendsCancel: (userId) => ipcRenderer.invoke("friends:cancel", userId),
-  friendsList: () => ipcRenderer.invoke("friends:list"),
+  friendsList: (opts) => ipcRenderer.invoke("friends:list", opts),
   friendsAchievements: (userId) => ipcRenderer.invoke("friends:achievements", userId),
   friendsRemove: (userId) => ipcRenderer.invoke("friends:remove", userId),
   onFriendRequest: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("friends:request", h)
     return () => ipcRenderer.removeListener("friends:request", h)
+  },
+  onFriendsChanged: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("friends:changed", h)
+    return () => ipcRenderer.removeListener("friends:changed", h)
   },
   // Sync de conquistas (Supabase)
   syncNow: () => ipcRenderer.invoke("sync:now"),

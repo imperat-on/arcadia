@@ -2,7 +2,58 @@
 // Modelo: uma linha canônica por par (user_a < user_b) + requester_id + status.
 "use strict"
 
+const fs = require("node:fs")
+const path = require("node:path")
 const { getClient } = require("./client")
+const { caminhoConta } = require("./conta")
+
+const DATA_DIR =
+  process.env.ARCADIA_DATA_DIR ||
+  path.join(process.env.HOME || process.env.USERPROFILE || ".", ".local", "share", "arcadia")
+
+// Cache local da lista (por conta): a 1ª pintura da aba amigos/perfil sai do
+// disco (instantâneo) e o refresh em background atualiza via friends:changed.
+// TTL curto — o cache é só para a primeira pintura, nunca fonte de verdade.
+const CACHE_TTL_MS = 60_000
+
+/** Callback de atualização em background (registrado pelo ipc.js). */
+let onAtualizadoCb = null
+function onAtualizado(cb) {
+  onAtualizadoCb = cb
+}
+
+function cacheFile() {
+  return caminhoConta(path.join(DATA_DIR, "friends_cache.json"))
+}
+
+function gravarCache(data) {
+  try {
+    const file = cacheFile()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+    fs.writeFileSync(tmp, JSON.stringify({ ts: Date.now(), data }), { encoding: "utf8", mode: 0o600 })
+    fs.renameSync(tmp, file)
+    try {
+      fs.chmodSync(file, 0o600)
+    } catch {}
+  } catch {
+    /* cache é otimização, nunca requisito */
+  }
+}
+
+function lerCache() {
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheFile(), "utf8"))
+    if (c && typeof c.ts === "number" && c.data && Date.now() - c.ts < CACHE_TTL_MS) return c.data
+  } catch {}
+  return null
+}
+
+function invalidarCache() {
+  try {
+    fs.rmSync(cacheFile(), { force: true })
+  } catch {}
+}
 
 /** Par canônico: ordena os ids para (user_a, user_b) com user_a < user_b. */
 function canonicalPair(a, b) {
@@ -71,6 +122,7 @@ async function send(toUserId) {
     status: "pending",
   })
   if (error) return { ok: false, error: error.message }
+  invalidarCache()
   return { ok: true }
 }
 
@@ -86,6 +138,7 @@ async function accept(friendId) {
     .eq("status", "pending")
     .eq("requester_id", friendId)
   if (error) return { ok: false, error: error.message }
+  invalidarCache()
   return { ok: true }
 }
 
@@ -101,43 +154,45 @@ async function cancel(friendId) {
     .eq("status", "pending")
     .eq("requester_id", me)
   if (error) return { ok: false, error: error.message }
+  invalidarCache()
   return { ok: true }
 }
 
-/** Lista: amigos aceitos, pedidos recebidos e enviados (com username, avatar e created_at). */
-async function list() {
+/**
+ * Busca a lista NO SERVIDOR e grava o cache. UMA query com os perfis embutidos
+ * (embedded resources — o "outro lado" é user_a ou user_b conforme quem sou eu);
+ * ~0.6s no total (era 2 queries sequenciais, ~1.4s).
+ * Separado do list() para poder rodar em background quando há cache.
+ */
+async function buscarFresco() {
   const me = await requireUserId()
   if (!me) return { ok: false, error: "nao_logado" }
 
   const client = getClient()
   const { data: rels, error } = await client
     .from("friendships")
-    .select("user_a, user_b, status, requester_id, created_at")
+    .select(
+      `user_a, user_b, status, requester_id, created_at,
+       pa:profiles!friendships_user_a_fkey(id, username, avatar_url, display_name),
+       pb:profiles!friendships_user_b_fkey(id, username, avatar_url, display_name)`,
+    )
     .or(`user_a.eq.${me},user_b.eq.${me}`)
   if (error) return { ok: false, error: error.message }
 
   const friends = []
   const incoming = []
   const outgoing = []
-  const ids = new Set()
+  const perfil = {}
   for (const r of rels || []) {
     const other = r.user_a === me ? r.user_b : r.user_a
-    ids.add(other)
+    const p = (r.user_a === me ? r.pb?.[0] : r.pa?.[0]) || null
+    perfil[other] = p
+      ? { username: p.username, avatar_url: p.avatar_url ?? null, display_name: p.display_name ?? null }
+      : null
     const info = { id: other, since: r.created_at ?? null }
     if (r.status === "accepted") friends.push(info)
     else if (r.requester_id === me) outgoing.push(info)
     else incoming.push(info)
-  }
-
-  const perfil = {}
-  if (ids.size) {
-    const { data: profs } = await client
-      .from("profiles")
-      .select("id, username, avatar_url, display_name")
-      .in("id", [...ids])
-    for (const p of profs || []) {
-      perfil[p.id] = { username: p.username, avatar_url: p.avatar_url ?? null, display_name: p.display_name ?? null }
-    }
   }
   const mk = (info) => ({
     id: info.id,
@@ -147,14 +202,35 @@ async function list() {
     since: info.since ?? null,
   })
 
-  return {
-    ok: true,
-    data: {
-      friends: friends.map(mk),
-      incoming: incoming.map(mk),
-      outgoing: outgoing.map(mk),
-    },
+  const data = {
+    friends: friends.map(mk),
+    incoming: incoming.map(mk),
+    outgoing: outgoing.map(mk),
   }
+  gravarCache(data)
+  return { ok: true, data }
+}
+
+/**
+ * Lista: amigos aceitos, pedidos recebidos e enviados (com username, avatar e
+ * created_at). Com cache válido (< 60s) e sem forcar: retorna o cache NA HORA
+ * e atualiza em background (avisa via onAtualizado → friends:changed).
+ */
+async function list({ forcar } = {}) {
+  if (!forcar) {
+    const cache = lerCache()
+    if (cache) {
+      // Pintura instantânea; o background substitui pelo fresco em ~0.6s.
+      buscarFresco()
+        .then((r) => {
+          if (r.ok && onAtualizadoCb) onAtualizadoCb(r.data)
+        })
+        .catch(() => {})
+      return { ok: true, data: cache, deCache: true }
+    }
+  }
+  const r = await buscarFresco()
+  return { ok: r.ok, data: r.data, deCache: false, error: r.error }
 }
 
 /** Conquistas recentes do amigo (RPC security definer — só entre amigos). */
@@ -182,6 +258,7 @@ async function removeFriend(friendId) {
     .or(`and(user_a.eq.${me},user_b.eq.${friendId}),and(user_a.eq.${friendId},user_b.eq.${me})`)
     .eq("status", "accepted")
   if (error) return { ok: false, error: error.message }
+  invalidarCache()
   return { ok: true }
 }
 
@@ -244,4 +321,8 @@ module.exports = {
   friendAchievements,
   removeFriend,
   watchRequests,
+  onAtualizado,
+  gravarCache,
+  lerCache,
+  invalidarCache,
 }
