@@ -1064,6 +1064,7 @@ export function PS5Launcher() {
               games={games}
               onClose={() => setActiveTab(1)}
               onEdit={() => setShowEditProfile(true)}
+              onJogoClick={_activate}
             />
           </div>
         ) : (
