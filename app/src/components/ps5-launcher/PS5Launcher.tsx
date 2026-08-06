@@ -569,7 +569,7 @@ export function PS5Launcher() {
           baixarSteamRef.current(game)
         } else {
           // heroic/lutris: cai no launch_cmd (o próprio runner trata).
-          window.launcherAPI?.launch(game.launch_cmd)
+          window.launcherAPI?.launch(game.launch_cmd, game.id)
         }
         return
       }

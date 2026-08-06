@@ -475,6 +475,23 @@ function readConfig() {
   }
 }
 
+// Chaves de API que NUNCA saem completas pro renderer (auditoria A-06): o form
+// de configurações mostra a máscara; o config:set reconhece a máscara e
+// preserva o valor real no disco.
+const SEGREDOS = ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]
+
+function redigirSegredos(cfg) {
+  if (!cfg || typeof cfg !== "object") return cfg
+  const out = { ...cfg }
+  for (const k of SEGREDOS) {
+    const v = out[k]
+    if (typeof v === "string" && v) {
+      out[k] = v.length > 8 ? v.slice(0, 3) + "•••" + v.slice(-2) : "•••"
+    }
+  }
+  return out
+}
+
 // Busca/cache de sysinfo (tamanhos Epic via legendary + requisitos Steam).
 // Usada pelo IPC game:sysinfo e pelo prefetch em background.
 async function buildSysinfo(g) {
@@ -1520,8 +1537,11 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      // App local/pessoal: permite <img src="file://..."> das capas da Steam.
-      webSecurity: false,
+      // webSecurity ON (auditoria A-06): sem ele, um XSS no renderer vira
+      // exfiltração livre e fetch cross-origin sem CORS. Capas locais
+      // file:// continuam carregando (mesmo scheme), capas/avatares remotos
+      // são https e passam pela CSP do index.html.
+      webSecurity: true,
       // Deixa o trailer tocar sozinho COM som ao focar o jogo (estilo PS5).
       autoplayPolicy: "no-user-gesture-required",
       // A página da loja Steam é embutida num <webview> (StoreGamePage).
@@ -1756,6 +1776,19 @@ app.whenReady().then(() => {
     // da loja; "exe" força o executável do prefixo wine. Sem modo: decide sozinho
     // (exePath vence quando existe).
     const mode = Array.isArray(payload) ? undefined : payload?.mode
+    // SEGURANÇA (auditoria A-04): o cmd vindo do renderer NUNCA é executado
+    // como veio — um XSS executaria binário arbitrário. O comando é resolvido
+    // AQUI no main a partir dos dados locais (library.json/loja). Única exceção
+    // pro legado: o atalho steam://install|run/<appid> (padrão fixo).
+    if (typeof gameId === "string" && gameId) {
+      const g = readLibrary().find((x) => x.id === gameId)
+      if (g && Array.isArray(g.launch_cmd) && g.launch_cmd.length) rawCmd = g.launch_cmd
+    } else if (Array.isArray(rawCmd)) {
+      const legado = rawCmd.map((c) => String(c))
+      if (!(legado.length === 2 && legado[0] === "steam" && /^steam:\/\/(install|run)\/[0-9]+$/.test(legado[1]))) {
+        return { ok: false, error: "Comando de lançamento rejeitado (padrão não permitido)." }
+      }
+    }
     // Jogo adicionado manualmente: monta o comando na hora (wine + exe).
     let envExtra = {}
     if (typeof gameId === "string" && gameId.startsWith("custom:")) {
@@ -2209,7 +2242,7 @@ app.whenReady().then(() => {
     return readLibrary()
   })
 
-  ipcMain.handle("config:get", () => readConfig())
+  ipcMain.handle("config:get", () => redigirSegredos(readConfig()))
 
   // ── Atualização do Arcadia ───────────────────────────────────────────────
   ipcMain.handle("update:state", () => updater.estado())
@@ -2255,6 +2288,15 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle("config:set", (_e, cfg) => {
+    // SEGURANÇA (auditoria A-06): o renderer recebe as chaves MASCARADAS no
+    // config:get; se ele devolver a máscara de volta (form inalterado), mantém
+    // o valor real no disco.
+    const atual = readConfig()
+    for (const k of ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]) {
+      if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
+        cfg[k] = atual[k] // preserva a chave real
+      }
+    }
     // Pasta de prefixos mudou? Cria de verdade (ela não existia antes).
     if (cfg?.default_wine_prefix_path) {
       try {

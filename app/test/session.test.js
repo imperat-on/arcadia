@@ -62,14 +62,15 @@ test("clearSession remove o arquivo", (t) => {
   assert.equal(store.loadSession(), null)
 })
 
-test("arquivo corrompido vira .bak e load devolve null", (t) => {
+test("arquivo corrompido é APAGADO (sem .bak com tokens) e load devolve null", (t) => {
   const dir = tempDataDir(t)
   process.env.ARCADIA_DATA_DIR = dir
   const store = require("../electron/supabase/session.js")
 
   fs.writeFileSync(store.sessionPath(), "{corrompido!!!", "utf8")
   assert.equal(store.loadSession(), null)
-  assert.ok(fs.existsSync(store.sessionPath() + ".bak"), "corrompido deveria virar .bak")
+  assert.equal(fs.existsSync(store.sessionPath()), false, "corrompido deveria ser apagado (auditoria A-13)")
+  assert.equal(fs.existsSync(store.sessionPath() + ".bak"), false, "não pode sobrar .bak com tokens")
 })
 
 test("saveSession(null) não cria arquivo", (t) => {

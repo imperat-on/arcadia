@@ -93,11 +93,12 @@ function loadSession() {
     }
     return JSON.parse(unb64(box.data))
   } catch (err) {
-    // arquivo corrompido ou chave mudou (keyring): renomeia pra .bak,
-    // loga o erro, e devolve null (usuário faz login de novo)
+    // arquivo corrompido ou chave mudou (keyring): apaga (auditoria A-13 —
+    // o .bak antigo ficava pra sempre no disco com tokens de sessão), loga o
+    // erro, e devolve null (usuário faz login de novo)
     console.error("[session] Falha ao decriptar sessão — keyring do SO mudou?", err?.message || err)
     try {
-      fs.renameSync(sessionPath(), `${sessionPath()}.bak`)
+      fs.unlinkSync(sessionPath())
     } catch {
       /* ignore */
     }
