@@ -16,9 +16,7 @@ interface EditProfileProps {
   onChange: (p: Profile | ((atual: Profile) => Profile)) => void
 }
 
-type Section = "geral" | "avatar" | "fundo" | "destaques"
-
-export const MAX_SHOWCASE = 8
+type Section = "geral" | "avatar" | "fundo"
 
 const INPUT_CLS = "w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none"
 const INPUT_STYLE = {
@@ -60,40 +58,14 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open, onClose)
 
-  // ── Vitrine (destaques) ── hooks SEMPRE antes do early return ─────────
-  // Fonte da verdade LOCAL durante a edição: a prop profile só reflete o
-  // round-trip assíncrono do patch e pode estar stale (perfil online buscado
-  // no login). Ler dela em cliques rápidos fazia a contagem bugar, perder
-  // seleção e até zerar a vitrine. Persistência é DEBOUNCED: N cliques
-  // rápidos = UMA chamada com a lista final.
-  const [showcaseSel, setShowcaseSel] = useState<string[]>(() => profile.showcase ?? [])
-  const showcaseRef = useRef<string[]>(showcaseSel)
-  const showcaseTimer = useRef<number | null>(null)
   // Último campo digitado com debounce pendente — o fechar flusha (senão
   // digitar e fechar rápido PERDE o campo silenciosamente).
   const pendenteField = useRef<{ k: keyof typeof fields; v: string } | null>(null)
-  // Guarda a versão MAIS RECENTE do salvar: closures de renders antigos teriam
-  // profile/onChange stale — o flush do fechar usa a atual.
-  const salvarShowcaseRef = useRef<(lista: string[]) => void>(() => {})
-  salvarShowcaseRef.current = (lista) => {
-    onChange((atual) => ({ ...atual, showcase: lista }))
-    window.launcherAPI?.setConfig({ profile: { showcase: lista } }).catch(() => {})
-    if (conta?.status === "logado") {
-      conta.updatePerfil({ showcase: lista }).catch(() => {})
-    }
-  }
 
-  // Fecha salvando o que estiver pendente (o debounce de 400ms pode não ter
-  // disparado ainda — sem isso o ÚLTIMO clique se perdia).
+  // Fecha salvando o campo digitado com debounce pendente (o timeout de
+  // 450ms pode não ter disparado antes do fechar).
   const fecharRef = useRef<() => void>(() => {})
   fecharRef.current = () => {
-    if (showcaseTimer.current) {
-      window.clearTimeout(showcaseTimer.current)
-      showcaseTimer.current = null
-      salvarShowcaseRef.current(showcaseRef.current)
-    }
-    // Flush do campo digitado com debounce pendente (mesmo bug do showcase:
-    // o timeout de 450ms pode não ter disparado antes do fechar).
     if (timer.current) {
       window.clearTimeout(timer.current)
       timer.current = null
@@ -105,26 +77,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       }
     }
     onClose()
-  }
-
-  const toggleShowcase = (id: string) => {
-    const atual = showcaseRef.current
-    let next: string[]
-    if (atual.includes(id)) {
-      next = atual.filter((x) => x !== id)
-    } else if (atual.length >= MAX_SHOWCASE) {
-      return // limite atingido
-    } else {
-      next = [...atual, id]
-    }
-    // UI imediata (ref + state) — nunca fica fora de sincronia
-    showcaseRef.current = next
-    setShowcaseSel(next)
-    if (showcaseTimer.current) window.clearTimeout(showcaseTimer.current)
-    showcaseTimer.current = window.setTimeout(() => {
-      showcaseTimer.current = null
-      salvarShowcaseRef.current(showcaseRef.current)
-    }, 400)
   }
 
   useEffect(() => {
@@ -160,7 +112,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         summary: p.summary,
         country: p.country,
         city: p.city,
-        showcase: p.showcase,
       })
     }
   }
@@ -234,7 +185,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     { id: "geral", label: t("editprofile.nav.geral") },
     { id: "avatar", label: t("editprofile.nav.avatar") },
     { id: "fundo", label: t("editprofile.nav.fundo") },
-    { id: "destaques", label: t("editprofile.nav.destaques") },
   ]
 
   // Ícones por seção da sidebar (estilo consistente com o tema azul/roxo)
@@ -256,11 +206,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         <rect x="3" y="3" width="18" height="18" rx="3" />
         <circle cx="9" cy="9" r="2" />
         <path d="m21 15-4.5-4.5L7 20" />
-      </svg>
-    ),
-    destaques: (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
-        <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
       </svg>
     ),
   }
@@ -548,62 +493,6 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
           </div>
         )}
 
-        {section === "destaques" && (
-          <div className="max-w-5xl">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-white mb-1">
-                {t("editprofile.nav.destaques")}
-              </h2>
-              <p className="text-sm text-[#8a93a6]">
-                {t("editprofile.destaques_desc", { max: String(MAX_SHOWCASE) })}{" "}
-                <span className="text-white font-medium">
-                  {t("editprofile.destaques_selecionados", {
-                    selected: String(showcaseSel.length),
-                    max: String(MAX_SHOWCASE),
-                  })}
-                </span>
-                . {t("editprofile.destaques_click_hint")}
-              </p>
-            </div>
-            <div className="grid grid-cols-6 gap-3">
-              {games
-                .filter((g) => g.cover)
-                .map((g) => {
-                  const idx = showcaseSel.indexOf(g.id)
-                  const selected = idx !== -1
-                  const full = !selected && showcaseSel.length >= MAX_SHOWCASE
-                  return (
-                    <button
-                      key={g.id}
-                      onClick={() => toggleShowcase(g.id)}
-                      title={g.title}
-                      className="relative rounded-lg overflow-hidden transition-transform"
-                      style={{
-                        aspectRatio: "2/3",
-                        outline: selected ? "3px solid #00a8ff" : "none",
-                        outlineOffset: "-3px",
-                        opacity: full ? 0.4 : 1,
-                        transform: selected ? "scale(0.97)" : "scale(1)",
-                      }}
-                    >
-                      <img src={g.cover} alt={g.title} className="w-full h-full object-cover" />
-                      {selected && (
-                        <span
-                          className="absolute top-1.5 left-1.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                          style={{
-                            background: "#00a8ff",
-                            boxShadow: "0 0 8px rgba(0,168,255,0.6)",
-                          }}
-                        >
-                          {idx + 1}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Recorte interativo de avatar (imagem estática grande) */}

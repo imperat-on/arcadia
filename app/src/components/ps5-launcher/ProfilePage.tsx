@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
-import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
-import { MAX_SHOWCASE } from "./EditProfile"
 
 interface ProfilePageProps {
   open: boolean
@@ -52,22 +50,11 @@ export function ProfilePage({
   const isOwner = profile.owner !== false
   const name = profile.name || t("profile.jogador")
   
-  // Vitrine: resolve ids contra a biblioteca, descarta órfãos.
-  const showcaseGames = (profile.showcase || [])
-    .map((id) => games.find((g) => g.id === id))
-    .filter((g): g is Game => g !== undefined)
-  
-  // Atividade recente estilo Steam: só jogos já abertos, mais recentes primeiro.
-  const jogados = games
-    .filter((g) => g.last_played)
-    .sort((a, b) => (b.last_played || 0) - (a.last_played || 0))
-    .slice(0, 10)
-  const duasSemanas = Date.now() - 14 * 24 * 60 * 60 * 1000
-  const horasRecentes = Math.round(
-    jogados
-      .filter((g) => (g.last_played || 0) >= duasSemanas)
-      .reduce((s, g) => s + (g.playtime_minutes || 0), 0) / 60,
-  )
+  // Todos os jogos da biblioteca (com capa), mais jogados primeiro — o perfil
+  // mostra a biblioteca INTEIRA com as horas em cima de cada capa.
+  const todosJogos = games
+    .filter((g) => g.cover)
+    .sort((a, b) => (b.playtime_minutes || 0) - (a.playtime_minutes || 0))
   const launchers = Array.from(new Set(games.map((g) => g.launcher)))
 
   return (
@@ -177,83 +164,26 @@ export function ProfilePage({
 
         <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-6 px-8 py-7">
           <main className="min-w-0">
-            {/* Vitrine de jogos */}
+            {/* Biblioteca inteira com horas em cima de cada capa */}
             <section className="mb-8">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-2xl font-bold text-white">{t("profile.vitrine_jogos")}</h2>
+                <h2 className="text-2xl font-bold text-white">{t("profile.todos_jogos")}</h2>
                 <span className="text-sm text-white/55">
-                  {t("profile.vitrine_contagem", {
-                    count: String(showcaseGames.length),
-                    max: String(MAX_SHOWCASE),
-                  })}
+                  {t("profile.todos_jogos_contagem", { count: String(todosJogos.length) })}
                 </span>
               </div>
-              {showcaseGames.length === 0 ? (
+              {todosJogos.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] py-12 px-8 text-center">
-                  <p className="mb-4 text-sm text-[#8a93a6]">
-                    {t("profile.vitrine_vazia", { max: String(MAX_SHOWCASE) })}
-                  </p>
-                  <button
-                    onClick={onEdit}
-                    className="rounded-lg border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
-                  >
-                    {t("profile.vitrine_escolher")}
-                  </button>
+                  <p className="text-sm text-[#8a93a6]">{t("profile.nenhum_jogado")}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-3">
-                  {showcaseGames.map((game) => (
-                    <ShowcaseTile key={game.id} game={game} />
+                  {todosJogos.map((game) => (
+                    <JogoTile key={game.id} game={game} />
                   ))}
                 </div>
               )}
             </section>
-
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <h2 className="text-2xl font-bold text-white">{t("profile.atividade_recente")}</h2>
-              {horasRecentes > 0 && (
-                <span className="text-sm text-white/55">
-                  {t("profile.horas_2semanas", { h: String(horasRecentes) })}
-                </span>
-              )}
-            </div>
-            {jogados.length === 0 ? (
-              <p className="text-sm text-[#8a93a6]">{t("profile.nenhum_jogado")}</p>
-            ) : (
-              <div className="space-y-3">
-                {jogados.map((g) => {
-                  const horas = Math.round((g.playtime_minutes || 0) / 60)
-                  const capsula = g.hero || g.cover
-                  const data = g.last_played
-                    ? new Date(g.last_played).toLocaleDateString(userLocale(), {
-                        day: "2-digit",
-                        month: "2-digit",
-                      })
-                    : ""
-                  return (
-                    <div
-                      key={g.id}
-                      className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] shadow-lg shadow-black/25"
-                    >
-                      <div className="flex items-center gap-4 p-3">
-                        <GameCapsule src={capsula} title={g.title} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold text-white">{g.title}</div>
-                        </div>
-                        <div className="flex-none text-right">
-                          <div className="text-xs text-white/70">
-                            {t("profile.horas_registradas", { h: String(horas) })}
-                          </div>
-                          <div className="mt-1 text-[11px] text-white/40">
-                            {t("profile.ultima_vez", { data })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
           </main>
 
           <aside className="space-y-4">
@@ -335,21 +265,30 @@ function StatRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ShowcaseTile({ game }: { game: Game }) {
+// Formata minutos em "3h" (>= 1h) ou "45min".
+function formatarHoras(min?: number): string {
+  const m = Math.max(0, Math.round(min || 0))
+  return m >= 60 ? `${Math.round(m / 60)}h` : `${m}min`
+}
+
+function JogoTile({ game }: { game: Game }) {
   const [broken, setBroken] = useState(false)
+  const horas = formatarHoras(game.playtime_minutes)
   if (!game.cover || broken) {
     return (
       <div
-        className="flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
+        className="relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
         style={{ aspectRatio: "2/3" }}
+        title={game.title}
       >
         {game.title[0]?.toUpperCase()}
+        <HorasBadge horas={horas} />
       </div>
     )
   }
   return (
     <div
-      className="overflow-hidden rounded-lg ring-1 ring-white/10 transition-transform hover:scale-105"
+      className="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition-transform hover:scale-[1.03]"
       style={{ aspectRatio: "2/3" }}
       title={game.title}
     >
@@ -361,7 +300,25 @@ function ShowcaseTile({ game }: { game: Game }) {
         decoding="async"
         onError={() => setBroken(true)}
       />
+      {/* Horas em cima da capa */}
+      <HorasBadge horas={horas} />
+      {/* Nome aparece no hover */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="block truncate text-[11px] font-semibold text-white">{game.title}</span>
+      </div>
     </div>
+  )
+}
+
+function HorasBadge({ horas }: { horas: string }) {
+  return (
+    <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md bg-black/65 px-2 py-1 text-[11px] font-bold text-white backdrop-blur-sm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3 w-3">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+      {horas}
+    </span>
   )
 }
 
