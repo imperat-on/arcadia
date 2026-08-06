@@ -949,5 +949,8 @@
   "avatar.crop_aplicar": "Aplicar",
   "avatar.crop_cancelar": "Cancelar",
   "avatar.crop_processando": "Processando…",
-  "account.username_ajustado": "Nome de usuário ajustado: {pedido} já estava em uso. Sua conta foi criada como {real}."
+  "account.username_ajustado": "Nome de usuário ajustado: {pedido} já estava em uso. Sua conta foi criada como {real}.",
+  "account.erro_senha_errada": "Senha incorreta.",
+  "account.erro_muitas_tentativas": "Muitas tentativas. Espere 10 minutos e tente de novo.",
+  "account.erro_sem_senha": "Essa conta não tem senha definida."
 }

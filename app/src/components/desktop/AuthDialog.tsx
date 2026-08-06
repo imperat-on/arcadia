@@ -91,6 +91,12 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
         return t("account.erro_senha_curta")
       case "usuario_nao_existe":
         return t("account.erro_usuario_nao_existe")
+      case "senha_errada":
+        return t("account.erro_senha_errada")
+      case "muitas_tentativas":
+        return t("account.erro_muitas_tentativas")
+      case "sem_senha":
+        return t("account.erro_sem_senha")
       case "credenciais_invalidas":
         return t("account.erro_credenciais")
       case "confirmacao_necessaria":

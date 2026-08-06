@@ -274,13 +274,27 @@ export function stripHtml(s: string) {
 }
 
 // Sanitiza o HTML da descrição da Steam mantendo o mix imagem+texto.
-// Remove script/style/iframe e atributos on*/href javascript: (sem dep nova).
+// Auditoria A-06: regex sozinho é bypassável, então a defesa REAL é a CSP
+// (script-src 'self' no index.html — nenhum handler inline executa); este
+// sanitizador é a segunda camada: remove tags perigosas e atributos de evento.
 function sanitizeHtml(raw: string) {
   let s = String(raw || "")
-  s = s.replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
-  s = s.replace(/<\/?(script|style|iframe|object|embed)[^>]*>/gi, "")
-  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "") // handlers
-  s = s.replace(/(href|src)\s*=\s*("javascript:[^"]*"|'javascript:[^']*')/gi, "")
+  // Tags de execução/embute (fechadas ou não)
+  s = s.replace(/<(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|video|audio|source|track|frame|frameset)[\s\S]*?<\/\1>/gi, "")
+  s = s.replace(/<\/?(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|video|audio|source|track|frame|frameset)[^>]*>/gi, "")
+  // Atributos de evento on* (qualquer variação de espaço/caixa)
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+  // javascript:/vbscript:/data: (exceto data:image) em href/src/srcdoc
+  s = s.replace(/(href|src|srcdoc|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, (m, attr, val) => {
+    const v = val.slice(1, -1).trim().toLowerCase()
+    if (/^\s*(javascript|vbscript|data:text\/html|data:text\/xml)/.test(v)) return ""
+    if (attr === "srcdoc") return ""
+    return m
+  })
+  // Atributo style com expressões perigosas (url(javascript:), expression())
+  s = s.replace(/\sstyle\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, val) =>
+    /url\s*\(\s*['"]?(javascript|vbscript)/i.test(val) || /expression\s*\(/i.test(val) ? "" : m,
+  )
   return s
 }
 
