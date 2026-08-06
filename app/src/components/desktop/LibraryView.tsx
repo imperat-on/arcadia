@@ -406,6 +406,7 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
       src={src}
       alt={game.title}
       loading="lazy"
+      decoding="async"
       className={`h-full w-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
       draggable={false}
       onError={() =>

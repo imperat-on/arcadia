@@ -39,6 +39,9 @@ let toastWin = null
 const fila = []
 
 function showAchievementToast(payload) {
+  // Limite de segurança: rajada de conquistas com o toast travado (loadFile
+  // falhou, 'closed' nunca dispara) faria a fila crescer sem limite.
+  if (fila.length >= 30) fila.shift()
   fila.push(payload || {})
   processarFila()
 }
@@ -76,7 +79,13 @@ function processarFila() {
   // Click-through: o toast nunca atrapalha o jogo.
   toastWin.setIgnoreMouseEvents(true)
   toastWin.once("ready-to-show", () => toastWin?.show())
+  // Timeout de segurança: se o loadFile falhar, o 'closed' nunca dispara e a
+  // fila ficaria presa — destrói e segue para o próximo da fila.
+  const seguro = setTimeout(() => {
+    if (toastWin && !toastWin.isDestroyed()) toastWin.destroy()
+  }, 8000)
   toastWin.on("closed", () => {
+    clearTimeout(seguro)
     toastWin = null
     processarFila()
   })
