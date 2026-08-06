@@ -6,6 +6,7 @@ import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
+import { MAX_SHOWCASE } from "./EditProfile"
 
 interface ProfilePageProps {
   open: boolean
@@ -32,9 +33,14 @@ export function ProfilePage({
 
   // Estatísticas reais (jogos/playtime).
   const [stats, setStats] = useState<ProfileStats | null>(null)
+  const [friends, setFriends] = useState<FriendProfile[]>([])
+  
   useEffect(() => {
     if (!open) return
     window.launcherAPI?.profileStats().then(setStats)
+    window.launcherAPI?.friendsList().then((r) => {
+      if (r.ok && r.data) setFriends(r.data.friends)
+    })
     if (embedded) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
@@ -45,6 +51,12 @@ export function ProfilePage({
 
   const isOwner = profile.owner !== false
   const name = profile.name || t("profile.jogador")
+  
+  // Vitrine: resolve ids contra a biblioteca, descarta órfãos.
+  const showcaseGames = (profile.showcase || [])
+    .map((id) => games.find((g) => g.id === id))
+    .filter((g): g is Game => g !== undefined)
+  
   // Atividade recente estilo Steam: só jogos já abertos, mais recentes primeiro.
   const jogados = games
     .filter((g) => g.last_played)
@@ -165,6 +177,38 @@ export function ProfilePage({
 
         <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-6 px-8 py-7">
           <main className="min-w-0">
+            {/* Vitrine de jogos */}
+            <section className="mb-8">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-2xl font-bold text-white">{t("profile.vitrine_jogos")}</h2>
+                <span className="text-sm text-white/55">
+                  {t("profile.vitrine_contagem", {
+                    count: String(showcaseGames.length),
+                    max: String(MAX_SHOWCASE),
+                  })}
+                </span>
+              </div>
+              {showcaseGames.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] py-12 px-8 text-center">
+                  <p className="mb-4 text-sm text-[#8a93a6]">
+                    {t("profile.vitrine_vazia", { max: String(MAX_SHOWCASE) })}
+                  </p>
+                  <button
+                    onClick={onEdit}
+                    className="rounded-lg border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
+                  >
+                    {t("profile.vitrine_escolher")}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-3">
+                  {showcaseGames.map((game) => (
+                    <ShowcaseTile key={game.id} game={game} />
+                  ))}
+                </div>
+              )}
+            </section>
+
             <div className="mb-5 flex items-center justify-between gap-3">
               <h2 className="text-2xl font-bold text-white">{t("profile.atividade_recente")}</h2>
               {horasRecentes > 0 && (
@@ -224,6 +268,23 @@ export function ProfilePage({
                 }
               />
             </ProfileCard>
+
+            <ProfileCard title={t("amigos.titulo")}>
+              <div className="text-sm text-[#c8d0e0] mb-3">
+                {t("profile.amigos_contagem", { count: String(friends.length) })}
+              </div>
+              {friends.length === 0 ? (
+                <p className="text-xs text-[#8a93a6] text-center py-2">
+                  {t("profile.vitrine_vazia", { max: "0" }).split(".")[0]}
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {friends.slice(0, 8).map((friend) => (
+                    <FriendAvatar key={friend.id} friend={friend} />
+                  ))}
+                </div>
+              )}
+            </ProfileCard>
           </aside>
         </div>
       </div>
@@ -270,6 +331,51 @@ function StatRow({ label, value }: { label: string; value: string }) {
     >
       <span className="text-sm text-[#c8d0e0]">{label}</span>
       <span className="text-sm font-bold text-white">{value}</span>
+    </div>
+  )
+}
+
+function ShowcaseTile({ game }: { game: Game }) {
+  const [broken, setBroken] = useState(false)
+  if (!game.cover || broken) {
+    return (
+      <div
+        className="flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
+        style={{ aspectRatio: "2/3" }}
+      >
+        {game.title[0]?.toUpperCase()}
+      </div>
+    )
+  }
+  return (
+    <div
+      className="overflow-hidden rounded-lg ring-1 ring-white/10 transition-transform hover:scale-105"
+      style={{ aspectRatio: "2/3" }}
+      title={game.title}
+    >
+      <img
+        src={game.cover}
+        alt={game.title}
+        className="h-full w-full object-cover"
+        loading="lazy"
+        onError={() => setBroken(true)}
+      />
+    </div>
+  )
+}
+
+function FriendAvatar({ friend }: { friend: FriendProfile }) {
+  const initial = (friend.display_name || friend.username)?.[0]?.toUpperCase() || "?"
+  return (
+    <div
+      className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#0072ce] to-[#003791] text-xl font-bold text-white ring-1 ring-white/15"
+      title={friend.display_name || friend.username}
+    >
+      {friend.avatar_url ? (
+        <img src={friend.avatar_url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        initial
+      )}
     </div>
   )
 }

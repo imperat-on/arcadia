@@ -80,8 +80,15 @@ const IconeLoja = ({ className = "" }: { className?: string }) => (
   </IconeBase>
 )
 
-export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.biblioteca", "topbar.loja"]
-const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca, IconeLoja]
+const IconePerfil = ({ className = "" }: { className?: string }) => (
+  <IconeBase className={className}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 20a8 8 0 0 1 16 0" />
+  </IconeBase>
+)
+
+export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.biblioteca", "topbar.loja", "profile.meu_perfil"]
+const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca, IconeLoja, IconePerfil]
 
 export function TopBar({
   profile,

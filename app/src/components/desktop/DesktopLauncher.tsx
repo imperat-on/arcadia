@@ -122,7 +122,6 @@ export function DesktopLauncher() {
   const [torrAtivos, setTorrAtivos] = useState(0)
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
-  const [showProfile, setShowProfile] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [profile, setProfile] = useState<Profile>({})
   const [cfg, setCfg] = useState<{
@@ -245,7 +244,6 @@ export function DesktopLauncher() {
       <Sidebar
         view={view}
         onView={(v) => {
-          setShowProfile(false)
           setJogoPagina(null)
           setView(v)
         }}
@@ -255,7 +253,7 @@ export function DesktopLauncher() {
         configSub={configSub}
         onConfigSub={setConfigSub}
         profile={profile}
-        onProfile={() => setShowProfile(true)}
+        onProfile={() => setView("perfil")}
         onLogout={() => {
           setContaAberta(true)
           setAposLogout(true)
@@ -265,7 +263,6 @@ export function DesktopLauncher() {
         librarySidebar={librarySidebar}
         onToggleLibrarySidebar={toggleLibrarySidebar}
         onOpenGame={(g) => {
-          setShowProfile(false)
           setView("biblioteca")
           setJogoPagina(g)
         }}
@@ -274,22 +271,10 @@ export function DesktopLauncher() {
       />
 
       <main
-        key={showProfile ? "profile" : view}
+        key={view}
         className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]"
       >
-        {showProfile ? (
-          <ProfilePage
-            open
-            embedded
-            navActive={!showEditProfile}
-            profile={profile}
-            games={games}
-            onClose={() => setShowProfile(false)}
-            onEdit={() => setShowEditProfile(true)}
-          />
-        ) : (
-          <>
-            {jogoPagina && jogoPagina.launcher === "steam" && (
+        {jogoPagina && jogoPagina.launcher === "steam" && (
               <StoreGamePage
                 embedded
                 jogo={{
@@ -353,11 +338,20 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "downloads" && <DownloadsView />}
             {!jogoPagina && view === "fontes" && <SourcesView />}
             {!jogoPagina && view === "amigos" && <FriendsView />}
+            {!jogoPagina && view === "perfil" && (
+              <ProfilePage
+                open
+                embedded
+                navActive={!showEditProfile}
+                profile={profile}
+                games={games}
+                onClose={() => setView("inicio")}
+                onEdit={() => setShowEditProfile(true)}
+              />
+            )}
             {!jogoPagina && view === "config" && (
               <SettingsView sub={configSub} onSaved={carregar} />
             )}
-          </>
-        )}
       </main>
 
       {jogoConfig && (

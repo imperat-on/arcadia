@@ -18,7 +18,7 @@ interface EditProfileProps {
 
 type Section = "geral" | "avatar" | "fundo" | "destaques"
 
-const MAX_SHOWCASE = 8
+export const MAX_SHOWCASE = 8
 
 const INPUT_CLS = "w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none"
 const INPUT_STYLE = {
