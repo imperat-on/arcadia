@@ -302,9 +302,8 @@ export function DesktopLauncher() {
                 onJogar={
                   jogoPagina.installed !== false
                     ? () => {
-                        const g = jogoPagina
-                        setJogoPagina(null)
-                        pedirJogar(g)
+                        // Fica na página do jogo ao lançar (não volta pra Library).
+                        pedirJogar(jogoPagina)
                       }
                     : undefined
                 }
@@ -318,9 +317,8 @@ export function DesktopLauncher() {
                 game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
                 onJogar={() => {
-                  const g = jogoPagina
-                  setJogoPagina(null)
-                  pedirJogar(g)
+                  // Fica na página do jogo ao lançar (não volta pra Library).
+                  pedirJogar(jogoPagina)
                 }}
                 onInstalar={() => instalar(jogoPagina)}
                 onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
