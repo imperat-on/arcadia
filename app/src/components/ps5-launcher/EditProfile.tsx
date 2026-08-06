@@ -5,7 +5,7 @@ import type { Profile } from "../../global"
 import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
-import { useAccountOptional } from "../account/AccountContext"
+import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { AvatarCrop } from "./AvatarCrop"
 
 interface EditProfileProps {
@@ -43,6 +43,7 @@ const COUNTRIES = [
 export function EditProfile({ open, profile, games, onClose, onChange }: EditProfileProps) {
   const { t } = useI18n()
   const conta = useAccountOptional() // null fora do provider (modo console)
+  const ehDono = conta?.perfil?.username === OWNER_USERNAME
   const [section, setSection] = useState<Section>("geral")
   // Recorte de avatar — hook tem que ficar ANTES do `if (!open) return null`
   // (senão o nº de hooks muda entre renders e o React derruba tudo → tela preta)
@@ -249,12 +250,14 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
               </div>
               <div className="flex flex-col">
                 <div className="text-sm font-semibold text-white">{fields.name || t("profile.jogador")}</div>
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
-                    <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
-                  </svg>
-                  {t("profile.dono")}
-                </span>
+                {ehDono && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
+                      <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
+                    </svg>
+                    {t("profile.dono")}
+                  </span>
+                )}
               </div>
             </div>
           </div>

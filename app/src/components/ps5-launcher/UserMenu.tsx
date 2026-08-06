@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import type { Profile } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 
 interface UserMenuProps {
   open: boolean
@@ -27,6 +28,8 @@ export function UserMenu({
   profile,
 }: UserMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const conta = useAccountOptional()
+  const ehDono = conta?.perfil?.username === OWNER_USERNAME
   const { t } = useI18n()
   useGamepadNav(ref, open, onClose)
 
@@ -102,7 +105,7 @@ export function UserMenu({
             {profile?.name || t("profile.jogador")}
           </div>
           <div className="text-xs text-[#00a8ff]">
-            {profile?.owner !== false ? t("profile.dono") : t("profile.online")}
+            {ehDono ? t("profile.dono") : t("profile.online")}
           </div>
         </div>
       </button>
