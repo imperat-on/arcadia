@@ -504,6 +504,13 @@ function baixarTrailerUrl(id, url) {
 let _cfgCache = { mtimeMs: -1, data: {} }
 function readConfig() {
   try {
+    // AUDITORIA (vazamento): o config.json guarda a hubcap_api_key em claro —
+    // permissão 644 deixaria QUALQUER usuário do sistema lê-la. 600 = só o
+    // dono. Aplicado a cada leitura (idempotente; o writeConfig recria o
+    // arquivo com ummask padrão, então o chmod volta a rodar na próxima leitura).
+    try {
+      fs.chmodSync(CONFIG, 0o600)
+    } catch {}
     const m = fs.statSync(CONFIG).mtimeMs
     if (m !== _cfgCache.mtimeMs) {
       _cfgCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(CONFIG, "utf-8")) }

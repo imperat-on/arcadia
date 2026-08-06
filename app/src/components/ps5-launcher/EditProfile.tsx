@@ -211,7 +211,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   }
 
   return (
-    <div ref={rootRef} className="gp-scope fixed inset-0 z-[60] flex overflow-hidden bg-black">
+    <div ref={rootRef} className="gp-scope fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black">
       {profile.background && (
         <img
           src={profile.background}
@@ -221,226 +221,378 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       )}
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,rgba(75,40,120,0.38),transparent_55%),linear-gradient(135deg,rgba(0,0,0,0.92),rgba(0,0,0,0.72))]" />
 
-      {/* Sidebar */}
-      <aside className="relative m-4 flex w-72 shrink-0 flex-col rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 shadow-2xl shadow-black/50 backdrop-blur-xl">
-        {/* Voltar */}
-        <button
-          onClick={() => fecharRef.current()}
-          className="group mb-5 flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-sm text-[#8a93a6] transition-all hover:border-[#0072ce]/40 hover:text-white"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="transition-transform group-hover:-translate-x-0.5">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          {t("editprofile.voltar_perfil")}
-        </button>
-
-        {/* Título com ícone */}
-        <div className="mb-5 flex items-center gap-3 px-1">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] text-white shadow-[0_0_20px_rgba(0,114,206,0.35)]">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold text-white">{t("profile.editar_perfil")}</h1>
-        </div>
-
-        {/* Card do usuário com anel gradiente */}
-        <div className="relative mx-1 mb-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-black/25 p-4">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#0072ce]/20 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-12 -left-8 h-24 w-24 rounded-full bg-[#7c3aed]/15 blur-2xl" />
-          <div className="relative flex items-center gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-[2px] shadow-[0_4px_16px_rgba(0,114,206,0.35)]">
-              <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[14px] bg-[#12121a] text-xl font-bold text-white">
-                {profile.avatar ? (
-                  <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  (fields.name?.[0] || "J").toUpperCase()
-                )}
-              </div>
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-white">{fields.name || t("profile.jogador")}</div>
-              <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#0072ce]/30 bg-[#0072ce]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
-                <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
-                  <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
-                </svg>
-                {t("profile.dono")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Nav com ícones + barra indicadora */}
-        {NAV.map((n) => {
-          const active = section === n.id
-          const Icone = NAV_ICONES[n.id]
-          return (
+      {/* Header com abas horizontais */}
+      <header className="relative z-10 border-b border-white/[0.08] bg-black/40 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-8 py-6">
+          <div className="mb-6 flex items-center justify-between">
+            {/* Voltar */}
             <button
-              key={n.id}
-              onClick={() => setSection(n.id)}
-              className="group relative flex items-center gap-3 overflow-hidden rounded-2xl px-4 py-3 text-left text-[15px] font-medium transition-all duration-200"
-              style={{
-                color: active ? "#fff" : "#8a93a6",
-                background: active
-                  ? "linear-gradient(135deg, rgba(0,114,206,0.28), rgba(124,58,237,0.16))"
-                  : "transparent",
-                border: active ? "1px solid rgba(0,114,206,0.35)" : "1px solid transparent",
-                boxShadow: active ? "0 4px 20px rgba(0,114,206,0.2)" : "none",
-              }}
+              onClick={() => fecharRef.current()}
+              className="group flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#8a93a6] transition-all hover:border-[#0072ce]/40 hover:text-white"
             >
-              <span
-                className={`absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full transition-all duration-200 ${
-                  active ? "bg-gradient-to-b from-[#0072ce] to-[#7c3aed] opacity-100" : "opacity-0"
-                }`}
-              />
-              <span
-                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                  active ? "bg-[#0072ce]/25 text-[#4db8ff]" : "bg-white/[0.04] text-[#8a93a6] group-hover:text-white"
-                }`}
-              >
-                {Icone}
-              </span>
-              {n.label}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="transition-transform group-hover:-translate-x-0.5">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              {t("editprofile.voltar_perfil")}
             </button>
-          )
-        })}
-      </aside>
 
-      {/* Conteúdo */}
-      <main className="relative flex-1 overflow-y-auto px-10 py-8">
-        {section === "geral" && (
-          <div className="grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,680px)_320px]">
-            <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-7 shadow-2xl shadow-black/30 backdrop-blur-xl">
-              <div className="mb-7">
-                <h2 className="mb-1 text-3xl font-bold text-white">{t("editprofile.nav.geral")}</h2>
-                <p className="text-sm text-[#8a93a6]">{t("editprofile.geral_desc")}</p>
-              </div>
-              <div className="space-y-5">
-                <Field label={t("editprofile.nome_perfil")}>
-                  <input
-                    value={fields.name}
-                    onChange={(e) => setField("name", e.target.value)}
-                    className={INPUT_CLS}
-                    style={INPUT_STYLE}
-                  />
-                </Field>
-                <Field label={t("editprofile.nome_real")}>
-                  <input
-                    value={fields.realName}
-                    onChange={(e) => setField("realName", e.target.value)}
-                    placeholder={t("editprofile.opcional")}
-                    className={INPUT_CLS}
-                    style={INPUT_STYLE}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label={t("editprofile.pais")}>
-                    <select
-                      value={fields.country}
-                      onChange={(e) => setField("country", e.target.value)}
-                      className={INPUT_CLS}
-                      style={INPUT_STYLE}
-                    >
-                      <option value="">{t("editprofile.nao_exibir")}</option>
-                      {COUNTRIES.map((c) => (
-                        <option key={c} value={c} style={{ background: "#0d0d0f" }}>
-                          {t(c)}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label={t("editprofile.cidade")}>
-                    <input
-                      value={fields.city}
-                      onChange={(e) => setField("city", e.target.value)}
-                      placeholder={t("editprofile.opcional")}
-                      className={INPUT_CLS}
-                      style={INPUT_STYLE}
-                    />
-                  </Field>
-                </div>
-                <Field label={t("editprofile.resumo")}>
-                  <textarea
-                    value={fields.summary}
-                    onChange={(e) => setField("summary", e.target.value)}
-                    placeholder={t("editprofile.resumo_placeholder")}
-                    rows={5}
-                    className={INPUT_CLS + " resize-none"}
-                    style={INPUT_STYLE}
-                  />
-                </Field>
-              </div>
-            </div>
-            <div className="sticky top-0 h-fit overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.04] shadow-2xl shadow-black/30 backdrop-blur-xl">
-              <div className="h-28 bg-gradient-to-br from-[#2b165c] via-[#101024] to-black">
-                {profile.background && (
-                  <img
-                    src={profile.background}
-                    alt=""
-                    className="h-full w-full object-cover opacity-80"
-                  />
-                )}
-              </div>
-              <div className="px-6 pb-6">
-                <div className="-mt-10 mb-4 flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-3xl font-bold text-white ring-4 ring-black/70">
+            {/* Card compacto do usuário */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-[2px] shadow-[0_4px_16px_rgba(0,114,206,0.35)]">
+                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[9px] bg-[#12121a] text-base font-bold text-white">
                   {profile.avatar ? (
                     <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
                   ) : (
                     (fields.name?.[0] || "J").toUpperCase()
                   )}
                 </div>
-                <div className="truncate text-xl font-bold text-white">
-                  {fields.name || t("profile.jogador")}
+              </div>
+              <div className="flex flex-col">
+                <div className="text-sm font-semibold text-white">{fields.name || t("profile.jogador")}</div>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
+                    <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
+                  </svg>
+                  {t("profile.dono")}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Abas horizontais */}
+          <nav className="flex gap-2">
+            {NAV.map((n) => {
+              const active = section === n.id
+              const Icone = NAV_ICONES[n.id]
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => setSection(n.id)}
+                  className="group relative flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200"
+                  style={{
+                    color: active ? "#fff" : "#8a93a6",
+                    background: active
+                      ? "linear-gradient(135deg, rgba(0,114,206,0.28), rgba(124,58,237,0.16))"
+                      : "transparent",
+                    border: active ? "1px solid rgba(0,114,206,0.35)" : "1px solid transparent",
+                    boxShadow: active ? "0 4px 20px rgba(0,114,206,0.2)" : "none",
+                  }}
+                >
+                  <span
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+                      active ? "bg-[#0072ce]/25 text-[#4db8ff]" : "bg-white/[0.04] text-[#8a93a6] group-hover:text-white"
+                    }`}
+                  >
+                    {Icone}
+                  </span>
+                  {n.label}
+                  {active && (
+                    <span className="absolute bottom-0 left-1/2 h-0.5 w-12 -translate-x-1/2 translate-y-full rounded-full bg-gradient-to-r from-[#0072ce] to-[#7c3aed]" />
+                  )}
+                </button>
+              )
+            })}
+          </nav>
+        </div>
+      </header>
+
+      {/* Conteúdo */}
+      <main className="relative flex-1 overflow-y-auto px-8 py-10">
+        <div className="mx-auto max-w-7xl">
+          {section === "geral" && (
+            <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+              {/* Formulário */}
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div className="mb-6">
+                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.informacoes_basicas")}</h3>
+                    <p className="text-xs text-[#8a93a6]">{t("editprofile.geral_desc")}</p>
+                  </div>
+                  <div className="space-y-4">
+                    <Field label={t("editprofile.nome_perfil")}>
+                      <input
+                        value={fields.name}
+                        onChange={(e) => setField("name", e.target.value)}
+                        className={INPUT_CLS}
+                        style={INPUT_STYLE}
+                      />
+                    </Field>
+                    <Field label={t("editprofile.nome_real")}>
+                      <input
+                        value={fields.realName}
+                        onChange={(e) => setField("realName", e.target.value)}
+                        placeholder={t("editprofile.opcional")}
+                        className={INPUT_CLS}
+                        style={INPUT_STYLE}
+                      />
+                    </Field>
+                  </div>
                 </div>
-                <div className="mt-1 text-xs text-[#8a93a6]">
-                  {fields.city || fields.country
-                    ? [fields.city, fields.country && t(fields.country)].filter(Boolean).join(" · ")
-                    : t("profile.dono")}
+
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div className="mb-6">
+                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.localizacao")}</h3>
+                    <p className="text-xs text-[#8a93a6]">{t("editprofile.localizacao_desc")}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label={t("editprofile.pais")}>
+                      <select
+                        value={fields.country}
+                        onChange={(e) => setField("country", e.target.value)}
+                        className={INPUT_CLS}
+                        style={INPUT_STYLE}
+                      >
+                        <option value="">{t("editprofile.nao_exibir")}</option>
+                        {COUNTRIES.map((c) => (
+                          <option key={c} value={c} style={{ background: "#0d0d0f" }}>
+                            {t(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label={t("editprofile.cidade")}>
+                      <input
+                        value={fields.city}
+                        onChange={(e) => setField("city", e.target.value)}
+                        placeholder={t("editprofile.opcional")}
+                        className={INPUT_CLS}
+                        style={INPUT_STYLE}
+                      />
+                    </Field>
+                  </div>
                 </div>
-                {fields.summary && (
-                  <p className="mt-4 line-clamp-5 text-sm leading-relaxed text-white/60">
-                    {fields.summary}
-                  </p>
-                )}
+
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div className="mb-6">
+                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.sobre")}</h3>
+                    <p className="text-xs text-[#8a93a6]">{t("editprofile.sobre_desc")}</p>
+                  </div>
+                  <Field label={t("editprofile.resumo")}>
+                    <textarea
+                      value={fields.summary}
+                      onChange={(e) => setField("summary", e.target.value)}
+                      placeholder={t("editprofile.resumo_placeholder")}
+                      rows={6}
+                      className={INPUT_CLS + " resize-none"}
+                      style={INPUT_STYLE}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              {/* Preview do perfil */}
+              <div className="sticky top-6 h-fit">
+                <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#2b165c] via-[#101024] to-black">
+                    {profile.background && (
+                      <img
+                        src={profile.background}
+                        alt=""
+                        className="h-full w-full object-cover opacity-80"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                  </div>
+                  <div className="px-6 pb-6">
+                    <div className="relative z-10 -mt-12 mb-4 flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-3xl font-bold text-white ring-4 ring-black/70 shadow-xl">
+                      {profile.avatar ? (
+                        <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        (fields.name?.[0] || "J").toUpperCase()
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="truncate text-xl font-bold text-white">
+                        {fields.name || t("profile.jogador")}
+                      </div>
+                      {fields.realName && (
+                        <div className="text-sm text-[#8a93a6]">{fields.realName}</div>
+                      )}
+                      <div className="flex items-center gap-1.5 text-xs text-[#8a93a6]">
+                        {(fields.city || fields.country) ? (
+                          <>
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3">
+                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                            </svg>
+                            {[fields.city, fields.country && t(fields.country)].filter(Boolean).join(", ")}
+                          </>
+                        ) : (
+                          t("profile.dono")
+                        )}
+                      </div>
+                    </div>
+                    {fields.summary && (
+                      <div className="mt-5 space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-[#8a93a6]">
+                          {t("editprofile.sobre")}
+                        </div>
+                        <p className="line-clamp-6 text-sm leading-relaxed text-white/70">
+                          {fields.summary}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {section === "avatar" && (
+          <div className="mx-auto max-w-3xl">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-8 shadow-2xl shadow-black/30 backdrop-blur-xl">
+              <div className="mb-8">
+                <h3 className="mb-2 text-2xl font-bold text-white">{t("editprofile.nav.avatar")}</h3>
+                <p className="text-sm text-[#8a93a6]">{t("editprofile.avatar_desc")}</p>
+              </div>
+
+              <div className="flex flex-col items-center gap-8 sm:flex-row sm:items-start">
+                {/* Avatar atual */}
+                <div className="relative">
+                  <div
+                    className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-2xl text-5xl font-bold text-white shadow-2xl"
+                    style={{
+                      background: "linear-gradient(135deg, #0072ce, #003791)",
+                      border: "2px solid rgba(255,255,255,0.15)",
+                    }}
+                  >
+                    {profile.avatar ? (
+                      <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      (profile.name?.[0] || "J").toUpperCase()
+                    )}
+                  </div>
+                  {profile.avatar && (
+                    <div className="absolute -bottom-2 -right-2 rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-2 shadow-lg">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="h-5 w-5">
+                        <path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                {/* Ações */}
+                <div className="flex flex-1 flex-col gap-4">
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+                    <div className="mb-4 flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0072ce]/15">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#4db8ff" strokeWidth="2" className="h-5 w-5">
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M12 16v-4m0-4h.01" />
+                        </svg>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-white">{t("editprofile.avatar_requisitos")}</div>
+                        <ul className="space-y-1 text-xs text-[#8a93a6]">
+                          <li>• {t("editprofile.avatar_tamanho")}</li>
+                          <li>• {t("editprofile.avatar_formatos")}</li>
+                          <li>• {t("editprofile.avatar_recomendacao")}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => pick("avatar")}
+                    className="group relative overflow-hidden rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl"
+                    style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                    <div className="relative flex items-center justify-center gap-2">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      {t("editprofile.escolher_imagem")}
+                    </div>
+                  </button>
+
+                  {profile.avatar && (
+                    <button
+                      onClick={() => patch({ avatar: "" })}
+                      className="rounded-xl border border-white/[0.12] px-6 py-2.5 text-sm font-medium text-[#c8d0e0] transition-all hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-400"
+                    >
+                      {t("editprofile.remover")}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {section === "avatar" && (
-          <div className="max-w-2xl space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.avatar")}</h2>
-              <p className="text-sm text-[#8a93a6]">{t("editprofile.avatar_desc")}</p>
-            </div>
-            <div className="flex items-center gap-6">
+        {section === "fundo" && (
+          <div className="mx-auto max-w-4xl">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-8 shadow-2xl shadow-black/30 backdrop-blur-xl">
+              <div className="mb-8">
+                <h3 className="mb-2 text-2xl font-bold text-white">{t("editprofile.nav.fundo")}</h3>
+                <p className="text-sm text-[#8a93a6]">{t("editprofile.fundo_desc")}</p>
+              </div>
+
+              {/* Preview do fundo */}
               <div
-                className="w-32 h-32 rounded-2xl overflow-hidden flex items-center justify-center text-4xl font-bold text-white"
+                className="relative mb-6 flex items-center justify-center overflow-hidden rounded-2xl"
                 style={{
-                  background: "linear-gradient(135deg, #0072ce, #003791)",
-                  border: "2px solid rgba(255,255,255,0.15)",
+                  aspectRatio: "21/9",
+                  background: profile.background
+                    ? undefined
+                    : "linear-gradient(135deg, #12121a, #05050a)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
-                {profile.avatar ? (
-                  <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+                {profile.background ? (
+                  <>
+                    <img src={profile.background} alt="" className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                    {/* Miniatura do avatar sobreposto */}
+                    <div className="absolute bottom-6 left-6 flex items-center gap-4">
+                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-2xl font-bold text-white ring-4 ring-black/50">
+                        {profile.avatar ? (
+                          <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          (fields.name?.[0] || "J").toUpperCase()
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-white drop-shadow-lg">{fields.name || t("profile.jogador")}</div>
+                        <div className="text-xs text-white/80 drop-shadow">{t("profile.dono")}</div>
+                      </div>
+                    </div>
+                  </>
                 ) : (
-                  (profile.name?.[0] || "J").toUpperCase()
+                  <div className="flex flex-col items-center gap-3 py-12">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.04]">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-8 w-8 text-[#6b7280]">
+                        <rect x="3" y="3" width="18" height="18" rx="3" />
+                        <circle cx="9" cy="9" r="2" />
+                        <path d="m21 15-4.5-4.5L7 20" />
+                      </svg>
+                    </div>
+                    <span className="text-sm text-[#6b7280]">{t("editprofile.sem_fundo")}</span>
+                  </div>
                 )}
               </div>
-              <div className="flex flex-col gap-2">
+
+              <div className="flex flex-wrap gap-3">
                 <button
-                  onClick={() => pick("avatar")}
-                  className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
+                  onClick={() => pick("background")}
+                  className="group relative overflow-hidden rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl"
                   style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}
                 >
-                  {t("editprofile.escolher_imagem")}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="relative flex items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    {t("editprofile.escolher_imagem")}
+                  </div>
                 </button>
-                {profile.avatar && (
+                {profile.background && (
                   <button
-                    onClick={() => patch({ avatar: "" })}
-                    className="px-5 py-2 rounded-xl text-sm font-medium text-[#c8d0e0] hover:bg-white/5"
-                    style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+                    onClick={() => patch({ background: "" })}
+                    className="rounded-xl border border-white/[0.12] px-6 py-2.5 text-sm font-medium text-[#c8d0e0] transition-all hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-400"
                   >
                     {t("editprofile.remover")}
                   </button>
@@ -449,50 +601,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
             </div>
           </div>
         )}
-
-        {section === "fundo" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-white mb-1">{t("editprofile.nav.fundo")}</h2>
-              <p className="text-sm text-[#8a93a6]">{t("editprofile.fundo_desc")}</p>
-            </div>
-            <div
-              className="w-full rounded-2xl overflow-hidden flex items-center justify-center"
-              style={{
-                aspectRatio: "16/6",
-                background: profile.background
-                  ? undefined
-                  : "linear-gradient(135deg, #12121a, #05050a)",
-                border: "1px solid rgba(255,255,255,0.1)",
-              }}
-            >
-              {profile.background ? (
-                <img src={profile.background} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-sm text-[#6b7280]">{t("editprofile.sem_fundo")}</span>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => pick("background")}
-                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
-                style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}
-              >
-                {t("editprofile.escolher_imagem")}
-              </button>
-              {profile.background && (
-                <button
-                  onClick={() => patch({ background: "" })}
-                  className="px-5 py-2 rounded-xl text-sm font-medium text-[#c8d0e0] hover:bg-white/5"
-                  style={{ border: "1px solid rgba(255,255,255,0.12)" }}
-                >
-                  {t("editprofile.remover")}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
+        </div>
       </main>
 
       {/* Recorte interativo de avatar (imagem estática grande) */}
