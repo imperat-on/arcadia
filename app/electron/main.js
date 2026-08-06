@@ -2343,7 +2343,16 @@ app.whenReady().then(() => {
   // "Big Picture": fecha o modo desktop e abre o modo console (PS5, tela cheia).
   ipcMain.handle("app:enterConsole", () => {
     try {
-      const child = spawn(process.execPath, ["."], {
+      // Libera o lock de instância única ANTES de spawnar: o processo novo
+      // (console) pede o lock no boot e, com o desktop ainda vivo (o quit
+      // leva ~500ms), o lock negado MATAVA o console na hora — o modo Big
+      // Picture nunca abria (regressão do single-instance lock).
+      try {
+        app.releaseSingleInstanceLock()
+      } catch {}
+      // --no-sandbox como o arcadia.sh: sem a flag o Electron sobe com o
+      // sandbox e o app não abre neste ambiente (CachyOS).
+      const child = spawn(process.execPath, [".", "--no-sandbox"], {
         cwd: path.join(__dirname, ".."),
         detached: true,
         stdio: "ignore",
