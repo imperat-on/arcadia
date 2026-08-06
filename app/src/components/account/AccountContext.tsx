@@ -14,6 +14,9 @@ import {
 
 export type AccountStatus = "carregando" | "deslogado" | "logado"
 
+/** Única conta considerada "dona/criadora" do Arcadia — badge de dono. */
+export const OWNER_USERNAME = "zesmehentperu"
+
 export interface PerfilOnline {
   username: string | null
   avatar_url: string | null

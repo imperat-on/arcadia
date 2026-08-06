@@ -5,6 +5,7 @@ import type { Game } from "./types"
 import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 
 interface ProfilePageProps {
   open: boolean
@@ -30,6 +31,8 @@ export function ProfilePage({
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open && navActive, onClose)
   const { t } = useI18n()
+  const conta = useAccountOptional()
+  const ehDono = conta?.perfil?.username === OWNER_USERNAME
 
   // Estatísticas reais (jogos/playtime).
   const [stats, setStats] = useState<ProfileStats | null>(null)
@@ -49,7 +52,7 @@ export function ProfilePage({
 
   if (!open) return null
 
-  const isOwner = profile.owner !== false
+  const isOwner = ehDono
   const name = profile.name || t("profile.jogador")
   
   // Todos os jogos da biblioteca (com capa), mais jogados primeiro — o perfil
