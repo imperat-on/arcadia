@@ -1557,6 +1557,36 @@ function createWindow() {
   })
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
   win.once("ready-to-show", () => win.show())
+
+  // ── ANTIDOTO: alt-tab → tela preta (Wayland/NVIDIA) ──────────────────
+  // O compositor perde a superfície da janela quando ela é ocluída; sem
+  // repaint na volta o Chromium entrega um frame morto (fundo #000). Três
+  // defesas: (1) não congelar o renderer em background (frame sempre fresco
+  // ao restaurar), (2) invalidar o repaint a cada show, (3) recarregar sozinho
+  // se o processo de render morrer (render-process-gone) em vez de deixar a
+  // janela preta até o usuário fechar. Tudo com log para diagnóstico.
+  win.webContents.setBackgroundThrottling(false)
+  win.on("show", () => {
+    try {
+      win.webContents.invalidate()
+    } catch { /* janela já destruída */ }
+  })
+  win.webContents.on("render-process-gone", (_e, detalhes) => {
+    console.error("[janela] render-process-gone:", JSON.stringify(detalhes))
+    // Reason "crashed" é recuperável; "killed"/"oom" também. Só ignora se a
+    // janela já foi fechada ou o app está saindo.
+    if (win && !win.isDestroyed() && !app.isQuitting) {
+      setTimeout(() => {
+        if (win && !win.isDestroyed() && win.isVisible()) {
+          win.webContents.reload()
+        }
+      }, 500)
+    }
+  })
+  win.webContents.on("unresponsive", () => console.error("[janela] renderer unresponsive"))
+  win.webContents.on("responsive", () => console.error("[janela] renderer responsive de novo"))
+  // Fim do antídoto alt-tab.
+
   // Aplica a escala salva assim que a página carrega.
   win.webContents.on("did-finish-load", () => {
     const z = Number(readConfig().ui_scale) || 1
@@ -3189,6 +3219,9 @@ app.on("window-all-closed", () => {
 // Ao sair, derruba o download ativo para não deixar o Legendary órfão (os
 // downloads são detached, então não morrem junto do app sozinhos).
 app.on("before-quit", () => {
+  // Marca que o app está saindo — o handler de render-process-gone não
+  // tenta recarregar a janela durante o shutdown.
+  app.isQuitting = true
   try {
     require("./downloadmanager").killActive()
   } catch {}
