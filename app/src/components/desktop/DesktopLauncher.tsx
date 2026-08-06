@@ -23,7 +23,7 @@ import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 import { AchievementToast } from "./AchievementToast"
-import { AccountProvider, useAccount } from "../account/AccountContext"
+import { useAccount } from "../account/AccountContext"
 import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
@@ -234,8 +234,7 @@ export function DesktopLauncher() {
   }, [carregar])
 
   return (
-    <AccountProvider>
-      <FriendsProvider>
+    <>
       <AutoOpenLogin
         onOpen={() => setContaAberta(true)}
         dispensado={contaDispensada}
@@ -490,7 +489,6 @@ export function DesktopLauncher() {
       />
       <SyncStatusIndicator />
       </div>
-      </FriendsProvider>
-    </AccountProvider>
+    </>
   )
 }

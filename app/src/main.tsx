@@ -8,6 +8,8 @@ import "./index.css"
 import { I18nProvider } from "./i18n/I18nContext"
 import { PS5Launcher } from "./components/ps5-launcher/PS5Launcher"
 import { DesktopLauncher } from "./components/desktop/DesktopLauncher"
+import { AccountProvider } from "./components/account/AccountContext"
+import { FriendsProvider } from "./components/account/FriendsContext"
 
 // Modo console (PS5, padrão) x modo desktop (estilo Heroic) — o backend é o
 // mesmo; muda só a UI montada na raiz. F11 alterna em runtime.
@@ -36,9 +38,10 @@ function Root() {
     }
   }, [])
   return (
-    <>
-      {modo === "console" ? <PS5Launcher /> : <DesktopLauncher />}
-      {erro && (
+    <AccountProvider>
+      <FriendsProvider>
+        {modo === "console" ? <PS5Launcher /> : <DesktopLauncher />}
+        {erro && (
         <div className="fixed bottom-6 right-6 z-[9999] max-w-md rounded-lg bg-red-900/95 text-white px-5 py-4 shadow-2xl border border-red-500/50 backdrop-blur">
           <div className="font-bold mb-1">Falha ao lançar jogo</div>
           <div className="text-sm whitespace-pre-line opacity-90">{erro}</div>
@@ -47,7 +50,8 @@ function Root() {
           </button>
         </div>
       )}
-    </>
+      </FriendsProvider>
+    </AccountProvider>
   )
 }
 

@@ -11,6 +11,7 @@ import ProfileSelect from "./ProfileSelect"
 import { DownloadManager } from "./DownloadManager"
 import { GameOverview } from "./GameOverview"
 import { useGamepadNav } from "./useGamepadNav"
+import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { GameContextMenu } from "./GameContextMenu"
 import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
@@ -112,6 +113,7 @@ export function PS5Launcher() {
   // Ids já iniciados (persistido): alimenta o selo "Nunca jogado".
   const [recent, setRecent] = useState<string[]>([])
   const { t } = useI18n()
+  const conta = useAccountOptional()
 
   // Menu de contexto do jogo (Start) e visibilidade dos ocultos.
   const [ctxGame, setCtxGame] = useState<Game | null>(null)
@@ -1005,7 +1007,7 @@ export function PS5Launcher() {
                 name: profile?.name || t("profile.jogador"),
                 avatar: profile?.avatar,
                 background: profile?.background,
-                owner: true,
+                owner: conta?.perfil?.username === OWNER_USERNAME,
               },
             ]}
             onSelect={confirmarPerfil}
