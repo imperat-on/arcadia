@@ -168,6 +168,10 @@ const armarPollJogo = () => {
         if (++sinalDeVida >= 2) {
           clearInterval(runningGameInterval)
           runningGameInterval = null
+          // Jogo fechou de verdade: encerra a sessão (playtime, pós-jogo,
+          // gameId). O marcar(false) transitório nunca chega aqui — ver
+          // finalizarSessao.
+          finalizarSessao()
         }
       })
     }
@@ -190,6 +194,40 @@ const armarPollJogo = () => {
 // Primário: grupo de processos do jogo que NÓS lançamos (jogoAtivo) — cobre
 // custom/umu/legendary/lutris. Fallback: padrão clássico (jogos Steam, que
 // são filhos do cliente Steam, não nossos).
+// Sessão encerrada DE VERDADE (jogo fechou e o poll desarmou): soma o tempo
+// jogado, roda o script pós-jogo e solta o gameId. SÓ AQUI — o marcar(false)
+// TRANSITÓRIO (wrapper do launch morreu antes do jogo subir, janela de ~6s)
+// não pode finalizar: senão o gameId do Running/Stop se perde e o botão da
+// página nunca associa. O desarme do poll (2 ciclos sem sinal) é o único
+// momento em que dá pra ter certeza que o jogo fechou mesmo.
+const finalizarSessao = () => {
+  const snap = ultimoJogoAtivo
+  ultimoJogoAtivo = null
+  if (snap && snap.gameId && snap.startedAt) {
+    try {
+      const min = Math.round((Date.now() - snap.startedAt) / 60000)
+      if (min >= 1) {
+        const prev = Number(readOverrides(caminhoConta(OVERRIDES))[snap.gameId]?.playtime_added_minutes) || 0
+        setOverride(caminhoConta(OVERRIDES), snap.gameId, { playtime_added_minutes: prev + min })
+        // Horas jogadas sobem pra conta (delta acumulado no servidor)
+        try {
+          require("./supabase/biblioteca").agendarPush()
+        } catch {}
+        if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      }
+    } catch {}
+  }
+  // Script pós-jogo configurado (se houver).
+  if (postGameScript) {
+    const script = postGameScript
+    postGameScript = ""
+    try {
+      const p = spawn(script, [], { detached: true, stdio: "ignore" })
+      p.unref()
+    } catch {}
+  }
+}
+
 const marcar = (rodando) => {
   if (rodando === jogoRodando) return
   jogoRodando = rodando
@@ -202,35 +240,8 @@ const marcar = (rodando) => {
     const id = rodando ? jogoAtivo?.gameId || ultimoJogoAtivo?.gameId || "" : ""
     win.webContents.send("game:active", { rodando, gameId: id })
   }
-  if (!rodando) {
-    // Sessão encerrada: soma o tempo jogado no override (só fora da Steam —
-    // a Steam já traz playtime real do indexer).
-    const snap = ultimoJogoAtivo
-    ultimoJogoAtivo = null
-    if (snap && snap.gameId && snap.startedAt) {
-      try {
-        const min = Math.round((Date.now() - snap.startedAt) / 60000)
-        if (min >= 1) {
-          const prev = Number(readOverrides(caminhoConta(OVERRIDES))[snap.gameId]?.playtime_added_minutes) || 0
-          setOverride(caminhoConta(OVERRIDES), snap.gameId, { playtime_added_minutes: prev + min })
-          // Horas jogadas sobem pra conta (delta acumulado no servidor)
-          try {
-            require("./supabase/biblioteca").agendarPush()
-          } catch {}
-          if (win && !win.isDestroyed()) win.webContents.send("library:changed")
-        }
-      } catch {}
-    }
-  }
-  // Jogo fechou: roda o script pós-jogo configurado (se houver).
-  if (!rodando && postGameScript) {
-    const script = postGameScript
-    postGameScript = ""
-    try {
-      const p = spawn(script, [], { detached: true, stdio: "ignore" })
-      p.unref()
-    } catch {}
-  }
+  // NOTA: a finalização da sessão (playtime/pós-jogo/limpeza do gameId) fica
+  // no DESARME do poll (finalizarSessao) — nunca no marcar(false) transitório.
 }
 // yt-dlp precisa achar o Deno para resolver o desafio JS do YouTube (necessário
 // em vídeos com restrição de idade). Aceitamos tanto a cópia em bin/ quanto a do
