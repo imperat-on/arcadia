@@ -185,7 +185,10 @@ async function buscarFresco() {
   const perfil = {}
   for (const r of rels || []) {
     const other = r.user_a === me ? r.user_b : r.user_a
-    const p = (r.user_a === me ? r.pb?.[0] : r.pa?.[0]) || null
+    // PostgREST devolve to-one ora como objeto, ora como array [obj] — normaliza.
+    const pa = Array.isArray(r.pa) ? r.pa?.[0] : r.pa
+    const pb = Array.isArray(r.pb) ? r.pb?.[0] : r.pb
+    const p = (r.user_a === me ? pb : pa) || null
     perfil[other] = p
       ? { username: p.username, avatar_url: p.avatar_url ?? null, display_name: p.display_name ?? null }
       : null
