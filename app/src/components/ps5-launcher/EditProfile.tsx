@@ -216,6 +216,34 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     { id: "destaques", label: t("editprofile.nav.destaques") },
   ]
 
+  // Ícones por seção da sidebar (estilo consistente com o tema azul/roxo)
+  const NAV_ICONES: Record<Section, React.ReactNode> = {
+    geral: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+    avatar: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 20a8 8 0 0 1 16 0" />
+      </svg>
+    ),
+    fundo: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <circle cx="9" cy="9" r="2" />
+        <path d="m21 15-4.5-4.5L7 20" />
+      </svg>
+    ),
+    destaques: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+        <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
+      </svg>
+    ),
+  }
+
   return (
     <div ref={rootRef} className="gp-scope fixed inset-0 z-[60] flex overflow-hidden bg-black">
       {profile.background && (
@@ -228,49 +256,85 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,rgba(75,40,120,0.38),transparent_55%),linear-gradient(135deg,rgba(0,0,0,0.92),rgba(0,0,0,0.72))]" />
 
       {/* Sidebar */}
-      <aside className="relative m-4 flex w-72 shrink-0 flex-col gap-1 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 shadow-2xl shadow-black/50 backdrop-blur-xl">
+      <aside className="relative m-4 flex w-72 shrink-0 flex-col rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 shadow-2xl shadow-black/50 backdrop-blur-xl">
+        {/* Voltar */}
         <button
           onClick={() => fecharRef.current()}
-          className="text-sm text-[#8a93a6] hover:text-white transition-colors mb-4 text-left flex items-center gap-2"
+          className="group mb-5 flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-sm text-[#8a93a6] transition-all hover:border-[#0072ce]/40 hover:text-white"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="transition-transform group-hover:-translate-x-0.5">
             <path d="M15 18l-6-6 6-6" />
           </svg>
           {t("editprofile.voltar_perfil")}
         </button>
-        <h1 className="px-2 text-xl font-bold text-white">{t("profile.editar_perfil")}</h1>
-        <div className="mx-1 my-4 rounded-2xl border border-white/[0.08] bg-black/25 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-xl font-bold text-white ring-1 ring-white/15">
-              {profile.avatar ? (
-                <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
-              ) : (
-                (fields.name?.[0] || "J").toUpperCase()
-              )}
+
+        {/* Título com ícone */}
+        <div className="mb-5 flex items-center gap-3 px-1">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] text-white shadow-[0_0_20px_rgba(0,114,206,0.35)]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-white">{t("profile.editar_perfil")}</h1>
+        </div>
+
+        {/* Card do usuário com anel gradiente */}
+        <div className="relative mx-1 mb-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-black/25 p-4">
+          <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#0072ce]/20 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-12 -left-8 h-24 w-24 rounded-full bg-[#7c3aed]/15 blur-2xl" />
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-[2px] shadow-[0_4px_16px_rgba(0,114,206,0.35)]">
+              <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[14px] bg-[#12121a] text-xl font-bold text-white">
+                {profile.avatar ? (
+                  <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  (fields.name?.[0] || "J").toUpperCase()
+                )}
+              </div>
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-white">
-                {fields.name || t("profile.jogador")}
-              </div>
-              <div className="text-xs text-[#8a93a6]">{t("profile.dono")}</div>
+              <div className="truncate text-sm font-semibold text-white">{fields.name || t("profile.jogador")}</div>
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#0072ce]/30 bg-[#0072ce]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
+                  <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
+                </svg>
+                {t("profile.dono")}
+              </span>
             </div>
           </div>
         </div>
+
+        {/* Nav com ícones + barra indicadora */}
         {NAV.map((n) => {
           const active = section === n.id
+          const Icone = NAV_ICONES[n.id]
           return (
             <button
               key={n.id}
               onClick={() => setSection(n.id)}
-              className="rounded-2xl px-4 py-3 text-left text-[15px] font-medium transition-colors"
+              className="group relative flex items-center gap-3 overflow-hidden rounded-2xl px-4 py-3 text-left text-[15px] font-medium transition-all duration-200"
               style={{
                 color: active ? "#fff" : "#8a93a6",
                 background: active
-                  ? "linear-gradient(135deg, rgba(255,255,255,0.13), rgba(255,255,255,0.06))"
+                  ? "linear-gradient(135deg, rgba(0,114,206,0.28), rgba(124,58,237,0.16))"
                   : "transparent",
-                border: active ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
+                border: active ? "1px solid rgba(0,114,206,0.35)" : "1px solid transparent",
+                boxShadow: active ? "0 4px 20px rgba(0,114,206,0.2)" : "none",
               }}
             >
+              <span
+                className={`absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full transition-all duration-200 ${
+                  active ? "bg-gradient-to-b from-[#0072ce] to-[#7c3aed] opacity-100" : "opacity-0"
+                }`}
+              />
+              <span
+                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
+                  active ? "bg-[#0072ce]/25 text-[#4db8ff]" : "bg-white/[0.04] text-[#8a93a6] group-hover:text-white"
+                }`}
+              >
+                {Icone}
+              </span>
               {n.label}
             </button>
           )

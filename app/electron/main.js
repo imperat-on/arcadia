@@ -2305,6 +2305,9 @@ app.whenReady().then(() => {
     }
     const idiomaAntes = readConfig().language
     const r = writeConfig(cfg)
+    // SEGURANÇA: a resposta NUNCA devolve as chaves em claro (o config:get
+    // já é redigido; o set devolvia o config inteiro com hubcap_api_key...).
+    if (r?.config) r.config = redigirSegredos(r.config)
     // Trocou de idioma: as descrições e requisitos já baixados estão na língua
     // antiga. Reindexar sozinho é o que faz a biblioteca aparecer traduzida
     // sem o usuário ter de descobrir que existe um botão de atualizar.
