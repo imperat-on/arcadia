@@ -105,7 +105,10 @@ function ProfileBridge({
       summary: perfil.summary ?? "",
       country: perfil.country ?? "",
       city: perfil.city ?? "",
-      showcase: Array.isArray(perfil.showcase) ? perfil.showcase : [],
+      // NOTE: showcase NÃO vem do online aqui — o perfil online é buscado uma
+      // vez no login e fica STALE; mergeá-lo sobrescrevia a vitrine editada
+      // com a lista antiga do servidor (bug da contagem/0 de seleção). A
+      // vitrine é local (config.json) e sobe via updatePerfil ao editar.
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil])
