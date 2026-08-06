@@ -103,7 +103,6 @@ export function PS5Launcher() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [toast, setToast] = useState<LaunchToast>({ title: "", visible: false })
   const [showSettings, setShowSettings] = useState(false)
-  const [showProfile, setShowProfile] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [profile, setProfile] = useState<Profile>({})
@@ -256,7 +255,6 @@ export function PS5Launcher() {
     perfilGate ||
     showDownloads ||
     showSettings ||
-    showProfile ||
     showEditProfile ||
     menuOpen ||
     overviewOpen ||
@@ -273,7 +271,7 @@ export function PS5Launcher() {
   const uiBlockedRef = useRef(false)
   // A Loja tem navegação própria por foco, igual às Notícias: sem isto o
   // direcional moveria a seleção do trilho de jogos por trás da loja.
-  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3
+  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3 || activeTab === 4
 
   // Ambas as abas mostram a biblioteca inteira; muda só a forma de exibir.
   // Jogos ocultos só aparecem com "Mostrar ocultos" ligado (menu do Select).
@@ -282,10 +280,11 @@ export function PS5Launcher() {
     () => (showHidden ? games : games.filter((g) => !g.hidden)),
     [games, showHidden],
   )
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja
+  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja · 4 Perfil
   const newsMode = activeTab === 0
   const gridMode = activeTab === 2
   const storeMode = activeTab === 3
+  const profileMode = activeTab === 4
   const columns = GRID_COLUMNS
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
@@ -348,7 +347,6 @@ export function PS5Launcher() {
     if (!g || !api || !trailerAutoRef.current) return
     if (
       showSettings ||
-      showProfile ||
       showEditProfile ||
       menuOpen ||
       gameRunning ||
@@ -357,7 +355,7 @@ export function PS5Launcher() {
     )
       return
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
-    if (gridMode || newsMode || storeMode) return // essas abas têm visual próprio
+    if (gridMode || newsMode || storeMode || profileMode) return // essas abas têm visual próprio
     let cancelled = false
     const t = setTimeout(async () => {
       const { path } = await api.trailerPath(g.id)
@@ -379,7 +377,6 @@ export function PS5Launcher() {
   }, [
     selId,
     showSettings,
-    showProfile,
     showEditProfile,
     menuOpen,
     gameRunning,
@@ -388,6 +385,7 @@ export function PS5Launcher() {
     gridMode,
     newsMode,
     storeMode,
+    profileMode,
     boot,
     perfilGate,
   ])
@@ -485,7 +483,6 @@ export function PS5Launcher() {
     overviewOpen &&
     appFocused &&
     !showSettings &&
-    !showProfile &&
     !showEditProfile &&
     !menuOpen &&
     !ctxGame &&
@@ -944,7 +941,7 @@ export function PS5Launcher() {
           onTab={setActiveTab}
           onRefresh={_refresh_library}
           onOpenSettings={() => setShowSettings(true)}
-          onOpenProfile={() => setShowProfile(true)}
+          onOpenProfile={() => setActiveTab(4)}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((v) => !v)}
           onCloseMenu={() => setMenuOpen(false)}
@@ -961,16 +958,6 @@ export function PS5Launcher() {
         onClose={() => setShowSettings(false)}
         onSaved={_refresh_library}
         onUiChange={applyUiPrefs}
-      />
-
-      {/* Página de perfil (estilo Steam) */}
-      <ProfilePage
-        open={showProfile}
-        navActive={!showEditProfile}
-        profile={profile}
-        games={games}
-        onClose={() => setShowProfile(false)}
-        onEdit={() => setShowEditProfile(true)}
       />
 
       {/* Editar perfil (Geral / Avatar / Plano de fundo) */}
@@ -1067,6 +1054,18 @@ export function PS5Launcher() {
               scrollRef={gridScrollRef}
             />
           </>
+        ) : profileMode ? (
+          <div className="pt-20">
+            <ProfilePage
+              open
+              embedded
+              navActive={!showEditProfile}
+              profile={profile}
+              games={games}
+              onClose={() => setActiveTab(1)}
+              onEdit={() => setShowEditProfile(true)}
+            />
+          </div>
         ) : (
           <>
             {/* Espaço da barra superior */}

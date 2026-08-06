@@ -16,6 +16,7 @@ export type DesktopView =
   | "downloads"
   | "fontes"
   | "amigos"
+  | "perfil"
   | "config"
 export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
 
