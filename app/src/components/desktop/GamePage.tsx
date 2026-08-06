@@ -65,6 +65,16 @@ export function GamePage({
   const [sysBusy, setSysBusy] = useState(true)
   const [installPath, setInstallPath] = useState("")
   const [fixesAtivo, setFixesAtivo] = useState(false)
+  // Jogo rodando (tempo real, via game:active do main): o botão Jogar vira
+  // Running + Stop enquanto o jogo desta página está em execução.
+  const [rodando, setRodando] = useState(false)
+
+  useEffect(() => {
+    const off = window.launcherAPI?.onGameActive((info) => {
+      setRodando(info.rodando && info.gameId === g.id)
+    })
+    return () => off?.()
+  }, [g.id])
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
   useEffect(() => {
@@ -204,16 +214,42 @@ export function GamePage({
               <div className="mt-3 flex gap-2.5">
                 {instalado ? (
                   <>
-                    <button
-                      onClick={onJogar}
-                      className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
-                      style={{ background: "var(--accent)" }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                      {t("gamepage.jogar")}
-                    </button>
+                    {rodando ? (
+                      <>
+                        <button
+                          disabled
+                          className="flex cursor-default items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black"
+                          style={{ background: "#22c55e" }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
+                            <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                          </svg>
+                          {t("gamepage.rodando")}
+                        </button>
+                        <button
+                          onClick={() => window.launcherAPI?.closeGame()}
+                          className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-white transition-transform hover:scale-[1.03]"
+                          style={{ background: "rgba(239,68,68,0.9)" }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                          </svg>
+                          {t("gamepage.parar")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={onJogar}
+                        className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
+                        style={{ background: "var(--accent)" }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                        {t("gamepage.jogar")}
+                      </button>
+                    )}
                     <button
                       onClick={onConfig}
                       className="flex items-center gap-2 rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
