@@ -381,12 +381,13 @@ declare global {
       friendsSend: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsAccept: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>
-      friendsList: () => Promise<{ ok: boolean; data?: FriendsListData; error?: string }>
+      friendsList: (opts?: { forcar?: boolean }) => Promise<{ ok: boolean; data?: FriendsListData; deCache?: boolean; error?: string }>
       friendsAchievements: (
         userId: string,
       ) => Promise<{ ok: boolean; achievements?: FriendAchievement[]; error?: string }>
       friendsRemove: (userId: string) => Promise<{ ok: boolean; error?: string }>
       onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
+      onFriendsChanged: (cb: (data: FriendsListData) => void) => () => void
       /** Sync de conquistas (Supabase). */
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
       syncState: () => Promise<SyncState>

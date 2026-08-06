@@ -28,6 +28,9 @@ function registerAccountIpc(broadcast, onConta) {
   // Realtime de amigos: liga ao logar, desliga ao sair.
   const realtime = friends.watchRequests((channel, payload) => broadcast(channel, payload))
 
+  // Atualização em background do cache de amigos → renderer pinta o fresco.
+  friends.onAtualizado((data) => broadcast("friends:changed", data))
+
   // Estado do sync de conquistas → renderer (indicador + botão).
   sync.onSyncState((st) => broadcast("sync:state", st))
 
@@ -106,9 +109,9 @@ function registerAccountIpc(broadcast, onConta) {
     await garantirSessao()
     return friends.cancel(userId)
   })
-  ipcMain.handle("friends:list", async () => {
+  ipcMain.handle("friends:list", async (_e, opts) => {
     await garantirSessao()
-    return friends.list()
+    return friends.list({ forcar: !!opts?.forcar })
   })
   ipcMain.handle("friends:achievements", async (_e, userId) => {
     await garantirSessao()
