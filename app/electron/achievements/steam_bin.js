@@ -300,7 +300,7 @@ function fetchConsentUrl(appid) {
 // Conquistas do jogo (não precisa estar na biblioteca). Cache próprio em
 // achievements_store.json (30d) — jogos da loja ficam fora do achievements.json.
 async function fetchAchievementsForApp(appid) {
-  const storePath = ACHIEVEMENTS_STORE_FILE
+  const storePath = ACHIEVEMENTS_STORE_FILE()
   let store = {}
   try {
     store = JSON.parse(fs.readFileSync(storePath, "utf-8"))
