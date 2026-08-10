@@ -22,9 +22,8 @@ const DATA_DIR =
   path.join(os.homedir(), ".local/share/arcadia")
 const CONTAS_DIR = path.join(DATA_DIR, "contas")
 
-// Arquivos que pertencem à conta (não são globais da máquina)
+// library.json NÃO entra: é global (o indexador escreve na raiz).
 const ARQS_CONTA = [
-  "library.json",
   "achievements.json",
   "overrides.json",
   "custom_games.json",
