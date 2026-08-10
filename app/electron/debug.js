@@ -2,9 +2,6 @@
 // arquivo não der pra abrir, engole em silêncio (log é apoio, não o negócio).
 // Escreve em logs/debug.log (respeita ARCADIA_DATA_DIR) com timestamp e
 // prefixo por módulo, pra caçar falha sem ter que reproduzir interativo.
-//
-// Uso: const { log } = require("./debug"), depois log("achievements/loader", e)
-// Passa o erro OU uma string. Objetos viram JSON (com stringify seguro).
 
 const fs = require("fs")
 const path = require("path")
@@ -13,6 +10,11 @@ const os = require("os")
 const DATA_DIR =
   process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
 const FILE = path.join(DATA_DIR, "logs", "debug.log")
+const MAX_BYTES = 1024 * 1024
+
+// Dir de logs já criado: o mkdir é um syscall, e log() roda em paths de erro
+// (fallback de schema, migração de conta). Só cria a primeira vez.
+let dirPronto = false
 
 function safe(v) {
   if (v instanceof Error) return v.stack || v.message
@@ -25,19 +27,24 @@ function safe(v) {
 }
 
 function log(mod, v) {
+  const linha = `${new Date().toISOString()} [${mod}] ${safe(v)}\n`
   try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true })
-    const linha = `${new Date().toISOString()} [${mod}] ${safe(v)}\n`
+    if (!dirPronto) {
+      fs.mkdirSync(path.dirname(FILE), { recursive: true })
+      dirPronto = true
+    }
+    // Bounding simples: debug.log não pode crescer pra sempre. Se passou de
+    // ~1MB, trunca pro começo e recomeça.
+    try {
+      if (fs.statSync(FILE).size > MAX_BYTES) fs.writeFileSync(FILE, "")
+    } catch {}
     fs.appendFileSync(FILE, linha)
   } catch {
     // best-effort: sem log se o disco falhar
   }
   // sempre reflete no console também (stdout/stderr do app)
-  try {
-    const e = v instanceof Error ? v : undefined
-    if (e) console.error(`[${mod}]`, e)
-    else console.log(`[${mod}]`, safe(v))
-  } catch {}
+  if (v instanceof Error) console.error(`[${mod}]`, v)
+  else console.log(`[${mod}]`, safe(v))
 }
 
 module.exports = { log }

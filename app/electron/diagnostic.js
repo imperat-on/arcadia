@@ -33,62 +33,44 @@ function collect() {
     }
   }
 
-  // Bins da Steam (schema + progresso por appid)
+  // Bins da Steam (schema + progresso por appid). A lista é de nomes de
+  // arquivo, se o dir não existe fica vazia (o shape é sempre um array).
   const statsDir = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
   if (fs.existsSync(statsDir)) {
     out.steamBins = fs
       .readdirSync(statsDir)
       .filter((f) => /^UserGameStats/i.test(f))
       .sort()
-  } else {
-    out.steamBins = ["(stats dir nao existe)"]
   }
 
-  // Estado do sync
-  const syncState = caminhoArquivoConta("sync_state.json")
-  if (fs.existsSync(syncState)) {
-    try {
-      out.sync.estado = JSON.parse(fs.readFileSync(syncState, "utf-8"))
-    } catch {}
-  }
-  const syncQueue = caminhoArquivoConta("sync_queue.json")
-  if (fs.existsSync(syncQueue)) {
-    try {
-      out.sync.fila = JSON.parse(fs.readFileSync(syncQueue, "utf-8"))
-    } catch {}
-  }
+  // Estado do sync. Corrupto vira "(ilegivel)", não some: é exatamente o bug
+  // que o diagnóstico existe pra mostrar.
+  out.sync.estado = lerJson(caminhoArquivoConta("sync_state.json"))
+  out.sync.fila = lerJson(caminhoArquivoConta("sync_queue.json"))
 
   // Erros recentes do debug.log (ultimas linhas)
-  const debugLog = path.join(DATA_DIR, "logs", "debug.log")
-  if (fs.existsSync(debugLog)) {
-    try {
-      const linhas = fs.readFileSync(debugLog, "utf-8").trim().split("\n")
-      out.debugLog = linhas.slice(-20)
-    } catch {}
-  }
+  const linhas = lerJson(path.join(DATA_DIR, "logs", "debug.log"), (s) => s.trim().split("\n"))
+  if (Array.isArray(linhas)) out.debugLog = linhas.slice(-20)
   return out
 }
 
-function lenApps(f) {
+// Lê um arquivo de estado e devolve o valor parseado. Se faltar devolve
+// undefined, se vier corrompido devolve "(ilegivel)" pra aparecer no dump em
+// vez de sumir como se não existisse.
+function lerJson(f, transform) {
+  if (!fs.existsSync(f)) return undefined
   try {
-    const d = JSON.parse(fs.readFileSync(f, "utf-8"))
-    return { apps: Object.keys(d).length, itens: Object.values(d).reduce((n, e) => n + (e.items ? e.items.length : 0), 0) }
+    const raw = fs.readFileSync(f, "utf-8")
+    return transform ? transform(raw) : JSON.parse(raw)
   } catch {
-    return "ilegivel"
+    return "(ilegivel)"
   }
 }
 
-module.exports = { collect }
-
-// Roda standalone: electron . --diagnostico → imprime JSON e sai.
-if (require.main === module) {
-  const { app } = require("electron")
-  app.whenReady().then(() => {
-    const out = collect()
-    console.log("== ARCADIA DIAGNOSTICO ==")
-    for (const [k, v] of Object.entries(out)) {
-      console.log(k + ":", JSON.stringify(v, null, 2))
-    }
-    app.quit()
-  })
+function lenApps(f) {
+  const d = lerJson(f)
+  if (typeof d !== "object" || d === null || Array.isArray(d)) return "ilegivel"
+  return { apps: Object.keys(d).length, itens: Object.values(d).reduce((n, e) => n + (e.items ? e.items.length : 0), 0) }
 }
+
+module.exports = { collect }

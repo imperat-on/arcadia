@@ -1,20 +1,9 @@
 // Schema das conquistas locais: achievements.json (o índice completo que o
-// index.py grava) e o store de scrape da loja. Tudo mora em
-// ~/.local/share/arcadia, o mesmo diretório de dados do app.
-//
-// Escopo por CONTA: como library/pending/overrides, os arquivos de conquistas
-// são da conta logada (contas/<user>/), guest usa a raiz. Sem isso o
-// loadAllSchemas e o watcher de bins gravavam na raiz enquanto o renderer e o
-// sync liam da conta, e as conquistas nunca apareciam nem sincronizavam.
+// index.py grava) e o store de scrape da loja. Os caminhos são POR CONTA
+// (contas/<user>/ quando logado, raiz como guest), ver supabase/conta.js.
 
 const fs = require("fs")
-const path = require("path")
-const os = require("os")
 const { caminhoArquivoConta } = require("./../supabase/conta")
-
-const DATA_DIR =
-  process.env.ARCADIA_DATA_DIR ||
-  path.join(os.homedir(), ".local/share/arcadia")
 
 // Resolvido em tempo de uso: a conta ativa pode mudar (login/logout) depois do
 // require, então o caminho não pode ser fixado no topo do módulo.
