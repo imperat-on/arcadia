@@ -5,15 +5,11 @@
 const fs = require("node:fs")
 const path = require("node:path")
 const { getClient } = require("./client")
-const { caminhoConta } = require("./conta")
-
-const DATA_DIR =
-  process.env.ARCADIA_DATA_DIR ||
-  path.join(process.env.HOME || process.env.USERPROFILE || ".", ".local", "share", "arcadia")
+const { caminhoArquivoConta } = require("./conta")
 
 // Cache local da lista (por conta): a 1ª pintura da aba amigos/perfil sai do
 // disco (instantâneo) e o refresh em background atualiza via friends:changed.
-// TTL curto — o cache é só para a primeira pintura, nunca fonte de verdade.
+// TTL curto, o cache é só para a primeira pintura, nunca fonte de verdade.
 const CACHE_TTL_MS = 60_000
 
 /** Callback de atualização em background (registrado pelo ipc.js). */
@@ -23,7 +19,7 @@ function onAtualizado(cb) {
 }
 
 function cacheFile() {
-  return caminhoConta(path.join(DATA_DIR, "friends_cache.json"))
+  return caminhoArquivoConta("friends_cache.json")
 }
 
 function gravarCache(data) {
