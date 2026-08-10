@@ -1274,7 +1274,8 @@ function xboxLocale(cfg) {
 // (structured clone), então devolver a referência cacheada é seguro.
 let _libCache = { chave: "", games: [] }
 function _libMtimeKey() {
-  return [caminhoConta(LIB), caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS)]
+  // library.json é global (o indexador escreve na raiz), os demais são por conta.
+  return [LIB, caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS)]
     .map((p) => {
       try {
         return fs.statSync(p).mtimeMs
@@ -1333,7 +1334,7 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const games = JSON.parse(fs.readFileSync(caminhoConta(LIB), "utf-8"))
+    const games = JSON.parse(fs.readFileSync(LIB, "utf-8"))
     games.push(...readJsonFile(caminhoConta(CUSTOM_GAMES), []))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
@@ -1450,7 +1451,7 @@ function limparPendentesIndexados() {
   // readLibrary já injeta os próprios stubs de pending_games.json, então usá-lo
   // aqui fazia TODO stub recém-criado parecer "já indexado" e ser removido na
   // passada pós-indexação → o Add na loja nunca persistia.
-  const reais = readJsonFile(caminhoConta(LIB), [])
+  const reais = readJsonFile(LIB, [])
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {
