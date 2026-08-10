@@ -43,7 +43,30 @@ OUT_DIR = HOME / ".local/share/arcadia"
 OUT_FILE = OUT_DIR / "library.json"
 
 # Steam
-STEAM_ROOT = HOME / ".local/share/Steam"
+def _steam_root() -> Path:
+    """Raiz da Steam. O 1o candidato com libraryfolders.vdf, senao o 1o com
+    steamapps/ (marca de instalacao real, nao um dir parcial)."""
+    cands = [HOME / d for d in (
+        ".steam/steam",
+        ".steam/root",
+        ".local/share/Steam",
+        ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+        ".steam/debian-installation",
+    )]
+    if env := os.environ.get("STEAM_BASE_FOLDER"):
+        cands.insert(0, Path(env).expanduser())
+    cands = [c.resolve() for c in cands]
+    for c in cands:
+        if (c / "steamapps/libraryfolders.vdf").is_file():
+            return c
+    for c in cands:
+        if (c / "steamapps").is_dir():
+            print(f"[aviso] Steam: sem libraryfolders.vdf; usando {c} (pode nao listar todos os drives).", file=sys.stderr)
+            return c
+    print("[aviso] Steam: raiz nao encontrada (instalacao ausente?).", file=sys.stderr)
+    return HOME / ".local/share/Steam"
+
+STEAM_ROOT = _steam_root()
 STEAM_LIBCACHE = STEAM_ROOT / "appcache/librarycache"
 STEAM_USERDATA = STEAM_ROOT / "userdata"
 STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
