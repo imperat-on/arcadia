@@ -11,8 +11,9 @@
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
-const { loadKvBin, progressMap } = require("./steam_bin")
+const { loadKvBin, progressMap, fetchAchievementsForApp } = require("./steam_bin")
 const { loadAchievements, saveAchievements } = require("./schema")
+const { log } = require("./../debug")
 
 const STATS_DIR = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
 const ICON_DIR = path.join(STATS_DIR, "achievement_images")
@@ -65,6 +66,50 @@ function steamIconUrl(appid, hash) {
   return `${STEAM_ICON_HOST}/steamcommunity/public/images/apps/${appid}/${hash}`
 }
 
+// Apinames reais por appid na ordem do scrape HTML. A API pública
+// GetGlobalAchievementPercentagesForApp expõe o nome interno sem chave e a
+// página de conquistas expõe título/desc/ícone na mesma ordem. Fallback pra
+// jogos sem UserGameStatsSchema_*.bin (repacks/crackeados, ex. Cyberpunk via
+// emulador), pra lista e sync não ficarem com só 1 item mínimo.
+async function loadSchemaFallback(appid) {
+  let items
+  try {
+    items = await fetchAchievementsForApp(appid)
+  } catch (e) {
+    log("achievements/fallback-fetch", e)
+    return {}
+  }
+  if (!items || !items.length) return {}
+  // Apinames reais (mesma ordem do HTML). Se falhar, gera sintético.
+  let apinames = []
+  try {
+    const res = await fetch(
+      "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=" +
+        appid,
+    )
+    const d = await res.json()
+    apinames = (d.achievementpercentages?.achievements || []).map((a) => a.name)
+  } catch (e) {
+    log("achievements/fallback-apinames", e)
+  }
+  const out = {}
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    if (!it || !it.title) continue
+    // Apiname real quando a API responde (mesma ordem do HTML), senão o
+    // sintético que o scrape já carimbou (ach_##).
+    const apiname = apinames[i] || it.apiname || "ach_" + String(i + 1).padStart(2, "0")
+    out[i + "|0"] = {
+      apiname,
+      name: it.title,
+      desc: it.desc || "",
+      icon_hash: it.icon || "",
+      icongray_hash: it.icongray || it.icon || "",
+    }
+  }
+  return out
+}
+
 // Lê o schema de UM appid e devolve o índice block|bit → { apiname, name, desc,
 // icon_hash, icongray_hash }. Devolve {} se o schema não existe ou é inválido.
 function loadSchemaForAppid(appid) {
@@ -97,7 +142,7 @@ function loadSchemaForAppid(appid) {
 // com o progresso real do bin (UserGameStats_*.bin) — conquistas já ganhas na Steam
 // real ou em sessões anteriores do Arcadia são marcadas como achieved automaticamente,
 // sem depender do watcher ter rodado naquela sessão.
-function loadAllSchemas() {
+async function loadAllSchemas() {
   const loaded = loadAchievements()
   const store = loaded && typeof loaded === "object" ? loaded : {}
 
@@ -108,12 +153,18 @@ function loadAllSchemas() {
       const m = /^UserGameStatsSchema_(\d+)\.bin$/.exec(f)
       if (m) appids.add(m[1])
     }
-  } catch {}
+  } catch (e) {
+    log("achievements/listar-bins", e)
+  }
 
   let updated = 0
   let iconsCopied = 0
   for (const appid of appids) {
-    const idx = loadSchemaForAppid(appid)
+    let idx = loadSchemaForAppid(appid)
+    // Sem bin do Steam (crackeado/repack): busca o schema na API pública.
+    if (!idx || !Object.keys(idx).length) {
+      idx = await loadSchemaFallback(appid)
+    }
     if (!idx || !Object.keys(idx).length) continue
 
     // Itens antigos: índice pra preservar achieved/unlock/percent/ícones
@@ -136,17 +187,39 @@ function loadAllSchemas() {
           break
         }
       }
-    } catch {}
+    } catch (e) {
+      log("achievements/progresso-bin", e)
+    }
 
     const items = []
+    // Desbloqueios novos que o sync ainda não viu: sobe pro servidor. A fila
+    // deduplica por (appid, apiname), então re-enviar é seguro e o RPC é
+    // idempotente (quem desbloqueou primeiro vence).
+    const p_sync = []
     for (const [k, sch] of Object.entries(idx)) {
       const [blk, bit] = k.split("|")
       const prev = old.get("apiname:" + sch.apiname) || old.get("bb:" + k)
       const binTs = progress[`${blk}|${bit}`] || 0
-      const icon = copyIconToCache(appid, sch.icon_hash) || steamIconUrl(appid, sch.icon_hash)
-      const icongray =
-        copyIconToCache(appid, sch.icongray_hash) || steamIconUrl(appid, sch.icongray_hash)
+      // Ícone: hash local do bin (copia pro cache ou monta URL da Steam) ou URL
+      // completa vinda do fallback de jogos sem bin (repack/crackeado).
+      const resolveIcon = (hash) =>
+        hash.startsWith("http") ? hash : copyIconToCache(appid, hash) || steamIconUrl(appid, hash)
+      const icon = resolveIcon(sch.icon_hash)
       if (icon && (!prev || prev.icon !== icon)) iconsCopied++
+      const achieved = binTs > 0 ? true : prev ? Boolean(prev.achieved) : false
+      const unlock = binTs > 0 ? binTs : prev && prev.unlock ? prev.unlock : 0
+      // Desbloqueio no bin que a gente não tinha marcado antes: enfileira pro
+      // sync (conquistas antigas, de antes do Arcadia ou de outra máquina).
+      if (achieved && sch.apiname && (!prev || !prev.achieved)) {
+        p_sync.push({
+          appid,
+          apiname: sch.apiname,
+          unlocked_at: unlock,
+          title: sch.name,
+          icon,
+          percent: prev && prev.percent ? prev.percent : 0,
+        })
+      }
       items.push({
         apiname: sch.apiname,
         title: sch.name,
@@ -154,11 +227,20 @@ function loadAllSchemas() {
         block: Number(blk),
         bit: Number(bit),
         icon: icon || (prev && prev.icon) || "",
-        icongray: icongray || (prev && prev.icongray) || "",
-        achieved: binTs > 0 ? true : prev ? Boolean(prev.achieved) : false,
-        unlock: binTs > 0 ? binTs : prev && prev.unlock ? prev.unlock : 0,
+        icongray: resolveIcon(sch.icongray_hash) || (prev && prev.icongray) || "",
+        achieved,
+        unlock,
         percent: prev && prev.percent ? prev.percent : 0,
       })
+    }
+    if (p_sync.length) {
+      try {
+        const syncMod = require("./../supabase/sync")
+        syncMod.enqueue(p_sync)
+        syncMod.scheduleNow()
+      } catch (e) {
+        log("achievements/enqueue-sync", e)
+      }
     }
     items.sort((a, b) => a.block - b.block || a.bit - b.bit)
     store[appid] = Object.assign({}, store[appid], { items })
