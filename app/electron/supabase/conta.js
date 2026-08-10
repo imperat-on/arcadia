@@ -14,6 +14,7 @@
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
+const { log } = require("./../debug")
 
 // Mesmo padrão do sync.js/main.js: honra ARCADIA_DATA_DIR se definido
 const DATA_DIR =
@@ -38,18 +39,31 @@ const ARQS_CONTA = [
 // próximas começam vazias (cada conta tem os DADOS DELA, não da máquina).
 const MARCADOR = path.join(CONTAS_DIR, ".migrado")
 
-let contaAtiva = null // username logado; null = guest (raiz)
+let contaAtiva = null // username logado, null = guest (raiz)
 
 function conta() {
   return contaAtiva
 }
 
+// Dirs de conta já criados. O mkdir roda na primeira caminhoConta depois do
+// login (migrarConta já cria a pasta) e fica memoizado, senão vira um syscall
+// a cada chamada. E o watcher de conquistas chama isso a cada poll de 15s.
+const criados = new Set()
+
 /** Caminho escopado: raiz se guest, senão contas/<user>/<arquivo>. */
 function caminhoConta(base) {
   if (!contaAtiva) return base
   const dir = path.join(CONTAS_DIR, contaAtiva)
-  fs.mkdirSync(dir, { recursive: true })
+  if (!criados.has(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+    criados.add(dir)
+  }
   return path.join(dir, path.basename(base))
+}
+
+/** Caminho de um arquivo de dados da conta, em DATA_DIR/contas/<user>/<nome>. */
+function caminhoArquivoConta(nome) {
+  return caminhoConta(path.join(DATA_DIR, nome))
 }
 
 /**
@@ -68,8 +82,8 @@ function migrarConta(username) {
       if (fs.existsSync(src)) {
         try {
           fs.copyFileSync(src, path.join(dir, f))
-        } catch {
-          /* best effort */
+        } catch (e) {
+          log("conta/migrar", e)
         }
       }
     }
@@ -87,4 +101,4 @@ function definirConta(username) {
   if (contaAtiva) migrarConta(contaAtiva)
 }
 
-module.exports = { conta, caminhoConta, definirConta, DATA_DIR, CONTAS_DIR, ARQS_CONTA, MARCADOR }
+module.exports = { conta, caminhoConta, caminhoArquivoConta, definirConta, DATA_DIR, CONTAS_DIR, ARQS_CONTA, MARCADOR }

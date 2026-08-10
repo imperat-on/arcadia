@@ -13,17 +13,12 @@
 // libPush / playtimePush — mesmas chaves não usadas pelo sync de conquistas.
 
 const fs = require("fs")
-const path = require("path")
 const { getClient } = require("./client")
-const { caminhoConta } = require("./conta")
+const { caminhoArquivoConta } = require("./conta")
 
-const DATA_DIR =
-  process.env.ARCADIA_DATA_DIR ||
-  path.join(process.env.HOME || process.env.USERPROFILE || ".", ".local", "share", "arcadia")
-
-const CUSTOM = () => caminhoConta(path.join(DATA_DIR, "custom_games.json"))
-const OVERRIDES = () => caminhoConta(path.join(DATA_DIR, "overrides.json"))
-const STATE = () => caminhoConta(path.join(DATA_DIR, "sync_state.json"))
+const CUSTOM = () => caminhoArquivoConta("custom_games.json")
+const OVERRIDES = () => caminhoArquivoConta("overrides.json")
+const STATE = () => caminhoArquivoConta("sync_state.json")
 
 let listeners = []
 function onChanged(cb) {
