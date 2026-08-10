@@ -1446,12 +1446,11 @@ function adicionarStubPendente(appid, title, art = {}) {
 function limparPendentesIndexados() {
   const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
   if (!atuais.length) return
-  let reais
-  try {
-    reais = readLibrary()
-  } catch {
-    return
-  }
+  // Lê o library.json BRUTO (só o que o indexador gravou), não readLibrary().
+  // readLibrary já injeta os próprios stubs de pending_games.json, então usá-lo
+  // aqui fazia TODO stub recém-criado parecer "já indexado" e ser removido na
+  // passada pós-indexação → o Add na loja nunca persistia.
+  const reais = readJsonFile(caminhoConta(LIB), [])
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {
@@ -1722,6 +1721,15 @@ function configurarLojaSteam() {
 }
 
 app.whenReady().then(() => {
+  // Modo diagnóstico: imprime o estado interno (conta, achievements, bins do
+  // Steam, fila de sync, erros recentes) e fecha. Sem janela.
+  if (process.argv.includes("--diagnostico")) {
+    const { collect } = require("./diagnostic")
+    console.log("== ARCADIA DIAGNOSTICO ==")
+    console.log(JSON.stringify(collect(), null, 2))
+    app.exit(0)
+    return
+  }
   configurarLojaSteam()
   startSysinfoPrefetch()
   // Conta online (Supabase): registra IPC de auth e espelha eventos pro renderer.
@@ -1759,9 +1767,19 @@ app.whenReady().then(() => {
   // dados guest e só depois troca (mesmo bug do "nome antigo").
   const { restoreSession } = require("./supabase/client")
   const contaPronta = restoreSession()
-    .then((r) => {
+    .then(async (r) => {
       if (r?.session?.user?.user_metadata?.username) {
         definirConta(r.session.user.user_metadata.username)
+      }
+      // Reconstrói as conquistas dos schemas DA STEAM DEPOIS de a conta estar
+      // ativa. Antes rodava no createWindow como guest e gravava na raiz, então
+      // o painel (conta) ficava só com o que o watcher pegou ao vivo. Pro
+      // Cyberpunk (sem bin do Steam, jogo crackeado) isso significava aparecer
+      // apenas 1 item mínimo. No-op se não há schema bin nem fallback.
+      try {
+        await require("./achievements/loader").loadAllSchemas()
+      } catch (e) {
+        console.error("[achievements] boot load:", e)
       }
       return null
     })
@@ -1838,7 +1856,15 @@ app.whenReady().then(() => {
   ipcMain.handle("achievements:schemas:load", async () => {
     try {
       const { loadAllSchemas } = require("./achievements/loader")
-      return { ok: true, ...loadAllSchemas() }
+      return { ok: true, ...(await loadAllSchemas()) }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle("app:diagnostico", async () => {
+    try {
+      return { ok: true, ...require("./diagnostic").collect() }
     } catch (e) {
       return { ok: false, error: String(e) }
     }
@@ -3233,12 +3259,6 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-
-  // Popula apiname nos itens via UserGameStatsSchema_*.bin (faz a ponte pro
-  // cadeado de "Desbloquear" funcionar). Se não tem schema, é no-op.
-  try {
-    require("./achievements/loader").loadAllSchemas()
-  } catch {}
 
   // Links externos abertos pela página da loja Steam (Community Hub, publisher,
   // etc.): manda pro navegador do sistema em vez de abrir janela presa dentro
