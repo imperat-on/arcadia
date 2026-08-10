@@ -3,7 +3,6 @@
 "use strict"
 
 const fs = require("node:fs")
-const path = require("node:path")
 const { getClient } = require("./client")
 const { caminhoArquivoConta } = require("./conta")
 
@@ -25,7 +24,6 @@ function cacheFile() {
 function gravarCache(data) {
   try {
     const file = cacheFile()
-    fs.mkdirSync(path.dirname(file), { recursive: true })
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
     fs.writeFileSync(tmp, JSON.stringify({ ts: Date.now(), data }), { encoding: "utf8", mode: 0o600 })
     fs.renameSync(tmp, file)
