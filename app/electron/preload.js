@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   achievementsForceUnlock: (appid, apiname) =>
     ipcRenderer.invoke("achievements:force:unlock", { appid, apiname }),
   achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
+  appDiagnostico: () => ipcRenderer.invoke("app:diagnostico"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),
   legendarySetup: () => ipcRenderer.invoke("runner:legendary:setup"),
   legendaryLibrary: () => ipcRenderer.invoke("runner:legendary:library"),
