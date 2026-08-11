@@ -82,12 +82,16 @@ export function Sidebar({
   const logado = contaStatus === "logado"
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
+  const [avatarErro, setAvatarErro] = useState(false)
   // Identidade: logado → conta online (display_name > username + avatar do
   // servidor); deslogado → perfil local. O avatar da conta tem prioridade.
   const nome = logado
     ? contaPerfil?.display_name || contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
     : profile.name || t("profile.jogador")
   const avatarUrl = logado ? contaPerfil?.avatar_url || profile.avatar : profile.avatar
+  // Se o avatar falhar (ex.: URL quebrada no servidor), cai na letra em vez
+  // do preview de img quebrado.
+  const mostraAvatar = avatarUrl && !avatarErro
 
   const jogos = useMemo(() => {
     const l = games.filter((g) => !g.hidden)
@@ -109,12 +113,13 @@ export function Sidebar({
           className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]"
         >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
-            {avatarUrl ? (
+            {mostraAvatar ? (
               <img
                 src={avatarUrl}
                 alt=""
                 className="h-full w-full object-cover"
                 draggable={false}
+                onError={() => setAvatarErro(true)}
               />
             ) : (
               nome[0]?.toUpperCase()
