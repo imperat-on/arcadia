@@ -1,4 +1,4 @@
-// Amigos (Supabase) — MAIN PROCESS.
+// Amigos (backend proprio) — MAIN PROCESS.
 // Modelo: uma linha canônica por par (user_a < user_b) + requester_id + status.
 "use strict"
 

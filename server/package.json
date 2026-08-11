@@ -1,0 +1,18 @@
+{
+  "name": "arcadia-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend Node proprio do Arcadia (substitui o Supabase)",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  }
+}

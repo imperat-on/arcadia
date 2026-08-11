@@ -1,7 +1,7 @@
-// Autenticação Supabase — MAIN PROCESS (nunca no renderer).
+// Autenticação do backend — MAIN PROCESS (nunca no renderer).
 // Fluxo: cadastro com EMAIL + USERNAME + SENHA (sem verificação de email,
 // projeto libertário); login com USERNAME + SENHA.
-// Detalhe técnico: o Supabase autentica por EMAIL, então o login por username
+// Detalhe técnico: o backend autentica por EMAIL, então o login por username
 // resolve o email via RPC login_email (security definer, chamável por anon).
 "use strict"
 
@@ -123,7 +123,7 @@ function caminhoDeArquivo(p) {
 
 /**
  * Cadastro: email + username + senha, SEM verificação de email.
- * Pré-requisito: "Confirm email" DESLIGADO no painel do Supabase
+ * Pré-requisito: o servidor nao exige confirmacao de email
  * (Authentication → Sign In / Providers → Email). Sem isso o signUp não
  * devolve sessão e o app avisa.
  */

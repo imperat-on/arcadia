@@ -1,4 +1,4 @@
-// Sessão do Supabase persistida em disco (segredo — nunca vai pro config.json).
+// Sessão do backend persistida em disco (segredo — nunca vai pro config.json).
 // Local: <dataDir>/session.json (padrão: ~/.local/share/arcadia)
 // - Escrita atômica (tmp + rename, padrão do projeto)
 // - Permissão 0600

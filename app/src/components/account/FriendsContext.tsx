@@ -1,6 +1,6 @@
 "use client"
 
-// Estado global de amigos (Supabase) no renderer.
+// Estado global de amigos (backend proprio) no renderer.
 // Carrega a lista quando logado; escuta onFriendRequest (realtime) e
 // onAuthChanged (login/logout) para atualizar sozinho.
 import {
