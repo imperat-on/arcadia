@@ -4,6 +4,7 @@
 
 const fs = require("fs")
 const { fetchRede } = require("./httpfetch")
+const { catalogGet } = require("./catalog")
 const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
@@ -136,6 +137,13 @@ function lerSushiDisco() {
 
 async function sushiIds() {
   if (sushiCache.ids && Date.now() - sushiCache.at < SUSHI_TTL) return sushiCache.ids
+  const remoto = await catalogGet("/catalog/v1/sushi")
+  const idsRemotos = remoto.data?.data?.ids
+  if (Array.isArray(idsRemotos)) {
+    sushiCache = { at: Date.now(), ids: new Set(idsRemotos.map(String)) }
+    gravarCache(SUSHI_CACHE, { at: sushiCache.at, ids: [...sushiCache.ids] })
+    return sushiCache.ids
+  }
   if (!sushiCache.ids) {
     const disco = lerSushiDisco()
     if (disco) {
@@ -298,8 +306,27 @@ async function itensDaLoja(appids) {
 
   const cache = lerCache(ITENS_CACHE) || {}
   const agora = Date.now()
+  let mudou = false
+  const remoto = await catalogGet(`/catalog/v1/items?appids=${encodeURIComponent(ids.join(","))}`)
+  const itensRemotos = remoto.data?.data
+  if (itensRemotos && typeof itensRemotos === "object") {
+    for (const [id, it] of Object.entries(itensRemotos)) {
+      if (!ids.includes(id) || typeof it?.tipo !== "number") continue
+      const dado = {
+        tipo: it.tipo,
+        capa: it.capa || "",
+        heroi: it.heroi || "",
+        icon: it.icon || "",
+      }
+      mapa.set(id, dado)
+      respondidos.add(id)
+      cache[id] = { ...dado, at: agora }
+      mudou = true
+    }
+  }
   const faltando = []
   for (const id of ids) {
+    if (respondidos.has(id)) continue
     const it = cache[id]
     if (it && agora - it.at < ITENS_TTL) {
       respondidos.add(id)
@@ -312,9 +339,11 @@ async function itensDaLoja(appids) {
         })
     } else faltando.push(id)
   }
-  if (!faltando.length) return { mapa, respondidos }
+  if (!faltando.length) {
+    if (mudou) gravarCache(ITENS_CACHE, cache)
+    return { mapa, respondidos }
+  }
 
-  let mudou = false
   for (let i = 0; i < faltando.length; i += ITENS_LOTE) {
     const lote = faltando.slice(i, i + ITENS_LOTE)
     try {
@@ -407,18 +436,26 @@ async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   await emLotes(jogos, 24, async (g) => {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
-    if (sushi) {
-      if (sushi.has(g.appid)) fontes.push("Sushi")
+    const manifestos = await catalogGet(`/catalog/v1/manifests/${g.appid}`)
+    const disponibilidade = manifestos.data?.data
+    if (disponibilidade && typeof disponibilidade === "object") {
+      if (disponibilidade[SUSHI_URL(g.appid)]?.ok) fontes.push("Sushi")
+      if (disponibilidade[RYUU_URL(g.appid)]?.ok) fontes.push("Ryuu")
+      if (disponibilidade[TWENTYTWO_URL(g.appid)]?.ok) fontes.push("TwentyTwo Cloud")
     } else {
-      const url = SUSHI_URL(g.appid)
-      const r = await existe(url)
-      if (r.mudou) novas[url] = r.entrada
-      if (r.ok) fontes.push("Sushi")
+      if (sushi) {
+        if (sushi.has(g.appid)) fontes.push("Sushi")
+      } else {
+        const url = SUSHI_URL(g.appid)
+        const r = await existe(url)
+        if (r.mudou) novas[url] = r.entrada
+        if (r.ok) fontes.push("Sushi")
+      }
+      const urlRyuu = RYUU_URL(g.appid)
+      const r2 = await existe(urlRyuu)
+      if (r2.mudou) novas[urlRyuu] = r2.entrada
+      if (r2.ok) fontes.push("Ryuu")
     }
-    const urlRyuu = RYUU_URL(g.appid)
-    const r2 = await existe(urlRyuu)
-    if (r2.mudou) novas[urlRyuu] = r2.entrada
-    if (r2.ok) fontes.push("Ryuu")
     g.fontes = fontes
     g.manifest = fontes.length > 0
     return g
@@ -726,6 +763,15 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   // As listas alternativas (top100forever, etc.) vivem no cache genérico,
   // uma entrada por lista, com prefixo "__" para não colidir com gêneros.
   if (lista !== "top100in2weeks") {
+    const remoto = await catalogGet(`/catalog/v1/genre?lista=${encodeURIComponent(lista)}`)
+    const dadosRemotos = remoto.data?.data
+    const listaRemota = Array.isArray(dadosRemotos)
+      ? dadosRemotos
+      : dadosRemotos?.completa || dadosRemotos?.jogos
+    if (Array.isArray(listaRemota) && listaRemota.length) {
+      const fatia = await preparar(listaRemota.slice(off, off + lim))
+      return { ok: true, jogos: fatia, offset: off, total: listaRemota.length }
+    }
     const cache = lerCache(GENERO_CACHE) || {}
     const chave = `__${lista}`
     const guardado = cache[chave]
@@ -755,6 +801,17 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
     }
     const fatia = await preparar(completa.slice(off, off + lim))
     return { ok: true, jogos: fatia, offset: off, total: completa.length }
+  }
+  const remoto = await catalogGet("/catalog/v1/popular?limite=1000&offset=0")
+  if (Array.isArray(remoto.data?.itens) && remoto.data.itens.length) {
+    const fatia = await preparar(remoto.data.itens.slice(off, off + lim))
+    return {
+      ok: true,
+      jogos: fatia,
+      offset: off,
+      total: Number(remoto.data.total) || remoto.data.itens.length,
+      cache: Boolean(remoto.fallback),
+    }
   }
   // "Em alta": cache dedicado com stale-while-revalidate. Guardamos a lista
   // completa e paginamos aqui; a revalidação em voo continua invisível.

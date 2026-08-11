@@ -2,6 +2,7 @@
 
 **Data:** 2026-08-11
 **Status:** Aprovado
+**Plano de implementação:** [2026-08-11-loja-servidor.md](../plans/2026-08-11-loja-servidor.md)
 **Objetivo:** o servidor Node (Express+SQLite) vira a **fonte única de catálogo da loja**. O app deixa de buscar catálogo de terceiros (Hydra, SteamSpy, Steam, etc) e consulta o servidor, que baixa uma vez por TTL e responde JSON pronto.
 
 ## Escopo

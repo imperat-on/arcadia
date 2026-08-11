@@ -37,6 +37,61 @@ shim. O `session.json` (criptografado) persiste a sessao.
 Servico unico Express + SQLite que e a fonte da verdade por conta. Detalhes
 em [server/README.md](../server/README.md).
 
+## Catalogo no servidor
+
+O backend centraliza o catalogo publico usado pela loja em rotas
+`/catalog/v1/*`. Todas exigem o mesmo JWT das rotas de conta. O app consulta
+essas rotas por `app/electron/catalog.js`; APIs pagas e credenciais do usuario
+nao passam pelo proxy.
+
+Os dados ficam na tabela generica `catalog_cache`:
+
+| Coluna | Uso |
+|---|---|
+| `key` | Identidade validada do catalogo, como `popular` ou `items:2622380` |
+| `data` | JSON pronto para o app |
+| `at` | Epoch em segundos da ultima busca |
+
+Uma entrada valida e servida diretamente. Uma entrada vencida e devolvida de
+imediato e revalidada em background (stale-while-revalidate). Sem entrada, a
+rota devolve `404`; o app usa o espelho ou o cache legado.
+
+### Endpoints do catalogo
+
+| Grupo | Rotas |
+|---|---|
+| Loja | `/popular`, `/genre`, `/items`, `/sushi`, `/manifests/:appid` |
+| Hydra | `/sources/:id/games`, `/search` |
+| Jogo | `/sysinfo/:appid`, `/meta/:appid`, `/hltb/:appid` |
+| Conteudo | `/news`, `/fixes`, `/ryuu` |
+
+Todos os caminhos acima usam o prefixo `/catalog/v1`.
+
+### TTL e fallback
+
+| Dado | TTL |
+|---|---|
+| Popular e sushi | 6h |
+| Items, manifestos e fontes Hydra | 7d |
+| Generos | 12h |
+| Noticias | 30min |
+| HLTB | 30d |
+| Fixes e Ryuu | 6h |
+| Sysinfo e meta | sem TTL |
+
+Cada resposta recebida e gravada atomicamente em
+`~/.local/share/arcadia/catalog_espelho/`. Consultas com query string usam
+arquivos separados. A ordem de fallback e servidor, espelho do catalogo e
+cache legado (`store_*_cache.json`, `sources/*.json` e equivalentes).
+
+Continuam locais: trailers, downloads, biblioteca, configuracoes e todas as
+chaves pagas (Hubcap, debrid e Steam). O servidor nunca recebe esses segredos.
+
+Documentos de referencia:
+
+- [Design da loja no servidor](superpowers/specs/2026-08-11-loja-servidor-design.md)
+- [Plano de implementacao](superpowers/plans/2026-08-11-loja-servidor.md)
+
 ## O que sincroniza por conta
 
 | Dado | Como | Sensivel? |
@@ -71,4 +126,4 @@ no disco que outra conta nao possui nao aparece na biblioteca dela.
 - JWT em `.env` (nunca versionado), bcrypt para senhas.
 - RLS substituido por filtro explicito por `user_id` no backend.
 - Uploads validados por magic bytes + teto por bucket.
-- Nada sensivel (API keys, etag, caches de sources) vai pra nuvem.
+- API keys pagas, tokens de provedores e ETags locais nunca vao para o servidor.
