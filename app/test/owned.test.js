@@ -25,6 +25,8 @@ process.env.ARCADIA_DATA_DIR = DIR
 
 const conta = require("../electron/supabase/conta.js")
 const { filtrarPorPosse, ownedSet, ownedAdd, ownedRemove } = require("../electron/owned.js")
+const { getClient } = require("../electron/supabase/client.js")
+const biblioteca = require("../electron/supabase/biblioteca.js")
 
 test.after(() => fs.rmSync(DIR, { recursive: true, force: true }))
 
@@ -106,6 +108,80 @@ test("ownedRemove em guest ou id ausente e no-op", () => {
 
   conta.definirConta(null)
   assert.doesNotThrow(() => ownedRemove("steam:1"))
+})
+
+// ---------- push()/pull() de posse (biblioteca.js) ----------
+// getClient().rpc e getUser sao mockados na instancia real (mesmo padrao
+// dos outros testes de sync do app: sem rede, sem servidor de teste).
+const client = getClient()
+
+test("push: ids possuidos sem watermark sobem como stub no push_library", async () => {
+  conta.definirConta("push-owned-1")
+  fs.writeFileSync(conta.caminhoArquivoConta("custom_games.json"), "[]")
+  ownedAdd("game-a")
+  ownedAdd("game-b")
+
+  let recebido = null
+  client.auth.getUser = async () => ({ data: { user: { id: "u-push" } } })
+  client.rpc = async (fn, args) => {
+    if (fn === "push_library") recebido = args
+    return { data: null, error: null }
+  }
+
+  await biblioteca.push()
+
+  assert.ok(recebido, "push_library deveria ter sido chamado")
+  const enviados = recebido.p_lib.filter((g) => g.appid === "game-a" || g.appid === "game-b")
+  assert.deepEqual(
+    enviados.map((g) => g.appid).sort(),
+    ["game-a", "game-b"]
+  )
+  for (const g of enviados) {
+    assert.equal(g.title, g.appid, "stub sobe com title = id")
+    assert.equal(g.platform, "windows")
+  }
+})
+
+test("pull: row nao possuida ganha owned + custom_games ganha stub (regressao)", async () => {
+  conta.definirConta("pull-owned-1")
+  fs.writeFileSync(conta.caminhoArquivoConta("custom_games.json"), "[]")
+  fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify(["ja-tinha"]))
+
+  client.auth.getUser = async () => ({ data: { user: { id: "u-pull-1" } } })
+  client.rpc = async (fn) => {
+    if (fn === "pull_library") {
+      return { data: [{ appid: "game-c", title: "Game C", platform: "windows", minutes: 0 }], error: null }
+    }
+    return { data: null, error: null }
+  }
+
+  const mudou = await biblioteca.pull()
+  assert.equal(mudou, true)
+
+  assert.deepEqual(ownedSet(), new Set(["ja-tinha", "game-c"]))
+
+  const lib = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf-8"))
+  assert.deepEqual(lib.map((g) => g.id), ["game-c"])
+  assert.equal(lib[0].launcher, "custom")
+  assert.equal(lib[0].exe, "")
+})
+
+test("pull: owned_games.json ausente (null = possui tudo, constraint 7) nao e criado pelo pull", async () => {
+  conta.definirConta("pull-owned-2")
+  fs.writeFileSync(conta.caminhoArquivoConta("custom_games.json"), "[]")
+  const arquivoOwned = conta.caminhoArquivoConta("owned_games.json")
+  assert.ok(!fs.existsSync(arquivoOwned))
+
+  client.auth.getUser = async () => ({ data: { user: { id: "u-pull-2" } } })
+  client.rpc = async (fn) => {
+    if (fn === "pull_library") {
+      return { data: [{ appid: "game-d", title: "Game D", platform: "windows", minutes: 0 }], error: null }
+    }
+    return { data: null, error: null }
+  }
+
+  await biblioteca.pull()
+  assert.ok(!fs.existsSync(arquivoOwned), "pull nao deveria materializar owned_games.json")
 })
 
 function OWNED_GAMES_GUEST() {
