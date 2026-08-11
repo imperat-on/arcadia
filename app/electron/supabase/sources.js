@@ -100,12 +100,9 @@ async function reconcile() {
   return pull()
 }
 
-let pushTimer = null
+// Sincroniza na hora após mudancas locais (sem debounce)
 function agendarPush() {
-  if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(() => {
-    push().catch(() => {})
-  }, 2000)
+  push().catch(() => {})
 }
 
 module.exports = { push, pull, reconcile, agendarPush, registro }

@@ -208,19 +208,11 @@ async function reconcile() {
   avisar(mudou)
 }
 
-// ---------- PUSH agendado (debounce pós-mudança local) ----------
-let timer = null
+// ---------- PUSH imediato (sem debounce) ----------
+// Sincroniza na hora após mudanças locais. A proteção de troca de conta
+// fica no push() (que usa a sessão atual via requireUserId).
 function agendarPush() {
-  if (timer) clearTimeout(timer)
-  // Captura a conta no momento do agendamento. Se o usuário trocar de conta
-  // antes do debounce (2s) disparar, o push não deve subir os dados da conta
-  // antiga na conta nova (vazamento por timing).
-  const contaNoAgendamento = conta()
-  timer = setTimeout(() => {
-    timer = null
-    if (conta() !== contaNoAgendamento) return
-    push().catch((e) => console.error("[biblioteca] push agendado falhou:", e?.message))
-  }, 2000)
+  push().catch((e) => console.error("[biblioteca] push falhou:", e?.message))
 }
 
 module.exports = { push, pull, reconcile, agendarPush, onChanged }
