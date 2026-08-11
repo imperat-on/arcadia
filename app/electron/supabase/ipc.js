@@ -7,6 +7,7 @@ const auth = require("./auth")
 const friends = require("./friends")
 const sync = require("./sync")
 const biblioteca = require("./biblioteca")
+const sourcesSync = require("./sources")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
 
 // Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
@@ -56,6 +57,7 @@ function registerAccountIpc(broadcast, onConta) {
       realtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
       biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
+      sourcesSync.reconcile().catch(() => {})
       // Troca o escopo dos arquivos locais pra conta logada
       onConta?.(username)
     }
