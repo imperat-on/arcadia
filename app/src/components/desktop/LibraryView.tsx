@@ -230,7 +230,7 @@ export function LibraryView({
                 onInstall={() => instalar(g)}
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
-                onOpen={() => (g2.launcher === "steam" ? setPaginaLoja(g2) : setPagina(g2))}
+                onOpen={() => (String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2))}
                 onPlay={() => pedirJogar(g2)}
               />
             )
