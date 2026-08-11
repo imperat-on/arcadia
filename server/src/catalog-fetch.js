@@ -38,6 +38,7 @@ const CATALOG_TTL = {
   "genre:": 12 * 60 * 60, // 12h
   "sysinfo:": 0, // sem validade
   "meta:": 0, // sem validade
+  "stats:": 6 * 60 * 60, // 6h (estatísticas mudam)
   "hltb:": 30 * 24 * 60 * 60, // 30d
   "items:": 7 * 24 * 60 * 60, // 7d
   "manifests:": 7 * 24 * 60 * 60, // 7d
@@ -46,7 +47,7 @@ const CATALOG_TTL = {
 // Valida o formato de um id por prefixo. Permite so o que faz sentido na key.
 function idValido(prefixo, id) {
   if (prefixo === "hydra:") return /^[0-9a-f]{12}$/.test(id) // sha256.slice(0,12)
-  if (prefixo === "sysinfo:" || prefixo === "meta:" || prefixo === "hltb:")
+  if (prefixo === "sysinfo:" || prefixo === "meta:" || prefixo === "hltb:" || prefixo === "stats:")
     return /^\d{1,10}$/.test(id) // appid numerico
   if (prefixo === "items:" || prefixo === "manifests:") return /^\d{1,10}$/.test(id)
   if (prefixo === "genre:") return /^[\w_-]{1,40}$/.test(id) // nome de lista
@@ -77,7 +78,7 @@ function catalogKey(tipo, id) {
     const k = `hydra:${id || ""}`
     return idValido("hydra:", id) ? k : null
   }
-  if (tipo === "sysinfo" || tipo === "meta" || tipo === "hltb") {
+  if (tipo === "sysinfo" || tipo === "meta" || tipo === "hltb" || tipo === "stats") {
     const k = `${tipo}:${id || ""}`
     return idValido(`${tipo}:`, id) ? k : null
   }
@@ -372,6 +373,37 @@ async function fetchHltb(appid) {
   return null
 }
 
+// ---------- Stats (appdetails do SteamSpy) ----------
+// Estatisticas agregadas de um jogo: dev, publisher, owners, ccu (jogadores
+// simultaneos), positive/negative (reviews), userscore, preco. Vem do SteamSpy
+// (API publica) e e cacheado no SQLite — o app nao fala com o SteamSpy direto.
+async function fetchStats(appid) {
+  try {
+    const r = await http(`${STEAMSPY}?request=appdetails&appid=${appid}`, { timeoutMs: 15000 })
+    if (!r.ok) return null
+    const j = await r.json()
+    if (!j || j.appid === undefined) return null
+    return {
+      data: {
+        appid: String(j.appid),
+        name: j.name || "",
+        developer: j.developer || "",
+        publisher: j.publisher || "",
+        owners: j.owners || "",
+        ccu: Number(j.ccu) || 0,
+        positive: Number(j.positive) || 0,
+        negative: Number(j.negative) || 0,
+        userscore: Number(j.userscore) || 0,
+        price: Number(j.price) || 0,
+        discount: Number(j.discount) || 0,
+      },
+      at: nowEpochS(),
+    }
+  } catch {
+    return null
+  }
+}
+
 // ---------- Items (tipo + arte por appid, IStoreBrowseService) ----------
 const ITEMS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
 
@@ -450,6 +482,7 @@ async function fetchCatalogKey(key) {
   }
   if (key.startsWith("sysinfo:")) return fetchSysinfo(key.slice("sysinfo:".length))
   if (key.startsWith("meta:")) return fetchMeta(key.slice("meta:".length))
+  if (key.startsWith("stats:")) return fetchStats(key.slice("stats:".length))
   if (key.startsWith("hltb:")) return null // placeholder (app mantem local)
   if (key.startsWith("items:")) return fetchItems(key.slice("items:".length))
   if (key.startsWith("manifests:")) return fetchManifests(key.slice("manifests:".length))

@@ -195,6 +195,8 @@ function registerCatalogRoutes(app) {
 
   // Sysinfo / meta / hltb por appid.
   app.get("/catalog/v1/sysinfo/:appid", async (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
+  // Stats: estatisticas agregadas (dev, owners, ccu, reviews, preco) do SteamSpy.
+  app.get("/catalog/v1/stats/:appid", async (req, res) => responder(null, req, res, "stats", req.params.appid))
   app.get("/catalog/v1/meta/:appid", async (req, res) => responder(null, req, res, "meta", req.params.appid))
   app.get("/catalog/v1/hltb/:appid", async (req, res) => responder(null, req, res, "hltb", req.params.appid))
 
