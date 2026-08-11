@@ -96,43 +96,73 @@ async function catalogGet(pathname, opts = {}) {
   // mesma rota agora.
   if (emVoo.has(caminho)) return emVoo.get(caminho)
 
-  const promessa = (async () => {
+  // Faz UMA chamada HTTP ao catalogo com o token atual e trata o resultado
+  // (espelho, 304, erro). Devolve { data, error, fallback, notModified }.
+  async function _buscar() {
     const url = `${String(config.url).replace(/\/$/, "")}${caminho}`
+    const headers = {
+      ...authHeaders(),
+      accept: "application/json",
+      "accept-encoding": "gzip",
+    }
+    // If-None-Match: se o espelho ja tem este etag, o servidor devolve 304
+    // e nao re-baixamos o JSON.
+    const etag = catalogGetEtag(caminho)
+    if (etag) headers["if-none-match"] = etag
+
+    const res = await fetchRede(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(opts.timeoutMs || 30000),
+    })
+
+    // 304: nada mudou — usa o espelho local (sem re-baixar).
+    if (res.status === 304) {
+      const espelho = catalogGetEspelho(caminho)
+      if (espelho !== null) return { data: espelho, error: null, fallback: true, notModified: true }
+      return { data: null, error: { message: "HTTP 304 sem espelho" } }
+    }
+
+    if (!res.ok) {
+      // 401: token expirado/invalido — renova a sessao (refresh) e retorna
+      // um sinal para tentar de novo, em vez de cair no espelho imediatamente.
+      if (res.status === 401) return { _renova: true }
+      const espelho = catalogGetEspelho(caminho)
+      if (espelho !== null) return { data: espelho, error: null, fallback: true }
+      return { data: null, error: { message: `HTTP ${res.status}` } }
+    }
+
+    const novoEtag = res.headers?.get?.("etag")
+    if (novoEtag) gravarEtag(caminho, novoEtag)
+    const data = await res.json()
+    gravarEspelho(caminho, data)
+    return { data, error: null, fallback: false }
+  }
+
+  const promessa = (async () => {
     try {
-      const headers = {
-        ...authHeaders(),
-        accept: "application/json",
-        "accept-encoding": "gzip",
+      const r1 = await _buscar()
+      if (r1._renova) {
+        // Token expirado: renova via setSession (faz refresh se preciso) e
+        // tenta de novo UMA vez. Se ainda falhar, cai no espelho.
+        try {
+          const { getClient } = require("./supabase/client")
+          const cliente = getClient()
+          const sessao = cliente.auth._session
+          if (sessao) {
+            await cliente.auth.setSession(sessao)
+          }
+        } catch {}
+        const r2 = await _buscar()
+        if (!r2._renova) return r2
       }
-      // If-None-Match: se o espelho ja tem este etag, o servidor devolve 304
-      // e nao re-baixamos o JSON.
-      const etag = catalogGetEtag(caminho)
-      if (etag) headers["if-none-match"] = etag
-
-      const res = await fetchRede(url, {
-        method: "GET",
-        headers,
-        signal: AbortSignal.timeout(opts.timeoutMs || 30000),
-      })
-
-      // 304: nada mudou — usa o espelho local (sem re-baixar).
-      if (res.status === 304) {
-        const espelho = catalogGetEspelho(caminho)
-        if (espelho !== null) return { data: espelho, error: null, fallback: true, notModified: true }
-        return { data: null, error: { message: "HTTP 304 sem espelho" } }
-      }
-
-      if (!res.ok) {
+      if (r1._renova) {
+        // renovacao nao resolveu — fallback pro espelho
         const espelho = catalogGetEspelho(caminho)
         if (espelho !== null) return { data: espelho, error: null, fallback: true }
-        return { data: null, error: { message: `HTTP ${res.status}` } }
+        return { data: null, error: { message: "HTTP 401" } }
       }
-
-      const novoEtag = res.headers?.get?.("etag")
-      if (novoEtag) gravarEtag(caminho, novoEtag)
-      const data = await res.json()
-      gravarEspelho(caminho, data)
-      return { data, error: null, fallback: false }
+      return r1
     } catch (e) {
       const espelho = catalogGetEspelho(caminho)
       if (espelho !== null) return { data: espelho, error: null, fallback: true }
