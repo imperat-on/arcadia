@@ -421,9 +421,13 @@ async function fetchItems(appid) {
   const it = j?.response?.store_items?.[0]
   if (!it || typeof it.type !== "number") return null
   const assets = it.assets || {}
+  const ITENS_ASSETS = "https://shared.akamai.steamstatic.com/store_item_assets/"
   const urlDeAsset = (a, nome) => {
     if (!a?.asset_url_format || !nome) return ""
-    return a.asset_url_format.replace("${FILENAME}", nome)
+    // Completa o host (a Steam devolve só o caminho relativo). Sem isto o
+    // app recebia URLs como "steam/apps/10/..." que o <img> não carrega e a
+    // sidebar mostrava só a letra do jogo.
+    return ITENS_ASSETS + a.asset_url_format.replace("${FILENAME}", nome)
   }
   return {
     data: {
