@@ -10,17 +10,20 @@ const { registerAuthRoutes } = require("./auth-routes")
 const { registerRestRoutes } = require("./rest-routes")
 const { registerSyncRoutes } = require("./sync-routes")
 const { registerStorageRoutes } = require("./storage-routes")
+const { registerCatalogRoutes } = require("./catalog-routes")
 const { registerRealtime } = require("./realtime")
 
 const PORT = process.env.PORT || 3000
 const app = express()
 
 app.use(express.json({ limit: "1mb" }))
+app.use(require("compression")())
 
 registerAuthRoutes(app)
 registerRestRoutes(app)
 registerSyncRoutes(app)
 registerStorageRoutes(app)
+registerCatalogRoutes(app)
 
 // Healthcheck (usado pelo systemd e pelo deploy)
 app.get("/health", (req, res) => {

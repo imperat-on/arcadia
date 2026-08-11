@@ -103,3 +103,111 @@ test("catalog-fetch: TTL tem entradas para os prefixos usados", () => {
   assert.equal(CATALOG_TTL["sysinfo:"], 0) // sem validade
   assert.equal(CATALOG_TTL["items:"], 7 * 24 * 60 * 60)
 })
+
+// ---------- Rotas /catalog/v1/* ----------
+const express = require("express")
+const { registerCatalogRoutes } = require("../src/catalog-routes")
+
+const catApp = express()
+catApp.use(express.json())
+registerCatalogRoutes(catApp)
+const listener = catApp.listen(0)
+const catBase = `http://127.0.0.1:${listener.address().port}`
+// fecha o listener no fim para o node --test nao pendurar
+test.after(() => new Promise((r) => listener.close(r)))
+const JWT = require("../src/jwt")
+
+// Emite um JWT valido com sub=user1 (mesma chave do server em teste)
+function tokenUsuario(username) {
+  // issueTokens assina com SECRET do jwt.js; usamos o mesmo modulo.
+  // Nao ha profile real aqui, entao montamos um minimo.
+  const { issueTokens } = JWT
+  const t = issueTokens({ id: "user1", email: `${username}@teste`, username })
+  return t.access_token
+}
+
+test("catalog rotas: sem JWT devolve 401", async () => {
+  const r = await fetch(`${catBase}/catalog/v1/popular`)
+  assert.equal(r.status, 401)
+})
+
+test("catalog rotas: com JWT e cache, popular devolve fatia paginada", async () => {
+  // popula o cache direto no SQLite
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "popular",
+    JSON.stringify({
+      completa: [
+        { appid: "10", title: "A", cover: "", manifest: false },
+        { appid: "20", title: "B", cover: "", manifest: false },
+      ],
+    }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/popular?limite=1&offset=1`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.total, 2)
+  assert.equal(body.itens.length, 1)
+  assert.equal(body.itens[0].appid, "20")
+})
+
+test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "sysinfo:2622380",
+    JSON.stringify({ appid: "2622380", req_min: "16GB", req_rec: "32GB" }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/sysinfo/2622380`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.data.req_min, "16GB")
+})
+
+test("catalog rotas: items em lote devolve mapa por appid", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "items:2622380",
+    JSON.stringify({ tipo: 0, capa: "u", heroi: "h", icon: "i" }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/items?appids=2622380`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.data["2622380"].tipo, 0)
+})
+
+test("catalog rotas: key invalida devolve 400", async () => {
+  // id de fonte nao-hexadecimal: passa na rota mas falha a allowlist
+  const r = await fetch(`${catBase}/catalog/v1/sources/not-a-valid-hash/games`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 400)
+})
+
+test("catalog rotas: cache vazio devolve 404", async () => {
+  const r = await fetch(`${catBase}/catalog/v1/fixes`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 404)
+})
+
+test("catalog rotas: search devolve itens do cache hydra", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "hydra:59e6a31484ce",
+    JSON.stringify({ name: "fitgirl", downloads: [{ title: "Elden Ring" }, { title: "Cyberpunk" }] }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/search?q=elden`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.itens.length, 1)
+  assert.equal(body.itens[0].title, "Elden Ring")
+})
