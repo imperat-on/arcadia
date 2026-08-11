@@ -155,7 +155,11 @@ async function pull() {
       owned.add(row.appid)
       ownedMudou = true
     }
-    if (!ids.has(row.appid)) {
+    // Jogos steam:* do servidor so entram na POSSE (owned), nunca no
+    // custom_games.json: o library.json global (ou o pending) ja os tem.
+    // Sem isso o pull duplicaria o jogo (custom + global com mesmo id).
+    const ehSteam = String(row.appid).startsWith("steam:")
+    if (!ehSteam && !ids.has(row.appid)) {
       lib.push({
         id: row.appid,
         title: row.title || row.appid,
@@ -165,7 +169,7 @@ async function pull() {
         installed: false,
       })
       mudou = true
-    } else {
+    } else if (!ehSteam) {
       const g = lib.find((x) => x.id === row.appid)
       if (row.title && (!g.title || g.title === g.id)) {
         g.title = row.title

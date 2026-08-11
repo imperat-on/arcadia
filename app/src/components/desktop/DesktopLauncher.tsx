@@ -21,6 +21,7 @@ import { AddGameDialog } from "./AddGameDialog"
 import { useI18n } from "../../i18n/I18nContext"
 import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
+import { ProfileBridge } from "./ProfileBridge"
 import { EditProfile } from "../ps5-launcher/EditProfile"
 import { AchievementToast } from "./AchievementToast"
 import { useAccount } from "../account/AccountContext"
@@ -70,53 +71,6 @@ function AutoOpenLogin({
 // Deslogado: restaura o perfil local original (guardado no 1º merge DA SESSÃO).
 // IMPORTANTE: o original é capturado ANTES do merge e resetado ao deslogar,
 // senão a SEGUNDA sessão captura o perfil já mergeado da primeira (vazamento).
-function ProfileBridge({
-  perfilLocal,
-  setPerfilLocal,
-}: {
-  perfilLocal: Profile
-  setPerfilLocal: React.Dispatch<React.SetStateAction<Profile>>
-}) {
-  const { perfil } = useAccount()
-  const original = useRef<Profile | null>(null)
-  const jaInicializou = useRef(false)
-
-  useEffect(() => {
-    if (!perfil) {
-      if (original.current) {
-        setPerfilLocal(original.current)
-        original.current = null
-        jaInicializou.current = false
-      }
-      return
-    }
-    // Salva o original ANTES do primeiro merge (perfil local PURO,
-    // nunca mergeado de sessão anterior — jaInicializou garante isso)
-    if (!jaInicializou.current) {
-      original.current = perfilLocal
-      jaInicializou.current = true
-    }
-    setPerfilLocal((p) => ({
-      ...p,
-      // Logado: o servidor é a fonte da verdade — SEM fallback pro local,
-      // senão a conta anterior vaza campos (summary/país/avatar...).
-      name: perfil.display_name || perfil.username || "",
-      avatar: perfil.avatar_url || "",
-      summary: perfil.summary ?? "",
-      country: perfil.country ?? "",
-      city: perfil.city ?? "",
-      background: perfil.background_url ?? "",
-      // NOTE: showcase NÃO vem do online aqui — o perfil online é buscado uma
-      // vez no login e fica STALE; mergeá-lo sobrescrevia a vitrine editada
-      // com a lista antiga do servidor (bug da contagem/0 de seleção). A
-      // vitrine é local (config.json) e sobe via updatePerfil ao editar.
-    }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [perfil])
-
-  return null
-}
-
 export function DesktopLauncher() {
   const { t } = useI18n()
   const [view, setView] = useState<DesktopView>("inicio")
@@ -277,7 +231,7 @@ export function DesktopLauncher() {
         key={view}
         className="view-in min-w-0 flex-1 overflow-hidden border-l border-white/[0.06]"
       >
-        {jogoPagina && jogoPagina.launcher === "steam" && (
+        {jogoPagina && String(jogoPagina.id).startsWith("steam:") && (
               <StoreGamePage
                 embedded
                 jogo={{
@@ -311,7 +265,7 @@ export function DesktopLauncher() {
                 ocupado={false}
               />
             )}
-            {jogoPagina && jogoPagina.launcher !== "steam" && (
+            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && (
               <GamePage
                 embedded
                 game={jogoPagina}

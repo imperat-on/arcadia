@@ -24,6 +24,7 @@ import { useJogoRodando } from "../useJogoRodando"
 import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
+import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
@@ -865,6 +866,7 @@ export function PS5Launcher() {
       className={`relative flex flex-col min-h-screen select-none overflow-hidden ${posLogin ? "pos-login home-reveal" : ""}`}
       style={{ background: "#000000" }}
     >
+      <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
         <BootScreen
