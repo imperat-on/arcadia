@@ -73,6 +73,7 @@ function AutoOpenLogin({
 // senão a SEGUNDA sessão captura o perfil já mergeado da primeira (vazamento).
 export function DesktopLauncher() {
   const { t } = useI18n()
+  const { perfil } = useAccount()
   const [view, setView] = useState<DesktopView>("inicio")
   const [configSub, setConfigSub] = useState<ConfigSub>("gerais")
   const [games, setGames] = useState<Game[]>([])
@@ -298,7 +299,7 @@ export function DesktopLauncher() {
                 open
                 embedded
                 navActive={!showEditProfile}
-                profile={profile}
+                profile={perfil ? { ...profile, name: perfil.display_name || perfil.username || profile.name, avatar: perfil.avatar_url || profile.avatar, background: perfil.background_url || profile.background } : profile}
                 games={games}
                 onClose={() => setView("inicio")}
                 onEdit={() => setShowEditProfile(true)}
