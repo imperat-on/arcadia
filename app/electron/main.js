@@ -785,47 +785,79 @@ async function getGameStats(appid) {
   if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.data
   let out = null
   try {
-    const [spy, rev] = await Promise.all([
-      fetchJson(`https://steamspy.com/api.php?request=appdetails&appid=${appid}`).catch(() => null),
-      // num_per_page=20 traz os textos das reviews junto do resumo (mesma API).
-      // language=english: avaliações sempre em inglês (pedido do usuário).
-      fetchJson(
-        `https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=50`,
-      ).catch(() => null),
+    // Stats agregadas via servidor (o servidor coleta do SteamSpy e cacheia).
+    const [statsRes, revRes] = await Promise.all([
+      catalogGet(`/catalog/v1/stats/${appid}`),
+      // Reviews da comunidade primeiro (fonte de verdade própria); se não
+      // houver, cai no fallback da Steam (appreviews) para a tela não ficar
+      // vazia. Modo híbrido: servidor armazena, Steam cobre o início.
+      catalogGet(`/catalog/v1/reviews/${appid}`),
     ])
-    const q = rev?.query_summary || {}
-    const pos = Number(q.total_positive) || 0
-    const total = Number(q.total_reviews) || 0
-    // Comentários individuais: perfil (steamid p/ identicon), texto, recomendação,
-    // horas jogadas na review e data (timestamp p/ "há N dias").
-    const comentariosBase = (rev?.reviews || [])
-      .slice(0, 50)
-      .map((r) => ({
-        steamid: String(r.author?.steamid || ""),
-        author: r.author?.steamid ? `Steam ${String(r.author.steamid).slice(-4)}` : "",
+    const stats = statsRes.data?.data
+    let comments = []
+    let reviewDesc = ""
+    let reviewPositivePct = null
+    let totalReviews = 0
+
+    // 1. reviews da comunidade (do servidor)
+    const comReviews = Array.isArray(revRes.data?.reviews) ? revRes.data.reviews : []
+    if (comReviews.length) {
+      comments = comReviews.map((r) => ({
+        steamid: "",
+        author: r.username || "Usuário",
         avatar: "",
-        text: String(r.review || "").trim(),
-        positive: Boolean(r.voted_up),
-        hours: r.author?.playtime_forever ? Math.round(r.author.playtime_forever / 60) : 0,
-        hoursAtReview: r.author?.playtime_at_review
-          ? Math.round(r.author.playtime_at_review / 60)
-          : 0,
-        helpful: Number(r.votes_up) || 0,
-        timestamp: Number(r.timestamp_created) || 0,
+        text: String(r.text || "").trim(),
+        positive: Boolean(r.positive),
+        hours: Number(r.hours) || 0,
+        hoursAtReview: Number(r.hours) || 0,
+        helpful: 0,
+        timestamp: new Date(r.created_at || 0).getTime() / 1000,
+        daComunidade: true,
       }))
-      .filter((c) => c.text)
-    // Enriquece com nome/avatar reais (cache disco 7d, pool 6 paralelas).
-    const perfis = await resolveProfiles(comentariosBase.map((c) => c.steamid).filter(Boolean))
-    const comments = comentariosBase.map((c) => {
-      const p = perfis[c.steamid]
-      return { ...c, author: p?.name || c.author, avatar: p?.avatar || "" }
-    })
+      totalReviews = comments.length
+      reviewPositivePct = comments.length
+        ? Math.round((comments.filter((c) => c.positive).length / comments.length) * 100)
+        : null
+      reviewDesc = reviewPositivePct >= 70 ? "Muito positivas" : "Positivas"
+    } else {
+      // 2. fallback: reviews da Steam (appreviews) — só quando não há da comunidade
+      const rev = await fetchJson(
+        `https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=50`,
+      ).catch(() => null)
+      const q = rev?.query_summary || {}
+      const pos = Number(q.total_positive) || 0
+      totalReviews = Number(q.total_reviews) || 0
+      reviewDesc = q.review_score_desc || ""
+      reviewPositivePct = totalReviews ? Math.round((pos / totalReviews) * 100) : null
+      const base = (rev?.reviews || [])
+        .slice(0, 50)
+        .map((r) => ({
+          steamid: String(r.author?.steamid || ""),
+          author: r.author?.steamid ? `Steam ${String(r.author.steamid).slice(-4)}` : "",
+          avatar: "",
+          text: String(r.review || "").trim(),
+          positive: Boolean(r.voted_up),
+          hours: r.author?.playtime_forever ? Math.round(r.author.playtime_forever / 60) : 0,
+          hoursAtReview: r.author?.playtime_at_review
+            ? Math.round(r.author.playtime_at_review / 60)
+            : 0,
+          helpful: Number(r.votes_up) || 0,
+          timestamp: Number(r.timestamp_created) || 0,
+        }))
+        .filter((c) => c.text)
+      const perfis = await resolveProfiles(base.map((c) => c.steamid).filter(Boolean))
+      comments = base.map((c) => {
+        const p = perfis[c.steamid]
+        return { ...c, author: p?.name || c.author, avatar: p?.avatar || "" }
+      })
+    }
+
     out = {
-      owners: spy?.owners || "",
-      ccu: Number(spy?.ccu) || 0,
-      reviewDesc: q.review_score_desc || "",
-      reviewPositivePct: total ? Math.round((pos / total) * 100) : null,
-      totalReviews: total,
+      owners: stats?.owners || "",
+      ccu: Number(stats?.ccu) || 0,
+      reviewDesc,
+      reviewPositivePct,
+      totalReviews,
       comments,
     }
     // Se tudo vazio, trata como sem dados (painel some).
