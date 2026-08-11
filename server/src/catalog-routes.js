@@ -10,7 +10,7 @@
 
 const { db, nowEpochS } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
-const { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL } = require("./catalog-fetch")
+const { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, fetchGenero, STEAMSPY_GENEROS } = require("./catalog-fetch")
 
 // Extrai o Bearer token e valida. Devolve o sub (user id) ou null.
 function requireAuth(req) {
@@ -112,37 +112,37 @@ function registerCatalogRoutes(app) {
     res.json({ ok: true, itens: completa.slice(offset, offset + limite), total: completa.length, offset })
   })
 
-  // Catálogo infinito: os 5864 appids do sushi (com manifesto) paginados,
-  // com nome+arte buscados sob demanda (meta/items) e cacheados. Permite
-  // rolar/paginar como a Steam — 244 páginas de 24 em vez de só 5 do popular.
+  // Catálogo completo: ~100.000+ jogos da Steam coletados via SteamSpy por
+  // gênero (com NOME real), paginados como a Steam/Hydra. Enquanto a coleta
+  // ainda não terminou, serve o que já tem. Arte via items sob demanda.
   app.get("/catalog/v1/catalog", async (req, res) => {
     const limite = Math.max(1, Number(req.query.limite) || 24)
     const offset = Math.max(0, Number(req.query.offset) || 0)
-    // 1. appids do sushi (lista mestre de jogos instaláveis)
-    let sushi = getCached("sushi")
-    if (sushi === null) {
-      sushi = await buscar("sushi")
-      if (sushi === null) return res.status(404).json({ error: "cache_vazio" })
+    let data = getCached("catalogo_completo")
+    if (data === null) {
+      // coleta ainda rodando ou vazia — dispara e serve vazio por enquanto
+      precarregarCatalogoCompleto()
+      return res.json({ ok: true, itens: [], total: 0, offset, coletando: true })
     }
-    const ids = Array.isArray(sushi.ids) ? sushi.ids : []
-    const fatia = ids.slice(offset, offset + limite)
-    // 2. para cada appid da página, nome (meta) + arte (items) sob demanda
-    const itens = []
-    await Promise.all(
-      fatia.map(async (appid) => {
-        const meta = getCached(`meta:${appid}`) ?? (await buscar(`meta:${appid}`))
-        const item = getCached(`items:${appid}`) ?? (await buscar(`items:${appid}`))
-        if (!meta && !item) return
-        itens.push({
-          appid: String(appid),
-          title: meta?.name || String(appid),
-          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+    const completa = Array.isArray(data.completa) ? data.completa : []
+    const etag = `"${getCacheAt("catalogo_completo")}"`
+    if (req.headers["if-none-match"] === etag) return res.status(304).end()
+    res.set("ETag", etag)
+    const fatia = completa.slice(offset, offset + limite)
+    // arte (capa) via items, sob demanda e cacheado
+    const comArte = await Promise.all(
+      fatia.map(async (g) => {
+        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
+        return {
+          appid: String(g.appid),
+          title: g.title || String(g.appid),
+          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
           heroi: item?.heroi || "",
           capa: item?.capa || "",
-        })
+        }
       }),
     )
-    res.json({ ok: true, itens, total: ids.length, offset })
+    res.json({ ok: true, itens: comArte, total: completa.length, offset })
   })
 
   // Steam250: catálogo com nome real (~890 jogos: top250, mais jogados,
@@ -315,43 +315,39 @@ function warmUpCatalog() {
   }
 }
 
-// Percorre o catalogo do steam250 (~890 jogos com nome) e busca items (arte)
-// de cada um, em lotes de 20, sem bloquear. So preenche o que falta (respeita
-// cache existente). Roda em background; erros são engolidos.
+// Coleta o catálogo COMPLETO da Steam via SteamSpy por gênero: cada gênero
+// lista dezenas de milhares de jogos com NOME real. Deduplica por appid e
+// grava no SQLite como 'catalogo_completo'. ~100.000+ jogos no total — como
+// o Hydra coleta no servidor. Roda em background no boot; erros engolidos.
+let coletando = false
 function precarregarCatalogoCompleto() {
-  const row = db.prepare("SELECT data FROM catalog_cache WHERE key = 'steam250'").get()
-  if (!row) return
-  let completa
-  try {
-    completa = JSON.parse(row.data).completa
-  } catch {
-    return
-  }
-  if (!Array.isArray(completa) || !completa.length) return
-  const ids = completa.map((g) => g.appid).filter(Boolean)
-  console.log(`[precarregar] catalogo steam250: ${ids.length} jogos em background`)
-  const LOTE = 20
+  if (coletando) return
+  coletando = true
+  console.log("[precarregar] coletando catalogo completo via SteamSpy (generos)...")
+  let todos = []
   let i = 0
-  async function proximoLote() {
-    const fatia = ids.slice(i, i + LOTE)
-    i += LOTE
-    if (!fatia.length) {
-      console.log("[precarregar] catalogo steam250 pronto")
+  async function proximoGenero() {
+    if (i >= STEAMSPY_GENEROS.length) {
+      // dedupe + grava
+      const unicos = [...new Map(todos.map((g) => [g.appid, g])).values()]
+      gravarCache("catalogo_completo", {
+        data: { completa: unicos },
+        at: nowEpochS(),
+      })
+      console.log(`[precarregar] catalogo completo pronto: ${unicos.length} jogos`)
+      coletando = false
       return
     }
-    await Promise.all(
-      fatia.map(async (appid) => {
-        // so busca a arte que falta
-        if (!getCached(`items:${appid}`)) {
-          const r = await fetchCatalogKey(`items:${appid}`).catch(() => null)
-          if (r) gravarCache(`items:${appid}`, r)
-        }
-      }),
-    )
-    // pausa leve para nao sobrecarregar a Steam
-    setTimeout(proximoLote, 200)
+    const genero = STEAMSPY_GENEROS[i++]
+    const jogos = await fetchGenero(genero).catch(() => [])
+    if (jogos.length) {
+      todos = todos.concat(jogos)
+      console.log(`[precarregar] genero ${genero}: +${jogos.length} (total ${todos.length})`)
+    }
+    // pausa leve para nao sobrecarregar o SteamSpy
+    setTimeout(proximoGenero, 300)
   }
-  proximoLote()
+  proximoGenero()
 }
 
 module.exports = { registerCatalogRoutes, getCached, warmUpCatalog, precarregarCatalogoCompleto }

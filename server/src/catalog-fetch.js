@@ -457,4 +457,34 @@ async function fetchCatalogKey(key) {
   return null
 }
 
-module.exports = { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, idValido, http }
+// ---------- Catálogo completo via SteamSpy por gênero ----------
+// O SteamSpy lista jogos por gênero (request=genre&genre=X) com NOME real.
+// Combinando os gêneros da Steam e deduplicando por appid, chega-se a
+// ~100.000+ jogos únicos — o catálogo completo, como o Hydra coleta no
+// servidor deles. Coletado em lotes em background e gravado no SQLite.
+const STEAMSPY_GENEROS = [
+  "Action", "Adventure", "RPG", "Strategy", "Simulation", "Sports",
+  "Racing", "Casual", "Indie", "Massively Multiplayer", "Early Access",
+  "Free to Play",
+]
+
+// Busca um gênero do SteamSpy. Devolve [{ appid, title, genres }] ou [].
+async function fetchGenero(genero) {
+  try {
+    const r = await http(
+      `${STEAMSPY}?request=genre&genre=${encodeURIComponent(genero)}`,
+      { timeoutMs: 25000 },
+    )
+    if (!r.ok) return []
+    const j = await r.json()
+    return Object.entries(j).map(([id, g]) => ({
+      appid: String(id),
+      title: g?.name || "",
+      genres: Array.isArray(g?.genre) ? g.genre : [],
+    }))
+  } catch {
+    return []
+  }
+}
+
+module.exports = { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, idValido, http, fetchGenero, STEAMSPY_GENEROS }
