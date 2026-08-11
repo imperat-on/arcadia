@@ -156,6 +156,25 @@ function registerCatalogRoutes(app) {
   })
 
   // Manifests: disponibilidade de manifesto por appid.
+  // Endpoint de LOTE: ?appids=1,2,3 devolve todos em uma chamada, evitando
+  // N handshakes TLS quando a loja prepara uma pagina inteira. O app pedia
+  // um por jogo (24 chamadas) — agora e 1.
+  app.get("/catalog/v1/manifests", async (req, res) => {
+    const appids = String(req.query.appids || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d{1,10}$/.test(s))
+    if (!appids.length) return res.json({ ok: true, data: {} })
+    const out = {}
+    for (const appid of appids) {
+      let data = getCached(`manifests:${appid}`)
+      if (data === null) {
+        data = await buscar(`manifests:${appid}`) // cold start
+      }
+      if (data) out[appid] = data
+    }
+    res.json({ ok: true, data: out })
+  })
   app.get("/catalog/v1/manifests/:appid", async (req, res) =>
     responder(null, req, res, "manifests", req.params.appid),
   )

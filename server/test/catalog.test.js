@@ -431,3 +431,37 @@ test("catalog rotas: If-None-Match com etag atual devolve 304", async () => {
   })
   assert.equal(r3.status, 200)
 })
+
+test("catalog rotas: manifests em lote devolve varios appids numa chamada", async () => {
+  // popula cache de manifests para 2 appids
+  const at = Math.floor(Date.now() / 1000)
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "manifests:2622380",
+    JSON.stringify({ "https://sushi/2622380.zip": { ok: true } }),
+    at,
+  )
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "manifests:10",
+    JSON.stringify({ "https://ryuu/10": { ok: true } }),
+    at,
+  )
+  const r = await fetch(`${catBase}/catalog/v1/manifests?appids=2622380,10`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.ok(body.data["2622380"], "deve ter 2622380")
+  assert.ok(body.data["10"], "deve ter 10")
+  assert.equal(body.data["2622380"]["https://sushi/2622380.zip"].ok, true)
+  assert.equal(body.data["10"]["https://ryuu/10"].ok, true)
+})
+
+test("catalog rotas: manifests em lote ignora appids invalidos", async () => {
+  const r = await fetch(`${catBase}/catalog/v1/manifests?appids=2622380,abc,,x`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.ok(body.data["2622380"], "appid valido processado")
+  assert.equal(body.data["abc"], undefined, "appid invalido ignorado")
+})
