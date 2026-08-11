@@ -57,7 +57,11 @@ bin/slscheevo.tar.gz
 # Fontes de download + torrent (dados/estado do usuário)
 sources.json
 sources/
+sources_index.json
 torrent_state.json
+
+# Espelho local do catálogo servido pelo backend (re-baixável, por máquina)
+catalog_espelho/
 bin/gemini-scan
 
 # Lixo/estado de runtime
