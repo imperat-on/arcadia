@@ -35,6 +35,7 @@ const { fetchRede } = require("./httpfetch")
 // bloco deixava "caminhoConta is not defined" → biblioteca vazia).
 const { caminhoConta, definirConta, conta } = require("./supabase/conta")
 const { readOverrides, setOverride, applyOverrides, artToDelete } = require("./overrides")
+const { filtrarPorPosse, OWNED_GAMES } = require("./owned")
 const {
   sgdbSearch,
   sgdbArt,
@@ -1275,7 +1276,7 @@ function xboxLocale(cfg) {
 let _libCache = { chave: "", games: [] }
 function _libMtimeKey() {
   // library.json é global (o indexador escreve na raiz), os demais são por conta.
-  return [LIB, caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS)]
+  return [LIB, caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS), caminhoConta(OWNED_GAMES)]
     .map((p) => {
       try {
         return fs.statSync(p).mtimeMs
@@ -1334,7 +1335,8 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const games = JSON.parse(fs.readFileSync(LIB, "utf-8"))
+    const globais = JSON.parse(fs.readFileSync(LIB, "utf-8"))
+    const games = filtrarPorPosse(globais)
     games.push(...readJsonFile(caminhoConta(CUSTOM_GAMES), []))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
