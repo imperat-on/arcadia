@@ -427,45 +427,49 @@ async function preparar(jogos, jaTem = new Set()) {
 // `jaTem` traz os appids que o Hubcap já confirmou (não precisam de sonda).
 async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   const sushi = await sushiIds()
-  // Sondagens novas desta página inteira, acumuladas para UMA escrita em
-  // disco no final (em vez de uma por item sondado — ver `existe()`).
-  const novas = {}
-  // 24 em paralelo (= BUSCA_MAX): página inteira sonda em UMA rodada de HEADs
-  // de alguns bytes, espalhados em dois hosts. Com 12 eram 2 rodadas e a busca
-  // pagava a latência da mais lenta duas vezes.
-  await emLotes(jogos, 24, async (g) => {
+  // Uma chamada batch de manifests para a página inteira (em vez de um por
+  // jogo = N handshakes TLS). O servidor devolve { appid: { url: { ok } } }.
+  const appids = jogos.map((g) => g.appid).filter(Boolean)
+  const batch = appids.length
+    ? await catalogGet(`/catalog/v1/manifests?appids=${encodeURIComponent(appids.join(","))}`)
+    : { data: null }
+  const disponibilidadeGeral = batch.data?.data || {}
+  // Sondagens novas (fallback local p/ appids que o batch nao cobriu),
+  // acumuladas para UMA escrita em disco no final.
+  const novasLocal = {}
+
+  for (const g of jogos) {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
-    const manifestos = await catalogGet(`/catalog/v1/manifests/${g.appid}`)
-    const disponibilidade = manifestos.data?.data
+    const disponibilidade = disponibilidadeGeral[g.appid]
     if (disponibilidade && typeof disponibilidade === "object") {
       if (disponibilidade[SUSHI_URL(g.appid)]?.ok) fontes.push("Sushi")
       if (disponibilidade[RYUU_URL(g.appid)]?.ok) fontes.push("Ryuu")
       if (disponibilidade[TWENTYTWO_URL(g.appid)]?.ok) fontes.push("TwentyTwo Cloud")
     } else {
+      // Sem dados do batch (cold start falhou p/ este appid): cai na sondagem
+      // local como antes (HEAD direto, sem depender do servidor).
       if (sushi) {
         if (sushi.has(g.appid)) fontes.push("Sushi")
       } else {
-        const url = SUSHI_URL(g.appid)
-        const r = await existe(url)
-        if (r.mudou) novas[url] = r.entrada
+        const r = await existe(SUSHI_URL(g.appid))
+        if (r.mudou) novasLocal[SUSHI_URL(g.appid)] = r.entrada
         if (r.ok) fontes.push("Sushi")
       }
-      const urlRyuu = RYUU_URL(g.appid)
-      const r2 = await existe(urlRyuu)
-      if (r2.mudou) novas[urlRyuu] = r2.entrada
+      const r2 = await existe(RYUU_URL(g.appid))
+      if (r2.mudou) novasLocal[RYUU_URL(g.appid)] = r2.entrada
       if (r2.ok) fontes.push("Ryuu")
     }
     g.fontes = fontes
     g.manifest = fontes.length > 0
-    return g
-  })
-  if (Object.keys(novas).length) {
+  }
+
+  if (Object.keys(novasLocal).length) {
     // Merge contra o estado ATUAL (não sobrescrita cega): `getManifestCache()`
     // pode ter recarregado do disco no meio da sondagem (janela de 60s) e
     // trocado a referência do objeto por baixo dos pés.
     const cache = getManifestCache()
-    Object.assign(cache, novas)
+    Object.assign(cache, novasLocal)
     gravarManifestCache(cache)
   }
   return jogos
