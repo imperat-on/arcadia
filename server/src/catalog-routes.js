@@ -315,33 +315,23 @@ function registerCatalogRoutes(app) {
   app.get("/catalog/v1/search", (req, res) => {
     const q = String(req.query.q || "").trim().toLowerCase()
     if (!q) return res.json({ ok: true, itens: [] })
-    // varre as fontes em cache, monta indice leve e filtra por titulo
+    // Busca no catálogo completo (85k jogos da Steam, com appid real + nome).
+    // Este é o caminho da loja: resultados com capa e que abrem a tela rica.
+    const data = getCached("catalogo_completo")
+    const completa = Array.isArray(data?.completa) ? data.completa : []
     const itens = []
-    const fontes = db
-      .prepare("SELECT key, data FROM catalog_cache WHERE key LIKE 'hydra:%'")
-      .all()
-    for (const f of fontes) {
-      let dados
-      try {
-        dados = JSON.parse(f.data)
-      } catch {
-        continue
-      }
-      const downloads = Array.isArray(dados.downloads) ? dados.downloads : []
-      for (let i = 0; i < downloads.length; i++) {
-        const d = downloads[i]
-        if (!d?.title) continue
-        if (String(d.title).toLowerCase().includes(q)) {
-          itens.push({
-            ref: `${f.key.replace("hydra:", "")}:${i}`,
-            title: d.title,
-            fileSize: String(d.fileSize || "").trim(),
-            uploadDate: String(d.uploadDate || "").trim(),
-          })
-        }
+    for (const g of completa) {
+      if (!g?.title) continue
+      if (String(g.title).toLowerCase().includes(q)) {
+        itens.push({
+          appid: String(g.appid),
+          title: g.title,
+          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+        })
+        if (itens.length >= 40) break
       }
     }
-    res.json({ ok: true, itens: itens.slice(0, 40) })
+    res.json({ ok: true, itens })
   })
 }
 

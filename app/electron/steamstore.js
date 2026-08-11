@@ -637,29 +637,15 @@ async function search(query) {
 }
 
 async function _searchReal(query, chave) {
-  // Busca local-primeiro: o índice Hydra (sources, ~30k títulos) já está em
-  // memória. Se achar jogos aqui, devolve instantâneo sem pagar a latência da
-  // Steam viva. Só cai na rede (Hubcap+Steam) se o índice local não tiver nada
-  // relevante — como a Steam faz (filtra o catálogo local antes).
-  const { search: searchSources, getGame: getSourceGame } = require("./sources")
+  // Busca primeiro no catálogo do servidor (85k jogos Steam com appid real +
+  // capa). Resultados com capa e que abrem a tela rica. Só cai na rede
+  // (Hubcap+Steam) se o catálogo não tiver nada — como a Steam faz.
   try {
-    const hits = await searchSources(query, 8)
-    if (hits.length >= 3) {
-      // Mapeia os hits Hydra para o shape da loja (appid derivado do hash da
-      // fonte para o jogo abrir na tela rica). Cover montada da CDN Steam.
-      const locais = hits.map((h, i) => {
-        const appid = String(h.ref || "").split(":")[0] || ""
-        return {
-          appid,
-          title: h.title,
-          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
-          manifest: true,
-          fonteLocal: true,
-          fonte: h.src || "",
-          fileSize: h.fileSize || "",
-        }
-      })
-      const res = { ok: true, jogos: locais.slice(0, 8), fonte: "local", avisos: [] }
+    const remoto = await catalogGet(`/catalog/v1/search?q=${encodeURIComponent(query)}`)
+    const itens = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
+    if (itens.length) {
+      const jogos = await preparar(itens.slice(0, 40))
+      const res = { ok: true, jogos, fonte: "catalogo", avisos: [] }
       if (chave.length >= 2) {
         if (buscaCache.size > 50) buscaCache.clear()
         buscaCache.set(chave, { at: Date.now(), res })
@@ -667,7 +653,7 @@ async function _searchReal(query, chave) {
       return res
     }
   } catch {
-    // se o índice local falhar, segue para a rede normalmente
+    // se falhar, segue para a rede normalmente
   }
   const cfg = readConfig()
   const porId = new Map()

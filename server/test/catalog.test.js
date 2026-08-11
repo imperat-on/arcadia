@@ -330,10 +330,13 @@ test("catalog rotas: cache vazio devolve 404", async () => {
   assert.equal(r.status, 404)
 })
 
-test("catalog rotas: search devolve itens do cache hydra", async () => {
+test("catalog rotas: search devolve jogos do catalogo completo", async () => {
   db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-    "hydra:59e6a31484ce",
-    JSON.stringify({ name: "fitgirl", downloads: [{ title: "Elden Ring" }, { title: "Cyberpunk" }] }),
+    "catalogo_completo",
+    JSON.stringify({ completa: [
+      { appid: "1245620", title: "ELDEN RING" },
+      { appid: "1091500", title: "Cyberpunk 2077" },
+    ] }),
     Math.floor(Date.now() / 1000),
   )
   const r = await fetch(`${catBase}/catalog/v1/search?q=elden`, {
@@ -342,7 +345,8 @@ test("catalog rotas: search devolve itens do cache hydra", async () => {
   assert.equal(r.status, 200)
   const body = await r.json()
   assert.equal(body.itens.length, 1)
-  assert.equal(body.itens[0].title, "Elden Ring")
+  assert.equal(body.itens[0].title, "ELDEN RING")
+  assert.equal(body.itens[0].appid, "1245620")
 })
 
 test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", async () => {
