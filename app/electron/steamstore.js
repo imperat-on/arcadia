@@ -594,18 +594,14 @@ async function suggest(query) {
 
 async function suggestDaSteam(q, chave) {
   try {
-    const r = await gh(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=${steamLang()}`,
-      { signal: AbortSignal.timeout(6000) },
-    )
-    if (!r.ok) return { ok: false, error: `Steam HTTP ${r.status}` }
-    const data = await r.json()
-    const jogos = ordenar(
-      (data.items || [])
-        .map((g) => ({ appid: String(g.id || ""), title: g.name || "" }))
-        .filter((g) => g.appid && g.title),
-      q,
-    ).slice(0, 8)
+    // Sugestões do catálogo do servidor (85k jogos Steam, sem DLCs) — como a
+    // busca. Antes usava a Steam viva (storesearch) que mostrava DLCs e
+    // dependia da rede externa.
+    const remoto = await catalogGet(`/catalog/v1/search?q=${encodeURIComponent(q)}`)
+    const itens = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
+    const jogos = itens
+      .slice(0, 8)
+      .map((g) => ({ appid: String(g.appid), title: g.title }))
     // Digitar volta atrás (backspace) e repetir termos é comum; o cache evita
     // repetir a chamada. Limitado para não crescer sem fim numa sessão longa.
     if (sugCache.size > 100) sugCache.clear()
