@@ -755,7 +755,7 @@
   "store.sem_manifesto_tooltip": "Ningún proveedor (Morrenus/Ryuu/Sushi) tiene el manifiesto de este juego.",
   "store.surpreenda_me": "Ruleta",
   "store.ver_detalhes": "Ver detalles",
-  "store.titulo": "Tienda Steam",
+  "store.titulo": "Tienda",
   "store_setup.chave_hubcap": "Clave de Hubcap",
   "store_setup.depotdownloader_desc": "Descarga los depots de Steam.",
   "store_setup.dotnet_desc": "Runtime de DepotDownloader.",
