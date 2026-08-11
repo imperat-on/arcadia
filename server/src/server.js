@@ -10,7 +10,7 @@ const { registerAuthRoutes } = require("./auth-routes")
 const { registerRestRoutes } = require("./rest-routes")
 const { registerSyncRoutes } = require("./sync-routes")
 const { registerStorageRoutes } = require("./storage-routes")
-const { registerCatalogRoutes } = require("./catalog-routes")
+const { registerCatalogRoutes, warmUpCatalog } = require("./catalog-routes")
 const { registerRealtime } = require("./realtime")
 
 const PORT = process.env.PORT || 3000
@@ -39,6 +39,9 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`arcadia-server ouvindo em http://0.0.0.0:${PORT} (db=${db ? "ok" : "erro"})`)
+  // Pre-aquece o cache de catalogo em background: a primeira pessoa que abrir
+  // a loja ja encontra os catalogos quentes (nao paga o cold-start).
+  warmUpCatalog()
 })
 
 registerRealtime(server)

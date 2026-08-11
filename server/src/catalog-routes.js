@@ -180,4 +180,27 @@ function registerCatalogRoutes(app) {
   })
 }
 
-module.exports = { registerCatalogRoutes, getCached }
+// ---------- Warm-up (pre-aquecimento do cache no boot) ----------
+// Busca os catalogos mais pesados em background assim que o servidor sobe.
+// Assim a PRIMEIRA pessoa que abrir a loja ja encontra cache quente (nao paga
+// o cold-start). Nada aqui bloqueia o boot nem a resposta — erros sao
+// engolidos. Os catalagos que nao responderem no primeiro try sao buscados
+// por demanda (cold-start) quando alguem pedir.
+const WARM_KEYS = ["popular", "sushi", "news", "fixes", "ryuu-index"]
+
+function warmUpCatalog() {
+  for (const key of WARM_KEYS) {
+    fetchCatalogKey(key)
+      .then((r) => {
+        if (r) {
+          gravarCache(key, r)
+          console.log(`[warmup] ${key}: ${r.data?.completa?.length ?? r.data?.noticias?.length ?? r.data?.ids?.length ?? "?"} (${key === "popular" ? "jogos" : key === "news" ? "noticias" : key === "sushi" ? "appids" : "entradas"})`)
+        } else {
+          console.log(`[warmup] ${key}: fonte nao respondeu (fica p/ cold-start)`)
+        }
+      })
+      .catch(() => {})
+  }
+}
+
+module.exports = { registerCatalogRoutes, getCached, warmUpCatalog }

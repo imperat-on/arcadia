@@ -344,3 +344,31 @@ test("catalog rotas: search devolve itens do cache hydra", async () => {
   assert.equal(body.itens.length, 1)
   assert.equal(body.itens[0].title, "Elden Ring")
 })
+
+test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", async () => {
+  const { warmUpCatalog } = require("../src/catalog-routes")
+  const restaurar = stubFetch({
+    "https://steamspy.com/api.php?request=top100in2weeks": {
+      "10": { appid: 10, name: "CS", ccu: 5 },
+    },
+    "https://api.github.com/repos/sushi-dev55-alt/sushitools-games-repo-alt/git/trees/main": {
+      truncated: false,
+      tree: [{ path: "10.zip" }],
+    },
+  })
+  try {
+    // limpa cache antes
+    db.prepare("DELETE FROM catalog_cache").run()
+    warmUpCatalog()
+    // aguarda o warm-up em background terminar
+    await new Promise((r) => setTimeout(r, 500))
+    const popular = db.prepare("SELECT data FROM catalog_cache WHERE key='popular'").get()
+    const sushi = db.prepare("SELECT data FROM catalog_cache WHERE key='sushi'").get()
+    assert.ok(popular, "popular deve estar em cache")
+    assert.ok(sushi, "sushi deve estar em cache")
+    assert.ok(JSON.parse(popular.data).completa.length === 1)
+    assert.deepEqual(JSON.parse(sushi.data).ids, ["10"])
+  } finally {
+    restaurar()
+  }
+})
