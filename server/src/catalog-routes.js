@@ -19,9 +19,35 @@ function requireAuth(req) {
   return v.ok ? v.sub : null
 }
 
+// Grava o resultado de um fetch no cache SQLite (atomico).
+function gravarCache(key, r) {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    key,
+    JSON.stringify(r.data),
+    r.at,
+  )
+}
+
+// Le do cache (sem revalidar). Devolve o JSON ou null se nao ha entrada.
+function lerCache(key) {
+  const row = db.prepare("SELECT data FROM catalog_cache WHERE key = ?").get(key)
+  return row ? JSON.parse(row.data) : null
+}
+
+// Busca da fonte externa e grava. Devolve { data } ou null se a fonte falhou.
+// Cold-start: quando nao ha cache, a rota chama isto (espera) antes de
+// responder — o 404 so aparece se a fonte externa tambem falhar.
+async function buscar(key) {
+  const r = await fetchCatalogKey(key).catch(() => null)
+  if (!r) return null
+  gravarCache(key, r)
+  return r.data
+}
+
 // Le do cache; se vencido, revalida em background (stale-while-revalidate) e
-// devolve o que tem. Nunca bloqueia a resposta em rede externa lenta.
-// key e validada por quem chama (catalogKey) — aqui so le/grava no SQLite.
+// devolve o que tem. Nunca bloqueia a resposta em rede externa lenta quando
+// ja ha cache. Quando NAO ha cache, devolve null (o cold-start fica na rota,
+// que chama `buscar` e espera a fonte externa).
 function getCached(key) {
   const ttl = CATALOG_TTL[key] ?? CATALOG_TTL[`${key.split(":")[0]}:`] ?? 0
   const row = db.prepare("SELECT data, at FROM catalog_cache WHERE key = ?").get(key)
@@ -32,26 +58,23 @@ function getCached(key) {
     // revalida em background; erro de rede nao derruba a resposta
     fetchCatalogKey(key)
       .then((r) => {
-        if (r) {
-          db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-            key,
-            JSON.stringify(r.data),
-            r.at,
-          )
-        }
+        if (r) gravarCache(key, r)
       })
       .catch(() => {})
   }
   return data
 }
 
-// Resolve a key, le do cache e responde. Se a key e invalida -> 400; se nao
-// ha cache -> 404.
-function responder(uid, req, res, tipo, id) {
+// Resolve a key, le do cache (ou busca no cold start) e responde.
+// key invalida -> 400; sem cache E fonte externa falhou -> 404.
+async function responder(uid, req, res, tipo, id) {
   const key = catalogKey(tipo, id)
   if (!key) return res.status(400).json({ error: "key_invalida" })
-  const data = getCached(key)
-  if (data === null) return res.status(404).json({ error: "cache_vazio" })
+  let data = getCached(key)
+  if (data === null) {
+    data = await buscar(key)
+    if (data === null) return res.status(404).json({ error: "cache_vazio" })
+  }
   return res.json({ ok: true, data })
 }
 
@@ -63,9 +86,12 @@ function registerCatalogRoutes(app) {
   })
 
   // Em alta / populares (SteamSpy). Retorna fatia paginada + total.
-  app.get("/catalog/v1/popular", (req, res) => {
-    const data = getCached("popular")
-    if (data === null) return res.status(404).json({ error: "cache_vazio" })
+  app.get("/catalog/v1/popular", async (req, res) => {
+    let data = getCached("popular")
+    if (data === null) {
+      data = await buscar("popular")
+      if (data === null) return res.status(404).json({ error: "cache_vazio" })
+    }
     const completa = Array.isArray(data.completa) ? data.completa : []
     const limite = Math.max(1, Number(req.query.limite) || 40)
     const offset = Math.max(0, Number(req.query.offset) || 0)
@@ -73,32 +99,32 @@ function registerCatalogRoutes(app) {
   })
 
   // Sushi: lista de appids com manifesto no repo.
-  app.get("/catalog/v1/sushi", (req, res) => responder(null, req, res, "sushi"))
+  app.get("/catalog/v1/sushi", async (req, res) => responder(null, req, res, "sushi"))
 
   // Listas alternativas de genero.
-  app.get("/catalog/v1/genre", (req, res) =>
+  app.get("/catalog/v1/genre", async (req, res) =>
     responder(null, req, res, "genre", String(req.query.lista || "__all")),
   )
 
   // Noticias (RSS agregado).
-  app.get("/catalog/v1/news", (req, res) => responder(null, req, res, "news"))
+  app.get("/catalog/v1/news", async (req, res) => responder(null, req, res, "news"))
 
   // Indices de fixes.
-  app.get("/catalog/v1/fixes", (req, res) => responder(null, req, res, "fixes"))
-  app.get("/catalog/v1/ryuu", (req, res) => responder(null, req, res, "ryuu"))
+  app.get("/catalog/v1/fixes", async (req, res) => responder(null, req, res, "fixes"))
+  app.get("/catalog/v1/ryuu", async (req, res) => responder(null, req, res, "ryuu"))
 
   // Fontes Hydra: JSON completo de uma fonte (com uris).
-  app.get("/catalog/v1/sources/:id/games", (req, res) =>
+  app.get("/catalog/v1/sources/:id/games", async (req, res) =>
     responder(null, req, res, "hydra", req.params.id),
   )
 
   // Sysinfo / meta / hltb por appid.
-  app.get("/catalog/v1/sysinfo/:appid", (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
-  app.get("/catalog/v1/meta/:appid", (req, res) => responder(null, req, res, "meta", req.params.appid))
-  app.get("/catalog/v1/hltb/:appid", (req, res) => responder(null, req, res, "hltb", req.params.appid))
+  app.get("/catalog/v1/sysinfo/:appid", async (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
+  app.get("/catalog/v1/meta/:appid", async (req, res) => responder(null, req, res, "meta", req.params.appid))
+  app.get("/catalog/v1/hltb/:appid", async (req, res) => responder(null, req, res, "hltb", req.params.appid))
 
   // Items: tipo + arte por appid (em lote).
-  app.get("/catalog/v1/items", (req, res) => {
+  app.get("/catalog/v1/items", async (req, res) => {
     const appids = String(req.query.appids || "")
       .split(",")
       .map((s) => s.trim())
@@ -106,14 +132,17 @@ function registerCatalogRoutes(app) {
     if (!appids.length) return res.json({ ok: true, data: {} })
     const out = {}
     for (const appid of appids) {
-      const data = getCached(`items:${appid}`)
+      let data = getCached(`items:${appid}`)
+      if (data === null) {
+        data = await buscar(`items:${appid}`) // cold start: busca na fonte
+      }
       if (data) out[appid] = data
     }
     res.json({ ok: true, data: out })
   })
 
   // Manifests: disponibilidade de manifesto por appid.
-  app.get("/catalog/v1/manifests/:appid", (req, res) =>
+  app.get("/catalog/v1/manifests/:appid", async (req, res) =>
     responder(null, req, res, "manifests", req.params.appid),
   )
 
