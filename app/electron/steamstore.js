@@ -561,10 +561,6 @@ async function aquecer() {
       for (const url of [RYUU_URL(730), SUSHI_URL(730)]) {
         gh(url, { method: "HEAD", signal: AbortSignal.timeout(8000) }).catch(() => {})
       }
-      // Pré-carrega o catálogo inteiro do "Em alta" (popular + items +
-      // manifests dos 100 jogos) em background. Quando o usuário trocar de
-      // aba, o espelho local já tem tudo → abre do disco, sem rede na hora.
-      precarregarCatalogo().catch(() => {})
       aquecidoEm = Date.now()
       return { ok: true }
     } catch (e) {
@@ -581,25 +577,6 @@ async function aquecer() {
 // O usuário troca de aba sem rede na hora — o espelho já tem tudo. Dedup em
 // voo; nunca bloqueia.
 let precarregando = null
-async function precarregarCatalogo() {
-  if (precarregando) return precarregando
-  precarregando = (async () => {
-    try {
-      const remoto = await catalogGet("/catalog/v1/popular?limite=1000&offset=0")
-      const jogos = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
-      if (!jogos.length) return
-      // items em lote (tipo + arte de todos)
-      const appids = jogos.map((g) => g.appid).filter(Boolean)
-      await itensDaLoja(appids)
-      // manifests em lote (disponibilidade de todos)
-      await marcarDisponibilidade(jogos)
-    } catch {
-      // pré-carga é otimização; falhar não quebra nada (cai no on-demand)
-    }
-  })()
-  return precarregando
-}
-
 // Requisições em voo por termo: o renderer pode pedir o mesmo termo duas vezes
 // (foco + tecla repetida) e sem isto seriam duas idas à Steam.
 const sugEmVoo = new Map()
@@ -827,20 +804,21 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
 
   // Catálogo infinito: "all" (o desktop) navega os ~100.000+ jogos da Steam
   // (coletados via SteamSpy por gênero, com NOME real) paginados — como a
-  // Steam/Hydra. O servidor devolve nome+arte por página, cacheado.
+  // Steam/Hydra. O servidor já devolve nome+arte (capa) por página; SEM
+  // chamar preparar (que re-buscaria items+manifests = 2 chamadas extras por
+  // página, ~1.1s). O renderer só precisa de appid/title/cover.
   if (lista === "all") {
     const remoto = await catalogGet(`/catalog/v1/catalog?offset=${off}&limite=${lim}`)
     if (Array.isArray(remoto.data?.itens)) {
-      const jogos = await preparar(remoto.data.itens)
       return {
         ok: true,
-        jogos,
+        jogos: remoto.data.itens,
         offset: off,
         total: Number(remoto.data.total) || remoto.data.itens.length,
         cache: Boolean(remoto.fallback),
       }
     }
-    // fallback: se o steam250 falhar, cai no fluxo antigo abaixo
+    // fallback: se o catalog falhar, cai no fluxo antigo abaixo
   }
 
   // As listas alternativas (top100forever, etc.) vivem no cache genérico,
