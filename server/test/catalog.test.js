@@ -403,3 +403,31 @@ test("catalog rotas: warmUpCatalog NAO re-busca cache valido", async () => {
     global.fetch = antigo
   }
 })
+
+test("catalog rotas: If-None-Match com etag atual devolve 304", async () => {
+  // garante que existe cache de popular com at conhecido
+  const at = Math.floor(Date.now() / 1000)
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "popular",
+    JSON.stringify({ completa: [{ appid: "10", title: "CS", cover: "", manifest: false }] }),
+    at,
+  )
+  // primeira chamada pega o etag
+  const r1 = await fetch(`${catBase}/catalog/v1/popular`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  const etag = r1.headers.get("etag")
+  assert.ok(etag, "deve ter etag")
+  // segunda chamada com If-None-Match igual -> 304, corpo vazio
+  const r2 = await fetch(`${catBase}/catalog/v1/popular`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}`, "if-none-match": etag },
+  })
+  assert.equal(r2.status, 304)
+  const corpo = await r2.text()
+  assert.equal(corpo.length, 0)
+  // etag diferente -> 200
+  const r3 = await fetch(`${catBase}/catalog/v1/popular`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}`, "if-none-match": '"0"' },
+  })
+  assert.equal(r3.status, 200)
+})

@@ -75,7 +75,18 @@ async function responder(uid, req, res, tipo, id) {
     data = await buscar(key)
     if (data === null) return res.status(404).json({ error: "cache_vazio" })
   }
+  // ETag: o app manda If-None-Match na proxima vez; se nada mudou (mesmo
+  // timestamp), devolve 304 (0 bytes) em vez de re-baixar o JSON inteiro.
+  const etag = `"${getCacheAt(key)}"`
+  if (req.headers["if-none-match"] === etag) return res.status(304).end()
+  res.set("ETag", etag)
   return res.json({ ok: true, data })
+}
+
+// Lê o `at` (timestamp) de uma chave de cache — usado como ETag fraco.
+function getCacheAt(key) {
+  const row = db.prepare("SELECT at FROM catalog_cache WHERE key = ?").get(key)
+  return row ? row.at : 0
 }
 
 function registerCatalogRoutes(app) {
@@ -92,6 +103,9 @@ function registerCatalogRoutes(app) {
       data = await buscar("popular")
       if (data === null) return res.status(404).json({ error: "cache_vazio" })
     }
+    const etag = `"${getCacheAt("popular")}"`
+    if (req.headers["if-none-match"] === etag) return res.status(304).end()
+    res.set("ETag", etag)
     const completa = Array.isArray(data.completa) ? data.completa : []
     const limite = Math.max(1, Number(req.query.limite) || 40)
     const offset = Math.max(0, Number(req.query.offset) || 0)
