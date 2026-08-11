@@ -34,14 +34,28 @@ function lerCache(key) {
   return row ? JSON.parse(row.data) : null
 }
 
+// Dedupe em voo: quando varios usuarios pedem a MESMA chave sem cache ao
+// mesmo tempo (ex.: todos abrindo o mesmo jogo novo), apenas 1 busca vai à
+// fonte externa; os demais esperam a mesma promise. Protege a Steam de um
+// pico de N requisicoes iguais.
+const buscasEmVoo = new Map()
+
 // Busca da fonte externa e grava. Devolve { data } ou null se a fonte falhou.
 // Cold-start: quando nao ha cache, a rota chama isto (espera) antes de
 // responder — o 404 so aparece se a fonte externa tambem falhar.
 async function buscar(key) {
-  const r = await fetchCatalogKey(key).catch(() => null)
-  if (!r) return null
-  gravarCache(key, r)
-  return r.data
+  if (buscasEmVoo.has(key)) return buscasEmVoo.get(key)
+  const promessa = (async () => {
+    const r = await fetchCatalogKey(key).catch(() => null)
+    if (r) gravarCache(key, r)
+    return r ? r.data : null
+  })()
+  buscasEmVoo.set(key, promessa)
+  try {
+    return await promessa
+  } finally {
+    buscasEmVoo.delete(key)
+  }
 }
 
 // Le do cache; se vencido, revalida em background (stale-while-revalidate) e
