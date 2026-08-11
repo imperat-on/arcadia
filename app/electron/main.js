@@ -2678,12 +2678,13 @@ app.whenReady().then(() => {
   })
   ipcMain.handle("store:removeFromLibrary", (_e, appid) => {
     try {
+      const janela = BrowserWindow.fromWebContents(_e.sender)
       const id = "steam:" + String(appid || "")
       const removed = removerStubPendente(String(appid || ""))
       if (!removed && readLibrary().some((g) => g.id === id))
         setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
       ownedRemove(id)
-      avisarBiblioteca(win)
+      avisarBiblioteca(janela || win)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }

@@ -203,7 +203,7 @@ function registerRestRoutes(app) {
     const q = req.query
 
     if (tabela === "profiles") {
-      const permitidas = ["display_name", "summary", "country", "city", "showcase", "profile_visibility", "show_location", "background_url"]
+      const permitidas = ["display_name", "summary", "country", "city", "showcase", "profile_visibility", "show_location", "background_url", "avatar_url"]
       const set = Object.keys(body).filter((k) => permitidas.includes(k))
       if (!set.length) return res.status(400).json({ error: "sem_campos" })
       const sets = set.map((k) => `${k} = ?`)
