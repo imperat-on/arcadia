@@ -332,11 +332,17 @@ async function fetchSysinfo(appid) {
   const data = j?.[String(appid)]?.data
   if (!data) return null
   const reqs = data.pc_requirements
+  // Descrição rica: prefere a versão com mais imagens (como o app fazia no
+  // buildSysinfo). É o `about` que o GameDescription renderiza com imagens.
+  const ab = data.about_the_game || ""
+  const det = data.detailed_description || ""
+  const nImg = (s) => (String(s).match(/<img/g) || []).length
   const info = {
     appid: String(appid),
     req_min: (reqs && !Array.isArray(reqs) && reqs.minimum) || "",
     req_rec: (reqs && !Array.isArray(reqs) && reqs.recommended) || "",
     short_description: data.short_description || "",
+    about: nImg(det) > nImg(ab) ? det : ab || det,
     header: data.header_image || "",
     background: data.background_raw || data.background || "",
   }
