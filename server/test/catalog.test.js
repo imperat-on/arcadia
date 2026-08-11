@@ -129,6 +129,68 @@ test("catalog-fetch: fetchSysinfo extrai requisitos do appdetails", async () => 
   }
 })
 
+test("catalog-fetch: fetchItems extrai tipo+arte do IStoreBrowseService", async () => {
+  // a URL real leva ?input_json=... — casa por prefixo da base
+  const antigo = global.fetch
+  global.fetch = async (url) => {
+    if (String(url).startsWith("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          response: {
+            store_items: [
+              {
+                appid: 2622380,
+                type: 0,
+                assets: {
+                  asset_url_format: "https://cdn/steam/apps/2622380/${FILENAME}",
+                  library_capsule: "capsule_616x353.jpg",
+                  library_hero_2x: "library_hero_2x.jpg",
+                  icon: "icon.jpg",
+                },
+              },
+            ],
+          },
+        }),
+      }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  try {
+    const r = await fetchCatalogKey("items:2622380")
+    assert.ok(r)
+    assert.equal(r.data.tipo, 0)
+    assert.ok(r.data.capa.includes("capsule_616x353.jpg"))
+    assert.ok(r.data.heroi.includes("library_hero_2x.jpg"))
+    assert.ok(r.data.icon.includes("icon.jpg"))
+  } finally {
+    global.fetch = antigo
+  }
+})
+
+test("catalog-fetch: fetchManifests sonda provedores com HEAD", async () => {
+  const restaurar = stubFetch({})
+  // sobrecarrega para HEAD: ryuu 200, sushi 404, twentytwo erro
+  global.fetch = async (url, opts = {}) => {
+    const metodo = opts.method || "GET"
+    if (metodo === "HEAD" && url.includes("167.235.229.108")) return { ok: true, status: 200 }
+    if (metodo === "HEAD" && url.includes("raw.githubusercontent")) return { ok: false, status: 404 }
+    if (url.includes("twentytwocloud")) throw new Error("rede fora")
+    return { ok: false, status: 404 }
+  }
+  try {
+    const r = await fetchCatalogKey("manifests:2622380")
+    assert.ok(r)
+    const urls = Object.keys(r.data)
+    assert.equal(urls.length, 3)
+    const okValues = Object.values(r.data).filter((v) => v.ok)
+    assert.equal(okValues.length, 1) // so o ryuu respondeu 200
+  } finally {
+    restaurar()
+  }
+})
+
 test("catalog-fetch: fetchMeta extrai metadados do appdetails", async () => {
   const restaurar = stubFetch({
     "https://store.steampowered.com/api/appdetails?appids=2622380&l=english": {
