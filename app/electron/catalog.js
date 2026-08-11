@@ -68,7 +68,7 @@ async function catalogGet(pathname, opts = {}) {
   try {
     const res = await fetchRede(url, {
       method: "GET",
-      headers: { ...authHeaders(), accept: "application/json" },
+      headers: { ...authHeaders(), accept: "application/json", "accept-encoding": "gzip" },
       signal: AbortSignal.timeout(opts.timeoutMs || 30000),
     })
     if (!res.ok) {
