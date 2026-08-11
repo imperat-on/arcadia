@@ -188,8 +188,23 @@ function registerCatalogRoutes(app) {
 // por demanda (cold-start) quando alguem pedir.
 const WARM_KEYS = ["popular", "sushi", "news", "fixes", "ryuu-index"]
 
+// True se ha cache e ele ainda esta dentro do TTL (nao precisa re-buscar).
+function cacheFresco(key) {
+  const ttl = CATALOG_TTL[key] ?? CATALOG_TTL[`${key.split(":")[0]}:`] ?? 0
+  const row = db.prepare("SELECT at FROM catalog_cache WHERE key = ?").get(key)
+  if (!row) return false
+  return ttl === 0 || nowEpochS() - row.at < ttl
+}
+
+// Pre-aquece apenas os catalogos que estao AUSENTES ou VENCIDOS. No boot o
+// cache persiste no SQLite; respeitar o TTL evita re-buscar (rede/CPU) o que
+// ainda e valido, deixando o restart leve e a loja rapida de imediato.
 function warmUpCatalog() {
   for (const key of WARM_KEYS) {
+    if (cacheFresco(key)) {
+      console.log(`[warmup] ${key}: cache valido (sem re-buscar)`)
+      continue
+    }
     fetchCatalogKey(key)
       .then((r) => {
         if (r) {

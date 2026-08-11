@@ -372,3 +372,34 @@ test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", asy
     restaurar()
   }
 })
+
+test("catalog rotas: warmUpCatalog NAO re-busca cache valido", async () => {
+  const { warmUpCatalog } = require("../src/catalog-routes")
+  // popula popular com dados "marcadores" e at recente (dentro do TTL 6h)
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "popular",
+    JSON.stringify({ completa: [{ appid: "999", title: "MARCADOR", cover: "", manifest: false }] }),
+    Math.floor(Date.now() / 1000),
+  )
+  // stub que, se chamado, retornaria dados DIFERENTES — nao deve ser chamado
+  const chamou = { fetch: false }
+  const antigo = global.fetch
+  global.fetch = async (url) => {
+    if (url.includes("steamspy")) {
+      chamou.fetch = true
+      return { ok: true, status: 200, json: async () => ({ "1": { appid: 1, name: "DIFERENTE", ccu: 1 } }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  try {
+    warmUpCatalog()
+    await new Promise((r) => setTimeout(r, 300))
+    // o cache NAO deve ter sido sobrescrito pelo fetch
+    const row = db.prepare("SELECT data FROM catalog_cache WHERE key='popular'").get()
+    const data = JSON.parse(row.data)
+    assert.equal(data.completa[0].title, "MARCADOR", "cache valido nao pode ser re-buscado")
+    assert.equal(chamou.fetch, false, "nao deve chamar a fonte para cache fresco")
+  } finally {
+    global.fetch = antigo
+  }
+})
