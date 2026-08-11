@@ -1064,7 +1064,7 @@ export function PS5Launcher() {
               open
               embedded
               navActive={!showEditProfile}
-              profile={profile}
+              profile={conta?.perfil ? { ...profile, name: conta.perfil.display_name || conta.perfil.username || profile.name, avatar: conta.perfil.avatar_url || profile.avatar, background: conta.perfil.background_url || profile.background } : profile}
               games={games}
               onClose={() => setActiveTab(1)}
               onEdit={() => setShowEditProfile(true)}
