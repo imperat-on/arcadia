@@ -13,9 +13,10 @@ const os = require("os")
 const crypto = require("crypto")
 const { fetchRede } = require("./httpfetch")
 
-const DATA_DIR = path.join(os.homedir(), ".local/share/arcadia")
+const { caminhoArquivoConta } = require("./supabase/conta")
+const DATA_DIR = process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
 const SRC_DIR = path.join(DATA_DIR, "sources")
-const REGISTRY = path.join(DATA_DIR, "sources.json")
+const REGISTRY = () => caminhoArquivoConta("sources.json")
 
 function srcId(url) {
   return crypto.createHash("sha256").update(String(url)).digest("hex").slice(0, 12)
@@ -27,7 +28,7 @@ function cachePath(id) {
 
 function readRegistry() {
   try {
-    return JSON.parse(fs.readFileSync(REGISTRY, "utf-8"))
+    return JSON.parse(fs.readFileSync(REGISTRY(), "utf-8"))
   } catch {
     return []
   }
@@ -36,9 +37,9 @@ function readRegistry() {
 function writeRegistry(list) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true })
-    const tmp = `${REGISTRY}.tmp`
+    const tmp = `${REGISTRY()}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(list, null, 2))
-    fs.renameSync(tmp, REGISTRY)
+    fs.renameSync(tmp, REGISTRY())
   } catch {}
 }
 
@@ -248,4 +249,9 @@ function getGame(ref) {
   }
 }
 
-module.exports = { addSource, removeSource, syncSources, search, getGame, list: readRegistry }
+// escrita local usada pelo pull do sync (supabase/sources.js)
+function _writeRegistryLocal(list) {
+  writeRegistry(list)
+}
+
+module.exports = { addSource, removeSource, syncSources, search, getGame, list: readRegistry, _writeRegistryLocal }

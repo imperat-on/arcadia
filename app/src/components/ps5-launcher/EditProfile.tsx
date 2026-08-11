@@ -130,6 +130,16 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   }
 
   // Upload do avatar pra conta (comum aos fluxos direto e recortado)
+  const subirBackground = async (path: string) => {
+    const r = await window.launcherAPI?.accountSetBackground(path)
+    if (r?.ok && r.background_url) {
+      await window.launcherAPI?.setConfig({ profile: { background: r.background_url } })
+      onChange((atual) => ({ ...atual, background: r.background_url }))
+    } else if (r?.error) {
+      console.error("[perfil] background falhou:", r.error)
+    }
+  }
+
   const subirAvatar = async (pathOuBytes: string | Uint8Array, mime?: string, ext?: string) => {
     if (!conta) return
     const up =
@@ -153,6 +163,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     const r = await window.launcherAPI?.pickImage(kind)
     if (r?.ok && r.path) {
       const key = kind === "avatar" ? "avatar" : "background"
+      if (kind === "background" && conta?.status === "logado") {
+        await subirBackground(r.path)
+        return
+      }
       if (kind === "avatar" && conta?.status === "logado") {
         // GIF: vai direto (o main valida tamanho/dimensão e preserva animação)
         // ATENÇÃO: o path tem ?t= no final (cache-buster) — o $ não casa
