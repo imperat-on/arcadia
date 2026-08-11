@@ -79,3 +79,4 @@ session.json
 session.json.bak
 profile_cache.json
 logs/
+.worktrees/
