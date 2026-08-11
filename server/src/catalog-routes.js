@@ -10,7 +10,7 @@
 
 const { db, nowEpochS } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
-const { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, fetchGenero, STEAMSPY_GENEROS } = require("./catalog-fetch")
+const { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, cacheDesatualizado, fetchGenero, STEAMSPY_GENEROS } = require("./catalog-fetch")
 
 // Extrai o Bearer token e valida. Devolve o sub (user id) ou null.
 function requireAuth(req) {
@@ -94,6 +94,11 @@ function getCached(key) {
   if (!row) return null
   const data = JSON.parse(row.data)
   const agora = nowEpochS()
+  // Formato antigo (campo novo entrou depois que a linha foi gravada): conta
+  // como cache vazio para a rota rebuscar agora. Chaves sem TTL (sysinfo/meta)
+  // nunca chegariam na revalidacao por tempo abaixo. Se a fonte externa estiver
+  // fora, `responder` ainda cai no `lerCache` e serve o formato velho.
+  if (cacheDesatualizado(key, data)) return null
   if (ttl > 0 && agora - row.at > ttl) {
     // revalida em background; erro de rede nao derruba a resposta
     fetchCatalogKey(key)
@@ -113,6 +118,9 @@ async function responder(uid, req, res, tipo, id) {
   let data = getCached(key)
   if (data === null) {
     data = await buscar(key)
+    // Fonte externa fora: serve o que houver em cache, mesmo em formato antigo
+    // — dado incompleto ainda e melhor que 404 para a loja.
+    if (data === null) data = lerCache(key)
     if (data === null) return res.status(404).json({ error: "cache_vazio" })
   }
   // ETag: o app manda If-None-Match na proxima vez; se nada mudou (mesmo

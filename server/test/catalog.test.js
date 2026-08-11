@@ -269,7 +269,9 @@ test("catalog rotas: com JWT e cache, popular devolve fatia paginada", async () 
 test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
   db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
     "sysinfo:2622380",
-    JSON.stringify({ appid: "2622380", req_min: "16GB", req_rec: "32GB" }),
+    // `v` = formato atual: sem isto a rota trataria como cache velho e iria a
+    // fonte externa (o teste passaria a depender de rede).
+    JSON.stringify({ v: 2, appid: "2622380", req_min: "16GB", req_rec: "32GB" }),
     Math.floor(Date.now() / 1000),
   )
   const r = await fetch(`${catBase}/catalog/v1/sysinfo/2622380`, {
@@ -283,7 +285,7 @@ test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
 test("catalog rotas: meta por appid devolve metadados", async () => {
   db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
     "meta:2622380",
-    JSON.stringify({ appid: "2622380", name: "Elden Ring", genre: "RPG" }),
+    JSON.stringify({ v: 1, appid: "2622380", name: "Elden Ring", genre: "RPG" }),
     Math.floor(Date.now() / 1000),
   )
   const r = await fetch(`${catBase}/catalog/v1/meta/2622380`, {
@@ -553,4 +555,115 @@ test("catalog rotas: reviews POST adiciona e GET devolve", async () => {
   assert.equal(body.reviews[0].text, "Jogo incrivel!")
   assert.equal(body.reviews[0].positive, 1)
   assert.ok(body.reviews[0].username, "deve ter o username do autor")
+})
+
+// Stub que SO intercepta a fonte externa: o fetch para o proprio servidor de
+// teste (127.0.0.1) continua real. Sem isto o stub responderia a requisicao da
+// rota antes de o Express rodar.
+function stubExterno(map) {
+  const antigo = global.fetch
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url)
+    if (u.startsWith("http://127.0.0.1")) return antigo(url, opts)
+    const alvo = map[u]
+    if (alvo === undefined) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, status: 200, json: async () => alvo }
+  }
+  return () => {
+    global.fetch = antigo
+  }
+}
+
+// Regressao: sysinfo nao tem TTL, entao uma linha gravada ANTES de um campo
+// novo (o `about`, descricao rica) ficaria velha para sempre. A versao do
+// payload faz a linha antiga se corrigir sozinha na primeira consulta.
+test("catalog rotas: sysinfo em formato antigo (sem about) se corrige sozinho", async () => {
+  const APPID = "424370"
+  // Linha no formato ANTIGO: sem `v` e sem `about`, como as ja gravadas.
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    `sysinfo:${APPID}`,
+    JSON.stringify({ appid: APPID, req_min: "8GB", req_rec: "16GB", short_description: "velho" }),
+    Math.floor(Date.now() / 1000),
+  )
+
+  const restaurar = stubExterno({
+    [`https://store.steampowered.com/api/appdetails?appids=${APPID}&l=english`]: {
+      [APPID]: {
+        data: {
+          pc_requirements: { minimum: "8GB", recommended: "16GB" },
+          short_description: "novo",
+          about_the_game: '<p>Descricao</p><img src="https://cdn/a.jpg">',
+          header_image: "h",
+        },
+      },
+    },
+  })
+  try {
+    const r = await fetch(`${catBase}/catalog/v1/sysinfo/${APPID}`, {
+      headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+    })
+    assert.equal(r.status, 200)
+    const body = await r.json()
+    assert.ok(body.data.about, "deve devolver a descricao rica ja na 1a consulta")
+    assert.match(body.data.about, /<img/, "about precisa manter as imagens")
+    assert.equal(body.data.v, 2, "payload novo carimba a versao")
+  } finally {
+    restaurar()
+  }
+
+  // A linha no SQLite foi reescrita no formato novo (nao rebusca na proxima).
+  const salvo = JSON.parse(
+    db.prepare("SELECT data FROM catalog_cache WHERE key = ?").get(`sysinfo:${APPID}`).data,
+  )
+  assert.equal(salvo.v, 2)
+  assert.match(salvo.about, /<img/)
+})
+
+// Fonte externa fora + cache em formato antigo: serve o que tem (nao 404).
+test("catalog rotas: formato antigo sobrevive se a Steam estiver fora", async () => {
+  const APPID = "424380"
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    `sysinfo:${APPID}`,
+    JSON.stringify({ appid: APPID, req_min: "4GB", short_description: "antigo" }),
+    Math.floor(Date.now() / 1000),
+  )
+  const restaurar = stubExterno({}) // qualquer fonte externa -> 404
+  try {
+    const r = await fetch(`${catBase}/catalog/v1/sysinfo/${APPID}`, {
+      headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+    })
+    assert.equal(r.status, 200, "cache antigo e melhor que 404")
+    const body = await r.json()
+    assert.equal(body.data.short_description, "antigo")
+  } finally {
+    restaurar()
+  }
+})
+
+// Cache ja no formato atual e servido direto, sem tocar a fonte externa.
+test("catalog rotas: sysinfo no formato atual nao rebusca", async () => {
+  const APPID = "424390"
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    `sysinfo:${APPID}`,
+    JSON.stringify({ v: 2, appid: APPID, req_min: "2GB", about: "<p>ok</p>" }),
+    Math.floor(Date.now() / 1000),
+  )
+  let bateuNaFonte = false
+  const antigo = global.fetch
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url)
+    if (!u.startsWith("http://127.0.0.1")) bateuNaFonte = true
+    return antigo(url, opts)
+  }
+  try {
+    const r = await fetch(`${catBase}/catalog/v1/sysinfo/${APPID}`, {
+      headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+    })
+    assert.equal(r.status, 200)
+    const body = await r.json()
+    assert.equal(body.data.req_min, "2GB")
+    assert.equal(bateuNaFonte, false, "formato atual nao pode disparar fetch externo")
+  } finally {
+    global.fetch = antigo
+  }
 })

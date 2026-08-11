@@ -84,6 +84,17 @@ Cada resposta recebida e gravada atomicamente em
 arquivos separados. A ordem de fallback e servidor, espelho do catalogo e
 cache legado (`store_*_cache.json`, `sources/*.json` e equivalentes).
 
+### Versao do payload
+
+`sysinfo` e `meta` nao tem TTL, entao uma linha gravada antes de um campo novo
+nunca revalidaria por tempo. Cada payload carrega um campo `v`
+(`CATALOG_VERSAO` em `server/src/catalog-fetch.js`). Quando a versao em cache e
+menor que a atual, a rota trata como cache vazio e rebusca na hora; se a fonte
+externa estiver fora, o registro antigo ainda e servido em vez de `404`.
+
+Ao adicionar um campo ao payload, suba a versao correspondente — e assim que as
+linhas ja gravadas se corrigem sozinhas.
+
 Continuam locais: trailers, downloads, biblioteca, configuracoes e todas as
 chaves pagas (Hubcap, debrid e Steam). O servidor nunca recebe esses segredos.
 

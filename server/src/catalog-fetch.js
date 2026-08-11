@@ -44,6 +44,26 @@ const CATALOG_TTL = {
   "manifests:": 7 * 24 * 60 * 60, // 7d
 }
 
+// Versao do FORMATO de cada payload. Sobe quando um campo novo entra no fetch
+// (ex.: `about` no sysinfo). Chaves sem TTL (sysinfo/meta) nunca revalidam por
+// tempo, entao sem este marcador uma linha gravada antes do campo novo serviria
+// o formato velho para sempre. Comparar a versao faz a linha antiga se corrigir
+// sozinha na primeira consulta.
+const CATALOG_VERSAO = {
+  "sysinfo:": 2, // 2 = inclui `about` (descricao rica com imagens)
+  "meta:": 1,
+}
+
+// Versao esperada de uma key (por key exata ou por prefixo). 0 = sem versao.
+function versaoDaKey(key) {
+  return CATALOG_VERSAO[key] ?? CATALOG_VERSAO[`${String(key).split(":")[0]}:`] ?? 0
+}
+
+// true quando a linha em cache foi gravada num formato anterior ao atual.
+function cacheDesatualizado(key, data) {
+  return (Number(data?.v) || 0) < versaoDaKey(key)
+}
+
 // Valida o formato de um id por prefixo. Permite so o que faz sentido na key.
 function idValido(prefixo, id) {
   if (prefixo === "hydra:") return /^[0-9a-f]{12}$/.test(id) // sha256.slice(0,12)
@@ -338,6 +358,7 @@ async function fetchSysinfo(appid) {
   const det = data.detailed_description || ""
   const nImg = (s) => (String(s).match(/<img/g) || []).length
   const info = {
+    v: CATALOG_VERSAO["sysinfo:"],
     appid: String(appid),
     req_min: (reqs && !Array.isArray(reqs) && reqs.minimum) || "",
     req_rec: (reqs && !Array.isArray(reqs) && reqs.recommended) || "",
@@ -360,6 +381,7 @@ async function fetchMeta(appid) {
   if (!data) return null
   return {
     data: {
+      v: CATALOG_VERSAO["meta:"],
       appid: String(appid),
       name: data.name || "",
       developers: data.developers || [],
@@ -530,4 +552,16 @@ async function fetchGenero(genero) {
   }
 }
 
-module.exports = { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, idValido, http, fetchGenero, STEAMSPY_GENEROS }
+module.exports = {
+  fetchCatalogKey,
+  catalogKey,
+  CATALOG_KEYS,
+  CATALOG_TTL,
+  CATALOG_VERSAO,
+  versaoDaKey,
+  cacheDesatualizado,
+  idValido,
+  http,
+  fetchGenero,
+  STEAMSPY_GENEROS,
+}
