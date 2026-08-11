@@ -755,7 +755,7 @@
   "store.sem_manifesto_tooltip": "No provider (Morrenus/Ryuu/Sushi) has the manifest for this game.",
   "store.surpreenda_me": "Roll the dice",
   "store.ver_detalhes": "View details",
-  "store.titulo": "Steam Store",
+  "store.titulo": "Store",
   "store_setup.chave_hubcap": "Hubcap key",
   "store_setup.depotdownloader_desc": "Downloads Steam depots.",
   "store_setup.dotnet_desc": "DepotDownloader runtime.",
