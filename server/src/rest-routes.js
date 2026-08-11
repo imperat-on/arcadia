@@ -9,7 +9,7 @@ const { verifyToken, extractToken } = require("./jwt")
 const { notifyFriendshipInsert } = require("./realtime")
 
 const COLUNAS_PROFILES = new Set([
-  "id", "username", "avatar_url", "steam_id", "display_name", "summary",
+  "id", "username", "avatar_url", "background_url", "steam_id", "display_name", "summary",
   "country", "city", "showcase", "profile_visibility", "show_location",
   "created_at", "email", "password_hash",
 ])
@@ -203,7 +203,7 @@ function registerRestRoutes(app) {
     const q = req.query
 
     if (tabela === "profiles") {
-      const permitidas = ["display_name", "summary", "country", "city", "showcase", "profile_visibility", "show_location"]
+      const permitidas = ["display_name", "summary", "country", "city", "showcase", "profile_visibility", "show_location", "background_url"]
       const set = Object.keys(body).filter((k) => permitidas.includes(k))
       if (!set.length) return res.status(400).json({ error: "sem_campos" })
       const sets = set.map((k) => `${k} = ?`)

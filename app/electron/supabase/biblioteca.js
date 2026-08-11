@@ -15,10 +15,12 @@
 const fs = require("fs")
 const { getClient } = require("./client")
 const { caminhoArquivoConta } = require("./conta")
+const { ownedSet, readOwned } = require("../owned")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
 const OVERRIDES = () => caminhoArquivoConta("overrides.json")
 const STATE = () => caminhoArquivoConta("sync_state.json")
+const OWNED = () => caminhoArquivoConta("owned_games.json")
 
 let listeners = []
 function onChanged(cb) {
@@ -78,6 +80,15 @@ async function push() {
     if (!ids.has(id)) p_lib.push({ appid: id, removed: true })
   }
 
+  // Jogos possuídos (owned.js) que não são custom e nunca subiram: sobem
+  // como stub mínimo, só pro servidor saber o appid (pull noutra máquina
+  // materializa o resto). Ids já cobertos pelo diff de custom acima ou que
+  // já têm watermark ficam de fora, senão o stub pisaria no título real.
+  for (const id of ownedSet()) {
+    if (ids.has(id) || enviados[id]) continue
+    p_lib.push({ appid: id, title: id, platform: "windows" })
+  }
+
   // Horas: delta acumulado desde o último push
   const overrides = readJson(OVERRIDES(), {})
   const p_playtime = []
@@ -121,11 +132,22 @@ async function pull() {
   const st = loadState()
   const wp = st.playtimePush || {}
 
+  // Posse: owned_games.json ausente (null) significa "possui tudo" (ainda
+  // nao migrou, ver constraint 7). Nesse caso o pull nao mexe na posse, so
+  // quando ja existe arquivo real e que o appid novo entra.
+  const rawOwned = readOwned()
+  const owned = rawOwned === null ? null : new Set(rawOwned)
+  let ownedMudou = false
+
   // Jogos que faltam localmente entram como custom (exe vazio — usuário
   // configura na máquina nova; título/plataforma vêm do servidor)
   const lib = readJson(CUSTOM(), [])
   const ids = new Set(lib.map((g) => g.id))
   for (const row of data) {
+    if (owned !== null && !owned.has(row.appid)) {
+      owned.add(row.appid)
+      ownedMudou = true
+    }
     if (!ids.has(row.appid)) {
       lib.push({
         id: row.appid,
@@ -145,6 +167,10 @@ async function pull() {
     }
   }
   if (mudou) writeJson(CUSTOM(), lib)
+  if (ownedMudou) {
+    writeJson(OWNED(), [...owned])
+    mudou = true
+  }
 
   // Horas: total da conta > local → display local sobe + watermark acompanha
   const overrides = readJson(OVERRIDES(), {})

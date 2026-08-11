@@ -25,6 +25,7 @@ export interface PerfilOnline {
   country?: string | null
   city?: string | null
   showcase?: string[]
+  background_url?: string | null
 }
 
 /** Campos que o perfil local espelha do online (whitelist). */
@@ -34,6 +35,7 @@ export const CAMPOS_ESPELHO: Array<keyof PerfilOnline> = [
   "country",
   "city",
   "showcase",
+  "background_url",
 ]
 
 interface AccountCtx {
@@ -163,7 +165,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const updatePerfil = useCallback(async (campos: Partial<PerfilOnline>) => {
     try {
-      const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase }
+      const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase, background_url: campos.background_url }
       const r = await window.launcherAPI?.accountUpdateProfile(alvo)
       if (r?.ok) {
         setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), ...campos }))

@@ -172,6 +172,53 @@ function rpcPullLibrary(uid) {
 }
 
 // ---------------------------------------------------------------------------
+// push_sources / pull_sources: registro de fontes publicas (source_id, url,
+// name). Nunca sincroniza etag/lastMod/count nem fontes com API key: esses
+// dados sao estado local e nao entram aqui.
+// ---------------------------------------------------------------------------
+const RE_SOURCE_ID = /^[0-9a-f]{12}$/
+const RE_URL = /^https?:\/\//
+
+function rpcPushSources(uid, p_sources) {
+  if (!Array.isArray(p_sources)) return
+  const remove = db.prepare(
+    "UPDATE user_sources SET removed_at = datetime('now') WHERE user_id = ? AND source_id = ?"
+  )
+  const upsert = db.prepare(
+    `INSERT INTO user_sources (user_id, source_id, url, name) VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, source_id) DO UPDATE SET
+       url = excluded.url, name = excluded.name, removed_at = NULL`
+  )
+
+  db.exec("BEGIN")
+  try {
+    for (const s of p_sources) {
+      const sourceId = s?.source_id
+      if (!sourceId || !RE_SOURCE_ID.test(sourceId)) continue
+
+      if (s.removed) {
+        remove.run(uid, sourceId)
+      } else {
+        if (!s.url || !RE_URL.test(s.url)) continue
+        upsert.run(uid, sourceId, s.url, s.name || "")
+      }
+    }
+    db.exec("COMMIT")
+  } catch (e) {
+    db.exec("ROLLBACK")
+    throw e
+  }
+}
+
+function rpcPullSources(uid) {
+  return db
+    .prepare(
+      "SELECT source_id, url, name FROM user_sources WHERE user_id = ? AND removed_at IS NULL ORDER BY added_at"
+    )
+    .all(uid)
+}
+
+// ---------------------------------------------------------------------------
 // Registro das rotas (todas exigem auth)
 // ---------------------------------------------------------------------------
 function registerSyncRoutes(app) {
@@ -190,6 +237,8 @@ function registerSyncRoutes(app) {
   app.post("/rest/v1/rpc/friend_achievements", authed((uid, b) => rpcFriendAchievements(uid, b.p_friend)))
   app.post("/rest/v1/rpc/push_library", authed((uid, b) => rpcPushLibrary(uid, b.p_lib, b.p_playtime)))
   app.post("/rest/v1/rpc/pull_library", authed((uid) => rpcPullLibrary(uid)))
+  app.post("/rest/v1/rpc/push_sources", authed((uid, b) => rpcPushSources(uid, b.p_sources)))
+  app.post("/rest/v1/rpc/pull_sources", authed((uid) => rpcPullSources(uid)))
 }
 
 module.exports = {
@@ -199,4 +248,6 @@ module.exports = {
   rpcFriendAchievements,
   rpcPushLibrary,
   rpcPullLibrary,
+  rpcPushSources,
+  rpcPullSources,
 }

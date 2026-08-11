@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   password_hash      TEXT NOT NULL,
   username           TEXT UNIQUE NOT NULL CHECK (username GLOB '[a-z0-9_]*' AND length(username) BETWEEN 3 AND 20),
   avatar_url         TEXT,
+  background_url     TEXT,
   steam_id           TEXT,
   display_name       TEXT,
   summary            TEXT,
@@ -116,6 +117,18 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 db.exec(`
 CREATE TABLE IF NOT EXISTS reserved_usernames (
   username TEXT PRIMARY KEY
+);
+`)
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_sources (
+  user_id    TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  source_id  TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  removed_at TEXT,
+  PRIMARY KEY (user_id, source_id)
 );
 `)
 
