@@ -24,7 +24,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-owned-"))
 process.env.ARCADIA_DATA_DIR = DIR
 
 const conta = require("../electron/supabase/conta.js")
-const { filtrarPorPosse } = require("../electron/owned.js")
+const { filtrarPorPosse, ownedSet, ownedAdd, ownedRemove } = require("../electron/owned.js")
 
 test.after(() => fs.rmSync(DIR, { recursive: true, force: true }))
 
@@ -62,3 +62,52 @@ test("mudanca no owned_games.json reflete na proxima leitura (base da cache key)
   fs.writeFileSync(arquivo, JSON.stringify(["a", "b"]))
   assert.deepEqual(filtrarPorPosse(GLOBAIS).map((g) => g.id), ["a", "b"])
 })
+
+test("ownedAdd com conta grava o id no arquivo", () => {
+  conta.definirConta("u4")
+  const arquivo = conta.caminhoArquivoConta("owned_games.json")
+  assert.ok(!fs.existsSync(arquivo))
+
+  ownedAdd("steam:1")
+  assert.deepEqual(ownedSet(), new Set(["steam:1"]))
+  assert.deepEqual(JSON.parse(fs.readFileSync(arquivo, "utf-8")), ["steam:1"])
+
+  ownedAdd("epic:2")
+  assert.deepEqual(ownedSet(), new Set(["steam:1", "epic:2"]))
+})
+
+test("ownedAdd nao duplica id ja possuido", () => {
+  conta.definirConta("u5")
+  ownedAdd("steam:1")
+  ownedAdd("steam:1")
+  assert.deepEqual(ownedSet(), new Set(["steam:1"]))
+})
+
+test("ownedAdd em guest e no-op, nao cria arquivo", () => {
+  conta.definirConta(null)
+  ownedAdd("steam:1")
+  assert.ok(!fs.existsSync(OWNED_GAMES_GUEST()))
+})
+
+test("ownedRemove tira o id do arquivo", () => {
+  conta.definirConta("u6")
+  const arquivo = conta.caminhoArquivoConta("owned_games.json")
+  ownedAdd("steam:1")
+  ownedAdd("epic:2")
+
+  ownedRemove("steam:1")
+  assert.deepEqual(ownedSet(), new Set(["epic:2"]))
+  assert.deepEqual(JSON.parse(fs.readFileSync(arquivo, "utf-8")), ["epic:2"])
+})
+
+test("ownedRemove em guest ou id ausente e no-op", () => {
+  conta.definirConta("u7")
+  assert.doesNotThrow(() => ownedRemove("nao-existe"))
+
+  conta.definirConta(null)
+  assert.doesNotThrow(() => ownedRemove("steam:1"))
+})
+
+function OWNED_GAMES_GUEST() {
+  return path.join(DIR, "owned_games.json")
+}

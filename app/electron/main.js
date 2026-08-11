@@ -35,7 +35,7 @@ const { fetchRede } = require("./httpfetch")
 // bloco deixava "caminhoConta is not defined" → biblioteca vazia).
 const { caminhoConta, definirConta, conta } = require("./supabase/conta")
 const { readOverrides, setOverride, applyOverrides, artToDelete } = require("./overrides")
-const { filtrarPorPosse, OWNED_GAMES } = require("./owned")
+const { filtrarPorPosse, OWNED_GAMES, ownedAdd, ownedRemove } = require("./owned")
 const {
   sgdbSearch,
   sgdbArt,
@@ -2186,6 +2186,7 @@ app.whenReady().then(() => {
         setTimeout(res, 120000)
       })
       await runIndexer()
+      ownedAdd(g.id)
       if (win && !win.isDestroyed()) win.webContents.send("library:changed")
       return { ok: true }
     } catch (e) {
@@ -2210,6 +2211,7 @@ app.whenReady().then(() => {
         installed: true,
       })
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
+      ownedAdd(id)
       // Sincroniza a coleção com a conta (jogos seguem entre máquinas)
       try {
         require("./supabase/biblioteca").agendarPush()
@@ -2299,6 +2301,7 @@ app.whenReady().then(() => {
         try {
           fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
         } catch {}
+        ownedRemove(id)
         // Remove da coleção da conta no servidor
         try {
           require("./supabase/biblioteca").agendarPush()
@@ -2536,6 +2539,7 @@ app.whenReady().then(() => {
         }
       }
       await runIndexer()
+      ownedAdd(String(item.appid))
     } catch {}
     if (win && !win.isDestroyed()) win.webContents.send("library:changed")
   })
@@ -2632,6 +2636,7 @@ app.whenReady().then(() => {
         // lugar nenhum.
         try {
           adicionarStubPendente(String(appid), title)
+          ownedAdd("steam:" + appid)
         } catch {}
         avisarBiblioteca(win)
         return r
@@ -2640,6 +2645,7 @@ app.whenReady().then(() => {
       if (!reg?.ok) return reg || { ok: false, error: "falha ao registrar na SLSsteam" }
       try {
         adicionarStubPendente(String(appid), title)
+        ownedAdd("steam:" + appid)
       } catch {}
       avisarBiblioteca(win)
       return { ok: true }
@@ -2663,6 +2669,7 @@ app.whenReady().then(() => {
       // indexado); sem limpar aqui o Add não trazia o jogo de volta.
       setOverride(caminhoConta(OVERRIDES), "steam:" + appid, { hidden: null })
       adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
+      ownedAdd("steam:" + appid)
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
@@ -2675,6 +2682,7 @@ app.whenReady().then(() => {
       const removed = removerStubPendente(String(appid || ""))
       if (!removed && readLibrary().some((g) => g.id === id))
         setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
+      ownedRemove(id)
       avisarBiblioteca(win)
       return { ok: true }
     } catch (e) {
