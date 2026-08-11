@@ -60,8 +60,15 @@ function catalogKey(tipo, id) {
   if (tipo === "fixes") return CATALOG_KEYS.includes("fixes") ? "fixes" : null
   if (tipo === "ryuu") return CATALOG_KEYS.includes("ryuu-index") ? "ryuu-index" : null
   if (tipo === "genre") {
-    const k = `genre:${id || "__all"}`
-    return idValido("genre:", id || "__all") && k in CATALOG_TTL ? k : null
+    // Normaliza "all" -> "__all": o app manda ?lista=all (o catalogo completo
+    // do Em alta), mas a chave em cache usa prefixo __. Sem isto, o servidor
+    // devolvia 400 key_invalida e o app caia no fallback que buscava a
+    // SteamSpy viva a cada troca de pagina (~15s de espera).
+    const nome = id === "all" ? "__all" : id || "__all"
+    const k = `genre:${nome}`
+    // Aceita se o id eh valido E ha TTL para o prefixo genre: (a chave exata
+    // `genre:__all` nao esta em CATALOG_TTL — so o prefixo `genre:`).
+    return idValido("genre:", nome) && "genre:" in CATALOG_TTL ? k : null
   }
   if (tipo === "hydra") {
     const k = `hydra:${id || ""}`
@@ -392,7 +399,13 @@ async function fetchCatalogKey(key) {
   if (key === "news") return fetchNews()
   if (key === "fixes") return fetchFixes()
   if (key === "ryuu-index") return fetchRyuuIndex()
-  if (key.startsWith("genre:")) return null // listas alternativas: app mantem
+  if (key.startsWith("genre:")) {
+    // "all"/"__all" = o catalogo completo do Em alta (mesmo do popular).
+    // O app manda ?lista=all e espera esta lista; sem isto o servidor
+    // devolvia vazio e o app caia na SteamSpy viva a cada pagina.
+    if (key === "genre:__all" || key === "genre:all") return fetchPopular()
+    return null // outras listas: app mantem
+  }
   if (key.startsWith("sysinfo:")) return fetchSysinfo(key.slice("sysinfo:".length))
   if (key.startsWith("meta:")) return fetchMeta(key.slice("meta:".length))
   if (key.startsWith("hltb:")) return null // placeholder (app mantem local)

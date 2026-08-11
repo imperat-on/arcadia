@@ -465,3 +465,24 @@ test("catalog rotas: manifests em lote ignora appids invalidos", async () => {
   assert.ok(body.data["2622380"], "appid valido processado")
   assert.equal(body.data["abc"], undefined, "appid invalido ignorado")
 })
+
+test("catalog-fetch: catalogKey normaliza genre all para __all", () => {
+  assert.equal(catalogKey("genre", "all"), "genre:__all")
+  assert.equal(catalogKey("genre", "__all"), "genre:__all")
+  assert.equal(catalogKey("genre", "rpg"), "genre:rpg")
+})
+
+test("catalog rotas: genre?lista=all serve o catalogo Em alta (nao 400)", async () => {
+  // popula o popular no cache
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "popular",
+    JSON.stringify({ completa: [{ appid: "10", title: "CS", cover: "", manifest: false }] }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/genre?lista=all`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.ok(Array.isArray(body.data.completa) || Array.isArray(body.data), "deve ter o catalogo")
+})
