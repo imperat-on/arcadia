@@ -125,6 +125,30 @@ install.sh     # setup · uninstall.sh (full removal)
 User data (config, library, downloads, prefixes, artwork) lives under
 `~/.local/share/arcadia/` and is **not** versioned.
 
+
+## Architecture
+
+- **`app/`** — Electron launcher (desktop + Big Picture). React renderer in
+  `app/src`, Electron main process in `app/electron`.
+- **`server/`** — Node backend (Express + SQLite) that syncs accounts
+  across machines: library ownership, achievements, playtime, friends,
+  avatar, profile background and public download sources. Replaces the
+  former Supabase backend. See [server/README.md](server/README.md).
+- **`docs/ARCHITECTURE.md`** — how the two worlds fit together, what syncs
+  per account, and what stays local (API keys never leave the machine).
+
+Per-account sync: the app talks to the backend over HTTPS (Tailscale
+Funnel when self-hosted). `owned_games.json` (per account) decides which
+games from the global `library.json` each account sees. Guest sees
+everything. Sensitive data (debrid/Hubcap API keys, source caches) is
+**never** uploaded.
+
+## Deploy
+
+Run the backend on your own notebook and expose it publicly:
+[docs/DEPLOY.md](docs/DEPLOY.md) covers systemd, Tailscale Funnel, backups,
+schema migrations and troubleshooting.
+
 ## Credits
 
 Arcadia leans on the work of these projects:

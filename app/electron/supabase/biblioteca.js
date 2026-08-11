@@ -16,8 +16,10 @@ const fs = require("fs")
 const { getClient } = require("./client")
 const { caminhoArquivoConta } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
+const { conta } = require("./conta")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
+const PENDING = () => caminhoArquivoConta("pending_games.json")
 const OVERRIDES = () => caminhoArquivoConta("overrides.json")
 const STATE = () => caminhoArquivoConta("sync_state.json")
 const OWNED = () => caminhoArquivoConta("owned_games.json")
@@ -81,12 +83,17 @@ async function push() {
   }
 
   // Jogos possuídos (owned.js) que não são custom e nunca subiram: sobem
-  // como stub mínimo, só pro servidor saber o appid (pull noutra máquina
-  // materializa o resto). Ids já cobertos pelo diff de custom acima ou que
-  // já têm watermark ficam de fora, senão o stub pisaria no título real.
+  // com o título real (do pending_games ou do id) pra não virar nome feio
+  // (ex: "steam:3240220") na outra máquina. Ids já cobertos pelo diff de
+  // custom acima ou que já têm watermark ficam de fora.
+  const pendentes = readJson(PENDING(), [])
+  const tituloDe = (id) => {
+    const p = pendentes.find((x) => x.id === id)
+    return p?.title || id
+  }
   for (const id of ownedSet()) {
     if (ids.has(id) || enviados[id]) continue
-    p_lib.push({ appid: id, title: id, platform: "windows" })
+    p_lib.push({ appid: id, title: tituloDe(id), platform: "windows" })
   }
 
   // Horas: delta acumulado desde o último push
@@ -201,8 +208,13 @@ async function reconcile() {
 let timer = null
 function agendarPush() {
   if (timer) clearTimeout(timer)
+  // Captura a conta no momento do agendamento. Se o usuário trocar de conta
+  // antes do debounce (2s) disparar, o push não deve subir os dados da conta
+  // antiga na conta nova (vazamento por timing).
+  const contaNoAgendamento = conta()
   timer = setTimeout(() => {
     timer = null
+    if (conta() !== contaNoAgendamento) return
     push().catch((e) => console.error("[biblioteca] push agendado falhou:", e?.message))
   }, 2000)
 }

@@ -225,7 +225,7 @@ async function myProfile() {
 
   const { data, error } = await getClient()
     .from("profiles")
-    .select("username, avatar_url, display_name, summary, country, city, showcase")
+    .select("username, avatar_url, display_name, summary, country, city, showcase, background_url")
     .eq("id", me)
     .maybeSingle()
   if (error) return { ok: false, error: error.message }
