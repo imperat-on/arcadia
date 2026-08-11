@@ -112,6 +112,39 @@ function registerCatalogRoutes(app) {
     res.json({ ok: true, itens: completa.slice(offset, offset + limite), total: completa.length, offset })
   })
 
+  // Catálogo infinito: os 5864 appids do sushi (com manifesto) paginados,
+  // com nome+arte buscados sob demanda (meta/items) e cacheados. Permite
+  // rolar/paginar como a Steam — 244 páginas de 24 em vez de só 5 do popular.
+  app.get("/catalog/v1/catalog", async (req, res) => {
+    const limite = Math.max(1, Number(req.query.limite) || 24)
+    const offset = Math.max(0, Number(req.query.offset) || 0)
+    // 1. appids do sushi (lista mestre de jogos instaláveis)
+    let sushi = getCached("sushi")
+    if (sushi === null) {
+      sushi = await buscar("sushi")
+      if (sushi === null) return res.status(404).json({ error: "cache_vazio" })
+    }
+    const ids = Array.isArray(sushi.ids) ? sushi.ids : []
+    const fatia = ids.slice(offset, offset + limite)
+    // 2. para cada appid da página, nome (meta) + arte (items) sob demanda
+    const itens = []
+    await Promise.all(
+      fatia.map(async (appid) => {
+        const meta = getCached(`meta:${appid}`) ?? (await buscar(`meta:${appid}`))
+        const item = getCached(`items:${appid}`) ?? (await buscar(`items:${appid}`))
+        if (!meta && !item) return
+        itens.push({
+          appid: String(appid),
+          title: meta?.name || String(appid),
+          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          heroi: item?.heroi || "",
+          capa: item?.capa || "",
+        })
+      }),
+    )
+    res.json({ ok: true, itens, total: ids.length, offset })
+  })
+
   // Sushi: lista de appids com manifesto no repo.
   app.get("/catalog/v1/sushi", async (req, res) => responder(null, req, res, "sushi"))
 
