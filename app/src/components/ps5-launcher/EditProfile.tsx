@@ -131,7 +131,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
   // Upload do avatar pra conta (comum aos fluxos direto e recortado)
   const subirBackground = async (path: string) => {
-    const r = await window.launcherAPI?.accountSetBackground(path)
+    const r = conta?.setBackground ? await conta.setBackground(path) : await window.launcherAPI?.accountSetBackground(path)
     if (r?.ok && r.background_url) {
       await window.launcherAPI?.setConfig({ profile: { background: r.background_url } })
       onChange((atual) => ({ ...atual, background: r.background_url }))
