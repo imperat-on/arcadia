@@ -523,3 +523,30 @@ test("catalog rotas: steam250 devolve jogos com nome paginados", async () => {
   assert.equal(b2.itens[0].appid, "550")
   assert.equal(b2.itens[0].title, "Left 4 Dead 2")
 })
+
+test("catalog rotas: reviews POST adiciona e GET devolve", async () => {
+  // cria um profile real para o user_id da review (FK valida)
+  db.prepare(
+    "INSERT OR IGNORE INTO profiles (id, email, password_hash, username) VALUES (?,?,?,?)",
+  ).run("user1", "user1@teste", "hash", "user1")
+  // POST uma review (autenticado)
+  const rPost = await fetch(`${catBase}/catalog/v1/reviews/730`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${tokenUsuario("zes")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ text: "Jogo incrivel!", positive: true, hours: 120 }),
+  })
+  assert.equal(rPost.status, 200)
+  // GET devolve a review
+  const rGet = await fetch(`${catBase}/catalog/v1/reviews/730`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(rGet.status, 200)
+  const body = await rGet.json()
+  assert.ok(body.reviews.length >= 1)
+  assert.equal(body.reviews[0].text, "Jogo incrivel!")
+  assert.equal(body.reviews[0].positive, 1)
+  assert.ok(body.reviews[0].username, "deve ter o username do autor")
+})

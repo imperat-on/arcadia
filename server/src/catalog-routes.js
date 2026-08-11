@@ -197,6 +197,35 @@ function registerCatalogRoutes(app) {
   app.get("/catalog/v1/sysinfo/:appid", async (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
   // Stats: estatisticas agregadas (dev, owners, ccu, reviews, preco) do SteamSpy.
   app.get("/catalog/v1/stats/:appid", async (req, res) => responder(null, req, res, "stats", req.params.appid))
+
+  // Reviews da comunidade. O servidor e a fonte de verdade (nao depende da
+  // Steam). GET devolve as reviews do jogo; POST adiciona uma (autenticado).
+  app.get("/catalog/v1/reviews/:appid", (req, res) => {
+    const appid = String(req.params.appid || "")
+    if (!/^\d{1,10}$/.test(appid)) return res.status(400).json({ error: "appid_invalido" })
+    const rows = db
+      .prepare(
+        `SELECT r.id, r.text, r.positive, r.hours, r.created_at, p.username
+         FROM user_reviews r JOIN profiles p ON p.id = r.user_id
+         WHERE r.appid = ? ORDER BY r.created_at DESC LIMIT 100`,
+      )
+      .all(appid)
+    res.json({ ok: true, reviews: rows })
+  })
+
+  app.post("/catalog/v1/reviews/:appid", (req, res) => {
+    const uid = requireAuth(req)
+    if (!uid) return res.status(401).json({ error: "nao_autenticado" })
+    const appid = String(req.params.appid || "")
+    if (!/^\d{1,10}$/.test(appid)) return res.status(400).json({ error: "appid_invalido" })
+    const { text, positive, hours } = req.body || {}
+    const txt = String(text || "").trim().slice(0, 4000)
+    if (!txt) return res.status(400).json({ error: "texto_vazio" })
+    db.prepare(
+      "INSERT INTO user_reviews (user_id, appid, text, positive, hours) VALUES (?,?,?,?,?)",
+    ).run(uid, appid, txt, positive === false ? 0 : 1, Number(hours) || 0)
+    res.json({ ok: true })
+  })
   app.get("/catalog/v1/meta/:appid", async (req, res) => responder(null, req, res, "meta", req.params.appid))
   app.get("/catalog/v1/hltb/:appid", async (req, res) => responder(null, req, res, "hltb", req.params.appid))
 
