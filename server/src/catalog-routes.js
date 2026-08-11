@@ -129,20 +129,17 @@ function registerCatalogRoutes(app) {
     if (req.headers["if-none-match"] === etag) return res.status(304).end()
     res.set("ETag", etag)
     const fatia = completa.slice(offset, offset + limite)
-    // arte (capa) via items, sob demanda e cacheado
-    const comArte = await Promise.all(
-      fatia.map(async (g) => {
-        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
-        return {
-          appid: String(g.appid),
-          title: g.title || String(g.appid),
-          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-          heroi: item?.heroi || "",
-          capa: item?.capa || "",
-        }
-      }),
-    )
-    res.json({ ok: true, itens: comArte, total: completa.length, offset })
+    // capa sempre vem da CDN da Steam (não precisa do items). O items (heroi/
+    // capa retrato) é só um enriquecimento — se não estiver em cache, deixa
+    // vazio em vez de buscar na Steam na hora (evita rate-limit/timeout).
+    const itens = fatia.map((g) => ({
+      appid: String(g.appid),
+      title: g.title || String(g.appid),
+      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+      heroi: getCached(`items:${g.appid}`)?.heroi || "",
+      capa: getCached(`items:${g.appid}`)?.capa || "",
+    }))
+    res.json({ ok: true, itens, total: completa.length, offset })
   })
 
   // Steam250: catálogo com nome real (~890 jogos: top250, mais jogados,
