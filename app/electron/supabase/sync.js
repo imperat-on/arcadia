@@ -252,8 +252,8 @@ function scheduleRetry() {
   }, retryDelay)
 }
 
-/** Debounce curto para o hook de desbloqueio (não atrapalha o launch). */
-function scheduleNow(delayMs = 2000) {
+/** Sincroniza na hora apos desbloqueio (sem debounce). */
+function scheduleNow(delayMs = 0) {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     debounceTimer = null
