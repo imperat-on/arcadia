@@ -825,11 +825,11 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   const off = Math.max(0, Number(offset) | 0)
   const lim = Math.max(1, Number(limite) | 0)
 
-  // Catálogo infinito: "all" (o desktop) navega os ~890 jogos do steam250
-  // (top250, mais jogados, hidden gems, do ano) paginados — fonte igual a do
-  // Hydra, com NOME real. O servidor devolve nome+arte por página, cacheado.
+  // Catálogo infinito: "all" (o desktop) navega os ~100.000+ jogos da Steam
+  // (coletados via SteamSpy por gênero, com NOME real) paginados — como a
+  // Steam/Hydra. O servidor devolve nome+arte por página, cacheado.
   if (lista === "all") {
-    const remoto = await catalogGet(`/catalog/v1/steam250?offset=${off}&limite=${lim}`)
+    const remoto = await catalogGet(`/catalog/v1/catalog?offset=${off}&limite=${lim}`)
     if (Array.isArray(remoto.data?.itens)) {
       const jogos = await preparar(remoto.data.itens)
       return {
