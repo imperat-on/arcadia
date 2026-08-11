@@ -782,7 +782,8 @@ async function getGameStats(appid) {
   appid = String(appid || "").replace(/^steam:/, "")
   if (!appid) return null
   const hit = _statsCache.get(appid)
-  if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.data
+  const ttlHit = hit?.vazio ? 60 * 1000 : 6 * 60 * 60 * 1000
+  if (hit && Date.now() - hit.at < ttlHit) return hit.data
   let out = null
   try {
     // Stats agregadas via servidor (o servidor coleta do SteamSpy e cacheia).
@@ -867,7 +868,10 @@ async function getGameStats(appid) {
   }
   // Teto de entradas: cada item carrega até 50 reviews completas.
   if (_statsCache.size > 30) _statsCache.clear()
-  _statsCache.set(appid, { at: Date.now(), data: out })
+  // Não cacheia resultado VAZIO por 6h: se a Steam rate-limitou (0 reviews)
+  // naquele momento, o próximo acesso pode ter sucesso. Cache vazio tem TTL
+  // curto (1min) — não prende o painel em "sem reviews".
+  _statsCache.set(appid, { at: Date.now(), data: out, vazio: !out })
   return out
 }
 
