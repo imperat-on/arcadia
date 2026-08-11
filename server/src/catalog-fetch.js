@@ -144,30 +144,132 @@ async function fetchSushi() {
 }
 
 // ---------- Noticias (RSS) ----------
-// 6 feeds agregados pelo app. Aqui usamos um feed simples (ex.: Steam news)
-// como fonte; o agregado completo pode entrar depois.
-const NEWS_FEED = "https://store.steampowered.com/news/app/242760" // exemplo
+// Mesmo agregado do app (app/electron/news.js): 6 feeds PT/EN, parse por
+// regex, filtro anti-anuncio (oferta/hardware/dispositivo). Sem chave de API.
+const NEWS_FEEDS = [
+  { source: "Eurogamer", url: "https://www.eurogamer.pt/feed" },
+  { source: "Nintendo Blast", url: "https://www.nintendoblast.com.br/feeds/posts/default?alt=rss" },
+  { source: "GameSpot", url: "https://www.gamespot.com/feeds/game-news/" },
+  { source: "Rock Paper Shotgun", url: "https://www.rockpapershotgun.com/feed" },
+  { source: "Push Square", url: "https://www.pushsquare.com/feeds/latest" },
+  { source: "PC Gamer", url: "https://www.pcgamer.com/rss/" },
+]
+
+const BLOCK_URL_NEWS =
+  /\/(descontos|ofertas|deals|promo(?:cao|coes)?|hardware|reviews\/hardware|perifericos|celular|smartphone)\b/i
+const BLOCK_OFERTA_NEWS =
+  /(cai de pre|menor pre|melhor pre|mais barat|desconto|em oferta|black friday|cupom|\bdeal\b|% off|por (?:apenas|cerca de|r\$))/i
+const BLOCK_HW_NEWS =
+  /\b(gpu|cpu|ssd|hd externo|placa de v[íi]deo|placa-m[ãa]e|monitor|headset|fone|teclado|gabinete|cooler|fonte de alimenta|notebook|smartphone|celular|processador|cadeira gamer|power ?bank|roteador|smart ?tv|geladeira|carregador|rtx|gtx|geforce|radeon|ryzen|intel)(?:es|s)?\b/i
+const BLOCK_DISP_NEWS =
+  /(steam deck|rog ally|legion go|legion c\d|msi claw|\bhandheld\b|console port[áa]til|ayn odin|retroid|samsung galaxy|galaxy s\d|galaxy z|iphone|ipad|macbook|pixel \d)/i
+
+function ehNoticiaJogo(n) {
+  if (BLOCK_URL_NEWS.test(n.url || "")) return false
+  if (BLOCK_OFERTA_NEWS.test(n.title || "")) return false
+  if (BLOCK_HW_NEWS.test(n.title || "")) return false
+  if (BLOCK_DISP_NEWS.test(n.title || "")) return false
+  return true
+}
+
+function hashId(s) {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return "news_" + (h >>> 0).toString(36)
+}
+
+function decodificarNum(s) {
+  return String(s || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+}
+
+function limparTexto(s) {
+  let t = decodificarNum(String(s || ""))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+  t = t.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&")
+  return t.replace(/\s+/g, " ").trim()
+}
+
+function pegar(bloco, tag) {
+  const m = bloco.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"))
+  if (!m) return ""
+  return m[1]
+    .replace(/^<!\[CDATA\[/, "")
+    .replace(/\]\]>$/, "")
+    .trim()
+}
+
+function melhorarImagem(url) {
+  if (!url) return url
+  let u = url.replace(/&amp;/g, "&")
+  if (/blogger\.googleusercontent\.com|bp\.blogspot\.com/.test(u)) return u.replace(/\/(s\d+(?:-[a-z]\d+)*(?:-c)?)\//i, "/s0/")
+  if (/images\.pushsquare\.com/.test(u)) return u.replace(/\/(small|medium|thumb)\.(jpg|png|webp)/i, "/large.$2")
+  if (/gamespot\.com/.test(u)) return u.includes("?w=") ? u.replace(/\?w=\d+/, "?w=1280") : u
+  if (/gnwcdn\.com/.test(u)) return u.replace(/([?&]width=)\d+/, "$11280").replace(/([?&]quality=)\d+/, "$190")
+  return u
+}
+
+function pegarImagem(bloco) {
+  const attr = bloco.match(/<(?:media:content|media:thumbnail|enclosure)[^>]*\burl="([^"]+)"/i)
+  if (attr) return melhorarImagem(attr[1])
+  const img = bloco.match(/<img[^>]*\bsrc="([^"]+)"/i)
+  if (img) return melhorarImagem(img[1])
+  const anyUrl = bloco.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)/i)
+  return anyUrl ? melhorarImagem(anyUrl[0]) : ""
+}
+
+async function buscarFeed(feed) {
+  const r = await http(feed.url, { timeoutMs: 8000 })
+  if (!r.ok) return []
+  const xml = await r.text()
+  const itens = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || []
+  return itens.map((bloco) => {
+    const link = pegar(bloco, "link") || pegar(bloco, "guid")
+    const data = pegar(bloco, "pubDate") || pegar(bloco, "dc:date")
+    return {
+      id: hashId(link),
+      title: limparTexto(pegar(bloco, "title")),
+      summary: limparTexto(pegar(bloco, "description")).slice(0, 280),
+      source: feed.source,
+      url: link,
+      image: pegarImagem(bloco),
+      date: data ? new Date(data).toISOString() : "",
+    }
+  })
+}
 
 async function fetchNews() {
-  const r = await http(NEWS_FEED, { timeoutMs: 15000 })
-  if (!r.ok) return null
-  return { data: { noticias: [] }, at: nowEpochS() }
+  const resultados = await Promise.allSettled(NEWS_FEEDS.map(buscarFeed))
+  const itens = []
+  for (const r of resultados) {
+    if (r.status === "fulfilled") for (const n of r.value) if (ehNoticiaJogo(n)) itens.push(n)
+  }
+  // Ordena por data (mais recente primeiro), corta em 60
+  itens.sort((a, b) => (a.date < b.date ? 1 : -1))
+  return { data: { noticias: itens.slice(0, 60) }, at: nowEpochS() }
 }
 
 // ---------- Indices de fixes ----------
-const FIXES_URL = "https://luatools.work/api/v1/fixes" // placeholder
-const RYUU_URL = "https://generator.ryuu.lol/api/v1/index" // placeholder
+const FIXES_INDEX_URL = "https://index.luatools.work/fixes-index.json"
+const RYUU_CATALOG_URL = "https://generator.ryuu.lol/files/fixes.json"
 
 async function fetchFixes() {
-  const r = await http(FIXES_URL, { timeoutMs: 15000 })
+  const r = await http(FIXES_INDEX_URL, { timeoutMs: 20000 })
   if (!r.ok) return null
-  return { data: await r.json(), at: nowEpochS() }
+  const data = await r.json()
+  return { data, at: nowEpochS() }
 }
 
 async function fetchRyuuIndex() {
-  const r = await http(RYUU_URL, { timeoutMs: 15000 })
+  const r = await http(RYUU_CATALOG_URL, { timeoutMs: 20000 })
   if (!r.ok) return null
-  return { data: await r.json(), at: nowEpochS() }
+  const data = await r.json()
+  return { data, at: nowEpochS() }
 }
 
 // ---------- Sysinfo (requisitos de sistema, Steam) ----------
