@@ -1,10 +1,12 @@
-// Configuração do Supabase — Arcadia
-// A publishable key é pública POR DESIGN (a segurança vem das políticas RLS).
-// Override opcional por env vars (SUPABASE_URL / SUPABASE_ANON_KEY).
-// Ver plano: docs/plans/2026-08-05-base-de-usuarios-plano.md (Fase 0.4)
+// Configuracao do backend do Arcadia, servidor Node proprio.
+// O URL aponta para o servidor local (ou do notebook via ARCADIA_SUPABASE_URL).
+// A anonKey virou dummy. A seguranca agora vem do JWT + filtros no servidor.
+// Override opcional por env vars (SUPABASE_URL/SUPABASE_ANON_KEY mantidos por
+// compatibilidade. ARCADIA_SUPABASE_URL tambem e aceito).
 module.exports = {
-  url: process.env.SUPABASE_URL || 'https://project-id.supabase.co',
-  anonKey:
-    process.env.SUPABASE_ANON_KEY ||
-    'public-anon-key',
+  url:
+    process.env.ARCADIA_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    'http://127.0.0.1:3000',
+  anonKey: process.env.SUPABASE_ANON_KEY || 'arcadia-dummy-key',
 }

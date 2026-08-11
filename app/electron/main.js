@@ -1733,7 +1733,7 @@ app.whenReady().then(() => {
   }
   configurarLojaSteam()
   startSysinfoPrefetch()
-  // Conta online (Supabase): registra IPC de auth e espelha eventos pro renderer.
+  // Conta online (backend proprio): registra IPC de auth e espelha eventos pro renderer.
   try {
     const { registerAccountIpc } = require("./supabase/ipc")
     registerAccountIpc(

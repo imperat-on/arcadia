@@ -203,7 +203,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("game:launchWarning", h)
     return () => ipcRenderer.removeListener("game:launchWarning", h)
   },
-  // Conta online (Supabase) — cadastro email+username+senha; login username+senha.
+  // Conta online (backend proprio) — cadastro email+username+senha; login username+senha.
   accountStatus: () => ipcRenderer.invoke("account:status"),
   accountProfile: () => ipcRenderer.invoke("account:profile"),
   accountUpdateProfile: (campos) => ipcRenderer.invoke("account:updateProfile", campos),
@@ -217,7 +217,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("account:changed", h)
     return () => ipcRenderer.removeListener("account:changed", h)
   },
-  // Amigos (Supabase)
+  // Amigos (backend proprio)
   friendsSearch: (query) => ipcRenderer.invoke("friends:search", query),
   friendsSend: (userId) => ipcRenderer.invoke("friends:send", userId),
   friendsAccept: (userId) => ipcRenderer.invoke("friends:accept", userId),
@@ -235,7 +235,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("friends:changed", h)
     return () => ipcRenderer.removeListener("friends:changed", h)
   },
-  // Sync de conquistas (Supabase)
+  // Sync de conquistas (backend proprio)
   syncNow: () => ipcRenderer.invoke("sync:now"),
   syncState: () => ipcRenderer.invoke("sync:state"),
   onSyncState: (cb) => {

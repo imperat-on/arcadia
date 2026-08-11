@@ -1,6 +1,6 @@
 "use client"
 
-// Estado global da conta online (Supabase) no renderer.
+// Estado global da conta online (backend proprio) no renderer.
 // Consome a accountAPI exposta pelo preload; escuta onAuthChanged; mantém o
 // perfil online (username + avatar do servidor) atualizado após o login.
 import {
