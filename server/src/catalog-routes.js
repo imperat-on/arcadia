@@ -40,16 +40,42 @@ function lerCache(key) {
 // pico de N requisicoes iguais.
 const buscasEmVoo = new Map()
 
+// Limite de concorrencia para buscas à FONTE EXTERNA. Sem isto, N usuarios
+// pedindo jogos DIFERENTES sem cache disparavam N fetches simultaneos à
+// Steam -> rate-limit + sobrecarga do notebook (medido: 200 -> 10s, 176
+// falhas). Com o semaforo, no maximo MAX_CONCORRENCIA fetches rodam por vez;
+// os demais esperam na fila e seguem um a um. Acha o pico sem travar.
+const MAX_CONCORRENCIA = 8
+let ativos = 0
+const fila = []
+
+async function comSemaforo(fn) {
+  if (ativos < MAX_CONCORRENCIA) {
+    ativos++
+    try {
+      return await fn()
+    } finally {
+      ativos--
+      // libera o proximo da fila, se houver
+      const proximo = fila.shift()
+      if (proximo) proximo()
+    }
+  }
+  // espera um slot
+  await new Promise((resolve) => fila.push(resolve))
+  return comSemaforo(fn)
+}
+
 // Busca da fonte externa e grava. Devolve { data } ou null se a fonte falhou.
 // Cold-start: quando nao ha cache, a rota chama isto (espera) antes de
 // responder — o 404 so aparece se a fonte externa tambem falhar.
 async function buscar(key) {
   if (buscasEmVoo.has(key)) return buscasEmVoo.get(key)
-  const promessa = (async () => {
+  const promessa = comSemaforo(async () => {
     const r = await fetchCatalogKey(key).catch(() => null)
     if (r) gravarCache(key, r)
     return r ? r.data : null
-  })()
+  })
   buscasEmVoo.set(key, promessa)
   try {
     return await promessa
