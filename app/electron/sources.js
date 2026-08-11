@@ -249,4 +249,9 @@ function getGame(ref) {
   }
 }
 
-module.exports = { addSource, removeSource, syncSources, search, getGame, list: readRegistry }
+// escrita local usada pelo pull do sync (supabase/sources.js)
+function _writeRegistryLocal(list) {
+  writeRegistry(list)
+}
+
+module.exports = { addSource, removeSource, syncSources, search, getGame, list: readRegistry, _writeRegistryLocal }
