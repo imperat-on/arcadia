@@ -312,25 +312,37 @@ function registerCatalogRoutes(app) {
   )
 
   // Search: busca no catalogo Hydra em cache (indice do servidor).
-  app.get("/catalog/v1/search", (req, res) => {
+  app.get("/catalog/v1/search", async (req, res) => {
     const q = String(req.query.q || "").trim().toLowerCase()
     if (!q) return res.json({ ok: true, itens: [] })
     // Busca no catálogo completo (85k jogos da Steam, com appid real + nome).
     // Este é o caminho da loja: resultados com capa e que abrem a tela rica.
     const data = getCached("catalogo_completo")
     const completa = Array.isArray(data?.completa) ? data.completa : []
-    const itens = []
+    const candidatos = []
     for (const g of completa) {
       if (!g?.title) continue
       if (String(g.title).toLowerCase().includes(q)) {
-        itens.push({
-          appid: String(g.appid),
-          title: g.title,
-          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-        })
-        if (itens.length >= 40) break
+        candidatos.push({ appid: String(g.appid), title: g.title })
+        if (candidatos.length >= 40) break
       }
     }
+    // Filtra DLCs/demos/trilhas sonoras usando o tipo do IStoreBrowseService
+    // (0 = jogo). Busca os items em paralelo (dedupe/cache do buscar) e só
+    // mantém os que são jogos de verdade.
+    const comTipo = await Promise.all(
+      candidatos.map(async (g) => {
+        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
+        return { ...g, tipo: item?.tipo }
+      }),
+    )
+    const itens = comTipo
+      .filter((g) => g.tipo === undefined || g.tipo === 0) // sem tipo = mantém; tipo 0 = jogo
+      .map((g) => ({
+        appid: g.appid,
+        title: g.title,
+        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+      }))
     res.json({ ok: true, itens })
   })
 }

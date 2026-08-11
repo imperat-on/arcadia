@@ -1354,7 +1354,12 @@ async function curarCapasSteam(games) {
       if (!it) continue
       if (it.capa && !overrides[g.id]?.cover && capaSteamRuim(appid, g.cover)) g.cover = it.capa
       if (it.heroi && capaSteamRuim(appid, g.hero)) g.hero = it.heroi
-      if (it.icon && !g.icon) g.icon = it.icon
+      // Persiste o ícone no override: assim a sidebar mostra o ícone desde a
+      // primeira montagem (sem esperar a cura rodar de novo a cada abertura).
+      if (it.icon && !g.icon) {
+        g.icon = it.icon
+        setOverride(caminhoConta(OVERRIDES), g.id, { icon: it.icon })
+      }
       const p = pendentes.find((x) => x?.id === g.id)
       if (p) {
         p.cover = g.cover
