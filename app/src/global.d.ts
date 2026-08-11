@@ -352,7 +352,11 @@ declare global {
         country?: string
         city?: string
         showcase?: string[]
+        background_url?: string
       }) => Promise<{ ok: boolean; error?: string }>
+      accountSetBackground: (
+        filePath: string,
+      ) => Promise<{ ok: boolean; background_url?: string; error?: string }>
       accountSetAvatar: (
         filePath: string,
       ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>

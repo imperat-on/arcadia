@@ -7,6 +7,7 @@ const auth = require("./auth")
 const friends = require("./friends")
 const sync = require("./sync")
 const biblioteca = require("./biblioteca")
+const sourcesSync = require("./sources")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
 
 // Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
@@ -56,6 +57,7 @@ function registerAccountIpc(broadcast, onConta) {
       realtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
       biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
+      sourcesSync.reconcile().catch(() => {})
       // Troca o escopo dos arquivos locais pra conta logada
       onConta?.(username)
     }
@@ -84,6 +86,14 @@ function registerAccountIpc(broadcast, onConta) {
   ipcMain.handle("account:setAvatar", async (_e, filePath) => {
     await garantirSessao()
     return auth.setAvatar(filePath)
+  })
+  ipcMain.handle("account:setBackground", async (_e, filePath) => {
+    try {
+      const r = await auth.setBackground(filePath)
+      return r
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
   })
   ipcMain.handle("account:setAvatarBytes", async (_e, buf, mime, ext) => {
     await garantirSessao()

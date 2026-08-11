@@ -13,7 +13,8 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 const SENHA_MIN = 6
 
-const AVATAR_MAX = 5 * 1024 * 1024 // 5MB (limite do bucket — GIFs animados são pesados)
+const AVATAR_MAX = 5 * 1024 * 1024 // 5MB (limite do bucket)
+const BACKGROUND_MAX = 25 * 1024 * 1024 // 25MB (background pode ser video)
 const AVATAR_DIM_MAX = 512 // dimensão máxima do avatar (qualquer formato)
 const AVATAR_ENC = 256 // estáticos são re-encodados em ≤256px (economiza storage)
 const AVATAR_EXT = {
@@ -243,7 +244,7 @@ async function myProfile() {
 }
 
 // Whitelist de campos editáveis do perfil online (nunca username/email/id).
-const CAMPOS_PERFIL = ["display_name", "summary", "country", "city", "showcase"]
+const CAMPOS_PERFIL = ["display_name", "summary", "country", "city", "showcase", "background_url"]
 
 /** Grava campos do perfil online (whitelist). RLS: só a própria linha. */
 async function updateProfile(campos) {
@@ -379,4 +380,83 @@ async function uploadAvatarBytes(me, buf, mime, extFinal) {
   return { ok: true, avatar_url: avatarUrl }
 }
 
-module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, setAvatarBytes, caminhoDeArquivo, dimensoesDeImagem, processaAvatar }
+
+// Background do perfil: imagem OU video (webm/mp4/m4v/mov). Upload pro bucket
+// backgrounds (25MB), grava background_url no profile. Sem re-encode (video).
+const MAGIC_BG = [
+  { sig: [0x1a, 0x45, 0xdf, 0xa3], mime: "video/webm", ext: ".webm" },
+  { sig: [0x00, 0x00, 0x00], mime: "video/mp4", ext: ".mp4" },
+]
+const BACKGROUND_EXT = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp",
+  ".webm": "video/webm", ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4",
+}
+function magicDeMidia(buf) {
+  for (const m of [...MAGIC, ...MAGIC_BG]) {
+    if (buf.length >= m.sig.length && m.sig.every((b, i) => buf[i] === b)) return m
+  }
+  // MP4/m4v/mov: assinatura 00 00 00 XX com 'ftyp' nos bytes 4-7
+  if (buf.length >= 8 && buf[0] === 0 && buf[1] === 0 && buf[2] === 0 &&
+      buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+    return { mime: "video/mp4", ext: ".mp4" }
+  }
+  return null
+}
+
+async function setBackground(filePath) {
+  const { data: ud, error: ue } = await getClient().auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  const me = ud.user.id
+
+  const p = caminhoDeArquivo(filePath)
+  if (!p) return { ok: false, error: "background_ilegivel" }
+  const buf = fs.readFileSync(p)
+  if (buf.length > BACKGROUND_MAX) return { ok: false, error: "background_grande" }
+
+  const ext = (require("node:path").extname(p) || "").toLowerCase()
+  const mime = BACKGROUND_EXT[ext]
+  const magic = magicDeMidia(buf)
+  if (!magic) return { ok: false, error: "background_nao_midia" }
+
+  return uploadBackgroundBytes(me, buf, mime || magic.mime, ext || magic.ext)
+}
+
+async function uploadBackgroundBytes(me, buf, mime, extFinal) {
+  if (buf.length > BACKGROUND_MAX) return { ok: false, error: "background_grande" }
+
+  const { data: atual } = await getClient()
+    .from("profiles")
+    .select("background_url")
+    .eq("id", me)
+    .maybeSingle()
+  const urlAntiga = atual?.background_url || ""
+  const nomeAntigo = urlAntiga.startsWith(`${getClient().supabaseUrl}/storage/v1/object/public/backgrounds/`)
+    ? urlAntiga.split("/public/backgrounds/")[1]
+    : null
+
+  const nome = `${me}/${Date.now()}${extFinal}`
+  const { error: upErr } = await getClient()
+    .storage.from("backgrounds")
+    .upload(nome, buf, { upsert: false, contentType: mime })
+  if (upErr) return { ok: false, error: upErr.message }
+
+  const bgUrl = `${getClient().supabaseUrl}/storage/v1/object/public/backgrounds/${nome}`
+  const { error: dbErr } = await getClient()
+    .from("profiles")
+    .update({ background_url: bgUrl })
+    .eq("id", me)
+  if (dbErr) return { ok: false, error: dbErr.message }
+
+  if (nomeAntigo && nomeAntigo !== nome) {
+    try {
+      await getClient().storage.from("backgrounds").remove([nomeAntigo])
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { ok: true, background_url: bgUrl }
+}
+
+module.exports = { signUp, signIn, usernameAvailable, signOut, status, myProfile, updateProfile, setAvatar, setAvatarBytes, setBackground, caminhoDeArquivo, dimensoesDeImagem, processaAvatar }
