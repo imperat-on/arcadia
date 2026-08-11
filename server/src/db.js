@@ -140,6 +140,15 @@ CREATE TABLE IF NOT EXISTS blocks (
   PRIMARY KEY (blocker_id, blocked_id),
   CHECK (blocker_id <> blocked_id)
 );
+
+-- Cache de catalogo da loja (proxy): o servidor busca a fonte externa uma
+-- vez por TTL e guarda aqui. key e a identidade do cache (allowlist no
+-- catalog-fetch), data o JSON pronto, at o epoch-s da busca.
+CREATE TABLE IF NOT EXISTS catalog_cache (
+  key TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  at   INTEGER NOT NULL
+);
 `)
 
 // Seeds de reserved_usernames (14 do SQL v6 + nomes de rota reservados)
