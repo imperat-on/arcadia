@@ -1,4 +1,4 @@
-// Sync de conquistas (Supabase) — MAIN PROCESS.
+// Sync de conquistas (backend proprio) — MAIN PROCESS.
 // Offline-first: desbloqueios vão pra uma fila local e sobem quando der.
 // Merge: "quem desbloqueou PRIMEIRO vence" (earliest wins) — no servidor via
 // RPC sync_achievements (LEAST) e localmente no applyPulled.

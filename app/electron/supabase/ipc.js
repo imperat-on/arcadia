@@ -1,4 +1,4 @@
-// Registro dos IPC de conta + amigos (Supabase) + espelhamento de eventos.
+// Registro dos IPC de conta + amigos (backend proprio) + espelhamento de eventos.
 // main.js chama registerAccountIpc(broadcast) uma vez no whenReady.
 "use strict"
 

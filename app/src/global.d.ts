@@ -281,7 +281,7 @@ export interface GameSettings {
 }
 
 declare global {
-  /** Sessão da conta online (Supabase) — só dados seguros, nunca tokens. */
+  /** Sessão da conta online (backend proprio) — só dados seguros, nunca tokens. */
   interface AccountSession {
     user: { id: string; email?: string; username?: string }
   }
@@ -331,7 +331,7 @@ declare global {
     launcherPaths?: { home: string; dataDir: string }
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
-      /** Conta online (Supabase) — fluxo por código enviado por email (OTP). */
+      /** Conta online (backend proprio) — fluxo por código enviado por email (OTP). */
       accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
       accountProfile: () => Promise<{
         ok: boolean
@@ -374,7 +374,7 @@ declare global {
       onAuthChanged: (
         cb: (data: { event: string; session: AccountSession | null }) => void,
       ) => () => void
-      /** Amigos (Supabase). */
+      /** Amigos (backend proprio). */
       friendsSearch: (
         query: string,
       ) => Promise<{ ok: boolean; results?: FriendProfile[]; error?: string }>
@@ -388,7 +388,7 @@ declare global {
       friendsRemove: (userId: string) => Promise<{ ok: boolean; error?: string }>
       onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
       onFriendsChanged: (cb: (data: FriendsListData) => void) => () => void
-      /** Sync de conquistas (Supabase). */
+      /** Sync de conquistas (backend proprio). */
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
