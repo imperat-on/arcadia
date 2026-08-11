@@ -39,6 +39,28 @@ function catalogGetEspelho(pathname) {
   }
 }
 
+// Guarda o ETag junto do espelho (arquivo `.etag`), para enviar If-None-Match
+// na proxima chamada e receber 304 quando nada mudou.
+function etagPath(pathname) {
+  return `${espelhoPath(pathname)}.etag`
+}
+
+function catalogGetEtag(pathname) {
+  try {
+    return fs.readFileSync(etagPath(pathname), "utf-8").trim()
+  } catch {
+    return null
+  }
+}
+
+function gravarEtag(pathname, etag) {
+  try {
+    fs.writeFileSync(etagPath(pathname), String(etag || ""), "utf-8")
+  } catch {
+    // etag e otimizacao; falhar em gravar nao quebra nada
+  }
+}
+
 function gravarEspelho(pathname, data) {
   try {
     fs.mkdirSync(ESPELHO_DIR, { recursive: true })
@@ -50,6 +72,11 @@ function gravarEspelho(pathname, data) {
     // O catalogo continua utilizavel em rede mesmo se o espelho nao puder ser salvo.
   }
 }
+
+// Dedupe em voo: quando a loja abre, varias abas podem pedir o mesmo catalogo
+// quase ao mesmo tempo. Compartilham a mesma Promise em vez de disparar N
+// requisicoes iguais ao servidor.
+const emVoo = new Map()
 
 function authHeaders() {
   try {
@@ -64,25 +91,60 @@ async function catalogGet(pathname, opts = {}) {
   if (!caminho.startsWith("/catalog/v1/")) {
     return { data: null, error: { message: "caminho de catalogo invalido" } }
   }
-  const url = `${String(config.url).replace(/\/$/, "")}${caminho}`
-  try {
-    const res = await fetchRede(url, {
-      method: "GET",
-      headers: { ...authHeaders(), accept: "application/json", "accept-encoding": "gzip" },
-      signal: AbortSignal.timeout(opts.timeoutMs || 30000),
-    })
-    if (!res.ok) {
+
+  // Dedupe em voo: reusa a requisicao pendente se outra chamada ja pediu a
+  // mesma rota agora.
+  if (emVoo.has(caminho)) return emVoo.get(caminho)
+
+  const promessa = (async () => {
+    const url = `${String(config.url).replace(/\/$/, "")}${caminho}`
+    try {
+      const headers = {
+        ...authHeaders(),
+        accept: "application/json",
+        "accept-encoding": "gzip",
+      }
+      // If-None-Match: se o espelho ja tem este etag, o servidor devolve 304
+      // e nao re-baixamos o JSON.
+      const etag = catalogGetEtag(caminho)
+      if (etag) headers["if-none-match"] = etag
+
+      const res = await fetchRede(url, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(opts.timeoutMs || 30000),
+      })
+
+      // 304: nada mudou — usa o espelho local (sem re-baixar).
+      if (res.status === 304) {
+        const espelho = catalogGetEspelho(caminho)
+        if (espelho !== null) return { data: espelho, error: null, fallback: true, notModified: true }
+        return { data: null, error: { message: "HTTP 304 sem espelho" } }
+      }
+
+      if (!res.ok) {
+        const espelho = catalogGetEspelho(caminho)
+        if (espelho !== null) return { data: espelho, error: null, fallback: true }
+        return { data: null, error: { message: `HTTP ${res.status}` } }
+      }
+
+      const novoEtag = res.headers?.get?.("etag")
+      if (novoEtag) gravarEtag(caminho, novoEtag)
+      const data = await res.json()
+      gravarEspelho(caminho, data)
+      return { data, error: null, fallback: false }
+    } catch (e) {
       const espelho = catalogGetEspelho(caminho)
       if (espelho !== null) return { data: espelho, error: null, fallback: true }
-      return { data: null, error: { message: `HTTP ${res.status}` } }
+      return { data: null, error: { message: String(e?.message || e) } }
     }
-    const data = await res.json()
-    gravarEspelho(caminho, data)
-    return { data, error: null, fallback: false }
-  } catch (e) {
-    const espelho = catalogGetEspelho(caminho)
-    if (espelho !== null) return { data: espelho, error: null, fallback: true }
-    return { data: null, error: { message: String(e?.message || e) } }
+  })()
+
+  emVoo.set(caminho, promessa)
+  try {
+    return await promessa
+  } finally {
+    emVoo.delete(caminho)
   }
 }
 
