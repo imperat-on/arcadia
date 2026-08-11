@@ -69,7 +69,7 @@ async function catalogGet(pathname, opts = {}) {
     const res = await fetchRede(url, {
       method: "GET",
       headers: { ...authHeaders(), accept: "application/json" },
-      signal: AbortSignal.timeout(opts.timeoutMs || 15000),
+      signal: AbortSignal.timeout(opts.timeoutMs || 30000),
     })
     if (!res.ok) {
       const espelho = catalogGetEspelho(caminho)
