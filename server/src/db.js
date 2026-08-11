@@ -121,6 +121,18 @@ CREATE TABLE IF NOT EXISTS reserved_usernames (
 `)
 
 db.exec(`
+CREATE TABLE IF NOT EXISTS user_sources (
+  user_id    TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  source_id  TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  removed_at TEXT,
+  PRIMARY KEY (user_id, source_id)
+);
+`)
+
+db.exec(`
 CREATE TABLE IF NOT EXISTS blocks (
   blocker_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   blocked_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
