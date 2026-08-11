@@ -561,6 +561,10 @@ async function aquecer() {
       for (const url of [RYUU_URL(730), SUSHI_URL(730)]) {
         gh(url, { method: "HEAD", signal: AbortSignal.timeout(8000) }).catch(() => {})
       }
+      // Pré-carrega o catálogo inteiro do "Em alta" (popular + items +
+      // manifests dos 100 jogos) em background. Quando o usuário trocar de
+      // aba, o espelho local já tem tudo → abre do disco, sem rede na hora.
+      precarregarCatalogo().catch(() => {})
       aquecidoEm = Date.now()
       return { ok: true }
     } catch (e) {
@@ -570,6 +574,30 @@ async function aquecer() {
     }
   })()
   return aquecendo
+}
+
+// Pré-carrega o catálogo completo do "Em alta" (popular) no espelho local:
+// baixa popular, depois items + manifests de TODOS os jogos, em background.
+// O usuário troca de aba sem rede na hora — o espelho já tem tudo. Dedup em
+// voo; nunca bloqueia.
+let precarregando = null
+async function precarregarCatalogo() {
+  if (precarregando) return precarregando
+  precarregando = (async () => {
+    try {
+      const remoto = await catalogGet("/catalog/v1/popular?limite=1000&offset=0")
+      const jogos = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
+      if (!jogos.length) return
+      // items em lote (tipo + arte de todos)
+      const appids = jogos.map((g) => g.appid).filter(Boolean)
+      await itensDaLoja(appids)
+      // manifests em lote (disponibilidade de todos)
+      await marcarDisponibilidade(jogos)
+    } catch {
+      // pré-carga é otimização; falhar não quebra nada (cai no on-demand)
+    }
+  })()
+  return precarregando
 }
 
 // Requisições em voo por termo: o renderer pode pedir o mesmo termo duas vezes
@@ -632,6 +660,38 @@ async function search(query) {
 }
 
 async function _searchReal(query, chave) {
+  // Busca local-primeiro: o índice Hydra (sources, ~30k títulos) já está em
+  // memória. Se achar jogos aqui, devolve instantâneo sem pagar a latência da
+  // Steam viva. Só cai na rede (Hubcap+Steam) se o índice local não tiver nada
+  // relevante — como a Steam faz (filtra o catálogo local antes).
+  const { search: searchSources, getGame: getSourceGame } = require("./sources")
+  try {
+    const hits = await searchSources(query, 8)
+    if (hits.length >= 3) {
+      // Mapeia os hits Hydra para o shape da loja (appid derivado do hash da
+      // fonte para o jogo abrir na tela rica). Cover montada da CDN Steam.
+      const locais = hits.map((h, i) => {
+        const appid = String(h.ref || "").split(":")[0] || ""
+        return {
+          appid,
+          title: h.title,
+          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          manifest: true,
+          fonteLocal: true,
+          fonte: h.src || "",
+          fileSize: h.fileSize || "",
+        }
+      })
+      const res = { ok: true, jogos: locais.slice(0, 8), fonte: "local", avisos: [] }
+      if (chave.length >= 2) {
+        if (buscaCache.size > 50) buscaCache.clear()
+        buscaCache.set(chave, { at: Date.now(), res })
+      }
+      return res
+    }
+  } catch {
+    // se o índice local falhar, segue para a rede normalmente
+  }
   const cfg = readConfig()
   const porId = new Map()
   const erros = []

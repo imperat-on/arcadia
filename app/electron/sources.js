@@ -150,7 +150,7 @@ async function addSource(url) {
   }
   reg.push(src)
   writeRegistry(reg)
-  _index = null // invalida índice para reconstruir com a fonte nova
+  invalidarIndice() // índice mudou: reconstrói (em memória e disco)
   _ultimoArquivo = { id: "", data: null }
   return { ok: true, source: src }
 }
@@ -163,7 +163,7 @@ function removeSource(id) {
   try {
     fs.rmSync(cachePath(id), { force: true })
   } catch {}
-  _index = null
+  invalidarIndice()
   _ultimoArquivo = { id: "", data: null }
   return { ok: true }
 }
@@ -180,14 +180,28 @@ async function syncSources() {
     }
   }
   writeRegistry(reg) // grava etags novos mesmo quando nada mudou
-  _index = null
+  invalidarIndice()
   _ultimoArquivo = { id: "", data: null }
   return { ok: true, results: out }
 }
 
-// Índice leve em RAM: title/size/data + referência (fonte:pos). Montado uma
-// vez a partir dos caches em disco; ~100 bytes por jogo contra MBs do JSON.
+// Índice leve: title/size/data + referência (fonte:pos). ~100 bytes por jogo
+// contra MBs do JSON. Persistido em disco (sources_index.json) para a PRIMEIRA
+// busca de cada abertura do app não refazer o download das fontes — a Steam
+// também mantém o catálogo local, só revalida em segundo plano.
+const INDEX_FILE = () => path.join(DATA_DIR, "sources_index.json")
 let _index = null
+
+// Quando as fontes mudam (add/remove/sync), o índice fica obsoleto: zera a
+// memória e apaga o arquivo em disco para a próxima busca reconstruir.
+function invalidarIndice() {
+  _index = null
+  try {
+    fs.rmSync(INDEX_FILE(), { force: true })
+  } catch {
+    // se não der pra apagar, o loadIndex revalida em background
+  }
+}
 
 async function carregarFonte(src) {
   const remoto = await catalogGet(`/catalog/v1/sources/${src.id}/games`)
@@ -200,8 +214,8 @@ async function carregarFonte(src) {
   }
 }
 
-async function loadIndex() {
-  if (_index) return _index
+// Monta o índice a partir das fontes (servidor + cache local). Retorna o array.
+async function construirIndex() {
   const index = []
   for (const src of readRegistry()) {
     const data = await carregarFonte(src)
@@ -220,7 +234,49 @@ async function loadIndex() {
       })
     }
   }
-  _index = index
+  return index
+}
+
+// Lê o índice persistido em disco, se existir. Devolve null se ausente/velho.
+function lerIndexDisco() {
+  try {
+    return JSON.parse(fs.readFileSync(INDEX_FILE(), "utf-8"))
+  } catch {
+    return null
+  }
+}
+
+function gravarIndexDisco(index) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    const tmp = `${INDEX_FILE()}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(index))
+    fs.renameSync(tmp, INDEX_FILE())
+  } catch {
+    // índice em disco é otimização; falhar não quebra (reconstrói em memória)
+  }
+}
+
+async function loadIndex() {
+  if (_index) return _index
+  // Se há um índice persistido, usa já (instantâneo) e revalida em background.
+  const disco = lerIndexDisco()
+  if (disco && Array.isArray(disco) && disco.length) {
+    _index = disco
+    // revalida em background SEM travar a busca: se as fontes mudaram,
+    // a próxima busca pega o índice novo.
+    construirIndex()
+      .then((novo) => {
+        if (novo.length) {
+          _index = novo
+          gravarIndexDisco(novo)
+        }
+      })
+      .catch(() => {})
+    return _index
+  }
+  _index = await construirIndex()
+  if (_index.length) gravarIndexDisco(_index)
   return _index
 }
 
