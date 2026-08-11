@@ -104,6 +104,56 @@ test("catalog-fetch: TTL tem entradas para os prefixos usados", () => {
   assert.equal(CATALOG_TTL["items:"], 7 * 24 * 60 * 60)
 })
 
+test("catalog-fetch: fetchSysinfo extrai requisitos do appdetails", async () => {
+  const restaurar = stubFetch({
+    "https://store.steampowered.com/api/appdetails?appids=2622380&l=english": {
+      "2622380": {
+        data: {
+          pc_requirements: { minimum: "<strong>16GB RAM</strong>", recommended: "32GB" },
+          short_description: "desc",
+          header_image: "h",
+          background_raw: "b",
+        },
+      },
+    },
+  })
+  try {
+    const r = await fetchCatalogKey("sysinfo:2622380")
+    assert.ok(r)
+    assert.equal(r.data.req_min, "<strong>16GB RAM</strong>")
+    assert.equal(r.data.req_rec, "32GB")
+    assert.equal(r.data.appid, "2622380")
+    assert.equal(r.data.header, "h")
+  } finally {
+    restaurar()
+  }
+})
+
+test("catalog-fetch: fetchMeta extrai metadados do appdetails", async () => {
+  const restaurar = stubFetch({
+    "https://store.steampowered.com/api/appdetails?appids=2622380&l=english": {
+      "2622380": {
+        data: {
+          name: "Elden Ring",
+          developers: ["FromSoftware"],
+          publishers: ["Bandai"],
+          genres: [{ description: "RPG" }],
+          release_date: { date: "2022" },
+        },
+      },
+    },
+  })
+  try {
+    const r = await fetchCatalogKey("meta:2622380")
+    assert.ok(r)
+    assert.equal(r.data.name, "Elden Ring")
+    assert.equal(r.data.genre, "RPG")
+    assert.deepEqual(r.data.developers, ["FromSoftware"])
+  } finally {
+    restaurar()
+  }
+})
+
 // ---------- Rotas /catalog/v1/* ----------
 const express = require("express")
 const { registerCatalogRoutes } = require("../src/catalog-routes")
@@ -166,6 +216,27 @@ test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
   assert.equal(r.status, 200)
   const body = await r.json()
   assert.equal(body.data.req_min, "16GB")
+})
+
+test("catalog rotas: meta por appid devolve metadados", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "meta:2622380",
+    JSON.stringify({ appid: "2622380", name: "Elden Ring", genre: "RPG" }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/meta/2622380`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.data.name, "Elden Ring")
+})
+
+test("catalog rotas: hltb devolve 404 sem cache (placeholder)", async () => {
+  const r = await fetch(`${catBase}/catalog/v1/hltb/2622380`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 404)
 })
 
 test("catalog rotas: items em lote devolve mapa por appid", async () => {
