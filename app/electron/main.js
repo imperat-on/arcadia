@@ -1373,6 +1373,29 @@ async function curarCapasSteam(games) {
   return games
 }
 
+// Preenche icon/capa dos jogos Steam a partir do cache de items (que vem do
+// servidor, /catalog/v1/items). Síncrono e leve: a sidebar mostra o ícone
+// desde a primeira montagem, sem depender da cura em background. Só preenche
+// o que falta (não sobrescreve override/arte escolhida pelo usuário).
+const ITENS_CACHE = path.join(DATA_DIR, "store_items_cache.json")
+function preencherArte(games) {
+  let cache
+  try {
+    cache = JSON.parse(fs.readFileSync(ITENS_CACHE, "utf-8"))
+  } catch {
+    return
+  }
+  for (const g of games) {
+    const appid = /^steam:(\d+)$/.exec(String(g.id || ""))?.[1]
+    if (!appid) continue
+    const it = cache[appid]
+    if (!it) continue
+    if (!g.icon && it.icon) g.icon = it.icon
+    if (!g.cover && it.capa) g.cover = it.capa
+    if (!g.hero && it.heroi) g.hero = it.heroi
+  }
+}
+
 function readLibrary() {
   try {
     const chave = _libMtimeKey()
@@ -1386,6 +1409,11 @@ function readLibrary() {
       if (p && p.id && !jaTem.has(p.id)) games.push(p)
     }
     applyOverrides(games, readOverrides(caminhoConta(OVERRIDES)))
+    // Enriquece cada jogo Steam com ícone/capa vindos do catálogo do servidor
+    // (cache de items em disco, populado pelo itensDaLoja). Síncrono: a
+    // sidebar mostra o ícone desde a primeira montagem, sem depender da cura
+    // em background. Prefere o que o usuário já escolheu (overrides/art).
+    preencherArte(games)
     // Tempo de sessão local (jogos NÃO-Steam): o renderer recebe o playtime
     // já somado. A Steam não entra — o indexer traz o playtime real dela.
     for (const g of games) {
