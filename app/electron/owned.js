@@ -42,4 +42,47 @@ function filtrarPorPosse(globais) {
   return globais.filter((g) => owned.has(g.id))
 }
 
-module.exports = { OWNED_GAMES, filtrarPorPosse, readOwned, materializarPosse }
+// Set dos ids possuídos pela conta ativa. Guest não tem posse (a UI dele
+// já vê tudo via filtrarPorPosse), então devolve conjunto vazio.
+function ownedSet() {
+  if (!conta()) return new Set()
+  return new Set(readOwned() || [])
+}
+
+// Grava atômico (tmp+rename): uma queda no meio não pode deixar o
+// owned_games.json truncado, senão a conta perde acesso a jogos que já tinha.
+function gravarOwned(ids) {
+  const alvo = caminhoConta(OWNED_GAMES)
+  const tmp = `${alvo}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(ids))
+  fs.renameSync(tmp, alvo)
+}
+
+// Registra o id como possuído da conta ativa. Guest não tem arquivo de posse,
+// vê tudo sempre, então é no-op, não cria owned_games.json na raiz.
+function ownedAdd(id) {
+  if (!conta()) return
+  const ids = readOwned() || []
+  if (ids.includes(id)) return
+  ids.push(id)
+  gravarOwned(ids)
+}
+
+// Tira o id da posse da conta ativa. No-op se guest ou se o id não estava lá,
+// nada pra gravar, evita criar owned_games.json à toa.
+function ownedRemove(id) {
+  if (!conta()) return
+  const ids = readOwned()
+  if (ids === null || !ids.includes(id)) return
+  gravarOwned(ids.filter((x) => x !== id))
+}
+
+module.exports = {
+  OWNED_GAMES,
+  filtrarPorPosse,
+  readOwned,
+  materializarPosse,
+  ownedSet,
+  ownedAdd,
+  ownedRemove,
+}
