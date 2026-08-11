@@ -30,6 +30,7 @@ const fs = require("fs")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
+const { catalogGet } = require("./catalog")
 // Escopo por conta dos arquivos locais — PRECISA estar no escopo do módulo
 // (readLibrary e outros helpers rodam fora do whenReady; require dentro de
 // bloco deixava "caminhoConta is not defined" → biblioteca vazia).
@@ -575,6 +576,10 @@ async function buildSysinfo(g) {
     } catch {}
   }
   if (appid) {
+    const catalogo = await catalogGet(`/catalog/v1/sysinfo/${appid}`)
+    if (catalogo.data?.data && typeof catalogo.data.data === "object") {
+      Object.assign(info, catalogo.data.data)
+    }
     try {
       const d = await fetchJson(
         `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=br&l=${steamLang()}`,
@@ -2457,7 +2462,12 @@ app.whenReady().then(() => {
 
   function renovarNews(slot) {
     if (newsEmVoo) return newsEmVoo
-    newsEmVoo = getNews(40)
+    newsEmVoo = catalogGet("/catalog/v1/news")
+      .then(async (r) => {
+        const dados = r.data?.data
+        const items = Array.isArray(dados) ? dados : dados?.noticias || dados?.items
+        return Array.isArray(items) && items.length ? items.slice(0, 40) : getNews(40)
+      })
       .then((items) => {
         if (items.length) {
           try {
@@ -2891,6 +2901,30 @@ app.whenReady().then(() => {
   ipcMain.handle("fixes:check", async (_e, appid) => {
     const a = String(appid || "").replace(/^steam:/, "")
     if (!a) return { ok: false }
+    const [fixesCatalogo, ryuuCatalogo] = await Promise.all([
+      catalogGet("/catalog/v1/fixes"),
+      catalogGet("/catalog/v1/ryuu"),
+    ])
+    for (const [arquivo, resposta, valido] of [
+      [
+        path.join(DATA_DIR, "cache", "fixes-index.json"),
+        fixesCatalogo,
+        (d) => Array.isArray(d?.genericFixes) || Array.isArray(d?.onlineFixes),
+      ],
+      [
+        path.join(DATA_DIR, "cache", "ryuu-index.json"),
+        ryuuCatalogo,
+        (d) => Array.isArray(d) || (d?.fixes && typeof d.fixes === "object"),
+      ],
+    ]) {
+      if (!valido(resposta.data?.data)) continue
+      try {
+        fs.mkdirSync(path.dirname(arquivo), { recursive: true })
+        const tmp = `${arquivo}.tmp`
+        fs.writeFileSync(tmp, JSON.stringify(resposta.data.data))
+        fs.renameSync(tmp, arquivo)
+      } catch {}
+    }
     const [generic, online, crack] = await Promise.all([
       fixes.checkGenericFix(a).catch(() => ({ available: false, status: 0 })),
       fixes.checkOnlineFix(a).catch(() => ({ available: false, status: 0 })),
@@ -2974,6 +3008,21 @@ app.whenReady().then(() => {
   // HowLongToBeat: tempos de jogo (falha silenciosa, sem linha na UI).
   ipcMain.handle("hltb:get", async (_e, titulo) => {
     try {
+      const jogo = readLibrary().find(
+        (g) => String(g.title || "").toLowerCase() === String(titulo || "").toLowerCase(),
+      )
+      const appid = String(jogo?.id || "").replace(/^steam:/, "")
+      if (/^\d+$/.test(appid)) {
+        const remoto = await catalogGet(`/catalog/v1/hltb/${appid}`)
+        const dados = remoto.data?.data
+        if (
+          dados &&
+          typeof dados === "object" &&
+          [dados.main, dados.mainExtra, dados.completionist].some((v) => Number(v) > 0)
+        ) {
+          return dados
+        }
+      }
       return await require("./hltb").hltbBuscar(titulo)
     } catch {
       return null
@@ -2990,17 +3039,17 @@ app.whenReady().then(() => {
     }
   })
 
-  // --- Fontes de download (JSONs estilo Hydra, 100% locais) ----------------
+  // --- Fontes de download (catalogo no servidor + espelho local) -----------
   const sources = require("./sources")
   ipcMain.handle("sources:list", () => ({ ok: true, sources: sources.list() }))
   ipcMain.handle("sources:add", (_e, url) => sources.addSource(url))
   ipcMain.handle("sources:remove", (_e, id) => sources.removeSource(id))
   ipcMain.handle("sources:sync", () => sources.syncSources())
-  ipcMain.handle("sources:search", (_e, { query, limit } = {}) => ({
+  ipcMain.handle("sources:search", async (_e, { query, limit } = {}) => ({
     ok: true,
-    results: sources.search(query, Number(limit) || 40),
+    results: await sources.search(query, Number(limit) || 40),
   }))
-  ipcMain.handle("sources:game", (_e, ref) => sources.getGame(ref))
+  ipcMain.handle("sources:game", async (_e, ref) => sources.getGame(ref))
 
   // --- Torrent (worker Python + libtorrent; ver electron/torrent.js) -------
   const torrent = require("./torrent")

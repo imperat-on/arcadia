@@ -1,4 +1,5 @@
-// Fontes de download estilo Hydra, 100% locais: sem servidor próprio.
+// Fontes de download estilo Hydra. O indice e os jogos completos vem primeiro
+// do catalogo do servidor; os JSONs locais continuam como fallback offline.
 //
 // O Hydra manda a URL para a API deles, que valida/indexa/devolve delta. Aqui
 // o cliente faz tudo: baixa o JSON da fonte (formato { name, downloads: [...] }),
@@ -12,6 +13,7 @@ const path = require("path")
 const os = require("os")
 const crypto = require("crypto")
 const { fetchRede } = require("./httpfetch")
+const { catalogGet } = require("./catalog")
 
 const { caminhoArquivoConta } = require("./supabase/conta")
 const DATA_DIR = process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
@@ -186,21 +188,29 @@ async function syncSources() {
 // Índice leve em RAM: title/size/data + referência (fonte:pos). Montado uma
 // vez a partir dos caches em disco; ~100 bytes por jogo contra MBs do JSON.
 let _index = null
-function loadIndex() {
+
+async function carregarFonte(src) {
+  const remoto = await catalogGet(`/catalog/v1/sources/${src.id}/games`)
+  const data = remoto.data?.data
+  if (data && Array.isArray(data.downloads)) return data
+  try {
+    return JSON.parse(fs.readFileSync(cachePath(src.id), "utf-8"))
+  } catch {
+    return null
+  }
+}
+
+async function loadIndex() {
   if (_index) return _index
-  _index = []
+  const index = []
   for (const src of readRegistry()) {
-    let data
-    try {
-      data = JSON.parse(fs.readFileSync(cachePath(src.id), "utf-8"))
-    } catch {
-      continue
-    }
+    const data = await carregarFonte(src)
+    if (!data) continue
     const downloads = data?.downloads || []
     for (let i = 0; i < downloads.length; i++) {
       const d = downloads[i]
       if (!d?.title) continue
-      _index.push({
+      index.push({
         ref: `${src.id}:${i}`,
         title: String(d.title),
         lower: String(d.title).toLowerCase(),
@@ -210,16 +220,17 @@ function loadIndex() {
       })
     }
   }
+  _index = index
   return _index
 }
 
-function search(query, limit = 40) {
+async function search(query, limit = 40) {
   const q = String(query || "")
     .trim()
     .toLowerCase()
   if (!q) return []
   const out = []
-  for (const g of loadIndex()) {
+  for (const g of await loadIndex()) {
     if (g.lower.includes(q)) {
       const { lower, ...leve } = g
       out.push(leve)
@@ -234,11 +245,15 @@ function search(query, limit = 40) {
 // por fonte (ordem do índice), então 1 slot pega quase todos os hits e
 // evita re-parsear 10-15MB por candidato.
 let _ultimoArquivo = { id: "", data: null }
-function getGame(ref) {
+async function getGame(ref) {
   const [id, i] = String(ref || "").split(":")
   try {
     if (_ultimoArquivo.id !== id) {
-      _ultimoArquivo = { id, data: JSON.parse(fs.readFileSync(cachePath(id), "utf-8")) }
+      const src = readRegistry().find((item) => item.id === id)
+      if (!src) return { ok: false, error: "fonte nao encontrada" }
+      const data = await carregarFonte(src)
+      if (!data) return { ok: false, error: "catalogo da fonte indisponivel" }
+      _ultimoArquivo = { id, data }
     }
     const d = _ultimoArquivo.data?.downloads?.[Number(i)]
     return d
@@ -254,4 +269,12 @@ function _writeRegistryLocal(list) {
   writeRegistry(list)
 }
 
-module.exports = { addSource, removeSource, syncSources, search, getGame, list: readRegistry, _writeRegistryLocal }
+module.exports = {
+  addSource,
+  removeSource,
+  syncSources,
+  search,
+  getGame,
+  list: readRegistry,
+  _writeRegistryLocal,
+}
