@@ -824,13 +824,26 @@ input,
 }
 
 /* Descrição rica da Steam (about_the_game): mix imagem+texto. */
+.steam-desc .bb_img_ctn {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
 .steam-desc img,
 .steam-desc video {
-  max-width: 100%;
-  height: auto;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain;
+  object-position: center;
   border-radius: 8px;
-  margin: 12px 0;
+  margin: 14px auto;
   display: block;
+}
+.steam-desc video {
+  width: 100% !important;
 }
 .steam-desc .bb_h1,
 .steam-desc .bb_h2 {

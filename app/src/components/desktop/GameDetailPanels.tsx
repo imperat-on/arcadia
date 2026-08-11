@@ -273,19 +273,70 @@ export function stripHtml(s: string) {
     .trim()
 }
 
+function normalizarUrlMidiaSteam(raw: string) {
+  const url = String(raw || "")
+    .trim()
+    .replace(/&amp;/g, "&")
+  if (!url) return ""
+  if (url.startsWith("//")) return `https:${url}`
+  if (/^http:\/\//i.test(url)) return url.replace(/^http:/i, "https:")
+  if (/^(https:|data:image\/|blob:)/i.test(url)) return url
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return ""
+  try {
+    return new URL(url, "https://store.steampowered.com/").href
+  } catch {
+    return ""
+  }
+}
+
+function normalizarMidiaSteam(html: string) {
+  // Algumas descricoes usam lazy loading proprio da Steam. Como esse script
+  // nao roda no app, promove data-src para src para a imagem realmente carregar.
+  let s = html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const lazy = /\sdata-(?:src|original|lazy)\s*=\s*"([^"]+)"/i.exec(tag)
+    let out = tag
+    if (lazy) {
+      out = out.replace(lazy[0], "")
+      if (/\ssrc\s*=/i.test(out)) {
+        out = out.replace(/\ssrc\s*=\s*"[^"]*"/i, ` src="${lazy[1]}"`)
+      } else {
+        out = out.replace(/\s*\/?>$/, (fim) => ` src="${lazy[1]}"${fim}`)
+      }
+    }
+    if (!/\sloading\s*=/i.test(out)) out = out.replace(/\s*\/?>$/, (fim) => ` loading="lazy"${fim}`)
+    if (!/\sdecoding\s*=/i.test(out))
+      out = out.replace(/\s*\/?>$/, (fim) => ` decoding="async"${fim}`)
+    return out
+  })
+  s = s.replace(
+    /\b(src|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (_m, attr, aspasDuplas, aspasSimples, semAspas) => {
+      const url = normalizarUrlMidiaSteam(aspasDuplas ?? aspasSimples ?? semAspas)
+      return url ? `${attr}="${url}"` : ""
+    },
+  )
+  return s
+}
+
 // Sanitiza o HTML da descrição da Steam mantendo o mix imagem+texto.
 // Auditoria A-06: regex sozinho é bypassável, então a defesa REAL é a CSP
 // (script-src 'self' no index.html — nenhum handler inline executa); este
 // sanitizador é a segunda camada: remove tags perigosas e atributos de evento.
 function sanitizeHtml(raw: string) {
-  let s = String(raw || "")
+  let s = normalizarMidiaSteam(String(raw || ""))
   // Tags de execução/embute (fechadas ou não)
-  s = s.replace(/<(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|video|audio|source|track|frame|frameset)[\s\S]*?<\/\1>/gi, "")
-  s = s.replace(/<\/?(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|video|audio|source|track|frame|frameset)[^>]*>/gi, "")
+  s = s.replace(
+    /<(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|audio|track|frame|frameset)[\s\S]*?<\/\1>/gi,
+    "",
+  )
+  s = s.replace(
+    /<\/?(script|style|iframe|object|embed|svg|math|meta|link|base|form|input|button|textarea|select|option|audio|track|frame|frameset)[^>]*>/gi,
+    "",
+  )
   // Atributos de evento on* (qualquer variação de espaço/caixa)
   s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-  // javascript:/vbscript:/data: (exceto data:image) em href/src/srcdoc
-  s = s.replace(/(href|src|srcdoc|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, (m, attr, val) => {
+  // javascript:/vbscript:/data: (exceto data:image) em links e midia
+  s = s.replace(/(href|src|poster|srcdoc|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, (m, attr, val) => {
     const v = val.slice(1, -1).trim().toLowerCase()
     if (/^\s*(javascript|vbscript|data:text\/html|data:text\/xml)/.test(v)) return ""
     if (attr === "srcdoc") return ""
@@ -306,6 +357,8 @@ export function GameDescription({ html, fallback }: { html?: string; fallback?: 
   const conteudo = (html || "").trim()
   // Hooks sempre antes de qualquer return condicional (regras do React).
   const limpo = useMemo(() => sanitizeHtml(conteudo), [conteudo])
+  const temMidia = /<(img|video)\b/i.test(limpo)
+  const colapsado = !aberto && !temMidia
   if (!conteudo) {
     if (!fallback) return null
     return (
@@ -318,19 +371,21 @@ export function GameDescription({ html, fallback }: { html?: string; fallback?: 
     <div className="ui-card p-5">
       <div className="relative">
         <div
-          className={`steam-desc text-[13px] leading-relaxed text-white/75 ${aberto ? "" : "max-h-[440px] overflow-hidden"}`}
+          className={`steam-desc text-[13px] leading-relaxed text-white/75 ${colapsado ? "max-h-[440px] overflow-hidden" : ""}`}
           dangerouslySetInnerHTML={{ __html: limpo }}
         />
-        {!aberto && (
+        {colapsado && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#121216] to-transparent" />
         )}
       </div>
-      <button
-        onClick={() => setAberto((v) => !v)}
-        className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-      >
-        {aberto ? t("gamepage.mostrar_menos") : t("gamepage.mostrar_mais")}
-      </button>
+      {!temMidia && (
+        <button
+          onClick={() => setAberto((v) => !v)}
+          className="mt-3 w-full rounded-lg border border-white/10 py-2 text-[12px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+        >
+          {aberto ? t("gamepage.mostrar_menos") : t("gamepage.mostrar_mais")}
+        </button>
+      )}
     </div>
   )
 }
