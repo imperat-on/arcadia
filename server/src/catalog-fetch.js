@@ -18,6 +18,7 @@ const { nowEpochS } = require("./db")
 // validadas por prefixo + restricao do id, nao listadas uma a uma aqui.
 const CATALOG_KEYS = [
   "popular",
+  "steam250",
   "sushi",
   "news",
   "fixes",
@@ -28,6 +29,7 @@ const CATALOG_KEYS = [
 // Sysinfo e meta nao tem validade (como no app: valem para sempre).
 const CATALOG_TTL = {
   popular: 6 * 60 * 60, // 6h
+  steam250: 6 * 60 * 60, // 6h
   sushi: 6 * 60 * 60, // 6h
   news: 30 * 60, // 30min
   fixes: 6 * 60 * 60, // 6h
@@ -55,6 +57,7 @@ function idValido(prefixo, id) {
 // key da allowlist ou null se o tipo/id nao e reconhecido.
 function catalogKey(tipo, id) {
   if (tipo === "popular") return CATALOG_KEYS.includes("popular") ? "popular" : null
+  if (tipo === "steam250") return CATALOG_KEYS.includes("steam250") ? "steam250" : null
   if (tipo === "sushi") return CATALOG_KEYS.includes("sushi") ? "sushi" : null
   if (tipo === "news") return CATALOG_KEYS.includes("news") ? "news" : null
   if (tipo === "fixes") return CATALOG_KEYS.includes("fixes") ? "fixes" : null
@@ -127,6 +130,44 @@ async function fetchPopular() {
     // SteamSpy reordena por appid; o "Em alta" deve vir por jogadores ativos
     .sort((a, b) => (Number(data[b.appid]?.ccu) || 0) - (Number(data[a.appid]?.ccu) || 0))
   return { data: { completa }, at: nowEpochS() }
+}
+
+// ---------- Steam250 (catálogo com nome real) ----------
+// Fonte do catalogo do Hydra: steam250.com lista os melhores jogos da Steam
+// (top250, mais jogados, hidden gems, do ano) com NOME e appid — sem precisar
+// buscar appdetails por jogo. Combina 4 paginas em ~890 jogos unicos.
+const STEAM250_PATHS = ["/top250", "/most_played", "/hidden_gems", `/${new Date().getFullYear()}`]
+
+function steam250Decode(s) {
+  return String(s || "")
+    .replace(/&#x20;/g, " ")
+    .replace(/&#x3A;/g, ":")
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+}
+
+async function fetchSteam250() {
+  const resultados = await Promise.all(
+    STEAM250_PATHS.map(async (path) => {
+      try {
+        const r = await http(`https://steam250.com${path}`, { timeoutMs: 15000 })
+        if (!r.ok) return []
+        const t = await r.text()
+        const games = []
+        for (const m of t.matchAll(/data-title=([^ >]+)[^>]*href="?[^"]*\/app\/(\d+)/g)) {
+          games.push({ appid: m[2], title: steam250Decode(m[1]) })
+        }
+        return games
+      } catch {
+        return []
+      }
+    }),
+  )
+  // dedupe por appid, preservando a ordem
+  const unicos = [...new Map(resultados.flat().map((g) => [g.appid, g])).values()]
+  return { data: { completa: unicos }, at: nowEpochS() }
 }
 
 // ---------- Sushi (repo de manifestos) ----------
@@ -395,6 +436,7 @@ async function fetchManifests(appid) {
 // Resolve key -> fetch. Retorna { data, at } ou null se a fonte nao respondeu.
 async function fetchCatalogKey(key) {
   if (key === "popular") return fetchPopular()
+  if (key === "steam250") return fetchSteam250()
   if (key === "sushi") return fetchSushi()
   if (key === "news") return fetchNews()
   if (key === "fixes") return fetchFixes()

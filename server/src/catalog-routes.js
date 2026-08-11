@@ -145,6 +145,37 @@ function registerCatalogRoutes(app) {
     res.json({ ok: true, itens, total: ids.length, offset })
   })
 
+  // Steam250: catálogo com nome real (~890 jogos: top250, mais jogados,
+  // hidden gems, do ano). Fonte igual a do Hydra. Paginado com arte via items.
+  app.get("/catalog/v1/steam250", async (req, res) => {
+    const limite = Math.max(1, Number(req.query.limite) || 24)
+    const offset = Math.max(0, Number(req.query.offset) || 0)
+    let data = getCached("steam250")
+    if (data === null) {
+      data = await buscar("steam250")
+      if (data === null) return res.status(404).json({ error: "cache_vazio" })
+    }
+    const completa = Array.isArray(data.completa) ? data.completa : []
+    const etag = `"${getCacheAt("steam250")}"`
+    if (req.headers["if-none-match"] === etag) return res.status(304).end()
+    res.set("ETag", etag)
+    const fatia = completa.slice(offset, offset + limite)
+    // arte (capa/heroi) via items, sob demanda e cacheado
+    const comArte = await Promise.all(
+      fatia.map(async (g) => {
+        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
+        return {
+          appid: String(g.appid),
+          title: g.title || String(g.appid),
+          cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+          heroi: item?.heroi || "",
+          capa: item?.capa || "",
+        }
+      }),
+    )
+    res.json({ ok: true, itens: comArte, total: completa.length, offset })
+  })
+
   // Sushi: lista de appids com manifesto no repo.
   app.get("/catalog/v1/sushi", async (req, res) => responder(null, req, res, "sushi"))
 
@@ -252,7 +283,7 @@ function registerCatalogRoutes(app) {
 // o cold-start). Nada aqui bloqueia o boot nem a resposta — erros sao
 // engolidos. Os catalagos que nao responderem no primeiro try sao buscados
 // por demanda (cold-start) quando alguem pedir.
-const WARM_KEYS = ["popular", "sushi", "news", "fixes", "ryuu-index"]
+const WARM_KEYS = ["popular", "steam250", "sushi", "news", "fixes", "ryuu-index"]
 
 // True se ha cache e ele ainda esta dentro do TTL (nao precisa re-buscar).
 function cacheFresco(key) {
@@ -284,4 +315,43 @@ function warmUpCatalog() {
   }
 }
 
-module.exports = { registerCatalogRoutes, getCached, warmUpCatalog }
+// Percorre o catalogo do steam250 (~890 jogos com nome) e busca items (arte)
+// de cada um, em lotes de 20, sem bloquear. So preenche o que falta (respeita
+// cache existente). Roda em background; erros são engolidos.
+function precarregarCatalogoCompleto() {
+  const row = db.prepare("SELECT data FROM catalog_cache WHERE key = 'steam250'").get()
+  if (!row) return
+  let completa
+  try {
+    completa = JSON.parse(row.data).completa
+  } catch {
+    return
+  }
+  if (!Array.isArray(completa) || !completa.length) return
+  const ids = completa.map((g) => g.appid).filter(Boolean)
+  console.log(`[precarregar] catalogo steam250: ${ids.length} jogos em background`)
+  const LOTE = 20
+  let i = 0
+  async function proximoLote() {
+    const fatia = ids.slice(i, i + LOTE)
+    i += LOTE
+    if (!fatia.length) {
+      console.log("[precarregar] catalogo steam250 pronto")
+      return
+    }
+    await Promise.all(
+      fatia.map(async (appid) => {
+        // so busca a arte que falta
+        if (!getCached(`items:${appid}`)) {
+          const r = await fetchCatalogKey(`items:${appid}`).catch(() => null)
+          if (r) gravarCache(`items:${appid}`, r)
+        }
+      }),
+    )
+    // pausa leve para nao sobrecarregar a Steam
+    setTimeout(proximoLote, 200)
+  }
+  proximoLote()
+}
+
+module.exports = { registerCatalogRoutes, getCached, warmUpCatalog, precarregarCatalogoCompleto }

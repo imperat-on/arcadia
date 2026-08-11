@@ -10,7 +10,7 @@ const { registerAuthRoutes } = require("./auth-routes")
 const { registerRestRoutes } = require("./rest-routes")
 const { registerSyncRoutes } = require("./sync-routes")
 const { registerStorageRoutes } = require("./storage-routes")
-const { registerCatalogRoutes, warmUpCatalog } = require("./catalog-routes")
+const { registerCatalogRoutes, warmUpCatalog, precarregarCatalogoCompleto } = require("./catalog-routes")
 const { registerRealtime } = require("./realtime")
 
 const PORT = process.env.PORT || 3000
@@ -42,6 +42,9 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   // Pre-aquece o cache de catalogo em background: a primeira pessoa que abrir
   // a loja ja encontra os catalogos quentes (nao paga o cold-start).
   warmUpCatalog()
+  // Pre-carrega o catalogo infinito (nome+arte dos 5864 jogos do sushi) em
+  // background — sem isto, cada pagina nova buscava a Steam na hora (~2-3s).
+  precarregarCatalogoCompleto()
 })
 
 registerRealtime(server)

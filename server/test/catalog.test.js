@@ -487,37 +487,39 @@ test("catalog rotas: genre?lista=all serve o catalogo Em alta (nao 400)", async 
   assert.ok(Array.isArray(body.data.completa) || Array.isArray(body.data), "deve ter o catalogo")
 })
 
-test("catalog rotas: catalog devolve jogos do sushi paginados", async () => {
-  // popula sushi + meta + items de alguns appids
+test("catalog rotas: steam250 devolve jogos com nome paginados", async () => {
+  // popula steam250 + items de alguns appids
   const at = Math.floor(Date.now() / 1000)
   db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-    "sushi",
-    JSON.stringify({ ids: ["10", "100", "1000010", "730", "570"] }),
+    "steam250",
+    JSON.stringify({ completa: [
+      { appid: "413150", title: "Stardew Valley" },
+      { appid: "105600", title: "Terraria" },
+      { appid: "550", title: "Left 4 Dead 2" },
+      { appid: "730", title: "Counter-Strike 2" },
+      { appid: "570", title: "Dota 2" },
+    ] }),
     at,
   )
   db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-    "meta:10",
-    JSON.stringify({ name: "Counter-Strike" }),
-    at,
-  )
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-    "items:10",
+    "items:413150",
     JSON.stringify({ tipo: 0, capa: "capa", heroi: "heroi" }),
     at,
   )
-  const r = await fetch(`${catBase}/catalog/v1/catalog?offset=0&limite=2`, {
+  const r = await fetch(`${catBase}/catalog/v1/steam250?offset=0&limite=2`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
   assert.equal(r.status, 200)
   const body = await r.json()
   assert.equal(body.total, 5)
   assert.equal(body.itens.length, 2)
-  assert.equal(body.itens[0].appid, "10")
-  assert.equal(body.itens[0].title, "Counter-Strike")
+  assert.equal(body.itens[0].appid, "413150")
+  assert.equal(body.itens[0].title, "Stardew Valley")
   // paginação: offset=2 traz os próximos
-  const r2 = await fetch(`${catBase}/catalog/v1/catalog?offset=2&limite=2`, {
+  const r2 = await fetch(`${catBase}/catalog/v1/steam250?offset=2&limite=2`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
   const b2 = await r2.json()
-  assert.equal(b2.itens[0].appid, "1000010")
+  assert.equal(b2.itens[0].appid, "550")
+  assert.equal(b2.itens[0].title, "Left 4 Dead 2")
 })
