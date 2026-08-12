@@ -2747,7 +2747,17 @@ app.whenReady().then(() => {
       // Reexibe: um "Remover" anterior pode ter marcado hidden=true (jogo
       // indexado); sem limpar aqui o Add não trazia o jogo de volta.
       setOverride(caminhoConta(OVERRIDES), "steam:" + appid, { hidden: null })
-      adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
+      // Título real quando vier vazio: o fallback "Steam <appid>" subiria pro
+      // servidor e o jogo chegaria com nome feio nas outras máquinas. Busca o
+      // nome na steamcmd (1 chamada, ~300ms) só quando falta.
+      let titulo = String(title || "").trim()
+      if (!titulo || titulo === `steam:${appid}`) {
+        try {
+          const nome = await steamstore.fetchAppName(appid)
+          if (nome) titulo = nome
+        } catch {}
+      }
+      adicionarStubPendente(appid, titulo || title, { cover, hero: hero || heroi })
       ownedAdd("steam:" + appid)
       avisarBiblioteca(win)
       // Sincroniza a coleção com a conta (jogos seguem entre máquinas). Sem

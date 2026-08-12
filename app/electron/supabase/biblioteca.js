@@ -78,10 +78,11 @@ async function push() {
     }
   }
 
-  // Jogos possuídos (owned.js) que não são custom e nunca subiram: sobem
-  // com o título real (do pending_games ou do id) pra não virar nome feio
-  // (ex: "steam:3240220") na outra máquina. Ids já cobertos pelo diff de
-  // custom acima ou que já têm watermark ficam de fora.
+  // Jogos possuídos (owned.js) que não são custom: sobem com o título real
+  // (do pending_games ou do id) pra não virar nome feio (ex: "steam:3240220")
+  // na outra máquina. Reenvia quando o título mudou em relação ao watermark —
+  // sem isto, um jogo que subiu com título feio ("Steam <appid>") nunca era
+  // corrigido nas outras máquinas.
   const owned = ownedSet()
   const pendentes = readJson(PENDING(), [])
   const tituloDe = (id) => {
@@ -89,8 +90,12 @@ async function push() {
     return p?.title || id
   }
   for (const id of owned) {
-    if (ids.has(id) || enviados[id]) continue
-    p_lib.push({ appid: id, title: tituloDe(id), platform: "windows" })
+    if (ids.has(id)) continue
+    const prev = enviados[id]
+    const titulo = tituloDe(id)
+    if (!prev || prev.title !== titulo) {
+      p_lib.push({ appid: id, title: titulo, platform: "windows" })
+    }
   }
 
   // Removidos localmente (sumiram do arquivo, mas já tinham sido enviados).
@@ -187,6 +192,21 @@ async function pull() {
         })
         pendentesIds.add(row.appid)
         pendentesMudou = true
+      } else if (pendentesIds.has(row.appid)) {
+        // Stub pending já existe mas com título feio (ex: "Steam 12345" ou
+        // "steam:12345"): atualiza quando o servidor manda um nome melhor.
+        // O pull anterior podia ter criado o stub antes de o servidor ter o
+        // título real (o push da outra máquina ainda não tinha reenviado).
+        const p = pendentes.find((x) => x && x.id === row.appid)
+        if (p) {
+          const atual = String(p.title || "")
+          const feio = atual === `Steam ${String(row.appid).replace(/^steam:/, "")}` || atual === row.appid
+          const novo = row.title && row.title !== row.appid ? String(row.title).trim() : ""
+          if (feio && novo && novo !== atual) {
+            p.title = novo
+            pendentesMudou = true
+          }
+        }
       }
     } else if (!ids.has(row.appid)) {
       lib.push({

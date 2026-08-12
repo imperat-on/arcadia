@@ -2078,5 +2078,6 @@ module.exports = {
   steamLibraries,
   findSteamDir,
   status,
+  fetchAppName,
   DEPS_DIR,
 }
