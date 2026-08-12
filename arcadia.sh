@@ -5,7 +5,16 @@
 #   ./arcadia.sh --window   -> janela (para testar/depurar)
 #   ./arcadia.sh --gamescope-> tela cheia 4K no gamescope (legado)
 set -e
-DIR="$HOME/.local/share/arcadia"
+
+# Diretório do próprio script (instalação pode estar em qualquer pasta, não só
+# ~/.local/share/arcadia). Quem clonou/extraiu o repo e roda daqui, funciona.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+# Se for invocado de outro lugar apontando pro caminho padrão (ex.: atalho do
+# menu com Exec=.../arcadia.sh), o dirname já resolve certo. Fallback: se o
+# script foi chamado por symlink/atalho que não existe, usa o padrão.
+if [ ! -f "$DIR/app/package.json" ] && [ -f "$HOME/.local/share/arcadia/app/package.json" ]; then
+    DIR="$HOME/.local/share/arcadia"
+fi
 
 # Resolve o binário do Electron de forma tolerante: o caminho do npm às vezes
 # muda ou o download falha. Ordem: (1) caminho padrão do npm; (2) o que o

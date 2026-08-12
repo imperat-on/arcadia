@@ -30,12 +30,13 @@ PERGUNTAR() {
 SEM_PERGUNTAS=0
 if [ "$1" = "-y" ] || [ "$1" = "--yes" ]; then SEM_PERGUNTAS=1; fi
 
+DESTINO="$HOME/.local/share/arcadia"
+
 # --- Modo remoto (curl | bash) --------------------------------------------
 # Quando o script vem de stdin, "$0" resolve para o diretório atual — não é o
 # repo. Clona para ~/.local/share/arcadia e re-executa de lá.
 if [ ! -f "$DIR/app/package.json" ]; then
     REPO="https://github.com/imperat-on/arcadia.git"
-    DESTINO="$HOME/.local/share/arcadia"
     echo "==> Baixando o Arcadia para $DESTINO"
     if [ -d "$DESTINO/.git" ]; then
         # Já é um clone git: atualiza.
@@ -50,6 +51,39 @@ if [ ! -f "$DIR/app/package.json" ]; then
         git clone "$REPO" "$DESTINO"
     else
         git clone "$REPO" "$DESTINO"
+    fi
+    exec bash "$DESTINO/install.sh" "$@"
+fi
+
+# --- Instalação MANUAL em pasta diferente de ~/.local/share/arcadia ---------
+# O app (arcadia.sh, index.py, Electron) assume ~/.local/share/arcadia como
+# base. Quem baixou o ZIP/clonou em outra pasta e rodou ./install.sh daqui
+# instalaria numa pasta que o app não acha depois. Copia para o destino padrão
+# e re-executa de lá.
+if [ "$DIR" != "$DESTINO" ]; then
+    echo "==> Instalando em $DESTINO (local padrão do app)"
+    mkdir -p "$(dirname "$DESTINO")"
+    # Dados do usuário que DEVEM ser preservados ao reinstalar por cima
+    PRESERVAR=(config.json library.json contas games prefixes logs session.json owned_games.json sources.json sources_index.json torrent_state.json art trailers wine bin/plugins.json)
+    BACKUP=""
+    if [ -d "$DESTINO" ]; then
+        # Move o destino atual para backup (proteção total) e devolve os dados
+        # do usuário depois da cópia do código.
+        BACKUP="$DESTINO.bak-$(date +%Y%m%d-%H%M%S)"
+        echo "    $DESTINO já existe — movendo para backup ($BACKUP)."
+        mv "$DESTINO" "$BACKUP"
+    fi
+    # Copia o código novo (a fonte é o repo/zip extraído)
+    cp -a "$DIR/." "$DESTINO/"
+    # Devolve os dados do usuário do backup (se havia instalação anterior)
+    if [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
+        for item in "${PRESERVAR[@]}"; do
+            if [ -e "$BACKUP/$item" ]; then
+                mkdir -p "$(dirname "$DESTINO/$item")"
+                cp -a "$BACKUP/$item" "$DESTINO/$item"
+            fi
+        done
+        echo "    Dados preservados (config.json, biblioteca, contas, jogos…)."
     fi
     exec bash "$DESTINO/install.sh" "$@"
 fi
