@@ -593,23 +593,54 @@ async function suggest(query) {
 }
 
 async function suggestDaSteam(q, chave) {
+  // As sugestões do dropdown vêm da Steam viva (storesearch) — as MESMAS que a
+  // Steam mostra, rápidas (~0.3s) e na ordem de popularidade dela. O catálogo
+  // do servidor ficava como fallback (sem DLCs, mas pode estar frio). O filtro
+  // por `tipo` usa o cache de items local para tirar DLCs/demos das sugestões
+  // reais da Steam.
+  let jogos = null
   try {
-    // Sugestões do catálogo do servidor (85k jogos Steam, sem DLCs) — como a
-    // busca. Antes usava a Steam viva (storesearch) que mostrava DLCs e
-    // dependia da rede externa.
+    const r = await gh(
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&cc=br&l=${steamLang()}`,
+      { signal: AbortSignal.timeout(6000) },
+    )
+    if (r.ok) {
+      const data = await r.json()
+      const crus = (data.items || []).map((g) => ({
+        appid: String(g.id || ""),
+        title: g.name || "",
+        cover: g.tiny_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${g.id}/header.jpg`,
+      }))
+      // Filtra DLCs/demos/trilhas (tipo != 0) usando SÓ o cache de items
+      // local. Nada de rede aqui: o dropdown responde a cada tecla e um fetch
+      // por appid faria o usuário esperar. Appid sem tipo no cache passa —
+      // melhor sugerir um item duvidoso do que atrasar a digitação.
+      const tipos = lerCache(ITENS_CACHE) || {}
+      jogos = crus.filter((g) => {
+        const it = tipos[g.appid]
+        if (it && it.tipo !== 0) return false // DLC/demo/trilha/software
+        return true
+      })
+      jogos = jogos.slice(0, 8)
+    }
+  } catch {
+    /* cai no fallback abaixo */
+  }
+
+  if (!jogos || !jogos.length) {
+    // Fallback: catálogo do servidor (sem DLCs, mas pode estar frio).
     const remoto = await catalogGet(`/catalog/v1/search?q=${encodeURIComponent(q)}`)
     const itens = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
-    const jogos = itens
+    jogos = itens
       .slice(0, 8)
-      .map((g) => ({ appid: String(g.appid), title: g.title }))
-    // Digitar volta atrás (backspace) e repetir termos é comum; o cache evita
-    // repetir a chamada. Limitado para não crescer sem fim numa sessão longa.
-    if (sugCache.size > 100) sugCache.clear()
-    sugCache.set(chave, jogos)
-    return { ok: true, jogos }
-  } catch (e) {
-    return { ok: false, error: String(e.message || e) }
+      .map((g) => ({ appid: String(g.appid), title: g.title, cover: g.cover }))
   }
+
+  // Digitar volta atrás (backspace) e repetir termos é comum; o cache evita
+  // repetir a chamada. Limitado para não crescer sem fim numa sessão longa.
+  if (sugCache.size > 100) sugCache.clear()
+  sugCache.set(chave, jogos)
+  return { ok: true, jogos }
 }
 
 // Busca unindo TODAS as fontes. Antes o catálogo do Hubcap era a única lista

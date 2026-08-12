@@ -230,16 +230,58 @@ async function list({ forcar } = {}) {
   return { ok: r.ok, data: r.data, deCache: false, error: r.error }
 }
 
-/** Conquistas recentes do amigo (RPC security definer — só entre amigos). */
+// Cache das conquistas de AMIGOS (por par conta+amigo): abrir o mesmo perfil
+// duas vezes em seguida nao repete o round-trip ao servidor (~1.2s no tunel).
+// TTL curto — os dados servem so para a pintura imediata; o que for fresco o
+// usuario ve logo, e a aba reabre sempre rapido.
+function achCacheFile() {
+  return caminhoArquivoConta("friend_achievements_cache.json")
+}
+
+function lerAchCache(friendId) {
+  try {
+    const c = JSON.parse(fs.readFileSync(achCacheFile(), "utf8"))
+    const e = c?.[friendId]
+    if (e && typeof e.ts === "number" && Date.now() - e.ts < CACHE_TTL_MS) return e.data
+  } catch {}
+  return null
+}
+
+function gravarAchCache(friendId, data) {
+  try {
+    const file = achCacheFile()
+    let all = {}
+    try {
+      all = JSON.parse(fs.readFileSync(file, "utf8")) || {}
+    } catch {
+      /* primeira gravacao: arquivo ainda nao existe */
+    }
+    all[friendId] = { ts: Date.now(), data }
+    const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+    fs.writeFileSync(tmp, JSON.stringify(all), { encoding: "utf8", mode: 0o600 })
+    fs.renameSync(tmp, file)
+    try {
+      fs.chmodSync(file, 0o600)
+    } catch {}
+  } catch {
+    /* cache e otimizacao, nunca requisito */
+  }
+}
+
+/** Conquistas recentes do amigo (RPC security definer — so entre amigos). */
 async function friendAchievements(friendId) {
   const me = await requireUserId()
   if (!me) return { ok: false, error: "nao_logado" }
   if (!friendId || friendId === me) return { ok: false, error: "destino_invalido" }
 
+  const cache = lerAchCache(friendId)
+  if (cache) return { ok: true, achievements: cache, deCache: true }
+
   const { data, error } = await getClient().rpc("friend_achievements", {
     p_friend: friendId,
   })
   if (error) return { ok: false, error: error.message }
+  gravarAchCache(friendId, data || [])
   return { ok: true, achievements: data || [] }
 }
 
@@ -256,6 +298,14 @@ async function removeFriend(friendId) {
     .eq("status", "accepted")
   if (error) return { ok: false, error: error.message }
   invalidarCache()
+  try {
+    const file = achCacheFile()
+    const all = JSON.parse(fs.readFileSync(file, "utf8")) || {}
+    if (all[friendId]) {
+      delete all[friendId]
+      fs.writeFileSync(file, JSON.stringify(all), { encoding: "utf8", mode: 0o600 })
+    }
+  } catch {}
   return { ok: true }
 }
 
@@ -322,4 +372,7 @@ module.exports = {
   gravarCache,
   lerCache,
   invalidarCache,
+  achCacheFile,
+  lerAchCache,
+  gravarAchCache,
 }

@@ -554,7 +554,11 @@ declare global {
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
       storeSuggest: (
         query: string,
-      ) => Promise<{ ok: boolean; error?: string; jogos?: { appid: string; title: string }[] }>
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        jogos?: { appid: string; title: string; cover?: string }[]
+      }>
       /** Loja Steam: mais jogados. Sem argumento, os da quinzena. Paginado. */
       storeRecent: (
         lista?: string,

@@ -37,21 +37,35 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
         setConquistas([])
         return
       }
-      // Enriquecimento: título/ícone do achievements.json local (se o jogo existir aqui)
+      // 1a pintura: os dados crus do servidor ja trazem title/icon sincronizados
+      // do amigo — a grade aparece imediatamente, sem esperar enriquecimento.
       const lista = (r.achievements || []) as ConquistaEnriquecida[]
-      const porApp: Record<string, Array<{ apiname?: string; title?: string; icon?: string; unlock?: number }> | null> = {}
-      for (const a of lista) {
-        if (!(a.appid in porApp)) {
-          const g = await window.launcherAPI?.achievementsGet(a.appid)
-          porApp[a.appid] = Array.isArray(g) ? g : null
-        }
-        const itens = porApp[a.appid]
-        const item = itens?.find((i) => i.apiname === a.apiname)
-        a.title = item?.title || a.apiname
-        a.icon = item?.icon
-        a.unlockLocal = item?.unlock
-      }
       if (vivo) setConquistas(lista)
+
+      // Enriquecimento em PARALELO: titulo/icone melhores do achievements.json
+      // local (se o jogo existir aqui). Cada achievementsGet pode disparar um
+      // scrape da Steam p/ jogo sem items locais (ate 15s) — em serie isso
+      // segurava a tela inteira; em paralelo a grid ja esta visivel e os dados
+      // chegam quando prontos.
+      const appids = [...new Set(lista.map((a) => a.appid))]
+      const porApp = await Promise.all(
+        appids.map(async (appid) => {
+          const g = await window.launcherAPI?.achievementsGet(appid)
+          return [appid, Array.isArray(g) ? g : null] as const
+        }),
+      )
+      if (!vivo) return
+      const mapa = new Map(porApp)
+      const enriquecidas = lista.map((a) => {
+        const item = mapa.get(a.appid)?.find((i) => i.apiname === a.apiname)
+        return {
+          ...a,
+          title: item?.title || a.title || a.apiname,
+          icon: item?.icon || a.icon,
+          unlockLocal: item?.unlock ?? a.unlockLocal,
+        }
+      })
+      setConquistas(enriquecidas)
     })()
     return () => {
       vivo = false
