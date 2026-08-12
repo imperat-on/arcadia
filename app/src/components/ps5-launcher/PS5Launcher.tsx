@@ -938,7 +938,15 @@ export function PS5Launcher() {
       {/* Top bar transparente, flutuando sobre o fundo */}
       <div className="absolute top-0 inset-x-0 z-30">
         <TopBar
-          profile={profile}
+          profile={
+            conta?.perfil
+              ? {
+                  ...profile,
+                  name: conta.perfil.display_name || conta.perfil.username || profile.name,
+                  avatar: conta.perfil.avatar_url ?? "",
+                }
+              : profile
+          }
           activeTab={activeTab}
           onTab={setActiveTab}
           onRefresh={_refresh_library}
@@ -1020,9 +1028,10 @@ export function PS5Launcher() {
           <ProfileSelect
             profiles={[
               {
-                name: profile?.name || t("profile.jogador"),
-                avatar: profile?.avatar,
-                background: profile?.background,
+                name: conta?.perfil?.display_name || conta?.perfil?.username || profile?.name || t("profile.jogador"),
+                avatar: conta?.perfil?.avatar_url ?? profile?.avatar,
+                background: conta?.perfil?.background_url ?? profile?.background,
+                banner: conta?.perfil?.banner_url ?? profile?.banner,
                 owner: conta?.perfil?.username === OWNER_USERNAME,
               },
             ]}
