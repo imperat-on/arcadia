@@ -46,6 +46,7 @@ background.gif
 bin/plugins.json
 
 # Binários baixados em runtime (são re-baixáveis pelo app)
+bin/deps/
 bin/tmp/
 bin/dotnet/
 bin/data/
