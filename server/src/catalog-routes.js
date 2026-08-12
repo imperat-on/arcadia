@@ -305,14 +305,20 @@ function registerCatalogRoutes(app) {
       .map((s) => s.trim())
       .filter((s) => /^\d{1,10}$/.test(s))
     if (!appids.length) return res.json({ ok: true, data: {} })
+    // Busca em PARALELO: em série, 40 appids no cold start eram 40 round-trips
+    // sequenciais ao provedor (3 HEADs cada) — a busca da loja travava. Cada
+    // appid pode ir junto; o `buscar` já dedupeia em voo e o semaforo limita a
+    // concorrencia externa.
     const out = {}
-    for (const appid of appids) {
-      let data = getCached(`manifests:${appid}`)
-      if (data === null) {
-        data = await buscar(`manifests:${appid}`) // cold start
-      }
-      if (data) out[appid] = data
-    }
+    await Promise.all(
+      appids.map(async (appid) => {
+        let data = getCached(`manifests:${appid}`)
+        if (data === null) {
+          data = await buscar(`manifests:${appid}`) // cold start
+        }
+        if (data) out[appid] = data
+      }),
+    )
     res.json({ ok: true, data: out })
   })
   app.get("/catalog/v1/manifests/:appid", async (req, res) =>
@@ -327,19 +333,32 @@ function registerCatalogRoutes(app) {
     // Este é o caminho da loja: resultados com capa e que abrem a tela rica.
     const data = getCached("catalogo_completo")
     const completa = Array.isArray(data?.completa) ? data.completa : []
+    // Ranking por relevancia (nao substring na ordem da colecao):
+    //   0) prefixo exato ("cyber" bate em "Cyberpunk 2077" primeiro)
+    //   1) limite de palavra ("punk" bate em "Cyberpunk" via "Cyber"+"punk")
+    //   2) substring generica (ultimo recurso)
+    // Desempate: titulo mais curto vem antes (mais provavelmente o jogo certo).
     const candidatos = []
     for (const g of completa) {
-      if (!g?.title) continue
-      if (String(g.title).toLowerCase().includes(q)) {
-        candidatos.push({ appid: String(g.appid), title: g.title })
-        if (candidatos.length >= 40) break
-      }
+      if (!g?.title || candidatos.length >= 60) continue
+      const t = String(g.title).toLowerCase()
+      if (!t.includes(q)) continue
+      // nota: 0 prefixo exato | 1 prefixo de palavra | 2 substring generica
+      let nota = 2
+      if (t.startsWith(q)) nota = 0
+      else if (t.split(/[^a-z0-9]+/).some((palavra) => palavra.startsWith(q))) nota = 1
+      // Desempate dentro da mesma nota: titulo com MENOS texto alem da busca.
+      // O ganho real do ranking e prefixo > palavra > substring.
+      const sufixo = t.slice(q.length).trim().split(/[^a-z0-9]+/).filter(Boolean).length
+      candidatos.push({ appid: String(g.appid), title: g.title, nota, sufixo })
     }
+    candidatos.sort((a, b) => a.nota - b.nota || a.sufixo - b.sufixo)
+    const alvo = candidatos.slice(0, 40)
     // Filtra DLCs/demos/trilhas sonoras usando o tipo do IStoreBrowseService
     // (0 = jogo). Busca os items em paralelo (dedupe/cache do buscar) e só
     // mantém os que são jogos de verdade.
     const comTipo = await Promise.all(
-      candidatos.map(async (g) => {
+      alvo.map(async (g) => {
         const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
         return { ...g, tipo: item?.tipo }
       }),

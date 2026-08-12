@@ -351,6 +351,45 @@ test("catalog rotas: search devolve jogos do catalogo completo", async () => {
   assert.equal(body.itens[0].appid, "1245620")
 })
 
+test("catalog rotas: search rankeia prefixo exato antes de substring", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "catalogo_completo",
+    JSON.stringify({ completa: [
+      { appid: "99999", title: "Super Cyberpunk Simulator" },
+      { appid: "1091500", title: "Cyberpunk 2077" },
+      { appid: "55555", title: "The Punky Adventure" },
+    ] }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/search?q=cyberpunk`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.itens.length, 2)
+  // Prefixo exato ("Cyberpunk 2077") vem antes do substring ("Super Cyberpunk")
+  assert.equal(body.itens[0].title, "Cyberpunk 2077")
+  assert.equal(body.itens[1].title, "Super Cyberpunk Simulator")
+})
+
+test("catalog rotas: search casa por palavra (limite) e nao so prefixo", async () => {
+  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+    "catalogo_completo",
+    JSON.stringify({ completa: [
+      { appid: "1245620", title: "ELDEN RING" },
+      { appid: "77777", title: "Some Other Game" },
+    ] }),
+    Math.floor(Date.now() / 1000),
+  )
+  const r = await fetch(`${catBase}/catalog/v1/search?q=ring`, {
+    headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
+  })
+  assert.equal(r.status, 200)
+  const body = await r.json()
+  assert.equal(body.itens.length, 1)
+  assert.equal(body.itens[0].title, "ELDEN RING")
+})
+
 test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", async () => {
   const { warmUpCatalog } = require("../src/catalog-routes")
   const restaurar = stubFetch({

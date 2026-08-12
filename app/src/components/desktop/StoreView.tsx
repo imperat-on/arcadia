@@ -55,7 +55,7 @@ export function StoreView({
 
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<ItemLoja[] | null>(null)
-  const [sugestoes, setSugestoes] = useState<{ appid: string; title: string }[]>([])
+  const [sugestoes, setSugestoes] = useState<{ appid: string; title: string; cover?: string }[]>([])
   const [sugSel, setSugSel] = useState(-1)
   const [buscando, setBuscando] = useState(false)
   const [msg, setMsg] = useState("")
@@ -359,7 +359,11 @@ export function StoreView({
 
   // Sugestões pro teclado no formato SugestaoLoja (com img/preco quando existirem).
   const sugestoesKB = useMemo<SugestaoLoja[]>(() => {
-    return sugestoes.map((s) => ({ appid: s.appid, title: s.title }))
+    return sugestoes.map((s) => ({
+      appid: s.appid,
+      title: s.title,
+      img: s.cover,
+    }))
   }, [sugestoes])
 
   const aoTeclar = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -376,6 +380,7 @@ export function StoreView({
       pesquisar(sugSel >= 0 ? sugestoes[sugSel]?.title : undefined)
     }
   }
+
 
   const buscou = resultados !== null
   const grade = buscou ? resultados : []
@@ -449,9 +454,26 @@ export function StoreView({
                     pesquisar(s.title)
                   }}
                   onMouseEnter={() => setSugSel(i)}
-                  className={`block w-full truncate px-3.5 py-2 text-left text-[13px] transition-colors ${i === sugSel ? "bg-white/[0.09] text-white" : "text-white/80 hover:bg-white/[0.07] hover:text-white"}`}
+                  className={`flex w-full items-center gap-3 px-2.5 py-2 text-left transition-colors ${i === sugSel ? "bg-white/[0.09] text-white" : "text-white/80 hover:bg-white/[0.07] hover:text-white"}`}
                 >
-                  {s.title}
+                  {s.cover ? (
+                    <img
+                      src={s.cover}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-white/10"
+                      loading="lazy"
+                      onError={(e) => {
+                        ;(e.target as HTMLImageElement).style.display = "none"
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-sm font-bold text-white/40">
+                      {s.title[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <span className="min-w-0 truncate text-[13px]">
+                    <TermoDestacado texto={s.title} termo={busca.trim()} />
+                  </span>
                 </button>
               ))}
             </div>
@@ -604,6 +626,21 @@ export function StoreView({
         />
       )}
     </div>
+  )
+}
+
+// Destaca o termo digitado dentro do título (case-insensitive, sem HTML).
+function TermoDestacado({ texto, termo }: { texto: string; termo: string }) {
+  const t = termo.trim().toLowerCase()
+  if (!t) return <>{texto}</>
+  const idx = texto.toLowerCase().indexOf(t)
+  if (idx < 0) return <>{texto}</>
+  return (
+    <>
+      {texto.slice(0, idx)}
+      <span className="font-bold text-white">{texto.slice(idx, idx + t.length)}</span>
+      {texto.slice(idx + t.length)}
+    </>
   )
 }
 
