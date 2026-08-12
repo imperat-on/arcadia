@@ -91,6 +91,36 @@ test("pull nao remove jogo custom local que nao esta no servidor", async () => {
   assert.deepEqual(ownedAtual(), ["epic:x"], "custom local preservado")
 })
 
+test("pull remove jogo com stub pending quando some do servidor (nunca instalado)", async () => {
+  // Jogo "steam:2622380" foi adicionado em OUTRA maquina e chegou aqui via
+  // pull anterior: ganhou owned + stub em pending_games.json (nunca foi
+  // instalado, entao o stub nunca foi limpo pelo indexer). Removido no
+  // servidor agora — antes o pendentesIds.has(id) bloqueava a remocao pra
+  // sempre e o jogo ficava fantasma nesta maquina.
+  conta.definirConta("u3")
+  fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify(["steam:2622380"]))
+  fs.writeFileSync(
+    conta.caminhoArquivoConta("pending_games.json"),
+    JSON.stringify([{ id: "steam:2622380", title: "ELDEN RING NIGHTREIGN", launcher: "steam", installed: false, pendente: true }]),
+  )
+  fs.writeFileSync(conta.caminhoArquivoConta("custom_games.json"), JSON.stringify([]))
+  fs.writeFileSync(conta.caminhoArquivoConta("sync_state.json"), JSON.stringify({ libPush: {}, playtimePush: {} }))
+
+  const client = getClient()
+  client.auth.getUser = async () => ({ data: { user: { id: "u3" } }, error: null })
+  client.rpc = async (fn) => {
+    if (fn === "pull_library") return { data: [], error: null } // removido em outra maquina
+    return { data: null, error: { message: `rpc nao mockada: ${fn}` } }
+  }
+
+  const mudou = await biblioteca.pull()
+
+  assert.equal(mudou, true, "pull deve sinalizar mudanca")
+  assert.deepEqual(ownedAtual(), [], "jogo removido no servidor sai do owned mesmo com stub pending")
+  const pendentesFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("pending_games.json"), "utf-8"))
+  assert.deepEqual(pendentesFinal, [], "stub pending orfao (jogo sumiu do servidor) e limpo")
+})
+
 test("pull cria watermark para jogos vindos do servidor (remocao local propaga)", async () => {
   conta.definirConta("u2")
   fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify([]))
