@@ -136,7 +136,7 @@ function registerAccountIpc(broadcast, onConta) {
   })
   ipcMain.handle("friends:achievements", async (_e, userId) => {
     await garantirSessao()
-    return friends.friendAchievements(userId)
+    return friends.friendAchievementsCached(userId)
   })
   ipcMain.handle("friends:remove", async (_e, userId) => {
     await garantirSessao()

@@ -10,6 +10,11 @@ const { caminhoArquivoConta } = require("./conta")
 // disco (instantâneo) e o refresh em background atualiza via friends:changed.
 // TTL curto, o cache é só para a primeira pintura, nunca fonte de verdade.
 const CACHE_TTL_MS = 60_000
+// TTL do cache de conquistas do amigo: se a reabertura do perfil bater no
+// cache (sem fetch à Steam), a grade renderiza instantânea — sem o delay de
+// título/ícone que antes acompanhava a abertura. O fetch revalida quando
+// expira; TTL curto garante que os dados nunca envelhecem demais.
+const FRIEND_ACH_TTL_MS = 5 * 60_000
 
 /** Callback de atualização em background (registrado pelo ipc.js). */
 let onAtualizadoCb = null
@@ -238,11 +243,11 @@ function achCacheFile() {
   return caminhoArquivoConta("friend_achievements_cache.json")
 }
 
-function lerAchCache(friendId) {
+function lerAchCache(friendId, ttl = CACHE_TTL_MS) {
   try {
     const c = JSON.parse(fs.readFileSync(achCacheFile(), "utf8"))
     const e = c?.[friendId]
-    if (e && typeof e.ts === "number" && Date.now() - e.ts < CACHE_TTL_MS) return e.data
+    if (e && typeof e.ts === "number" && Date.now() - e.ts < ttl) return e.data
   } catch {}
   return null
 }
@@ -283,6 +288,14 @@ async function friendAchievements(friendId) {
   if (error) return { ok: false, error: error.message }
   gravarAchCache(friendId, data || [])
   return { ok: true, achievements: data || [] }
+}
+
+/** Conquistas do amigo COM fallback de cache — a reabertura do perfil mostra
+ * os dados da última vez (5 min) sem refetch à Steam, renderizando imediato. */
+async function friendAchievementsCached(friendId) {
+  const cache = lerAchCache(friendId, FRIEND_ACH_TTL_MS)
+  if (cache) return { ok: true, achievements: cache, deCache: true }
+  return friendAchievements(friendId)
 }
 
 /** Remove amigo aceito (policy friends_delete_accepted — qualquer membro do par). */
@@ -366,6 +379,7 @@ module.exports = {
   cancel,
   list,
   friendAchievements,
+  friendAchievementsCached,
   removeFriend,
   watchRequests,
   onAtualizado,
