@@ -6,7 +6,7 @@
 
 const { db, nowIso, nowEpochS } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
-const { notifyLibraryChange } = require("./realtime")
+const { notifyLibraryChange, notifyAchievementsChange } = require("./realtime")
 
 function requireAuth(req) {
   const v = verifyToken(extractToken(req) || "")
@@ -61,6 +61,10 @@ function rpcSyncAchievements(uid, p_items) {
     db.exec("ROLLBACK")
     throw e
   }
+  // Avisa outros dispositivos logados (canal achievements-<uid>) so quando
+  // algo de fato desbloqueou — sem isto, uma conquista feita numa maquina so
+  // aparecia na outra no proximo boot/login.
+  if (alteradas.length) notifyAchievementsChange(uid)
   return alteradas
 }
 

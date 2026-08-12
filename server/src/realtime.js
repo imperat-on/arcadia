@@ -49,6 +49,17 @@ function notifyLibraryChange(userId) {
   })
 }
 
+function notifyAchievementsChange(userId) {
+  notify(`achievements-${userId}`, {
+    event: "postgres_changes",
+    payload: {
+      schema: "public",
+      table: "user_achievements",
+      new: {},
+    },
+  })
+}
+
 function registerRealtime(server) {
   const wss = new WebSocketServer({ server, path: "/realtime/v1/websocket" })
 
@@ -87,7 +98,7 @@ function registerRealtime(server) {
       if (
         msg.event === "phx_join" &&
         msg.topic &&
-        (msg.topic.startsWith("friends-") || msg.topic.startsWith("library-"))
+        (msg.topic.startsWith("friends-") || msg.topic.startsWith("library-") || msg.topic.startsWith("achievements-"))
       ) {
         if (!listeners.has(msg.topic)) listeners.set(msg.topic, new Set())
         listeners.get(msg.topic).add(ws)
@@ -113,4 +124,4 @@ function registerRealtime(server) {
   })
 }
 
-module.exports = { registerRealtime, notifyFriendshipInsert, notifyLibraryChange }
+module.exports = { registerRealtime, notifyFriendshipInsert, notifyLibraryChange, notifyAchievementsChange }

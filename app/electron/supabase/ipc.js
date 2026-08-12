@@ -33,6 +33,9 @@ function registerAccountIpc(broadcast, onConta) {
   // em vez de esperar o proximo boot/login.
   const bibliotecaRealtime = biblioteca.watchChanges()
 
+  // Realtime de conquistas: outra maquina desbloqueou → puxa na hora.
+  const syncRealtime = sync.watchChanges()
+
   // Atualização em background do cache de amigos → renderer pinta o fresco.
   friends.onAtualizado((data) => broadcast("friends:changed", data))
 
@@ -60,6 +63,7 @@ function registerAccountIpc(broadcast, onConta) {
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       realtime.start()
       bibliotecaRealtime.start()
+      syncRealtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
       biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
       sourcesSync.reconcile().catch(() => {})
@@ -69,6 +73,7 @@ function registerAccountIpc(broadcast, onConta) {
     if (event === "SIGNED_OUT" || event === "USER_DELETED") {
       realtime.stop()
       bibliotecaRealtime.stop()
+      syncRealtime.stop()
       // Volta pro escopo guest (raiz) — conta nova não vê dados da anterior
       onConta?.(null)
     }
@@ -150,6 +155,7 @@ function registerAccountIpc(broadcast, onConta) {
   return () => {
     realtime.stop()
     bibliotecaRealtime.stop()
+    syncRealtime.stop()
   }
 }
 

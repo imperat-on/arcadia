@@ -100,3 +100,39 @@ test("realtime: push_library so com playtime NAO avisa o canal (nao justifica pu
 
   chan.unsubscribe()
 })
+
+test("realtime: sync_achievements com conquista nova avisa o canal achievements-<me>", async () => {
+  const c = getClient()
+  const me = alice.session.user.id
+  c.auth._session = alice.session
+
+  const recebidos = []
+  const chan = c.channel(`achievements-${me}`)
+  chan.on("postgres_changes", { event: "*", schema: "public", table: "user_achievements" }, (payload) =>
+    recebidos.push(payload)
+  )
+  chan.subscribe()
+  await new Promise((r) => setTimeout(r, 800))
+
+  const { error } = await c.rpc("sync_achievements", {
+    p_items: [{ appid: "1091500", apiname: "ACH_TESTE", unlocked_at: 1700000000, title: "Teste" }],
+  })
+  assert.ifError(error)
+
+  const limite = Date.now() + 5000
+  while (recebidos.length === 0 && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  assert.strictEqual(recebidos.length, 1, "recebeu 1 postgres_changes")
+
+  // Reenviar a MESMA conquista (sem mudanca no servidor) NAO avisa de novo:
+  // so notifica quando algo de fato desbloqueou.
+  const { error: e2 } = await c.rpc("sync_achievements", {
+    p_items: [{ appid: "1091500", apiname: "ACH_TESTE", unlocked_at: 1700000000, title: "Teste" }],
+  })
+  assert.ifError(e2)
+  await new Promise((r) => setTimeout(r, 1500))
+  assert.strictEqual(recebidos.length, 1, "reenvio idempotente nao dispara evento novo")
+
+  chan.unsubscribe()
+})
