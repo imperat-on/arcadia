@@ -86,6 +86,7 @@
   "controller.titulo": "Controller support",
   "conquistas.aviso_offline": "Your achievements will not be synced with your account.",
   "conquistas.contador": "{done}/{total}",
+  "conquistas.concluido": "complete",
   "conquistas.titulo": "Achievements",
   "conquistas.vazio": "No achievements.",
   "conquistas.desbloquear": "Unlock",
@@ -969,5 +970,13 @@
   "account.username_ajustado": "Username adjusted: {pedido} was already taken. Your account was created as {real}.",
   "account.erro_senha_errada": "Incorrect password.",
   "account.erro_muitas_tentativas": "Too many attempts. Wait 10 minutes and try again.",
-  "account.erro_sem_senha": "This account has no password set."
+  "account.erro_sem_senha": "This account has no password set.",
+  "profile.voltar": "Back",
+  "editprofile.nav.banner": "Banner",
+  "editprofile.banner_desc": "Cover strip at the top of your profile — Steam style.",
+  "editprofile.sem_banner": "No banner",
+  "editprofile.nav.background": "Background",
+  "editprofile.background_desc": "Project background image — becomes the blurred backdrop.",
+  "editprofile.background_blur": "Blur background",
+  "editprofile.background_blur_desc": "Turn off to keep the background sharp in the profile."
 }

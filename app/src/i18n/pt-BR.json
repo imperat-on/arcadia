@@ -86,6 +86,7 @@
   "controller.titulo": "Suporte a controle",
   "conquistas.aviso_offline": "Suas conquistas não serão sincronizadas com a conta.",
   "conquistas.contador": "{done}/{total}",
+  "conquistas.concluido": "concluído",
   "conquistas.titulo": "Conquistas",
   "conquistas.vazio": "Sem conquistas.",
   "conquistas.desbloquear": "Desbloquear",
@@ -969,5 +970,13 @@
   "account.username_ajustado": "Nome de usuário ajustado: {pedido} já estava em uso. Sua conta foi criada como {real}.",
   "account.erro_senha_errada": "Senha incorreta.",
   "account.erro_muitas_tentativas": "Muitas tentativas. Espere 10 minutos e tente de novo.",
-  "account.erro_sem_senha": "Essa conta não tem senha definida."
+  "account.erro_sem_senha": "Essa conta não tem senha definida.",
+  "profile.voltar": "Voltar",
+  "editprofile.nav.banner": "Banner",
+  "editprofile.banner_desc": "Faixa de capa no topo do seu perfil — estilo Steam.",
+  "editprofile.sem_banner": "Sem banner",
+  "editprofile.nav.background": "Fundo",
+  "editprofile.background_desc": "Imagem de fundo do projeto — vira a atmosfera borrada de fundo.",
+  "editprofile.background_blur": "Borrar fundo",
+  "editprofile.background_blur_desc": "Desligue para deixar o fundo nítido no perfil."
 }

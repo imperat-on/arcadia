@@ -98,9 +98,9 @@ function registerAccountIpc(broadcast, onConta) {
     await garantirSessao()
     return auth.setAvatar(filePath)
   })
-  ipcMain.handle("account:setBackground", async (_e, filePath) => {
+  ipcMain.handle("account:setBackground", async (_e, filePath, kind = "background") => {
     try {
-      const r = await auth.setBackground(filePath)
+      const r = await auth.setBackground(filePath, kind)
       return r
     } catch (e) {
       return { ok: false, error: String(e?.message || e) }

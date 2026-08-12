@@ -47,9 +47,6 @@ export default function ProfileSelect({
     return () => window.removeEventListener("keydown", onKey)
   }, [total])
 
-  // background do perfil focado (só quando é perfil, não o "add")
-  const focusedProfile = focus < profiles.length ? profiles[focus] : undefined
-
   const activate = (i: number) => {
     if (i === profiles.length) onAdd()
     else onSelect(i)
@@ -130,11 +127,6 @@ export default function ProfileSelect({
                 >
                   {p.name ?? t("profile.sem_nome")}
                 </span>
-                {p.owner && (
-                  <span className="rounded bg-white/10 px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wider text-white/70">
-                    {t("profile.dono")}
-                  </span>
-                )}
               </div>
 
               {isFocus && (onEdit || onDelete) && (

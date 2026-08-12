@@ -1711,7 +1711,11 @@ function createWindow() {
 
   // Aplica a escala salva assim que a página carrega.
   win.webContents.on("did-finish-load", () => {
-    const z = Number(readConfig().ui_scale) || 1
+    // Modo ativo decide qual chave vale: fullscreen = console_ui_scale,
+    // janela = ui_scale. Antes só aplicava o ui_scale do desktop — um 1.25
+    // salvo no console vazava pro desktop no próximo load.
+    const chave = win.isFullScreen() ? "console_ui_scale" : "ui_scale"
+    const z = Number(readConfig()[chave]) || 1
     win.webContents.setZoomFactor(Math.min(2, Math.max(0.7, z)))
     // Modo console (tela cheia): cursor OCULTO por padrão, mas aparece ao
     // mexer o mouse e some após ~2s parado (navegação continua por gamepad).
@@ -2564,6 +2568,12 @@ app.whenReady().then(() => {
     if (Object.prototype.hasOwnProperty.call(cfg || {}, "slssteam_path")) {
       janela?.webContents.send("plugins:changed")
     }
+    // Perfil mudou (avatar/background/nome...): o desktop só recarrega o
+    // config no mount/`library:changed` — sem isto, um background trocado no
+    // Big Picture não refletia no desktop até trocar de modo.
+    if (cfg?.profile && typeof cfg.profile === "object") {
+      janela?.webContents.send("library:changed")
+    }
     return r
   })
 
@@ -3156,7 +3166,13 @@ app.whenReady().then(() => {
   ipcMain.handle("app:setFullscreen", (_e, on) => {
     if (win) win.setFullScreen(Boolean(on))
   })
-  ipcMain.handle("app:setZoom", (_e, z) => {
+  ipcMain.handle("app:setZoom", (_e, z, modo) => {
+    // Escalas do console e do desktop são independentes: o setZoomFactor é
+    // GLOBAL na janela, então aplicar o 1.25 do console sobrescrevia o zoom
+    // do desktop (e vice-versa). Cada chamada carrega o modo que a originou;
+    // só aplica se for o modo ativo — senão o zoom fica com o do outro modo.
+    const ativo = win?.isFullScreen() ? "console" : "desktop"
+    if (modo && modo !== ativo) return Number(readConfig()?.ui_scale) || 1
     const factor = Math.min(2, Math.max(0.7, Number(z) || 1))
     if (win) win.webContents.setZoomFactor(factor)
     return factor
@@ -3448,12 +3464,14 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("profile:pickImage", async (_e, kind) => {
-    const key = kind === "background" ? "background" : "avatar"
+    // banner/background tratam como imagem de fundo (o mesmo filtro/diálogo)
+    const ehFundo = kind === "background" || kind === "banner"
+    const key = ehFundo ? "background" : "avatar"
     const res = await dialog.showOpenDialog(win, {
-      title: key === "background" ? "Escolher plano de fundo" : "Escolher foto de perfil",
+      title: ehFundo ? "Escolher imagem de fundo" : "Escolher foto de perfil",
       properties: ["openFile"],
       filters:
-        key === "background"
+        ehFundo
           ? [
               {
                 name: "Imagens e vídeos",
@@ -3467,7 +3485,9 @@ app.whenReady().then(() => {
     if (res.canceled || !res.filePaths[0]) return { ok: false }
     const src = res.filePaths[0]
     const ext = path.extname(src) || ".png"
-    const dest = path.join(DATA_DIR, key + ext)
+    // banner salva em arquivo próprio (não colide com o background)
+    const nome = kind === "banner" ? "banner" : key
+    const dest = path.join(DATA_DIR, nome + ext)
     try {
       fs.copyFileSync(src, dest)
     } catch (e) {
@@ -3475,7 +3495,7 @@ app.whenReady().then(() => {
     }
     // Salva o caminho LIMPO (file://) no config; o ?t= é só para atualizar a
     // visualização imediata (cache-buster), não deve ir para o disco.
-    writeConfig({ profile: { [key]: "file://" + dest } })
+    writeConfig({ profile: { [nome]: "file://" + dest } })
     return { ok: true, path: "file://" + dest + "?t=" + Date.now() }
   })
 

@@ -163,7 +163,7 @@ export function DesktopLauncher() {
   useEffect(() => {
     carregar()
     window.launcherAPI?.getConfig().then((c) => {
-      if (c?.ui_scale) window.launcherAPI?.setZoom(c.ui_scale)
+      if (c?.ui_scale) window.launcherAPI?.setZoom(c.ui_scale, "desktop")
       aplicarA11y(c || {})
     })
     const conta = (items: { status?: string }[]) =>
@@ -299,7 +299,7 @@ export function DesktopLauncher() {
                 open
                 embedded
                 navActive={!showEditProfile}
-                profile={perfil ? { ...profile, name: perfil.display_name || perfil.username || profile.name, avatar: perfil.avatar_url || profile.avatar, background: perfil.background_url || profile.background } : profile}
+                profile={perfil ? { ...profile, name: perfil.display_name || perfil.username || profile.name, avatar: perfil.avatar_url ?? "", background: perfil.background_url ?? "", banner: perfil.banner_url ?? "" } : profile}
                 games={games}
                 onClose={() => setView("inicio")}
                 onEdit={() => setShowEditProfile(true)}
