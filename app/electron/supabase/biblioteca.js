@@ -248,13 +248,26 @@ async function pull() {
   // nunca propagava — o owned_games.json local ficava com o jogo para sempre.
   // So remove da POSSE (owned): o jogo continua no library.json local se
   // instalado/indexado pela Steam — ele so deixa de ser "possuido pela conta".
+  // Stub PENDING nao bloqueia mais a remocao: o stub e criado pelo proprio
+  // pull (nao e dado do usuario) — antes o pendentesIds.has(id) impedia a
+  // remocao pra sempre, entao um jogo so puxado (nunca instalado) na outra
+  // maquina nunca podia ser removido por sync.
   if (owned !== null) {
     for (const id of [...owned]) {
-      if (!idsDoServidor.has(id) && !ids.has(id) && !pendentesIds.has(id)) {
+      if (!idsDoServidor.has(id) && !ids.has(id)) {
         owned.delete(id)
         ownedMudou = true
       }
     }
+  }
+  // Stubs pendentes cujo jogo sumiu do servidor tambem saem — senao a entrada
+  // fantasma (instalado:false) fica pra sempre em pending_games.json mesmo
+  // apos o owned ja ter sido limpo acima.
+  const pendentesRestantes = pendentes.filter((p) => !p || idsDoServidor.has(p.id))
+  if (pendentesRestantes.length !== pendentes.length) {
+    pendentes.length = 0
+    pendentes.push(...pendentesRestantes)
+    pendentesMudou = true
   }
   if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
