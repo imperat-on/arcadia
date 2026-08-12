@@ -7,7 +7,9 @@ export interface Profile {
   city?: string
   summary?: string
   avatar?: string // caminho file:// da foto/gif
-  background?: string // plano de fundo do perfil (imagem/gif)
+  background?: string // fundo do projeto (atmosfera de tela inteira)
+  background_blur?: boolean // se o fundo fica borrado (padrão true)
+  banner?: string // faixa de capa no topo do perfil (estilo Steam)
   showcase?: string[] // ids dos jogos em destaque na vitrine
   owner?: boolean
 }
@@ -356,6 +358,7 @@ declare global {
       }) => Promise<{ ok: boolean; error?: string }>
       accountSetBackground: (
         filePath: string,
+        kind?: "background" | "banner",
       ) => Promise<{ ok: boolean; background_url?: string; error?: string }>
       accountSetAvatar: (
         filePath: string,
@@ -672,11 +675,11 @@ declare global {
       enterConsole: () => Promise<{ ok: boolean; error?: string }>
       toggleFullscreen: () => Promise<void>
       setFullscreen: (on: boolean) => Promise<void>
-      setZoom: (z: number) => Promise<number>
+      setZoom: (z: number, modo?: "console" | "desktop") => Promise<number>
       rebuildMeta: () => Promise<Game[]>
       integrationsStatus: () => Promise<IntegrationsStatus>
       pickImage: (
-        kind: "avatar" | "background",
+        kind: "avatar" | "banner" | "background",
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       /** Caminho local (file://) do trailer já baixado, ou "" se não houver. */
       trailerPath: (id: string) => Promise<{ path: string }>

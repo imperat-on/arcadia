@@ -26,6 +26,7 @@ export interface PerfilOnline {
   city?: string | null
   showcase?: string[]
   background_url?: string | null
+  banner_url?: string | null
 }
 
 /** Campos que o perfil local espelha do online (whitelist). */
@@ -36,6 +37,7 @@ export const CAMPOS_ESPELHO: Array<keyof PerfilOnline> = [
   "city",
   "showcase",
   "background_url",
+  "banner_url",
 ]
 
 interface AccountCtx {
@@ -61,7 +63,7 @@ interface AccountCtx {
     ext: string,
   ) => Promise<{ ok: boolean; avatar_url?: string; error?: string }>
   /** Sobe o background (imagem/video) pro servidor e devolve a URL publica. */
-  setBackground: (filePath: string) => Promise<{ ok: boolean; background_url?: string; error?: string }>
+  setBackground: (filePath: string, kind?: "background" | "banner") => Promise<{ ok: boolean; background_url?: string; error?: string }>
   /** Grava campos do perfil online (display_name, summary, country, city, showcase). */
   updatePerfil: (campos: Partial<PerfilOnline>) => Promise<{ ok: boolean; error?: string }>
 }
@@ -165,11 +167,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const setBackground = useCallback(async (filePath: string) => {
+  const setBackground = useCallback(async (filePath: string, kind: "background" | "banner" = "background") => {
     try {
-      const r = await window.launcherAPI?.accountSetBackground(filePath)
+      const r = await window.launcherAPI?.accountSetBackground(filePath, kind)
       if (r?.ok && r.background_url) {
-        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), background_url: r.background_url ?? null }))
+        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), [kind === "banner" ? "banner_url" : "background_url"]: r.background_url ?? null }))
       }
       return r || { ok: false, error: "API indisponível" }
     } catch (e) {
@@ -179,7 +181,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const updatePerfil = useCallback(async (campos: Partial<PerfilOnline>) => {
     try {
-      const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase, background_url: campos.background_url }
+      const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase, background_url: campos.background_url, banner_url: campos.banner_url }
       const r = await window.launcherAPI?.accountUpdateProfile(alvo)
       if (r?.ok) {
         setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), ...campos }))

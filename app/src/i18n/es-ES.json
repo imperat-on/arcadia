@@ -86,6 +86,7 @@
   "controller.titulo": "Compatibilidad con mando",
   "conquistas.aviso_offline": "Tus logros no se sincronizarán con tu cuenta.",
   "conquistas.contador": "{done}/{total}",
+  "conquistas.concluido": "completado",
   "conquistas.titulo": "Logros",
   "conquistas.vazio": "Sin logros.",
   "conquistas.desbloquear": "Desbloquear",
@@ -969,5 +970,13 @@
   "account.username_ajustado": "Nombre de usuario ajustado: {pedido} ya estaba en uso. Tu cuenta se creó como {real}.",
   "account.erro_senha_errada": "Contraseña incorrecta.",
   "account.erro_muitas_tentativas": "Demasiados intentos. Espera 10 minutos e inténtalo de nuevo.",
-  "account.erro_sem_senha": "Esta cuenta no tiene contraseña."
+  "account.erro_sem_senha": "Esta cuenta no tiene contraseña.",
+  "profile.voltar": "Volver",
+  "editprofile.nav.banner": "Banner",
+  "editprofile.banner_desc": "Franja de portada en la parte superior de tu perfil — estilo Steam.",
+  "editprofile.sem_banner": "Sin banner",
+  "editprofile.nav.background": "Fondo",
+  "editprofile.background_desc": "Imagen de fondo del proyecto — se convierte en el fondo difuminado.",
+  "editprofile.background_blur": "Desenfocar fondo",
+  "editprofile.background_blur_desc": "Desactívelo para mantener el fondo nítido en el perfil."
 }

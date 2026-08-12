@@ -16,7 +16,7 @@ interface EditProfileProps {
   onChange: (p: Profile | ((atual: Profile) => Profile)) => void
 }
 
-type Section = "geral" | "avatar" | "fundo"
+type Section = "geral" | "avatar" | "banner" | "background"
 
 const INPUT_CLS = "w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none"
 const INPUT_STYLE = {
@@ -129,14 +129,23 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     }, 450)
   }
 
-  // Upload do avatar pra conta (comum aos fluxos direto e recortado)
-  const subirBackground = async (path: string) => {
-    const r = conta?.setBackground ? await conta.setBackground(path) : await window.launcherAPI?.accountSetBackground(path)
+  // Upload de imagem de fundo/banner pra conta (comum aos fluxos)
+  const subirBackground = async (path: string, kind: "background" | "banner") => {
+    const r = conta?.setBackground ? await conta.setBackground(path, kind) : await window.launcherAPI?.accountSetBackground(path, kind)
     if (r?.ok && r.background_url) {
-      await window.launcherAPI?.setConfig({ profile: { background: r.background_url } })
-      onChange((atual) => ({ ...atual, background: r.background_url }))
+      await window.launcherAPI?.setConfig({ profile: { [kind]: r.background_url } })
+      onChange((atual) => ({ ...atual, [kind]: r.background_url }))
     } else if (r?.error) {
-      console.error("[perfil] background falhou:", r.error)
+      console.error("[perfil] upload falhou:", r.error)
+    }
+  }
+
+  // Remoção: limpa o config local E o servidor — se só limpar o local, o
+  // merge do perfil online (`perfil.X_url || profile.X`) traz a imagem de volta.
+  const patchRemover = async (kind: "background" | "banner") => {
+    await patch({ [kind]: "" })
+    if (conta?.status === "logado") {
+      await conta.updatePerfil({ [kind === "banner" ? "banner_url" : "background_url"]: null })
     }
   }
 
@@ -159,12 +168,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
     return false
   }
 
-  const pick = async (kind: "avatar" | "background") => {
+  const pick = async (kind: "avatar" | "banner" | "background") => {
     const r = await window.launcherAPI?.pickImage(kind)
     if (r?.ok && r.path) {
-      const key = kind === "avatar" ? "avatar" : "background"
-      if (kind === "background" && conta?.status === "logado") {
-        await subirBackground(r.path)
+      // banner e background sobem pro servidor como image (o main trata)
+      const key = kind === "avatar" ? "avatar" : kind
+      if ((kind === "background" || kind === "banner") && conta?.status === "logado") {
+        await subirBackground(r.path, kind)
         return
       }
       if (kind === "avatar" && conta?.status === "logado") {
@@ -199,7 +209,8 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const NAV: { id: Section; label: string }[] = [
     { id: "geral", label: t("editprofile.nav.geral") },
     { id: "avatar", label: t("editprofile.nav.avatar") },
-    { id: "fundo", label: t("editprofile.nav.fundo") },
+    { id: "banner", label: t("editprofile.nav.banner") },
+    { id: "background", label: t("editprofile.nav.background") },
   ]
 
   // Ícones por seção da sidebar (estilo consistente com o tema azul/roxo)
@@ -216,7 +227,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         <path d="M4 20a8 8 0 0 1 16 0" />
       </svg>
     ),
-    fundo: (
+    banner: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+        <rect x="3" y="3" width="18" height="8" rx="2" />
+        <path d="M3 15h18M3 19h10" />
+      </svg>
+    ),
+    background: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
         <rect x="3" y="3" width="18" height="18" rx="3" />
         <circle cx="9" cy="9" r="2" />
@@ -243,7 +260,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
             {/* Voltar */}
             <button
               onClick={() => fecharRef.current()}
-              className="group flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-[#8a93a6] transition-all hover:border-[#0072ce]/40 hover:text-white"
+              className="glass-1 group flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[#8a93a6] transition-all hover:text-white"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="transition-transform group-hover:-translate-x-0.5">
                 <path d="M15 18l-6-6 6-6" />
@@ -253,7 +270,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
             {/* Card compacto do usuário */}
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-[2px] shadow-[0_4px_16px_rgba(0,114,206,0.35)]">
+              <div
+                className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl p-[2px] shadow-lg"
+                style={{
+                  background: "linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 45%, #7c3aed))",
+                  boxShadow: "0 4px 16px color-mix(in oklab, var(--accent) 35%, transparent)",
+                }}
+              >
                 <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[9px] bg-[#12121a] text-base font-bold text-white">
                   {profile.avatar ? (
                     <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
@@ -265,7 +288,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
               <div className="flex flex-col">
                 <div className="text-sm font-semibold text-white">{fields.name || t("profile.jogador")}</div>
                 {ehDono && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#4db8ff]">
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--accent)" }}
+                  >
                     <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
                       <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z" />
                     </svg>
@@ -289,22 +315,26 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                   style={{
                     color: active ? "#fff" : "#8a93a6",
                     background: active
-                      ? "linear-gradient(135deg, rgba(0,114,206,0.28), rgba(124,58,237,0.16))"
+                      ? "linear-gradient(135deg, color-mix(in oklab, var(--accent) 28%, transparent), color-mix(in oklab, var(--accent) 14%, transparent))"
                       : "transparent",
-                    border: active ? "1px solid rgba(0,114,206,0.35)" : "1px solid transparent",
-                    boxShadow: active ? "0 4px 20px rgba(0,114,206,0.2)" : "none",
+                    border: active ? "1px solid color-mix(in oklab, var(--accent) 35%, transparent)" : "1px solid transparent",
+                    boxShadow: active ? "0 4px 20px color-mix(in oklab, var(--accent) 20%, transparent)" : "none",
                   }}
                 >
                   <span
                     className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-                      active ? "bg-[#0072ce]/25 text-[#4db8ff]" : "bg-white/[0.04] text-[#8a93a6] group-hover:text-white"
+                      active ? "bg-white/10 text-white" : "bg-white/[0.04] text-[#8a93a6] group-hover:text-white"
                     }`}
+                    style={active ? { color: "var(--accent)" } : undefined}
                   >
                     {Icone}
                   </span>
                   {n.label}
                   {active && (
-                    <span className="absolute bottom-0 left-1/2 h-0.5 w-12 -translate-x-1/2 translate-y-full rounded-full bg-gradient-to-r from-[#0072ce] to-[#7c3aed]" />
+                    <span
+                      className="absolute bottom-0 left-1/2 h-0.5 w-12 -translate-x-1/2 translate-y-full rounded-full"
+                      style={{ background: "linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 45%, #7c3aed))" }}
+                    />
                   )}
                 </button>
               )
@@ -320,9 +350,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
             <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
               {/* Formulário */}
               <div className="space-y-6">
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                <div className="glass-1 rounded-2xl p-6">
                   <div className="mb-6">
-                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.informacoes_basicas")}</h3>
+                    <h3 className="game-name mb-1 text-lg font-bold text-white">{t("editprofile.informacoes_basicas")}</h3>
                     <p className="text-xs text-[#8a93a6]">{t("editprofile.geral_desc")}</p>
                   </div>
                   <div className="space-y-4">
@@ -346,9 +376,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                <div className="glass-1 rounded-2xl p-6">
                   <div className="mb-6">
-                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.localizacao")}</h3>
+                    <h3 className="game-name mb-1 text-lg font-bold text-white">{t("editprofile.localizacao")}</h3>
                     <p className="text-xs text-[#8a93a6]">{t("editprofile.localizacao_desc")}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -379,9 +409,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                <div className="glass-1 rounded-2xl p-6">
                   <div className="mb-6">
-                    <h3 className="mb-1 text-lg font-bold text-white">{t("editprofile.sobre")}</h3>
+                    <h3 className="game-name mb-1 text-lg font-bold text-white">{t("editprofile.sobre")}</h3>
                     <p className="text-xs text-[#8a93a6]">{t("editprofile.sobre_desc")}</p>
                   </div>
                   <Field label={t("editprofile.resumo")}>
@@ -399,7 +429,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
               {/* Preview do perfil */}
               <div className="sticky top-6 h-fit">
-                <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] shadow-2xl shadow-black/30 backdrop-blur-xl">
+                <div className="glass-1 overflow-hidden rounded-2xl">
                   <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#2b165c] via-[#101024] to-black">
                     {profile.background && (
                       <img
@@ -411,7 +441,12 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                   </div>
                   <div className="px-6 pb-6">
-                    <div className="relative z-10 -mt-12 mb-4 flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#0072ce] to-[#003791] text-3xl font-bold text-white ring-4 ring-black/70 shadow-xl">
+                    <div
+                      className="relative z-10 -mt-12 mb-4 flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-3xl font-bold text-white ring-4 ring-black/70 shadow-xl"
+                      style={{
+                        background: "linear-gradient(135deg, color-mix(in oklab, var(--accent) 55%, #003791), #003791)",
+                      }}
+                    >
                       {profile.avatar ? (
                         <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
                       ) : (
@@ -419,7 +454,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                       )}
                     </div>
                     <div className="space-y-1">
-                      <div className="truncate text-xl font-bold text-white">
+                      <div className="game-name truncate text-xl font-bold text-white">
                         {fields.name || t("profile.jogador")}
                       </div>
                       {fields.realName && (
@@ -456,9 +491,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
         {section === "avatar" && (
           <div className="mx-auto max-w-3xl">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-8 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="glass-1 rounded-2xl p-8">
               <div className="mb-8">
-                <h3 className="mb-2 text-2xl font-bold text-white">{t("editprofile.nav.avatar")}</h3>
+                <h3 className="game-name mb-2 text-2xl font-bold text-white">{t("editprofile.nav.avatar")}</h3>
                 <p className="text-sm text-[#8a93a6]">{t("editprofile.avatar_desc")}</p>
               </div>
 
@@ -468,8 +503,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                   <div
                     className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-2xl text-5xl font-bold text-white shadow-2xl"
                     style={{
-                      background: "linear-gradient(135deg, #0072ce, #003791)",
+                      background: "linear-gradient(135deg, color-mix(in oklab, var(--accent) 55%, #003791), #003791)",
                       border: "2px solid rgba(255,255,255,0.15)",
+                      boxShadow: "0 12px 40px color-mix(in oklab, var(--accent) 30%, transparent)",
                     }}
                   >
                     {profile.avatar ? (
@@ -479,7 +515,12 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                     )}
                   </div>
                   {profile.avatar && (
-                    <div className="absolute -bottom-2 -right-2 rounded-xl bg-gradient-to-br from-[#0072ce] to-[#7c3aed] p-2 shadow-lg">
+                    <div
+                      className="absolute -bottom-2 -right-2 rounded-xl p-2 shadow-lg"
+                      style={{
+                        background: "linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 45%, #7c3aed))",
+                      }}
+                    >
                       <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="h-5 w-5">
                         <path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
                       </svg>
@@ -489,10 +530,13 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
                 {/* Ações */}
                 <div className="flex flex-1 flex-col gap-4">
-                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+                  <div className="glass-1 rounded-xl p-5">
                     <div className="mb-4 flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0072ce]/15">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#4db8ff" strokeWidth="2" className="h-5 w-5">
+                      <div
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                        style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", color: "var(--accent)" }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
                           <circle cx="12" cy="12" r="10" />
                           <path d="M12 16v-4m0-4h.01" />
                         </svg>
@@ -511,7 +555,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                   <button
                     onClick={() => pick("avatar")}
                     className="group relative overflow-hidden rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl"
-                    style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}
+                    style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 80%, #003791))" }}
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                     <div className="relative flex items-center justify-center gap-2">
@@ -538,28 +582,28 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
           </div>
         )}
 
-        {section === "fundo" && (
+        {section === "banner" && (
           <div className="mx-auto max-w-4xl">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-8 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="glass-1 rounded-2xl p-8">
               <div className="mb-8">
-                <h3 className="mb-2 text-2xl font-bold text-white">{t("editprofile.nav.fundo")}</h3>
-                <p className="text-sm text-[#8a93a6]">{t("editprofile.fundo_desc")}</p>
+                <h3 className="game-name mb-2 text-2xl font-bold text-white">{t("editprofile.nav.banner")}</h3>
+                <p className="text-sm text-[#8a93a6]">{t("editprofile.banner_desc")}</p>
               </div>
 
-              {/* Preview do fundo */}
+              {/* Preview do banner (faixa do topo do perfil) */}
               <div
                 className="relative mb-6 flex items-center justify-center overflow-hidden rounded-2xl"
                 style={{
                   aspectRatio: "21/9",
-                  background: profile.background
+                  background: profile.banner
                     ? undefined
                     : "linear-gradient(135deg, #12121a, #05050a)",
                   border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
-                {profile.background ? (
+                {profile.banner ? (
                   <>
-                    <img src={profile.background} alt="" className="h-full w-full object-cover" />
+                    <img src={profile.banner} alt="" className="h-full w-full object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                     {/* Miniatura do avatar sobreposto */}
                     <div className="absolute bottom-6 left-6 flex items-center gap-4">
@@ -572,10 +616,76 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                       </div>
                       <div>
                         <div className="text-lg font-bold text-white drop-shadow-lg">{fields.name || t("profile.jogador")}</div>
-                        <div className="text-xs text-white/80 drop-shadow">{t("profile.dono")}</div>
                       </div>
                     </div>
                   </>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 py-12">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.04]">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-8 w-8 text-[#6b7280]">
+                        <rect x="3" y="3" width="18" height="8" rx="2" />
+                        <path d="M3 15h18M3 19h10" />
+                      </svg>
+                    </div>
+                    <span className="text-sm text-[#6b7280]">{t("editprofile.sem_banner")}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => pick("banner")}
+                  className="group relative overflow-hidden rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl"
+                  style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 80%, #003791))" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="relative flex items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    {t("editprofile.escolher_imagem")}
+                  </div>
+                </button>
+                {profile.banner && (
+                  <button
+                    onClick={() => patchRemover("banner")}
+                    className="rounded-xl border border-white/[0.12] px-6 py-2.5 text-sm font-medium text-[#c8d0e0] transition-all hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-400"
+                  >
+                    {t("editprofile.remover")}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {section === "background" && (
+          <div className="mx-auto max-w-4xl">
+            <div className="glass-1 rounded-2xl p-8">
+              <div className="mb-8">
+                <h3 className="game-name mb-2 text-2xl font-bold text-white">{t("editprofile.nav.background")}</h3>
+                <p className="text-sm text-[#8a93a6]">{t("editprofile.background_desc")}</p>
+              </div>
+
+              {/* Preview do fundo do projeto (atmosfera da tela inteira) */}
+              <div
+                className="relative mb-6 flex items-center justify-center overflow-hidden rounded-2xl"
+                style={{
+                  aspectRatio: "16/6",
+                  background: profile.background
+                    ? undefined
+                    : "linear-gradient(135deg, #12121a, #05050a)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                {profile.background ? (
+                  <img
+                    src={profile.background}
+                    alt=""
+                    className={`h-full w-full object-cover ${profile.background_blur === false ? "" : "blur-sm"}`}
+                  />
                 ) : (
                   <div className="flex flex-col items-center gap-3 py-12">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.04]">
@@ -594,7 +704,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                 <button
                   onClick={() => pick("background")}
                   className="group relative overflow-hidden rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl"
-                  style={{ background: "linear-gradient(135deg, #0072ce, #005fa8)" }}
+                  style={{ background: "linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 80%, #003791))" }}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                   <div className="relative flex items-center gap-2">
@@ -608,13 +718,40 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                 </button>
                 {profile.background && (
                   <button
-                    onClick={() => patch({ background: "" })}
+                    onClick={() => patchRemover("background")}
                     className="rounded-xl border border-white/[0.12] px-6 py-2.5 text-sm font-medium text-[#c8d0e0] transition-all hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-400"
                   >
                     {t("editprofile.remover")}
                   </button>
                 )}
               </div>
+
+              {/* Blur do fundo (atmosfera): desligar deixa o fundo nítido */}
+              {profile.background && (
+                <div className="mt-6 flex items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.03] px-5 py-4">
+                  <div>
+                    <div className="text-sm font-semibold text-white">{t("editprofile.background_blur")}</div>
+                    <p className="mt-0.5 text-xs text-[#8a93a6]">{t("editprofile.background_blur_desc")}</p>
+                  </div>
+                  <button
+                    onClick={() => patch({ background_blur: profile.background_blur === false })}
+                    role="switch"
+                    aria-checked={profile.background_blur !== false}
+                    className="relative h-7 w-12 shrink-0 rounded-full transition-colors"
+                    style={{
+                      background:
+                        profile.background_blur !== false
+                          ? "color-mix(in oklab, var(--accent) 60%, transparent)"
+                          : "rgba(255,255,255,0.15)",
+                    }}
+                  >
+                    <span
+                      className="absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform"
+                      style={{ left: profile.background_blur !== false ? "calc(100% - 24px)" : "4px" }}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

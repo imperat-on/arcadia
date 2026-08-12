@@ -15,7 +15,6 @@ import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { GameContextMenu } from "./GameContextMenu"
 import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
-import { LibraryGrid } from "./LibraryGrid"
 import { TopBar, TABS } from "./TopBar"
 import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
@@ -23,6 +22,7 @@ import { useStoreActions } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
+import { ProfilePage } from "./ProfilePage"
 import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
@@ -106,9 +106,10 @@ export function PS5Launcher() {
   const [showSettings, setShowSettings] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   const [profile, setProfile] = useState<Profile>({})
   const [cardScale, setCardScale] = useState(1)
-  // Abas: 0 Jogos · 1 Biblioteca
+  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Loja
   const [activeTab, setActiveTab] = useState(1) // abre em Jogos (Notícias é a aba 0)
   // Ids já iniciados (persistido): alimenta o selo "Nunca jogado".
   const [recent, setRecent] = useState<string[]>([])
@@ -142,7 +143,6 @@ export function PS5Launcher() {
   const [news, setNews] = useState<NewsItem[]>([])
   const [newsLoading, setNewsLoading] = useState(false)
   const newsRef = useRef<HTMLDivElement>(null)
-  const gridScrollRef = useRef<HTMLDivElement>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [overviewClosing, setOverviewClosing] = useState(false)
   const overviewRef = useRef<HTMLDivElement>(null)
@@ -259,6 +259,7 @@ export function PS5Launcher() {
     showSettings ||
     showEditProfile ||
     menuOpen ||
+    showProfile ||
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
@@ -282,10 +283,9 @@ export function PS5Launcher() {
     () => (showHidden ? games : games.filter((g) => !g.hidden)),
     [games, showHidden],
   )
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja
+  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Loja
   const newsMode = activeTab === 0
-  const gridMode = activeTab === 2
-  const storeMode = activeTab === 3
+  const storeMode = activeTab === 2
   const columns = GRID_COLUMNS
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
@@ -319,7 +319,7 @@ export function PS5Launcher() {
     })
     api.getConfig().then((c) => {
       setProfile(c?.profile ?? {})
-      if (c?.console_ui_scale) api.setZoom(c.console_ui_scale)
+      if (c?.console_ui_scale) api.setZoom(c.console_ui_scale, "console")
       trailerAutoRef.current = c?.trailer_auto !== false
       applyUiPrefs(c)
     })
@@ -350,13 +350,14 @@ export function PS5Launcher() {
       showSettings ||
       showEditProfile ||
       menuOpen ||
+      showProfile ||
       gameRunning ||
       ctxGame ||
       trailerPickGame
     )
       return
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
-    if (gridMode || newsMode || storeMode) return // essas abas têm visual próprio
+    if (newsMode || storeMode) return // essas abas têm visual próprio
     let cancelled = false
     const t = setTimeout(async () => {
       const { path } = await api.trailerPath(g.id)
@@ -380,10 +381,10 @@ export function PS5Launcher() {
     showSettings,
     showEditProfile,
     menuOpen,
+    showProfile,
     gameRunning,
     ctxGame,
     trailerPickGame,
-    gridMode,
     newsMode,
     storeMode,
     boot,
@@ -485,11 +486,16 @@ export function PS5Launcher() {
     !showSettings &&
     !showEditProfile &&
     !menuOpen &&
+    !showProfile &&
     !ctxGame &&
     !editGame &&
     !trailerPickGame &&
     !gameRunning
   useGamepadNav(overviewRef, overviewNavActive, () => closeOverview())
+
+  // Navegação por controle no perfil (D-pad move o foco, B fecha).
+  const profileRef = useRef<HTMLDivElement>(null)
+  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile, () => setShowProfile(false))
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
   useGamepadNav(perfilRef, perfilGate && !boot && appFocused)
@@ -686,17 +692,15 @@ export function PS5Launcher() {
         step(1)
       } else if (e.key === "ArrowUp") {
         lastNav = now
-        if (gridMode) step(-columns)
       } else if (e.key === "ArrowDown") {
         lastNav = now
-        if (gridMode) step(columns)
-        else if (selectedGameRef.current) setOverviewOpen(true) // trilho: abre overview
+        if (selectedGameRef.current) setOverviewOpen(true) // trilho: abre overview
       } else if (e.key === "Enter" || e.key === " ") _launch_selected()
       else if (e.key === "F5" || e.key === "r") _refresh_library()
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [viewGames.length, gridMode, columns, _launch_selected, _refresh_library])
+  }, [viewGames.length, columns, _launch_selected, _refresh_library])
 
   // Navegação por controle (Gamepad API): D-pad/analógico, A=jogar, Start=atualizar.
   useEffect(() => {
@@ -711,7 +715,7 @@ export function PS5Launcher() {
     let holdStart = 0
     let lastRepeat = 0
     let lastStep = 0
-    let scrollVel = 0 // inércia do scroll do analógico direito (Biblioteca)
+    let scrollVel = 0 // inércia do scroll do analógico direito
     const DEBOUNCE = 90
     const INITIAL_DELAY = 500
     const REPEAT = 260
@@ -757,14 +761,13 @@ export function PS5Launcher() {
     const N = viewGames.length
     const move = (dx: number, dy: number) => {
       // Aba Jogos (trilho): para baixo abre o overview do jogo selecionado.
-      if (dy > 0 && !gridMode) {
+      if (dy > 0) {
         if (selectedGameRef.current) setOverviewOpen(true)
         return
       }
-      // Rail: só horizontal. Grade: horizontal ±1, vertical ±columns.
+      // Rail: só horizontal.
       let delta = 0
       if (dx !== 0) delta = dx
-      else if (dy !== 0 && gridMode) delta = dy * columns
       if (delta === 0) return
       setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + delta)))
     }
@@ -803,9 +806,9 @@ export function PS5Launcher() {
         }
 
         if (!uiBlockedRef.current) {
-          // Analógico DIREITO: rolagem suave da grade (estilo navegador),
-          // igual à aba de Notícias. Eixo detectado varrendo além do esquerdo.
-          if (gridMode && restAxes) {
+          // Analógico DIREITO: rolagem suave do trilho de capas (estilo
+          // navegador), igual à aba de Notícias.
+          if (restAxes) {
             let sry = 0
             for (let ai = 2; ai < gp.axes.length; ai++) {
               const v = (gp.axes[ai] ?? 0) - (restAxes[ai] ?? 0)
@@ -813,8 +816,6 @@ export function PS5Launcher() {
             }
             const target = Math.abs(sry) > 0.15 ? Math.sign(sry) * sry * sry * 46 : 0
             scrollVel += (target - scrollVel) * 0.25
-            const el = gridScrollRef.current
-            if (el && Math.abs(scrollVel) > 0.05) el.scrollTop += scrollVel
           }
           const [rx, ry] = direction(gp)
           if (rx !== cx || ry !== cy) {
@@ -856,7 +857,7 @@ export function PS5Launcher() {
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [viewGames.length, gridMode, columns, _launch_selected, _refresh_library])
+  }, [viewGames.length, columns, _launch_selected, _refresh_library])
 
   return (
     <div
@@ -896,7 +897,7 @@ export function PS5Launcher() {
       {/* Trailer do jogo por cima do fundo (estilo PS5), com fade de entrada.
           Só toca com a janela focada e sem jogo rodando — desmontar o <video>
           corta o som na hora (gamescope/alt-tab). */}
-      {trailerUrl && !gridMode && appFocused && !gameRunning && !boot && !perfilGate && (
+      {trailerUrl && appFocused && !gameRunning && !boot && !perfilGate && (
         <video
           key={trailerUrl}
           className="absolute inset-0 w-full h-full object-cover animate-bg-fade"
@@ -942,7 +943,7 @@ export function PS5Launcher() {
           onTab={setActiveTab}
           onRefresh={_refresh_library}
           onOpenSettings={() => setShowSettings(true)}
-          onOpenProfile={() => setActiveTab(1)}
+          onOpenProfile={() => setShowProfile(true)}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((v) => !v)}
           onCloseMenu={() => setMenuOpen(false)}
@@ -969,6 +970,22 @@ export function PS5Launcher() {
         onClose={() => setShowEditProfile(false)}
         onChange={setProfile}
       />
+
+      {/* Perfil (mesma tela do desktop): modal sobre o Big Picture */}
+      {showProfile && (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black">
+          <ProfilePage
+            open
+            embedded={false}
+            navActive={!showEditProfile}
+            profile={conta?.perfil ? { ...profile, name: conta.perfil.display_name || conta.perfil.username || profile.name, avatar: conta.perfil.avatar_url ?? "", background: conta.perfil.background_url ?? "", banner: conta.perfil.banner_url ?? "" } : profile}
+            games={games}
+            onClose={() => setShowProfile(false)}
+            onEdit={() => setShowEditProfile(true)}
+            onJogoClick={_activate}
+          />
+        </div>
+      )}
 
       {/* Overview do jogo selecionado (seta para baixo na aba Jogos) */}
       {overviewOpen && selectedGame && (
@@ -1026,7 +1043,7 @@ export function PS5Launcher() {
           de abertura, que ja tem a sua propria sequencia. */}
       <div
         key={boot || perfilGate ? "intro" : activeTab}
-        className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || gridMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
+        className={`${boot || perfilGate ? "" : "tab-in "}${newsMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex flex-col min-h-screen"}`}
       >
         {storeMode /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
              pela `key`): remontar destruía o webview e a loja da Steam
@@ -1041,20 +1058,6 @@ export function PS5Launcher() {
               onOpen={(url) => window.launcherAPI?.openExternal(url)}
             />
           </div>
-        ) : gridMode ? (
-          <>
-            {/* Grade completa (Biblioteca) */}
-            <div className="pt-6" />
-            <LibraryGrid
-              games={viewGames}
-              selectedIndex={selectedIndex}
-              columns={columns}
-              onSelect={setSelectedIndex}
-              onLaunch={_activate}
-              emptyMessage={t("ps5.biblioteca.vazia")}
-              scrollRef={gridScrollRef}
-            />
-          </>
         ) : (
           <>
             {/* Espaço da barra superior */}

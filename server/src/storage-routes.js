@@ -13,6 +13,7 @@
 const fs = require("node:fs")
 const path = require("node:path")
 const { verifyToken, extractToken } = require("./jwt")
+const { db } = require("./db")
 
 // Magic bytes de imagem (mesmos do auth.js do app)
 const MAGIC = [
@@ -66,6 +67,18 @@ const BUCKETS = {
     mimeFor: () => "image/*",
   },
   backgrounds: {
+    max: 25 * 1024 * 1024, // 25MB
+    nomeRe: /^[0-9]+\.(png|jpe?g|webp|gif|webm|mp4|m4v|mov)$/i,
+    magic: MAGIC_BG,
+    erroTipo: "background_nao_midia",
+    erroTamanho: "background_grande",
+    mimeFor: (file) => {
+      if (/\.webm$/i.test(file)) return "video/webm"
+      if (/\.(mp4|m4v|mov)$/i.test(file)) return "video/mp4"
+      return "image/*"
+    },
+  },
+  banners: {
     max: 25 * 1024 * 1024, // 25MB
     nomeRe: /^[0-9]+\.(png|jpe?g|webp|gif|webm|mp4|m4v|mov)$/i,
     magic: MAGIC_BG,
@@ -159,4 +172,38 @@ function registerStorageRoutes(app) {
   })
 }
 
-module.exports = { registerStorageRoutes, magicDeImagem }
+// Limpeza periódica: apaga arquivos de bucket cuja URL não é referenciada em
+// nenhum perfil (banner/background/avatar trocados ou removidos). Evita
+// acúmulo de arquivos órfãos no disco. Best effort — nunca derruba o server.
+function limparOrfaos() {
+  try {
+    const colunas = { avatars: "avatar_url", backgrounds: "background_url", banners: "banner_url" }
+    for (const [bucket, coluna] of Object.entries(colunas)) {
+      const usados = new Set()
+      for (const row of db.prepare(`SELECT ${coluna} FROM profiles WHERE ${coluna} IS NOT NULL`).all()) {
+        const u = String(row[coluna] || "")
+        const m = u.match(new RegExp(`/storage/v1/object/public/${bucket}/([0-9a-f-]+/[^?]+)`))
+        if (m) usados.add(m[1])
+      }
+      const raiz = path.join(__dirname, "..", bucket)
+      if (!fs.existsSync(raiz)) continue
+      for (const uid of fs.readdirSync(raiz)) {
+        const dir = path.join(raiz, uid)
+        if (!fs.statSync(dir).isDirectory()) continue
+        for (const f of fs.readdirSync(dir)) {
+          if (!usados.has(`${uid}/${f}`)) {
+            try {
+              fs.rmSync(path.join(dir, f))
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+}
+
+// Roda 1x no boot + a cada 6h (arquivos órfãos de troca/remoção recente).
+limparOrfaos()
+setInterval(limparOrfaos, 6 * 60 * 60 * 1000)
+
+module.exports = { registerStorageRoutes, magicDeImagem, limparOrfaos }

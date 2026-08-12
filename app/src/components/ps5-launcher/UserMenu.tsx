@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react"
 import type { Profile } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
-import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 
 interface UserMenuProps {
   open: boolean
@@ -28,8 +27,6 @@ export function UserMenu({
   profile,
 }: UserMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const conta = useAccountOptional()
-  const ehDono = conta?.perfil?.username === OWNER_USERNAME
   const { t } = useI18n()
   useGamepadNav(ref, open, onClose)
 
@@ -75,7 +72,7 @@ export function UserMenu({
       ref={ref}
       className="gp-scope absolute right-0 top-12 w-64 rounded-xl overflow-hidden z-50"
       style={{
-        background: "rgba(22,29,48,0.98)",
+        background: "rgba(0,0,0,0.92)",
         border: "1px solid rgba(255,255,255,0.1)",
         boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
         backdropFilter: "blur(16px)",
@@ -88,7 +85,7 @@ export function UserMenu({
           onOpenProfile()
         }}
         className="w-full px-4 py-3 flex items-center gap-3 text-left transition-colors hover:brightness-125"
-        style={{ background: "rgba(0,114,206,0.12)" }}
+        style={{ background: "rgba(255,255,255,0.05)" }}
       >
         <div
           className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden"
@@ -103,9 +100,6 @@ export function UserMenu({
         <div className="leading-tight">
           <div className="text-sm font-semibold text-white">
             {profile?.name || t("profile.jogador")}
-          </div>
-          <div className="text-xs text-[#00a8ff]">
-            {ehDono ? t("profile.dono") : t("profile.online")}
           </div>
         </div>
       </button>

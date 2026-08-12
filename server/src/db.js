@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   username           TEXT UNIQUE NOT NULL CHECK (username GLOB '[a-z0-9_]*' AND length(username) BETWEEN 3 AND 20),
   avatar_url         TEXT,
   background_url     TEXT,
+  banner_url         TEXT,
   steam_id           TEXT,
   display_name       TEXT,
   summary            TEXT,

@@ -131,7 +131,7 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
               scaleCommitRef.current = window.setTimeout(() => {
                 const val = scalePendingRef.current ?? z
                 window.launcherAPI?.setConfig({ console_ui_scale: val })
-                window.launcherAPI?.setZoom(val)
+                window.launcherAPI?.setZoom(val, "console")
                 scaleCommitRef.current = null
               }, 250)
             }}
