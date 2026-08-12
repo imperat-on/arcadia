@@ -29,6 +29,15 @@ if [ ! -d "$DIR" ]; then
     exit 0
 fi
 
+# Segurança: só remove se $DIR parecer mesmo o Arcadia (tem app/package.json).
+# Evita apagar uma pasta que não é o projeto por engano (ex.: se o usuário
+# mudou o caminho ou o diretório tem outro conteúdo).
+if [ ! -f "$DIR/app/package.json" ]; then
+    echo "ERRO: $DIR existe mas não parece ser o Arcadia (faltam app/package.json)." >&2
+    echo "Abortando para não apagar algo por engano. Se quiser mesmo, remova na mão." >&2
+    exit 1
+fi
+
 echo "Isso vai remover o Arcadia deste computador ($DIR)."
 echo
 
