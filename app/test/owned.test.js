@@ -142,9 +142,11 @@ test("push: ids possuidos sem watermark sobem como stub no push_library", async 
   }
 })
 
-test("pull: row nao possuida ganha owned + custom_games ganha stub (regressao)", async () => {
+test("pull: row nao possuida ganha owned + custom_games ganha stub + removidos somem (regressao)", async () => {
   conta.definirConta("pull-owned-1")
   fs.writeFileSync(conta.caminhoArquivoConta("custom_games.json"), "[]")
+  // "ja-tinha" esta no owned local mas o servidor NAO o devolve mais — foi
+  // removido em outra maquina. O pull deve remove-lo da posse local.
   fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify(["ja-tinha"]))
 
   client.auth.getUser = async () => ({ data: { user: { id: "u-pull-1" } } })
@@ -158,7 +160,8 @@ test("pull: row nao possuida ganha owned + custom_games ganha stub (regressao)",
   const mudou = await biblioteca.pull()
   assert.equal(mudou, true)
 
-  assert.deepEqual(ownedSet(), new Set(["ja-tinha", "game-c"]))
+  // game-c entra, ja-tinha sai (removido no servidor)
+  assert.deepEqual(ownedSet(), new Set(["game-c"]))
 
   const lib = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf-8"))
   assert.deepEqual(lib.map((g) => g.id), ["game-c"])

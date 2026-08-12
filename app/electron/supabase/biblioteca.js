@@ -180,6 +180,7 @@ async function pull() {
   const pendentes = readJson(PENDING(), [])
   const pendentesIds = new Set(pendentes.map((p) => p && p.id))
   let pendentesMudou = false
+  const idsDoServidor = new Set(data.map((row) => row && row.appid))
   for (const row of data) {
     if (owned !== null && !owned.has(row.appid)) {
       owned.add(row.appid)
@@ -242,6 +243,19 @@ async function pull() {
       }
     }
   }
+  // Remocao no pull: jogos que sumiram do servidor (removidos em outra
+  // maquina) saem da posse local. Sem isto, remover na conta em um dispositivo
+  // nunca propagava — o owned_games.json local ficava com o jogo para sempre.
+  // So remove da POSSE (owned): o jogo continua no library.json local se
+  // instalado/indexado pela Steam — ele so deixa de ser "possuido pela conta".
+  if (owned !== null) {
+    for (const id of [...owned]) {
+      if (!idsDoServidor.has(id) && !ids.has(id) && !pendentesIds.has(id)) {
+        owned.delete(id)
+        ownedMudou = true
+      }
+    }
+  }
   if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
   if (ownedMudou) {
@@ -262,6 +276,31 @@ async function pull() {
   }
   if (mudou) writeJson(OVERRIDES(), overrides)
 
+  // Watermark dos jogos que vieram do servidor: sem isto, um jogo adicionado
+  // em OUTRA maquina e apenas puxado aqui NAO tem libPush local — remover
+  // neste dispositivo nao sobe removed:true (o push so itera watermarks) e o
+  // jogo volta no proximo pull. Criar o watermark no pull faz a remocao
+  // local propagar para o servidor e para as outras maquinas.
+  const enviados = st.libPush || {}
+  let libPushMudou = false
+  for (const row of data) {
+    const id = row && row.appid
+    if (!id) continue
+    const titulo = row.title && row.title !== id ? String(row.title).trim() : undefined
+    if (!enviados[id]) {
+      enviados[id] = { title: titulo || id, platform: row.platform || "windows" }
+      libPushMudou = true
+    } else if (titulo && enviados[id].title !== titulo && enviados[id].title === id) {
+      // Watermark com titulo feio (appid) ganha o titulo real do servidor
+      enviados[id] = { ...enviados[id], title: titulo }
+      libPushMudou = true
+    }
+  }
+  if (libPushMudou) {
+    st.libPush = enviados
+    mudou = true
+  }
+
   st.playtimePush = wp
   saveState(st)
   return mudou
@@ -269,8 +308,13 @@ async function pull() {
 
 // ---------- RECONCILE (login / boot) ----------
 async function reconcile() {
-  await push()
+  // PULL antes do PUSH: o pull traz as remocoes feitas em OUTRAS maquinas e
+  // limpa o owned_games.json local ANTES do push reenviar. Com push-primeiro,
+  // uma maquina que ainda tinha o jogo no owned local (nunca puxou a remocao)
+  // reenviava o jogo ao servidor, ressuscitando-o apos o DELETE da outra
+  // maquina — o sintoma era "removi no notebook e o jogo voltou no PC".
   const mudou = await pull()
+  await push()
   avisar(mudou)
 }
 
