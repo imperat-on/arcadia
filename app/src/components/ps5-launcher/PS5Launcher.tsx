@@ -23,7 +23,6 @@ import { useStoreActions } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
-import { ProfilePage } from "./ProfilePage"
 import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
 import type { Profile, NewsItem } from "../../global"
@@ -274,7 +273,7 @@ export function PS5Launcher() {
   const uiBlockedRef = useRef(false)
   // A Loja tem navegação própria por foco, igual às Notícias: sem isto o
   // direcional moveria a seleção do trilho de jogos por trás da loja.
-  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3 || activeTab === 4
+  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3
 
   // Ambas as abas mostram a biblioteca inteira; muda só a forma de exibir.
   // Jogos ocultos só aparecem com "Mostrar ocultos" ligado (menu do Select).
@@ -283,11 +282,10 @@ export function PS5Launcher() {
     () => (showHidden ? games : games.filter((g) => !g.hidden)),
     [games, showHidden],
   )
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja · 4 Perfil
+  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Biblioteca (grade) · 3 Loja
   const newsMode = activeTab === 0
   const gridMode = activeTab === 2
   const storeMode = activeTab === 3
-  const profileMode = activeTab === 4
   const columns = GRID_COLUMNS
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
@@ -358,7 +356,7 @@ export function PS5Launcher() {
     )
       return
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
-    if (gridMode || newsMode || storeMode || profileMode) return // essas abas têm visual próprio
+    if (gridMode || newsMode || storeMode) return // essas abas têm visual próprio
     let cancelled = false
     const t = setTimeout(async () => {
       const { path } = await api.trailerPath(g.id)
@@ -388,7 +386,6 @@ export function PS5Launcher() {
     gridMode,
     newsMode,
     storeMode,
-    profileMode,
     boot,
     perfilGate,
   ])
@@ -945,7 +942,7 @@ export function PS5Launcher() {
           onTab={setActiveTab}
           onRefresh={_refresh_library}
           onOpenSettings={() => setShowSettings(true)}
-          onOpenProfile={() => setActiveTab(4)}
+          onOpenProfile={() => setActiveTab(1)}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((v) => !v)}
           onCloseMenu={() => setMenuOpen(false)}
@@ -1058,19 +1055,6 @@ export function PS5Launcher() {
               scrollRef={gridScrollRef}
             />
           </>
-        ) : profileMode ? (
-          <div className="pt-20">
-            <ProfilePage
-              open
-              embedded
-              navActive={!showEditProfile}
-              profile={conta?.perfil ? { ...profile, name: conta.perfil.display_name || conta.perfil.username || profile.name, avatar: conta.perfil.avatar_url || profile.avatar, background: conta.perfil.background_url || profile.background } : profile}
-              games={games}
-              onClose={() => setActiveTab(1)}
-              onEdit={() => setShowEditProfile(true)}
-              onJogoClick={_activate}
-            />
-          </div>
         ) : (
           <>
             {/* Espaço da barra superior */}
