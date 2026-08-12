@@ -1,11 +1,11 @@
 "use strict"
 
-// Realtime WS (Phoenix-lite) para o badge de amigos. Espelha o Supabase
-// Realtime o suficiente para o canal `friends-<me>`:
+// Realtime WS (Phoenix-lite) para o badge de amigos e o sync de biblioteca.
+// Espelha o Supabase Realtime o suficiente para os canais `friends-<me>` e
+// `library-<me>`:
 //   - socket em /realtime/v1/websocket
 //   - handshake phx_join com config.postgres_changes[{event,schema,table,filter}]
-//   - evento `postgres_changes` quando um INSERT em friendships tiver
-//     user_b = <me> (payload.new.requester_id, como o app consome)
+//   - evento `postgres_changes` quando algo relevante mudar pro dono do canal
 //
 // Autenticacao: o realtime-js manda CHANNEL_EVENTS.access_token no join.
 // Validamos o JWT e rejeitamos (phx_reply error) se invalido.
@@ -13,13 +13,22 @@
 const { WebSocketServer } = require("ws")
 const { verifyToken } = require("./jwt")
 
-// Map<userId, Set<ws>> para os canais friends-<me>
+// Map<topic, Set<ws>> — topic e o nome completo do canal (ex: "friends-<id>",
+// "library-<id>"), nao so o userId: usar so o userId colidiria os dois canais
+// no mesmo Set e um evento de amigos vazaria pros listeners de biblioteca.
 const listeners = new Map()
 
-function notifyFriendshipInsert(userId, requesterId) {
-  const sockets = listeners.get(userId)
+function notify(topic, msg) {
+  const sockets = listeners.get(topic)
   if (!sockets) return
-  const msg = JSON.stringify({
+  const payload = JSON.stringify(msg)
+  for (const ws of sockets) {
+    if (ws.readyState === 1) ws.send(payload)
+  }
+}
+
+function notifyFriendshipInsert(userId, requesterId) {
+  notify(`friends-${userId}`, {
     event: "postgres_changes",
     payload: {
       schema: "public",
@@ -27,9 +36,17 @@ function notifyFriendshipInsert(userId, requesterId) {
       new: { requester_id: requesterId },
     },
   })
-  for (const ws of sockets) {
-    if (ws.readyState === 1) ws.send(msg)
-  }
+}
+
+function notifyLibraryChange(userId) {
+  notify(`library-${userId}`, {
+    event: "postgres_changes",
+    payload: {
+      schema: "public",
+      table: "user_library",
+      new: {},
+    },
+  })
 }
 
 function registerRealtime(server) {
@@ -66,11 +83,14 @@ function registerRealtime(server) {
         return
       }
 
-      // join no canal friends-<me>
-      if (msg.event === "phx_join" && msg.topic && msg.topic.startsWith("friends-")) {
-        const me = msg.topic.slice("friends-".length)
-        if (!listeners.has(me)) listeners.set(me, new Set())
-        listeners.get(me).add(ws)
+      // join nos canais friends-<me> / library-<me>
+      if (
+        msg.event === "phx_join" &&
+        msg.topic &&
+        (msg.topic.startsWith("friends-") || msg.topic.startsWith("library-"))
+      ) {
+        if (!listeners.has(msg.topic)) listeners.set(msg.topic, new Set())
+        listeners.get(msg.topic).add(ws)
         ws.send(
           JSON.stringify({
             event: "phx_reply",
@@ -86,11 +106,11 @@ function registerRealtime(server) {
     })
 
     ws.on("close", () => {
-      for (const [userId, set] of listeners) {
-        if (set.delete(ws) && set.size === 0) listeners.delete(userId)
+      for (const [topic, set] of listeners) {
+        if (set.delete(ws) && set.size === 0) listeners.delete(topic)
       }
     })
   })
 }
 
-module.exports = { registerRealtime, notifyFriendshipInsert }
+module.exports = { registerRealtime, notifyFriendshipInsert, notifyLibraryChange }

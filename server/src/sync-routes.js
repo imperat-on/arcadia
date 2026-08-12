@@ -6,6 +6,7 @@
 
 const { db, nowIso, nowEpochS } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
+const { notifyLibraryChange } = require("./realtime")
 
 function requireAuth(req) {
   const v = verifyToken(extractToken(req) || "")
@@ -156,6 +157,10 @@ function rpcPushLibrary(uid, p_lib, p_playtime) {
     db.exec("ROLLBACK")
     throw e
   }
+  // Avisa outros dispositivos logados (canal library-<uid>) so quando algo de
+  // biblioteca de fato mudou — playtime sozinho nao justifica um pull instantaneo
+  // nas outras maquinas, ele ja sobe no proximo pull normal.
+  if (Array.isArray(p_lib) && p_lib.length) notifyLibraryChange(uid)
 }
 
 // ---------------------------------------------------------------------------
