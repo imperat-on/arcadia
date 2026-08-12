@@ -5,21 +5,56 @@
 # Duas formas de usar:
 #   Local:  ./install.sh
 #   Remoto: curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
+#
+# Flags:
+#   -y, --yes   Não pergunta nada (assume sim para dependências; mantém o resto
+#               do comportamento). Para rodar sem TTY.
 set -e
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Modo curl|bash: se não estamos dentro do repo, clona primeiro e re-executa.
+# --- helpers ---------------------------------------------------------------
+ERRO() { echo "ERRO: $*" >&2; }
+
+# Confirma com o usuário; devolve 0 (sim) ou 1 (não). Com -y ou sem TTY,
+# responde sim automaticamente para não travar a instalação.
+PERGUNTAR() {
+    local msg="$1"
+    if [ "$SEM_PERGUNTAS" = 1 ]; then return 0; fi
+    if [ ! -t 0 ]; then return 0; fi
+    local r
+    read -rp "$msg [s/N] " r
+    [[ "$r" =~ ^[sS] ]]
+}
+
+SEM_PERGUNTAS=0
+if [ "$1" = "-y" ] || [ "$1" = "--yes" ]; then SEM_PERGUNTAS=1; fi
+
+# --- Modo remoto (curl | bash) --------------------------------------------
+# Quando o script vem de stdin, "$0" resolve para o diretório atual — não é o
+# repo. Clona para ~/.local/share/arcadia e re-executa de lá.
 if [ ! -f "$DIR/app/package.json" ]; then
     REPO="https://github.com/imperat-on/arcadia.git"
     DESTINO="$HOME/.local/share/arcadia"
     echo "==> Baixando o Arcadia para $DESTINO"
     if [ -d "$DESTINO/.git" ]; then
+        # Já é um clone git: atualiza.
         git -C "$DESTINO" pull --ff-only
+    elif [ -e "$DESTINO" ] && [ -n "$(ls -A "$DESTINO" 2>/dev/null)" ]; then
+        # Existe MAS não é um clone válido (ex.: tentativa anterior interrompida,
+        # pasta parcial). `git clone` falharia com "destination path already
+        # exists and is not an empty directory" e o set -e abortaria sem copiar
+        # nada. Move para backup e clona limpo.
+        echo "    $DESTINO já existe mas não é um clone válido — movendo para backup e clonando de novo."
+        mv "$DESTINO" "$DESTINO.bak-$(date +%Y%m%d-%H%M%S)"
+        git clone "$REPO" "$DESTINO"
     else
         git clone "$REPO" "$DESTINO"
     fi
-    exec bash "$DESTINO/install.sh"
+    exec bash "$DESTINO/install.sh" "$@"
 fi
+
+echo "==> Instalando o Arcadia a partir de $DIR"
 
 # --- 0/4 Dependências de sistema -------------------------------------------
 # O app precisa de: python3 (indexador), steam (nativa), dotnet (roda o
@@ -40,12 +75,20 @@ if [ ${#FALTAM[@]} -gt 0 ]; then
     PKGS=()
     if command -v pacman >/dev/null 2>&1; then
         for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
-        echo "    Instalando via pacman (sudo): ${PKGS[*]}"
-        sudo pacman -S --needed --noconfirm "${PKGS[@]}"
+        echo "    Vou instalar via pacman (sudo): ${PKGS[*]}"
+        if PERGUNTAR "    OK instalar essas dependências?"; then
+            sudo pacman -S --needed --noconfirm "${PKGS[@]}"
+        else
+            echo "    Dependências não instaladas — o app pode não funcionar."
+        fi
     elif command -v apt-get >/dev/null 2>&1; then
         for c in "${FALTAM[@]}"; do PKGS+=("${PKG_DEB[$c]}"); done
-        echo "    Instalando via apt (sudo): ${PKGS[*]}"
-        sudo apt-get update && sudo apt-get install -y "${PKGS[@]}"
+        echo "    Vou instalar via apt (sudo): ${PKGS[*]}"
+        if PERGUNTAR "    OK instalar essas dependências?"; then
+            sudo apt-get update && sudo apt-get install -y "${PKGS[@]}"
+        else
+            echo "    Dependências não instaladas — o app pode não funcionar."
+        fi
     else
         echo "    AVISO: distro não reconhecida — instale manualmente: ${FALTAM[*]}"
     fi
@@ -68,7 +111,12 @@ fi
 # --- 1/4 Front-end ----------------------------------------------------------
 echo "==> 1/4 Dependências do front-end (npm install)"
 cd "$DIR/app"
-npm install
+if npm install; then
+    echo "    npm install OK"
+else
+    ERRO "npm install falhou. Verifique sua conexão e o Node/npm."
+    exit 1
+fi
 
 # O binário do Electron (~100MB) é baixado por um postinstall que, em algumas
 # configs de npm, é pulado ou falha silenciosamente — deixando o app sem "motor"
@@ -91,15 +139,22 @@ if [ ! -x "node_modules/electron/dist/electron" ]; then
         fi
     fi
     if [ ! -x "node_modules/electron/dist/electron" ]; then
-        echo "    AVISO: falha ao baixar o Electron — rode 'cd app && npm rebuild electron'"
+        ERRO "falha ao baixar o Electron — rode 'cd app && npm rebuild electron'"
+        exit 1
     fi
+    echo "    Electron OK"
 fi
 
 # O dist/ não vai no git (é gerado). O arcadia.sh reconstrói sozinho quando
 # falta, mas aí a PRIMEIRA abertura trava alguns segundos sem explicação.
 # Compilando aqui, o app abre instantâneo desde a primeira vez.
 echo "    Compilando o front-end…"
-npm run build
+if npm run build; then
+    echo "    Build OK"
+else
+    ERRO "build do front-end falhou."
+    exit 1
+fi
 
 # --- 2/4 Configuração -------------------------------------------------------
 echo "==> 2/4 Configuração inicial"
@@ -112,7 +167,11 @@ fi
 
 # --- 3/4 Atalho -------------------------------------------------------------
 echo "==> 3/4 Atalho no menu de aplicativos"
-"$DIR/install-desktop.sh"
+if "$DIR/install-desktop.sh"; then
+    echo "    Atalho criado."
+else
+    ERRO "falha ao criar o atalho (install-desktop.sh) — o app ainda funciona, sem o ícone no menu."
+fi
 
 # --- 4/4 Resumo -------------------------------------------------------------
 echo ""
@@ -121,3 +180,5 @@ echo "         ou:   ./arcadia.sh           (modo console/tela cheia)"
 echo ""
 echo "Opcionais dentro do app (botões): .NET local, SLSsteam, SLScheevo,"
 echo "versões de Wine/Proton — tudo se instala pela interface."
+echo ""
+echo "Para desinstalar: ./uninstall.sh  (pergunta o que preservar)"
