@@ -1858,15 +1858,22 @@ app.whenReady().then(() => {
       } catch (e) {
         console.error("[achievements] boot load:", e)
       }
-      // Sync de biblioteca/horas no BOOT com sessão restaurada. O reconcile só
-      // rodava no SIGNED_IN (login) — quem fechava e reabria o app com a sessão
-      // salva não puxava os jogos adicionados em outra máquina; só deslogando e
-      // logando de novo. Aqui o push+pull roda uma vez por boot logado.
+      // Sync de biblioteca/horas + CONQUISTAS no BOOT com sessão restaurada. O
+      // reconcile só rodava no SIGNED_IN (login) — quem fechava e reabria o app
+      // com a sessão salva não puxava as mudanças feitas em outra máquina; só
+      // deslogando e logando de novo. Aqui o push+pull roda uma vez por boot
+      // logado (conquistas: mesma lógica — sem isto, desbloqueio de outra
+      // máquina só chegava num login explícito).
       if (r?.session) {
         try {
           require("./supabase/biblioteca").reconcile()
         } catch (e) {
           console.error("[biblioteca] boot reconcile:", e)
+        }
+        try {
+          require("./supabase/sync").reconcile()
+        } catch (e) {
+          console.error("[conquistas] boot reconcile:", e)
         }
       }
       return null
