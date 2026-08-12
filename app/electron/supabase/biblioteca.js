@@ -18,6 +18,7 @@ const { getClient } = require("./client")
 const { caminhoArquivoConta, DATA_DIR } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
+const steamstore = require("../steamstore")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
 const PENDING = () => caminhoArquivoConta("pending_games.json")
@@ -181,6 +182,25 @@ async function pull() {
   const pendentesIds = new Set(pendentes.map((p) => p && p.id))
   let pendentesMudou = false
   const idsDoServidor = new Set(data.map((row) => row && row.appid))
+
+  // Busca capa/hero/icone REAIS antes de criar os stubs pending: sem isto o
+  // stub nascia so com URLs de capa "chutadas" (podem nao existir) e sem
+  // icone nenhum, e a sidebar so corrigia isso depois, ao abrir library:get
+  // (curarCapasSteam) — dava um "flash" de carregamento visivel. Buscando
+  // aqui, o stub ja nasce com a arte certa.
+  const novosSteamIds = data
+    .filter((row) => row && String(row.appid).startsWith("steam:") && !ids.has(row.appid) && !pendentesIds.has(row.appid))
+    .map((row) => String(row.appid).replace(/^steam:/, ""))
+  let itensMapa = new Map()
+  if (novosSteamIds.length) {
+    try {
+      const r = await steamstore.itensDaLoja(novosSteamIds)
+      itensMapa = r.mapa
+    } catch {
+      /* loja indisponivel: stub nasce com a arte chutada, curada depois */
+    }
+  }
+
   for (const row of data) {
     if (owned !== null && !owned.has(row.appid)) {
       owned.add(row.appid)
@@ -196,15 +216,17 @@ async function pull() {
       if (!ids.has(row.appid) && !pendentesIds.has(row.appid)) {
         const appid = String(row.appid).replace(/^steam:/, "")
         const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appid
+        const it = itensMapa.get(appid)
         pendentes.push({
           id: row.appid,
           title: (row.title && row.title !== row.appid && String(row.title).trim()) || `Steam ${appid}`,
           launcher: "steam",
           launch_cmd: ["steam", `steam://rungameid/${appid}`],
           installed: false,
-          cover: `${base}/library_600x900.jpg`,
-          hero: `${base}/library_hero.jpg`,
+          cover: it?.capa || `${base}/library_600x900.jpg`,
+          hero: it?.heroi || `${base}/library_hero.jpg`,
           logo: `${base}/logo.png`,
+          icon: it?.icon || "",
           pendente: true,
         })
         pendentesIds.add(row.appid)
@@ -338,4 +360,51 @@ function agendarPush() {
   push().catch((e) => console.error("[biblioteca] push falhou:", e?.message))
 }
 
-module.exports = { push, pull, reconcile, agendarPush, onChanged }
+// ---------- REALTIME (canal library-<me>) ----------
+// Sem isto, o jogo adicionado numa maquina só chegava na outra no próximo
+// boot/login (reconcile roda uma vez só) — podia demorar horas. O servidor
+// avisa via WebSocket (canal library-<me>) assim que um push_library com
+// jogos de fato acontece, e aqui a gente puxa na hora. Mesmo padrão de
+// friends.watchRequests().
+function watchChanges() {
+  let channel = null
+  let iniciando = null // serializa starts concorrentes (SIGNED_IN duplo do boot)
+
+  const stop = async () => {
+    if (channel) {
+      try {
+        await getClient().removeChannel(channel)
+      } catch {
+        /* ignore */
+      }
+      channel = null
+    }
+  }
+
+  const start = () => {
+    if (iniciando) return iniciando
+    iniciando = (async () => {
+      await stop()
+      const user = await usuarioAtual()
+      if (!user) return
+      channel = getClient().channel(`library-${user.id}`)
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_library" },
+        () => {
+          pull()
+            .then((mudou) => avisar(mudou))
+            .catch((e) => console.error("[biblioteca] pull via realtime falhou:", e?.message))
+        },
+      )
+      channel.subscribe()
+    })().finally(() => {
+      iniciando = null
+    })
+    return iniciando
+  }
+
+  return { start, stop }
+}
+
+module.exports = { push, pull, reconcile, agendarPush, onChanged, watchChanges }
