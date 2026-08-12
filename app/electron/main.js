@@ -1858,6 +1858,17 @@ app.whenReady().then(() => {
       } catch (e) {
         console.error("[achievements] boot load:", e)
       }
+      // Sync de biblioteca/horas no BOOT com sessão restaurada. O reconcile só
+      // rodava no SIGNED_IN (login) — quem fechava e reabria o app com a sessão
+      // salva não puxava os jogos adicionados em outra máquina; só deslogando e
+      // logando de novo. Aqui o push+pull roda uma vez por boot logado.
+      if (r?.session) {
+        try {
+          require("./supabase/biblioteca").reconcile()
+        } catch (e) {
+          console.error("[biblioteca] boot reconcile:", e)
+        }
+      }
       return null
     })
     .catch(() => null)
@@ -2718,6 +2729,9 @@ app.whenReady().then(() => {
           ownedAdd("steam:" + appid)
         } catch {}
         avisarBiblioteca(win)
+        try {
+          require("./supabase/biblioteca").agendarPush()
+        } catch {}
         return r
       }
       const reg = steamstore.registerSlssteam({ appid: String(appid), token, dlcs })
@@ -2727,6 +2741,12 @@ app.whenReady().then(() => {
         ownedAdd("steam:" + appid)
       } catch {}
       avisarBiblioteca(win)
+      // Sincroniza a coleção com a conta (jogos seguem entre máquinas). O Add
+      // com SLSsteam ativa vai por aqui (store:addToSteam) — sem isto, o jogo
+      // só subia no próximo login.
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
