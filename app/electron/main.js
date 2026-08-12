@@ -1866,6 +1866,25 @@ app.whenReady().then(() => {
       // máquina só chegava num login explícito).
       if (r?.session) {
         try {
+          // Pré-aquece a arte dos jogos steam que o pull de biblioteca vai
+          // criar como stub: sem isto, o stub nascia com capa cinza e a
+          // sidebar só ganhava o ícone depois de a cura bater na Steam.
+          const steamstore = require("./steamstore")
+          const pendentes = require("./supabase/conta").caminhoArquivoConta("pending_games.json")
+          let appids = []
+          try {
+            const ps = JSON.parse(require("fs").readFileSync(pendentes, "utf-8"))
+            appids = ps
+              .filter((p) => p && /^steam:\d+$/.test(String(p.id || "")))
+              .map((p) => String(p.id).replace(/^steam:/, ""))
+          } catch {
+            appids = []
+          }
+          if (appids.length) steamstore.popularItens(appids).catch(() => {})
+        } catch (e) {
+          console.error("[biblioteca] boot pre-aquecimento:", e)
+        }
+        try {
           require("./supabase/biblioteca").reconcile()
         } catch (e) {
           console.error("[biblioteca] boot reconcile:", e)

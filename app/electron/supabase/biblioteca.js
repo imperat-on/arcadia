@@ -193,6 +193,11 @@ async function pull() {
     .map((row) => String(row.appid).replace(/^steam:/, ""))
   let itensMapa = new Map()
   if (novosSteamIds.length) {
+    // Pre-popula o cache local ANTES do pull buscar: o itensDaLoja abaixo
+    // acha no cache (0 rede) e o stub nasce com arte real desde a primeira
+    // montagem — sem flash de capa cinza na sidebar. Se a Steam falhar aqui,
+    // segue o fluxo normal (stub com arte chutada, curada em background).
+    steamstore.popularItens(novosSteamIds).catch(() => {})
     try {
       const r = await steamstore.itensDaLoja(novosSteamIds)
       itensMapa = r.mapa
