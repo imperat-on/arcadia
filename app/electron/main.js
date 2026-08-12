@@ -2369,9 +2369,21 @@ app.whenReady().then(() => {
           limparAposDesinstalar(id, { removePrefix, removeSettings })
           await runIndexer()
           if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+          // Desinstalar também remove da CONTA no servidor.
+          ownedRemove(id)
+          removerStubPendente(appid)
+          try {
+            require("./supabase/biblioteca").agendarPush()
+          } catch {}
           return { ok: true }
         }
-        // Jogo owned: a Steam mostra o diálogo de confirmação dela.
+        // Jogo owned: a Steam mostra o diálogo de confirmação dela. O jogo
+        // também sai da coleção da conta (desinstalar = não ter mais).
+        ownedRemove(id)
+        removerStubPendente(appid)
+        try {
+          require("./supabase/biblioteca").agendarPush()
+        } catch {}
         const child = spawn("steam", [`steam://uninstall/${appid}`], {
           detached: true,
           stdio: "ignore",
@@ -2413,6 +2425,12 @@ app.whenReady().then(() => {
           dm.cancel(id)
         } catch {} // some da fila de downloads também
         await runIndexer()
+        // Desinstalar também remove da CONTA no servidor (mesma regra dos
+        // outros launchers: desinstalar = não ter mais o jogo na coleção).
+        ownedRemove(id)
+        try {
+          require("./supabase/biblioteca").agendarPush()
+        } catch {}
         if (win && !win.isDestroyed()) win.webContents.send("library:changed")
         return { ok: true }
       }
@@ -2688,7 +2706,17 @@ app.whenReady().then(() => {
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
   ipcMain.handle("store:removeFromSteam", (_e, appid) => {
     const r = steamstore.removeFromSteam(appid)
-    if (r?.ok) avisarBiblioteca(win)
+    if (r?.ok) {
+      // Remover da Steam também tira o jogo da CONTA no servidor — a coleção
+      // sincroniza entre máquinas, então quem remove aqui não deve ver o jogo
+      // "possuído" em outro dispositivo.
+      ownedRemove("steam:" + String(appid || ""))
+      removerStubPendente(String(appid || ""))
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
+      avisarBiblioteca(win)
+    }
     return r
   })
   ipcMain.handle("store:removeDownloaded", (_e, appid) => {
@@ -2696,7 +2724,17 @@ app.whenReady().then(() => {
     // Sem este aviso a aba Lojas continuava mostrando "Na biblioteca" depois de
     // remover: o card se baseia na lista de jogos, que só recarrega neste
     // evento. Todos os outros pontos que mexem na biblioteca já o emitiam.
-    if (r?.ok) avisarBiblioteca(win)
+    if (r?.ok) {
+      // Remover o download também tira o jogo da CONTA no servidor (a coleção
+      // sincroniza entre máquinas): sem ownedRemove+push o jogo continuava
+      // "possuído" e aparecia em outras máquinas logadas na mesma conta.
+      ownedRemove("steam:" + String(appid || ""))
+      removerStubPendente(String(appid || ""))
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
+      avisarBiblioteca(win)
+    }
     return r
   })
   ipcMain.handle("store:installInfo", async (_e, appid) => {
