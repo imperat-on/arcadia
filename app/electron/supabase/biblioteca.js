@@ -77,23 +77,28 @@ async function push() {
       p_lib.push({ appid: g.id, title: g.title || g.id, platform })
     }
   }
-  // Removidos localmente (sumiram do arquivo, mas já tinham sido enviados)
-  for (const id of Object.keys(enviados)) {
-    if (!ids.has(id)) p_lib.push({ appid: id, removed: true })
-  }
 
   // Jogos possuídos (owned.js) que não são custom e nunca subiram: sobem
   // com o título real (do pending_games ou do id) pra não virar nome feio
   // (ex: "steam:3240220") na outra máquina. Ids já cobertos pelo diff de
   // custom acima ou que já têm watermark ficam de fora.
+  const owned = ownedSet()
   const pendentes = readJson(PENDING(), [])
   const tituloDe = (id) => {
     const p = pendentes.find((x) => x.id === id)
     return p?.title || id
   }
-  for (const id of ownedSet()) {
+  for (const id of owned) {
     if (ids.has(id) || enviados[id]) continue
     p_lib.push({ appid: id, title: tituloDe(id), platform: "windows" })
+  }
+
+  // Removidos localmente (sumiram do arquivo, mas já tinham sido enviados).
+  // Cobre custom (fora do custom_games.json) E steam (fora do owned_games):
+  // sem isto, remover um jogo steam numa maquina nao sumia na outra — o
+  // watermark ficava e o push nunca marcava removed.
+  for (const id of Object.keys(enviados)) {
+    if (!ids.has(id) && !owned.has(id)) p_lib.push({ appid: id, removed: true })
   }
 
   // Horas: delta acumulado desde o último push
@@ -150,16 +155,40 @@ async function pull() {
   // configura na máquina nova; título/plataforma vêm do servidor)
   const lib = readJson(CUSTOM(), [])
   const ids = new Set(lib.map((g) => g.id))
+  // Stubs pending existentes (para nao duplicar jogos steam: vindos do servidor)
+  const pendentes = readJson(PENDING(), [])
+  const pendentesIds = new Set(pendentes.map((p) => p && p.id))
+  let pendentesMudou = false
   for (const row of data) {
     if (owned !== null && !owned.has(row.appid)) {
       owned.add(row.appid)
       ownedMudou = true
     }
-    // Jogos steam:* do servidor so entram na POSSE (owned), nunca no
-    // custom_games.json: o library.json global (ou o pending) ja os tem.
-    // Sem isso o pull duplicaria o jogo (custom + global com mesmo id).
     const ehSteam = String(row.appid).startsWith("steam:")
-    if (!ehSteam && !ids.has(row.appid)) {
+    if (ehSteam) {
+      // Jogos steam:* do servidor entram na POSSE e ganham um stub PENDING se
+      // nao existirem localmente. Sem o stub, o jogo adicionado na loja de
+      // OUTRA maquina nao aparecia na biblioteca aqui (o library.json global
+      // so tem o que a Steam local indexou). O stub sera limpo pelo
+      // limparPendentesIndexados no proximo reindex se o jogo for instalado.
+      if (!ids.has(row.appid) && !pendentesIds.has(row.appid)) {
+        const appid = String(row.appid).replace(/^steam:/, "")
+        const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appid
+        pendentes.push({
+          id: row.appid,
+          title: (row.title && row.title !== row.appid && String(row.title).trim()) || `Steam ${appid}`,
+          launcher: "steam",
+          launch_cmd: ["steam", `steam://rungameid/${appid}`],
+          installed: false,
+          cover: `${base}/library_600x900.jpg`,
+          hero: `${base}/library_hero.jpg`,
+          logo: `${base}/logo.png`,
+          pendente: true,
+        })
+        pendentesIds.add(row.appid)
+        pendentesMudou = true
+      }
+    } else if (!ids.has(row.appid)) {
       lib.push({
         id: row.appid,
         title: row.title || row.appid,
@@ -169,7 +198,7 @@ async function pull() {
         installed: false,
       })
       mudou = true
-    } else if (!ehSteam) {
+    } else {
       const g = lib.find((x) => x.id === row.appid)
       if (row.title && (!g.title || g.title === g.id)) {
         g.title = row.title
@@ -177,6 +206,7 @@ async function pull() {
       }
     }
   }
+  if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
   if (ownedMudou) {
     writeJson(OWNED(), [...owned])

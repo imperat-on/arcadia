@@ -2750,6 +2750,12 @@ app.whenReady().then(() => {
       adicionarStubPendente(appid, title, { cover, hero: hero || heroi })
       ownedAdd("steam:" + appid)
       avisarBiblioteca(win)
+      // Sincroniza a coleção com a conta (jogos seguem entre máquinas). Sem
+      // isto, adicionar pela loja nunca subia pro servidor — só no próximo
+      // boot. Mesmo padrão do customgame:add.
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -2764,6 +2770,10 @@ app.whenReady().then(() => {
         setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
       ownedRemove(id)
       avisarBiblioteca(janela || win)
+      // Sincroniza a remoção com a conta (some das outras máquinas no pull).
+      try {
+        require("./supabase/biblioteca").agendarPush()
+      } catch {}
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
