@@ -266,6 +266,50 @@ async function reconcile() {
   return syncNow()
 }
 
+// ---------- REALTIME (canal achievements-<me>) ----------
+// Sem isto, conquista desbloqueada numa maquina só aparecia na outra no
+// próximo boot/login — podia demorar horas. O servidor avisa via WebSocket
+// assim que sync_achievements grava algo novo, e aqui a gente puxa na hora.
+// Mesmo padrão de friends.watchRequests()/biblioteca.watchChanges().
+function watchChanges() {
+  let channel = null
+  let iniciando = null
+
+  const stop = async () => {
+    if (channel) {
+      try {
+        await getClient().removeChannel(channel)
+      } catch {
+        /* ignore */
+      }
+      channel = null
+    }
+  }
+
+  const start = () => {
+    if (iniciando) return iniciando
+    iniciando = (async () => {
+      await stop()
+      const me = await requireUserId()
+      if (!me) return
+      channel = getClient().channel(`achievements-${me}`)
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_achievements" },
+        () => {
+          syncNow().catch((e) => console.error("[sync] pull via realtime falhou:", e?.message))
+        },
+      )
+      channel.subscribe()
+    })().finally(() => {
+      iniciando = null
+    })
+    return iniciando
+  }
+
+  return { start, stop }
+}
+
 module.exports = {
   normalizeTs,
   enqueue,
@@ -280,4 +324,5 @@ module.exports = {
   applyPulled,
   pushDelta,
   pullDelta,
+  watchChanges,
 }
