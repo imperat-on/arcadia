@@ -59,9 +59,9 @@ export function ProfilePage({
   // Todos os jogos da biblioteca (com capa), mais jogados primeiro — o perfil
   // mostra a biblioteca INTEIRA com as horas em cima de cada capa.
   const todosJogos = games
-    .filter((g) => g.cover)
+    .filter((g) => g.cover && !g.hidden)
     .sort((a, b) => (b.playtime_minutes || 0) - (a.playtime_minutes || 0))
-  const launchers = Array.from(new Set(games.map((g) => g.launcher)))
+  const launchers = Array.from(new Set(games.filter((g) => !g.hidden).map((g) => g.launcher)))
 
   return (
     <div
