@@ -13,8 +13,9 @@
 // libPush / playtimePush — mesmas chaves não usadas pelo sync de conquistas.
 
 const fs = require("fs")
+const path = require("path")
 const { getClient } = require("./client")
-const { caminhoArquivoConta } = require("./conta")
+const { caminhoArquivoConta, DATA_DIR } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
 
@@ -85,8 +86,23 @@ async function push() {
   // corrigido nas outras máquinas.
   const owned = ownedSet()
   const pendentes = readJson(PENDING(), [])
+  // Título real do jogo: primeiro o pending (adicionado pela loja), depois o
+  // library.json global (jogos indexados localmente — ex.: Cyberpunk 2077).
+  // Sem o fallback do library, um jogo indexado sem stub pending subia com o
+  // id feio ("steam:1091500") e ficava assim no servidor para sempre.
+  let libGlobal = null
+  try {
+    libGlobal = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "library.json"), "utf-8"))
+  } catch {
+    libGlobal = null
+  }
   const tituloDe = (id) => {
     const p = pendentes.find((x) => x.id === id)
+    if (p?.title && p.title !== id && !String(p.title).startsWith("Steam ")) return p.title
+    if (Array.isArray(libGlobal)) {
+      const g = libGlobal.find((x) => x && x.id === id)
+      if (g?.title) return g.title
+    }
     return p?.title || id
   }
   for (const id of owned) {
