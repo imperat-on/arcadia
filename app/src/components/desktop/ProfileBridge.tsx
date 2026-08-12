@@ -40,6 +40,7 @@ export function ProfileBridge({
       country: perfil.country ?? "",
       city: perfil.city ?? "",
       background: perfil.background_url ?? "",
+      banner: perfil.banner_url ?? "",
       // NOTE: showcase NÃO vem do online aqui — o perfil online é buscado uma
       // vez no login e fica STALE; mergeá-lo sobrescrevia a vitrine editada
       // com a lista antiga do servidor (bug da contagem/0 de seleção). A

@@ -63,6 +63,39 @@ function Tag({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Rótulo de seção com o ponto de acento (assinatura visual dos painéis)
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.26em] text-white/55">
+      <span className="inline-block h-[6px] w-[6px] rounded-full shadow-[0_0_8px_var(--accent)]" style={{ background: "var(--accent)" }} />
+      {children}
+    </span>
+  )
+}
+
+// Anel de progresso SVG (assinatura visual: conquistas num anel, não barra)
+function Ring({ pct, size = 54 }: { pct: number; size?: number }) {
+  const r = (size - 8) / 2
+  const c = 2 * Math.PI * r
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="var(--accent)"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - Math.min(1, Math.max(0, pct / 100)))}
+        style={{ transition: "stroke-dashoffset 0.8s var(--ease-out)" }}
+      />
+    </svg>
+  )
+}
+
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
   { game, news, appFocused = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
   ref,
@@ -215,6 +248,14 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
         )}
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/85 to-black/40" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/60" />
+        {/* Glow de acento na base — luz do jogo sobe do rodapé (assinatura) */}
+        <div
+          className="absolute inset-x-0 bottom-0 h-48 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse 55% 100% at 50% 100%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 75%)",
+          }}
+        />
         {/* Fase 2: sombra sobe da borda inferior p/ legibilidade dos painéis */}
         {!closing && (
           <div className="ov-shade absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black via-black/70 to-transparent" />
@@ -224,14 +265,21 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
       <div className="relative z-10 mx-auto flex h-full max-w-[1900px] flex-col px-12 py-10">
         {/* Cabeçalho: capa + meta + ação + nota */}
         <section className={`flex items-start gap-8 ${closing ? "ov-out" : ""}`}>
-          {game.cover && (
-            <img
-              src={game.cover}
-              alt={game.title}
-              className={`h-[190px] w-[142px] shrink-0 rounded-xl object-cover shadow-2xl shadow-black/80 ring-1 ring-white/15 ${closing ? "" : "ov-hero-card"}`}
-              draggable={false}
+          <div className={`relative shrink-0 ${closing ? "" : "ov-hero-card"}`}>
+            {game.cover && (
+              <img
+                src={game.cover}
+                alt={game.title}
+                className="h-[190px] w-[142px] rounded-xl object-cover shadow-2xl shadow-black/80 ring-1 ring-white/15"
+                draggable={false}
+              />
+            )}
+            {/* halo de acento atrás da capa (camada -1: sombra colorida) */}
+            <div
+              className="pointer-events-none absolute -inset-3 -z-10 rounded-2xl opacity-50 blur-2xl"
+              style={{ background: "color-mix(in oklab, var(--accent) 45%, transparent)" }}
             />
-          )}
+          </div>
 
           <div className={`min-w-0 flex-1 pt-1 ${closing ? "" : "ov-hero-text"}`}>
             {game.logo ? (
@@ -242,7 +290,18 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                 draggable={false}
               />
             ) : (
-              <h1 className="game-name truncate text-4xl font-light tracking-wide">{game.title}</h1>
+              <h1
+                className="game-name truncate text-4xl font-bold tracking-wide"
+                style={{
+                  background:
+                    "linear-gradient(120deg, #fff 55%, color-mix(in oklab, var(--accent) 85%, #fff))",
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  color: "transparent",
+                }}
+              >
+                {game.title}
+              </h1>
             )}
             <p className="mt-3 line-clamp-3 max-w-[560px] text-[15px] font-light leading-relaxed text-white/65">
               {game.description || meta?.short_description || t("gameoverview.sem_descricao")}
@@ -251,13 +310,25 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
               {game.year && <Tag>{game.year}</Tag>}
               {game.genre && <Tag>{game.genre}</Tag>}
               {game.players && <Tag>{game.players}</Tag>}
+              {game.metacritic && (
+                <span className="flex h-7 items-center gap-1.5 rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 px-3 text-xs font-bold text-white backdrop-blur-sm">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3" style={{ color: "var(--accent)" }} aria-hidden="true">
+                    <path d="M12 2l2.9 6.26L21.5 9.3l-4.75 4.5 1.15 6.7L12 17.1l-5.9 3.4 1.15-6.7L2.5 9.3l6.6-1.04L12 2z" />
+                  </svg>
+                  {game.metacritic}
+                </span>
+              )}
             </div>
             <button
               onClick={() => onLaunch(game)}
               className={`group mt-6 inline-flex items-center gap-3 rounded-full py-3 pl-5 pr-7 text-sm font-semibold outline-none transition-all hover:scale-[1.04] focus-visible:shadow-[0_0_0_2px_var(--accent),0_0_30px_var(--accent)] ${
                 rodando ? "bg-[#e8703a] text-white" : "bg-white text-black"
               }`}
-              style={{ boxShadow: "0 10px 40px -10px rgba(255,255,255,0.35)" }}
+              style={{
+                boxShadow: rodando
+                  ? "0 10px 40px -10px rgba(232,112,58,0.55)"
+                  : "0 10px 40px -10px rgba(255,255,255,0.35)",
+              }}
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
                 {rodando ? (
@@ -386,14 +457,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           <div
             className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w2"}`}
           >
-            <span className="flex items-center gap-2 px-6 pt-5 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ background: "var(--accent)" }}
-              />
-              {t("gameoverview.detalhes")}
-            </span>
-            <div className="mt-4 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
+            <div className="px-6 pt-5"><SectionLabel>{t("gameoverview.detalhes")}</SectionLabel></div>
+            <div className="mt-3 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
               {detalhes.filter(([, v]) => v).length <= 1 &&
                 game.launcher === "steam" &&
                 meta === null && (
@@ -492,26 +557,22 @@ function AchievementsCard({
     <div
       className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w3"}`}
     >
-      {/* Cabeçalho */}
-      <div className="flex items-center gap-2 border-b border-white/[0.06] px-6 py-4">
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: "var(--accent)" }}
-        />
-        <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-          {t("conquistas.titulo")}
-        </span>
-        <span className="ml-auto rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold text-white/50">
-          {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
-        </span>
-      </div>
-
-      {/* Barra de progresso */}
-      <div className="mx-6 mt-3 h-0.5 rounded-full bg-white/[0.06]">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${pct}%`, background: "var(--accent)" }}
-        />
+      {/* Cabeçalho: anel de progresso + título */}
+      <div className="flex items-center gap-4 px-6 py-5">
+        <Ring pct={pct} />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
+              {t("conquistas.titulo")}
+            </span>
+            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold text-white/55">
+              {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
+            </span>
+          </div>
+          <div className="mt-1 text-xs font-medium text-white/40">
+            {pct}% {t("conquistas.concluido")}
+          </div>
+        </div>
       </div>
 
       {/* Lista de conquistas */}

@@ -85,7 +85,7 @@ export function AccessibilityView() {
   const aplicarZoom = (v: number) => {
     const z = ZOONS[Math.max(0, Math.min(ZOONS.length - 1, v))] / 100
     salvar({ ui_scale: z })
-    window.launcherAPI?.setZoom(z)
+    window.launcherAPI?.setZoom(z, "desktop")
     setZoomDraft(null)
   }
 

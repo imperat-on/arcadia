@@ -225,7 +225,7 @@ async function myProfile() {
 
   const { data, error } = await getClient()
     .from("profiles")
-    .select("username, avatar_url, display_name, summary, country, city, showcase, background_url")
+    .select("username, avatar_url, display_name, summary, country, city, showcase, background_url, banner_url")
     .eq("id", me)
     .maybeSingle()
   if (error) return { ok: false, error: error.message }
@@ -239,12 +239,14 @@ async function myProfile() {
       country: data?.country ?? null,
       city: data?.city ?? null,
       showcase: Array.isArray(data?.showcase) ? data.showcase : [],
+      background_url: data?.background_url ?? null,
+      banner_url: data?.banner_url ?? null,
     },
   }
 }
 
 // Whitelist de campos editáveis do perfil online (nunca username/email/id).
-const CAMPOS_PERFIL = ["display_name", "summary", "country", "city", "showcase", "background_url"]
+const CAMPOS_PERFIL = ["display_name", "summary", "country", "city", "showcase", "background_url", "banner_url"]
 
 /** Grava campos do perfil online (whitelist). RLS: só a própria linha. */
 async function updateProfile(campos) {
@@ -404,7 +406,7 @@ function magicDeMidia(buf) {
   return null
 }
 
-async function setBackground(filePath) {
+async function setBackground(filePath, kind = "background") {
   const { data: ud, error: ue } = await getClient().auth.getUser()
   if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
   const me = ud.user.id
@@ -419,38 +421,42 @@ async function setBackground(filePath) {
   const magic = magicDeMidia(buf)
   if (!magic) return { ok: false, error: "background_nao_midia" }
 
-  return uploadBackgroundBytes(me, buf, mime || magic.mime, ext || magic.ext)
+  return uploadBackgroundBytes(me, buf, mime || magic.mime, ext || magic.ext, kind)
 }
 
-async function uploadBackgroundBytes(me, buf, mime, extFinal) {
+async function uploadBackgroundBytes(me, buf, mime, extFinal, kind = "background") {
   if (buf.length > BACKGROUND_MAX) return { ok: false, error: "background_grande" }
+
+  // banner usa bucket/coluna própria: não colide nem sobrescreve o background
+  const bucket = kind === "banner" ? "banners" : "backgrounds"
+  const coluna = kind === "banner" ? "banner_url" : "background_url"
 
   const { data: atual } = await getClient()
     .from("profiles")
-    .select("background_url")
+    .select(coluna)
     .eq("id", me)
     .maybeSingle()
-  const urlAntiga = atual?.background_url || ""
-  const nomeAntigo = urlAntiga.startsWith(`${getClient().supabaseUrl}/storage/v1/object/public/backgrounds/`)
-    ? urlAntiga.split("/public/backgrounds/")[1]
+  const urlAntiga = atual?.[coluna] || ""
+  const nomeAntigo = urlAntiga.startsWith(`${getClient().supabaseUrl}/storage/v1/object/public/${bucket}/`)
+    ? urlAntiga.split(`/public/${bucket}/`)[1]
     : null
 
   const nome = `${me}/${Date.now()}${extFinal}`
   const { error: upErr } = await getClient()
-    .storage.from("backgrounds")
+    .storage.from(bucket)
     .upload(nome, buf, { upsert: false, contentType: mime })
   if (upErr) return { ok: false, error: upErr.message }
 
-  const bgUrl = `${getClient().supabaseUrl}/storage/v1/object/public/backgrounds/${nome}`
+  const bgUrl = `${getClient().supabaseUrl}/storage/v1/object/public/${bucket}/${nome}`
   const { error: dbErr } = await getClient()
     .from("profiles")
-    .update({ background_url: bgUrl })
+    .update({ [coluna]: bgUrl })
     .eq("id", me)
   if (dbErr) return { ok: false, error: dbErr.message }
 
   if (nomeAntigo && nomeAntigo !== nome) {
     try {
-      await getClient().storage.from("backgrounds").remove([nomeAntigo])
+      await getClient().storage.from(bucket).remove([nomeAntigo])
     } catch {
       /* ignore */
     }
