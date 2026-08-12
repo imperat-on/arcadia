@@ -161,10 +161,13 @@ function rpcPushLibrary(uid, p_lib, p_playtime) {
     db.exec("ROLLBACK")
     throw e
   }
-  // Avisa outros dispositivos logados (canal library-<uid>) so quando algo de
-  // biblioteca de fato mudou — playtime sozinho nao justifica um pull instantaneo
-  // nas outras maquinas, ele ja sobe no proximo pull normal.
-  if (Array.isArray(p_lib) && p_lib.length) notifyLibraryChange(uid)
+  // Avisa outros dispositivos logados (canal library-<uid>) quando a biblioteca
+  // OU o playtime mudou. Playtime agora notifica tambem: o watchChanges do
+  // cliente puxa na hora e o display de horas atualiza sem reiniciar — antes
+  // so subia no proximo login/boot.
+  if ((Array.isArray(p_lib) && p_lib.length) || (Array.isArray(p_playtime) && p_playtime.length)) {
+    notifyLibraryChange(uid)
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -76,7 +76,7 @@ test("realtime: push_library com jogo novo avisa o canal library-<me>", async ()
   chan.unsubscribe()
 })
 
-test("realtime: push_library so com playtime NAO avisa o canal (nao justifica pull instantaneo)", async () => {
+test("realtime: push_library so com playtime AVISA o canal (display de horas atualiza sem reiniciar)", async () => {
   const c = getClient()
   const me = alice.session.user.id
   c.auth._session = alice.session
@@ -95,8 +95,11 @@ test("realtime: push_library so com playtime NAO avisa o canal (nao justifica pu
   })
   assert.ifError(error)
 
-  await new Promise((r) => setTimeout(r, 1500))
-  assert.strictEqual(recebidos.length, 0, "playtime sozinho nao dispara postgres_changes")
+  const limite = Date.now() + 5000
+  while (recebidos.length === 0 && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  assert.strictEqual(recebidos.length, 1, "playtime sozinho dispara postgres_changes")
 
   chan.unsubscribe()
 })

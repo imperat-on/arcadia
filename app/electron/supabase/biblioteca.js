@@ -402,6 +402,18 @@ function watchChanges() {
             .catch((e) => console.error("[biblioteca] pull via realtime falhou:", e?.message))
         },
       )
+      // Playtime mudou em outra máquina: o servidor emite postgres_changes na
+      // tabela user_playtime — puxa na hora pra atualizar o display sem
+      // reiniciar. Antes so atualizava no proximo login/boot.
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_playtime" },
+        () => {
+          pull()
+            .then((mudou) => avisar(mudou))
+            .catch((e) => console.error("[biblioteca] pull playtime via realtime falhou:", e?.message))
+        },
+      )
       channel.subscribe()
     })().finally(() => {
       iniciando = null
