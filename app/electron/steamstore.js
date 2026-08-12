@@ -270,6 +270,31 @@ async function emLotes(itens, limite, fn) {
 const ITENS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
 const ITENS_ASSETS = "https://shared.akamai.steamstatic.com/store_item_assets/"
 const ITENS_CACHE = path.join(DATA_DIR, "store_items_cache.json")
+// Pré-popula o cache local de items com os appids dos stubs pending que o
+// pull de biblioteca vai criar (jogos steam: vindos do servidor). Depois, o
+// itensDaLoja do pull acha no cache local e o stub nasce com arte real — sem
+// rede na hora do pull, sidebar renderiza o ícone desde a primeira montagem.
+// fetchItems: injetavel nos testes (default itensDaLoja do mesmo escopo).
+async function popularItens(appids, fetchItems = itensDaLoja) {
+  const ids = [...new Set(appids.map((a) => String(a)).filter(Boolean))]
+  if (!ids.length) return
+  const cache = lerCache(ITENS_CACHE) || {}
+  const agora = Date.now()
+  // Só busca o que não está no cache local como item de loja com tipo
+  // definido. Cache "negativo" (resposta "não existe") tem at mas não tipo:
+  // vale refetch — o jogo pode ter entrado na loja depois.
+  const faltando = ids.filter((id) => {
+    const it = cache[id]
+    if (it && typeof it.tipo === "number" && agora - it.at < ITENS_TTL) return false
+    return !it || typeof it.tipo !== "number" || agora - it.at >= ITENS_TTL
+  })
+  if (!faltando.length) return
+  try {
+    await fetchItems(faltando)
+  } catch {
+    /* fallback: stub nasce com arte chutada, curada depois */
+  }
+}
 const ITENS_TTL = 7 * 24 * 60 * 60 * 1000
 const ITENS_MAX = 4000
 const ITENS_LOTE = 100
@@ -2060,6 +2085,7 @@ module.exports = {
   steamInjetada,
   preparar,
   itensDaLoja,
+  popularItens,
   suggest,
   aquecer,
   popular,
