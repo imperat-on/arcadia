@@ -87,7 +87,7 @@ const IconePerfil = ({ className = "" }: { className?: string }) => (
   </IconeBase>
 )
 
-export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.biblioteca", "topbar.loja", "profile.meu_perfil"]
+export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.biblioteca", "topbar.loja"]
 const TAB_ICONES = [IconeNoticias, IconeJogos, IconeBiblioteca, IconeLoja, IconePerfil]
 
 export function TopBar({
