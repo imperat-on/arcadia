@@ -1,6 +1,8 @@
 # Dependências e builds
 node_modules/
 dist/
+.env
+server/.env
 __pycache__/
 *.pyc
 
