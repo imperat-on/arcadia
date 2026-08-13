@@ -1064,3 +1064,13 @@ input:disabled,
 select:disabled {
   cursor: not-allowed;
 }
+
+/* Brilho que percorre a barra de progresso dos downloads (tela de downloads) */
+@keyframes dm-shine {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

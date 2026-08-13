@@ -117,37 +117,10 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           onChange={(v) => set("minimize_on_game_launch", v)}
         />
         <Toggle
-          label={t("settings.dark_tray.label")}
-          desc={t("settings.dark_tray.desc")}
-          value={cfg.dark_tray_icon === true}
-          onChange={(v) => set("dark_tray_icon", v)}
-        />
-        <Toggle
           label={t("settings.frameless.label")}
           desc={t("settings.frameless.desc")}
           value={cfg.frameless_window === true}
           onChange={(v) => set("frameless_window", v)}
-        />
-      </Group>
-
-      <Group title={t("settings.shortcuts")}>
-        <Toggle
-          label={t("settings.auto_desktop.label")}
-          desc={t("settings.auto_desktop.desc")}
-          value={cfg.auto_desktop_shortcuts === true}
-          onChange={(v) => set("auto_desktop_shortcuts", v)}
-        />
-        <Toggle
-          label={t("settings.auto_menu.label")}
-          desc={t("settings.auto_menu.desc")}
-          value={cfg.auto_start_menu_shortcuts === true}
-          onChange={(v) => set("auto_start_menu_shortcuts", v)}
-        />
-        <Toggle
-          label={t("settings.auto_steam.label")}
-          desc={t("settings.auto_steam.desc")}
-          value={cfg.auto_add_to_steam !== false}
-          onChange={(v) => set("auto_add_to_steam", v)}
         />
         <Toggle
           label={t("settings.disable_playtime.label")}
@@ -160,6 +133,12 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           desc={t("settings.discord_rpc.desc")}
           value={cfg.discord_rich_presence === true}
           onChange={(v) => set("discord_rich_presence", v)}
+        />
+        <TextField
+          label="Discord Client ID"
+          desc="Application ID do Discord Developer Portal. Necessário para publicar a presença."
+          value={cfg.discord_client_id ?? "1537346240579248219"}
+          onChange={(v) => set("discord_client_id", v.trim())}
         />
       </Group>
 
@@ -360,6 +339,33 @@ function Path({
           </svg>
           <span className="truncate">{value || placeholder || t("common.selecionar")}</span>
         </button>
+      }
+    />
+  )
+}
+
+function TextField({
+  label,
+  desc,
+  value,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          className="w-64 rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+        />
       }
     />
   )

@@ -66,6 +66,7 @@ interface AccountCtx {
   setBackground: (filePath: string, kind?: "background" | "banner") => Promise<{ ok: boolean; background_url?: string; error?: string }>
   /** Grava campos do perfil online (display_name, summary, country, city, showcase). */
   updatePerfil: (campos: Partial<PerfilOnline>) => Promise<{ ok: boolean; error?: string }>
+  reloadPerfil: () => Promise<void>
 }
 
 const Ctx = createContext<AccountCtx | null>(null)
@@ -137,8 +138,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
-    await window.launcherAPI?.accountSignOut()
-    setPerfil(null)
+    try {
+      await window.launcherAPI?.accountSignOut()
+    } finally {
+      // O evento IPC e a fonte normal, mas o estado local nao deve ficar preso
+      // caso a janela perca o evento ou o backend esteja momentaneamente fora.
+      setSession(null)
+      setStatus("deslogado")
+      setPerfil(null)
+    }
   }, [])
 
   const setAvatar = useCallback(async (filePath: string) => {
@@ -180,20 +188,25 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const updatePerfil = useCallback(async (campos: Partial<PerfilOnline>) => {
+    // Atualiza a identidade em memória antes da rede terminar. A Sidebar e a
+    // ProfilePage consomem este estado; esperar a resposta fazia o nome/avatar
+    // parecerem salvos só depois de reiniciar o launcher.
+    setPerfil((p) => ({ ...(p ?? { username: session?.user?.username ?? null, avatar_url: null }), ...campos }))
     try {
       const alvo = { display_name: campos.display_name, summary: campos.summary, country: campos.country, city: campos.city, showcase: campos.showcase, background_url: campos.background_url, banner_url: campos.banner_url }
       const r = await window.launcherAPI?.accountUpdateProfile(alvo)
-      if (r?.ok) {
-        setPerfil((p) => ({ ...(p ?? { username: null, avatar_url: null }), ...campos }))
-      }
       return r || { ok: false, error: "API indisponível" }
     } catch (e) {
       return { ok: false, error: e?.message || "exceção" }
     }
-  }, [])
+  }, [session?.user?.username])
+
+  const reloadPerfil = useCallback(async () => {
+    await carregarPerfil()
+  }, [carregarPerfil])
 
   return (
-    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, setAvatarBytes, setBackground, updatePerfil }}>
+    <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, setAvatarBytes, setBackground, updatePerfil, reloadPerfil }}>
       {children}
     </Ctx.Provider>
   )

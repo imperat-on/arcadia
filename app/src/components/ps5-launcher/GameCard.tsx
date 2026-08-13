@@ -136,6 +136,17 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
         }}
       />
 
+      {/* Halo de acento suave atrás do card em foco (assinatura) */}
+      <div
+        className="absolute -inset-1.5 rounded-2xl pointer-events-none opacity-40 blur-xl"
+        style={{
+          background: focused
+            ? "color-mix(in oklab, var(--accent) 50%, transparent)"
+            : "transparent",
+          transition: "background 0.3s, opacity 0.3s",
+        }}
+      />
+
       {/* Bottom gradient with info (show on focus) */}
       <div
         className="absolute inset-x-0 bottom-0 flex flex-col justify-end px-3 pb-3 pt-10"

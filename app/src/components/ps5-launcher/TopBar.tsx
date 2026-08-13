@@ -125,8 +125,8 @@ export function TopBar({
 
   return (
     <header className="anim-nav flex items-center justify-between px-10 pt-6 pb-4">
-      {/* Abas em ícones: ativa em branco com ponto accent embaixo */}
-      <nav className="flex items-center gap-14">
+      {/* Abas em pílulas: ícone + rótulo, ativa com fundo accent translúcido */}
+      <nav className="flex items-center gap-3">
         {TABS.map((tab, i) => {
           const isActive = i === active
           const Icone = TAB_ICONES[i]
@@ -136,17 +136,24 @@ export function TopBar({
               onClick={() => onTab(i)}
               title={t(tab)}
               aria-label={t(tab)}
-              className="relative flex flex-col items-center pb-1 transition-colors duration-200"
+              className="flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-200"
               style={{
-                color: isActive ? "#ffffff" : "rgba(255,255,255,0.40)",
-                filter: "drop-shadow(0 2px 14px rgba(0,0,0,0.55))",
+                color: isActive ? "#ffffff" : "rgba(255,255,255,0.55)",
+                background: isActive
+                  ? "color-mix(in oklab, var(--accent) 22%, transparent)"
+                  : "rgba(255,255,255,0.05)",
+                border: isActive
+                  ? "1px solid color-mix(in oklab, var(--accent) 40%, transparent)"
+                  : "1px solid rgba(255,255,255,0.08)",
+                boxShadow: isActive
+                  ? "0 0 20px color-mix(in oklab, var(--accent) 18%, transparent)"
+                  : "none",
+                backdropFilter: "blur(12px)",
+                filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.45))",
               }}
             >
-              <Icone className="h-7 w-7" />
-              <span
-                className="absolute -bottom-1 h-1 w-1 rounded-full transition-opacity duration-200"
-                style={{ background: "var(--accent)", opacity: isActive ? 1 : 0 }}
-              />
+              <Icone className="h-5 w-5" />
+              <span>{t(tab)}</span>
             </button>
           )
         })}
