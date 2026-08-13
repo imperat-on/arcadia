@@ -113,6 +113,48 @@ test("search: alice procura bob e acha", async () => {
   assert.ok(nomes.includes("bob"))
 })
 
+test("perfil: showcase mantém array JSON", async () => {
+  const c = getClient()
+  c.auth._session = alice.session
+  const showcase = [{ appid: "440", title: "Team Fortress 2" }]
+  const { error: updateError } = await c.from("profiles").update({ showcase })
+  assert.ifError(updateError)
+  const { data, error } = await c.from("profiles").select("showcase").eq("id", alice.session.user.id).maybeSingle()
+  assert.ifError(error)
+  assert.deepStrictEqual(data.showcase, showcase)
+})
+
+test("amigos: não cria relação entre terceiros", async () => {
+  const c = getClient()
+  const carol = await signup("carol-third@x.com", "carolthird")
+  c.auth._session = alice.session
+  const ids = [bob.session.user.id, carol.session.user.id].sort()
+  const { error } = await c.from("friendships").insert({
+    user_a: ids[0],
+    user_b: ids[1],
+    requester_id: alice.session.user.id,
+    status: "pending",
+  })
+  assert.ok(error)
+})
+
+test("amigos: cancelamento remove apenas o pedido alvo", async () => {
+  const c = getClient()
+  const dave = await signup("dave@x.com", "dave")
+  c.auth._session = alice.session
+  const me = alice.session.user.id
+  const friend = dave.session.user.id
+  const [user_a, user_b] = [me, friend].sort()
+  assert.ifError((await c.from("friendships").insert({ user_a, user_b, requester_id: me, status: "pending" })).error)
+  assert.ifError((await c.from("friendships").delete()
+    .or(`and(user_a.eq.${me},user_b.eq.${friend}),and(user_a.eq.${friend},user_b.eq.${me})`)
+    .eq("status", "pending")
+    .eq("requester_id", me)).error)
+  const { data } = await c.from("friendships").select("user_a,user_b,status")
+  assert.ok(data.some((row) => row.status === "accepted"), "amizade aceita permanece")
+  assert.ok(!data.some((row) => row.user_a === user_a && row.user_b === user_b), "apenas pedido alvo removido")
+})
+
 test("sync_achievements: push e pull com earliest-wins", async () => {
   const c = getClient()
   c.auth._session = alice.session
@@ -193,4 +235,17 @@ test("push_library: removed deleta", async () => {
   assert.ifError(r.error)
   const pull = await c.rpc("pull_library")
   assert.strictEqual(pull.data.length, 0, "jogo removido")
+})
+
+test("amigos: membro remove amizade aceita", async () => {
+  const c = getClient()
+  c.auth._session = alice.session
+  const me = alice.session.user.id
+  const friend = bob.session.user.id
+  const { error } = await c.from("friendships").delete()
+    .or(`and(user_a.eq.${me},user_b.eq.${friend}),and(user_a.eq.${friend},user_b.eq.${me})`)
+    .eq("status", "accepted")
+  assert.ifError(error)
+  const { data } = await c.from("friendships").select("user_a,user_b,status")
+  assert.ok(!data.some((row) => row.status === "accepted"), "amizade aceita removida")
 })

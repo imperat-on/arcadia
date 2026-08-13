@@ -9,7 +9,7 @@ proprio que sincroniza dados por conta entre maquinas.
 +----------------+        HTTPS (Tailscale Funnel)        +-----------------+
 | App Electron   | -------------------------------------> | Backend Node    |
 | (desktop/PS5)  |                                        | (notebook)      |
-+----------------+                                        | Express+SQLite  |
++----------------+                                        | Express+PostgreSQL |
        |                                                  +-----------------+
        | arquivos locais (por conta)                            |
        v                                                       v
@@ -34,7 +34,7 @@ shim. O `session.json` (criptografado) persiste a sessao.
 
 ### 2. Backend (`server/`)
 
-Servico unico Express + SQLite que e a fonte da verdade por conta. Detalhes
+Servico unico Express + PostgreSQL que e a fonte da verdade por conta. Detalhes
 em [server/README.md](../server/README.md).
 
 ## Catalogo no servidor

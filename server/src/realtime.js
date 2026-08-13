@@ -64,6 +64,7 @@ function registerRealtime(server) {
   const wss = new WebSocketServer({ server, path: "/realtime/v1/websocket" })
 
   wss.on("connection", (ws) => {
+    let authenticatedUserId = null
     ws.on("message", (raw) => {
       let msg
       try {
@@ -85,6 +86,7 @@ function registerRealtime(server) {
           )
           return
         }
+        authenticatedUserId = v.sub
         ws.send(
           JSON.stringify({
             event: "phx_reply",
@@ -94,12 +96,24 @@ function registerRealtime(server) {
         return
       }
 
-      // join nos canais friends-<me> / library-<me>
+      // O client atual envia o token no proprio join do canal (o protocolo
+      // Phoenix tambem pode enviar um handshake separado). Autentique esse
+      // join antes de registrar o socket e exija que o dono do canal seja o sub.
       if (
         msg.event === "phx_join" &&
         msg.topic &&
         (msg.topic.startsWith("friends-") || msg.topic.startsWith("library-") || msg.topic.startsWith("achievements-"))
       ) {
+        if (!authenticatedUserId) {
+          const v = verifyToken(msg.payload?.access_token || "")
+          if (v.ok) authenticatedUserId = v.sub
+        }
+        const prefix = msg.topic.split("-", 1)[0]
+        const owner = msg.topic.slice(prefix.length + 1)
+        if (!authenticatedUserId || owner !== authenticatedUserId) {
+          ws.send(JSON.stringify({ event: "phx_reply", payload: { status: "error", response: { reason: authenticatedUserId ? "forbidden" : "unauthorized" } } }))
+          return
+        }
         if (!listeners.has(msg.topic)) listeners.set(msg.topic, new Set())
         listeners.get(msg.topic).add(ws)
         ws.send(
@@ -122,6 +136,7 @@ function registerRealtime(server) {
       }
     })
   })
+  return wss
 }
 
 module.exports = { registerRealtime, notifyFriendshipInsert, notifyLibraryChange, notifyAchievementsChange }

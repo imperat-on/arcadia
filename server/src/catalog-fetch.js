@@ -404,7 +404,7 @@ async function fetchHltb(appid) {
 // ---------- Stats (appdetails do SteamSpy) ----------
 // Estatisticas agregadas de um jogo: dev, publisher, owners, ccu (jogadores
 // simultaneos), positive/negative (reviews), userscore, preco. Vem do SteamSpy
-// (API publica) e e cacheado no SQLite — o app nao fala com o SteamSpy direto.
+// (API publica) e e cacheado no PostgreSQL — o app nao fala com o SteamSpy direto.
 async function fetchStats(appid) {
   try {
     const r = await http(`${STEAMSPY}?request=appdetails&appid=${appid}`, { timeoutMs: 15000 })

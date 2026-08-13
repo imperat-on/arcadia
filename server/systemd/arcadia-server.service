@@ -1,0 +1,20 @@
+[Unit]
+Description=Arcadia backend server (Node/PostgreSQL)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=zes
+WorkingDirectory=/home/zes/.local/share/arcadia/server
+EnvironmentFile=/home/zes/.local/share/arcadia/server/.env
+ExecStart=/usr/bin/node /home/zes/.local/share/arcadia/server/src/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

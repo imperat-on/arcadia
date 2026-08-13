@@ -93,4 +93,23 @@ test("shim: onAuthStateChange emite SIGNED_IN e SIGNED_OUT", async () => {
   assert.ok(eventos.includes("SIGNED_OUT"))
 })
 
+test("shim: signOut limpa sessao mesmo sem rede", async () => {
+  const auth = getClient().auth
+  await auth.signInWithPassword({ email: "shim@test.com", password: "senha123" })
+  const eventos = []
+  auth.onAuthStateChange((event) => eventos.push(event))
+  const originalFetch = global.fetch
+  global.fetch = async () => {
+    throw new Error("rede indisponivel")
+  }
+  try {
+    const { error } = await auth.signOut()
+    assert.match(error.message, /rede indisponivel/)
+    assert.strictEqual((await auth.getSession()).data.session, null)
+    assert.ok(eventos.includes("SIGNED_OUT"))
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
 after(() => listener.close())

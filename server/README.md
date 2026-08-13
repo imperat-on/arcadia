@@ -1,7 +1,7 @@
 # Arcadia Server
 
 Backend Node proprio do Arcadia (substitui o Supabase). Servico unico
-(Express + SQLite + JWT) que roda num notebook em casa e exposto via
+(Express + PostgreSQL + JWT) que roda num notebook em casa e exposto via
 Tailscale Funnel. Sincroniza por conta: biblioteca, conquistas, horas,
 amigos, avatar, background e sources publicas.
 
@@ -11,7 +11,7 @@ amigos, avatar, background e sources publicas.
 |---|---|
 | Runtime | Node >= 22 |
 | HTTP | Express 4 |
-| Banco | SQLite via `node:sqlite` (WAL) |
+| Banco | PostgreSQL via `pg` |
 | Auth | JWT (HS256) + bcryptjs, refresh tokens opacos |
 | Realtime | WS (pacote `ws`), protocolo Phoenix-lite |
 
@@ -23,7 +23,7 @@ server/
   .env.example        # JWT_SECRET, PORT, DATA_DIR (nunca versione .env)
   src/
     server.js         # bootstrap express + ws + registro de rotas
-    db.js             # schema SQLite + seeds + helpers de tempo
+    db.js             # schema PostgreSQL + seeds + helpers de tempo
     jwt.js            # emit/verify JWT no shape GoTrue
     auth-routes.js    # signup, login, token, user, logout, login_check
     rest-routes.js    # REST-lite de profiles/friendships (RLS explicito)
@@ -47,7 +47,7 @@ curl localhost:3000/health
 ## Testes
 
 ```bash
-npm test    # node --test, 53 testes (auth, storage, rpc, realtime, e2e)
+npm test    # node --test (auth, storage, rpc, realtime, catalogo e e2e)
 ```
 
 ## Endpoints
@@ -89,7 +89,7 @@ explicitamente: so ve o que e seu, publico ou amigo.
 Protocolo Phoenix-lite. Canal `friends-<me>`: evento `postgres_changes`
 no INSERT de friendships com `user_b=me` (badge de amigos).
 
-## Schema (SQLite)
+## Schema (PostgreSQL)
 
 `profiles`, `friendships`, `user_achievements`, `user_library`,
 `user_playtime`, `user_sources`, `login_attempts`, `reserved_usernames`,
@@ -101,7 +101,7 @@ no INSERT de friendships com `user_b=me` (badge de amigos).
 adiciona colunas em tabelas existentes. Ao adicionar coluna em producao:
 
 ```bash
-sqlite3 server/data/arcadia.db "ALTER TABLE profiles ADD COLUMN background_url TEXT;"
+psql "$DATABASE_URL" -c "ALTER TABLE profiles ADD COLUMN background_url TEXT;"
 systemctl restart arcadia-server
 ```
 

@@ -1,7 +1,7 @@
 "use strict"
 
 // Proxy de catalogo da loja: rotas /catalog/v1/*. O servidor busca a fonte
-// externa uma vez por TTL, guarda em catalog_cache (SQLite) e responde JSON
+// externa uma vez por TTL, guarda em catalog_cache (PostgreSQL) e responde JSON
 // pronto ao app. Tudo exige JWT valido.
 //
 // Privacidade: nenhuma chave paga do usuario (Hubcap, debrid, Steam) existe
@@ -11,6 +11,27 @@
 const { db, nowEpochS } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
 const { fetchCatalogKey, catalogKey, CATALOG_KEYS, CATALOG_TTL, cacheDesatualizado, fetchGenero, STEAMSPY_GENEROS } = require("./catalog-fetch")
+const asyncHandler = require("./async-handler")
+
+const MAX_PAGE_SIZE = 100
+const MAX_BATCH_APPIDS = 100
+
+function pageParam(value, fallback) {
+  const n = Number(value)
+  return Number.isSafeInteger(n) && n >= 0 ? n : fallback
+}
+
+function pageSize(value, fallback) {
+  const n = Number(value)
+  return Number.isSafeInteger(n) && n > 0 ? Math.min(n, MAX_PAGE_SIZE) : fallback
+}
+
+function parseAppids(value) {
+  return [...new Set(String(value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => /^\d{1,10}$/.test(s)))].slice(0, MAX_BATCH_APPIDS)
+}
 
 // Extrai o Bearer token e valida. Devolve o sub (user id) ou null.
 function requireAuth(req) {
@@ -19,18 +40,18 @@ function requireAuth(req) {
   return v.ok ? v.sub : null
 }
 
-// Grava o resultado de um fetch no cache SQLite (atomico).
-function gravarCache(key, r) {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
-    key,
-    JSON.stringify(r.data),
-    r.at,
+// Grava o resultado de um fetch no cache PostgreSQL (atomico).
+async function gravarCache(key, r) {
+  await db.query(
+    `INSERT INTO catalog_cache (key, data, at) VALUES ($1, $2, $3)
+     ON CONFLICT (key) DO UPDATE SET data = excluded.data, at = excluded.at`,
+    [key, JSON.stringify(r.data), r.at],
   )
 }
 
 // Le do cache (sem revalidar). Devolve o JSON ou null se nao ha entrada.
-function lerCache(key) {
-  const row = db.prepare("SELECT data FROM catalog_cache WHERE key = ?").get(key)
+async function lerCache(key) {
+  const row = (await db.query("SELECT data FROM catalog_cache WHERE key = $1", [key])).rows[0]
   return row ? JSON.parse(row.data) : null
 }
 
@@ -73,7 +94,7 @@ async function buscar(key) {
   if (buscasEmVoo.has(key)) return buscasEmVoo.get(key)
   const promessa = comSemaforo(async () => {
     const r = await fetchCatalogKey(key).catch(() => null)
-    if (r) gravarCache(key, r)
+    if (r) await gravarCache(key, r)
     return r ? r.data : null
   })
   buscasEmVoo.set(key, promessa)
@@ -88,9 +109,9 @@ async function buscar(key) {
 // devolve o que tem. Nunca bloqueia a resposta em rede externa lenta quando
 // ja ha cache. Quando NAO ha cache, devolve null (o cold-start fica na rota,
 // que chama `buscar` e espera a fonte externa).
-function getCached(key) {
+async function getCached(key, includeMeta = false) {
   const ttl = CATALOG_TTL[key] ?? CATALOG_TTL[`${key.split(":")[0]}:`] ?? 0
-  const row = db.prepare("SELECT data, at FROM catalog_cache WHERE key = ?").get(key)
+  const row = (await db.query("SELECT data, at FROM catalog_cache WHERE key = $1", [key])).rows[0]
   if (!row) return null
   const data = JSON.parse(row.data)
   const agora = nowEpochS()
@@ -101,13 +122,9 @@ function getCached(key) {
   if (cacheDesatualizado(key, data)) return null
   if (ttl > 0 && agora - row.at > ttl) {
     // revalida em background; erro de rede nao derruba a resposta
-    fetchCatalogKey(key)
-      .then((r) => {
-        if (r) gravarCache(key, r)
-      })
-      .catch(() => {})
+    buscar(key).catch(() => {})
   }
-  return data
+  return includeMeta ? { data, at: row.at } : data
 }
 
 // Resolve a key, le do cache (ou busca no cold start) e responde.
@@ -115,29 +132,32 @@ function getCached(key) {
 async function responder(uid, req, res, tipo, id) {
   const key = catalogKey(tipo, id)
   if (!key) return res.status(400).json({ error: "key_invalida" })
-  let data = getCached(key)
+  const cached = await getCached(key, true)
+  let data = cached?.data ?? null
   if (data === null) {
     data = await buscar(key)
     // Fonte externa fora: serve o que houver em cache, mesmo em formato antigo
     // — dado incompleto ainda e melhor que 404 para a loja.
-    if (data === null) data = lerCache(key)
+    if (data === null) data = await lerCache(key)
     if (data === null) return res.status(404).json({ error: "cache_vazio" })
   }
   // ETag: o app manda If-None-Match na proxima vez; se nada mudou (mesmo
   // timestamp), devolve 304 (0 bytes) em vez de re-baixar o JSON inteiro.
-  const etag = `"${getCacheAt(key)}"`
+  const etag = `"${cached?.at ?? await getCacheAt(key)}"`
   if (req.headers["if-none-match"] === etag) return res.status(304).end()
   res.set("ETag", etag)
   return res.json({ ok: true, data })
 }
 
 // Lê o `at` (timestamp) de uma chave de cache — usado como ETag fraco.
-function getCacheAt(key) {
-  const row = db.prepare("SELECT at FROM catalog_cache WHERE key = ?").get(key)
+async function getCacheAt(key) {
+  const row = (await db.query("SELECT at FROM catalog_cache WHERE key = $1", [key])).rows[0]
   return row ? row.at : 0
 }
 
 function registerCatalogRoutes(app) {
+  const get = (route, handler) => app.get(route, asyncHandler(handler))
+
   // Todos os endpoints exigem JWT (Bearer).
   app.use("/catalog/v1", (req, res, next) => {
     if (!requireAuth(req)) return res.status(401).json({ error: "nao_autenticado" })
@@ -145,70 +165,76 @@ function registerCatalogRoutes(app) {
   })
 
   // Em alta / populares (SteamSpy). Retorna fatia paginada + total.
-  app.get("/catalog/v1/popular", async (req, res) => {
-    let data = getCached("popular")
+  get("/catalog/v1/popular", async (req, res) => {
+    const cached = await getCached("popular", true)
+    let data = cached?.data ?? null
     if (data === null) {
       data = await buscar("popular")
       if (data === null) return res.status(404).json({ error: "cache_vazio" })
     }
-    const etag = `"${getCacheAt("popular")}"`
+    const etag = `"${cached?.at ?? await getCacheAt("popular")}"`
     if (req.headers["if-none-match"] === etag) return res.status(304).end()
     res.set("ETag", etag)
     const completa = Array.isArray(data.completa) ? data.completa : []
-    const limite = Math.max(1, Number(req.query.limite) || 40)
-    const offset = Math.max(0, Number(req.query.offset) || 0)
+    const limite = pageSize(req.query.limite, 40)
+    const offset = pageParam(req.query.offset, 0)
     res.json({ ok: true, itens: completa.slice(offset, offset + limite), total: completa.length, offset })
   })
 
   // Catálogo completo: ~100.000+ jogos da Steam coletados via SteamSpy por
   // gênero (com NOME real), paginados como a Steam/Hydra. Enquanto a coleta
   // ainda não terminou, serve o que já tem. Arte via items sob demanda.
-  app.get("/catalog/v1/catalog", async (req, res) => {
-    const limite = Math.max(1, Number(req.query.limite) || 24)
-    const offset = Math.max(0, Number(req.query.offset) || 0)
-    let data = getCached("catalogo_completo")
+  get("/catalog/v1/catalog", async (req, res) => {
+    const limite = pageSize(req.query.limite, 24)
+    const offset = pageParam(req.query.offset, 0)
+    const cached = await getCached("catalogo_completo", true)
+    let data = cached?.data ?? null
     if (data === null) {
       // coleta ainda rodando ou vazia — dispara e serve vazio por enquanto
       precarregarCatalogoCompleto()
       return res.json({ ok: true, itens: [], total: 0, offset, coletando: true })
     }
     const completa = Array.isArray(data.completa) ? data.completa : []
-    const etag = `"${getCacheAt("catalogo_completo")}"`
+    const etag = `"${cached?.at ?? await getCacheAt("catalogo_completo")}"`
     if (req.headers["if-none-match"] === etag) return res.status(304).end()
     res.set("ETag", etag)
     const fatia = completa.slice(offset, offset + limite)
     // capa sempre vem da CDN da Steam (não precisa do items). O items (heroi/
     // capa retrato) é só um enriquecimento — se não estiver em cache, deixa
     // vazio em vez de buscar na Steam na hora (evita rate-limit/timeout).
-    const itens = fatia.map((g) => ({
-      appid: String(g.appid),
-      title: g.title || String(g.appid),
-      cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-      heroi: getCached(`items:${g.appid}`)?.heroi || "",
-      capa: getCached(`items:${g.appid}`)?.capa || "",
+    const itens = await Promise.all(fatia.map(async (g) => {
+      const item = await getCached(`items:${g.appid}`)
+      return {
+        appid: String(g.appid),
+        title: g.title || String(g.appid),
+        cover: `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+        heroi: item?.heroi || "",
+        capa: item?.capa || "",
+      }
     }))
     res.json({ ok: true, itens, total: completa.length, offset })
   })
 
   // Steam250: catálogo com nome real (~890 jogos: top250, mais jogados,
   // hidden gems, do ano). Fonte igual a do Hydra. Paginado com arte via items.
-  app.get("/catalog/v1/steam250", async (req, res) => {
-    const limite = Math.max(1, Number(req.query.limite) || 24)
-    const offset = Math.max(0, Number(req.query.offset) || 0)
-    let data = getCached("steam250")
+  get("/catalog/v1/steam250", async (req, res) => {
+    const limite = pageSize(req.query.limite, 24)
+    const offset = pageParam(req.query.offset, 0)
+    const cached = await getCached("steam250", true)
+    let data = cached?.data ?? null
     if (data === null) {
       data = await buscar("steam250")
       if (data === null) return res.status(404).json({ error: "cache_vazio" })
     }
     const completa = Array.isArray(data.completa) ? data.completa : []
-    const etag = `"${getCacheAt("steam250")}"`
+    const etag = `"${cached?.at ?? await getCacheAt("steam250")}"`
     if (req.headers["if-none-match"] === etag) return res.status(304).end()
     res.set("ETag", etag)
     const fatia = completa.slice(offset, offset + limite)
     // arte (capa/heroi) via items, sob demanda e cacheado
     const comArte = await Promise.all(
       fatia.map(async (g) => {
-        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
+        const item = (await getCached(`items:${g.appid}`)) ?? (await buscar(`items:${g.appid}`))
         return {
           appid: String(g.appid),
           title: g.title || String(g.appid),
@@ -222,46 +248,45 @@ function registerCatalogRoutes(app) {
   })
 
   // Sushi: lista de appids com manifesto no repo.
-  app.get("/catalog/v1/sushi", async (req, res) => responder(null, req, res, "sushi"))
+  get("/catalog/v1/sushi", async (req, res) => responder(null, req, res, "sushi"))
 
   // Listas alternativas de genero.
-  app.get("/catalog/v1/genre", async (req, res) =>
+  get("/catalog/v1/genre", async (req, res) =>
     responder(null, req, res, "genre", String(req.query.lista || "__all")),
   )
 
   // Noticias (RSS agregado).
-  app.get("/catalog/v1/news", async (req, res) => responder(null, req, res, "news"))
+  get("/catalog/v1/news", async (req, res) => responder(null, req, res, "news"))
 
   // Indices de fixes.
-  app.get("/catalog/v1/fixes", async (req, res) => responder(null, req, res, "fixes"))
-  app.get("/catalog/v1/ryuu", async (req, res) => responder(null, req, res, "ryuu"))
+  get("/catalog/v1/fixes", async (req, res) => responder(null, req, res, "fixes"))
+  get("/catalog/v1/ryuu", async (req, res) => responder(null, req, res, "ryuu"))
 
   // Fontes Hydra: JSON completo de uma fonte (com uris).
-  app.get("/catalog/v1/sources/:id/games", async (req, res) =>
+  get("/catalog/v1/sources/:id/games", async (req, res) =>
     responder(null, req, res, "hydra", req.params.id),
   )
 
   // Sysinfo / meta / hltb por appid.
-  app.get("/catalog/v1/sysinfo/:appid", async (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
+  get("/catalog/v1/sysinfo/:appid", async (req, res) => responder(null, req, res, "sysinfo", req.params.appid))
   // Stats: estatisticas agregadas (dev, owners, ccu, reviews, preco) do SteamSpy.
-  app.get("/catalog/v1/stats/:appid", async (req, res) => responder(null, req, res, "stats", req.params.appid))
+  get("/catalog/v1/stats/:appid", async (req, res) => responder(null, req, res, "stats", req.params.appid))
 
   // Reviews da comunidade. O servidor e a fonte de verdade (nao depende da
   // Steam). GET devolve as reviews do jogo; POST adiciona uma (autenticado).
-  app.get("/catalog/v1/reviews/:appid", (req, res) => {
+  get("/catalog/v1/reviews/:appid", async (req, res) => {
     const appid = String(req.params.appid || "")
     if (!/^\d{1,10}$/.test(appid)) return res.status(400).json({ error: "appid_invalido" })
-    const rows = db
-      .prepare(
+    const rows = (await db.query(
         `SELECT r.id, r.text, r.positive, r.hours, r.created_at, p.username
          FROM user_reviews r JOIN profiles p ON p.id = r.user_id
-         WHERE r.appid = ? ORDER BY r.created_at DESC LIMIT 100`,
-      )
-      .all(appid)
+         WHERE r.appid = $1 ORDER BY r.created_at DESC LIMIT 100`,
+        [appid],
+      )).rows
     res.json({ ok: true, reviews: rows })
   })
 
-  app.post("/catalog/v1/reviews/:appid", (req, res) => {
+  app.post("/catalog/v1/reviews/:appid", asyncHandler(async (req, res) => {
     const uid = requireAuth(req)
     if (!uid) return res.status(401).json({ error: "nao_autenticado" })
     const appid = String(req.params.appid || "")
@@ -269,24 +294,22 @@ function registerCatalogRoutes(app) {
     const { text, positive, hours } = req.body || {}
     const txt = String(text || "").trim().slice(0, 4000)
     if (!txt) return res.status(400).json({ error: "texto_vazio" })
-    db.prepare(
-      "INSERT INTO user_reviews (user_id, appid, text, positive, hours) VALUES (?,?,?,?,?)",
-    ).run(uid, appid, txt, positive === false ? 0 : 1, Number(hours) || 0)
+    await db.query(
+      "INSERT INTO user_reviews (user_id, appid, text, positive, hours) VALUES ($1, $2, $3, $4, $5)",
+      [uid, appid, txt, positive === false ? 0 : 1, Math.max(0, Math.min(Number(hours) || 0, 999999))],
+    )
     res.json({ ok: true })
-  })
-  app.get("/catalog/v1/meta/:appid", async (req, res) => responder(null, req, res, "meta", req.params.appid))
-  app.get("/catalog/v1/hltb/:appid", async (req, res) => responder(null, req, res, "hltb", req.params.appid))
+  }))
+  get("/catalog/v1/meta/:appid", async (req, res) => responder(null, req, res, "meta", req.params.appid))
+  get("/catalog/v1/hltb/:appid", async (req, res) => responder(null, req, res, "hltb", req.params.appid))
 
   // Items: tipo + arte por appid (em lote).
-  app.get("/catalog/v1/items", async (req, res) => {
-    const appids = String(req.query.appids || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => /^\d{1,10}$/.test(s))
+  get("/catalog/v1/items", async (req, res) => {
+    const appids = parseAppids(req.query.appids)
     if (!appids.length) return res.json({ ok: true, data: {} })
     const out = {}
     for (const appid of appids) {
-      let data = getCached(`items:${appid}`)
+      let data = await getCached(`items:${appid}`)
       if (data === null) {
         data = await buscar(`items:${appid}`) // cold start: busca na fonte
       }
@@ -299,11 +322,8 @@ function registerCatalogRoutes(app) {
   // Endpoint de LOTE: ?appids=1,2,3 devolve todos em uma chamada, evitando
   // N handshakes TLS quando a loja prepara uma pagina inteira. O app pedia
   // um por jogo (24 chamadas) — agora e 1.
-  app.get("/catalog/v1/manifests", async (req, res) => {
-    const appids = String(req.query.appids || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => /^\d{1,10}$/.test(s))
+  get("/catalog/v1/manifests", async (req, res) => {
+    const appids = parseAppids(req.query.appids)
     if (!appids.length) return res.json({ ok: true, data: {} })
     // Busca em PARALELO: em série, 40 appids no cold start eram 40 round-trips
     // sequenciais ao provedor (3 HEADs cada) — a busca da loja travava. Cada
@@ -312,7 +332,7 @@ function registerCatalogRoutes(app) {
     const out = {}
     await Promise.all(
       appids.map(async (appid) => {
-        let data = getCached(`manifests:${appid}`)
+        let data = await getCached(`manifests:${appid}`)
         if (data === null) {
           data = await buscar(`manifests:${appid}`) // cold start
         }
@@ -321,17 +341,17 @@ function registerCatalogRoutes(app) {
     )
     res.json({ ok: true, data: out })
   })
-  app.get("/catalog/v1/manifests/:appid", async (req, res) =>
+  get("/catalog/v1/manifests/:appid", async (req, res) =>
     responder(null, req, res, "manifests", req.params.appid),
   )
 
   // Search: busca no catalogo Hydra em cache (indice do servidor).
-  app.get("/catalog/v1/search", async (req, res) => {
+  get("/catalog/v1/search", async (req, res) => {
     const q = String(req.query.q || "").trim().toLowerCase()
     if (!q) return res.json({ ok: true, itens: [] })
     // Busca no catálogo completo (85k jogos da Steam, com appid real + nome).
     // Este é o caminho da loja: resultados com capa e que abrem a tela rica.
-    const data = getCached("catalogo_completo")
+    const data = await getCached("catalogo_completo")
     const completa = Array.isArray(data?.completa) ? data.completa : []
     // Ranking por relevancia (nao substring na ordem da colecao):
     //   0) prefixo exato ("cyber" bate em "Cyberpunk 2077" primeiro)
@@ -359,7 +379,7 @@ function registerCatalogRoutes(app) {
     // mantém os que são jogos de verdade.
     const comTipo = await Promise.all(
       alvo.map(async (g) => {
-        const item = getCached(`items:${g.appid}`) ?? (await buscar(`items:${g.appid}`))
+        const item = (await getCached(`items:${g.appid}`)) ?? (await buscar(`items:${g.appid}`))
         return { ...g, tipo: item?.tipo }
       }),
     )
@@ -383,27 +403,28 @@ function registerCatalogRoutes(app) {
 const WARM_KEYS = ["popular", "steam250", "sushi", "news", "fixes", "ryuu-index"]
 
 // True se ha cache e ele ainda esta dentro do TTL (nao precisa re-buscar).
-function cacheFresco(key) {
+async function cacheFresco(key) {
   const ttl = CATALOG_TTL[key] ?? CATALOG_TTL[`${key.split(":")[0]}:`] ?? 0
-  const row = db.prepare("SELECT at FROM catalog_cache WHERE key = ?").get(key)
+  const row = (await db.query("SELECT at FROM catalog_cache WHERE key = $1", [key])).rows[0]
   if (!row) return false
   return ttl === 0 || nowEpochS() - row.at < ttl
 }
 
 // Pre-aquece apenas os catalogos que estao AUSENTES ou VENCIDOS. No boot o
-// cache persiste no SQLite; respeitar o TTL evita re-buscar (rede/CPU) o que
+// cache persiste no PostgreSQL; respeitar o TTL evita re-buscar (rede/CPU) o que
 // ainda e valido, deixando o restart leve e a loja rapida de imediato.
-function warmUpCatalog() {
+async function warmUpCatalog() {
   for (const key of WARM_KEYS) {
-    if (cacheFresco(key)) {
+    if (await cacheFresco(key)) {
       console.log(`[warmup] ${key}: cache valido (sem re-buscar)`)
       continue
     }
     fetchCatalogKey(key)
       .then((r) => {
         if (r) {
-          gravarCache(key, r)
-          console.log(`[warmup] ${key}: ${r.data?.completa?.length ?? r.data?.noticias?.length ?? r.data?.ids?.length ?? "?"} (${key === "popular" ? "jogos" : key === "news" ? "noticias" : key === "sushi" ? "appids" : "entradas"})`)
+          return gravarCache(key, r).then(() => {
+            console.log(`[warmup] ${key}: ${r.data?.completa?.length ?? r.data?.noticias?.length ?? r.data?.ids?.length ?? "?"} (${key === "popular" ? "jogos" : key === "news" ? "noticias" : key === "sushi" ? "appids" : "entradas"})`)
+          })
         } else {
           console.log(`[warmup] ${key}: fonte nao respondeu (fica p/ cold-start)`)
         }
@@ -414,7 +435,7 @@ function warmUpCatalog() {
 
 // Coleta o catálogo COMPLETO da Steam via SteamSpy por gênero: cada gênero
 // lista dezenas de milhares de jogos com NOME real. Deduplica por appid e
-// grava no SQLite como 'catalogo_completo'. ~100.000+ jogos no total — como
+// grava no PostgreSQL como 'catalogo_completo'. ~100.000+ jogos no total — como
 // o Hydra coleta no servidor. Roda em background no boot; erros engolidos.
 let coletando = false
 function precarregarCatalogoCompleto() {
@@ -427,7 +448,7 @@ function precarregarCatalogoCompleto() {
     if (i >= STEAMSPY_GENEROS.length) {
       // dedupe + grava
       const unicos = [...new Map(todos.map((g) => [g.appid, g])).values()]
-      gravarCache("catalogo_completo", {
+      await gravarCache("catalogo_completo", {
         data: { completa: unicos },
         at: nowEpochS(),
       })

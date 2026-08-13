@@ -1,157 +1,186 @@
 "use strict"
 
-// REST-lite para /rest/v1/:table, suporta o subconjunto que o shim do
-// client.js usa (profiles/friendships). Nao e um parser PostgREST generico,
-// e sim um switch restrito com as colunas permitidas por tabela.
-
 const { db } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
 const { notifyFriendshipInsert } = require("./realtime")
+const asyncHandler = require("./async-handler")
 
 const COLUNAS_PROFILES = new Set([
-  "id", "username", "avatar_url", "background_url", "banner_url", "steam_id", "display_name", "summary",
-  "country", "city", "showcase", "profile_visibility", "show_location",
-  "created_at", "email", "password_hash",
+  "id", "username", "avatar_url", "background_url", "banner_url", "steam_id",
+  "display_name", "summary", "country", "city", "showcase", "profile_visibility",
+  "show_location", "created_at",
 ])
 const COLUNAS_FRIENDSHIPS = new Set([
   "user_a", "user_b", "requester_id", "status", "created_at", "updated_at",
 ])
 
-// Traduz os filtros do shim (?col=eq.val, ?col=ilike.pat, ?or=(...))
+function bind(params, value) {
+  params.push(value)
+  return `$${params.length}`
+}
+
+function filterClause(raw, permitidas, params) {
+  const match = String(raw).match(/^([a-z_]+)\.(eq|ilike)\.(.*)$/)
+  if (!match || !permitidas.has(match[1])) return null
+  const placeholder = bind(params, match[3])
+  return match[2] === "eq"
+    ? `${match[1]} = ${placeholder}`
+    : `${match[1]} ILIKE ${placeholder}`
+}
+
+function splitTopLevel(raw) {
+  const parts = []
+  let current = ""
+  let depth = 0
+  for (const char of String(raw || "")) {
+    if (char === "(") depth++
+    if (char === ")") depth--
+    if (char === "," && depth === 0) {
+      parts.push(current)
+      current = ""
+    } else {
+      current += char
+    }
+  }
+  if (current) parts.push(current)
+  return parts
+}
+
+function parseOr(raw, permitidas, params) {
+  raw = String(raw || "").trim()
+  if (raw.startsWith("(") && raw.endsWith(")")) raw = raw.slice(1, -1)
+  const groups = []
+  for (const part of splitTopLevel(raw)) {
+    const and = part.match(/^and\((.*)\)$/)
+    const atoms = and ? splitTopLevel(and[1]) : [part]
+    const clauses = atoms.map((atom) => filterClause(atom, permitidas, params)).filter(Boolean)
+    if (clauses.length) groups.push(`(${clauses.join(and ? " AND " : " OR ")})`)
+  }
+  return groups.length ? `(${groups.join(" OR ")})` : null
+}
+
 function parseFilters(req, permitidas) {
   const sql = []
   const params = []
-  const q = req.query
-
-  for (const [k, v] of Object.entries(q)) {
-    if (k === "select" || k === "limit" || k === "or") continue
-    if (!permitidas.has(k)) continue
-    const [op, val] = String(v).split(".")
-    if (op === "eq") {
-      sql.push(`${k} = ?`)
-      params.push(val)
-    } else if (op === "ilike") {
-      sql.push(`${k} LIKE ? COLLATE NOCASE`)
-      params.push(val)
-    }
+  for (const [key, value] of Object.entries(req.query)) {
+    if (key === "select" || key === "limit" || key === "or" || !permitidas.has(key)) continue
+    const clause = filterClause(`${key}.${value}`, permitidas, params)
+    if (clause) sql.push(clause)
   }
-
-  // or: "a.eq.x,b.eq.y" ou "and(a.eq.x,b.eq.y),and(...)". O friends.js usa
-  // accept/cancel com or contendo and(cond1,cond2)
-  const orRaw = String(q.or || "")
-  if (orRaw) {
-    const clauses = []
-    const re = /([a-z_]+)\.(eq|ilike)\.([^,)]+)/g
-    let m
-    while ((m = re.exec(orRaw))) {
-      const [col, op, val] = [m[1], m[2], m[3]]
-      if (!permitidas.has(col)) continue
-      if (op === "eq") clauses.push(`${col} = ?`)
-      else clauses.push(`${col} LIKE ? COLLATE NOCASE`)
-      params.push(val)
-    }
-    if (clauses.length) sql.push(`(${clauses.join(" OR ")})`)
-  }
-
+  const or = parseOr(req.query.or, permitidas, params)
+  if (or) sql.push(or)
   return { sql, params }
 }
 
 function requireAuth(req) {
-  const token = extractToken(req)
-  const v = verifyToken(token || "")
+  const v = verifyToken(extractToken(req) || "")
   return v.ok ? v.sub : null
 }
 
-// Parser do select para embeds do tipo pa:profiles!friendships_user_a_fkey(...)
-// Devolve { colunas: string[], embeds: [{ nome, tabela, colunas }] }
-// Atencao: o split por virgula nao pode quebrar DENTRO dos parenteses do embed
-// (o friends.js manda "pa:profiles!...(id, username, ...)" numa linha so).
-function parseSelect(sel) {
+function parseSelect(select, permitidas) {
   const colunas = []
   const embeds = []
-  const parts = []
-  let cur = ""
-  let depth = 0
-  for (const ch of String(sel || "*")) {
-    if (ch === "(") depth++
-    if (ch === ")") depth--
-    if (ch === "," && depth === 0) {
-      parts.push(cur)
-      cur = ""
-    } else {
-      cur += ch
-    }
-  }
-  parts.push(cur)
-  for (const p of parts) {
-    const t = p.trim()
-    if (!t) continue
-    const m = t.match(/^([a-z_]+):profiles!([a-z_]+)\(([^)]*)\)$/i)
-    if (m) {
-      embeds.push({ nome: m[1], fk: m[2], colunas: m[3].split(",").map((c) => c.trim()) })
-    } else {
-      colunas.push(t)
+  for (const part of splitTopLevel(String(select || "*"))) {
+    const item = part.trim()
+    if (!item) continue
+    const match = item.match(/^([a-z_]+):profiles!([a-z_]+)\(([^)]*)\)$/i)
+    if (match) {
+      const columns = match[3].split(",").map((column) => column.trim())
+      embeds.push({
+        nome: match[1],
+        fk: match[2],
+        colunas: columns.filter((column) => COLUNAS_PROFILES.has(column)),
+      })
+    } else if (item === "*") {
+      colunas.length = 0
+    } else if (permitidas.has(item)) {
+      colunas.push(item)
     }
   }
   return { colunas, embeds }
 }
 
-// Perfil do "outro lado" do embed (pa/pb), resolvendo a FK
 function embedProfile(colunas, profile) {
   if (!profile) return null
   const out = {}
-  for (const c of colunas) if (c in profile) out[c] = profile[c]
+  for (const coluna of colunas) if (coluna in profile) out[coluna] = profile[coluna]
   return out
 }
 
+function limitOf(req) {
+  return Math.max(1, Math.min(Number(req.query.limit) || 100, 1000))
+}
+
+function friendshipPair(raw, uid) {
+  const ids = new Set()
+  const regex = /user_[ab]\.eq\.([^,)]+)/g
+  let match
+  while ((match = regex.exec(String(raw || "")))) ids.add(match[1])
+  ids.delete(uid)
+  if (ids.size !== 1) return null
+  const friendId = [...ids][0]
+  return uid < friendId ? [uid, friendId] : [friendId, uid]
+}
+
 function registerRestRoutes(app) {
-  const handler = (req, res) => {
+  app.get("/rest/v1/:table", asyncHandler(async (req, res) => {
     const uid = requireAuth(req)
     if (!uid) return res.status(401).json({ error: "nao_autenticado" })
-    const tabela = req.params.table
 
-    if (tabela === "profiles") {
+    if (req.params.table === "profiles") {
       const { sql, params } = parseFilters(req, COLUNAS_PROFILES)
-      // Sem RLS, filtro explicito: self, publicos e amigos aceitos.
+      const uidParam = bind(params, uid)
       sql.push(
-        "(id = ? OR profile_visibility = 'public' OR EXISTS (" +
-          "SELECT 1 FROM friendships f WHERE f.status='accepted' " +
-          "AND ((f.user_a = profiles.id AND f.user_b = ?) OR (f.user_b = profiles.id AND f.user_a = ?))))"
+        `(id = ${uidParam} OR profile_visibility = 'public' OR (profile_visibility = 'friends' AND EXISTS (` +
+          `SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ` +
+          `((f.user_a = profiles.id AND f.user_b = ${uidParam}) OR ` +
+          `(f.user_b = profiles.id AND f.user_a = ${uidParam})))))`,
       )
-      params.push(uid, uid, uid)
-
-      const { colunas } = parseSelect(req.query.select)
-      const cols = colunas.length
-        ? colunas.join(", ")
-        : "id, username, avatar_url, display_name, summary, country, city, showcase, profile_visibility, created_at"
-
-      const rows = db
-        .prepare(`SELECT ${cols} FROM profiles WHERE ${sql.join(" AND ")} LIMIT ${Number(req.query.limit) || 100}`)
-        .all(...params)
-
+      // Bloqueios anulam descoberta mutua, inclusive quando havia amizade.
+      sql.push(
+        `(id = ${uidParam} OR NOT EXISTS (` +
+          `SELECT 1 FROM blocks b WHERE (b.blocker_id = ${uidParam} AND b.blocked_id = profiles.id) ` +
+          `OR (b.blocker_id = profiles.id AND b.blocked_id = ${uidParam})))`,
+      )
+      const { colunas } = parseSelect(req.query.select, COLUNAS_PROFILES)
+      const cols = colunas.length ? colunas.join(", ") : "id, username, avatar_url, display_name, summary, country, city, showcase, profile_visibility, show_location, created_at"
+      const limit = bind(params, limitOf(req))
+      const rows = (await db.query(
+        `SELECT ${cols}, id AS __profile_id, show_location AS __show_location FROM profiles WHERE ${sql.join(" AND ")} LIMIT ${limit}`,
+        params,
+      )).rows
+      for (const row of rows) {
+        if (row.__profile_id !== uid && Number(row.__show_location) !== 1) {
+          if (Object.prototype.hasOwnProperty.call(row, "country")) row.country = null
+          if (Object.prototype.hasOwnProperty.call(row, "city")) row.city = null
+        }
+        delete row.__profile_id
+        delete row.__show_location
+      }
       return res.json(rows)
     }
 
-    if (tabela === "friendships") {
+    if (req.params.table === "friendships") {
       const { sql, params } = parseFilters(req, COLUNAS_FRIENDSHIPS)
-      sql.push("(user_a = ? OR user_b = ?)")
-      params.push(uid, uid)
-
-      const { colunas, embeds } = parseSelect(req.query.select)
+      const uidParam = bind(params, uid)
+      sql.push(`(user_a = ${uidParam} OR user_b = ${uidParam})`)
+      const { colunas, embeds } = parseSelect(req.query.select, COLUNAS_FRIENDSHIPS)
       const cols = colunas.length ? colunas.join(", ") : "*"
-
-      const rows = db
-        .prepare(`SELECT ${cols} FROM friendships WHERE ${sql.join(" AND ")} LIMIT ${Number(req.query.limit) || 100}`)
-        .all(...params)
+      const limit = bind(params, limitOf(req))
+      const rows = (await db.query(
+        `SELECT ${cols} FROM friendships WHERE ${sql.join(" AND ")} LIMIT ${limit}`,
+        params,
+      )).rows
 
       if (embeds.length) {
-        const profiles = db.prepare("SELECT id, username, avatar_url, display_name FROM profiles").all()
-        const byId = {}
-        for (const p of profiles) byId[p.id] = p
+        const profiles = (await db.query(
+          "SELECT id, username, avatar_url, display_name FROM profiles",
+        )).rows
+        const byId = Object.fromEntries(profiles.map((profile) => [profile.id, profile]))
         for (const row of rows) {
-          for (const e of embeds) {
-            const perfil = e.fk.includes("user_a") ? byId[row.user_a] : byId[row.user_b]
-            row[e.nome] = embedProfile(e.colunas, perfil)
+          for (const embed of embeds) {
+            const profile = embed.fk.includes("user_a") ? byId[row.user_a] : byId[row.user_b]
+            row[embed.nome] = embedProfile(embed.colunas, profile)
           }
         }
       }
@@ -159,105 +188,118 @@ function registerRestRoutes(app) {
     }
 
     return res.status(404).json({ error: "tabela_nao_suportada" })
-  }
+  }))
 
-  app.get("/rest/v1/:table", handler)
-
-  app.post("/rest/v1/:table", (req, res) => {
+  app.post("/rest/v1/:table", asyncHandler(async (req, res) => {
     const uid = requireAuth(req)
     if (!uid) return res.status(401).json({ error: "nao_autenticado" })
-    const tabela = req.params.table
-    const body = req.body || {}
-
-    if (tabela === "friendships") {
-      const { user_a, user_b, requester_id, status } = body
-      if (!user_a || !user_b || !requester_id) {
-        return res.status(400).json({ error: "campos_faltando" })
-      }
-      // RLS: so pode criar pedido para si (requester = uid) e pending
-      if (requester_id !== uid || (status && status !== "pending")) {
+    if (req.params.table === "friendships") {
+      const { user_a, user_b, requester_id, status } = req.body || {}
+      if (!user_a || !user_b || !requester_id) return res.status(400).json({ error: "campos_faltando" })
+      if (
+        requester_id !== uid ||
+        (user_a !== uid && user_b !== uid) ||
+        user_a === user_b ||
+        (status && status !== "pending")
+      ) {
         return res.status(403).json({ error: "permissao_negada" })
       }
       try {
-        db.prepare(
-          "INSERT INTO friendships (user_a, user_b, requester_id, status) VALUES (?, ?, ?, 'pending')"
-        ).run(user_a, user_b, requester_id)
-        // notifica o addressee (user_b) via realtime
-        notifyFriendshipInsert(user_b, requester_id)
+        const blocked = await db.query(
+          `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
+          [user_a, user_b],
+        )
+        if (blocked.rows[0]) return res.status(403).json({ error: "usuario_bloqueado" })
+        await db.query(
+          "INSERT INTO friendships (user_a, user_b, requester_id, status) VALUES ($1, $2, $3, 'pending')",
+          [user_a, user_b, requester_id],
+        )
+        notifyFriendshipInsert(user_a === uid ? user_b : user_a, requester_id)
         return res.status(201).json([{ user_a, user_b, requester_id, status: "pending" }])
-      } catch (e) {
-        return res.status(409).json({ error: "conflito" })
+      } catch (error) {
+        if (["23503", "23505", "23514"].includes(error.code)) {
+          return res.status(409).json({ error: "conflito" })
+        }
+        throw error
       }
     }
-    if (tabela === "profiles") {
-      return res.status(403).json({ error: "permissao_negada" })
-    }
+    if (req.params.table === "profiles") return res.status(403).json({ error: "permissao_negada" })
     return res.status(404).json({ error: "tabela_nao_suportada" })
-  })
+  }))
 
-  app.patch("/rest/v1/:table", (req, res) => {
+  app.patch("/rest/v1/:table", asyncHandler(async (req, res) => {
     const uid = requireAuth(req)
     if (!uid) return res.status(401).json({ error: "nao_autenticado" })
-    const tabela = req.params.table
-    const body = req.body || {}
-    const q = req.query
 
-    if (tabela === "profiles") {
-      const permitidas = ["display_name", "summary", "country", "city", "showcase", "profile_visibility", "show_location", "background_url", "avatar_url", "banner_url"]
-      const set = Object.keys(body).filter((k) => permitidas.includes(k))
-      if (!set.length) return res.status(400).json({ error: "sem_campos" })
-      const sets = set.map((k) => `${k} = ?`)
-      const vals = set.map((k) => body[k])
-      db.prepare(`UPDATE profiles SET ${sets.join(", ")} WHERE id = ?`).run(...vals, uid)
+    if (req.params.table === "profiles") {
+      const permitidas = [
+        "display_name", "summary", "country", "city", "showcase", "profile_visibility",
+        "show_location", "background_url", "avatar_url", "banner_url",
+      ]
+      const columns = Object.keys(req.body || {}).filter((key) => permitidas.includes(key))
+      if (!columns.length) return res.status(400).json({ error: "sem_campos" })
+      const params = columns.map((column) => {
+        const value = req.body[column]
+        return column === "showcase" && typeof value !== "string"
+          ? JSON.stringify(value ?? [])
+          : value
+      })
+      const sets = columns.map((column, index) => `${column} = $${index + 1}`)
+      params.push(uid)
+      await db.query(`UPDATE profiles SET ${sets.join(", ")} WHERE id = $${params.length}`, params)
       return res.json([])
     }
-    if (tabela === "friendships") {
-      const status = body.status
-      const orRaw = String(q.or || "")
-      const re = /([a-z_]+)\.(eq)\.([^,)]+)/g
-      let m
-      const orClauses = []
-      const params = []
-      while ((m = re.exec(orRaw))) {
-        const [col, , val] = m
-        orClauses.push(`${col} = ?`)
-        params.push(val)
-      }
-      const conds = orClauses.length ? [`(${orClauses.join(" AND ")})`] : []
-      conds.push("(user_a = ? OR user_b = ?)")
-      params.push(uid, uid)
-      if (status && status === "accepted") {
-        conds.push("status = 'pending'")
-        db.prepare(`UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE ${conds.join(" AND ")}`).run(...params)
+
+    if (req.params.table === "friendships") {
+      if (req.body?.status === "accepted") {
+        const pair = friendshipPair(req.query.or, uid)
+        const requesterId = String(req.query.requester_id || "").replace(/^eq\./, "")
+        if (!pair || !requesterId || requesterId === uid) {
+          return res.status(400).json({ error: "filtro_invalido" })
+        }
+        const blocked = await db.query(
+          `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
+          pair,
+        )
+        if (blocked.rows[0]) return res.status(403).json({ error: "usuario_bloqueado" })
+        await db.query(
+          `UPDATE friendships SET status = 'accepted', updated_at = now()
+           WHERE user_a = $1 AND user_b = $2 AND requester_id = $3 AND status = 'pending'`,
+          [...pair, requesterId],
+        )
       }
       return res.json([])
     }
     return res.status(404).json({ error: "tabela_nao_suportada" })
-  })
+  }))
 
-  app.delete("/rest/v1/:table", (req, res) => {
+  app.delete("/rest/v1/:table", asyncHandler(async (req, res) => {
     const uid = requireAuth(req)
     if (!uid) return res.status(401).json({ error: "nao_autenticado" })
-    const tabela = req.params.table
-    const q = req.query
-    if (tabela !== "friendships") return res.status(404).json({ error: "tabela_nao_suportada" })
-
-    const orRaw = String(q.or || "")
-    const re = /([a-z_]+)\.(eq)\.([^,)]+)/g
-    let m
-    const orClauses = []
-    const params = []
-    while ((m = re.exec(orRaw))) {
-      const [col, , val] = m
-      orClauses.push(`${col} = ?`)
-      params.push(val)
+    if (req.params.table !== "friendships") {
+      return res.status(404).json({ error: "tabela_nao_suportada" })
     }
-    const conds = orClauses.length ? [`(${orClauses.join(" AND ")})`] : []
-    conds.push("(user_a = ? OR user_b = ?)")
-    params.push(uid, uid)
-    db.prepare(`DELETE FROM friendships WHERE ${conds.join(" AND ")}`).run(...params)
+    const pair = friendshipPair(req.query.or, uid)
+    const status = String(req.query.status || "").replace(/^eq\./, "")
+    const requesterId = String(req.query.requester_id || "").replace(/^eq\./, "")
+    if (!pair || !["pending", "accepted"].includes(status)) {
+      return res.status(400).json({ error: "filtro_invalido" })
+    }
+    if (status === "pending") {
+      if (requesterId !== uid) return res.status(400).json({ error: "filtro_invalido" })
+      await db.query(
+        `DELETE FROM friendships
+         WHERE user_a = $1 AND user_b = $2 AND requester_id = $3 AND status = 'pending'`,
+        [...pair, requesterId],
+      )
+    } else {
+      await db.query(
+        "DELETE FROM friendships WHERE user_a = $1 AND user_b = $2 AND status = 'accepted'",
+        pair,
+      )
+    }
     return res.json([])
-  })
+  }))
 }
 
 module.exports = { registerRestRoutes }

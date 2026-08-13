@@ -14,6 +14,9 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-catalog-")
 const { fetchCatalogKey, CATALOG_KEYS, CATALOG_TTL, catalogKey, idValido } = require("../src/catalog-fetch")
 const { db } = require("../src/db")
 
+const UPSERT_CACHE = `INSERT INTO catalog_cache (key, data, at) VALUES ($1, $2, $3)
+  ON CONFLICT (key) DO UPDATE SET data = excluded.data, at = excluded.at`
+
 // Stub do fetch global: devolve JSON por URL.
 function stubFetch(map) {
   const antigo = global.fetch
@@ -244,8 +247,8 @@ test("catalog rotas: sem JWT devolve 401", async () => {
 })
 
 test("catalog rotas: com JWT e cache, popular devolve fatia paginada", async () => {
-  // popula o cache direto no SQLite
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  // popula o cache direto no PostgreSQL
+  await db.query(UPSERT_CACHE, [
     "popular",
     JSON.stringify({
       completa: [
@@ -254,7 +257,7 @@ test("catalog rotas: com JWT e cache, popular devolve fatia paginada", async () 
       ],
     }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/popular?limite=1&offset=1`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -267,13 +270,13 @@ test("catalog rotas: com JWT e cache, popular devolve fatia paginada", async () 
 })
 
 test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "sysinfo:2622380",
     // `v` = formato atual: sem isto a rota trataria como cache velho e iria a
     // fonte externa (o teste passaria a depender de rede).
     JSON.stringify({ v: 2, appid: "2622380", req_min: "16GB", req_rec: "32GB" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/sysinfo/2622380`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -283,11 +286,11 @@ test("catalog rotas: sysinfo por appid devolve requisitos", async () => {
 })
 
 test("catalog rotas: meta por appid devolve metadados", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "meta:2622380",
     JSON.stringify({ v: 1, appid: "2622380", name: "Elden Ring", genre: "RPG" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/meta/2622380`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -304,11 +307,11 @@ test("catalog rotas: hltb devolve 404 sem cache (placeholder)", async () => {
 })
 
 test("catalog rotas: items em lote devolve mapa por appid", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "items:2622380",
     JSON.stringify({ tipo: 0, capa: "u", heroi: "h", icon: "i" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/items?appids=2622380`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -333,14 +336,14 @@ test("catalog rotas: cache vazio devolve 404", async () => {
 })
 
 test("catalog rotas: search devolve jogos do catalogo completo", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "catalogo_completo",
     JSON.stringify({ completa: [
       { appid: "1245620", title: "ELDEN RING" },
       { appid: "1091500", title: "Cyberpunk 2077" },
     ] }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/search?q=elden`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -352,7 +355,7 @@ test("catalog rotas: search devolve jogos do catalogo completo", async () => {
 })
 
 test("catalog rotas: search rankeia prefixo exato antes de substring", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "catalogo_completo",
     JSON.stringify({ completa: [
       { appid: "99999", title: "Super Cyberpunk Simulator" },
@@ -360,7 +363,7 @@ test("catalog rotas: search rankeia prefixo exato antes de substring", async () 
       { appid: "55555", title: "The Punky Adventure" },
     ] }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/search?q=cyberpunk`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -373,14 +376,14 @@ test("catalog rotas: search rankeia prefixo exato antes de substring", async () 
 })
 
 test("catalog rotas: search casa por palavra (limite) e nao so prefixo", async () => {
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "catalogo_completo",
     JSON.stringify({ completa: [
       { appid: "1245620", title: "ELDEN RING" },
       { appid: "77777", title: "Some Other Game" },
     ] }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/search?q=ring`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -403,12 +406,18 @@ test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", asy
   })
   try {
     // limpa cache antes
-    db.prepare("DELETE FROM catalog_cache").run()
+    await db.query("DELETE FROM catalog_cache")
     warmUpCatalog()
     // aguarda o warm-up em background terminar
     await new Promise((r) => setTimeout(r, 500))
-    const popular = db.prepare("SELECT data FROM catalog_cache WHERE key='popular'").get()
-    const sushi = db.prepare("SELECT data FROM catalog_cache WHERE key='sushi'").get()
+    const popular = (await db.query(
+      "SELECT data FROM catalog_cache WHERE key = $1",
+      ["popular"],
+    )).rows[0]
+    const sushi = (await db.query(
+      "SELECT data FROM catalog_cache WHERE key = $1",
+      ["sushi"],
+    )).rows[0]
     assert.ok(popular, "popular deve estar em cache")
     assert.ok(sushi, "sushi deve estar em cache")
     assert.ok(JSON.parse(popular.data).completa.length === 1)
@@ -421,11 +430,11 @@ test("catalog rotas: warmUpCatalog popula popular/sushi/news em background", asy
 test("catalog rotas: warmUpCatalog NAO re-busca cache valido", async () => {
   const { warmUpCatalog } = require("../src/catalog-routes")
   // popula popular com dados "marcadores" e at recente (dentro do TTL 6h)
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "popular",
     JSON.stringify({ completa: [{ appid: "999", title: "MARCADOR", cover: "", manifest: false }] }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   // stub que, se chamado, retornaria dados DIFERENTES — nao deve ser chamado
   const chamou = { fetch: false }
   const antigo = global.fetch
@@ -440,7 +449,10 @@ test("catalog rotas: warmUpCatalog NAO re-busca cache valido", async () => {
     warmUpCatalog()
     await new Promise((r) => setTimeout(r, 300))
     // o cache NAO deve ter sido sobrescrito pelo fetch
-    const row = db.prepare("SELECT data FROM catalog_cache WHERE key='popular'").get()
+    const row = (await db.query(
+      "SELECT data FROM catalog_cache WHERE key = $1",
+      ["popular"],
+    )).rows[0]
     const data = JSON.parse(row.data)
     assert.equal(data.completa[0].title, "MARCADOR", "cache valido nao pode ser re-buscado")
     assert.equal(chamou.fetch, false, "nao deve chamar a fonte para cache fresco")
@@ -452,11 +464,11 @@ test("catalog rotas: warmUpCatalog NAO re-busca cache valido", async () => {
 test("catalog rotas: If-None-Match com etag atual devolve 304", async () => {
   // garante que existe cache de popular com at conhecido
   const at = Math.floor(Date.now() / 1000)
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "popular",
     JSON.stringify({ completa: [{ appid: "10", title: "CS", cover: "", manifest: false }] }),
     at,
-  )
+  ])
   // primeira chamada pega o etag
   const r1 = await fetch(`${catBase}/catalog/v1/popular`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
@@ -480,16 +492,16 @@ test("catalog rotas: If-None-Match com etag atual devolve 304", async () => {
 test("catalog rotas: manifests em lote devolve varios appids numa chamada", async () => {
   // popula cache de manifests para 2 appids
   const at = Math.floor(Date.now() / 1000)
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "manifests:2622380",
     JSON.stringify({ "https://sushi/2622380.zip": { ok: true } }),
     at,
-  )
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  ])
+  await db.query(UPSERT_CACHE, [
     "manifests:10",
     JSON.stringify({ "https://ryuu/10": { ok: true } }),
     at,
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/manifests?appids=2622380,10`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -519,11 +531,11 @@ test("catalog-fetch: catalogKey normaliza genre all para __all", () => {
 
 test("catalog rotas: genre?lista=all serve o catalogo Em alta (nao 400)", async () => {
   // popula o popular no cache
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "popular",
     JSON.stringify({ completa: [{ appid: "10", title: "CS", cover: "", manifest: false }] }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/genre?lista=all`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -535,7 +547,7 @@ test("catalog rotas: genre?lista=all serve o catalogo Em alta (nao 400)", async 
 test("catalog rotas: steam250 devolve jogos com nome paginados", async () => {
   // popula steam250 + items de alguns appids
   const at = Math.floor(Date.now() / 1000)
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     "steam250",
     JSON.stringify({ completa: [
       { appid: "413150", title: "Stardew Valley" },
@@ -545,12 +557,12 @@ test("catalog rotas: steam250 devolve jogos com nome paginados", async () => {
       { appid: "570", title: "Dota 2" },
     ] }),
     at,
-  )
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  ])
+  await db.query(UPSERT_CACHE, [
     "items:413150",
     JSON.stringify({ tipo: 0, capa: "capa", heroi: "heroi" }),
     at,
-  )
+  ])
   const r = await fetch(`${catBase}/catalog/v1/steam250?offset=0&limite=2`, {
     headers: { authorization: `Bearer ${tokenUsuario("zes")}` },
   })
@@ -571,9 +583,11 @@ test("catalog rotas: steam250 devolve jogos com nome paginados", async () => {
 
 test("catalog rotas: reviews POST adiciona e GET devolve", async () => {
   // cria um profile real para o user_id da review (FK valida)
-  db.prepare(
-    "INSERT OR IGNORE INTO profiles (id, email, password_hash, username) VALUES (?,?,?,?)",
-  ).run("user1", "user1@teste", "hash", "user1")
+  await db.query(
+    `INSERT INTO profiles (id, email, password_hash, username) VALUES ($1, $2, $3, $4)
+     ON CONFLICT DO NOTHING`,
+    ["user1", "user1@teste", "hash", "user1"],
+  )
   // POST uma review (autenticado)
   const rPost = await fetch(`${catBase}/catalog/v1/reviews/730`, {
     method: "POST",
@@ -619,11 +633,11 @@ function stubExterno(map) {
 test("catalog rotas: sysinfo em formato antigo (sem about) se corrige sozinho", async () => {
   const APPID = "424370"
   // Linha no formato ANTIGO: sem `v` e sem `about`, como as ja gravadas.
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     `sysinfo:${APPID}`,
     JSON.stringify({ appid: APPID, req_min: "8GB", req_rec: "16GB", short_description: "velho" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
 
   const restaurar = stubExterno({
     [`https://store.steampowered.com/api/appdetails?appids=${APPID}&l=english`]: {
@@ -650,10 +664,11 @@ test("catalog rotas: sysinfo em formato antigo (sem about) se corrige sozinho", 
     restaurar()
   }
 
-  // A linha no SQLite foi reescrita no formato novo (nao rebusca na proxima).
-  const salvo = JSON.parse(
-    db.prepare("SELECT data FROM catalog_cache WHERE key = ?").get(`sysinfo:${APPID}`).data,
-  )
+  // A linha no PostgreSQL foi reescrita no formato novo (nao rebusca na proxima).
+  const salvo = JSON.parse((await db.query(
+    "SELECT data FROM catalog_cache WHERE key = $1",
+    [`sysinfo:${APPID}`],
+  )).rows[0].data)
   assert.equal(salvo.v, 2)
   assert.match(salvo.about, /<img/)
 })
@@ -661,11 +676,11 @@ test("catalog rotas: sysinfo em formato antigo (sem about) se corrige sozinho", 
 // Fonte externa fora + cache em formato antigo: serve o que tem (nao 404).
 test("catalog rotas: formato antigo sobrevive se a Steam estiver fora", async () => {
   const APPID = "424380"
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     `sysinfo:${APPID}`,
     JSON.stringify({ appid: APPID, req_min: "4GB", short_description: "antigo" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   const restaurar = stubExterno({}) // qualquer fonte externa -> 404
   try {
     const r = await fetch(`${catBase}/catalog/v1/sysinfo/${APPID}`, {
@@ -682,11 +697,11 @@ test("catalog rotas: formato antigo sobrevive se a Steam estiver fora", async ()
 // Cache ja no formato atual e servido direto, sem tocar a fonte externa.
 test("catalog rotas: sysinfo no formato atual nao rebusca", async () => {
   const APPID = "424390"
-  db.prepare("INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)").run(
+  await db.query(UPSERT_CACHE, [
     `sysinfo:${APPID}`,
     JSON.stringify({ v: 2, appid: APPID, req_min: "2GB", about: "<p>ok</p>" }),
     Math.floor(Date.now() / 1000),
-  )
+  ])
   let bateuNaFonte = false
   const antigo = global.fetch
   global.fetch = async (url, opts = {}) => {

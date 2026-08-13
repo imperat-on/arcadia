@@ -7,13 +7,17 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.js",
+    "verify:postgres": "node scripts/verify-migration.js",
+    "test": "NODE_ENV=test node --test"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
+    "pg": "^8.23.0",
     "ws": "^8.18.0"
   }
 }

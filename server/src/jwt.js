@@ -5,7 +5,14 @@
 
 const jwt = require("jsonwebtoken")
 
-const SECRET = process.env.JWT_SECRET || "dev-secret-nao-use-em-prod"
+const SECRET = String(
+  process.env.JWT_SECRET ||
+    (process.env.NODE_ENV === "test" ? "test-only-arcadia-jwt-secret-32-chars" : ""),
+).trim()
+const MIN_SECRET_LENGTH = 32
+if (SECRET.length < MIN_SECRET_LENGTH || SECRET === "dev-secret-nao-use-em-prod") {
+  throw new Error("JWT_SECRET ausente ou fraco: configure pelo menos 32 caracteres")
+}
 const EXPIRES_IN_S = 3600 // 1h
 const REFRESH_EXPIRES_IN_S = 60 * 60 * 24 * 30 // 30d
 

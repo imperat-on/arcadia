@@ -93,6 +93,26 @@ test("login_check errado devolve senha_errada e depois muitas_tentativas", async
   assert.strictEqual(bloqueado.body.error, "muitas_tentativas")
 })
 
+test("login_check serializa falhas concorrentes", async () => {
+  await post("/auth/v1/signup", {
+    email: "parallel@b.com",
+    password: "senha123",
+    options: { data: { username: "parallel" } },
+  })
+  const failures = await Promise.all(
+    Array.from({ length: 5 }, () => post("/rest/v1/rpc/login_check", {
+      p_username: "parallel",
+      p_password: "errada",
+    })),
+  )
+  assert.ok(failures.every((result) => result.body.error === "senha_errada"))
+  const blocked = await post("/rest/v1/rpc/login_check", {
+    p_username: "parallel",
+    p_password: "senha123",
+  })
+  assert.strictEqual(blocked.body.error, "muitas_tentativas")
+})
+
 test("username_available espelha profiles e reserved", async () => {
   const alice = await post("/rest/v1/rpc/username_available", {
     p_username: "alice",

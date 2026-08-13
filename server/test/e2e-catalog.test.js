@@ -58,22 +58,24 @@ test("E2E: app autenticado consulta catalogo e grava espelho", async () => {
   })
   assert.equal(error, null)
 
-  db.prepare(
-    "INSERT OR REPLACE INTO catalog_cache (key, data, at) VALUES (?,?,?)",
-  ).run(
-    "popular",
-    JSON.stringify({
-      completa: [
-        {
-          appid: "10",
-          title: "Counter-Strike",
-          cover: "capa-10",
-          manifest: false,
-        },
-        { appid: "70", title: "Half-Life", cover: "capa-70", manifest: true },
-      ],
-    }),
-    nowEpochS(),
+  await db.query(
+    `INSERT INTO catalog_cache (key, data, at) VALUES ($1, $2, $3)
+     ON CONFLICT (key) DO UPDATE SET data = excluded.data, at = excluded.at`,
+    [
+      "popular",
+      JSON.stringify({
+        completa: [
+          {
+            appid: "10",
+            title: "Counter-Strike",
+            cover: "capa-10",
+            manifest: false,
+          },
+          { appid: "70", title: "Half-Life", cover: "capa-70", manifest: true },
+        ],
+      }),
+      nowEpochS(),
+    ],
   )
 
   const resposta = await catalogGet("/catalog/v1/popular?limite=1&offset=1")

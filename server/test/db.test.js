@@ -1,7 +1,7 @@
 "use strict"
 
-// Testes da Fase 1: schema SQLite + health.
-// Roda com `node --test`. Usa DB temporario (DATA_DIR=/tmp).
+// Testes da Fase 1: schema PostgreSQL + health.
+// Roda com `node --test`.
 
 const test = require("node:test")
 const assert = require("node:assert")
@@ -12,12 +12,17 @@ const path = require("node:path")
 // DB temporario para nao poluir o de producao
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-test-"))
 
-test("db.js carrega e cria as tabelas do schema", () => {
-  const { db, RESERVED } = require("../src/db")
+test("db.js carrega e cria as tabelas do schema", async () => {
+  const { db, initDb, RESERVED } = require("../src/db")
 
-  const tables = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-    .all()
+  await initDb()
+  const tables = (await db.query(
+    `SELECT table_name AS name
+       FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_type = 'BASE TABLE'
+      ORDER BY table_name`,
+  )).rows
     .map((r) => r.name)
 
   for (const t of [
@@ -31,11 +36,12 @@ test("db.js carrega e cria as tabelas do schema", () => {
   assert.ok(RESERVED.includes("arcadia"), "reserved inclui arcadia")
 })
 
-test("reserved_usernames seed aplicado", () => {
-  const { db } = require("../src/db")
-  const row = db
-    .prepare("SELECT count(*) AS n FROM reserved_usernames")
-    .get()
+test("reserved_usernames seed aplicado", async () => {
+  const { db, initDb } = require("../src/db")
+  await initDb()
+  const row = (await db.query(
+    "SELECT count(*)::integer AS n FROM reserved_usernames",
+  )).rows[0]
   assert.ok(row.n >= 14, `seed >= 14 (got ${row.n})`)
 })
 
