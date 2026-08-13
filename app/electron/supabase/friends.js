@@ -298,6 +298,12 @@ async function friendAchievementsCached(friendId) {
   return friendAchievements(friendId)
 }
 
+async function friendProfile(friendId) {
+  const { data, error } = await getClient().rpc("friend_profile", { p_friend: friendId })
+  if (error) return { ok: false, error: error.message }
+  return data || { ok: false, error: "perfil_indisponivel" }
+}
+
 /** Remove amigo aceito (policy friends_delete_accepted — qualquer membro do par). */
 async function removeFriend(friendId) {
   const me = await requireUserId()
@@ -380,6 +386,7 @@ module.exports = {
   list,
   friendAchievements,
   friendAchievementsCached,
+  friendProfile,
   removeFriend,
   watchRequests,
   onAtualizado,

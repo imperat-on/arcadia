@@ -75,6 +75,13 @@ test("applyPulled: desbloqueado no servidor e não local → marca", () => {
   assert.equal(it.unlock, 1700000000)
 })
 
+test("applyPulled: aceita unlocked_at em epoch segundos", () => {
+  escreveAchievements({})
+  sync.applyPulled([{ appid: "730", apiname: "ach_epoch", unlocked_at: 1700000000 }])
+  const store = JSON.parse(fs.readFileSync(path.join(DIR, "achievements.json"), "utf8"))
+  assert.equal(store["730"].items[0].unlock, 1700000000)
+})
+
 test("applyPulled: local já desbloqueado ANTES → mantém local (earliest wins)", () => {
   escreveAchievements({
     "730": { at: 1, items: [{ apiname: "ach_y", achieved: true, unlock: 1700000000 }] },
