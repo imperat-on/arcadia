@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   rebuildMeta: () => ipcRenderer.invoke("meta:rebuild"),
   integrationsStatus: () => ipcRenderer.invoke("integrations:status"),
   pickImage: (kind) => ipcRenderer.invoke("profile:pickImage", kind),
+  avatarLoad: (url) => ipcRenderer.invoke("avatar:load", url),
   hltbGet: (titulo) => ipcRenderer.invoke("hltb:get", titulo),
   trailerPath: (id) => ipcRenderer.invoke("trailer:path", id),
   trailerDownload: (id, title) => ipcRenderer.invoke("trailer:download", { id, title }),
@@ -225,6 +226,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   friendsCancel: (userId) => ipcRenderer.invoke("friends:cancel", userId),
   friendsList: (opts) => ipcRenderer.invoke("friends:list", opts),
   friendsAchievements: (userId) => ipcRenderer.invoke("friends:achievements", userId),
+  friendsProfile: (userId) => ipcRenderer.invoke("friends:profile", userId),
   friendsRemove: (userId) => ipcRenderer.invoke("friends:remove", userId),
   onFriendRequest: (cb) => {
     const h = (_e, data) => cb(data)

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test",
+    "test": "NODE_ENV=test node --test",
     "electron": "electron .",
     "start": "vite build && electron ."
   },
