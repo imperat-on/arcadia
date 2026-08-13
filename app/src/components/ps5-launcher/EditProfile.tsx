@@ -48,6 +48,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   // Recorte de avatar — hook tem que ficar ANTES do `if (!open) return null`
   // (senão o nº de hooks muda entre renders e o React derruba tudo → tela preta)
   const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [avatarBroken, setAvatarBroken] = useState(false)
   const [fields, setFields] = useState({
     name: "",
     realName: "",
@@ -82,6 +83,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
 
   useEffect(() => {
     if (!open) return
+    setAvatarBroken(false)
     setFields({
       name: profile.name ?? t("profile.padrao_jogador"),
       realName: profile.realName ?? "",
@@ -90,6 +92,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
       summary: profile.summary ?? "",
     })
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [profile.avatar])
 
   useEffect(() => {
     if (!open) return
@@ -156,8 +162,10 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         ? await conta.setAvatar(pathOuBytes)
         : await conta.setAvatarBytes(pathOuBytes, mime || "image/png", ext || ".png")
     if (up.ok && up.avatar_url) {
+      setAvatarBroken(false)
       onChange((atual) => ({ ...atual, avatar: up.avatar_url }))
       await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
+      await conta.reloadPerfil()
       return true
     }
     const msgs: Record<string, string> = {
@@ -278,8 +286,8 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                 }}
               >
                 <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[9px] bg-[#12121a] text-base font-bold text-white">
-                  {profile.avatar ? (
-                    <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                  {profile.avatar && !avatarBroken ? (
+                    <img src={profile.avatar} alt="" className="h-full w-full object-cover" onError={() => setAvatarBroken(true)} />
                   ) : (
                     (fields.name?.[0] || "J").toUpperCase()
                   )}
@@ -508,13 +516,21 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
                       boxShadow: "0 12px 40px color-mix(in oklab, var(--accent) 30%, transparent)",
                     }}
                   >
-                    {profile.avatar ? (
-                      <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                    {profile.avatar && !avatarBroken ? (
+                      <img
+                        src={profile.avatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        onError={() => {
+                          setAvatarBroken(true)
+                          onChange((atual) => ({ ...atual, avatar: "" }))
+                        }}
+                      />
                     ) : (
                       (profile.name?.[0] || "J").toUpperCase()
                     )}
                   </div>
-                  {profile.avatar && (
+                  {profile.avatar && !avatarBroken && (
                     <div
                       className="absolute -bottom-2 -right-2 rounded-xl p-2 shadow-lg"
                       style={{

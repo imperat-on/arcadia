@@ -293,7 +293,7 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
             {!jogoPagina && view === "fontes" && <SourcesView />}
-            {!jogoPagina && view === "amigos" && <FriendsView />}
+            {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
               <ProfilePage
                 open

@@ -16,6 +16,9 @@ interface ProfilePageProps {
   onJogoClick?: (g: Game) => void
   embedded?: boolean
   navActive?: boolean
+  readOnly?: boolean
+  statsOverride?: ProfileStats | null
+  friendsOverride?: FriendProfile[]
 }
 
 export function ProfilePage({
@@ -27,6 +30,9 @@ export function ProfilePage({
   onEdit,
   onJogoClick,
   embedded = false,
+  readOnly = false,
+  statsOverride,
+  friendsOverride,
 }: ProfilePageProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open && navActive, onClose)
@@ -34,19 +40,39 @@ export function ProfilePage({
   // Amigos vêm do FriendsContext (cache + atualização automática) — a 1ª
   // pintura do perfil é instantânea, sem fetch próprio aqui.
   const { data: amigosData } = useFriends()
-  const friends = amigosData?.friends ?? []
+  const friends = friendsOverride ?? amigosData?.friends ?? []
 
   // Estatísticas reais (jogos/playtime).
   const [stats, setStats] = useState<ProfileStats | null>(null)
+  const [avatarBroken, setAvatarBroken] = useState(false)
+  const [avatarSrc, setAvatarSrc] = useState(profile.avatar || "")
 
   useEffect(() => {
     if (!open) return
-    window.launcherAPI?.profileStats().then(setStats)
+    setAvatarBroken(false)
+    setAvatarSrc(profile.avatar || "")
+    if (!profile.avatar) return
+    let vivo = true
+    window.launcherAPI?.avatarLoad(profile.avatar)
+      .then((r) => {
+        if (!r?.ok || !r.src) throw new Error(r?.error || "avatar indisponível")
+        if (vivo) setAvatarSrc(r.src)
+      })
+      .catch(() => vivo && setAvatarBroken(true))
+    return () => {
+      vivo = false
+    }
+  }, [open, profile.avatar])
+
+  useEffect(() => {
+    if (!open) return
+    if (statsOverride !== undefined) setStats(statsOverride)
+    else window.launcherAPI?.profileStats().then(setStats)
     if (embedded) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose, embedded])
+  }, [open, onClose, embedded, statsOverride])
 
   if (!open) return null
 
@@ -135,7 +161,7 @@ export function ProfilePage({
                 {t("profile.voltar")}
               </button>
             )}
-            <button
+            {!readOnly && <button
               onClick={onEdit}
               className="flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition-colors hover:border-white/30 hover:bg-white/10"
             >
@@ -143,7 +169,7 @@ export function ProfilePage({
                 <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               {t("profile.editar_perfil")}
-            </button>
+            </button>}
           </div>
 
           {/* Banner do perfil (faixa larga estilo Steam) */}
@@ -181,8 +207,13 @@ export function ProfilePage({
                   border: "3px solid rgba(0,0,0,0.6)",
                 }}
               >
-                {profile.avatar ? (
-                  <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+                {avatarSrc && !avatarBroken ? (
+                  <img
+                    src={avatarSrc}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={() => setAvatarBroken(true)}
+                  />
                 ) : (
                   name[0].toUpperCase()
                 )}

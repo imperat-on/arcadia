@@ -37,24 +37,41 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
         ref={ref}
         className="gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
       >
-        <div className="mx-auto max-w-[1100px] px-10 py-8">
+        {/* Glow ambiente de acento no topo (assinatura da tela) */}
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-64"
+          style={{
+            background:
+              "radial-gradient(ellipse 60% 100% at 50% 0%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 70%)",
+          }}
+        />
+        <div className="relative mx-auto max-w-[1100px] px-10 py-8">
           {/* Cabeçalho */}
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.26em] text-white/55">
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
+              className="inline-block h-[6px] w-[6px] rounded-full shadow-[0_0_8px_var(--accent)]"
               style={{ background: "var(--accent)" }}
             />
             {t("downloads.titulo")}
           </div>
           <div className="mb-8 flex items-baseline justify-between">
-            <h1 className="text-3xl font-light tracking-wide">
+            <h1
+              className="game-name text-3xl font-bold"
+              style={{
+                background:
+                  "linear-gradient(120deg, #fff 55%, color-mix(in oklab, var(--accent) 80%, #fff))",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                color: "transparent",
+              }}
+            >
               {baixando
                 ? t("downloads.baixando_agora")
                 : ativos.length
                   ? t("downloads.status.na_fila")
                   : t("downloads.fila")}
             </h1>
-            <span className="text-sm text-white/40">
+            <span className="text-sm text-white/45">
               {t("downloads.ativos", { count: String(ativos.length) })}
               {parados.length > 0 &&
                 ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
@@ -72,7 +89,11 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
               ))}
               {parados.length > 0 && (
                 <>
-                  <h2 className="mt-4 text-sm font-medium text-white/45">
+                  <h2 className="mt-4 flex items-center gap-2 text-sm font-semibold text-white/55">
+                    <span
+                      className="inline-block h-1 w-1 rounded-full"
+                      style={{ background: "var(--accent)" }}
+                    />
                     {t("downloads.nao_concluidos")}
                   </h2>
                   {parados.map((it) => (
@@ -124,44 +145,76 @@ export function DmCard({ item: it }: { item: DmItem }) {
 
   return (
     <div
-      className={`flex items-center gap-5 rounded-2xl border p-4 transition-colors ${
-        baixando ? "border-[color:var(--accent)]" : "border-white/10"
-      } bg-white/[0.03]`}
+      className={`flex items-center gap-5 rounded-2xl border p-4 transition-all ${
+        baixando
+          ? "border-[color:var(--accent)]/40 bg-[color:var(--accent)]/[0.04]"
+          : "border-white/10 bg-white/[0.03] hover:border-white/20"
+      }`}
       style={baixando ? { boxShadow: "0 0 30px -8px var(--accent)" } : undefined}
     >
-      {coverSrc && !coverQuebrou ? (
-        <img
-          src={coverSrc}
-          alt=""
-          className="h-20 w-14 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
-          draggable={false}
-          onError={() => {
-            if (fallbackSteam && coverSrc !== fallbackSteam) setCoverSrc(fallbackSteam)
-            else setCoverQuebrou(true)
-          }}
-        />
-      ) : (
-        <div className="h-20 w-14 shrink-0 rounded-lg bg-white/5 ring-1 ring-white/10" />
-      )}
+      {/* Capa com halo */}
+      <div className="relative shrink-0">
+        {coverSrc && !coverQuebrou ? (
+          <img
+            src={coverSrc}
+            alt=""
+            className="h-24 w-16 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+            draggable={false}
+            onError={() => {
+              if (fallbackSteam && coverSrc !== fallbackSteam) setCoverSrc(fallbackSteam)
+              else setCoverQuebrou(true)
+            }}
+          />
+        ) : (
+          <div className="h-24 w-16 shrink-0 rounded-lg bg-white/5 ring-1 ring-white/10" />
+        )}
+        {baixando && (
+          <div
+            className="pointer-events-none absolute -inset-1.5 -z-10 rounded-xl opacity-40 blur-lg"
+            style={{ background: "color-mix(in oklab, var(--accent) 50%, transparent)" }}
+          />
+        )}
+      </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="truncate text-base font-medium">{it.title}</h3>
-          <span className="shrink-0 text-xs text-white/50">
+          <h3 className="truncate text-base font-semibold text-white/95">{it.title}</h3>
+          <span
+            className="shrink-0 text-xs"
+            style={{
+              color:
+                it.status === "error"
+                  ? "#ff6b81"
+                  : baixando
+                    ? "var(--accent)"
+                    : "rgba(255,255,255,0.55)",
+              fontWeight: baixando ? 600 : 400,
+            }}
+          >
             {t("downloads.status." + it.status)}
           </span>
         </div>
 
-        {/* Barra de progresso azul-glow */}
-        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        {/* Barra de progresso azul-glow premium */}
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/[0.07]">
           <div
-            className="h-full rounded-full transition-all duration-500"
+            className="relative h-full rounded-full transition-all duration-500"
             style={{
               width: `${pct}%`,
-              background: "var(--accent)",
-              boxShadow: baixando ? "0 0 12px var(--accent)" : "none",
+              background: it.status === "error" ? "#ff6b81" : "var(--accent)",
+              boxShadow: baixando ? "0 0 14px var(--accent)" : "none",
             }}
-          />
+          >
+            <div
+              className="absolute inset-0 overflow-hidden rounded-full"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%)",
+                backgroundSize: "200% 100%",
+                animation: baixando ? "dm-shine 1.8s linear infinite" : "none",
+              }}
+            />
+          </div>
         </div>
 
         <div className="mt-2 flex items-baseline justify-between text-xs text-white/50">
@@ -251,10 +304,10 @@ function Acao({
       onClick={onClick}
       className={`rounded-full px-4 py-1.5 text-xs font-semibold outline-none transition-all focus-visible:shadow-[0_0_0_2px_var(--accent)] ${
         primaria
-          ? "bg-white text-black hover:scale-105"
+          ? "bg-white text-black hover:scale-105 hover:shadow-[0_0_16px_rgba(255,255,255,0.4)]"
           : perigo
-            ? "border border-[#ff6b81]/40 text-[#ff6b81] hover:bg-[#ff6b81]/10"
-            : "border border-white/15 text-white/80 hover:bg-white/10"
+            ? "border border-[#ff6b81]/40 text-[#ff6b81] hover:bg-[#ff6b81]/10 hover:border-[#ff6b81]/70"
+            : "border border-white/15 text-white/80 hover:bg-white/10 hover:border-white/30"
       }`}
     >
       {label}

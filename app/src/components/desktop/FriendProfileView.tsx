@@ -6,9 +6,21 @@
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { corDeUsername, inicialDe, formatarData } from "../account/avatar"
+import { ProfilePage } from "../ps5-launcher/ProfilePage"
+import type { Game } from "../ps5-launcher/types"
+import type { Profile } from "../../global"
+
+type ProfilePublic = Profile & {
+  username?: string | null
+  avatar_url?: string | null
+  display_name?: string | null
+  background_url?: string | null
+  banner_url?: string | null
+}
 
 interface Props {
   amigo: FriendProfile
+  games: Game[]
   onVoltar: () => void
   onRemovido: () => void
 }
@@ -20,12 +32,18 @@ type ConquistaEnriquecida = FriendAchievement & {
   unlockLocal?: number
 }
 
-export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
+export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props) {
   const { t } = useI18n()
   const [conquistas, setConquistas] = useState<ConquistaEnriquecida[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [confirmandoRemover, setConfirmandoRemover] = useState(false)
   const [removendo, setRemovendo] = useState(false)
+  const [perfil, setPerfil] = useState<{
+    profile: ProfilePublic
+    games: { appid: string; title: string; minutes?: number }[]
+    friends?: FriendProfile[]
+    stats?: { jogos: number; playtime_hours: number }
+  } | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -72,6 +90,15 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
     }
   }, [amigo.id, t])
 
+  useEffect(() => {
+    let vivo = true
+    window.launcherAPI?.friendsProfile(amigo.id).then((r) => {
+      if (vivo && r?.ok && r.profile) setPerfil({ profile: r.profile, games: r.games || [], friends: r.friends || [], stats: r.stats })
+      if (vivo && !r?.ok) setErro(r?.error || t("amigos.erro_geral"))
+    })
+    return () => { vivo = false }
+  }, [amigo.id, t])
+
   const remover = async () => {
     setRemovendo(true)
     const r = await window.launcherAPI?.friendsRemove(amigo.id)
@@ -83,6 +110,77 @@ export function FriendProfileView({ amigo, onVoltar, onRemovido }: Props) {
   const cor = corDeUsername(amigo.username)
   const corClara = `hsl(${cor.replace(/hsl\((\d+).*/, "$1")} 90% 60%)`
   const aceito = amigo.status === "accepted"
+
+  if (!perfil && !erro) {
+    return <div className="flex h-full items-center justify-center text-sm text-white/45">Carregando perfil...</div>
+  }
+
+  if (perfil) {
+    const localByApp = new Map(games.map((g) => [String(g.id).replace(/^steam:/, ""), g]))
+    const jogos = perfil.games.map((item) => {
+      const local = localByApp.get(String(item.appid))
+      return {
+        ...(local || {}),
+        id: local?.id || `steam:${item.appid}`,
+        title: item.title || local?.title || item.appid,
+        launcher: local?.launcher || "steam",
+        installed: false,
+        cover: local?.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${item.appid}/library_600x900.jpg`,
+        playtime_minutes: Number(item.minutes || 0),
+      } as Game
+    })
+    const p = perfil.profile
+    return (
+      <div className="relative h-full">
+        <button
+          onClick={onVoltar}
+          className="absolute left-8 top-6 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3.5 py-2 text-xs font-medium text-white/75 backdrop-blur transition-colors hover:bg-white/10 hover:text-white"
+          title={t("amigos.voltar")}
+        >
+          <span aria-hidden="true">←</span>
+          {t("amigos.voltar")}
+        </button>
+        <ProfilePage
+          open
+          embedded
+          readOnly
+          profile={{
+            name: String(p.display_name || p.username || amigo.username),
+            avatar: String(p.avatar_url || amigo.avatar_url || ""),
+            background: String(p.background_url || ""),
+            banner: String(p.banner_url || ""),
+            summary: String(p.summary || ""),
+            country: String(p.country || ""),
+            city: String(p.city || ""),
+          }}
+          games={jogos}
+          statsOverride={perfil.stats}
+          friendsOverride={perfil.friends}
+          onClose={onVoltar}
+          onEdit={() => {}}
+          onJogoClick={() => {}}
+        />
+        {confirmandoRemover ? (
+          <div className="absolute right-8 top-6 z-10 flex items-center gap-2 rounded-xl border border-[#ff6b81]/30 bg-[#16161c]/95 p-2 shadow-xl backdrop-blur">
+            <span className="px-1 text-xs text-white/70">{t("amigos.confirmar_remover")}</span>
+            <button onClick={remover} disabled={removendo} className="rounded-lg bg-[#ff6b81] px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-40">
+              {removendo ? "..." : t("amigos.remover")}
+            </button>
+            <button onClick={() => setConfirmandoRemover(false)} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/60">
+              {t("amigos.cancelar")}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmandoRemover(true)}
+            className="absolute right-8 top-6 z-10 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/55 hover:border-[#ff6b81]/40 hover:text-[#ff6b81]"
+          >
+            {t("amigos.remover")}
+          </button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="arc-fade-up flex h-full flex-col overflow-y-auto">
