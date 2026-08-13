@@ -117,6 +117,7 @@ export interface AppConfig {
   auto_add_to_steam?: boolean
   disable_playtime_tracking?: boolean
   discord_rich_presence?: boolean
+  discord_client_id?: string
   library_featured_column?: "disabled" | "recent" | "favorites" | "most-played"
   recent_games_max?: number
   download_cpu_cores?: number // 0 = máximo
@@ -392,6 +393,14 @@ declare global {
       friendsAchievements: (
         userId: string,
       ) => Promise<{ ok: boolean; achievements?: FriendAchievement[]; error?: string }>
+      friendsProfile: (userId: string) => Promise<{
+        ok: boolean
+        error?: string
+        profile?: Profile & { username?: string | null; avatar_url?: string | null; display_name?: string | null; background_url?: string | null; banner_url?: string | null }
+        games?: { appid: string; title: string; platform?: string; minutes?: number }[]
+        friends?: FriendProfile[]
+        stats?: ProfileStats
+      }>
       friendsRemove: (userId: string) => Promise<{ ok: boolean; error?: string }>
       onFriendRequest: (cb: (data: { from?: string }) => void) => () => void
       onFriendsChanged: (cb: (data: FriendsListData) => void) => () => void
@@ -681,6 +690,7 @@ declare global {
       pickImage: (
         kind: "avatar" | "banner" | "background",
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
+      avatarLoad: (url: string) => Promise<{ ok: boolean; src?: string; error?: string }>
       /** Caminho local (file://) do trailer já baixado, ou "" se não houver. */
       trailerPath: (id: string) => Promise<{ path: string }>
       /** HowLongToBeat: tempos de jogo em horas (min), ou null se falhar. */

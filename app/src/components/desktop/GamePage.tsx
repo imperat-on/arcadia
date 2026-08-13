@@ -124,7 +124,7 @@ export function GamePage({
       className={`${embedded ? "relative h-full" : "fixed inset-0 z-[55]"} flex flex-col bg-black`}
       style={{ animation: "gp-in 0.18s ease-out" }}
     >
-      {/* Fundo: hero desfocado */}
+      {/* Fundo: hero desfocado + glow de acento na base */}
       {g.hero || g.cover ? (
         <img
           src={g.hero || g.cover}
@@ -134,6 +134,13 @@ export function GamePage({
         />
       ) : null}
       <div className="pointer-events-none absolute inset-0 bg-black/60" />
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-56"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 100% at 50% 100%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 75%)",
+        }}
+      />
 
       {/* Botão voltar */}
       <button
@@ -157,7 +164,7 @@ export function GamePage({
 
       <div className="relative z-[1] mx-auto grid h-full w-full max-w-[1400px] flex-1 grid-cols-2 gap-5 overflow-hidden p-5 pt-16">
         {/* Coluna esquerda: arte + info */}
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90">
+        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90">
           <div className="relative h-[42%] shrink-0 overflow-hidden bg-black">
             {g.hero || g.cover ? (
               <img
@@ -168,6 +175,14 @@ export function GamePage({
               />
             ) : null}
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-[#0d0d10]" />
+            {/* Glow de accent atrás do logo/título */}
+            <div
+              className="absolute inset-x-0 bottom-0 h-24"
+              style={{
+                background:
+                  "radial-gradient(ellipse 70% 100% at 30% 100%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 75%)",
+              }}
+            />
             {g.logo ? (
               <img
                 src={g.logo}
@@ -179,7 +194,18 @@ export function GamePage({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
-            <h1 className="game-name truncate text-2xl font-light text-white">{g.title}</h1>
+            <h1
+              className="game-name truncate text-2xl font-bold text-white"
+              style={{
+                background:
+                  "linear-gradient(120deg, #fff 55%, color-mix(in oklab, var(--accent) 75%, #fff))",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                color: "transparent",
+              }}
+            >
+              {g.title}
+            </h1>
             {(g.developer || g.publisher) && (
               <p className="mt-0.5 text-[13px] italic text-white/50">
                 {g.developer || g.publisher}
@@ -242,7 +268,10 @@ export function GamePage({
                       <button
                         onClick={onJogar}
                         className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
-                        style={{ background: "var(--accent)" }}
+                        style={{
+                          background: "var(--accent)",
+                          boxShadow: "0 4px 20px color-mix(in oklab, var(--accent) 35%, transparent)",
+                        }}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M8 5v14l11-7z" />
@@ -275,7 +304,10 @@ export function GamePage({
                     <button
                       onClick={onInstalar}
                       className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
-                      style={{ background: "var(--accent)" }}
+                      style={{
+                        background: "var(--accent)",
+                        boxShadow: "0 4px 20px color-mix(in oklab, var(--accent) 35%, transparent)",
+                      }}
                     >
                       <svg
                         width="14"
@@ -339,9 +371,12 @@ export function GamePage({
               <button
                 key={id}
                 onClick={() => setAba(id)}
-                className={`rounded-full px-4 py-1.5 text-[11px] font-semibold tracking-wider transition-colors ${
-                  aba === id ? "bg-white/[0.1] text-white" : "text-white/45 hover:text-white/75"
+                className={`rounded-full px-4 py-1.5 text-[11px] font-semibold tracking-wider transition-all ${
+                  aba === id
+                    ? "bg-white/[0.12] text-white shadow-[0_0_14px_color-mix(in_oklab,var(--accent)_25%,transparent)]"
+                    : "text-white/45 hover:text-white/75"
                 }`}
+                style={aba === id ? { border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)" } : undefined}
               >
                 {label}
               </button>

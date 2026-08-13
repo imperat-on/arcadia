@@ -1,7 +1,7 @@
 "use client"
 
 // Sidebar do modo desktop (estilo Heroic, adaptada ao tema do Arcadia).
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
@@ -92,6 +92,12 @@ export function Sidebar({
   // Se o avatar falhar (ex.: URL quebrada no servidor), cai na letra em vez
   // do preview de img quebrado.
   const mostraAvatar = avatarUrl && !avatarErro
+
+  // Um novo avatar pode chegar enquanto a Sidebar continua montada. Limpa o
+  // erro anterior para que a URL atual volte a ser tentada imediatamente.
+  useEffect(() => {
+    setAvatarErro(false)
+  }, [avatarUrl])
 
   const jogos = useMemo(() => {
     const l = games.filter((g) => !g.hidden)

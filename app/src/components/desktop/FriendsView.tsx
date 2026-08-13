@@ -9,6 +9,7 @@ import { useAccount } from "../account/AccountContext"
 import { useFriends } from "../account/FriendsContext"
 import { corDeUsername, inicialDe, formatarData } from "../account/avatar"
 import { FriendProfileView } from "./FriendProfileView"
+import type { Game } from "../ps5-launcher/types"
 
 interface Resultado {
   id: string
@@ -31,7 +32,7 @@ function Avatar({ nome, url, tamanho = "md" }: { nome: string; url?: string | nu
   )
 }
 
-export function FriendsView() {
+export function FriendsView({ games }: { games: Game[] }) {
   const { t } = useI18n()
   const { status } = useAccount()
   const { data, refresh } = useFriends()
@@ -113,6 +114,7 @@ export function FriendsView() {
       <div className="h-full overflow-y-auto p-6">
         <FriendProfileView
           amigo={amigoPerfil}
+          games={games}
           onVoltar={() => {
             setAmigoPerfil(null)
             refresh()

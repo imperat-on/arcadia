@@ -68,6 +68,7 @@ export function GameRail({
         // overflow-x cria contexto de rolagem, o que também recorta no eixo Y.
         // Esta folga é o espaço da sombra projetada sob a capa selecionada.
         paddingBottom: SHADOW_ROOM,
+        background: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.35) 100%)",
       }}
     >
       {games.map((game, i) => {
@@ -123,7 +124,7 @@ export function GameRail({
                   : `translateY(0) scale(${TILE_W / TILE_SEL_W})`,
                 transformOrigin: "center top",
                 boxShadow: focused
-                  ? "0 18px 44px rgba(0,0,0,0.7), 0 0 0 2px var(--accent)"
+                  ? "0 18px 44px rgba(0,0,0,0.7), 0 0 0 2px var(--accent), 0 0 42px color-mix(in srgb, var(--accent) 40%, transparent)"
                   : "0 2px 12px rgba(0,0,0,0.4)",
                 // Oculto (visível só com "Mostrar ocultos"): apagado e sem cor.
                 opacity: game.hidden ? 0.4 : focused ? 1 : 0.7,

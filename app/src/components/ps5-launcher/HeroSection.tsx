@@ -32,7 +32,14 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
             ) : (
               <h1
                 className="game-name text-6xl font-bold text-white leading-[1.05] text-balance mb-5"
-                style={{ textShadow: "0 2px 16px rgba(0,0,0,0.6)" }}
+                style={{
+                  textShadow: "0 2px 16px rgba(0,0,0,0.6)",
+                  background:
+                    "linear-gradient(120deg, #fff 50%, color-mix(in oklab, var(--accent) 60%, #fff))",
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  color: "transparent",
+                }}
               >
                 {game.title}
               </h1>
@@ -54,11 +61,16 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
                   troca ser percebida sem precisar ler o rótulo. */}
               <button
                 onClick={onLaunch}
-                className="px-16 py-4 rounded-full text-[19px] font-semibold text-white transition-colors hover:bg-white/25"
+                className="px-16 py-4 rounded-full text-[19px] font-semibold text-white transition-all hover:scale-[1.03] hover:bg-white/25"
                 style={{
-                  background: rodando ? "#e8703a" : "rgba(255,255,255,0.16)",
+                  background: rodando
+                    ? "#e8703a"
+                    : "linear-gradient(135deg, color-mix(in oklab, var(--accent) 35%, transparent), rgba(255,255,255,0.12))",
                   backdropFilter: "blur(10px)",
-                  boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
+                  boxShadow: rodando
+                    ? "0 6px 28px rgba(0,0,0,0.35), 0 0 30px rgba(232,112,58,0.3)"
+                    : "0 6px 28px rgba(0,0,0,0.35), 0 0 24px color-mix(in oklab, var(--accent) 22%, transparent)",
+                  border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)",
                 }}
               >
                 {rodando
@@ -72,11 +84,12 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
               <button
                 onClick={onMore}
                 aria-label={t("hero.mais_opcoes")}
-                className="w-16 h-16 rounded-full flex items-center justify-center text-white transition-colors hover:bg-white/25"
+                className="w-16 h-16 rounded-full flex items-center justify-center text-white transition-all hover:scale-[1.05] hover:bg-white/25"
                 style={{
-                  background: "rgba(255,255,255,0.16)",
+                  background: "rgba(255,255,255,0.12)",
                   backdropFilter: "blur(10px)",
                   boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
+                  border: "1px solid rgba(255,255,255,0.15)",
                 }}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
