@@ -130,7 +130,7 @@ User data (config, library, downloads, prefixes, artwork) lives under
 
 - **`app/`** — Electron launcher (desktop + Big Picture). React renderer in
   `app/src`, Electron main process in `app/electron`.
-- **`server/`** — Node backend (Express + SQLite) that syncs accounts
+- **`server/`** — Node backend (Express + PostgreSQL) that syncs accounts
   across machines: library ownership, achievements, playtime, friends,
   avatar, profile background and public download sources. Replaces the
   former Supabase backend. See [server/README.md](server/README.md).
