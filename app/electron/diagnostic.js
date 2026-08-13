@@ -35,7 +35,8 @@ function collect() {
 
   // Bins da Steam (schema + progresso por appid). A lista é de nomes de
   // arquivo, se o dir não existe fica vazia (o shape é sempre um array).
-  const statsDir = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
+  const { findSteamDir } = require("./steam-path")
+  const statsDir = path.join(findSteamDir(), "appcache", "stats")
   if (fs.existsSync(statsDir)) {
     out.steamBins = fs
       .readdirSync(statsDir)

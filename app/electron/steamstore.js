@@ -1501,18 +1501,9 @@ async function prepareDownload({ appid, installdir, depots, steamDir }) {
 
 // ---------- Registro na Steam (acf + SLSsteam) ----------
 
-function findSteamDir() {
-  const home = os.homedir()
-  const candidatos = [
-    path.join(home, ".steam", "steam"),
-    path.join(home, ".local", "share", "Steam"),
-    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
-  ]
-  for (const c of candidatos) {
-    if (fs.existsSync(path.join(c, "steamapps"))) return c
-  }
-  return candidatos[0]
-}
+// Raiz da Steam resolvida num helper compartilhado (steam-path.js) — a mesma
+// lista de candidatos de antes, num lugar só, usada também pelas conquistas.
+const { findSteamDir } = require("./steam-path")
 
 function acfEscape(s) {
   return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')
