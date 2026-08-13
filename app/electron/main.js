@@ -30,6 +30,7 @@ const fs = require("fs")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
+const DiscordRpc = require("./discord-rpc")
 const { catalogGet } = require("./catalog")
 // Escopo por conta dos arquivos locais — PRECISA estar no escopo do módulo
 // (readLibrary e outros helpers rodam fora do whenReady; require dentro de
@@ -523,6 +524,8 @@ function readConfig() {
   }
 }
 
+const discordRpc = new DiscordRpc(readConfig)
+
 // Chaves de API que NUNCA saem completas pro renderer (auditoria A-06): o form
 // de configurações mostra a máscara; o config:set reconhece a máscara e
 // preserva o valor real no disco.
@@ -921,6 +924,9 @@ function exeLaunchCmd(id, exe, linux) {
   // Proton da Steam: não usar wine direto — Proton provê o Steam Runtime +
   // WINEDLLOVERRIDES corretos.
   if (v?.kind === "steam" && fs.existsSync(path.join(v.path, "proton"))) {
+    // O Proton cria pfx.lock diretamente em STEAM_COMPAT_DATA_PATH. Em um
+    // prefixo novo, o diretório pai precisa existir antes do primeiro launch.
+    fs.mkdirSync(prefixo, { recursive: true })
     // Migrar prefixo layout wine-puro (<prefix>/drive_c) pra layout Proton
     // (<prefix>/pfx/drive_c). Sem isso Proton refuse ou faz merda.
     const drivec = path.join(prefixo, "drive_c")
@@ -948,6 +954,13 @@ function exeLaunchCmd(id, exe, linux) {
       "umu-run",
     )
     if (fs.existsSync(umuRun)) {
+      try {
+        wm.installGraphicsLibs(path.join(prefixo, "pfx"), v.wine, {
+          dxvk: s.autoDXVK !== false,
+          nvapi: Boolean(s.autoNVAPI),
+          vkd3d: Boolean(s.autoVKD3D),
+        })
+      } catch {}
       return {
         cmd: [umuRun, g.exe],
         env: {
@@ -958,6 +971,13 @@ function exeLaunchCmd(id, exe, linux) {
         },
       }
     }
+    try {
+      wm.installGraphicsLibs(path.join(prefixo, "pfx"), v.wine, {
+        dxvk: s.autoDXVK !== false,
+        nvapi: Boolean(s.autoNVAPI),
+        vkd3d: Boolean(s.autoVKD3D),
+      })
+    } catch {}
     // Fallback: script proton direto.
     return {
       cmd: [path.join(v.path, "proton"), "run", g.exe],
@@ -1179,6 +1199,10 @@ function applyGameSettings(cmd, s, gameId) {
   if (s.fsrHack) env.WINE_FULLSCREEN_FSR = "1"
   if (s.autoNVAPI) env.DXVK_ENABLE_NVAPI = "1"
   if (s.dxvkHud) env.DXVK_HUD = s.dxvkHud
+  if (s.verboseLogs) {
+    env.WINEDEBUG = env.WINEDEBUG || "+timestamp,+pid,+tid,+seh,+warn"
+    if (!s.dxvkHud) env.DXVK_HUD = "full"
+  }
   // MANGOHUD=1 só quando o binário não existe (fallback); com o wrapper o
   // mangohud já se ativa sozinho e a var vira redundância.
   if (s.mangohud && !binExists("mangohud")) env.MANGOHUD = "1"
@@ -2051,6 +2075,8 @@ app.whenReady().then(() => {
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
+      const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
+      discordRpc.setGame(lib?.title || gameId, lib?.launcher)
       const { cmd, env: envBase, warnings } = applyGameSettings(rawCmd, s, gameId)
       // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a
       // partir do process.env e apagaria o LD_AUDIT.
@@ -2120,6 +2146,7 @@ app.whenReady().then(() => {
       // Valida binários ANTES de qualquer spawn (steam URI ou direto).
       const binErro = validarBinariosLaunch(cmd, gameId)
       if (binErro) {
+        discordRpc.clear()
         if (win && !win.isDestroyed()) {
           win.webContents.send("game:launchError", { gameId, error: binErro })
         }
@@ -2219,6 +2246,7 @@ app.whenReady().then(() => {
       soltar(cmd)
       return { ok: true, warnings }
     } catch (e) {
+      discordRpc.clear()
       return { ok: false, error: String(e) }
     }
   })
@@ -2229,6 +2257,7 @@ app.whenReady().then(() => {
   // jogo é filho do cliente Steam, não nosso).
   ipcMain.handle("game:close", () => {
     try {
+      discordRpc.clear()
       if (jogoAtivo) {
         const { pid, alvo } = jogoAtivo
         jogoAtivo = null
@@ -3499,6 +3528,20 @@ app.whenReady().then(() => {
     return { ok: true, path: "file://" + dest + "?t=" + Date.now() }
   })
 
+  ipcMain.handle("avatar:load", async (_e, url) => {
+    try {
+      if (!/^https?:\/\//i.test(String(url || ""))) return { ok: false }
+      const r = await fetch(String(url), { headers: { accept: "image/*" } })
+      if (!r.ok) return { ok: false, error: `HTTP ${r.status}` }
+      const type = (r.headers.get("content-type") || "image/gif").split(";")[0]
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (buf.length > 5 * 1024 * 1024) return { ok: false, error: "avatar_grande" }
+      return { ok: true, src: `data:${type};base64,${buf.toString("base64")}` }
+    } catch (e) {
+      return { ok: false, error: String(e.message || e) }
+    }
+  })
+
   // Escolhe o arquivo cookies.txt do YouTube (para vídeos com restrição de idade).
   ipcMain.handle("trailer:pickCookies", async () => {
     const res = await dialog.showOpenDialog(win, {
@@ -3548,6 +3591,7 @@ app.on("window-all-closed", () => {
 // Ao sair, derruba o download ativo para não deixar o Legendary órfão (os
 // downloads são detached, então não morrem junto do app sozinhos).
 app.on("before-quit", () => {
+  discordRpc.close()
   // Marca que o app está saindo — o handler de render-process-gone não
   // tenta recarregar a janela durante o shutdown.
   app.isQuitting = true

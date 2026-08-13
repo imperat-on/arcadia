@@ -158,7 +158,9 @@ function applyPulled(rows) {
   for (const r of rows) {
     const app = store[r.appid] || (store[r.appid] = { at: Date.now(), items: [] })
     const item = app.items.find((i) => i.apiname === r.apiname)
-    const ts = Math.floor(new Date(r.unlocked_at).getTime() / 1000)
+    const ts = typeof r.unlocked_at === "number"
+      ? Math.floor(r.unlocked_at)
+      : Math.floor(new Date(r.unlocked_at).getTime() / 1000)
     if (item) {
       const localTs = normalizeTs(item.unlock)
       if (!item.achieved || (localTs && localTs > ts)) {

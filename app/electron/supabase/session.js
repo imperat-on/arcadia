@@ -41,6 +41,12 @@ function canEncrypt() {
   return !!ss && typeof ss.isEncryptionAvailable === "function" && ss.isEncryptionAvailable()
 }
 
+// Tokens nao devem cair em texto puro em uma instalacao real. O fallback fica
+// disponivel apenas para testes ou quando o usuario opta explicitamente por ele.
+function allowPlaintextFallback() {
+  return process.env.NODE_ENV === "test" || process.env.ARCADIA_ALLOW_PLAINTEXT_SESSION === "1" || process.env.ARCADA_TEST_SESSION === "1"
+}
+
 function b64(s) {
   return Buffer.from(s, "utf8").toString("base64")
 }
@@ -65,6 +71,10 @@ function writeAtomic(file, content) {
 function saveSession(session) {
   if (!session) return
   const payload = JSON.stringify(session)
+  if (!canEncrypt() && !allowPlaintextFallback()) {
+    console.error("[session] keyring indisponivel; sessao nao sera persistida")
+    return
+  }
   if (canEncrypt()) {
     const ss = getSafeStorage()
     const enc = ss.encryptString(payload).toString("base64")

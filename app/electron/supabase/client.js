@@ -134,11 +134,20 @@ class AuthClient {
   }
 
   async signOut() {
-    const { error } = await this._request("POST", "/auth/v1/logout", null, {
-      json: false,
-    })
-    this._session = null
-    this.emitter.emit("SIGNED_OUT", null)
+    let error = null
+    try {
+      ;({ error } = await this._request("POST", "/auth/v1/logout", null, {
+        json: false,
+      }))
+    } catch (e) {
+      // Logout local nao pode depender da rede. O token expira em 1h e a
+      // revogacao remota volta a funcionar no proximo login/logout online.
+      error = { message: String(e?.message || e) }
+    } finally {
+      this._session = null
+      sessionStore.clearSession()
+      this.emitter.emit("SIGNED_OUT", null)
+    }
     return { error }
   }
 
@@ -216,7 +225,9 @@ class QueryBuilder {
       return { data, error: null }
     }
     // POST/PATCH/DELETE
-    const res = await fetch(`${config.url}/rest/v1/${this.table}`, {
+    const qs = params.toString()
+    const url = `${config.url}/rest/v1/${this.table}${qs ? "?" + qs : ""}`
+    const res = await fetch(url, {
       method,
       headers: { ...this.client._authHeaders(), "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
