@@ -11,7 +11,8 @@ const path = require("path")
 const os = require("os")
 const { loadItemIndex, ACHIEVEMENTS_STORE_FILE, STORE_TTL_MS } = require("./schema")
 
-const STATS_DIR = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
+const { findSteamDir } = require("./../steam-path")
+const STATS_DIR = path.join(findSteamDir(), "appcache", "stats")
 
 // --- Parser mínimo de KeyValues binário do Steam ---------------------------
 function readKv(buf, pos) {

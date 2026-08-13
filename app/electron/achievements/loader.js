@@ -15,7 +15,8 @@ const { loadKvBin, progressMap, fetchAchievementsForApp } = require("./steam_bin
 const { loadAchievements, saveAchievements } = require("./schema")
 const { log } = require("./../debug")
 
-const STATS_DIR = path.join(os.homedir(), ".local/share/Steam/appcache/stats")
+const { findSteamDir } = require("./../steam-path")
+const STATS_DIR = path.join(findSteamDir(), "appcache", "stats")
 const ICON_DIR = path.join(STATS_DIR, "achievement_images")
 const ICON_CACHE_DIR = path.join(os.homedir(), ".local/share/arcadia/achievement_icons")
 

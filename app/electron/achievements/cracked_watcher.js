@@ -24,7 +24,8 @@ const path = require("path")
 const os = require("os")
 const { loadAchievements, saveAchievements } = require("./schema")
 
-const COMPATDATA = path.join(os.homedir(), ".local/share/Steam/steamapps/compatdata")
+const { findSteamDir } = require("./../steam-path")
+const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
 const INTERVALO_POLL = 15000 // 15s
 
 // --- Utilitários de parse ---
