@@ -65,9 +65,23 @@ class AuthClient {
       headers["content-type"] = "application/json"
       payload = JSON.stringify(body)
     }
-    const res = await fetch(config.url + path, { method, headers, body: payload })
+    // Timeout de rede: servidor fora do ar nao pode segurar o handler IPC
+    // para sempre (a UI ficava em "carregando" indefinidamente).
+    const res = await fetch(config.url + path, {
+      method,
+      headers,
+      body: payload,
+      signal: AbortSignal.timeout(30_000),
+    })
     const text = await res.text()
-    const data = json && text ? JSON.parse(text) : text
+    // Resposta nao-JSON (ex.: 404 HTML de rota inexistente) NAO pode lancar:
+    // vira erro tratavel em vez de rejeicao que trava a tela.
+    let data
+    try {
+      data = json && text ? JSON.parse(text) : text
+    } catch {
+      data = text
+    }
     if (!res.ok) {
       return { data: null, error: { message: data?.error || data?.msg || `HTTP ${res.status}` } }
     }
@@ -324,9 +338,17 @@ class ArcadiaClient {
       method: "POST",
       headers: { ...this._authHeaders(), "content-type": "application/json" },
       body: JSON.stringify(args || {}),
+      signal: AbortSignal.timeout(30_000),
     })
     const text = await res.text()
-    const data = text ? JSON.parse(text) : null
+    // Nunca lancar em resposta nao-JSON (404 HTML de rota ausente virava
+    // excecao aqui e o perfil do amigo ficava "carregando" para sempre).
+    let data = null
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      data = null
+    }
     if (!res.ok) return { data: null, error: { message: data?.error || `HTTP ${res.status}` } }
     return { data, error: null }
   }

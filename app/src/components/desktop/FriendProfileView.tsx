@@ -48,7 +48,15 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
   useEffect(() => {
     let vivo = true
     ;(async () => {
-      const r = await window.launcherAPI?.friendsAchievements(amigo.id)
+      let r
+      try {
+        r = await window.launcherAPI?.friendsAchievements(amigo.id)
+      } catch (e) {
+        if (!vivo) return
+        setErro(String(e?.message || e))
+        setConquistas([])
+        return
+      }
       if (!vivo) return
       if (!r?.ok) {
         setErro(r?.error || t("amigos.erro_geral"))
@@ -68,8 +76,12 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
       const appids = [...new Set(lista.map((a) => a.appid))]
       const porApp = await Promise.all(
         appids.map(async (appid) => {
-          const g = await window.launcherAPI?.achievementsGet(appid)
-          return [appid, Array.isArray(g) ? g : null] as const
+          try {
+            const g = await window.launcherAPI?.achievementsGet(appid)
+            return [appid, Array.isArray(g) ? g : null] as const
+          } catch {
+            return [appid, null] as const
+          }
         }),
       )
       if (!vivo) return
@@ -95,6 +107,10 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
     window.launcherAPI?.friendsProfile(amigo.id).then((r) => {
       if (vivo && r?.ok && r.profile) setPerfil({ profile: r.profile, games: r.games || [], friends: r.friends || [], stats: r.stats })
       if (vivo && !r?.ok) setErro(r?.error || t("amigos.erro_geral"))
+    }).catch((e) => {
+      // Promise rejeitada (rede/rota ausente): mostra o erro em vez de ficar
+      // em "Carregando perfil..." para sempre.
+      if (vivo) setErro(String(e?.message || e))
     })
     return () => { vivo = false }
   }, [amigo.id, t])
