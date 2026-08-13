@@ -134,14 +134,18 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
   if (perfil) {
     const localByApp = new Map(games.map((g) => [String(g.id).replace(/^steam:/, ""), g]))
     const jogos = perfil.games.map((item) => {
-      const local = localByApp.get(String(item.appid))
+      // user_library guarda appid com prefixo ("steam:578080") — tira na hora
+      // de casar com o jogo local E de montar a capa da CDN da Steam (senão a
+      // URL vira .../apps/steam:578080/... → 404 → tile sem capa).
+      const appidNum = String(item.appid || "").replace(/^steam:/, "")
+      const local = localByApp.get(appidNum)
       return {
         ...(local || {}),
-        id: local?.id || `steam:${item.appid}`,
+        id: local?.id || `steam:${appidNum}`,
         title: item.title || local?.title || item.appid,
         launcher: local?.launcher || "steam",
         installed: false,
-        cover: local?.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${item.appid}/library_600x900.jpg`,
+        cover: local?.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidNum}/library_600x900.jpg`,
         playtime_minutes: Number(item.minutes || 0),
       } as Game
     })
