@@ -61,10 +61,23 @@ async function usuarioAtual() {
   return data?.user ?? null
 }
 
+// Paths de conta são funções (não constantes): um logout/login pode trocar o
+// escopo enquanto o RPC está em voo. Capturamos o username antes da rede e
+// nunca aplicamos uma resposta antiga no diretório da conta nova.
+function contaAindaAtiva(contexto) {
+  return conta() === contexto
+}
+
+function erroContaTrocada() {
+  return { ok: false, error: "conta_trocada", retryable: false }
+}
+
 // ---------- PUSH ----------
 async function push() {
+  const contexto = conta()
   const user = await usuarioAtual()
   if (!user) return
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
 
   const st = loadState()
   const enviados = st.libPush || {}
@@ -135,8 +148,10 @@ async function push() {
   }
 
   if (!p_lib.length && !p_playtime.length) return
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
 
   const { error } = await getClient().rpc("push_library", { p_lib, p_playtime })
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
   if (error) {
     console.error("[biblioteca] push falhou:", error.message)
     return
@@ -150,15 +165,19 @@ async function push() {
   for (const p of p_playtime) wp[p.appid] = (Number(wp[p.appid]) || 0) + p.minutes
   st.libPush = enviados
   st.playtimePush = wp
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
   saveState(st)
 }
 
 // ---------- PULL ----------
 async function pull() {
+  const contexto = conta()
   const user = await usuarioAtual()
   if (!user) return false
+  if (!contaAindaAtiva(contexto)) return false
 
   const { data, error } = await getClient().rpc("pull_library")
+  if (!contaAindaAtiva(contexto)) return false
   if (error || !Array.isArray(data)) {
     console.error("[biblioteca] pull falhou:", error?.message || "sem dados")
     return false
@@ -206,6 +225,7 @@ async function pull() {
     } catch {
       /* loja indisponivel: stub nasce com a arte chutada, curada depois */
     }
+    if (!contaAindaAtiva(contexto)) return false
   }
 
   for (const row of data) {
@@ -308,6 +328,7 @@ async function pull() {
     pendentes.push(...pendentesRestantes)
     pendentesMudou = true
   }
+  if (!contaAindaAtiva(contexto)) return false
   if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
   if (ownedMudou) {
@@ -355,6 +376,7 @@ async function pull() {
   }
 
   st.playtimePush = wp
+  if (!contaAindaAtiva(contexto)) return false
   saveState(st)
   return mudou
 }
