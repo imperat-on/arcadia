@@ -121,6 +121,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   dmRetry: (appid) => ipcRenderer.invoke("dm:retry", appid),
   dmDismiss: (appid) => ipcRenderer.invoke("dm:dismiss", appid),
   dmResume: (appid) => ipcRenderer.invoke("dm:resume", appid),
+  dmSetPriority: (appid, priority) => ipcRenderer.invoke("dm:setPriority", appid, priority),
   dmCancel: (appid) => ipcRenderer.invoke("dm:cancel", appid),
   diskSpace: (p) => ipcRenderer.invoke("app:diskSpace", p),
   onDmProgress: (cb) => {

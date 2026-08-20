@@ -226,6 +226,7 @@ export interface DmItem {
   eta: string
   speed: number // MiB/s
   error: string
+  priority?: number // prioridade [-10,10] da fila persistida
   installPath?: string // pasta escolhida no diálogo de instalação
 }
 
@@ -762,6 +763,7 @@ declare global {
         title: string
         cover?: string
         installPath?: string
+        priority?: number
       }) => Promise<{ ok: boolean; error?: string }>
       /** Espaço em disco (GiB) do path informado. */
       diskSpace: (
@@ -773,6 +775,7 @@ declare global {
       /** Tira da lista um item já finalizado (erro/concluído). */
       dmDismiss: (appid: string) => Promise<void>
       dmResume: (appid: string) => Promise<void>
+      dmSetPriority: (appid: string, priority: number) => Promise<boolean>
       dmCancel: (appid: string) => Promise<void>
       onDmProgress: (cb: (items: DmItem[]) => void) => () => void
       /** Wine: versões instaladas + disponíveis, instalar/remover. */
