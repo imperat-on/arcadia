@@ -335,7 +335,7 @@ declare global {
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
       /** Conta online (backend proprio) — fluxo por código enviado por email (OTP). */
-      accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
+      accountStatus: () => Promise<{ session: AccountSession | null; error?: string | null }>
       accountProfile: () => Promise<{
         ok: boolean
         profile?: {
