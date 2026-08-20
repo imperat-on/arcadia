@@ -302,7 +302,7 @@ com contratos e testes focados:
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado após a ponte de emuladores: **352 arquivos textuais / 76.799 linhas**;
+- resultado após a ponte de emuladores: **352 arquivos textuais / 76.818 linhas**;
   a seleção de código, testes e SQL totaliza aproximadamente **61,4 mil linhas**.
   A contagem continua excluindo binários, `.git`, `node_modules`, `dist` e
   `__pycache__`.
