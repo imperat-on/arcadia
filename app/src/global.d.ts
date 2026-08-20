@@ -412,6 +412,45 @@ export interface WineVer {
   kind?: "ge-proton" | "wine-ge" | "steam"
 }
 
+export type EmulatorSystem =
+  | "PlayStation"
+  | "PlayStation 2"
+  | "PlayStation 3"
+  | "PlayStation Portable"
+  | "GameCube"
+  | "Wii"
+  | "Nintendo DS"
+  | "Multi-sistema"
+
+export interface EmulatorProfile {
+  id: string
+  executable: string
+  corePath?: string
+  args: string[]
+  updatedAt?: number
+}
+
+export interface EmulatorInfo {
+  id: string
+  name: string
+  systems: string[]
+  description: string
+  candidates?: string[]
+  executable: string
+  available: boolean
+  source: "builtin" | "detected" | "configured"
+  requiresCore?: boolean
+  profile?: EmulatorProfile
+}
+
+export interface EmulatorLaunchResult {
+  ok: boolean
+  emulatorId?: string
+  system?: string
+  cmd?: string[]
+  error?: string
+}
+
 /** Configurações por jogo (diálogo estilo Heroic). Salvas em game_settings.json. */
 export interface GameSettings {
   /** Id da versão do Wine (do wine:list) usada nas ferramentas do prefixo. */
@@ -450,6 +489,11 @@ export interface GameSettings {
   wrappers?: { cmd: string; args: string }[]
   /** Variáveis de ambiente extras. */
   envVars?: { name: string; value: string }[]
+  /** Emulador e ROM usados para jogos não-Steam. */
+  emulatorId?: string
+  romPath?: string
+  emulatorArgs?: string[]
+  emulatorCorePath?: string
 }
 
 declare global {
@@ -659,14 +703,19 @@ declare global {
       customGameAdd: (data: {
         id: string
         title: string
-        platform: "windows" | "linux"
-        exe: string
+        platform: "windows" | "linux" | "emulator"
+        exe?: string
+        emulatorId?: string
+        romPath?: string
+        emulatorArgs?: string[]
+        emulatorCorePath?: string
       }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
-      /** Edita um jogo custom existente (título/executável). */
+      /** Edita um jogo custom existente (título/executável/perfil). */
       customGameUpdate: (data: {
         id: string
         title?: string
         exe?: string
+        platform?: "windows" | "linux" | "emulator"
       }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Roda um instalador .exe no prefixo (botão "Executar instalador antes"). */
       customGameRunInstaller: (opts: {
@@ -993,6 +1042,13 @@ declare global {
       /** Configurações por jogo (diálogo estilo Heroic), salvas automaticamente. */
       gameSettingsGet: (id: string) => Promise<{ settings: GameSettings; defaultPrefix: string }>
       gameSettingsSet: (id: string, patch: Partial<GameSettings>) => Promise<GameSettings>
+      /** Catálogo/detecção de emuladores sem execução de binários. */
+      emulatorsList: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
+      emulatorsDetect: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
+      emulatorsProfiles: () => Promise<{ ok: boolean; profiles: Record<string, EmulatorProfile>; error?: string }>
+      emulatorProfileSet: (profile: Partial<EmulatorProfile> & { id: string }) => Promise<{ ok: boolean; profile?: EmulatorProfile; error?: string }>
+      emulatorProfileRemove: (id: string) => Promise<{ ok: boolean; removed?: boolean; error?: string }>
+      emulatorsResolve: (payload: { emulatorId: string; romPath: string; extraArgs?: string[]; corePath?: string }) => Promise<EmulatorLaunchResult>
       /** Escolhe uma pasta no sistema (temas customizados). */
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */

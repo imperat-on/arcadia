@@ -356,6 +356,7 @@
   "gamesettings.wrapper_argumentos": "Argumentos",
   "gamesettings.wrapper_cabecalho": "Empacotador",
   "gamesettings.salvamentos_aba": "Salvamentos",
+  "gamesettings.emulador": "Emulador",
   "gamesettings.salvamentos_titulo": "Snapshots de saves",
   "gamesettings.salvamentos_desc": "Crie cópias locais dos saves deste jogo e restaure uma cópia quando precisar.",
   "gamesettings.salvamentos_criar": "Criar snapshot",

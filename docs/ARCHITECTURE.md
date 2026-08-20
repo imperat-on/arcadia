@@ -29,6 +29,23 @@ e DepotDownloader.
 processos. O renderer não consegue substituir o comando de um jogo conhecido;
 custom/Wine e integração SLSsteam continuam callbacks controlados pelo main.
 
+## Emuladores Linux e lançamento por argv
+
+`app/electron/emulator-registry.js` mantém um catálogo extensível de PCSX2,
+RPCS3, Dolphin, PPSSPP, DuckStation, RetroArch, melonDS e DeSmuME; extensões de
+catálogo fornecidas pelo código passam pela mesma normalização de id/candidatos.
+O registry não executa processos: detecta candidatos no `PATH`, valida executáveis/ROMs
+regulares (sem symlink), persiste perfis em `ARCADIA_DATA_DIR/emulators.json`
+com escrita temporária + rename atômico e devolve sempre `cmd: string[]`.
+RetroArch exige um core libretro regular. Os handlers `emulators:*` expõem a
+ponte de catálogo, perfis e resolução ao preload; `game:launch` chama a mesma
+resolução no main e ignora comandos arbitrários do renderer.
+
+`EmulatorProfilesPanel` e o modo **Emulador (ROM/ISO)** de `AddGameDialog`
+permitem configurar perfil, ROM e argumentos adicionais sem interpretar sintaxe
+de shell. ROMs e configurações permanecem locais; somente metadados do jogo
+custom são adicionados à biblioteca.
+
 ## Providers e pipeline da biblioteca
 
 O `index.py` mantém a orquestração e a escrita atômica, enquanto `indexers/`

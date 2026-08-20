@@ -24,7 +24,8 @@ Essa era a fotografia inicial. Na árvore limpa do commit `9c1cda6`, a medição
 recalculada com `find`/`wc -l` registra **59.994 linhas de código, testes e SQL**
 e **75.379 linhas textuais no total**, sem contar binários ou artefatos gerados.
 A fotografia está datada de **2026-08-20** e inclui o benchmark de busca, o cliente
-IPC/cache da comunidade e o painel React de reviews/coleções.
+IPC/cache da comunidade, o painel React de reviews/coleções e a primeira ponte de
+emuladores Linux.
 Os maiores pontos de concentração são `app/electron/main.js`,
 `app/electron/steamstore.js`, `app/src/components/ps5-launcher/PS5Launcher.tsx`
 e `app/src/global.d.ts`.
@@ -284,10 +285,15 @@ com contratos e testes focados:
   digest SHA-256 do entry, confiança Ed25519 opcional e verificação sem execução;
   a superfície IPC/preload inclui `details/get/register/unregister/enable/disable`
   e o canal `plugins:verify`, sem devolver caminhos privados;
-- validação após essas entregas: **176/176 testes do app**, benchmark determinístico
-  de busca local, `tsc --noEmit`, build Vite e testes focados do servidor de
-  observabilidade; a integração completa do servidor continua condicionada a
-  PostgreSQL/`TEST_DATABASE_URL`.
+- **emuladores Linux**: registry puro e extensível para PCSX2, RPCS3, Dolphin,
+  PPSSPP, DuckStation, RetroArch, melonDS e DeSmuME; perfis em arquivo atômico,
+  detecção sem execução, validação de ROM/core sem symlink e resolução somente
+  por `argv`. O preload/main expõem listagem, detecção, perfis e resolução; o
+  painel de configurações e o modo de adicionar jogo ROM/ISO usam a mesma ponte;
+- validação após essas entregas: **193/193 testes do app**, incluindo contratos e
+  fixtures de emuladores, benchmark determinístico de busca local, `tsc --noEmit`,
+  build Vite e testes focados do servidor de observabilidade; a integração
+  completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
 
 ### Medição registrada
 
@@ -296,8 +302,10 @@ com contratos e testes focados:
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado: **347 arquivos textuais / 75.379 linhas**; a seleção de código,
-  testes e SQL totaliza **275 arquivos / 59.994 linhas**.
+- resultado após a ponte de emuladores: **352 arquivos textuais / 76.472 linhas**;
+  a seleção de código, testes e SQL totaliza aproximadamente **61,1 mil linhas**.
+  A contagem continua excluindo binários, `.git`, `node_modules`, `dist` e
+  `__pycache__`.
 
 A contagem de linhas permanece uma métrica secundária: novas linhas devem
 corresponder a casos de uso, contratos, fixtures, documentação ou operação
