@@ -20,9 +20,10 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
-Essa era a fotografia inicial. Após sync offline, busca local, SDK de plugins e
-seus testes, a medição atual fica em aproximadamente 55,5 mil linhas de código
-e testes e 68,5 mil incluindo documentação/configuração (sem binários gerados).
+Essa era a fotografia inicial. Na árvore do commit `7c1d7cb`, a medição
+recalculada com `find`/`wc -l` registra **59.076 linhas de código, testes e SQL**
+e **72.767 linhas textuais no total**, sem contar binários ou artefatos gerados.
+A fotografia está datada de **2026-08-20** e ancorada nesse commit.
 Os maiores pontos de concentração são `app/electron/main.js`,
 `app/electron/steamstore.js`, `app/src/components/ps5-launcher/PS5Launcher.tsx`
 e `app/src/global.d.ts`.
@@ -256,24 +257,43 @@ expansão do projeto.
 - adicionados testes do boot de autenticação;
 - validação: **76/76 testes do app**, typecheck, build e sintaxe JS/Python/Shell.
 
-## Entregas incrementais de sync, catálogo e extensibilidade
+## Entregas incrementais de sync, catálogo, biblioteca, providers, comunidade e extensibilidade
 
 O estado atual da branch `melhorias` também inclui as entregas seguintes, sempre
 com contratos e testes focados:
 
-- **sync offline**: resolução determinística de conquistas (earliest-wins),
+- **sync** offline: resolução determinística de conquistas (earliest-wins),
   biblioteca (revisão/remoção) e playtime (merge monotônico), fila persistida,
   deduplicação, convergência e proteção contra troca de conta durante RPC;
-- **catálogo local**: índice versionado em `ARCADIA_DATA_DIR`, ranking
+- **catalog** (catálogo local): índice versionado em `ARCADIA_DATA_DIR`, ranking
   acento/pontuação-insensível, hidratação seletiva dos espelhos, paginação
-  offline e integração com `store:search`/`store:suggest`;
-- **plugins v1**: manifesto validado, permissões declarativas, rejeição de
+  offline, facetas e integração com `store:search`/`store:suggest`;
+- **library** (biblioteca local): repositório que separa o `library.json` global
+  da posse por conta, aceita o envelope versionado e legado, persiste com
+  `tmp + rename` e está conectado ao main sem alterar os canais IPC existentes;
+- **providers**: contrato interno, transformações puras e fixtures golden para
+  Steam, Heroic/Legendary, Lutris e SLSsteam, incluindo consulta SQLite real do
+  Lutris e documentação do pipeline;
+- **community** (comunidade): reviews, coleções públicas, reports e moderação
+  com migration versionada, aliases validados e testes das rotas/validações;
+- **plugins** v1: manifesto validado, permissões declarativas, rejeição de
   traversal/symlink, registro atômico e espelho legado, SDK capability-based,
-  além da superfície IPC/preload `details/get/register/unregister/enable/disable`
-  sem devolver caminhos privados;
-- validação após essas entregas: **139/139 testes do app**, `tsc --noEmit`,
+  digest SHA-256 do entry e verificação sem execução; a superfície IPC/preload
+  inclui `details/get/register/unregister/enable/disable` e o canal
+  `plugins:verify`, sem devolver caminhos privados;
+- validação após essas entregas: **159/159 testes do app**, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
+
+### Medição registrada
+
+- data: **2026-08-20**;
+- commit-base: **`7c1d7cb`**;
+- método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
+  binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
+  `__pycache__`;
+- resultado: **337 arquivos textuais / 72.767 linhas**; a seleção de código,
+  testes e SQL totaliza **270 arquivos / 59.076 linhas**.
 
 A contagem de linhas permanece uma métrica secundária: novas linhas devem
 corresponder a casos de uso, contratos, fixtures, documentação ou operação
