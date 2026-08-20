@@ -70,6 +70,85 @@ export interface PluginInfo {
   source?: "builtin" | "local"
 }
 
+/** Review publica da comunidade (dados sem credenciais ou paths locais). */
+export interface CommunityReview {
+  id: number
+  appid: string
+  title?: string | null
+  text: string
+  rating: number
+  positive: boolean
+  hours: number
+  created_at: string
+  updated_at: string
+  user_id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+  author?: {
+    id: string
+    username: string
+    display_name?: string | null
+    avatar_url?: string | null
+  }
+}
+
+export interface CommunityCollectionItem {
+  appid: string
+  position: number
+  title?: string | null
+  note?: string | null
+  created_at?: string
+}
+
+export interface CommunityCollection {
+  id: string
+  title: string
+  description?: string | null
+  visibility: "public" | "unlisted" | "private"
+  created_at: string
+  updated_at: string
+  user_id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+  owner?: {
+    id: string
+    username: string
+    display_name?: string | null
+    avatar_url?: string | null
+  }
+  item_count: number
+  items?: CommunityCollectionItem[]
+}
+
+export interface CommunityPagination {
+  limit: number
+  offset: number
+  has_more: boolean
+}
+
+export interface CommunityReviewsResult {
+  ok: boolean
+  reviews: CommunityReview[]
+  items: CommunityReview[]
+  pagination?: CommunityPagination
+  offline?: boolean
+  error?: string
+  code?: string
+}
+
+export interface CommunityCollectionsResult {
+  ok: boolean
+  collections: CommunityCollection[]
+  lists: CommunityCollection[]
+  items: CommunityCollection[]
+  pagination?: CommunityPagination
+  offline?: boolean
+  error?: string
+  code?: string
+}
+
 export interface Sources {
   steam?: boolean
   heroic?: boolean
@@ -490,6 +569,21 @@ declare global {
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
+      /** Reviews/listas da comunidade; GET usa cache local quando offline. */
+      communityReviews: (appid: string, options?: { limit?: number; offset?: number }) => Promise<CommunityReviewsResult>
+      communityReviewCreate: (payload: { appid: string; title?: string; text: string; rating: number; positive?: boolean; hours?: number }) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewUpdate: (id: string | number, payload: Partial<CommunityReview>) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewRemove: (id: string | number) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityReviewReport: (id: string | number, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
+      communityCollections: (options?: { limit?: number; offset?: number; mine?: boolean; owner?: string; visibility?: string }) => Promise<CommunityCollectionsResult>
+      communityCollectionGet: (id: string) => Promise<{ ok: boolean; collection?: CommunityCollection; data?: CommunityCollection; offline?: boolean; error?: string; code?: string }>
+      communityCollectionCreate: (payload: { title: string; description?: string; visibility?: string; items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
+      communityCollectionUpdate: (id: string, payload: Partial<CommunityCollection> & { items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
+      communityCollectionRemove: (id: string) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionAddItem: (id: string, appid: string) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
+      communityCollectionReplaceItems: (id: string, items: CommunityCollectionItem[]) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
+      communityCollectionRemoveItem: (id: string, appid: string) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionReport: (id: string, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
       launch: (
         cmd: string[],
         gameId?: string,
