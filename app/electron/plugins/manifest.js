@@ -4,6 +4,7 @@
 // não carrega nem executa o `entry` de um plugin. A validação acontece antes de
 // qualquer registro e o host só expõe capacidades explicitamente declaradas.
 
+const crypto = require("node:crypto")
 const fsDefault = require("node:fs")
 const path = require("node:path")
 
@@ -16,6 +17,16 @@ const MAX_DESCRIPTION_LENGTH = 1000
 const MAX_VERSION_LENGTH = 64
 const MAX_ENTRY_LENGTH = 240
 const MAX_PERMISSIONS = 32
+const ENTRY_DIGEST_LENGTH = 64
+const ENTRY_DIGEST_RE = /^[0-9a-f]{64}$/i
+const ENTRY_DIGEST_ALIASES = Object.freeze([
+  "entrySha256",
+  "entry_sha256",
+  "entryDigest",
+  "entry_digest",
+  "digest",
+  "sha256",
+])
 
 // Permissões não são globais/wildcards. Cada capacidade que o host vier a
 // implementar precisa de um nome explícito neste allowlist e de uma checagem
@@ -143,6 +154,41 @@ function normalizeEntry(value, errors, { required = true } = {}) {
   return normalized
 }
 
+function normalizeEntryDigest(value, errors) {
+  if (value === undefined) return ""
+  if (typeof value !== "string") {
+    errors.push("entry_digest_invalido")
+    return ""
+  }
+  const digest = value.trim().toLowerCase()
+  if (!ENTRY_DIGEST_RE.test(digest)) {
+    errors.push("entry_digest_invalido")
+    return ""
+  }
+  return digest
+}
+
+function manifestEntryDigest(input, errors) {
+  return normalizeEntryDigest(first(input, ...ENTRY_DIGEST_ALIASES), errors)
+}
+
+// Keep one canonical serialized field while exposing read-only aliases for
+// callers that used the descriptive `entryDigest` spelling. Non-enumerable
+// aliases preserve exact v1 object shapes when no digest was declared.
+function addDigestAliases(manifest) {
+  if (!manifest?.entrySha256) return manifest
+  for (const key of ENTRY_DIGEST_ALIASES) {
+    if (key === "entrySha256") continue
+    Object.defineProperty(manifest, key, {
+      configurable: false,
+      enumerable: false,
+      value: manifest.entrySha256,
+      writable: false,
+    })
+  }
+  return manifest
+}
+
 /**
  * Validate and canonicalize a manifest object.
  *
@@ -167,6 +213,7 @@ function validateManifest(input, { requireEntry = true } = {}) {
     ["manifestVersion", "manifest_version", "schemaVersion"],
     ["apiVersion", "api_version"],
     ["entry", "entrypoint"],
+    ENTRY_DIGEST_ALIASES,
   ]
   for (const group of aliasGroups) {
     if (group.filter((key) => own(input, key)).length > 1) errors.push(`campo_duplicado:${group[0]}`)
@@ -187,6 +234,7 @@ function validateManifest(input, { requireEntry = true } = {}) {
   if (version && !SEMVER_RE.test(version)) errors.push("version_invalida")
   const description = stringField(input.description, "description", MAX_DESCRIPTION_LENGTH, errors)
   const entry = normalizeEntry(first(input, "entry", "entrypoint"), errors, { required: requireEntry })
+  const entrySha256 = manifestEntryDigest(input, errors)
   const permissions = normalizePermissions(input.permissions, errors)
 
   // Do not accept arbitrary fields. Keeping this list explicit makes the
@@ -204,6 +252,7 @@ function validateManifest(input, { requireEntry = true } = {}) {
     "description",
     "entry",
     "entrypoint",
+    ...ENTRY_DIGEST_ALIASES,
     "permissions",
   ])
   for (const key of Object.keys(input)) {
@@ -211,18 +260,20 @@ function validateManifest(input, { requireEntry = true } = {}) {
   }
 
   if (errors.length) return { ok: false, manifest: null, errors: [...new Set(errors)] }
+  const manifest = {
+    manifestVersion,
+    apiVersion,
+    id,
+    name,
+    version,
+    description,
+    entry,
+    permissions,
+  }
+  if (entrySha256) manifest.entrySha256 = entrySha256
   return {
     ok: true,
-    manifest: {
-      manifestVersion,
-      apiVersion,
-      id,
-      name,
-      version,
-      description,
-      entry,
-      permissions,
-    },
+    manifest: addDigestAliases(manifest),
     errors: [],
   }
 }
@@ -289,11 +340,64 @@ function resolvePluginEntry(pluginDir, entry, { fsImpl = fsDefault } = {}) {
   }
 }
 
+/**
+ * Hash an already resolved entry without importing or evaluating it.
+ *
+ * The caller may provide the package root so a symlink swap between lstat and
+ * hashing is rejected as well. Opening the real path with O_NOFOLLOW and
+ * hashing the file descriptor avoids following a newly introduced symlink.
+ */
+function computeEntrySha256(file, { fsImpl = fsDefault, root = "" } = {}) {
+  if (typeof file !== "string" || !file.trim() || file.includes("\u0000")) {
+    return { ok: false, digest: "", error: "entry_invalido" }
+  }
+  let realFile = path.resolve(file)
+  try {
+    if (root) {
+      if (typeof root !== "string" || !root.trim() || root.includes("\u0000")) {
+        return { ok: false, digest: "", error: "entry_invalido" }
+      }
+      const realRoot = fsImpl.realpathSync(path.resolve(root))
+      realFile = fsImpl.realpathSync(realFile)
+      if (!isInside(realRoot, realFile)) return { ok: false, digest: "", error: "entry_fora_do_plugin" }
+    } else if (typeof fsImpl.realpathSync === "function") {
+      realFile = fsImpl.realpathSync(realFile)
+    }
+
+    const stat = fsImpl.lstatSync(realFile)
+    if (!stat.isFile() || stat.isSymbolicLink()) return { ok: false, digest: "", error: "entry_invalido" }
+
+    const constants = fsImpl.constants || fsDefault.constants
+    const noFollow = constants?.O_NOFOLLOW || 0
+    const readOnly = constants?.O_RDONLY || 0
+    const fd = fsImpl.openSync(realFile, readOnly | noFollow)
+    try {
+      const opened = typeof fsImpl.fstatSync === "function" ? fsImpl.fstatSync(fd) : stat
+      if (!opened.isFile() || (typeof opened.isSymbolicLink === "function" && opened.isSymbolicLink())) {
+        return { ok: false, digest: "", error: "entry_invalido" }
+      }
+      const hash = crypto.createHash("sha256")
+      const buffer = Buffer.allocUnsafe(64 * 1024)
+      while (true) {
+        const count = fsImpl.readSync(fd, buffer, 0, buffer.length, null)
+        if (!count) break
+        hash.update(buffer.subarray(0, count))
+      }
+      return { ok: true, digest: hash.digest("hex"), error: "" }
+    } finally {
+      try { fsImpl.closeSync(fd) } catch {}
+    }
+  } catch (error) {
+    if (error?.code === "ELOOP") return { ok: false, digest: "", error: "entry_invalido" }
+    return { ok: false, digest: "", error: "entry_nao_verificavel" }
+  }
+}
+
 function publicManifest(manifest) {
   if (!manifest || typeof manifest !== "object") return null
   // Return a fresh object and a fresh permissions array so renderer callers
   // cannot mutate the registry's canonical state by reference.
-  return {
+  const result = {
     manifestVersion: manifest.manifestVersion,
     apiVersion: manifest.apiVersion,
     id: manifest.id,
@@ -303,6 +407,8 @@ function publicManifest(manifest) {
     entry: manifest.entry || "",
     permissions: Array.isArray(manifest.permissions) ? [...manifest.permissions] : [],
   }
+  if (manifest.entrySha256) result.entrySha256 = manifest.entrySha256
+  return addDigestAliases(result)
 }
 
 module.exports = {
@@ -310,6 +416,8 @@ module.exports = {
   SDK_API_VERSION,
   MANIFEST_FILE,
   MAX_ID_LENGTH,
+  ENTRY_DIGEST_LENGTH,
+  ENTRY_DIGEST_ALIASES,
   PLUGIN_PERMISSIONS,
   normalizeId,
   validateId,
@@ -317,6 +425,7 @@ module.exports = {
   parseManifest,
   readManifest,
   resolvePluginEntry,
+  computeEntrySha256,
   isInside,
   publicManifest,
 }

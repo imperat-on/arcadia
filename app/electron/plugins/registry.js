@@ -3,9 +3,11 @@
 // Registro local de plugins. O registro guarda somente referências e estado de
 // ativação; ele nunca baixa, descompacta ou executa código de terceiros.
 
+const crypto = require("node:crypto")
 const fsDefault = require("node:fs")
 const path = require("node:path")
 const {
+  ENTRY_DIGEST_ALIASES,
   MANIFEST_FILE,
   MANIFEST_VERSION,
   normalizeId,
@@ -13,6 +15,7 @@ const {
   validateManifest,
   readManifest,
   resolvePluginEntry,
+  computeEntrySha256,
   publicManifest,
 } = require("./manifest")
 
@@ -35,6 +38,32 @@ function asTimestamp(value, fallback) {
   return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : fallback
 }
 
+function normalizeStoredDigest(value) {
+  if (typeof value !== "string") return ""
+  const digest = value.trim().toLowerCase()
+  return /^[0-9a-f]{64}$/.test(digest) ? digest : ""
+}
+
+function storedEntryDigest(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ""
+  for (const key of ENTRY_DIGEST_ALIASES) {
+    const digest = normalizeStoredDigest(raw[key])
+    if (digest) return digest
+  }
+  return ""
+}
+
+function digestMatches(expected, actual) {
+  const left = normalizeStoredDigest(expected)
+  const right = normalizeStoredDigest(actual)
+  if (!left || !right) return false
+  try {
+    return crypto.timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"))
+  } catch {
+    return false
+  }
+}
+
 function safeStateRecord(id, raw, fallbackPath = "") {
   const normalized = normalizeId(id)
   if (!normalized || !raw || typeof raw !== "object" || Array.isArray(raw)) return null
@@ -44,13 +73,16 @@ function safeStateRecord(id, raw, fallbackPath = "") {
   // State is never allowed to become a path traversal primitive.
   if (pluginPath.includes("\u0000")) return null
   const updated = asTimestamp(raw.updatedAt, 0)
-  return {
+  const record = {
     id: normalized,
     path: pluginPath ? path.resolve(pluginPath) : "",
     enabled: raw.enabled === true,
     registeredAt: asTimestamp(raw.registeredAt, updated),
     updatedAt: updated,
   }
+  const entrySha256 = storedEntryDigest(raw)
+  if (entrySha256) record.entrySha256 = entrySha256
+  return record
 }
 
 function emptyState() {
@@ -152,6 +184,7 @@ function builtinManifest(definition) {
       // Built-ins are host integrations, not packages loaded from disk. They
       // therefore intentionally have no executable entry.
       entry: source.entry,
+      entrySha256: source.entrySha256 ?? source.entry_sha256 ?? source.entryDigest ?? source.entry_digest ?? source.digest ?? source.sha256,
       permissions: source.permissions || [],
     },
     { requireEntry: false },
@@ -248,7 +281,39 @@ function createPluginRegistry({
     if (!parsed.ok) return { ok: false, manifest: null, path: resolved, entry: "", errors: parsed.errors }
     const checkedEntry = resolvePluginEntry(resolved, parsed.manifest.entry, { fsImpl })
     if (!checkedEntry.ok) return { ok: false, manifest: null, path: resolved, entry: "", errors: [checkedEntry.error] }
-    return { ok: true, manifest: parsed.manifest, path: resolved, entry: checkedEntry.path, errors: [] }
+    const calculated = computeEntrySha256(checkedEntry.path, { fsImpl, root: resolved })
+    if (!calculated.ok) {
+      return {
+        ok: false,
+        manifest: parsed.manifest,
+        path: resolved,
+        entry: checkedEntry.path,
+        entrySha256: "",
+        expectedEntrySha256: parsed.manifest.entrySha256 || "",
+        errors: [calculated.error],
+      }
+    }
+    const expectedEntrySha256 = parsed.manifest.entrySha256 || ""
+    if (expectedEntrySha256 && !digestMatches(expectedEntrySha256, calculated.digest)) {
+      return {
+        ok: false,
+        manifest: parsed.manifest,
+        path: resolved,
+        entry: checkedEntry.path,
+        entrySha256: calculated.digest,
+        expectedEntrySha256,
+        errors: ["entry_digest_mismatch"],
+      }
+    }
+    return {
+      ok: true,
+      manifest: parsed.manifest,
+      path: resolved,
+      entry: checkedEntry.path,
+      entrySha256: calculated.digest,
+      expectedEntrySha256,
+      errors: [],
+    }
   }
 
   function recordFor(id) {
@@ -282,6 +347,19 @@ function createPluginRegistry({
         enabled: false,
         valid: false,
         error: "id_divergente",
+        source: "local",
+      }
+    }
+    // A registration snapshots the entry digest. This catches tampering even
+    // when an attacker edits the optional manifest field along with the code.
+    if (record.entrySha256 && !digestMatches(record.entrySha256, packageInfo.entrySha256)) {
+      return {
+        id: normalized,
+        manifest: publicManifest(packageInfo.manifest),
+        installed: false,
+        enabled: false,
+        valid: false,
+        error: "entry_digest_mismatch",
         source: "local",
       }
     }
@@ -342,13 +420,18 @@ function createPluginRegistry({
     const existing = recordFor(id)
     if (existing && existing.path !== packageInfo.path) return { ok: false, error: "id_ja_registrado" }
     const timestamp = asTimestamp(now(), Date.now())
-    readState().plugins[id] = {
+    const record = {
       id,
       path: packageInfo.path,
       enabled: Boolean(enabled),
       registeredAt: existing?.registeredAt || timestamp,
       updatedAt: timestamp,
+      // Snapshot the bytes at registration. Manifests without a declared
+      // digest remain valid v1 packages, but are still tamper-detectable after
+      // this registration through the private registry snapshot.
+      entrySha256: packageInfo.entrySha256,
     }
+    readState().plugins[id] = record
     try {
       writeState()
     } catch {
@@ -431,6 +514,65 @@ function createPluginRegistry({
     }
   }
 
+  function verificationResult(id, packageInfo, record = null) {
+    const normalized = normalizeId(id) || ""
+    const declaredDigest = packageInfo.manifest?.entrySha256 || ""
+    const expectedDigest = record?.entrySha256 || declaredDigest
+    const actualDigest = packageInfo.entrySha256 || ""
+    const verified = Boolean(expectedDigest)
+    const valid = packageInfo.ok && (!verified || digestMatches(expectedDigest, actualDigest))
+    let error = ""
+    if (!packageInfo.ok) error = packageInfo.errors?.[0] || "entry_nao_verificavel"
+    else if (verified && !digestMatches(expectedDigest, actualDigest)) error = "entry_digest_mismatch"
+    return {
+      id: normalized,
+      ok: valid,
+      valid,
+      verified,
+      declared: Boolean(declaredDigest),
+      algorithm: "sha256",
+      expectedDigest,
+      actualDigest,
+      // `digest` is the stable shorthand used by callers that only need the
+      // computed value. It is never a path and is safe to return to the UI.
+      digest: actualDigest,
+      source: record?.entrySha256 ? "registry" : (declaredDigest ? "manifest" : "none"),
+      error,
+    }
+  }
+
+  function verify(id) {
+    const normalized = normalizeId(id)
+    if (!normalized) return verificationResult("", { ok: false, errors: ["plugin_invalido"] })
+    const builtin = builtinMap.get(normalized)
+    if (builtin) {
+      return {
+        id: normalized,
+        ok: true,
+        valid: true,
+        verified: false,
+        declared: false,
+        algorithm: "sha256",
+        expectedDigest: "",
+        actualDigest: "",
+        digest: "",
+        source: "builtin",
+        error: "",
+      }
+    }
+    const record = recordFor(normalized)
+    if (!record) return verificationResult(normalized, { ok: false, errors: ["plugin_desconhecido"] })
+    return verificationResult(normalized, readPackage(record.path), record)
+  }
+
+  // Direct package verification is intentionally read-only and never imports
+  // the entry. It is useful before registration and keeps paths out of the
+  // result returned to a caller.
+  function verifyPackage(pluginPath) {
+    const packageInfo = readPackage(pluginPath)
+    return verificationResult(packageInfo.manifest?.id || "", packageInfo)
+  }
+
   function hasPermission(id, permission) {
     const item = descriptor(id)
     return Boolean(item?.valid && item.enabled && item.manifest?.permissions?.includes(permission))
@@ -448,6 +590,10 @@ function createPluginRegistry({
     get,
     listDetailed,
     hasPermission,
+    verify,
+    verifyIntegrity: verify,
+    verifyPlugin: verify,
+    verifyPackage,
     readPackage,
     paths,
     invalidate,
