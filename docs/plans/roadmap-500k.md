@@ -118,6 +118,12 @@ clara, caminho de execução verificável e teste correspondente.
 - novo canal `dm:setPriority` mantém controle pelo preload tipado;
 - política pura testada sem iniciar Legendary/DepotDownloader.
 
+### Fase 1.6 — logs de execução rotacionados
+
+- `launch-log.js` extrai abertura, rotação e fechamento dos logs de jogos;
+- descritores são fechados em sucesso, erro e rejeição de binário;
+- política testada sem spawn real e com rotação acima de 5 MiB.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

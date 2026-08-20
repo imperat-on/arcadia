@@ -14,6 +14,7 @@ app/
     library-store.js  # leitura versionada e compatível da biblioteca local
     index-service.js  # job deduplicado/timeout do index.py
     launch-resolver.js # política pura de comando/perfil de execução
+    launch-log.js      # logs rotacionados com fechamento seguro de descritor
     trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)
