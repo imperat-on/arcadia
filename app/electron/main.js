@@ -38,6 +38,7 @@ const { createLaunchLog } = require("./launch-log")
 const { createSnapshotService } = require("./snapshot-service")
 const { createDiagnosticsService } = require("./diagnostics")
 const { createSupportBundle } = require("./support-bundle")
+const { createGameSettingsService } = require("./game-settings-service")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -837,37 +838,21 @@ async function fetchJson(url) {
   return r.json()
 }
 
-// Cache por mtime (padrão de _cfgCache): readAllGameSettings roda no readLibrary
-// e em vários handlers; setGameSettings invalida ao gravar.
-let _gsCache = { mtimeMs: -1, data: {} }
+// O caminho é resolvido por operação porque muda com a conta ativa.
+const gameSettingsService = createGameSettingsService({
+  getPath: () => caminhoConta(GAME_SETTINGS),
+})
+
+// Aliases locais preservam os consumidores existentes enquanto o domínio fica
+// testável fora do Electron.
 function readAllGameSettings() {
-  try {
-    const m = fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs
-    if (m !== _gsCache.mtimeMs) {
-      _gsCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(caminhoConta(GAME_SETTINGS), "utf-8")) }
-    }
-    return _gsCache.data
-  } catch {
-    return {}
-  }
+  return gameSettingsService.readAll()
 }
-
 function getGameSettings(id) {
-  if (!id) return {}
-  return readAllGameSettings()[id] || {}
+  return gameSettingsService.get(id)
 }
-
 function setGameSettings(id, patch) {
-  if (!id) return {}
-  const all = readAllGameSettings()
-  all[id] = { ...(all[id] || {}), ...(patch || {}) }
-  try {
-    fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
-    _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
-  } catch {
-    /* disco cheio/permissão: segue sem salvar */
-  }
-  return all[id]
+  return gameSettingsService.set(id, patch)
 }
 
 // Prefixo padrão do jogo (respeita a pasta configurada em Config. Gerais).
