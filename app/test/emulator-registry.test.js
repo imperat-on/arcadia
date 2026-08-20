@@ -167,6 +167,13 @@ test("resolveLaunch rejeita emulador, ROM e symlink inválidos", () => {
       registry.resolveLaunch({ emulatorId: "pcsx2", romPath: "../demo.iso" }).error,
       "rom_invalida",
     )
+    assert.equal(
+      registry.resolveLaunch({
+        emulatorId: "pcsx2",
+        romPath: `${f.root}/games/../games/demo.iso`,
+      }).error,
+      "rom_invalida",
+    )
     const link = path.join(f.root, "link.iso")
     fs.symlinkSync(f.rom, link)
     assert.equal(
