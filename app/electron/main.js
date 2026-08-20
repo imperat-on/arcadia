@@ -268,245 +268,16 @@ const YTDLP_ENV = {
 // explícito porque o PATH do app pode não incluir /usr/bin (ex.: no gamescope).
 const FFMPEG_DIR =
   ["/usr/bin", "/usr/local/bin", "/bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg"))) || ""
-const FF_ARGS = FFMPEG_DIR ? ["--ffmpeg-location", FFMPEG_DIR] : []
 const SLS_CONFIG = path.join(HOME, ".config/SLSsteam/config.yaml")
 
-// Diário do subsistema de trailers. Sem isto, toda falha (binário ausente,
-// rede, extractor do YouTube quebrado) chegava na tela como o mesmo
-// "Nenhum vídeo encontrado" — impossível de diagnosticar à distância.
+// Diário do subsistema de trailers. O serviço recebe o logger para continuar
+// diagnosticando falhas sem depender do Electron.
 const TRAILER_LOG = path.join(LOG_DIR, "trailers.log")
 function logTrailer(msg) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true })
     fs.appendFileSync(TRAILER_LOG, `${new Date().toISOString()} ${msg}\n`)
   } catch {}
-}
-
-// Trailers em andamento (evita baixar o mesmo jogo duas vezes ao mesmo tempo).
-const trailerJobs = new Map()
-
-function safeName(id) {
-  return String(id).replace(/[^a-z0-9._-]/gi, "_")
-}
-
-// Remove TODOS os arquivos de um jogo (inclusive parciais .part/.fNNN de
-// tentativas anteriores, que causam "HTTP 416 range not satisfiable").
-function limparTrailer(safe) {
-  try {
-    for (const f of fs.readdirSync(TRAILERS_DIR)) {
-      if (f === safe || f.startsWith(safe + ".")) {
-        try {
-          fs.unlinkSync(path.join(TRAILERS_DIR, f))
-        } catch {
-          /* já sumiu */
-        }
-      }
-    }
-  } catch {
-    /* pasta ainda não existe */
-  }
-}
-
-// Cookies do YouTube (arquivo cookies.txt do usuário) para vídeos com restrição
-// de idade. Vazio = sem cookies (a maioria dos vídeos não precisa).
-function cookieArgs() {
-  try {
-    const p = String(readConfig().youtube_cookies || "").trim()
-    if (p && fs.existsSync(p)) return ["--cookies", p]
-  } catch {
-    /* sem config */
-  }
-  return []
-}
-
-// Caminho local do trailer já baixado (mp4/webm), ou "" se não existe.
-function trailerLocal(id) {
-  const base = path.join(TRAILERS_DIR, safeName(id))
-  for (const ext of [".mp4", ".webm", ".mkv"]) {
-    if (fs.existsSync(base + ext)) return base + ext
-  }
-  return ""
-}
-
-// Baixa o trailer do YouTube via yt-dlp. Resolve com o caminho local.
-function baixarTrailer(id, titulo) {
-  const existe = trailerLocal(id)
-  if (existe) return Promise.resolve({ ok: true, path: existe })
-  if (trailerJobs.has(id)) return trailerJobs.get(id)
-
-  const job = new Promise((resolve) => {
-    fs.mkdirSync(TRAILERS_DIR, { recursive: true })
-    const safe = safeName(id)
-    limparTrailer(safe) // tira parciais que causariam HTTP 416
-    const args = [
-      `ytsearch5:${titulo} trailer`,
-      "--no-playlist",
-      "--no-warnings",
-      "--no-continue",
-      "--no-part",
-      "--match-filter",
-      "duration > 20 & duration < 360", // pega trailer curto, não gameplay de 1h
-      "-f",
-      "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-      "--remux-video",
-      "mp4",
-      ...FF_ARGS,
-      ...cookieArgs(),
-      "-o",
-      path.join(TRAILERS_DIR, `${safe}.%(ext)s`),
-    ]
-    execFile(YTDLP, args, { timeout: 180000, env: YTDLP_ENV }, (err) => {
-      // yt-dlp pode sair !=0 (limite/reject); o que vale é o arquivo existir.
-      const p = trailerLocal(id)
-      if (p) return resolve({ ok: true, path: p })
-      // ENOENT aqui é o binário ausente, não "sem resultado" — distinguir os
-      // dois evita mandar o usuário caçar um problema de rede que não existe.
-      if (err && err.code === "ENOENT") {
-        return resolve({ ok: false, error: "yt-dlp não instalado (instale o pacote yt-dlp)" })
-      }
-      resolve({ ok: false, error: "trailer não encontrado" })
-    })
-  }).finally(() => trailerJobs.delete(id))
-
-  trailerJobs.set(id, job)
-  return job
-}
-
-// URL de stream direto (mp4 progressivo) para pré-visualizar sem baixar. O
-// embed do YouTube recusa origem file:// (erro 153); um <video> nativo não.
-function streamTrailer(url) {
-  return new Promise((resolve) => {
-    execFile(
-      YTDLP,
-      // 22/18 são progressivos (áudio+vídeo num arquivo só) que quase todo vídeo
-      // tem — dá prévia mesmo nos que só têm faixas DASH separadas.
-      [
-        "-g",
-        "-f",
-        "best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best",
-        "--no-warnings",
-        ...cookieArgs(),
-        url,
-      ],
-      { timeout: 40000, maxBuffer: 1024 * 1024 * 4, env: YTDLP_ENV },
-      (err, stdout, stderr) => {
-        const link = String(stdout || "")
-          .split("\n")
-          .find((l) => l.startsWith("http"))
-        if (link) return resolve({ ok: true, url: link })
-        const age = /confirm your age|inappropriate/i.test(String(stderr || ""))
-        resolve({ ok: false, error: age ? "age" : "sem stream" })
-      },
-    )
-  })
-}
-
-// Busca (sem baixar) os vídeos do YouTube para o usuário escolher o certo.
-function buscarTrailers(query) {
-  return new Promise((resolve) => {
-    const args = [`ytsearch12:${query} trailer`, "--flat-playlist", "--dump-json", "--no-warnings"]
-    execFile(
-      YTDLP,
-      args,
-      { timeout: 40000, maxBuffer: 1024 * 1024 * 8, env: YTDLP_ENV },
-      (err, stdout, stderr) => {
-        const out = []
-        for (const line of String(stdout || "").split("\n")) {
-          if (!line.trim()) continue
-          try {
-            const d = JSON.parse(line)
-            const thumbs = d.thumbnails || []
-            out.push({
-              id: d.id,
-              url: d.url || `https://www.youtube.com/watch?v=${d.id}`,
-              title: d.title || "",
-              duration: d.duration || 0,
-              channel: d.channel || d.uploader || "",
-              thumbnail: d.thumbnail || (thumbs.length ? thumbs[thumbs.length - 1].url : ""),
-            })
-          } catch {
-            /* linha não-JSON: ignora */
-          }
-        }
-        // Sem resultado E com falha do yt-dlp são coisas MUITO diferentes (rede,
-        // binário quebrado, YouTube mudando o extractor), mas a tela mostrava
-        // "Nenhum vídeo encontrado" para as duas. Devolvemos o motivo real.
-        if (!out.length && err) {
-          const msg =
-            String(stderr || "")
-              .split("\n")
-              .filter((l) => /error/i.test(l))[0] ||
-            (err.code === "ENOENT"
-              ? "yt-dlp não encontrado"
-              : `yt-dlp falhou (${err.code ?? err.message})`)
-          logTrailer(`busca "${query}" falhou: ${msg}`)
-          return resolve({ results: [], error: msg })
-        }
-        logTrailer(`busca "${query}": ${out.length} resultado(s)`)
-        resolve({ results: out })
-      },
-    )
-  })
-}
-
-// Baixa um vídeo ESPECÍFICO do YouTube como trailer do jogo (escolha manual).
-// Emite progresso (%) por 'trailer:dlprogress' para a janela mostrar a barra.
-function baixarTrailerUrl(id, url) {
-  return new Promise((resolve) => {
-    fs.mkdirSync(TRAILERS_DIR, { recursive: true })
-    const safe = safeName(id)
-    // Apaga o trailer anterior E parciais (o usuário corrige um errado; e
-    // parciais de tentativas anteriores causam HTTP 416).
-    limparTrailer(safe)
-    const args = [
-      url,
-      "--no-playlist",
-      "--no-warnings",
-      "--no-continue",
-      "--no-part",
-      "--newline", // uma linha por atualização de progresso (fácil de parsear)
-      "-f",
-      "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-      "--remux-video",
-      "mp4",
-      ...FF_ARGS,
-      ...cookieArgs(),
-      "-o",
-      path.join(TRAILERS_DIR, `${safe}.%(ext)s`),
-    ]
-    const emit = (data) => {
-      if (win) win.webContents.send("trailer:dlprogress", { id, ...data })
-    }
-    let errBuf = ""
-    const child = spawn(YTDLP, args, { env: YTDLP_ENV })
-    const onData = (buf) => {
-      const s = buf.toString()
-      const m = s.match(/\[download\]\s+([0-9.]+)%/)
-      if (m) emit({ percent: parseFloat(m[1]), stage: "download" })
-      if (/\[VideoRemuxer\]|Merging/.test(s)) emit({ percent: 100, stage: "processando" })
-    }
-    child.stdout.on("data", onData)
-    child.stderr.on("data", (b) => {
-      errBuf += b.toString()
-      onData(b)
-    })
-    child.on("close", () => {
-      const p = trailerLocal(id)
-      emit({ percent: 100, stage: "done" })
-      if (p) return resolve({ ok: true, path: p })
-      if (/confirm your age|inappropriate/i.test(errBuf)) {
-        return resolve({ ok: false, error: "age" })
-      }
-      // Mostra o motivo real (ex.: ffmpeg ausente, vídeo indisponível).
-      const linha =
-        errBuf
-          .split("\n")
-          .reverse()
-          .find((l) => /error|ffmpeg/i.test(l)) || ""
-      resolve({ ok: false, error: linha.trim() || "falha ao baixar" })
-    })
-    child.on("error", (e) => resolve({ ok: false, error: String(e.message || e) }))
-  })
 }
 
 // Cache por mtime: readConfig é chamado dezenas de vezes no boot (createWindow,
@@ -531,6 +302,16 @@ function readConfig() {
     return {}
   }
 }
+
+const { createTrailerService } = require("./trailer-service")
+const trailerService = createTrailerService({
+  trailersDir: TRAILERS_DIR,
+  ytdlpPath: YTDLP,
+  ffmpegDir: FFMPEG_DIR,
+  env: YTDLP_ENV,
+  getCookiesPath: () => String(readConfig().youtube_cookies || "").trim(),
+  logger: logTrailer,
+})
 
 const discordRpc = new DiscordRpc(readConfig)
 
@@ -3032,63 +2813,67 @@ app.whenReady().then(() => {
 
   // Trailer local já baixado (file://) ou "" se ainda não temos.
   ipcMain.handle("trailer:path", (_e, id) => {
-    const p = trailerLocal(id)
+    const p = trailerService.localPath(id)
     return { path: p ? "file://" + p : "" }
   })
 
   // Baixa o trailer do YouTube (se ainda não existe). Devolve o caminho.
   ipcMain.handle("trailer:download", async (_e, { id, title } = {}) => {
-    if (!id || !fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
-    const r = await baixarTrailer(id, title || "")
+    if (!id || !trailerService.isAvailable()) return { ok: false, error: "yt-dlp ausente" }
+    const r = await trailerService.download(id, title || "")
     return r.ok ? { ok: true, path: "file://" + r.path } : r
   })
 
   // Lista vídeos do YouTube para escolha manual (sem baixar).
   ipcMain.handle("trailer:search", async (_e, { query } = {}) => {
-    if (!YTDLP) {
+    if (!trailerService.isAvailable()) {
       logTrailer("busca abortada: yt-dlp não instalado")
       return { ok: false, error: "yt-dlp não está instalado — instale o pacote yt-dlp" }
     }
-    const { results, error } = await buscarTrailers(query || "")
+    const { results, error } = await trailerService.search(query || "")
     if (error) return { ok: false, error }
     return { ok: true, results }
   })
 
   // URL direta para pré-visualizar o vídeo num <video> (sem baixar).
   ipcMain.handle("trailer:streamUrl", async (_e, { url } = {}) => {
-    if (!url || !fs.existsSync(YTDLP)) return { ok: false, error: "pedido inválido" }
-    return streamTrailer(url)
+    if (!url || !trailerService.isAvailable()) return { ok: false, error: "pedido inválido" }
+    return trailerService.streamUrl(url)
   })
 
   // Baixa um vídeo específico do YouTube como trailer (escolha manual).
   ipcMain.handle("trailer:downloadUrl", async (_e, { id, url } = {}) => {
-    if (!id || !url || !fs.existsSync(YTDLP)) return { ok: false, error: "pedido inválido" }
-    const r = await baixarTrailerUrl(id, url)
+    if (!id || !url || !trailerService.isAvailable()) return { ok: false, error: "pedido inválido" }
+    const r = await trailerService.downloadUrl(id, url, {
+      onProgress: (data) => {
+        if (win && !win.isDestroyed()) win.webContents.send("trailer:dlprogress", data)
+      },
+    })
     return r.ok ? { ok: true, path: "file://" + r.path } : r
   })
 
   // Baixa TODOS os trailers que faltam. Emite progresso e devolve a contagem.
   ipcMain.handle("trailer:downloadAll", async (_e) => {
-    if (!fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
+    if (!trailerService.isAvailable()) return { ok: false, error: "yt-dlp ausente" }
     let lib = []
     try {
       lib = readLibrary()
     } catch {
       return { ok: false, error: "biblioteca não lida" }
     }
-    const faltam = lib.filter((g) => !trailerLocal(g.id))
+    const faltam = lib.filter((g) => !trailerService.localPath(g.id))
     let feitos = 0
     for (const g of faltam) {
-      if (win)
+      if (win && !win.isDestroyed())
         win.webContents.send("trailer:progress", {
           done: feitos,
           total: faltam.length,
           title: g.title,
         })
-      await baixarTrailer(g.id, g.title || "")
+      await trailerService.download(g.id, g.title || "")
       feitos++
     }
-    if (win)
+    if (win && !win.isDestroyed())
       win.webContents.send("trailer:progress", {
         done: feitos,
         total: faltam.length,
@@ -3096,6 +2881,7 @@ app.whenReady().then(() => {
       })
     return { ok: true, count: feitos }
   })
+
   ipcMain.handle("app:quit", () => app.quit())
 
   // ─── Fixes (crack/bypass/online) — port do luatools-moon ────────────────

@@ -66,7 +66,10 @@ clara, caminho de execução verificável e teste correspondente.
 - backend normaliza `push_library`/playtime antes das queries;
 - metadados extras de providers são preservados e entradas inválidas são
   descartadas de forma determinística;
-- testes unitários cobrem os consumidores app e server.
+- testes unitários cobrem os consumidores app e server;
+- trailer-service.js foi extraído do main process com dependências injetáveis;
+- IPC público e payloads do preload foram preservados, incluindo progresso;
+- serviço ganhou testes de cache, deduplicação, busca, stream e progresso.
 
 ## Fases de implementação
 
