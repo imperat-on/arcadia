@@ -133,6 +133,13 @@ clara, caminho de execução verificável e teste correspondente.
 - symlinks são ignorados e traversal não atravessa a pasta de snapshots;
 - IPC/preload expõem a operação sem mover arquivos para a rede.
 
+### Fase 0.5 — diagnóstico local seguro
+
+- `diagnostics.js` agrega runtime, armazenamento, biblioteca, fila e snapshots;
+- o relatório não inclui caminhos absolutos, credenciais ou payloads de rede;
+- IPC/preload tipados expõem `app:diagnostics` para suporte local;
+- teste verifica agregação, contagem e ausência de dados sensíveis.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
