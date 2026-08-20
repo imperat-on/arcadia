@@ -5,6 +5,10 @@ const assert = require("node:assert/strict")
 const {
   CONTRACT_VERSION,
   normalizeLibrary,
+  safeAccountSession,
+  safeAuthResult,
+  safeAccountStatus,
+  safeAccountEvent,
   normalizeLibrarySyncItems,
   normalizePlaytimeItems,
 } = require("../../contracts")
@@ -56,5 +60,49 @@ test("contrato de sync rejeita payloads inválidos e limita itens", () => {
       { appid: "steam:10", minutes: 30 },
       { appid: "steam:12", minutes: 999999 },
     ],
+  )
+})
+
+
+test("sessão pública remove access/refresh tokens na fronteira IPC", () => {
+  const session = safeAccountSession({
+    access_token: "access-secret",
+    refresh_token: "refresh-secret",
+    user: {
+      id: "user-1",
+      email: "user@example.com",
+      user_metadata: { username: "player", secret: "não expor" },
+    },
+  })
+  assert.deepEqual(session, {
+    user: { id: "user-1", email: "user@example.com", username: "player" },
+  })
+  assert.equal("access_token" in session, false)
+  assert.equal("refresh_token" in session, false)
+
+  const result = safeAuthResult({
+    ok: true,
+    session: { access_token: "access-secret", refresh_token: "refresh-secret" },
+    user: { id: "user-1" },
+    usernameReal: "player",
+  })
+  assert.deepEqual(result, { ok: true, usernameReal: "player" })
+  assert.equal(JSON.stringify(result).includes("access-secret"), false)
+  assert.equal(JSON.stringify(result).includes("refresh-secret"), false)
+
+  assert.deepEqual(
+    safeAccountStatus({
+      session: { access_token: "access-secret", user: { id: "user-1" } },
+      error: null,
+      leaked: "never",
+    }),
+    { session: { user: { id: "user-1" } }, error: null },
+  )
+  assert.deepEqual(
+    safeAccountEvent("SIGNED_IN", {
+      refresh_token: "refresh-secret",
+      user: { id: "user-1", user_metadata: { username: "player" } },
+    }),
+    { event: "SIGNED_IN", session: { user: { id: "user-1", username: "player" } } },
   )
 })

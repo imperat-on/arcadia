@@ -36,6 +36,37 @@ export interface ArcadiaGame {
 
 export type ArcadiaLibrary = ArcadiaGame[]
 
+export interface SafeAccountUser {
+  id: string
+  email?: string
+  username?: string
+}
+
+export interface SafeAccountSession {
+  user: SafeAccountUser
+}
+
+export interface SafeAuthResult {
+  ok: boolean
+  error?: string
+  usernameReal?: string
+}
+
+export interface SafeAccountStatus {
+  session: SafeAccountSession | null
+  error: string | null
+}
+
+export interface SafeAccountEvent {
+  event: string
+  session: SafeAccountSession | null
+}
+
+export function safeAccountSession(value: unknown): SafeAccountSession | null
+export function safeAuthResult(value: unknown): SafeAuthResult
+export function safeAccountStatus(value: unknown): SafeAccountStatus
+export function safeAccountEvent(event: unknown, session: unknown): SafeAccountEvent
+
 export interface ArcadiaLibrarySyncItem {
   appid: string
   title?: string
