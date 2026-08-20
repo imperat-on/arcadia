@@ -252,3 +252,26 @@ expansão do projeto.
   válidas e seleção de conta antes do realtime/reconcile;
 - adicionados testes do boot de autenticação;
 - validação: **76/76 testes do app**, typecheck, build e sintaxe JS/Python/Shell.
+
+## Entregas incrementais de sync, catálogo e extensibilidade
+
+O estado atual da branch `melhorias` também inclui as entregas seguintes, sempre
+com contratos e testes focados:
+
+- **sync offline**: resolução determinística de conquistas (earliest-wins),
+  biblioteca (revisão/remoção) e playtime (merge monotônico), fila persistida,
+  deduplicação, convergência e proteção contra troca de conta durante RPC;
+- **catálogo local**: índice versionado em `ARCADIA_DATA_DIR`, ranking
+  acento/pontuação-insensível, hidratação seletiva dos espelhos, paginação
+  offline e integração com `store:search`/`store:suggest`;
+- **plugins v1**: manifesto validado, permissões declarativas, rejeição de
+  traversal/symlink, registro atômico e espelho legado, SDK capability-based,
+  além da superfície IPC/preload `details/get/register/unregister/enable/disable`
+  sem devolver caminhos privados;
+- validação após essas entregas: **137/137 testes do app**, `tsc --noEmit`,
+  build Vite e testes focados do servidor de observabilidade; a integração
+  completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
+
+A contagem de linhas permanece uma métrica secundária: novas linhas devem
+corresponder a casos de uso, contratos, fixtures, documentação ou operação
+verificável, nunca a preenchimento artificial.
