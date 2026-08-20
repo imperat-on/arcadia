@@ -102,7 +102,7 @@ function normalizeLibrarySyncItem(value) {
   return {
     appid,
     title: text(value.title, MAX_TITLE_LENGTH) || appid,
-    platform: value.platform === "linux" ? "linux" : "windows",
+    platform: value.platform === "emulator" ? "emulator" : value.platform === "linux" ? "linux" : "windows",
   }
 }
 

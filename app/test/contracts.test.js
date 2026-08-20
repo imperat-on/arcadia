@@ -40,6 +40,7 @@ test("contrato de sync rejeita payloads inválidos e limita itens", () => {
   assert.deepEqual(
     normalizeLibrarySyncItems([
       { appid: "steam:10", title: "Portal", platform: "linux" },
+      { appid: "custom:rom", title: "ROM local", platform: "emulator" },
       { appid: "steam:11", removed: true, title: "ignorado" },
       { appid: "steam:12", removed: "false", title: "não remover" },
       { appid: "", title: "descartado" },
@@ -47,6 +48,7 @@ test("contrato de sync rejeita payloads inválidos e limita itens", () => {
     ]),
     [
       { appid: "steam:10", title: "Portal", platform: "linux" },
+      { appid: "custom:rom", title: "ROM local", platform: "emulator" },
       { appid: "steam:11", removed: true },
       { appid: "steam:12", title: "não remover", platform: "windows" },
       { appid: "steam:13", title: "sem plataforma", platform: "windows" },

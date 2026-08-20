@@ -151,8 +151,14 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   prefixTool: (appid, tool, opts) =>
     ipcRenderer.invoke("wine:prefixTool", { appid, tool, ...(opts || {}) }),
   wineRunExe: (appid, opts) => ipcRenderer.invoke("wine:runExe", { appid, ...(opts || {}) }),
-  gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", id),
-  gameSettingsSet: (id, patch) => ipcRenderer.invoke("gamesettings:set", { id, patch }),
+  gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", typeof id === "string" ? id : ""),
+  gameSettingsSet: (id, patch) => ipcRenderer.invoke("gamesettings:set", { id: typeof id === "string" ? id : "", patch: patch || {} }),
+  emulatorsList: () => ipcRenderer.invoke("emulators:list"),
+  emulatorsDetect: () => ipcRenderer.invoke("emulators:detect"),
+  emulatorsProfiles: () => ipcRenderer.invoke("emulators:profiles"),
+  emulatorProfileSet: (profile) => ipcRenderer.invoke("emulators:profile:set", profile || {}),
+  emulatorProfileRemove: (id) => ipcRenderer.invoke("emulators:profile:remove", typeof id === "string" ? id : ""),
+  emulatorsResolve: (payload) => ipcRenderer.invoke("emulators:resolve", payload || {}),
   pickFolder: () => ipcRenderer.invoke("app:pickFolder"),
   pickFile: () => ipcRenderer.invoke("app:pickFile"),
   onTrailerProgress: (cb) => {

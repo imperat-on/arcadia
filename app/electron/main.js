@@ -39,6 +39,7 @@ const { createSnapshotService } = require("./snapshot-service")
 const { createDiagnosticsService } = require("./diagnostics")
 const { createSupportBundle } = require("./support-bundle")
 const { createGameSettingsService } = require("./game-settings-service")
+const { createEmulatorRegistry } = require("./emulator-registry")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -842,6 +843,7 @@ async function fetchJson(url) {
 const gameSettingsService = createGameSettingsService({
   getPath: () => caminhoConta(GAME_SETTINGS),
 })
+const emulatorRegistry = createEmulatorRegistry({ dataDir: DATA_DIR })
 
 // Aliases locais preservam os consumidores existentes enquanto o domínio fica
 // testável fora do Electron.
@@ -1258,7 +1260,7 @@ function readLibrary() {
     // "Instalar" e o botão Jogar nunca aparecia.
     const settings = readAllGameSettings()
     for (const g of games) {
-      if (g && settings[g.id]?.exePath) {
+      if (g && (settings[g.id]?.exePath || (settings[g.id]?.emulatorId && settings[g.id]?.romPath))) {
         if (g.installed === false) g.installed = true
         g.temExe = true // frontend decide se mostra o menu Steam vs fora-da-Steam
       }
@@ -1819,6 +1821,15 @@ app.whenReady().then(() => {
       customLaunchCmd,
       getGameSettings,
       exeLaunchCmd,
+      emulatorLaunch: (_id, _game, settings) => {
+        if (!settings?.emulatorId) return null
+        return emulatorRegistry.resolveLaunch({
+          emulatorId: settings.emulatorId,
+          romPath: settings.romPath,
+          extraArgs: settings.emulatorArgs,
+          corePath: settings.emulatorCorePath,
+        })
+      },
     })
     if (!resolved.ok) return resolved
 
@@ -2100,23 +2111,45 @@ app.whenReady().then(() => {
   })
 
   // Adiciona um jogo manualmente ("Adicionar jogo"). Salva em custom_games.json
-  // e devolve a biblioteca já mesclada.
-  ipcMain.handle("customgame:add", (_e, { id, title, platform, exe } = {}) => {
+  // e devolve a biblioteca já mesclada. Jogos de emulador não guardam ROM/path
+  // no registro da biblioteca: esses dados ficam nas configurações locais.
+  ipcMain.handle("customgame:add", (_e, payload = {}) => {
     try {
-      if (!title || !exe) return { ok: false, error: "título e executável são obrigatórios" }
+      const { id, title, platform, exe, emulatorId, romPath, emulatorArgs, emulatorCorePath } = payload || {}
+      const customId = typeof id === "string" ? id.trim() : ""
+      const customTitle = typeof title === "string" ? title.trim() : ""
+      const isEmulator = platform === "emulator"
+      if (!/^custom:[a-z0-9][a-z0-9._-]{0,100}$/.test(customId) || !customTitle || customTitle.length > 200) {
+        return { ok: false, error: "título ou identificador inválido" }
+      }
+      if (!isEmulator && (typeof exe !== "string" || !exe.trim() || exe.includes("\u0000"))) {
+        return { ok: false, error: "título e executável são obrigatórios" }
+      }
+      if (isEmulator) {
+        const resolved = emulatorRegistry.resolveLaunch({
+          emulatorId,
+          romPath,
+          extraArgs: emulatorArgs,
+          corePath: emulatorCorePath,
+        })
+        // Resolve apenas valida o perfil/ROM e monta argv; não executa nada.
+        if (!resolved.ok) return { ok: false, error: resolved.error || "configuração do emulador inválida" }
+      } else if (!exe) {
+        return { ok: false, error: "título e executável são obrigatórios" }
+      }
       const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
-      if (all.some((g) => g.id === id))
+      if (all.some((g) => g.id === customId))
         return { ok: false, error: "já existe um jogo com esse nome" }
       all.push({
-        id,
-        title,
+        id: customId,
+        title: customTitle,
         launcher: "custom",
-        platform: platform === "linux" ? "linux" : "windows",
-        exe,
+        platform: isEmulator ? "emulator" : (platform === "linux" ? "linux" : "windows"),
+        ...(isEmulator ? {} : { exe }),
         installed: true,
       })
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
-      ownedAdd(id)
+      ownedAdd(customId)
       // Sincroniza a coleção com a conta (jogos seguem entre máquinas)
       try {
         require("./supabase/biblioteca").agendarPush()
@@ -2128,13 +2161,23 @@ app.whenReady().then(() => {
   })
 
   // Edita um jogo custom existente (título/executável). O id é preservado.
-  ipcMain.handle("customgame:update", (_e, { id, title, exe } = {}) => {
+  ipcMain.handle("customgame:update", (_e, payload = {}) => {
     try {
+      const { id, title, exe, platform } = payload || {}
+      const customId = typeof id === "string" ? id.trim() : ""
       const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
-      const g = all.find((x) => x.id === id)
+      const g = all.find((x) => x.id === customId)
       if (!g) return { ok: false, error: "jogo não encontrado" }
-      if (title) g.title = title
-      if (exe) g.exe = exe
+      if (title !== undefined) {
+        if (typeof title !== "string" || !title.trim() || title.trim().length > 200) return { ok: false, error: "título inválido" }
+        g.title = title.trim()
+      }
+      if (platform === "emulator" || platform === "windows" || platform === "linux") g.platform = platform
+      if (exe !== undefined) {
+        if (typeof exe !== "string" || exe.includes("\u0000")) return { ok: false, error: "executável inválido" }
+        if (exe) g.exe = exe
+      }
+      if (g.platform === "emulator") delete g.exe
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
       // Renomeou → título novo sobe pra conta
       try {
@@ -2714,6 +2757,15 @@ app.whenReady().then(() => {
     defaultPrefix: id ? defaultPrefix(id) : "",
   }))
   ipcMain.handle("gamesettings:set", (_e, { id, patch } = {}) => setGameSettings(id, patch))
+
+  // Emuladores: só catálogo/detecção e montagem de argv; nenhum handler executa
+  // binário ou passa comando por shell. A execução ocorre pelo fluxo game:launch.
+  ipcMain.handle("emulators:list", () => ({ ok: true, emulators: emulatorRegistry.list() }))
+  ipcMain.handle("emulators:detect", () => emulatorRegistry.detect())
+  ipcMain.handle("emulators:profiles", () => ({ ok: true, profiles: emulatorRegistry.profiles() }))
+  ipcMain.handle("emulators:profile:set", (_e, profile) => emulatorRegistry.setProfile(profile || {}))
+  ipcMain.handle("emulators:profile:remove", (_e, id) => emulatorRegistry.removeProfile(typeof id === "string" ? id : ""))
+  ipcMain.handle("emulators:resolve", (_e, payload) => emulatorRegistry.resolveLaunch(payload || {}))
 
   // Executa um .exe dentro do prefixo do jogo (diálogo de configurações).
   ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {
