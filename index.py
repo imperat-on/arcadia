@@ -37,6 +37,9 @@ from pathlib import Path
 
 from indexers.parsers import parse_vdf
 from indexers.steam import build_steam_game
+from indexers.epic import build_heroic_game, build_legendary_game, heroic_games_list
+from indexers.lutris import build_lutris_game
+from indexers.slssteam import build_slssteam_game, parse_additional_apps
 
 # Concorrência do enriquecimento (Steam Store / SteamGridDB / Web API). Pool
 # pequeno: paraleliza o gargalo de rede da primeira execução sem estourar o
@@ -704,40 +707,16 @@ def index_legendary() -> list[dict]:
     except Exception:
         pass
 
-    def img(game, *types):
-        for t in types:
-            for i in (game.get("metadata", {}).get("keyImages") or []):
-                if i.get("type") == t and i.get("url"):
-                    return i["url"]
-        return ""
-
     out = []
     for g in games:
-        app_name = str(g.get("app_name") or "").strip()
-        title = str(g.get("app_title") or "").strip()
-        if not app_name or not title:
-            continue
-        out.append({
-            "id": f"epic:{app_name}",
-            "title": title,
-            "launcher": "epic",
-            "launch_cmd": [str(LEGENDARY_BIN), "launch", app_name],
-            "installed": app_name in installed,
-            "cover": img(g, "DieselGameBoxTall", "OfferImageTall"),
-            "hero": img(g, "DieselGameBox", "OfferImageWide", "VaultClosed"),
-            "logo": img(g, "DieselGameBoxLogo"),
-        })
+        game = build_legendary_game(g, installed, LEGENDARY_BIN)
+        if game:
+            out.append(game)
     return out
 
 
-def _heroic_games_list(data) -> list:
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("library", "games", "data"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
+# Compatibilidade interna para consumidores/fixtures antigos.
+_heroic_games_list = heroic_games_list
 
 
 def index_heroic() -> list[dict]:
@@ -753,25 +732,9 @@ def index_heroic() -> list[dict]:
         for g in _heroic_games_list(data):
             if not isinstance(g, dict):
                 continue
-            app_name = str(g.get("app_name") or g.get("appName") or "").strip()
-            title = str(g.get("title") or "").strip()
-            if not app_name:
-                continue
-            # Inclui TODA a biblioteca (possuídos, mesmo não instalados).
-            installed = bool(g.get("is_installed"))
-            art = g.get("art_cover") or g.get("art_square") or ""
-            hero = g.get("art_background") or g.get("art_square") or g.get("art_cover") or ""
-            logo = g.get("art_logo") or ""
-            games.append({
-                "id": f"heroic:{runner}:{app_name}",
-                "title": title or app_name,
-                "launcher": "heroic",
-                "launch_cmd": ["xdg-open", f"heroic://launch/{runner}/{app_name}"],
-                "installed": installed,
-                "cover": art,   # pode ser URL http(s) do CDN da Epic
-                "hero": hero,
-                "logo": logo,
-            })
+            game = build_heroic_game(g, runner)
+            if game:
+                games.append(game)
     return games
 
 
@@ -825,15 +788,11 @@ def index_lutris(steam_appids: set[str] | None = None) -> list[dict]:
         # Evita duplicar um jogo Steam que também está catalogado no Lutris.
         if service == "steam" and str(service_id) in steam_appids:
             continue
-        slug = slug or ""
-        games.append({
-            "id": f"lutris:{gid}",
-            "title": name or slug,
-            "launcher": "lutris",
-            "launch_cmd": ["lutris", f"lutris:rungameid/{gid}"],
-            "installed": True,
-            **lutris_art(slug),
-        })
+        game = build_lutris_game(
+            gid, name, slug, service, service_id, steam_appids, lutris_art(slug),
+        )
+        if game:
+            games.append(game)
     return games
 
 
@@ -841,23 +800,7 @@ def index_lutris(steam_appids: set[str] | None = None) -> list[dict]:
 def slssteam_appids(config_path: Path | None = None) -> list[str]:
     """AppIds injetados pelo SLSsteam (bloco AdditionalApps do config.yaml)."""
     text = _read(config_path or SLS_CONFIG)
-    if not text:
-        return []
-    ids: list[str] = []
-    in_block = False
-    for line in text.splitlines():
-        if re.match(r"^AdditionalApps\s*:", line):
-            in_block = True
-            continue
-        if in_block:
-            # Sai do bloco ao chegar em outra chave de topo (sem indentação).
-            if line and not line[0].isspace() and ":" in line \
-                    and not line.lstrip().startswith("#"):
-                break
-            m = re.match(r"^\s*-\s*(\d+)", line)
-            if m:
-                ids.append(m.group(1))
-    return ids
+    return parse_additional_apps(text) if text else []
 
 
 def index_slssteam(existing_appids: set[str],
@@ -872,16 +815,11 @@ def index_slssteam(existing_appids: set[str],
         seen.add(appid)
         art = steam_art(appid)
         installed = any((d / f"appmanifest_{appid}.acf").exists() for d in libdirs)
-        out.append({
-            "id": f"steam:{appid}",
-            "title": f"App {appid}",  # enrich_steam preenche o nome real
-            "launcher": "steam",
-            "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
-            "installed": installed,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
-            "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
-            "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
-        })
+        game = build_slssteam_game(
+            appid, existing_appids, installed, art, STEAM_CDN, STEAM_TOOL_IDS,
+        )
+        if game:
+            out.append(game)
     return out
 
 
