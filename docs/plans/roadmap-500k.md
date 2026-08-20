@@ -20,10 +20,11 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
-Essa era a fotografia inicial. Na árvore do commit `7c1d7cb`, a medição
-recalculada com `find`/`wc -l` registra **59.076 linhas de código, testes e SQL**
-e **72.767 linhas textuais no total**, sem contar binários ou artefatos gerados.
-A fotografia está datada de **2026-08-20** e ancorada nesse commit.
+Essa era a fotografia inicial. Na árvore limpa do commit `c57db1e`, a medição
+recalculada com `find`/`wc -l` registra **59.006 linhas de código, testes e SQL**
+e **74.338 linhas textuais no total**, sem contar binários ou artefatos gerados.
+A fotografia está datada de **2026-08-20** e inclui o benchmark de busca, o cliente
+IPC/cache da comunidade e o painel React de reviews/coleções.
 Os maiores pontos de concentração são `app/electron/main.js`,
 `app/electron/steamstore.js`, `app/src/components/ps5-launcher/PS5Launcher.tsx`
 e `app/src/global.d.ts`.
@@ -276,24 +277,27 @@ com contratos e testes focados:
   Lutris e documentação do pipeline;
 - **community** (comunidade): reviews, coleções públicas, reports e moderação
   com migration versionada, aliases validados e testes das rotas/validações;
+  cliente no main com cache atômico por conta e fallback offline, canais IPC
+  tipados e painel React integrado às páginas de jogo;
 - **plugins** v1: manifesto validado, permissões declarativas, rejeição de
   traversal/symlink, registro atômico e espelho legado, SDK capability-based,
   digest SHA-256 do entry e verificação sem execução; a superfície IPC/preload
   inclui `details/get/register/unregister/enable/disable` e o canal
   `plugins:verify`, sem devolver caminhos privados;
-- validação após essas entregas: **159/159 testes do app**, `tsc --noEmit`,
-  build Vite e testes focados do servidor de observabilidade; a integração
-  completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
+- validação após essas entregas: **166/166 testes do app**, benchmark determinístico
+  de busca local, `tsc --noEmit`, build Vite e testes focados do servidor de
+  observabilidade; a integração completa do servidor continua condicionada a
+  PostgreSQL/`TEST_DATABASE_URL`.
 
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`7c1d7cb`**;
+- commit-base: **`c57db1e`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado: **337 arquivos textuais / 72.767 linhas**; a seleção de código,
-  testes e SQL totaliza **270 arquivos / 59.076 linhas**.
+- resultado: **342 arquivos textuais / 74.338 linhas**; a seleção de código,
+  testes e SQL totaliza **270 arquivos / 59.006 linhas**.
 
 A contagem de linhas permanece uma métrica secundária: novas linhas devem
 corresponder a casos de uso, contratos, fixtures, documentação ou operação
