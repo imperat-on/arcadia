@@ -286,11 +286,18 @@ com contratos e testes focados:
   a superfície IPC/preload inclui `details/get/register/unregister/enable/disable`
   e o canal `plugins:verify`, sem devolver caminhos privados;
 - **emuladores Linux**: registry puro e extensível para PCSX2, RPCS3, Dolphin,
-  PPSSPP, DuckStation, RetroArch, melonDS e DeSmuME; perfis em arquivo atômico,
-  detecção sem execução, validação de ROM/core sem symlink e resolução somente
-  por `argv`. O preload/main expõem listagem, detecção, perfis e resolução; o
-  painel de configurações e o modo de adicionar jogo ROM/ISO usam a mesma ponte;
-- validação após essas entregas: **195/195 testes do app**, incluindo contratos e
+  PPSSPP, DuckStation, RetroArch, melonDS e DeSmuME; perfis e pastas ROM em
+  arquivo atômico (com índice de ROMs separado), detecção sem execução, scanner
+  local com allowlist/sidecars/playlists e
+  validação de ROM/core sem symlink. O modo Hydra opcional monta flags fixas por
+  emulador, enquanto `emulator-status.js` faz preflight de BIOS/firmware com códigos estruturados
+  (`BIOS_NOT_CONFIGURED`) sem baixar dumps. O modo Hydra também resolve MDF sidecar e EBOOT já instalado
+  para PKG RPCS3, recusando pacotes ainda não instalados sem executar nada; o
+  preflight de runtime inspeciona `/proc` e bloqueia sessões concorrentes com
+  código estruturado. O preload/main expõem listagem, detecção, perfis, status,
+  busca local e resolução;
+  o painel e o modo ROM/ISO usam a mesma ponte;
+- validação após essas entregas: **210/210 testes do app**, incluindo contratos e
   fixtures de emuladores, benchmark determinístico de busca local, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
@@ -298,12 +305,12 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`9c1cda6`**;
+- commit-base: **`ab2a1c3`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado após a ponte de emuladores: **352 arquivos textuais / 76.819 linhas**;
-  a seleção de código, testes e SQL totaliza aproximadamente **61,4 mil linhas**.
+- resultado após a ponte de emuladores: **356 arquivos textuais / 78.484 linhas**;
+  a seleção de código, testes e SQL totaliza aproximadamente **63,4 mil linhas**.
   A contagem continua excluindo binários, `.git`, `node_modules`, `dist` e
   `__pycache__`.
 
