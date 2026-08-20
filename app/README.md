@@ -17,6 +17,8 @@ app/
     launch-log.js      # logs rotacionados com fechamento seguro de descritor
     snapshot-service.js # snapshots locais versionados de saves
     diagnostics.js     # relatório local sem paths, credenciais ou rede
+    plugins.js         # fachada compatível do registro/SDK de plugins locais
+    plugins/            # manifest v1, registry atômico e capability SDK
     trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)
@@ -61,6 +63,9 @@ npm run build
 
 Para rodar uma instalação isolada sem misturar estado com
 `~/.local/share/arcadia`, defina `ARCADIA_DATA_DIR` antes do build/execução.
+
+A especificação do manifest v1 e do registro local de plugins está em
+[`docs/PLUGINS.md`](../docs/PLUGINS.md).
 
 ## Conta e sync
 
