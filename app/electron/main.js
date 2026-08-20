@@ -35,6 +35,7 @@ const { createIndexerService } = require("./index-service")
 const { resolveLaunchRequest } = require("./launch-resolver")
 const { createLaunchLog } = require("./launch-log")
 const { createSnapshotService } = require("./snapshot-service")
+const { createDiagnosticsService } = require("./diagnostics")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -85,7 +86,6 @@ const indexerService = createIndexerService({
   logger: (message) => console.warn(`[arcadia:indexer] ${message}`),
 })
 
-const launchLog = createLaunchLog({ logDir: LOG_DIR })
 const saveSnapshots = createSnapshotService({ snapshotsDir: path.join(DATA_DIR, "snapshots") })
 
 const CONFIG = path.join(DATA_DIR, "config.json")
@@ -146,6 +146,13 @@ const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lut
 
 // Logs de lançamento ("Habilitar logs detalhados", aba AVANÇADO).
 const LOG_DIR = path.join(DATA_DIR, "logs")
+const launchLog = createLaunchLog({ logDir: LOG_DIR })
+const diagnostics = createDiagnosticsService({
+  dataDir: DATA_DIR,
+  appVersion: app.getVersion(),
+  getQueue: () => require("./downloadmanager").getQueue(),
+  getLibrary: () => readLibrary(),
+})
 // Script pós-jogo pendente (aba AVANÇADO): roda quando o jogo fechar.
 let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
@@ -1801,6 +1808,7 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle("app:diagnostics", () => diagnostics.collect())
   ipcMain.handle("saves:list", (_e, gameId) => saveSnapshots.list(gameId))
   ipcMain.handle("saves:create", (_e, payload = {}) => saveSnapshots.create(payload))
   ipcMain.handle("saves:restore", (_e, payload = {}) => saveSnapshots.restore(payload))
