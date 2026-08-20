@@ -28,7 +28,29 @@ curl http://127.0.0.1:3000/health
 
 `server/sql/schema.sql` é a baseline v1 mantida para instalações antigas;
 alterações futuras entram em `server/sql/migrations/` e são aplicadas pelo
-runner com lock e checksum.
+runner com lock e checksum. A migration `0003_community.sql` cria reviews
+versionadas, coleções, itens, reports e moderadores sem apagar dados legados.
+
+Para um host que não possui checkout Git, use uma cópia explícita e reversível:
+
+```bash
+stamp=$(date -u +%Y%m%d-%H%M%S)
+backup="backups/deploy-$stamp"
+mkdir -p "$backup/files"
+pg_dump --format=custom --file="$backup/postgres.dump" "$DATABASE_URL"
+cp -a src/server.js src/db.js package.json "$backup/files/"
+# copie o artefato para uma pasta temporária, valide `node --check` e só então
+# substitua os arquivos; reinicie a unidade sem reutilizar senhas compartilhadas.
+node --check src/server.js
+node --check src/community-routes.js
+node --check src/community-validation.js
+node -e 'require("./src/db").initDb().then(() => process.exit(0))'
+```
+
+Após a troca, confirme `/health`, `/ready`, a tabela `schema_migrations` e os
+endpoints públicos de catálogo/comunidade. Se a migration ou o healthcheck
+falhar, pare o serviço, restaure os arquivos de `backup/files`, reinicie e
+investigue antes de tentar novamente.
 
 ## systemd e Tailscale
 
