@@ -19,6 +19,7 @@ por ele:
   "version": "1.0.0",
   "description": "Integração opcional para a biblioteca.",
   "entry": "index.js",
+  "entrySha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "permissions": ["library:read", "events:subscribe"]
 }
 ```
@@ -30,6 +31,10 @@ por ele:
 - `version` usa semver (`MAJOR.MINOR.PATCH`, com prerelease/build opcionais).
 - `entry` é relativo ao diretório do pacote. Caminhos absolutos, `..`,
   separadores Windows, NUL e symlinks que saiam do pacote são rejeitados.
+- `entrySha256` é opcional e, quando presente, deve ser exatamente o SHA-256
+  (64 dígitos hexadecimais) dos bytes do `entry`; `entryDigest` e as grafias
+  snake_case correspondentes são aceitas como aliases de leitura e sempre
+  canonizadas para `entrySha256`.
 - `permissions` é uma lista sem curingas, duplicatas ou permissões
   desconhecidas. Campos extras também são rejeitados para não virar uma forma
   acidental de configurar o processo principal.
@@ -77,6 +82,25 @@ remover do registro não apaga o diretório do usuário. Built-ins (SLSsteam e
 LuaTools) são integrações do host e não podem ser substituídos por um pacote
 com o mesmo ID.
 
+### Integridade do entry
+
+O registro calcula o SHA-256 dos bytes do `entry` usando apenas operações de
+arquivo; ele nunca faz `require`, importa ou executa o módulo. Se o manifest
+declarar `entrySha256`, um valor diferente faz `register` falhar com
+`entry_digest_mismatch`. O digest calculado também é guardado no registro
+canônico no momento do registro. Assim, um pacote v1 sem digest continua
+aceito, mas uma alteração posterior do arquivo ainda pode ser detectada pela
+verificação; instalações antigas sem esse snapshot continuam compatíveis e
+são reportadas como não verificadas.
+
+A API somente leitura `registry.verify(id)` retorna `ok`/`valid`,
+`verified`, `expectedDigest`, `actualDigest`, `algorithm: "sha256"` e um erro
+sem expor o caminho privado do pacote. `registry.verifyPackage(directory)` faz
+a mesma leitura antes do registro. Para entry ausente, não regular ou que
+passe por symlink para fora do pacote, a verificação falha. Um digest divergente
+marca o plugin como inválido e impede sua ativação; nenhum código do plugin é
+executado durante `register`, `get`, `listDetailed` ou `verify`.
+
 ## API de host
 
 `app/electron/plugins.js` mantém as chamadas existentes:
@@ -91,6 +115,8 @@ A superfície versionada adicional é:
 - `register(directory)` / `unregister(id)`;
 - `enable(id)` / `disable(id)`;
 - `permissions(id)` / `hasPermission(id, permission)`;
+- `verify(id)` / `verifyPackage(directory)` — verifica SHA-256 sem executar o
+  entry;
 - `sdk(id)` — cria um contexto mínimo do SDK.
 
 No Electron, o preload preserva `pluginsList`/`pluginsInstall`/`pluginsRemove` e

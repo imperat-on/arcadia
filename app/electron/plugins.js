@@ -206,6 +206,14 @@ function hasPermission(id, permission) {
   return registry.hasPermission(id, permission)
 }
 
+function verify(id) {
+  return registry.verify(id)
+}
+
+function verifyPackage(pluginPath) {
+  return registry.verifyPackage(pluginPath)
+}
+
 function sdk(id) {
   return createPluginSdk({ registry, pluginId: id })
 }
@@ -224,6 +232,8 @@ module.exports = {
   manifest,
   permissions,
   hasPermission,
+  verify,
+  verifyPackage,
   sdk,
   // Exported for focused unit tests/diagnostics without exposing paths through
   // the renderer IPC surface.
