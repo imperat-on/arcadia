@@ -110,4 +110,7 @@ expansão do projeto.
 - `run.sh` passou a encaminhar para o Electron atual, deixando o Godot legado
   fora do caminho principal;
 - adicionados testes do resolver e atualizada a documentação de execução;
-- validação: **75/75 testes do app**, typecheck, build e sintaxe JS/Python/Shell.
+- unificada a restauração de sessão no IPC, com `SIGNED_IN` para sessões salvas
+  válidas e seleção de conta antes do realtime/reconcile;
+- adicionados testes do boot de autenticação;
+- validação: **76/76 testes do app**, typecheck, build e sintaxe JS/Python/Shell.
