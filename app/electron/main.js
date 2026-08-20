@@ -30,6 +30,7 @@ const fs = require("fs")
 const os = require("os")
 const { getDataDir } = require("./runtime-paths")
 const { normalizeLibrary } = require("../../contracts")
+const { readLibraryFile } = require("./library-store")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -1217,7 +1218,7 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const globais = normalizeLibrary(JSON.parse(fs.readFileSync(LIB, "utf-8")))
+    const globais = readLibraryFile(LIB).games
     const games = filtrarPorPosse(globais)
     games.push(...normalizeLibrary(readJsonFile(caminhoConta(CUSTOM_GAMES), [])))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
@@ -1341,7 +1342,7 @@ function limparPendentesIndexados() {
   // readLibrary já injeta os próprios stubs de pending_games.json, então usá-lo
   // aqui fazia TODO stub recém-criado parecer "já indexado" e ser removido na
   // passada pós-indexação → o Add na loja nunca persistia.
-  const reais = readJsonFile(LIB, [])
+  const reais = readLibraryFile(LIB).games
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {

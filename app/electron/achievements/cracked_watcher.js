@@ -25,6 +25,7 @@ const os = require("os")
 const { loadAchievements, saveAchievements } = require("./schema")
 const { caminhoArquivoConta } = require("./../supabase/conta")
 const { dataPath } = require("./../runtime-paths")
+const { readLibraryFile } = require("../library-store")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
@@ -348,15 +349,7 @@ function resolvePrefixo(appid, entry) {
 // --- Lógica principal ---
 
 function lerLibrary() {
-  try {
-    const raw = fs.readFileSync(
-      dataPath("library.json"),
-      "utf-8",
-    )
-    return JSON.parse(raw)
-  } catch {
-    return []
-  }
+  return readLibraryFile(dataPath("library.json")).games
 }
 
 function extrairAppid(entry) {

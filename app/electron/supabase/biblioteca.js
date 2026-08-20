@@ -19,6 +19,7 @@ const { caminhoArquivoConta, DATA_DIR } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
 const steamstore = require("../steamstore")
+const { readLibraryFile } = require("../library-store")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
 const PENDING = () => caminhoArquivoConta("pending_games.json")
@@ -93,7 +94,7 @@ async function push() {
   // id feio ("steam:1091500") e ficava assim no servidor para sempre.
   let libGlobal = null
   try {
-    libGlobal = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "library.json"), "utf-8"))
+    libGlobal = readLibraryFile(path.join(DATA_DIR, "library.json")).games
   } catch {
     libGlobal = null
   }
