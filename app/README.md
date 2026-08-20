@@ -6,6 +6,7 @@ Launcher de jogos para Linux com duas UIs: **desktop** (janela) e
 ## Estrutura
 
 ```
+contracts/            # contratos runtime + tipos compartilhados app/server
 app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
@@ -24,7 +25,7 @@ app/
     sources.js        # fontes de download (registro + caches)
     downloadmanager.js# fila de downloads
     steamstore.js     # loja Steam
-  test/               # node --test (48 testes, modulos puros)
+  test/               # node --test (módulos puros e contratos)
   package.json
 ```
 
@@ -45,6 +46,7 @@ env `ARCADIA_SUPABASE_URL`.
 
 ```bash
 npm test       # módulos puros (sem runtime do Electron)
+# O contrato de biblioteca é compartilhado com server/ via ../contracts.
 npx tsc --noEmit
 npm run build
 ```

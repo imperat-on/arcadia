@@ -29,6 +29,7 @@ const path = require("path")
 const fs = require("fs")
 const os = require("os")
 const { getDataDir } = require("./runtime-paths")
+const { normalizeLibrary } = require("../../contracts")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -1435,13 +1436,13 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const globais = JSON.parse(fs.readFileSync(LIB, "utf-8"))
+    const globais = normalizeLibrary(JSON.parse(fs.readFileSync(LIB, "utf-8")))
     const games = filtrarPorPosse(globais)
-    games.push(...readJsonFile(caminhoConta(CUSTOM_GAMES), []))
+    games.push(...normalizeLibrary(readJsonFile(caminhoConta(CUSTOM_GAMES), [])))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
-    for (const p of readJsonFile(caminhoConta(PENDING_GAMES), [])) {
-      if (p && p.id && !jaTem.has(p.id)) games.push(p)
+    for (const p of normalizeLibrary(readJsonFile(caminhoConta(PENDING_GAMES), []))) {
+      if (!jaTem.has(p.id)) games.push(p)
     }
     applyOverrides(games, readOverrides(caminhoConta(OVERRIDES)))
     // Enriquece cada jogo Steam com ícone/capa vindos do catálogo do servidor
@@ -1473,8 +1474,9 @@ function readLibrary() {
         }
       }
     }
-    _libCache = { chave, games }
-    return games
+    const validGames = normalizeLibrary(games)
+    _libCache = { chave, games: validGames }
+    return validGames
   } catch (e) {
     return []
   }
