@@ -33,7 +33,10 @@ test("índice deduplica appid, preserva payload e ordena ranking deterministicam
   ])
 
   const result = index.search("witcher 3", { limit: 10 })
-  assert.deepEqual(result.map((game) => game.appid), ["30", "10"])
+  assert.deepEqual(
+    result.map((game) => game.appid),
+    ["30", "10"],
+  )
   const witcher = result.find((game) => game.appid === "10")
   assert.equal(witcher.cover, "header")
   assert.equal(witcher.heroi, "hero")
@@ -101,4 +104,112 @@ test("busca da biblioteca mantém jogo inteiro e permite launcher/categoria", ()
   assert.deepEqual(searchLibrary(games, "acao"), [games[0]])
   assert.deepEqual(searchLibrary(games, "custom:1"), [games[1]])
   assert.deepEqual(searchLibrary(games, "inexistente"), [])
+})
+
+test("filtros reais combinam facets e preservam o payload", () => {
+  const index = createLocalSearchIndex()
+  const jogos = [
+    {
+      appid: "1",
+      title: "Zeta",
+      launcher: "Steam",
+      genres: ["RPG"],
+      tags: ["Indie", "Co-op"],
+      installed: true,
+      cover: "z",
+    },
+    {
+      appid: "2",
+      title: "Alpha",
+      launcher: "Epic",
+      genres: [{ description: "Ação" }],
+      tags: ["Indie"],
+      installed: false,
+      cover: "a",
+    },
+    {
+      appid: "3",
+      title: "Beta",
+      launcher: "steam",
+      genres: ["RPG"],
+      tags: ["Co-op"],
+      installed: true,
+      cover: "b",
+    },
+  ]
+  index.upsert(jogos)
+
+  assert.deepEqual(index.search("", { launcher: "steam" }), [])
+  assert.deepEqual(
+    index
+      .filter({ launcher: "steam", genre: "rpg", tag: "co-op", installed: true })
+      .map((g) => g.appid),
+    ["3", "1"],
+  )
+  assert.deepEqual(
+    index.search("beta", { filters: { launcher: ["steam"], genre: "RPG" } }).map((g) => g.appid),
+    ["3"],
+  )
+  assert.deepEqual(index.facets(), {
+    launcher: { steam: 2, epic: 1 },
+    genre: { rpg: 2, acao: 1 },
+    tag: { "co op": 2, indie: 2 },
+    installed: { true: 2, false: 1 },
+  })
+  assert.equal(index.search("zeta", { installed: false }).length, 0)
+  assert.equal(index.search("zeta")[0].cover, "z")
+})
+
+test("paginação e metadados do índice são determinísticos", () => {
+  const primeiros = createLocalSearchIndex()
+  const segundos = createLocalSearchIndex()
+  const jogos = [
+    { appid: "30", title: "Mesmo Nome", launcher: "steam" },
+    { appid: "10", title: "Alpha", launcher: "steam" },
+    { appid: "20", title: "Mesmo Nome", launcher: "epic" },
+  ]
+  primeiros.upsert(jogos)
+  segundos.upsert([...jogos].reverse())
+  const a = primeiros.page({ offset: 1, limit: 1 })
+  const b = segundos.page({ offset: 1, limit: 1 })
+  assert.deepEqual(a.itens, b.itens)
+  assert.equal(a.itens[0].appid, "20")
+  assert.equal(a.total, 3)
+  assert.equal(a.limit, 1)
+  assert.equal(a.has_more, true)
+  assert.equal(a.next_offset, 2)
+  assert.equal(a.index.schema, "arcadia.catalog-search")
+  assert.equal(a.index.entry_count, 3)
+  assert.equal(a.index.facets.launcher.steam, 2)
+
+  const busca = primeiros.searchPage("", { offset: 1, limit: 1, launcher: "steam" })
+  assert.deepEqual(
+    busca.itens.map((g) => g.appid),
+    ["30"],
+  )
+  assert.equal(busca.total, 2)
+  assert.equal(busca.facets.launcher.steam, 2)
+})
+
+test("índice v1 legado carrega e sobe para envelope v2 ao salvar", () => {
+  const dir = tempDir()
+  const file = path.join(dir, "index.json")
+  try {
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: [{ source: "catalog", value: { appid: "7", title: "Legado" } }],
+      }),
+    )
+    const index = createLocalSearchIndex({ indexPath: file })
+    assert.equal(index.search("legado")[0].appid, "7")
+    index.upsert([{ appid: "8", title: "Novo", tags: ["tag"] }], { persist: true })
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"))
+    assert.equal(saved.version, SEARCH_INDEX_VERSION)
+    assert.equal(saved.metadata.entry_count, 2)
+    assert.deepEqual(saved.metadata.facets.tag, { tag: 1 })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
