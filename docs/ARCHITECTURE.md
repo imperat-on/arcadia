@@ -16,6 +16,13 @@ proprio que sincroniza dados por conta entre maquinas.
   ~/.local/share/arcadia/                                 data/arcadia.db
 ```
 
+## Fila de downloads
+
+`downloadmanager.js` mantém a fila em arquivo atômico, retoma itens pausados e
+agora agenda prioridade `[-10,10]` com FIFO determinístico. A política de
+ordenação fica em `download-queue-policy.js`, separada dos processos Legendary
+e DepotDownloader.
+
 ## Execução segura
 
 `launch-resolver.js` resolve `gameId`, perfil e comandos legados sem spawnar

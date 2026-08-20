@@ -6,6 +6,7 @@ const path = require("path")
 const { spawn } = require("child_process")
 const { RUNNERS_DIR, ensureLegendary } = require("./runners/download")
 const { getDataDir } = require("./runtime-paths")
+const { nextQueued, normalizePriority } = require("./download-queue-policy")
 
 const DATA_DIR = getDataDir()
 const QUEUE_FILE = path.join(DATA_DIR, "downloads.json")
@@ -69,6 +70,7 @@ function persist() {
         token,
         dlcs,
         steamDir,
+        priority,
       }) => ({
         appid,
         appName,
@@ -89,6 +91,7 @@ function persist() {
         token,
         dlcs,
         steamDir,
+        priority: normalizePriority(priority),
       }),
     )
     // Atômico (ver writeConfig): a fila é gravada a cada 3s durante o
@@ -103,6 +106,8 @@ function persist() {
 function load() {
   try {
     queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf-8"))
+    if (!Array.isArray(queue)) queue = []
+    queue = queue.map((item) => ({ ...item, priority: normalizePriority(item?.priority) }))
     // Ao abrir: o que estava "downloading" morreu com o app → vira "paused".
     // Concluídos não voltam (tela limpa — só fila ativa/erros).
     queue = queue.filter((it) => {
@@ -137,7 +142,7 @@ function update(appid, patch) {
 
 function next() {
   if (activeChild) return
-  const it = queue.find((q) => q.status === "queued")
+  const it = nextQueued(queue)
   if (!it) {
     persist()
     emit(true)
@@ -371,7 +376,7 @@ function finish(it, status, error = "") {
   next()
 }
 
-async function install({ appid, title, cover, installPath }) {
+async function install({ appid, title, cover, installPath, priority = 0 }) {
   const appName = String(appid).replace(/^epic:/, "")
   if (!appName || appName === appid) return { ok: false, error: "não é um jogo Epic" }
   if (
@@ -399,6 +404,7 @@ async function install({ appid, title, cover, installPath }) {
     speed: 0,
     error: "",
     installPath: destino,
+    priority: normalizePriority(priority),
   })
   persist()
   emit(true)
@@ -407,7 +413,7 @@ async function install({ appid, title, cover, installPath }) {
 }
 
 // Jogo Steam via DepotDownloader (estilo Acella): payload vem de store:install.
-async function installSteam({ appid, title, cover, installdir, depots, token, dlcs, steamDir }) {
+async function installSteam({ appid, title, cover, installdir, depots, token, dlcs, steamDir, priority = 0 }) {
   const id = `steam:${appid}`
   if (queue.some((q) => q.appid === id && ["queued", "downloading", "paused"].includes(q.status))) {
     return { ok: true }
@@ -436,11 +442,21 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
     error: "",
     installPath: path.join(dir, "steamapps", "common"),
     installDir: path.join(dir, "steamapps", "common", installdir),
+    priority: normalizePriority(priority),
   })
   persist()
   emit(true)
   next()
   return { ok: true }
+}
+
+function setPriority(appid, priority) {
+  const item = queue.find((entry) => entry.appid === appid)
+  if (!item || item.status === "done" || item.status === "error" || item.status === "canceled") return false
+  item.priority = normalizePriority(priority)
+  persist()
+  emit(true)
+  return true
 }
 
 // Tenta de novo um download que falhou: mantém o item (com o destino e os
@@ -623,6 +639,7 @@ load()
 module.exports = {
   install,
   installSteam,
+  setPriority,
   pause,
   resume,
   retry,

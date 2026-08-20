@@ -110,6 +110,14 @@ clara, caminho de execução verificável e teste correspondente.
 - custom games e override de `exePath` continuam usando callbacks do main;
 - testes cobrem Steam, legado, custom, override e tentativas de injeção.
 
+### Fase 1.5 — prioridade na fila de downloads
+
+- fila persistida agora normaliza prioridade no intervalo `[-10, 10]`;
+- scheduler escolhe maior prioridade e mantém FIFO em empates;
+- Epic/Steam aceitam prioridade sem quebrar payloads antigos;
+- novo canal `dm:setPriority` mantém controle pelo preload tipado;
+- política pura testada sem iniciar Legendary/DepotDownloader.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
