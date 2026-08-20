@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -49,6 +50,24 @@ class IndexProviderIntegrationTest(unittest.TestCase):
             self.assertEqual([game["id"] for game in games], ["epic:shadow_tactics", "epic:celeste"])
             self.assertTrue(games[0]["installed"])
             self.assertFalse(games[1]["installed"])
+
+    def test_lutris_sqlite_fixture_is_read_by_index_provider(self):
+        with tempfile.TemporaryDirectory(prefix="arcadia-index-lutris-") as raw:
+            index = load_index(Path(raw))
+            database = Path(raw) / "pga.db"
+            with sqlite3.connect(database) as connection:
+                connection.executescript(
+                    (FIXTURES / "lutris/pga.sql").read_text(encoding="utf-8")
+                )
+            index.LUTRIS_DB = database
+            index.lutris_art = lambda slug: {
+                "wine-game": {"cover": "/lutris/wine.jpg", "hero": "", "logo": ""},
+                "fallback-title": {"cover": "", "hero": "", "logo": ""},
+            }.get(slug, {"cover": "", "hero": "", "logo": ""})
+            games = index.index_lutris({"440"})
+            self.assertEqual(games, json.loads(
+                (FIXTURES / "lutris/golden.json").read_text(encoding="utf-8")
+            ))
 
     def test_heroic_cache_fixture_is_read_by_index_provider(self):
         with tempfile.TemporaryDirectory(prefix="arcadia-index-heroic-") as raw:
