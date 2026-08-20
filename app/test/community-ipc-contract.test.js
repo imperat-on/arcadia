@@ -15,6 +15,7 @@ const channels = [
   "community:review:create",
   "community:review:update",
   "community:review:remove",
+  "community:review:report",
   "community:collections",
   "community:collection:get",
   "community:collection:create",
@@ -23,6 +24,7 @@ const channels = [
   "community:collection:item:add",
   "community:collection:item:replace",
   "community:collection:item:remove",
+  "community:collection:report",
 ]
 
 test("IPC de comunidade registra operações aditivas no main", () => {

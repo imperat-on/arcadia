@@ -78,6 +78,7 @@ type CommunityApi = {
     payload: Record<string, unknown>,
   ) => Promise<CommunityResult<CommunityReview>>
   communityReviewRemove?: (id: string | number) => Promise<CommunityResult<CommunityReview>>
+  communityReviewReport?: (id: string | number, payload: Record<string, unknown>) => Promise<CommunityResult<unknown>>
   communityCollections?: (options?: PageOptions) => Promise<CommunityResult<CommunityCollection>>
   communityCollectionCreate?: (payload: Record<string, unknown>) => Promise<CommunityResult<CommunityCollection>>
   communityCollectionUpdate?: (
@@ -85,6 +86,7 @@ type CommunityApi = {
     payload: Record<string, unknown>,
   ) => Promise<CommunityResult<CommunityCollection>>
   communityCollectionRemove?: (id: string) => Promise<CommunityResult<CommunityCollection>>
+  communityCollectionReport?: (id: string, payload: Record<string, unknown>) => Promise<CommunityResult<unknown>>
 }
 
 type CommunityWindow = { launcherAPI?: CommunityApi }
@@ -339,6 +341,23 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
     }
   }
 
+  const reportReview = async (review: CommunityReview) => {
+    const api = apiFromWindow()
+    if (!api?.communityReviewReport) return
+    const reason = window.prompt("Por que esta avaliação deve ser analisada?", "conteúdo inadequado")?.trim()
+    if (!reason) return
+    setMutationBusy(true)
+    setMutationError("")
+    try {
+      const result = await api.communityReviewReport(review.id, { reason })
+      if (!result || result.ok === false) setMutationError(resultMessage(result, "Não foi possível enviar a denúncia."))
+    } catch (error) {
+      setMutationError(errorMessage(error))
+    } finally {
+      setMutationBusy(false)
+    }
+  }
+
   const openCollectionCreate = () => {
     setEditingCollection(null)
     setCollectionDraft(EMPTY_COLLECTION)
@@ -406,6 +425,23 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
         return
       }
       await loadCollections(collectionOffset, mineOnly)
+    } catch (error) {
+      setMutationError(errorMessage(error))
+    } finally {
+      setMutationBusy(false)
+    }
+  }
+
+  const reportCollection = async (collection: CommunityCollection) => {
+    const api = apiFromWindow()
+    if (!api?.communityCollectionReport) return
+    const reason = window.prompt("Por que esta coleção deve ser analisada?", "conteúdo inadequado")?.trim()
+    if (!reason) return
+    setMutationBusy(true)
+    setMutationError("")
+    try {
+      const result = await api.communityCollectionReport(collection.id, { reason })
+      if (!result || result.ok === false) setMutationError(resultMessage(result, "Não foi possível enviar a denúncia."))
     } catch (error) {
       setMutationError(errorMessage(error))
     } finally {
@@ -508,6 +544,7 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
                   <span className="flex gap-2">
                     <button type="button" onClick={() => openReviewEdit(review)} className="hover:text-white/80">Editar</button>
                     <button type="button" disabled={mutationBusy} onClick={() => void removeReview(review)} className="hover:text-red-200 disabled:opacity-40">Remover</button>
+                    <button type="button" disabled={mutationBusy} onClick={() => void reportReview(review)} className="hover:text-amber-200 disabled:opacity-40">Denunciar</button>
                   </span>
                 </div>
               </article>
@@ -553,6 +590,7 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
                 <div className="mt-2 flex justify-end gap-2 text-[11px] text-white/35">
                   <button type="button" onClick={() => openCollectionEdit(collection)} className="hover:text-white/80">Editar</button>
                   <button type="button" disabled={mutationBusy} onClick={() => void removeCollection(collection)} className="hover:text-red-200 disabled:opacity-40">Remover</button>
+                  <button type="button" disabled={mutationBusy} onClick={() => void reportCollection(collection)} className="hover:text-amber-200 disabled:opacity-40">Denunciar</button>
                 </div>
               </article>
             ))}
