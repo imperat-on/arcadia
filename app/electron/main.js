@@ -34,6 +34,7 @@ const { readLibraryFile } = require("./library-store")
 const { createIndexerService } = require("./index-service")
 const { resolveLaunchRequest } = require("./launch-resolver")
 const { createLaunchLog } = require("./launch-log")
+const { createSnapshotService } = require("./snapshot-service")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -85,6 +86,7 @@ const indexerService = createIndexerService({
 })
 
 const launchLog = createLaunchLog({ logDir: LOG_DIR })
+const saveSnapshots = createSnapshotService({ snapshotsDir: path.join(DATA_DIR, "snapshots") })
 
 const CONFIG = path.join(DATA_DIR, "config.json")
 
@@ -1798,6 +1800,11 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
+
+  ipcMain.handle("saves:list", (_e, gameId) => saveSnapshots.list(gameId))
+  ipcMain.handle("saves:create", (_e, payload = {}) => saveSnapshots.create(payload))
+  ipcMain.handle("saves:restore", (_e, payload = {}) => saveSnapshots.restore(payload))
+  ipcMain.handle("saves:delete", (_e, payload = {}) => saveSnapshots.remove(payload))
 
   ipcMain.handle("game:launch", async (_e, payload) => {
     const resolved = resolveLaunchRequest(payload, {
