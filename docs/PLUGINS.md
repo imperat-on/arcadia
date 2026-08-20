@@ -20,6 +20,8 @@ por ele:
   "description": "Integração opcional para a biblioteca.",
   "entry": "index.js",
   "entrySha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "signingKeyId": "arcadia-community",
+  "signature": "<base64-ed25519-over-id-version-entrySha256>",
   "permissions": ["library:read", "events:subscribe"]
 }
 ```
@@ -35,6 +37,11 @@ por ele:
   (64 dígitos hexadecimais) dos bytes do `entry`; `entryDigest` e as grafias
   snake_case correspondentes são aceitas como aliases de leitura e sempre
   canonizadas para `entrySha256`.
+- `signingKeyId` e `signature` são opcionais como par. Quando um manifest
+  declara os dois, `signature` deve ser base64 de 64 bytes Ed25519 e cobre o
+  JSON canônico `{ "id", "version", "entrySha256" }`; uma chave ausente ou
+  inválida impede o registro. Manifests sem assinatura continuam válidos para
+  compatibilidade v1.
 - `permissions` é uma lista sem curingas, duplicatas ou permissões
   desconhecidas. Campos extras também são rejeitados para não virar uma forma
   acidental de configurar o processo principal.
@@ -95,8 +102,9 @@ são reportadas como não verificadas.
 
 A API somente leitura `registry.verify(id)` retorna `ok`/`valid`,
 `verified`, `expectedDigest`, `actualDigest`, `algorithm: "sha256"` e um erro
-sem expor o caminho privado do pacote. `registry.verifyPackage(directory)` faz
-a mesma leitura antes do registro. Para entry ausente, não regular ou que
+sem expor o caminho privado do pacote. Para manifests assinados, acrescenta
+`signatureAlgorithm: "ed25519"`, `signatureDeclared` e `signatureVerified`.
+`registry.verifyPackage(directory)` faz a mesma leitura antes do registro. Para entry ausente, não regular ou que
 passe por symlink para fora do pacote, a verificação falha. Um digest divergente
 marca o plugin como inválido e impede sua ativação; nenhum código do plugin é
 executado durante `register`, `get`, `listDetailed` ou `verify`.
@@ -153,5 +161,9 @@ paths do registro e o módulo SDK não são expostos diretamente.
 5. Ao desinstalar, remova o registro; nunca apague arquivos fora da pasta de
    dados sem confirmação explícita.
 
-A assinatura de pacotes, rollback e marketplace permanecem etapas futuras. Até
-lá, plugins locais devem ser tratados como código não confiável.
+Assinaturas Ed25519 são verificadas quando declaradas. As chaves confiáveis
+ficam em `$ARCADIA_DATA_DIR/plugins/trusted-keys.json`, com escrita atômica e
+modo `0600`; a instalação pode provisioná-las por operação administrativa fora
+do renderer. O registro ainda não baixa nem executa plugins, e marketplace,
+permissões de trust via UI e rollback de versões permanecem etapas futuras.
+Plugins locais sem assinatura continuam sendo código não confiável.
