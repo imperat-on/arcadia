@@ -160,6 +160,10 @@ test("resolveLaunch rejeita emulador, ROM e symlink inválidos", () => {
       "emulador_desconhecido",
     )
     assert.equal(
+      registry.resolveLaunch({ emulatorId: "toString", romPath: f.rom }).error,
+      "emulador_desconhecido",
+    )
+    assert.equal(
       registry.resolveLaunch({ emulatorId: "pcsx2", romPath: "/tmp/does-not-exist" }).error,
       "rom_invalida",
     )
