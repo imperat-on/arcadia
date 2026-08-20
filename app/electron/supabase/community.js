@@ -141,12 +141,27 @@ function createCommunityClient({
     throw new TypeError("fetch indisponivel")
   }
 
-  function load() {
-    return readCache(typeof cachePath === "function" ? cachePath() : cachePath)
+  function currentCachePath() {
+    return typeof cachePath === "function" ? cachePath() : cachePath
   }
 
-  function save(cache) {
-    writeCache(typeof cachePath === "function" ? cachePath() : cachePath, cache)
+  function load(file = currentCachePath()) {
+    return readCache(file)
+  }
+
+  function save(cache, file = currentCachePath()) {
+    writeCache(file, cache)
+  }
+
+  // A request may outlive an auth event. Never write a private collection
+  // response into the next account's cache (and never return stale account
+  // data as a successful mutation result).
+  function scopeChanged(file) {
+    return file !== currentCachePath()
+  }
+
+  function accountChanged() {
+    return { ok: false, error: "conta_trocada", code: "conta_trocada" }
   }
 
   async function request(route, { method = "GET", query, body } = {}) {
@@ -181,8 +196,8 @@ function createCommunityClient({
     return { ok: true, data, status: response.status }
   }
 
-  function cachedReviews(appid, options) {
-    const cache = load()
+  function cachedReviews(appid, options, file) {
+    const cache = load(file)
     const key = `reviews:${String(appid || "")}`
     const value = cache.reviews?.[key]
     if (!value) return null
@@ -196,21 +211,23 @@ function createCommunityClient({
   }
 
   async function listReviews(appid, options = {}) {
+    const file = currentCachePath()
     const page = pageOptions(options)
     const result = await request("/community/v1/reviews", {
       query: { appid: String(appid || ""), limit: page.limit, offset: page.offset },
     })
-    if (!result.ok) return cachedReviews(appid, options) || { ...result, reviews: [], items: [] }
+    if (scopeChanged(file)) return accountChanged()
+    if (!result.ok) return cachedReviews(appid, options, file) || { ...result, reviews: [], items: [] }
     const normalized = reviewList(result.data)
-    const cache = load()
+    const cache = load(file)
     cache.reviews = { ...(cache.reviews || {}), [`reviews:${String(appid || "")}`]: normalized }
-    save(cache)
+    save(cache, file)
     return { ok: true, ...normalized }
   }
 
-  function cacheReview(review) {
+  function cacheReview(review, file) {
     if (!review?.appid) return
-    const cache = load()
+    const cache = load(file)
     const key = `reviews:${String(review.appid)}`
     const old = Array.isArray(cache.reviews?.[key]?.reviews) ? cache.reviews[key].reviews : []
     const reviews = [review, ...old.filter((item) => String(item?.id) !== String(review.id))]
@@ -218,12 +235,12 @@ function createCommunityClient({
       ...(cache.reviews || {}),
       [key]: { reviews, items: reviews, pagination: cache.reviews?.[key]?.pagination },
     }
-    save(cache)
+    save(cache, file)
   }
 
-  function patchCachedReview(review) {
+  function patchCachedReview(review, file) {
     if (!review?.appid) return
-    const cache = load()
+    const cache = load(file)
     const key = `reviews:${String(review.appid)}`
     const value = cache.reviews?.[key]
     if (!value) return
@@ -231,52 +248,61 @@ function createCommunityClient({
       String(item?.id) === String(review.id) ? review : item,
     )
     cache.reviews[key] = { ...value, reviews, items: reviews }
-    save(cache)
+    save(cache, file)
   }
 
   async function createReview(payload) {
+    const file = currentCachePath()
     const result = await request("/community/v1/reviews", { method: "POST", body: payload || {} })
     if (!result.ok) return result
+    if (scopeChanged(file)) return accountChanged()
     const review = result.data?.review || result.data?.data || result.data
-    cacheReview(review)
+    cacheReview(review, file)
     return { ok: true, review, data: review }
   }
 
   async function updateReview(id, payload) {
+    const file = currentCachePath()
     const result = await request(`/community/v1/reviews/${encodeURIComponent(String(id || ""))}`, {
       method: "PATCH",
       body: payload || {},
     })
     if (!result.ok) return result
+    if (scopeChanged(file)) return accountChanged()
     const review = result.data?.review || result.data?.data || result.data
-    patchCachedReview(review)
+    patchCachedReview(review, file)
     return { ok: true, review, data: review }
   }
 
   async function removeReview(id) {
+    const file = currentCachePath()
     const result = await request(`/community/v1/reviews/${encodeURIComponent(String(id || ""))}`, {
       method: "DELETE",
     })
     if (!result.ok) return result
-    const cache = load()
+    if (scopeChanged(file)) return accountChanged()
+    const cache = load(file)
     for (const value of Object.values(cache.reviews || {})) {
       if (!Array.isArray(value?.reviews)) continue
       value.reviews = value.reviews.filter((item) => String(item?.id) !== String(id))
       value.items = value.reviews
     }
-    save(cache)
+    save(cache, file)
     return { ok: true }
   }
 
   async function reportReview(id, payload) {
+    const file = currentCachePath()
     const result = await request(
       `/community/v1/reviews/${encodeURIComponent(String(id || ""))}/report`,
       { method: "POST", body: payload || {} },
     )
+    if (scopeChanged(file)) return accountChanged()
     return result.ok ? { ok: true, report: result.data?.report || result.data } : result
   }
 
   async function listCollections(options = {}) {
+    const file = currentCachePath()
     const page = pageOptions(options)
     const result = await request("/community/v1/collections", {
       query: {
@@ -287,75 +313,86 @@ function createCommunityClient({
         visibility: options.visibility,
       },
     })
+    if (scopeChanged(file)) return accountChanged()
     const key = collectionCacheKey(options)
     if (!result.ok) {
-      const cached = load().collections?.[key]
+      const cached = load(file).collections?.[key]
       return cached ? { ok: true, offline: true, ...cached } : { ...result, ...collectionList({}) }
     }
     const normalized = collectionList(result.data)
-    const cache = load()
+    const cache = load(file)
     cache.collections = { ...(cache.collections || {}), [key]: normalized }
-    save(cache)
+    save(cache, file)
     return { ok: true, ...normalized }
   }
 
   async function getCollection(id) {
+    const file = currentCachePath()
     const key = String(id || "")
     const result = await request(`/community/v1/collections/${encodeURIComponent(key)}`)
+    if (scopeChanged(file)) return accountChanged()
     if (!result.ok) {
-      const cached = load().collectionItems?.[key]
+      const cached = load(file).collectionItems?.[key]
       return cached ? { ok: true, offline: true, collection: cached, data: cached } : result
     }
     const collection = result.data?.collection || result.data?.data || result.data
-    const cache = load()
+    const cache = load(file)
     cache.collectionItems = { ...(cache.collectionItems || {}), [key]: collection }
-    save(cache)
+    save(cache, file)
     return { ok: true, collection, data: collection }
   }
 
-  function invalidateCollections(id) {
-    const cache = load()
+  function invalidateCollections(id, file) {
+    const cache = load(file)
     if (!cache.collectionItems || typeof cache.collectionItems !== "object") cache.collectionItems = {}
     if (id !== undefined) delete cache.collectionItems[String(id)]
     delete cache.collections
-    save(cache)
+    save(cache, file)
   }
 
   async function createCollection(payload) {
+    const file = currentCachePath()
     const result = await request("/community/v1/collections", { method: "POST", body: payload || {} })
     if (!result.ok) return result
+    if (scopeChanged(file)) return accountChanged()
     const collection = result.data?.collection || result.data?.data || result.data
-    invalidateCollections(collection?.id)
+    invalidateCollections(collection?.id, file)
     return { ok: true, collection, data: collection }
   }
 
   async function updateCollection(id, payload) {
+    const file = currentCachePath()
     const key = String(id || "")
     const result = await request(`/community/v1/collections/${encodeURIComponent(key)}`, {
       method: "PATCH",
       body: payload || {},
     })
     if (!result.ok) return result
+    if (scopeChanged(file)) return accountChanged()
     const collection = result.data?.collection || result.data?.data || result.data
-    invalidateCollections(key)
+    invalidateCollections(key, file)
     return { ok: true, collection, data: collection }
   }
 
   async function removeCollection(id) {
+    const file = currentCachePath()
     const key = String(id || "")
     const result = await request(`/community/v1/collections/${encodeURIComponent(key)}`, { method: "DELETE" })
     if (!result.ok) return result
-    invalidateCollections(key)
+    if (scopeChanged(file)) return accountChanged()
+    invalidateCollections(key, file)
     return { ok: true }
   }
 
   async function collectionItems(id, method, body, appid) {
+    const file = currentCachePath()
     const key = String(id || "")
     const route = `/community/v1/collections/${encodeURIComponent(key)}/items`
     const suffix = method === "DELETE" && appid !== undefined ? `/${encodeURIComponent(String(appid))}` : ""
     const result = await request(`${route}${suffix}`, { method, body })
     if (!result.ok) return result
-    invalidateCollections(key)
+    if (scopeChanged(file)) return accountChanged()
+    invalidateCollections(key, file)
     return {
       ok: true,
       ...(result.data && typeof result.data === "object" ? result.data : {}),
@@ -379,11 +416,15 @@ function createCommunityClient({
     addCollectionItem: (id, appid) => collectionItems(id, "POST", { appid }, appid),
     replaceCollectionItems: (id, items) => collectionItems(id, "PUT", { items }, undefined),
     removeCollectionItem: (id, appid) => collectionItems(id, "DELETE", undefined, appid),
-    reportCollection: (id, payload) =>
-      request(`/community/v1/collections/${encodeURIComponent(String(id || ""))}/report`, {
+    reportCollection: async (id, payload) => {
+      const file = currentCachePath()
+      const result = await request(`/community/v1/collections/${encodeURIComponent(String(id || ""))}/report`, {
         method: "POST",
         body: payload || {},
-      }).then((result) => (result.ok ? { ok: true, report: result.data?.report || result.data } : result)),
+      })
+      if (scopeChanged(file)) return accountChanged()
+      return result.ok ? { ok: true, report: result.data?.report || result.data } : result
+    },
   }
 }
 
