@@ -39,14 +39,14 @@ function safeStateRecord(id, raw, fallbackPath = "") {
   const normalized = normalizeId(id)
   if (!normalized || !raw || typeof raw !== "object" || Array.isArray(raw)) return null
   const pluginPath = typeof raw.path === "string" ? raw.path.trim() : fallbackPath
-  // State is never allowed to become a path traversal primitive. The path is
-  // resolved again and revalidated during manifest loading, but reject obvious
-  // malformed values before persisting/returning records.
-  if (!pluginPath || pluginPath.includes("\u0000")) return null
+  // Built-ins intentionally have no package path. External package records
+  // are required to carry one and are revalidated before any manifest read.
+  // State is never allowed to become a path traversal primitive.
+  if (pluginPath.includes("\u0000")) return null
   const updated = asTimestamp(raw.updatedAt, 0)
   return {
     id: normalized,
-    path: path.resolve(pluginPath),
+    path: pluginPath ? path.resolve(pluginPath) : "",
     enabled: raw.enabled === true,
     registeredAt: asTimestamp(raw.registeredAt, updated),
     updatedAt: updated,
