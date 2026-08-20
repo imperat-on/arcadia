@@ -14,6 +14,46 @@ export interface Profile {
   owner?: boolean
 }
 
+/** Permissões declarativas reconhecidas pelo SDK de plugins locais. */
+export type PluginPermission =
+  | "library:read"
+  | "library:write"
+  | "games:read"
+  | "games:launch"
+  | "events:subscribe"
+  | "commands:register"
+  | "network"
+  | "filesystem:read"
+  | "filesystem:write"
+  | "process:spawn"
+  | "notifications"
+  | "settings:read"
+  | "settings:write"
+
+export interface PluginManifest {
+  manifestVersion: 1
+  apiVersion: 1
+  id: string
+  name: string
+  version: string
+  description?: string
+  entry: string
+  permissions: PluginPermission[]
+}
+
+/** Metadados de plugin devolvidos pelo main (não inclui caminho privado). */
+export interface PluginInfo {
+  id: string
+  name: string
+  descKey: string
+  installed: boolean
+  enabled: boolean
+  manifest?: PluginManifest | null
+  valid?: boolean
+  error?: string
+  source?: "builtin" | "local"
+}
+
 export interface Sources {
   steam?: boolean
   heroic?: boolean
@@ -839,17 +879,25 @@ declare global {
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */
       pickFile: () => Promise<{ ok: boolean; path?: string }>
-      /** Plugins opcionais (SLSsteam, luatools). */
-      pluginsList: () => Promise<{
+      /** Plugins opcionais (SLSsteam, LuaTools) — shape histórico. */
+      pluginsList: () => Promise<{ ok: boolean; plugins: PluginInfo[] }>
+      /** Registro/manifest v1; respostas nunca incluem paths locais. */
+      pluginsDetails: () => Promise<{ ok: boolean; plugins: PluginInfo[] }>
+      pluginsGet: (id: string) => Promise<{
         ok: boolean
-        plugins: {
-          id: string
-          name: string
-          descKey: string
-          installed: boolean
-          enabled: boolean
-        }[]
+        plugin?: PluginInfo
+        error?: string
       }>
+      pluginsRegister: (pluginPath: string) => Promise<{
+        ok: boolean
+        plugin?: PluginInfo
+        error?: string
+        errors?: string[]
+      }>
+      pluginsUnregister: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsEnable: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsDisable: (id: string) => Promise<{ ok: boolean; error?: string }>
+      /** APIs históricas preservadas para built-ins. */
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
       /** Plugin ativado/desativado — telas de loja atualizam ações em tempo real. */
