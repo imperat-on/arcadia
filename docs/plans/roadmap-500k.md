@@ -20,9 +20,9 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
-Essa era a fotografia inicial. Na árvore limpa do commit `c57db1e`, a medição
-recalculada com `find`/`wc -l` registra **59.006 linhas de código, testes e SQL**
-e **74.338 linhas textuais no total**, sem contar binários ou artefatos gerados.
+Essa era a fotografia inicial. Na árvore limpa do commit `0c6fd0b`, a medição
+recalculada com `find`/`wc -l` registra **59.040 linhas de código, testes e SQL**
+e **74.376 linhas textuais no total**, sem contar binários ou artefatos gerados.
 A fotografia está datada de **2026-08-20** e inclui o benchmark de busca, o cliente
 IPC/cache da comunidade e o painel React de reviews/coleções.
 Os maiores pontos de concentração são `app/electron/main.js`,
@@ -284,7 +284,7 @@ com contratos e testes focados:
   digest SHA-256 do entry e verificação sem execução; a superfície IPC/preload
   inclui `details/get/register/unregister/enable/disable` e o canal
   `plugins:verify`, sem devolver caminhos privados;
-- validação após essas entregas: **166/166 testes do app**, benchmark determinístico
+- validação após essas entregas: **168/168 testes do app**, benchmark determinístico
   de busca local, `tsc --noEmit`, build Vite e testes focados do servidor de
   observabilidade; a integração completa do servidor continua condicionada a
   PostgreSQL/`TEST_DATABASE_URL`.
@@ -292,12 +292,12 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`c57db1e`**;
+- commit-base: **`0c6fd0b`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado: **342 arquivos textuais / 74.338 linhas**; a seleção de código,
-  testes e SQL totaliza **270 arquivos / 59.006 linhas**.
+- resultado: **343 arquivos textuais / 74.376 linhas**; a seleção de código,
+  testes e SQL totaliza **271 arquivos / 59.040 linhas**.
 
 A contagem de linhas permanece uma métrica secundária: novas linhas devem
 corresponder a casos de uso, contratos, fixtures, documentação ou operação
