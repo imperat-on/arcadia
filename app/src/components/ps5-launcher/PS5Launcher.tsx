@@ -681,6 +681,15 @@ export function PS5Launcher() {
 
     const handleKey = (e: KeyboardEvent) => {
       if (uiBlockedRef.current) return // painel de config aberto
+      // Buttons and links already implement Enter/Space themselves. Ignoring
+      // those targets avoids launching the selected game a second time when a
+      // keyboard user activates a top-bar action or a roving rail card.
+      const target = e.target instanceof HTMLElement ? e.target : null
+      const nativeControl = Boolean(
+        target?.closest(
+          "button, a[href], input, select, textarea, [role=button], [contenteditable=true]",
+        ),
+      )
       const now = Date.now()
       if (now - lastNav < COOLDOWN) return
 
@@ -695,8 +704,9 @@ export function PS5Launcher() {
       } else if (e.key === "ArrowDown") {
         lastNav = now
         if (selectedGameRef.current) setOverviewOpen(true) // trilho: abre overview
-      } else if (e.key === "Enter" || e.key === " ") _launch_selected()
-      else if (e.key === "F5" || e.key === "r") _refresh_library()
+      } else if (e.key === "Enter" || e.key === " ") {
+        if (!nativeControl) _launch_selected()
+      } else if (e.key === "F5" || e.key === "r") _refresh_library()
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
