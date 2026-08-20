@@ -3107,6 +3107,8 @@ app.whenReady().then(() => {
     if (r?.ok) notifyPluginsChanged()
     return r
   })
+  // Verifica o digest do entry sem expor o caminho privado do registro.
+  ipcMain.handle("plugins:verify", (_e, id) => plugins.verify(pluginIdFromIpc(id)))
   ipcMain.handle("plugins:install", async (_e, id) => {
     const r = await plugins.install(pluginIdFromIpc(id))
     if (r?.ok) notifyPluginsChanged()

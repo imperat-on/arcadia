@@ -21,6 +21,7 @@ test("IPC de plugins mantém canais legados e registra a superfície v1", () => 
     "plugins:unregister",
     "plugins:enable",
     "plugins:disable",
+    "plugins:verify",
   ]) {
     assert.match(main, new RegExp(`plugins:${channel.split(":")[1]}`), channel)
   }
@@ -40,6 +41,7 @@ test("preload expõe só wrappers explícitos e normaliza tipos de plugin", () =
     "pluginsUnregister",
     "pluginsEnable",
     "pluginsDisable",
+    "pluginsVerify",
   ]) assert.match(preload, new RegExp(`${method}\\s*:`), method)
   assert.match(preload, /typeof pluginPath === "string" \? pluginPath : ""/)
   assert.match(preload, /contextBridge\.exposeInMainWorld\("launcherAPI"/)
@@ -52,4 +54,6 @@ test("tipos do renderer descrevem manifest/permissões sem expor path do registr
   assert.match(types, /pluginsDetails:/)
   assert.match(types, /pluginsRegister:/)
   assert.match(types, /pluginsEnable:/)
+  assert.match(types, /PluginVerification/)
+  assert.match(types, /pluginsVerify:/)
 })

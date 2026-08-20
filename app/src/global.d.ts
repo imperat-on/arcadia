@@ -38,7 +38,23 @@ export interface PluginManifest {
   version: string
   description?: string
   entry: string
+  entrySha256?: string
   permissions: PluginPermission[]
+}
+
+/** Resultado de verificação; nunca contém paths locais. */
+export interface PluginVerification {
+  id: string
+  ok: boolean
+  valid: boolean
+  verified: boolean
+  declared: boolean
+  algorithm: "sha256"
+  expectedDigest: string
+  actualDigest: string
+  digest: string
+  source: "registry" | "manifest" | "none" | "builtin"
+  error: string
 }
 
 /** Metadados de plugin devolvidos pelo main (não inclui caminho privado). */
@@ -897,6 +913,7 @@ declare global {
       pluginsUnregister: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsEnable: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsDisable: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsVerify: (id: string) => Promise<PluginVerification>
       /** APIs históricas preservadas para built-ins. */
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
