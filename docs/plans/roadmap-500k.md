@@ -82,6 +82,13 @@ clara, caminho de execução verificável e teste correspondente.
 - IPC/preload tipados expõem `app:diagnostics` para suporte local;
 - teste verifica agregação, contagem e ausência de dados sensíveis.
 
+### Fase 0.6 — pacote de suporte local
+
+- `support-bundle.js` exporta diagnóstico e logs limitados em uma pasta escolhida;
+- paths locais, tokens, senhas e chaves são redigidos antes da gravação;
+- exportação usa diretório temporário e rename atômico;
+- novo IPC tipado permite suporte sem enviar dados automaticamente pela rede.
+
 ### Fase 1.1 — biblioteca local versionada
 
 - `library.json` passou a usar envelope `version=1` com timestamp, fontes e jogos;

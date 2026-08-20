@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
   getConfig: () => ipcRenderer.invoke("config:get"),
   diagnostics: () => ipcRenderer.invoke("app:diagnostics"),
+  diagnosticsExport: () => ipcRenderer.invoke("app:diagnosticsExport"),
   setConfig: (cfg) => ipcRenderer.invoke("config:set", cfg),
   quit: () => ipcRenderer.invoke("app:quit"),
   enterConsole: () => ipcRenderer.invoke("app:enterConsole"),
