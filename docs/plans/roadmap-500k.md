@@ -72,6 +72,8 @@ clara, caminho de execução verificável e teste correspondente.
 - serviço ganhou testes de cache, deduplicação, busca, stream e progresso;
 - respostas de status/login do IPC agora removem access/refresh tokens e
   preservam somente a sessão pública documentada.
+- `ARCADIA_API_URL` tornou-se a configuração canônica do backend, com aliases
+  legados normalizados e testados.
 
 ## Fases de implementação
 

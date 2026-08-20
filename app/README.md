@@ -39,9 +39,9 @@ npm run dev       # vite (renderer)
 npm run electron  # electron main process
 ```
 
-O backend precisa estar de pe. Aponte `electron/supabase/config.js` para
-a URL do servidor (por padrao `https://zes.tail6e748d.ts.net`), ou use a
-env `ARCADIA_SUPABASE_URL`.
+O backend precisa estar de pé. Use `ARCADIA_API_URL` para apontar ao servidor
+Node (as variáveis `ARCADIA_SUPABASE_URL`/`SUPABASE_URL` continuam aceitas por
+compatibilidade). O URL é normalizado sem barras finais.
 
 ## Testes
 
