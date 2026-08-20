@@ -1,0 +1,41 @@
+[
+  {
+    "id": "heroic:gog:cyberpunk_2077",
+    "title": "Cyberpunk 2077",
+    "launcher": "heroic",
+    "launch_cmd": [
+      "xdg-open",
+      "heroic://launch/gog/cyberpunk_2077"
+    ],
+    "installed": true,
+    "cover": "https://cdn.example/cp-cover.jpg",
+    "hero": "https://cdn.example/cp-hero.jpg",
+    "logo": "https://cdn.example/cp-logo.png"
+  },
+  {
+    "id": "heroic:gog:disco_elysium",
+    "title": "Disco Elysium",
+    "launcher": "heroic",
+    "launch_cmd": [
+      "xdg-open",
+      "heroic://launch/gog/disco_elysium"
+    ],
+    "installed": false,
+    "cover": "https://cdn.example/disco-square.jpg",
+    "hero": "https://cdn.example/disco-square.jpg",
+    "logo": ""
+  },
+  {
+    "id": "heroic:legendary:hades",
+    "title": "Hades",
+    "launcher": "heroic",
+    "launch_cmd": [
+      "xdg-open",
+      "heroic://launch/legendary/hades"
+    ],
+    "installed": true,
+    "cover": "https://cdn.example/hades-cover.jpg",
+    "hero": "https://cdn.example/hades-hero.jpg",
+    "logo": "https://cdn.example/hades-logo.png"
+  }
+]

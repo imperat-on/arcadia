@@ -1,14 +1,31 @@
 """Fixtures puras dos primeiros adaptadores de providers."""
 
+import json
 import unittest
 
 from pathlib import Path
 
 from indexers.parsers import parse_vdf
 from indexers.steam import build_steam_game
-from indexers.epic import build_heroic_game, build_legendary_game, heroic_games_list
+from indexers.epic import (
+    build_heroic_game,
+    build_legendary_game,
+    heroic_games_list,
+    legendary_games_list,
+)
 from indexers.lutris import build_lutris_game
 from indexers.slssteam import build_slssteam_game, parse_additional_apps
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "providers"
+
+
+def fixture_json(path: str):
+    return json.loads((FIXTURES / path).read_text(encoding="utf-8"))
+
+
+def fixture_text(path: str) -> str:
+    return (FIXTURES / path).read_text(encoding="utf-8")
 
 
 class IndexerProviderTest(unittest.TestCase):
@@ -75,6 +92,70 @@ class IndexerProviderTest(unittest.TestCase):
         sls = build_slssteam_game("999", set(), False, {}, "https://cdn", {"440"})
         self.assertEqual(sls["id"], "steam:999")
         self.assertIsNone(build_slssteam_game("440", set(), False, {}, "https://cdn", {"440"}))
+
+    def test_steam_acf_and_libraryfolders_fixtures_match_golden(self):
+        app_manifest = parse_vdf(fixture_text("steam/appmanifest_440.acf"))
+        app_state = app_manifest["AppState"]
+        self.assertEqual(app_state["InstalledDepots"]["440"]["manifest"], "1234567890123456789")
+        libraries = parse_vdf(fixture_text("steam/libraryfolders.vdf"))["libraryfolders"]
+        self.assertEqual(libraries["1"]["path"], "/mnt/Games Library/Steam")
+        game = build_steam_game(app_state, fixture_json("steam/art.json"))
+        self.assertEqual([game], fixture_json("steam/golden.json"))
+
+    def test_legendary_fixture_matches_golden(self):
+        games = legendary_games_list(fixture_json("legendary/list-games.json"))
+        installed = {
+            item["app_name"]
+            for item in legendary_games_list(fixture_json("legendary/list-installed.json"))
+        }
+        actual = [
+            game
+            for item in games
+            if isinstance(item, dict)
+            for game in [build_legendary_game(item, installed, Path("/opt/legendary"))]
+            if game is not None
+        ]
+        self.assertEqual(actual, fixture_json("legendary/golden.json"))
+
+    def test_heroic_cache_fixtures_match_golden(self):
+        actual = []
+        for filename, runner in (("gog_library.json", "gog"), ("legendary_library.json", "legendary")):
+            data = fixture_json(f"heroic/{filename}")
+            for item in heroic_games_list(data):
+                if not isinstance(item, dict):
+                    continue
+                game = build_heroic_game(item, runner)
+                if game is not None:
+                    actual.append(game)
+        self.assertEqual(actual, fixture_json("heroic/golden.json"))
+
+    def test_lutris_fixture_matches_golden_and_deduplicates_steam(self):
+        actual = []
+        for item in fixture_json("lutris/games.json"):
+            game = build_lutris_game(
+                item["id"], item["name"], item["slug"], item["service"],
+                item["service_id"], {"440"}, item["art"],
+            )
+            if game is not None:
+                actual.append(game)
+        self.assertEqual(actual, fixture_json("lutris/golden.json"))
+
+    def test_slssteam_fixture_matches_golden(self):
+        ids = parse_additional_apps(fixture_text("slssteam/config.yaml"))
+        self.assertEqual(ids, ["440", "123456", "654321", "1493710", "123456"])
+        actual = []
+        for appid in dict.fromkeys(ids):
+            game = build_slssteam_game(
+                appid,
+                {"440"},
+                False,
+                {"cover": "/art/123456.jpg"} if appid == "123456" else {},
+                "https://cdn.example/steam/",
+                {"1493710"},
+            )
+            if game is not None:
+                actual.append(game)
+        self.assertEqual(actual, fixture_json("slssteam/golden.json"))
 
     def test_steam_tools_are_not_games(self):
         self.assertIsNone(build_steam_game({"appid": "228980", "name": "Steamworks"}))

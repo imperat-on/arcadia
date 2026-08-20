@@ -1,0 +1,28 @@
+[
+  {
+    "id": "lutris:11",
+    "title": "Wine Game",
+    "launcher": "lutris",
+    "launch_cmd": [
+      "lutris",
+      "lutris:rungameid/11"
+    ],
+    "installed": true,
+    "cover": "/lutris/wine.jpg",
+    "hero": "",
+    "logo": ""
+  },
+  {
+    "id": "lutris:12",
+    "title": "fallback-title",
+    "launcher": "lutris",
+    "launch_cmd": [
+      "lutris",
+      "lutris:rungameid/12"
+    ],
+    "installed": true,
+    "cover": "",
+    "hero": "",
+    "logo": ""
+  }
+]

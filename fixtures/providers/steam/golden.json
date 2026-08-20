@@ -1,0 +1,15 @@
+[
+  {
+    "id": "steam:440",
+    "title": "Team Fortress 2: \"Community\" Edition",
+    "launcher": "steam",
+    "launch_cmd": [
+      "steam",
+      "steam://rungameid/440"
+    ],
+    "installed": true,
+    "cover": "/art/440/library_600x900.jpg",
+    "hero": "/art/440/library_hero.jpg",
+    "logo": "/art/440/logo.png"
+  }
+]
