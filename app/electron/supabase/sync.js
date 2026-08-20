@@ -7,7 +7,11 @@
 const fs = require("fs")
 const path = require("path")
 const { getClient } = require("./client")
-const { caminhoArquivoConta } = require("./conta")
+const { caminhoArquivoConta, conta: contaAtual } = require("./conta")
+const {
+  normalizeSyncTimestamp,
+  resolveAchievementConflict,
+} = require("../../../contracts")
 
 // Fila, estado e metadados são POR CONTA (conta.js escopa por username)
 const QUEUE_PATH = () => caminhoArquivoConta("sync_queue.json")
@@ -37,10 +41,7 @@ function readJson(file, fallback) {
  * formato do `at` do achievements_store).
  */
 function normalizeTs(v) {
-  if (v == null) return null
-  const n = Number(v)
-  if (!Number.isFinite(n) || n <= 0) return null
-  return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n)
+  return normalizeSyncTimestamp(v)
 }
 
 // ---------- fila ----------
@@ -57,15 +58,19 @@ function saveQueue(q) {
 function enqueue(items) {
   if (!Array.isArray(items) || !items.length) return loadQueue()
   const map = new Map()
+  // A fila pode conter operações de outros domínios no futuro. Elas não são
+  // interpretadas aqui, mas também não são descartadas ao atualizar conquistas.
   for (const it of [...loadQueue(), ...items]) {
-    if (!it || !it.appid || !it.apiname) continue
+    if (it?.kind && it.kind !== "achievement") continue
+    if (!it || !it.appid || !it.apiname || normalizeTs(it.unlocked_at) == null) continue
     const key = `${it.appid}|${it.apiname}`
-    const prev = map.get(key)
-    if (!prev || (normalizeTs(it.unlocked_at) ?? Infinity) < (normalizeTs(prev.unlocked_at) ?? Infinity)) {
-      map.set(key, it)
-    }
+    map.set(key, resolveAchievementConflict(map.get(key), it))
   }
-  const merged = [...map.values()]
+  const achievements = [...map.values()].sort((a, b) =>
+    `${a.appid}|${a.apiname}`.localeCompare(`${b.appid}|${b.apiname}`),
+  )
+  const other = loadQueue().filter((it) => it?.kind && it.kind !== "achievement")
+  const merged = [...other, ...achievements]
   saveQueue(merged)
   return merged
 }
@@ -102,18 +107,31 @@ function isRetryable(error) {
 
 // ---------- push / pull ----------
 
-async function requireUserId() {
+async function requireSyncContext() {
   const { data, error } = await getClient().auth.getUser()
-  if (error || !data?.user) return null
-  return data.user.id
+  if (error || !data?.user?.id) return null
+  return { userId: String(data.user.id), account: contaAtual() }
 }
 
-/** Sobe a fila inteira (RPC idempotente: re-enviar é no-op no servidor). */
-async function pushDelta() {
-  const me = await requireUserId()
-  if (!me) return { ok: false, error: "nao_logado", retryable: false }
+function contextStillActive(context) {
+  return !context || contaAtual() === context.account
+}
 
-  const q = loadQueue()
+async function requireUserId() {
+  const context = await requireSyncContext()
+  return context?.userId || null
+}
+
+/** Sobe a fila de conquistas (RPC idempotente: re-enviar é no-op no servidor). */
+async function pushDelta(context = null) {
+  const ctx = context || await requireSyncContext()
+  if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  const q = loadQueue().filter((item) =>
+    (!item?.kind || item.kind === "achievement") &&
+    item?.appid && item?.apiname && normalizeTs(item.unlocked_at) != null,
+  )
   if (!q.length) return { ok: true, pushed: 0 }
 
   const p_items = q.map((i) => ({
@@ -126,65 +144,86 @@ async function pushDelta() {
   }))
   const { error } = await getClient().rpc("sync_achievements", { p_items })
   if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  // Nunca grava o escopo novo se logout/login ocorreu enquanto o RPC estava
+  // em voo. Operações de outros domínios permanecem na fila.
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
-  saveQueue([]) // enviou (ou já existia) → drena
+  const enviados = new Set(q.map((item) => `${item.appid}|${item.apiname}`))
+  const restante = loadQueue().filter((item) => {
+    if (item?.kind && item.kind !== "achievement") return true
+    return !enviados.has(`${item?.appid}|${item?.apiname}`)
+  })
+  saveQueue(restante)
   saveState({ lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
   return { ok: true, pushed: q.length }
 }
 
 /** Baixa o delta desde o último pull e aplica no achievements.json. */
-async function pullDelta() {
-  const me = await requireUserId()
-  if (!me) return { ok: false, error: "nao_logado", retryable: false }
+async function pullDelta(context = null) {
+  const ctx = context || await requireSyncContext()
+  if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
   const st = loadState()
   const p_since = st.lastPullAt ? new Date(st.lastPullAt * 1000).toISOString() : null
   const { data, error } = await getClient().rpc("pull_achievements", { p_since })
   if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
   const rows = Array.isArray(data) ? data : []
-  if (rows.length) applyPulled(rows)
+  if (rows.length) applyPulled(rows, ctx)
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
   saveState({ lastPullAt: Math.floor(Date.now() / 1000), lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
   return { ok: true, pulled: rows.length }
 }
 
 /**
- * Merge local: desbloqueado no servidor e não local → marca; já local com
- * timestamp anterior → mantém local (o próximo push corrige o servidor).
+ * Merge local: usa a mesma regra pura do enqueue (earliest-wins). O contexto
+ * opcional impede que um pull iniciado antes de trocar de conta grave dados
+ * no diretório da conta seguinte.
  */
-function applyPulled(rows) {
+function applyPulled(rows, context = null) {
+  if (!Array.isArray(rows) || !contextStillActive(context)) return false
   const store = readJson(ACH_PATH(), {})
   let mudou = false
   for (const r of rows) {
-    const app = store[r.appid] || (store[r.appid] = { at: Date.now(), items: [] })
-    const item = app.items.find((i) => i.apiname === r.apiname)
-    const ts = typeof r.unlocked_at === "number"
-      ? Math.floor(r.unlocked_at)
-      : Math.floor(new Date(r.unlocked_at).getTime() / 1000)
+    if (!contextStillActive(context)) return false
+    const remote = resolveAchievementConflict(null, r)
+    if (!remote || remote.unlocked_at == null) continue
+    const appid = remote.appid
+    const app = store[appid] || (store[appid] = { at: Date.now(), items: [] })
+    if (!Array.isArray(app.items)) app.items = []
+    const item = app.items.find((i) => i && i.apiname === remote.apiname)
+    const local = item
+      ? { appid, apiname: item.apiname, achieved: item.achieved === true, unlocked_at: item.unlock }
+      : null
+    const merged = resolveAchievementConflict(local, remote)
+    if (!merged || merged.unlocked_at == null) continue
     if (item) {
-      const localTs = normalizeTs(item.unlock)
-      if (!item.achieved || (localTs && localTs > ts)) {
+      const nextUnlock = merged.unlocked_at
+      if (item.achieved !== true || normalizeTs(item.unlock) !== nextUnlock) {
         item.achieved = true
-        item.unlock = ts
+        item.unlock = nextUnlock
         mudou = true
       }
     } else {
       // apiname desconhecido localmente (schema ainda não carregado): cria o
       // item mínimo — o reloader de schema preenche título/ícone depois.
       app.items.push({
-        apiname: r.apiname,
-        title: r.apiname,
+        apiname: remote.apiname,
+        title: remote.title || remote.apiname,
         desc: "",
-        icon: "",
+        icon: remote.icon || "",
         icongray: "",
         achieved: true,
-        unlock: ts,
-        percent: 100,
+        unlock: merged.unlocked_at,
+        percent: remote.percent ?? 100,
       })
       mudou = true
     }
   }
-  if (mudou) writeAtomic(ACH_PATH(), JSON.stringify(store))
+  if (mudou && contextStillActive(context)) writeAtomic(ACH_PATH(), JSON.stringify(store))
+  return mudou
 }
 
 // ---------- engine ----------
@@ -217,17 +256,24 @@ async function syncNow() {
   sincronizando = true
   emit()
   try {
-    const push = await pushDelta()
+    const context = await requireSyncContext()
+    if (!context) {
+      const result = { ok: false, error: "nao_logado", retryable: false }
+      if (context && contextStillActive(context)) saveState({ lastError: result.error })
+      emit()
+      return result
+    }
+    const push = await pushDelta(context)
     if (!push.ok) {
       if (push.retryable) scheduleRetry()
-      saveState({ lastError: push.error })
+      if (contextStillActive(context)) saveState({ lastError: push.error })
       emit()
       return push
     }
-    const pull = await pullDelta()
+    const pull = await pullDelta(context)
     if (!pull.ok) {
       if (pull.retryable) scheduleRetry()
-      saveState({ lastError: pull.error })
+      if (contextStillActive(context)) saveState({ lastError: pull.error })
       emit()
       return pull
     }

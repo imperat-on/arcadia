@@ -94,3 +94,41 @@ export function normalizeLibrarySyncItem(value: unknown): ArcadiaLibrarySyncItem
 export function normalizeLibrarySyncItems(value: unknown): ArcadiaLibrarySyncItem[]
 export function normalizePlaytimeItem(value: unknown): ArcadiaPlaytimeItem | null
 export function normalizePlaytimeItems(value: unknown): ArcadiaPlaytimeItem[]
+
+
+export const MAX_SYNC_MINUTES: 999999
+
+export interface SyncAchievementRecord {
+  appid: string
+  apiname: string
+  achieved?: boolean
+  unlocked_at?: number | string | null
+  unlock?: number | string | null
+  [key: string]: unknown
+}
+
+export interface SyncLibraryRecord {
+  appid: string
+  title?: string
+  platform?: "linux" | "windows"
+  removed?: boolean
+  revision?: number
+  updated_at?: number | string
+  [key: string]: unknown
+}
+
+export function normalizeSyncTimestamp(value: unknown): number | null
+export function resolveAchievementConflict(
+  local: SyncAchievementRecord | null | undefined,
+  remote: SyncAchievementRecord | null | undefined,
+): SyncAchievementRecord | null
+export function resolveLibraryConflict(
+  local: SyncLibraryRecord | null | undefined,
+  remote: SyncLibraryRecord | null | undefined,
+): SyncLibraryRecord | null
+export function resolvePlaytimeConflict(local: unknown, remote: unknown): number
+export function resolveSyncConflict(
+  kind: "achievement" | "library" | "playtime" | string,
+  local: unknown,
+  remote: unknown,
+): SyncAchievementRecord | SyncLibraryRecord | number | null
