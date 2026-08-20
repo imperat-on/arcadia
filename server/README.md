@@ -132,7 +132,7 @@ histórica de bases SQLite; não são necessários em um deploy PostgreSQL novo.
 - Senhas com bcrypt (nunca texto plano)
 - JWT secret em `.env`, nunca versionado
 - RLS substituido por filtro explicito `user_id = sub` em cada query
-- Throttle de login (5 falhas/10min)
+- Throttle de login (5 falhas/10min por conta) + limite por IP nos endpoints publicos de auth
 - Magic bytes validam uploads (nao confia no content-type)
 - Sources com API key NUNCA sincronizam (nao ha campo no schema)
 - `realName` fica local (privacidade). Background sincroniza
