@@ -3064,15 +3064,53 @@ app.whenReady().then(() => {
   ipcMain.handle("torrent:setLimit", (_e, bytes) => torrent.setLimit(bytes))
   ipcMain.handle("torrent:list", () => ({ ok: true, downloads: torrent.list() }))
 
+  // Registry/SDK local de plugins. Os canais antigos permanecem estáveis;
+  // os novos só trafegam metadados sanitizados (nunca o caminho privado do
+  // registro). O módulo plugins valida manifest, entry e permissões antes de
+  // aceitar qualquer diretório informado pelo usuário.
+  const pluginIdFromIpc = (value) => (typeof value === "string" ? value : "")
+  const pluginPathFromIpc = (value) => {
+    if (typeof value === "string") return value
+    if (value && typeof value === "object" && typeof value.path === "string") return value.path
+    return ""
+  }
+  const notifyPluginsChanged = () => {
+    if (win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+  }
   ipcMain.handle("plugins:list", () => ({ ok: true, plugins: plugins.list() }))
+  ipcMain.handle("plugins:details", () => ({ ok: true, plugins: plugins.listDetailed() }))
+  ipcMain.handle("plugins:get", (_e, id) => {
+    const plugin = plugins.get(pluginIdFromIpc(id))
+    return plugin ? { ok: true, plugin } : { ok: false, error: "plugin_desconhecido" }
+  })
+  ipcMain.handle("plugins:register", (_e, value) => {
+    const r = plugins.register(pluginPathFromIpc(value))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:unregister", (_e, id) => {
+    const r = plugins.unregister(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:enable", (_e, id) => {
+    const r = plugins.enable(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:disable", (_e, id) => {
+    const r = plugins.disable(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
   ipcMain.handle("plugins:install", async (_e, id) => {
-    const r = await plugins.install(String(id || ""))
-    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    const r = await plugins.install(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
     return r
   })
   ipcMain.handle("plugins:remove", async (_e, id) => {
-    const r = await plugins.remove(String(id || ""))
-    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    const r = await plugins.remove(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
     return r
   })
 
