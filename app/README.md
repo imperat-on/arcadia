@@ -16,6 +16,7 @@ app/
     launch-resolver.js # política pura de comando/perfil de execução
     launch-log.js      # logs rotacionados com fechamento seguro de descritor
     snapshot-service.js # snapshots locais versionados de saves
+    diagnostics.js     # relatório local sem paths, credenciais ou rede
     trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)

@@ -213,6 +213,22 @@ export interface TorrentItem {
   folderName?: string
 }
 
+export interface DiagnosticsReport {
+  version: 1
+  generated_at: string
+  app: { version: string }
+  runtime: { platform: string; release: string; arch: string; node: string; electron: string }
+  storage: {
+    writable: boolean
+    data_dir_configured: boolean
+    library: { present: boolean; bytes: number }
+    downloads: { present: boolean; bytes: number }
+    snapshots: number
+  }
+  library: { total: number; by_launcher: Record<string, number> }
+  downloads: { total: number; by_status: Record<string, number> }
+}
+
 export interface SaveSnapshot {
   version: 1
   id: string
@@ -700,6 +716,7 @@ declare global {
         url: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       getConfig: () => Promise<AppConfig>
+      diagnostics: () => Promise<DiagnosticsReport>
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
