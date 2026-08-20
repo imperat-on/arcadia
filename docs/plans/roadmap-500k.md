@@ -130,7 +130,8 @@ clara, caminho de execução verificável e teste correspondente.
   atômica;
 - restauração cria backup automático do destino atual;
 - listagem/remoção validam jogo, versão e contenção de paths;
-- symlinks são ignorados e traversal não atravessa a pasta de snapshots;
+- symlinks são ignorados na origem/restauração e traversal não atravessa a pasta de snapshots;
+- restauração faz rollback do destino se a troca atômica falhar;
 - IPC/preload expõem a operação sem mover arquivos para a rede.
 
 ### Fase 0.5 — diagnóstico local seguro
