@@ -46,6 +46,50 @@ function normalizeLibrary(value) {
   return value.map(normalizeGame).filter(Boolean)
 }
 
+/** Remove tokens e metadados arbitrários antes de cruzar a fronteira IPC. */
+function safeAccountSession(session) {
+  const user = session?.user
+  const id = text(user?.id, MAX_ID_LENGTH)
+  if (!id) return null
+  const safeUser = { id }
+  const email = text(user.email, 320)
+  const username = text(user.user_metadata?.username ?? user.username, 64)
+  if (email) safeUser.email = email
+  if (username) safeUser.username = username
+  return { user: safeUser }
+}
+
+/** Resultado público de login/cadastro: tokens ficam somente no main process. */
+function safeAuthResult(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return { ok: false, error: "resposta_invalida" }
+  }
+  const safe = { ok: result.ok === true }
+  if (result.error != null) safe.error = String(result.error)
+  if (result.usernameReal != null) {
+    const username = text(result.usernameReal, 64)
+    if (username) safe.usernameReal = username
+  }
+  return safe
+}
+
+function safeAccountStatus(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return { session: null, error: "resposta_invalida" }
+  }
+  return {
+    session: safeAccountSession(result.session),
+    error: result.error == null ? null : String(result.error),
+  }
+}
+
+function safeAccountEvent(event, session) {
+  return {
+    event: String(event || ""),
+    session: safeAccountSession(session),
+  }
+}
+
 /** Contrato reduzido usado por push_library/pull_library. */
 function normalizeLibrarySyncItem(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -85,6 +129,10 @@ module.exports = {
   MAX_SYNC_ITEMS,
   normalizeGame,
   normalizeLibrary,
+  safeAccountSession,
+  safeAuthResult,
+  safeAccountStatus,
+  safeAccountEvent,
   normalizeLibrarySyncItem,
   normalizeLibrarySyncItems,
   normalizePlaytimeItem,

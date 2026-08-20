@@ -9,6 +9,11 @@ const sync = require("./sync")
 const biblioteca = require("./biblioteca")
 const sourcesSync = require("./sources")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
+const {
+  safeAuthResult,
+  safeAccountStatus,
+  safeAccountEvent,
+} = require("../../../contracts")
 
 // Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
 // sessão existente aguarda essa promise antes de responder — elimina o race
@@ -48,18 +53,7 @@ function registerAccountIpc(broadcast, onConta) {
   // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
   getClient().auth.onAuthStateChange((event, session) => {
     const username = session?.user?.user_metadata?.username || null
-    broadcast("account:changed", {
-      event,
-      session: session
-        ? {
-            user: {
-              id: session.user?.id,
-              email: session.user?.email,
-              username,
-            },
-          }
-        : null,
-    })
+    broadcast("account:changed", safeAccountEvent(event, session))
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       // O escopo precisa mudar ANTES de qualquer reconcile/realtime: esses
       // módulos leem arquivos por conta e não podem iniciar como guest.
@@ -85,7 +79,7 @@ function registerAccountIpc(broadcast, onConta) {
 
   ipcMain.handle("account:status", async () => {
     await garantirSessao()
-    return auth.status()
+    return safeAccountStatus(await auth.status())
   })
   ipcMain.handle("account:profile", async () => {
     await garantirSessao()
@@ -111,8 +105,12 @@ function registerAccountIpc(broadcast, onConta) {
     await garantirSessao()
     return auth.setAvatarBytes(buf, mime, ext)
   })
-  ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
-  ipcMain.handle("account:signIn", async (_e, payload) => auth.signIn(payload || {}))
+  ipcMain.handle("account:signUp", async (_e, payload) =>
+    safeAuthResult(await auth.signUp(payload || {})),
+  )
+  ipcMain.handle("account:signIn", async (_e, payload) =>
+    safeAuthResult(await auth.signIn(payload || {})),
+  )
   ipcMain.handle("account:signOut", async () => auth.signOut())
 
   ipcMain.handle("friends:search", async (_e, query) => {
