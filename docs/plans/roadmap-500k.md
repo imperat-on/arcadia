@@ -268,7 +268,7 @@ com contratos e testes focados:
   traversal/symlink, registro atômico e espelho legado, SDK capability-based,
   além da superfície IPC/preload `details/get/register/unregister/enable/disable`
   sem devolver caminhos privados;
-- validação após essas entregas: **137/137 testes do app**, `tsc --noEmit`,
+- validação após essas entregas: **139/139 testes do app**, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
 
