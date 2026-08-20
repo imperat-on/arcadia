@@ -126,21 +126,41 @@ linhas ja gravadas se corrigem sozinhas.
 ### Busca local e paginação offline
 
 `app/electron/local-search.js` mantém `catalog_search_index.json` (envelope
-`version=1`) no diretório de dados. Cada página de `popular`, `catalog`,
-`genre` ou `search` já recebida é normalizada e deduplicada por `appid`; o
-arquivo é escrito com `tmp + rename` e nunca guarda `uris` de fontes Hydra.
-Na próxima abertura, o índice é hidratado dos espelhos e dos caches legados
-sem depender da rede. A busca remove acentos/pontuação e usa ranking estável
-(exato, prefixo, termos e substring; título e `appid` desempatem por chave).
+`version=2`, aceitando envelopes legados `version=1`) no diretório de dados.
+Cada página de `popular`, `catalog`, `genre` ou `search` já recebida é
+normalizada e deduplicada por `appid`; o arquivo é escrito com `tmp + rename` e
+nunca guarda `uris` de fontes Hydra. A próxima abertura hidrata o índice dos
+espelhos e dos caches legados sem depender da rede. A busca remove
+acentos/pontuação e usa ranking estável (exato, prefixo, termos e substring;
+título e `appid` desempatem por chave).
+
+Além do texto, cada entrada indexa facets reais: `launcher`, `genre`, `tag` e
+o estado explícito `installed`. Valores são comparados sem acentos e sem
+sensibilidade a maiúsculas; várias opções dentro de uma facet são OR, enquanto
+facets diferentes são AND. O índice expõe `facets` com contagens, e o envelope
+inclui `metadata` (`schema`, contagem, fontes, facets e `generated_at`). Estado
+de instalação ausente permanece desconhecido e não casa com `installed=true`
+nem `installed=false`; indexadores devem enviar um booleano quando souberem o
+estado. Para o catálogo Steam, `launcher=steam` é inferido apenas no índice,
+sem alterar o payload legado devolvido à UI.
+
+`search` continua devolvendo somente o array histórico de jogos; filtros são
+opcionais. `searchPage`/`page` adicionam `total`, `offset`, `limit`,
+`has_more`, `next_offset`, `facets` e `index`. A ordenação de páginas é
+`normalizedTitle` + chave estável (`source:id`), portanto a mesma coleção
+produz as mesmas páginas independentemente da ordem de chegada. `stats` e
+`metadata` permitem observar o índice sem ler seu arquivo diretamente.
 
 `steamstore.search` e `store:suggest` consultam esse índice antes de iniciar
-uma chamada externa, mantendo o payload legado `{ ok, jogos, ... }`. Quando
-não há hit local, o resultado remoto também é indexado. A rota paginada
+uma chamada externa, mantendo o payload legado `{ ok, jogos, ... }`; filtros de
+busca são aditivos e não mudam esse contrato. Quando não há hit local, o
+resultado remoto também é indexado. A rota paginada
 `store:recent("all", limite, offset)` usa uma fatia ordenada do índice quando
-a página não está no espelho, permitindo navegar no catálogo offline. A
-biblioteca continua sendo filtrada no renderer sem mudar `library:get`; as
-mesmas regras puras estão disponíveis em `searchLibrary` para consumidores
-Electron futuros, preservando o jogo completo no resultado.
+a página não está no espelho, permitindo navegar no catálogo offline e
+retornando os metadados/facets da fatia. A biblioteca continua sendo filtrada
+no renderer sem mudar `library:get`; as mesmas regras puras estão disponíveis
+em `searchLibrary`/`pageLibrary` para consumidores Electron futuros,
+preservando o jogo completo no resultado.
 
 Continuam locais: trailers, downloads, biblioteca, configuracoes e todas as
 chaves pagas (Hubcap, debrid e Steam). O servidor nunca recebe esses segredos.

@@ -23,6 +23,24 @@ fs.writeFileSync(
     },
   }),
 )
+fs.writeFileSync(
+  path.join(mirror, "catalog_facets.json"),
+  JSON.stringify({
+    ok: true,
+    data: {
+      itens: [
+        { appid: "900", title: "Facet RPG", genres: ["RPG"], tags: ["Indie"], installed: false },
+        {
+          appid: "901",
+          title: "Facet Action",
+          genres: ["Action"],
+          tags: ["Indie"],
+          installed: true,
+        },
+      ],
+    },
+  }),
+)
 
 let chamadas = 0
 const fetchOriginal = global.fetch
@@ -54,5 +72,23 @@ test("store:suggest reaproveita o mesmo índice local", async () => {
   assert.deepEqual(result.jogos, [
     { appid: "730", title: "Counter-Strike 2", cover: "https://cdn/cs.jpg" },
   ])
+  assert.equal(chamadas, 0)
+})
+
+test("store:search aplica facets locais e devolve metadados sem rede", async () => {
+  const result = await steamstore.search("facet", {
+    genre: "rpg",
+    tag: "indie",
+    installed: false,
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.fonte, "local")
+  assert.deepEqual(result.jogos, [
+    { appid: "900", title: "Facet RPG", genres: ["RPG"], tags: ["Indie"], installed: false },
+  ])
+  assert.equal(result.facets.genre.rpg, 1)
+  assert.equal(result.facets.tag.indie, 1)
+  assert.equal(result.facets.installed.false, 1)
+  assert.equal(result.index.schema, "arcadia.catalog-search")
   assert.equal(chamadas, 0)
 })

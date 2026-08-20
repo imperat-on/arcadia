@@ -9,7 +9,9 @@
 const fsDefault = require("node:fs")
 const pathDefault = require("node:path")
 
-const SEARCH_INDEX_VERSION = 1
+const SEARCH_INDEX_VERSION = 2
+const LEGACY_SEARCH_INDEX_VERSION = 1
+const INDEX_SCHEMA = "arcadia.catalog-search"
 const DEFAULT_LIMIT = 40
 const DEFAULT_MAX_ENTRIES = 200_000
 const CATALOG_SOURCE = "catalog"
@@ -48,6 +50,161 @@ function arrayText(value) {
     }
     return []
   })
+}
+
+const FACET_NAMES = ["launcher", "genre", "tag", "installed"]
+
+// Facets are deliberately derived from the payload instead of from a fixed
+// provider schema.  SteamSpy uses `genres`, library indexers use `categories`,
+// and older catalog snapshots occasionally have a singular `genre`/`tag`.
+// Keeping this adapter here lets old and new pages participate in the same
+// offline index without changing the public game payload.
+function facetParts(value) {
+  if (Array.isArray(value)) return value.flatMap(facetParts)
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value)
+      .split(/[,;|]/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+  }
+  if (value && typeof value === "object") {
+    return [value.name, value.title, value.description, value.value, value.id]
+      .filter((part) => typeof part === "string" || typeof part === "number")
+      .flatMap(facetParts)
+  }
+  return []
+}
+
+function installedValue(item) {
+  if (!item || typeof item !== "object") return null
+  for (const key of ["installed", "instalado", "is_installed", "isInstalled", "downloaded"]) {
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue
+    const value = item[key]
+    if (typeof value === "boolean") return value
+    if (typeof value === "number" && (value === 0 || value === 1)) return value === 1
+    if (typeof value === "string") {
+      const normalized = normalizeSearchText(value)
+      if (["true", "yes", "sim", "installed", "instalado", "1"].includes(normalized)) return true
+      if (["false", "no", "nao", "not installed", "nao instalado", "0"].includes(normalized))
+        return false
+    }
+  }
+  return null
+}
+
+function facetValues(item, facet) {
+  if (!item || typeof item !== "object") return []
+  if (facet === "launcher")
+    return facetParts(item.launcher).map(normalizeSearchText).filter(Boolean)
+  if (facet === "genre") {
+    return [item.genres, item.genre, item.categories]
+      .flatMap(facetParts)
+      .map(normalizeSearchText)
+      .filter(Boolean)
+  }
+  if (facet === "tag") {
+    return [item.tags, item.tag].flatMap(facetParts).map(normalizeSearchText).filter(Boolean)
+  }
+  if (facet === "installed") {
+    const installed = installedValue(item)
+    return installed == null ? [] : [installed ? "true" : "false"]
+  }
+  return []
+}
+
+function uniqueFacetValues(values) {
+  return [...new Set(values.filter(Boolean))].sort(compareLexical)
+}
+
+function normalizedFacetFilters(options = {}) {
+  const nested = options.filters || options.filtros || options.facets || options.facetas || {}
+  const valueFor = (name, aliases = []) => {
+    for (const key of [name, ...aliases]) {
+      if (Object.prototype.hasOwnProperty.call(options, key) && options[key] !== undefined)
+        return options[key]
+      if (Object.prototype.hasOwnProperty.call(nested, key) && nested[key] !== undefined)
+        return nested[key]
+    }
+    return undefined
+  }
+  const out = {}
+  for (const facet of ["launcher", "genre", "tag"]) {
+    const raw = valueFor(
+      facet,
+      facet === "genre" ? ["genres", "genero"] : facet === "tag" ? ["tags"] : [],
+    )
+    if (raw === undefined || raw === null || raw === "") continue
+    const values = facetParts(raw).map(normalizeSearchText).filter(Boolean)
+    if (values.length) out[facet] = new Set(values)
+  }
+  const installed = valueFor("installed", ["instalado"])
+  if (
+    installed !== undefined &&
+    installed !== null &&
+    installed !== "" &&
+    installed !== "all" &&
+    installed !== "todos"
+  ) {
+    let value = null
+    if (typeof installed === "boolean") value = installed
+    else if (typeof installed === "number" && (installed === 0 || installed === 1))
+      value = installed === 1
+    else {
+      const normalized = normalizeSearchText(installed)
+      if (["true", "yes", "sim", "installed", "instalado", "1"].includes(normalized)) value = true
+      if (["false", "no", "nao", "not installed", "nao instalado", "0"].includes(normalized))
+        value = false
+    }
+    if (value !== null) out.installed = value
+  }
+  return out
+}
+
+function matchesFilters(entry, options = {}, prepared = null) {
+  const filters = prepared || normalizedFacetFilters(options)
+  for (const facet of ["launcher", "genre", "tag"]) {
+    const wanted = filters[facet]
+    if (!wanted || !wanted.size) continue
+    const values = entry?.facets?.[facet] || []
+    if (!values.some((value) => wanted.has(value))) return false
+  }
+  if (filters.installed !== undefined) {
+    const values = entry?.facets?.installed || []
+    // Unknown installation state must not be advertised as installed (or as
+    // explicitly not installed).  Callers can materialize a boolean in the
+    // catalog/library payload when that distinction matters.
+    if (!values.includes(filters.installed ? "true" : "false")) return false
+  }
+  return true
+}
+
+function facetCounts(entries, options = {}) {
+  const filters = normalizedFacetFilters(options)
+  const counts = { launcher: {}, genre: {}, tag: {}, installed: {} }
+  const includeUnknown = options.includeUnknown === true || options.incluirDesconhecido === true
+  for (const entry of entries || []) {
+    if (
+      !entry ||
+      (options.source && entry.source !== options.source) ||
+      !matchesFilters(entry, options, filters)
+    )
+      continue
+    for (const facet of ["launcher", "genre", "tag"]) {
+      for (const value of uniqueFacetValues(entry.facets?.[facet] || [])) {
+        counts[facet][value] = (counts[facet][value] || 0) + 1
+      }
+    }
+    const installed = entry.facets?.installed?.[0]
+    if (installed) counts.installed[installed] = (counts.installed[installed] || 0) + 1
+    else if (includeUnknown) counts.installed.unknown = (counts.installed.unknown || 0) + 1
+  }
+  for (const facet of FACET_NAMES) {
+    const sorted = Object.entries(counts[facet]).sort(
+      (a, b) => b[1] - a[1] || compareLexical(a[0], b[0]),
+    )
+    counts[facet] = Object.fromEntries(sorted)
+  }
+  return counts
 }
 
 function valueForId(item, source) {
@@ -139,12 +296,28 @@ function buildEntry(item, source) {
   }
   const normalizedTitle = normalizeSearchText(value.title || title)
   if (!normalizedTitle) return null
+  // The catalog itself is the Steam catalog.  Infer that source launcher for
+  // indexing only (never mutate the legacy payload), while library entries
+  // must carry their explicit launcher to be considered a match.
+  const facetInput =
+    origem === CATALOG_SOURCE && !value.launcher ? { ...value, launcher: "steam" } : value
+  const facets = {
+    launcher: uniqueFacetValues(facetValues(facetInput, "launcher")),
+    genre: uniqueFacetValues(facetValues(facetInput, "genre")),
+    tag: uniqueFacetValues(facetValues(facetInput, "tag")),
+    installed: facetValues(facetInput, "installed"),
+  }
   const fieldText = [
     normalizedTitle,
     value.launcher,
     ...arrayText(value.categories),
     ...arrayText(value.genres),
+    ...arrayText(value.genre),
     ...arrayText(value.tags),
+    ...arrayText(value.tag),
+    ...facets.launcher,
+    ...facets.genre,
+    ...facets.tag,
   ]
     .map(normalizeSearchText)
     .filter(Boolean)
@@ -159,6 +332,7 @@ function buildEntry(item, source) {
     normalizedTitle,
     fieldText,
     identifier,
+    facets,
     value,
   }
 }
@@ -239,19 +413,75 @@ function compareRank(a, b) {
   return 0
 }
 
-function searchEntries(entries, query, { source, limit = DEFAULT_LIMIT } = {}) {
+function positiveInteger(value, fallback) {
+  return Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback
+}
+
+function nonNegativeInteger(value, fallback = 0) {
+  return Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : fallback
+}
+
+function matchingEntries(entries, { source, query = "", filters, ...options } = {}) {
+  const prepared =
+    filters && filters.__normalized ? filters : normalizedFacetFilters({ ...options, filters })
   const normalized = normalizeSearchText(query)
-  if (!normalized) return []
   const terms = normalized.split(" ").filter(Boolean)
-  const max = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Number(limit) : DEFAULT_LIMIT
   const hits = []
   for (const entry of entries || []) {
-    if (!entry || (source && entry.source !== source)) continue
+    if (!entry || (source && entry.source !== source) || !matchesFilters(entry, options, prepared))
+      continue
+    // Empty query is useful to page a faceted catalog, but remains an empty
+    // result for the historical search() API (handled by searchEntries).
+    if (!normalized) {
+      hits.push({ entry, rank: [0, 0, entry.key] })
+      continue
+    }
     const rank = rankEntry(entry, normalized, terms)
     if (rank) hits.push({ entry, rank })
   }
   hits.sort((a, b) => compareRank(a.rank, b.rank))
-  return hits.slice(0, max).map(({ entry }) => clone(entry.value))
+  return hits.map(({ entry }) => entry)
+}
+
+function filterEntries(entries, options = {}) {
+  const source = options.source
+  const prepared = normalizedFacetFilters(options)
+  return sortEntries(
+    [...(entries || [])].filter(
+      (entry) =>
+        entry && (!source || entry.source === source) && matchesFilters(entry, options, prepared),
+    ),
+  )
+}
+
+function searchEntries(entries, query, options = {}) {
+  const normalized = normalizeSearchText(query)
+  if (!normalized) return []
+  const hits = matchingEntries(entries, { ...options, query })
+  const offset = nonNegativeInteger(options.offset, 0)
+  const limit = positiveInteger(options.limit, DEFAULT_LIMIT)
+  return hits.slice(offset, offset + limit).map((entry) => clone(entry.value))
+}
+
+function searchPageEntries(entries, query, options = {}) {
+  const normalized = normalizeSearchText(query)
+  const hits = normalized
+    ? matchingEntries(entries, { ...options, query })
+    : filterEntries(entries, options)
+  const offset = nonNegativeInteger(options.offset, 0)
+  const limit = positiveInteger(options.limit, DEFAULT_LIMIT)
+  const page = hits.slice(offset, offset + limit)
+  const facets = facetCounts(hits, { includeUnknown: options.includeUnknown })
+  return {
+    itens: page.map((entry) => clone(entry.value)),
+    total: hits.length,
+    offset,
+    limit,
+    has_more: offset + page.length < hits.length,
+    next_offset: offset + page.length < hits.length ? offset + page.length : null,
+    facets,
+    facetas: facets,
+  }
 }
 
 function compareLexical(a, b) {
@@ -266,6 +496,23 @@ function sortEntries(entries) {
   )
 }
 
+function indexMetadata(entries, generatedAt = 0) {
+  const sourceCounts = {}
+  for (const entry of entries || [])
+    sourceCounts[entry.source] = (sourceCounts[entry.source] || 0) + 1
+  const sources = Object.fromEntries(
+    Object.entries(sourceCounts).sort(([a], [b]) => compareLexical(a, b)),
+  )
+  return {
+    schema: INDEX_SCHEMA,
+    version: SEARCH_INDEX_VERSION,
+    generated_at: Number(generatedAt) || 0,
+    entry_count: (entries || []).length,
+    sources,
+    facets: facetCounts(entries),
+  }
+}
+
 class LocalSearchIndex {
   constructor({ indexPath, fsImpl = fsDefault, pathImpl = pathDefault, maxEntries = DEFAULT_MAX_ENTRIES } = {}) {
     this.indexPath = indexPath || ""
@@ -278,6 +525,8 @@ class LocalSearchIndex {
     this.entries = new Map()
     this.loaded = false
     this.changed = false
+    this.generatedAt = 0
+    this.persistedMetadata = null
   }
 
   load() {
@@ -286,8 +535,19 @@ class LocalSearchIndex {
     if (!this.indexPath) return this
     try {
       const parsed = JSON.parse(this.fs.readFileSync(this.indexPath, "utf8"))
-      const list = Array.isArray(parsed) ? parsed : parsed?.version === SEARCH_INDEX_VERSION ? parsed.entries : []
+      // Version 1 used the same entries shape but had no metadata.  Keep it
+      // readable in-place; the next write upgrades it atomically to v2.
+      const list = Array.isArray(parsed)
+        ? parsed
+        : parsed &&
+            (parsed.version === SEARCH_INDEX_VERSION ||
+              parsed.version === LEGACY_SEARCH_INDEX_VERSION)
+          ? parsed.entries
+          : []
       if (!Array.isArray(list)) return this
+      this.generatedAt = Number(parsed?.generated_at || parsed?.metadata?.generated_at) || 0
+      this.persistedMetadata =
+        parsed?.metadata && typeof parsed.metadata === "object" ? parsed.metadata : null
       for (const raw of list) {
         const entry = entryForPersisted(raw)
         if (entry) this.entries.set(entry.key, entry)
@@ -299,11 +559,16 @@ class LocalSearchIndex {
     return this
   }
 
-  upsert(items, { source = CATALOG_SOURCE, persist = false } = {}) {
+  upsert(items, { source = CATALOG_SOURCE, persist = false, installed } = {}) {
     this.load()
     let count = 0
     for (const item of Array.isArray(items) ? items : []) {
-      const next = buildEntry(item, source)
+      if (!item || typeof item !== "object") continue
+      const candidate =
+        installed !== undefined && installed !== null && item.installed === undefined
+          ? { ...item, installed: Boolean(installed) }
+          : item
+      const next = buildEntry(candidate, source)
       if (!next) continue
       const previous = this.entries.get(next.key)
       if (previous) {
@@ -315,18 +580,24 @@ class LocalSearchIndex {
       }
       count++
     }
+    const before = this.entries.size
     this.prune()
-    this.changed = this.changed || count > 0
+    this.changed = this.changed || count > 0 || before !== this.entries.size
+    if (count > 0 || before !== this.entries.size) this.generatedAt = Math.floor(Date.now() / 1000)
     if (persist) this.save()
     return count
   }
 
-  replaceSource(items, { source = LIBRARY_SOURCE, persist = false } = {}) {
+  replaceSource(items, { source = LIBRARY_SOURCE, persist = false, installed } = {}) {
     this.load()
+    const before = this.entries.size
     const keep = new Map([...this.entries].filter(([, entry]) => entry.source !== source))
     this.entries = keep
-    const count = this.upsert(items, { source, persist: false })
-    if (count) this.changed = true
+    const count = this.upsert(items, { source, persist: false, installed })
+    if (count || before !== this.entries.size) {
+      this.changed = true
+      this.generatedAt = Math.floor(Date.now() / 1000)
+    }
     if (persist) this.save()
     return count
   }
@@ -344,15 +615,49 @@ class LocalSearchIndex {
     return searchEntries(this.entries.values(), query, options)
   }
 
-  page({ source = CATALOG_SOURCE, offset = 0, limit = DEFAULT_LIMIT } = {}) {
+  searchPage(query, options = {}) {
     this.load()
-    const off = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0
-    const lim = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Number(limit) : DEFAULT_LIMIT
-    const entries = sortEntries([...this.entries.values()].filter((entry) => entry.source === source))
+    return searchPageEntries(this.entries.values(), query, options)
+  }
+
+  filter(options = {}) {
+    this.load()
+    return filterEntries(this.entries.values(), options).map((entry) => clone(entry.value))
+  }
+
+  facets(options = {}) {
+    this.load()
+    return facetCounts(this.entries.values(), options)
+  }
+
+  page({
+    source = CATALOG_SOURCE,
+    offset = 0,
+    limit = DEFAULT_LIMIT,
+    query = "",
+    ...options
+  } = {}) {
+    this.load()
+    const off = nonNegativeInteger(offset, 0)
+    const lim = positiveInteger(limit, DEFAULT_LIMIT)
+    const entries = normalizeSearchText(query)
+      ? matchingEntries(this.entries.values(), { ...options, source, query })
+      : filterEntries(this.entries.values(), { ...options, source })
+    const itens = entries.slice(off, off + lim).map((entry) => clone(entry.value))
+    const generatedAt = this.generatedAt || this.persistedMetadata?.generated_at || 0
+    const facets = facetCounts(entries, { includeUnknown: options.includeUnknown })
+    const index = this.metadata({ generatedAt })
     return {
-      itens: entries.slice(off, off + lim).map((entry) => clone(entry.value)),
+      itens,
       total: entries.length,
       offset: off,
+      limit: lim,
+      has_more: off + itens.length < entries.length,
+      next_offset: off + itens.length < entries.length ? off + itens.length : null,
+      facets,
+      facetas: facets,
+      index,
+      indice: index,
     }
   }
 
@@ -386,18 +691,30 @@ class LocalSearchIndex {
     return total
   }
 
+  metadata({ generatedAt = this.generatedAt } = {}) {
+    this.load()
+    return indexMetadata([...this.entries.values()], generatedAt)
+  }
+
   stats() {
     this.load()
-    const bySource = {}
-    for (const entry of this.entries.values()) bySource[entry.source] = (bySource[entry.source] || 0) + 1
-    return { version: SEARCH_INDEX_VERSION, total: this.entries.size, bySource }
+    const metadata = this.metadata()
+    return {
+      version: SEARCH_INDEX_VERSION,
+      total: this.entries.size,
+      bySource: metadata.sources,
+      facets: metadata.facets,
+      metadata,
+      metadados: metadata,
+    }
   }
 
   prune() {
-    if (this.entries.size <= this.maxEntries) return
+    if (this.entries.size <= this.maxEntries) return false
     // Evicção determinística: não depende da ordem em que páginas chegaram.
     const kept = sortEntries([...this.entries.values()]).slice(0, this.maxEntries)
     this.entries = new Map(kept.map((entry) => [entry.key, entry]))
+    return true
   }
 
   save() {
@@ -409,14 +726,18 @@ class LocalSearchIndex {
         source: entry.source,
         value: entry.value,
       }))
+      const generatedAt = Math.floor(Date.now() / 1000)
       const payload = {
         version: SEARCH_INDEX_VERSION,
-        generated_at: Math.floor(Date.now() / 1000),
+        generated_at: generatedAt,
+        metadata: indexMetadata([...this.entries.values()], generatedAt),
         entries,
       }
       const temporary = `${this.indexPath}.tmp`
       this.fs.writeFileSync(temporary, JSON.stringify(payload))
       this.fs.renameSync(temporary, this.indexPath)
+      this.generatedAt = generatedAt
+      this.persistedMetadata = payload.metadata
       this.changed = false
       return true
     } catch {
@@ -430,14 +751,32 @@ function createLocalSearchIndex(options = {}) {
   return new LocalSearchIndex(options)
 }
 
-/** Busca a biblioteca já carregada, sem tocar no disco ou na rede. */
-function searchLibrary(games, query, options = {}) {
+function entriesForGames(games, source = LIBRARY_SOURCE) {
   const entries = []
   for (const game of Array.isArray(games) ? games : []) {
-    const entry = buildEntry(game, LIBRARY_SOURCE)
+    const entry = buildEntry(game, source)
     if (entry) entries.push(entry)
   }
-  return searchEntries(entries, query, { ...options, source: LIBRARY_SOURCE })
+  return entries
+}
+
+/** Busca a biblioteca já carregada, sem tocar no disco ou na rede. */
+function searchLibrary(games, query, options = {}) {
+  return searchEntries(entriesForGames(games, LIBRARY_SOURCE), query, {
+    ...options,
+    source: LIBRARY_SOURCE,
+  })
+}
+
+function pageLibrary(games, query = "", options = {}) {
+  return searchPageEntries(entriesForGames(games, LIBRARY_SOURCE), query, {
+    ...options,
+    source: LIBRARY_SOURCE,
+  })
+}
+
+function facetsForItems(items, { source = CATALOG_SOURCE, ...options } = {}) {
+  return facetCounts(entriesForGames(items, source), options)
 }
 
 module.exports = {
@@ -445,10 +784,20 @@ module.exports = {
   DEFAULT_LIMIT,
   CATALOG_SOURCE,
   LIBRARY_SOURCE,
+  FACET_NAMES,
+  INDEX_SCHEMA,
   normalizeSearchText,
   buildEntry,
   extractCatalogItems,
+  facetValues,
+  normalizedFacetFilters,
+  matchesFilters,
+  facetCounts,
+  filterEntries,
   searchEntries,
+  searchPageEntries,
   searchLibrary,
+  pageLibrary,
+  facetsForItems,
   createLocalSearchIndex,
 }
