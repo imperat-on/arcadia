@@ -226,12 +226,17 @@ function next() {
       // O usuário pode cancelar/pausar enquanto o manifesto é consultado.
       // Não ressuscitar um processo depois que o item saiu da fila.
       if (!queue.includes(it) || it.status !== "downloading") return
-      ss.prepareDownload({
-        appid: appidLimpo,
-        installdir: it.installdir,
-        depots: it.depots || [],
-        steamDir: it.steamDir || ss.findSteamDir(),
-      })
+      Promise.resolve()
+        // prepareDownload é síncrono hoje, mas manter a fronteira Promise
+        // permite que uma versão futura faça I/O sem quebrar a fila.
+        .then(() =>
+          ss.prepareDownload({
+            appid: appidLimpo,
+            installdir: it.installdir,
+            depots: it.depots || [],
+            steamDir: it.steamDir || ss.findSteamDir(),
+          }),
+        )
         .then((prep) => {
           if (!queue.includes(it) || it.status !== "downloading") return
           if (!prep.ok) return finish(it, "error", prep.error || "falha ao preparar o download")
