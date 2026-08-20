@@ -9,9 +9,34 @@ const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
 const { getDataDir } = require("./runtime-paths")
+const { createLocalSearchIndex, CATALOG_SOURCE } = require("./local-search")
 
 const DATA_DIR = getDataDir()
 const BIN_DIR = path.join(DATA_DIR, "bin")
+// O catálogo servido pelo backend é paginado e cada rota/query tem um espelho
+// próprio em catalog_espelho/. Este índice leve junta as páginas já vistas em
+// uma busca offline determinística; nunca contém URIs de fontes Hydra.
+const CATALOG_SEARCH_INDEX = path.join(DATA_DIR, "catalog_search_index.json")
+const catalogSearchIndex = createLocalSearchIndex({ indexPath: CATALOG_SEARCH_INDEX })
+let catalogSearchHydrated = false
+
+function garantirIndiceCatalogo() {
+  if (catalogSearchHydrated) return
+  catalogSearchHydrated = true
+  // A leitura é lazy: boot não deve parsear caches grandes antes da primeira
+  // ida à loja. Um espelho inválido/antigo só é ignorado, sem derrubar a UI.
+  catalogSearchIndex.hydrateCacheFiles(DATA_DIR, { persist: true })
+}
+
+function indexarCatalogo(itens) {
+  garantirIndiceCatalogo()
+  catalogSearchIndex.upsert(itens, { source: CATALOG_SOURCE, persist: true })
+}
+
+function buscarCatalogoLocal(query, limit = 24) {
+  garantirIndiceCatalogo()
+  return catalogSearchIndex.search(query, { source: CATALOG_SOURCE, limit })
+}
 const DEPS_DIR = path.join(BIN_DIR, "deps", "depotdownloader")
 const TMP_DIR = path.join(BIN_DIR, "tmp")
 const LOG_DIR = path.join(DATA_DIR, "logs")
@@ -619,6 +644,15 @@ async function suggest(query) {
 }
 
 async function suggestDaSteam(q, chave) {
+  // Sugestão local primeiro: evita seis segundos de timeout quando o app está
+  // sem rede e reaproveita exatamente o mesmo índice/ranking da busca completa.
+  const locais = buscarCatalogoLocal(q, 8).map((jogo) => ({
+    appid: String(jogo.appid || jogo.id || ""),
+    title: String(jogo.title || ""),
+    cover: jogo.cover || jogo.capa || "",
+  }))
+  if (locais.length) return { ok: true, jogos: locais, cache: true }
+
   // As sugestões do dropdown vêm da Steam viva (storesearch) — as MESMAS que a
   // Steam mostra, rápidas (~0.3s) e na ordem de popularidade dela. O catálogo
   // do servidor ficava como fallback (sem DLCs, mas pode estar frio). O filtro
@@ -690,13 +724,28 @@ async function search(query) {
 }
 
 async function _searchReal(query, chave) {
-  // Busca primeiro no catálogo do servidor (85k jogos Steam com appid real +
-  // capa). Resultados com capa e que abrem a tela rica. Só cai na rede
-  // (Hubcap+Steam) se o catálogo não tiver nada — como a Steam faz.
+  // Primeiro tenta o índice local persistido. A busca fica útil mesmo sem
+  // servidor/DNS e não espera o timeout de rede para devolver uma página já
+  // conhecida. A atualização do índice acontece quando uma página remota é
+  // recebida (ou no warm-up/paginação da loja).
+  const locais = buscarCatalogoLocal(query, BUSCA_MAX)
+  if (locais.length) {
+    const res = { ok: true, jogos: locais, fonte: "local", avisos: [], cache: true }
+    if (chave.length >= 2) {
+      if (buscaCache.size > 50) buscaCache.clear()
+      buscaCache.set(chave, { at: Date.now(), res })
+    }
+    return res
+  }
+
+  // Sem hit local, consulta o catálogo do servidor (85k jogos Steam com appid
+  // real + capa). Resultados recebidos também entram no índice para a próxima
+  // busca offline; o payload público continua { ok, jogos, fonte, avisos }.
   try {
     const remoto = await catalogGet(`/catalog/v1/search?q=${encodeURIComponent(query)}`)
     const itens = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
     if (itens.length) {
+      indexarCatalogo(itens)
       const jogos = await preparar(itens.slice(0, 40))
       const res = { ok: true, jogos, fonte: "catalogo", avisos: [] }
       if (chave.length >= 2) {
@@ -769,6 +818,7 @@ async function _searchReal(query, chave) {
   }
 
   const jogos = [...porId.values()]
+  if (jogos.length) indexarCatalogo(jogos)
   if (!jogos.length) {
     return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
   }
@@ -829,6 +879,7 @@ async function buscarPopular(lista = "top100in2weeks") {
     fs.mkdirSync(DATA_DIR, { recursive: true })
     fs.writeFileSync(POPULAR_CACHE, JSON.stringify({ at: Date.now(), completa }))
   } catch {}
+  indexarCatalogo(completa)
   return completa
 }
 
@@ -849,6 +900,7 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   if (lista === "all") {
     const remoto = await catalogGet(`/catalog/v1/catalog?offset=${off}&limite=${lim}`)
     if (Array.isArray(remoto.data?.itens)) {
+      indexarCatalogo(remoto.data.itens)
       return {
         ok: true,
         jogos: remoto.data.itens,
@@ -857,6 +909,20 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
         cache: Boolean(remoto.fallback),
       }
     }
+    // Se esta página ainda não tem espelho, o índice pode ter sido alimentado
+    // por outra página/execução. Entrega uma fatia local determinística em vez
+    // de transformar a aba em uma tela vazia offline.
+    garantirIndiceCatalogo()
+    const localPage = catalogSearchIndex.page({ source: CATALOG_SOURCE, offset: off, limit: lim })
+    if (localPage.total)
+      return {
+        ok: true,
+        jogos: localPage.itens,
+        offset: localPage.offset,
+        total: localPage.total,
+        cache: true,
+        offline: true,
+      }
     // fallback: se o catalog falhar, cai no fluxo antigo abaixo
   }
 
@@ -869,6 +935,7 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
       ? dadosRemotos
       : dadosRemotos?.completa || dadosRemotos?.jogos
     if (Array.isArray(listaRemota) && listaRemota.length) {
+      indexarCatalogo(listaRemota)
       const fatia = await preparar(listaRemota.slice(off, off + lim))
       return { ok: true, jogos: fatia, offset: off, total: listaRemota.length }
     }
@@ -904,6 +971,7 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   }
   const remoto = await catalogGet("/catalog/v1/popular?limite=1000&offset=0")
   if (Array.isArray(remoto.data?.itens) && remoto.data.itens.length) {
+    indexarCatalogo(remoto.data.itens)
     const fatia = await preparar(remoto.data.itens.slice(off, off + lim))
     return {
       ok: true,
@@ -923,6 +991,8 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   }
   const completaDo = (c) =>
     Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null
+  const completaLocal = completaDo(c)
+  if (completaLocal?.length) indexarCatalogo(completaLocal)
   if (c && !velho) {
     const completa = completaDo(c)
     if (completa) {

@@ -123,6 +123,25 @@ externa estiver fora, o registro antigo ainda e servido em vez de `404`.
 Ao adicionar um campo ao payload, suba a versao correspondente — e assim que as
 linhas ja gravadas se corrigem sozinhas.
 
+### Busca local e paginação offline
+
+`app/electron/local-search.js` mantém `catalog_search_index.json` (envelope
+`version=1`) no diretório de dados. Cada página de `popular`, `catalog`,
+`genre` ou `search` já recebida é normalizada e deduplicada por `appid`; o
+arquivo é escrito com `tmp + rename` e nunca guarda `uris` de fontes Hydra.
+Na próxima abertura, o índice é hidratado dos espelhos e dos caches legados
+sem depender da rede. A busca remove acentos/pontuação e usa ranking estável
+(exato, prefixo, termos e substring; título e `appid` desempatem por chave).
+
+`steamstore.search` e `store:suggest` consultam esse índice antes de iniciar
+uma chamada externa, mantendo o payload legado `{ ok, jogos, ... }`. Quando
+não há hit local, o resultado remoto também é indexado. A rota paginada
+`store:recent("all", limite, offset)` usa uma fatia ordenada do índice quando
+a página não está no espelho, permitindo navegar no catálogo offline. A
+biblioteca continua sendo filtrada no renderer sem mudar `library:get`; as
+mesmas regras puras estão disponíveis em `searchLibrary` para consumidores
+Electron futuros, preservando o jogo completo no resultado.
+
 Continuam locais: trailers, downloads, biblioteca, configuracoes e todas as
 chaves pagas (Hubcap, debrid e Steam). O servidor nunca recebe esses segredos.
 
