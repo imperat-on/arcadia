@@ -35,6 +35,7 @@ test("library-store grava e lê envelope versionado atomicamente", () => {
       legacy: false,
       generatedAt: 123,
       sources: { custom: 1 },
+      errors: [],
       games: [{ id: "custom:1", title: "Local", launcher: "custom", launch_cmd: [] }],
     })
     assert.equal(fs.existsSync(`${file}.tmp`), false)

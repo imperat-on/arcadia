@@ -922,7 +922,30 @@ def index_slssteam(existing_appids: set[str],
 
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Nunca sobrescreva uma biblioteca criada por uma versão mais nova do
+    # indexador. Um checkout antigo deve falhar de forma explícita, preservando
+    # o snapshot que o app ainda consegue usar.
+    if OUT_FILE.exists():
+        try:
+            previous = json.loads(OUT_FILE.read_text(encoding="utf-8"))
+            raw_version = previous.get("version", 0) if isinstance(previous, dict) else 0
+            try:
+                previous_version = float(raw_version)
+            except (TypeError, ValueError):
+                previous_version = 0
+            if previous_version > 1:
+                print(
+                    f"[erro] library.json usa versão futura {previous['version']}; "
+                    "atualize o Arcadia antes de indexar",
+                    file=sys.stderr,
+                )
+                return 2
+        except (OSError, ValueError, TypeError):
+            # Snapshot inválido: o scan pode reconstruí-lo.
+            pass
+
     library: list[dict] = []
+    provider_errors: list[str] = []
     counts = {}
 
     # Toggles de fontes (padrão: todas ligadas) e caminho custom do SLSsteam.
@@ -940,6 +963,7 @@ def main() -> int:
         steam_games = index_steam() if on("steam") else []
     except Exception as exc:
         print(f"[aviso] steam: {exc}", file=sys.stderr)
+        provider_errors.append("steam")
         steam_games = []
     steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
 
@@ -980,15 +1004,24 @@ def main() -> int:
             items = fn()
         except Exception as exc:  # nunca deixa um launcher derrubar o resto
             print(f"[aviso] {name}: {exc}", file=sys.stderr)
+            provider_errors.append(name)
             items = []
         counts[name] = len(items)
         library.extend(items)
 
     library.sort(key=lambda g: g["title"].lower())
+    if provider_errors and not library:
+        print(
+            "[erro] nenhum provider respondeu (" + ", ".join(provider_errors) + "); "
+            "snapshot anterior preservado",
+            file=sys.stderr,
+        )
+        return 2
     document = {
         "version": 1,
         "generated_at": int(time.time()),
         "sources": counts,
+        "errors": provider_errors,
         "games": library,
     }
     if not _atomic_write(OUT_FILE, json.dumps(document, ensure_ascii=False, indent=2)):
