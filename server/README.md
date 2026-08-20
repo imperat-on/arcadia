@@ -30,6 +30,8 @@ server/
     rest-routes.js    # REST-lite de profiles/friendships (RLS explicito)
     sync-routes.js    # RPCs: conquistas, biblioteca, sources
     storage-routes.js # buckets avatars (5MB) e backgrounds (25MB, video)
+    community-validation.js # normalizacao e limites sem dependencias
+    community-routes.js # reviews/avaliacoes, colecoes/listas, reports e moderacao
     realtime.js       # WS Phoenix-lite, canal friends-<me>
   data/               # arcadia.db (gitignored)
   test/               # node --test (suíte unitária, integração e e2e)
@@ -125,11 +127,37 @@ com erro estruturado quando nao esta.
 Protocolo Phoenix-lite. Canal `friends-<me>`: evento `postgres_changes`
 no INSERT de friendships com `user_b=me` (badge de amigos).
 
+## Comunidade
+
+Reviews ficam em `user_reviews` (uma por conta/jogo), com escala `rating` de 1 a
+5 e status de moderacao. Colecoes usam `collections` + `collection_items` e
+aceitam `visibility=public|unlisted|private`; somente colecoes publicas e
+visiveis aparecem na descoberta. Reports entram em `community_reports` e a
+fila de moderacao exige uma conta em `community_moderators` ou um id listado em
+`COMMUNITY_MODERATOR_IDS` (tambem ha `COMMUNITY_MODERATOR_USERNAMES` para
+instalacoes simples).
+
+Rotas principais (aliases em portugues `/avaliacoes` e `/listas`):
+
+- `GET/POST /community/v1/reviews[/:appid]`
+- `GET/PATCH/DELETE /community/v1/review/:id` e `POST .../report`
+- `GET/POST /community/v1/collections`
+- `GET/PATCH/DELETE /community/v1/collections/:id`
+- `POST/PUT/DELETE /community/v1/collections/:id/items[/:appid]`
+- `POST .../review/:id/report` e `POST .../collections/:id/report`
+- `GET/PATCH /community/v1/moderation/{reviews,collections}/:id`
+
+Respostas de erro mantem `error` e incluem `code`, `message`, `request_id`; os
+limites de payload sao validados antes das queries (review 4.000 caracteres,
+colecao 500 itens, pagina 100).
+
 ## Schema (PostgreSQL)
 
 `profiles`, `friendships`, `user_achievements`, `user_library`,
 `user_playtime`, `user_sources`, `login_attempts`, `reserved_usernames`,
-`blocks`, `refresh_tokens`. Cria com `CREATE TABLE IF NOT EXISTS` no boot.
+`blocks`, `refresh_tokens`, `user_reviews`, `collections`, `collection_items`,
+`community_reports`, `community_moderators`. Cria com `CREATE TABLE IF NOT
+EXISTS` no boot.
 
 ## Migração de schema
 

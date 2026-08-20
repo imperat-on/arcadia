@@ -17,6 +17,7 @@ test("migrations inclui baseline e arquivos versionados em ordem", () => {
   )
   assert.ok(migrations.every((migration) => migration.sql.trim().length > 0))
   assert.ok(migrations.some((migration) => migration.file === "0002_performance_indexes.sql"))
+  assert.ok(migrations.some((migration) => migration.file === "0003_community.sql"))
 })
 
 test("parseFileName aceita nomes seguros e rejeita arquivos arbitrários", () => {
