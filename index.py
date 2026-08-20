@@ -37,7 +37,12 @@ from pathlib import Path
 
 from indexers.parsers import parse_vdf
 from indexers.steam import build_steam_game
-from indexers.epic import build_heroic_game, build_legendary_game, heroic_games_list
+from indexers.epic import (
+    build_heroic_game,
+    build_legendary_game,
+    heroic_games_list,
+    legendary_games_list,
+)
 from indexers.lutris import build_lutris_game
 from indexers.slssteam import build_slssteam_game, parse_additional_apps
 from indexers.contracts import ProviderContext, execute_provider
@@ -696,7 +701,7 @@ def index_legendary() -> list[dict]:
                            capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             return []
-        games = json.loads(r.stdout)
+        games = legendary_games_list(json.loads(r.stdout))
     except Exception:
         return []
     installed: set[str] = set()
@@ -704,12 +709,19 @@ def index_legendary() -> list[dict]:
         ri = subprocess.run([str(LEGENDARY_BIN), "list-installed", "--json"],
                             capture_output=True, text=True, timeout=60)
         if ri.returncode == 0:
-            installed = {g.get("app_name", "") for g in json.loads(ri.stdout)}
+            installed_data = legendary_games_list(json.loads(ri.stdout))
+            installed = {
+                str(g.get("app_name") or g.get("appName") or "").strip()
+                for g in installed_data
+                if isinstance(g, dict)
+            }
     except Exception:
         pass
 
     out = []
     for g in games:
+        if not isinstance(g, dict):
+            continue
         game = build_legendary_game(g, installed, LEGENDARY_BIN)
         if game:
             out.append(game)

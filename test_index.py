@@ -7,11 +7,14 @@ import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 INDEX_PATH = ROOT / "index.py"
+FIXTURES = ROOT / "fixtures" / "providers"
 
 
 def load_index(data_dir: Path):
@@ -22,6 +25,44 @@ def load_index(data_dir: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class IndexProviderIntegrationTest(unittest.TestCase):
+    def test_legendary_command_accepts_wrapped_json_fixture(self):
+        with tempfile.TemporaryDirectory(prefix="arcadia-index-legendary-") as raw:
+            index = load_index(Path(raw))
+            binary = Path(raw) / "legendary"
+            binary.touch()
+            index.LEGENDARY_BIN = binary
+            responses = [
+                SimpleNamespace(
+                    returncode=0,
+                    stdout=(FIXTURES / "legendary/list-games.json").read_text(encoding="utf-8"),
+                ),
+                SimpleNamespace(
+                    returncode=0,
+                    stdout=(FIXTURES / "legendary/list-installed.json").read_text(encoding="utf-8"),
+                ),
+            ]
+            with patch("subprocess.run", side_effect=responses):
+                games = index.index_legendary()
+            self.assertEqual([game["id"] for game in games], ["epic:shadow_tactics", "epic:celeste"])
+            self.assertTrue(games[0]["installed"])
+            self.assertFalse(games[1]["installed"])
+
+    def test_heroic_cache_fixture_is_read_by_index_provider(self):
+        with tempfile.TemporaryDirectory(prefix="arcadia-index-heroic-") as raw:
+            index = load_index(Path(raw))
+            index.HEROIC_CACHE = FIXTURES / "heroic"
+            games = index.index_heroic()
+            self.assertEqual(
+                [game["id"] for game in games],
+                [
+                    "heroic:gog:cyberpunk_2077",
+                    "heroic:gog:disco_elysium",
+                    "heroic:legendary:hades",
+                ],
+            )
 
 
 class IndexWriterTest(unittest.TestCase):
