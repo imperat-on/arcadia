@@ -97,8 +97,9 @@ export function AddGameDialog({
       const detected = r.emulators || []
       setEmulators(detected)
       const current = detected.find((item) => item.id === emulatorId)
-      if (current) setEmulatorExecutable(current.profile?.executable || current.executable || "")
-      else if (!emulatorId) {
+      if (current) {
+        setEmulatorExecutable((previous) => previous || current.profile?.executable || current.executable || "")
+      } else if (!emulatorId) {
         const first = detected.find((item) => item.available)
         if (first) {
           // The functional update prevents a slower settings read from being
