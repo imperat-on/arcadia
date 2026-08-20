@@ -14,17 +14,21 @@ Defina no `.env` um `JWT_SECRET` forte, `DATABASE_URL`, `TEST_DATABASE_URL` e `D
 
 ## Banco e inicializacao
 
-Crie o banco e o usuario PostgreSQL, aplique `server/sql/schema.sql` e valide a conexao:
+Crie o banco e o usuario PostgreSQL e deixe `DATABASE_URL` disponível para o
+processo. O próprio servidor aplica a baseline e as migrations versionadas:
 
 ```bash
-psql "$DATABASE_URL" -f sql/schema.sql
 npm install
-npm test
+npm run migrate:postgres
+npm run verify:postgres
+npm test             # requer TEST_DATABASE_URL e PostgreSQL de teste
 npm start
 curl http://127.0.0.1:3000/health
 ```
 
-O schema e idempotente para tabelas novas, mas alteracoes de tabelas existentes devem ser aplicadas por migracoes SQL versionadas antes do restart.
+`server/sql/schema.sql` é a baseline v1 mantida para instalações antigas;
+alterações futuras entram em `server/sql/migrations/` e são aplicadas pelo
+runner com lock e checksum.
 
 ## systemd e Tailscale
 

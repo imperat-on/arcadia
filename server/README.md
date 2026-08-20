@@ -23,7 +23,8 @@ server/
   .env.example        # JWT_SECRET, PORT, DATA_DIR (nunca versione .env)
   src/
     server.js         # bootstrap express + ws + registro de rotas
-    db.js             # schema PostgreSQL + seeds + helpers de tempo
+    db.js             # pool, migrations, seeds + helpers de tempo
+    migrations.js      # baseline schema.sql + migrations versionadas
     jwt.js            # emit/verify JWT no shape GoTrue
     auth-routes.js    # signup, login, token, user, logout, login_check
     rest-routes.js    # REST-lite de profiles/friendships (RLS explicito)
@@ -49,6 +50,16 @@ curl localhost:3000/health
 ```bash
 npm test    # node --test (auth, storage, rpc, realtime, catalogo e e2e)
 ```
+
+A suíte precisa de PostgreSQL. Para subir um banco descartável localmente:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+TEST_DATABASE_URL=postgres://arcadia:arcadia@127.0.0.1:55432/arcadia_test npm test
+docker compose -f docker-compose.test.yml down -v
+```
+
+O workflow `.github/workflows/ci.yml` executa os testes com PostgreSQL 16.
 
 ## Endpoints
 
@@ -95,15 +106,26 @@ no INSERT de friendships com `user_b=me` (badge de amigos).
 `user_playtime`, `user_sources`, `login_attempts`, `reserved_usernames`,
 `blocks`, `refresh_tokens`. Cria com `CREATE TABLE IF NOT EXISTS` no boot.
 
-## Migracao de schema
+## Migração de schema
 
-**Atencao:** `CREATE TABLE IF NOT EXISTS` cria tabelas novas, mas NAO
-adiciona colunas em tabelas existentes. Ao adicionar coluna em producao:
+O boot executa migrations versionadas dentro de transações e registra cada
+versão em `schema_migrations`. O `server/sql/schema.sql` é a baseline v1 para
+instalações antigas; mudanças novas devem entrar em
+`server/sql/migrations/000X_nome.sql` e nunca ser aplicadas manualmente em
+produção.
+
+Para aplicar migrations sem iniciar o servidor, use o mesmo banco configurado
+em `DATABASE_URL`:
 
 ```bash
-psql "$DATABASE_URL" -c "ALTER TABLE profiles ADD COLUMN background_url TEXT;"
-systemctl restart arcadia-server
+npm run migrate:postgres
+npm run verify:postgres
 ```
+
+As migrations usam lock advisory e checksum. Se um arquivo já aplicado for
+alterado, o boot falha deliberadamente para evitar drift silencioso. Os scripts
+`migrate:sqlite` e `verify:sqlite-migration` ficam separados para a migração
+histórica de bases SQLite; não são necessários em um deploy PostgreSQL novo.
 
 ## Seguranca
 

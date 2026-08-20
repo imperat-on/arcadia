@@ -41,6 +41,16 @@ clara, caminho de execução verificável e teste correspondente.
 7. dados de usuário devem ter migração, backup e recuperação documentados;
 8. código, fixtures e documentação devem refletir APIs reais, não stubs vazios.
 
+
+### Fase 0.2 — migrations e CI executadas
+
+- `server/src/migrations.js` usa `schema.sql` como baseline v1;
+- `0002_performance_indexes.sql` adiciona índices versionados com checksum;
+- `db.js` aplica migrations com transação e advisory lock;
+- scripts `migrate:postgres`/`verify:postgres` passaram a operar no runner real;
+- `docker-compose.test.yml` e `.github/workflows/ci.yml` documentam PostgreSQL 16;
+- scripts históricos SQLite foram preservados com nomes explícitos.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

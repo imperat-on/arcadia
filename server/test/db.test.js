@@ -27,13 +27,19 @@ test("db.js carrega e cria as tabelas do schema", async () => {
 
   for (const t of [
     "profiles", "friendships", "user_achievements", "user_library",
-    "user_playtime", "login_attempts", "reserved_usernames", "blocks",
+    "user_playtime", "login_attempts", "reserved_usernames", "blocks", "schema_migrations",
   ]) {
     assert.ok(tables.includes(t), `tabela ${t} existe`)
   }
 
   assert.ok(RESERVED.includes("admin"), "reserved inclui admin")
   assert.ok(RESERVED.includes("arcadia"), "reserved inclui arcadia")
+
+  const migrations = (await db.query(
+    "SELECT version FROM schema_migrations ORDER BY version",
+  )).rows.map((row) => Number(row.version))
+  assert.ok(migrations.includes(1), "baseline v1 registrada")
+  assert.ok(migrations.includes(2), "migration de índices registrada")
 })
 
 test("reserved_usernames seed aplicado", async () => {

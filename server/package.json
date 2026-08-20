@@ -7,8 +7,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.js",
-    "verify:postgres": "node scripts/verify-migration.js",
+    "migrate:postgres": "node scripts/run-migrations.js",
+    "verify:postgres": "node scripts/verify-schema.js",
+    "migrate:sqlite": "node scripts/migrate-sqlite-to-postgres.js",
+    "verify:sqlite-migration": "node scripts/verify-migration.js",
     "test": "NODE_ENV=test node --test"
   },
   "dependencies": {
