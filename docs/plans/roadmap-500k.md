@@ -93,6 +93,13 @@ clara, caminho de execução verificável e teste correspondente.
 - testes cobrem sucesso, retry após falha, timeout e cancelamento;
 - teste Python do envelope entra no `unittest discover` da CI.
 
+### Fase 1.3 — primeiro provider puro e fixtures
+
+- parser VDF separado em `indexers/parsers.py`, mantendo fallback sem dependência;
+- transformação Steam (`build_steam_game`) separada de disco/rede/configuração;
+- `index.py` mantém os entrypoints e a ordem de descoberta existentes;
+- fixtures cobrem AppState, ferramentas/runtime e contrato de comando Steam.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

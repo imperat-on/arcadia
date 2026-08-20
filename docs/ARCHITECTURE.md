@@ -16,6 +16,13 @@ proprio que sincroniza dados por conta entre maquinas.
   ~/.local/share/arcadia/                                 data/arcadia.db
 ```
 
+## Providers e pipeline da biblioteca
+
+O `index.py` mantém a orquestração e a escrita atômica, enquanto `indexers/`
+concentra transformações puras dos providers. O primeiro corte separa o parser
+VDF e a construção de jogos Steam; esses módulos não acessam Electron, rede ou
+estado global e podem ser exercitados com fixtures.
+
 ## Contratos compartilhados
 
 A pasta `contracts/` contém a versão runtime (`index.js`) e as declarações
