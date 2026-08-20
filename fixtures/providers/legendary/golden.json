@@ -1,0 +1,30 @@
+[
+  {
+    "id": "epic:shadow_tactics",
+    "title": "Shadow Tactics: Blades of the Shogun",
+    "launcher": "epic",
+    "launch_cmd": [
+      "/opt/legendary",
+      "launch",
+      "shadow_tactics"
+    ],
+    "installed": true,
+    "cover": "https://cdn.example/shadow-cover.jpg",
+    "hero": "https://cdn.example/shadow-hero.jpg",
+    "logo": "https://cdn.example/shadow-logo.png"
+  },
+  {
+    "id": "epic:celeste",
+    "title": "Celeste",
+    "launcher": "epic",
+    "launch_cmd": [
+      "/opt/legendary",
+      "launch",
+      "celeste"
+    ],
+    "installed": false,
+    "cover": "https://cdn.example/celeste-cover.jpg",
+    "hero": "https://cdn.example/celeste-hero.jpg",
+    "logo": ""
+  }
+]
