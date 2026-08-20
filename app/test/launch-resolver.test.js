@@ -71,6 +71,19 @@ test("game emulado usa o registry para montar argv sem aceitar cmd do renderer",
   assert.deepEqual(normal.rawCmd, ["pcsx2-qt", "/games/demo.iso"])
 })
 
+test("perfil de emulador não lança ROM de jogo custom inexistente", () => {
+  const result = resolveLaunchRequest(
+    { gameId: "custom:missing" },
+    deps({
+      findGame: () => null,
+      getGameSettings: () => ({ emulatorId: "pcsx2", romPath: "/games/demo.iso" }),
+      emulatorLaunch: () => ({ ok: true, cmd: ["pcsx2-qt", "/games/demo.iso"] }),
+      customLaunchCmd: () => null,
+    }),
+  )
+  assert.equal(result.ok, false)
+})
+
 test("jogo custom com perfil de emulador não exige exe/Wine", () => {
   const result = resolveLaunchRequest(
     { gameId: "custom:rom-demo", cmd: ["sh", "-c", "evil"] },
