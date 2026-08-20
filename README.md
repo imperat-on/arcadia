@@ -118,7 +118,7 @@ want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
 app/src        # React front-end (desktop/ + console/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
 index.py       # library pipeline (scans sources → versioned library.json)
-indexers/      # parsers/provider transforms testáveis sem Electron/rede
+indexers/      # parsers/provider transforms e contrato testáveis sem rede
 arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 install.sh     # setup · uninstall.sh (full removal)
 ```

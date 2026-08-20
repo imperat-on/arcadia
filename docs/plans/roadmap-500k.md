@@ -162,6 +162,15 @@ clara, caminho de execução verificável e teste correspondente.
 - limpeza de órfãos usa o mesmo `DATA_DIR` do registro das rotas;
 - caminhos e magic bytes permanecem validados por testes puros.
 
+### Fase 1.9 — contrato interno de providers
+
+- `ProviderContext` concentra diretório de dados, configuração, idioma e modo
+  de rede sem alterar payloads persistidos;
+- `ProviderResult` normaliza jogos, warnings, erros e duração da execução;
+- `execute_provider` isola exceções e descarta entradas inválidas;
+- o pipeline Python usa a fronteira para Steam, Heroic e Lutris;
+- testes cobrem sucesso parcial, falha isolada, tipos inválidos e imutabilidade.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
