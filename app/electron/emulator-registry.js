@@ -136,7 +136,9 @@ function normalizeAbsoluteFile(value, field = "path") {
   const raw = value.trim()
   // ROM/core selectors return absolute paths. Refuse relative paths so a
   // renderer cannot make resolution depend on Electron's current directory.
-  if (!path.isAbsolute(raw)) return { ok: false, error: `${field}_invalido` }
+  if (!path.isAbsolute(raw) || raw.split(path.sep).includes("..")) {
+    return { ok: false, error: `${field}_invalido` }
+  }
   const file = path.normalize(raw)
   if (!path.isAbsolute(file)) return { ok: false, error: `${field}_invalido` }
   return { ok: true, value: file }
