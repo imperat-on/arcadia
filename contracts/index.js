@@ -6,6 +6,7 @@
 // compatível sem perder metadados específicos de um provider.
 
 const CONTRACT_VERSION = 1
+const LIBRARY_SCHEMA_VERSION = 1
 const MAX_ID_LENGTH = 512
 const MAX_TITLE_LENGTH = 1024
 const MAX_COMMAND_ARGS = 64
@@ -129,6 +130,7 @@ function normalizePlaytimeItems(value) {
 
 module.exports = {
   CONTRACT_VERSION,
+  LIBRARY_SCHEMA_VERSION,
   MAX_ID_LENGTH,
   MAX_TITLE_LENGTH,
   MAX_COMMAND_ARGS,

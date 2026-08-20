@@ -1,4 +1,5 @@
 export const CONTRACT_VERSION: 1
+export const LIBRARY_SCHEMA_VERSION: 1
 export const MAX_ID_LENGTH: 512
 export const MAX_TITLE_LENGTH: 1024
 export const MAX_COMMAND_ARGS: 64
@@ -35,6 +36,13 @@ export interface ArcadiaGame {
 }
 
 export type ArcadiaLibrary = ArcadiaGame[]
+
+export interface ArcadiaLibraryDocument {
+  version: 1
+  generated_at?: number
+  sources?: Record<string, number>
+  games: ArcadiaLibrary
+}
 
 export interface SafeAccountUser {
   id: string

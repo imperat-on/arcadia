@@ -11,6 +11,7 @@ app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
     main.js           # bootstrap, biblioteca, IPC e indexador
+    library-store.js  # leitura versionada e compatível da biblioteca local
     trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)
