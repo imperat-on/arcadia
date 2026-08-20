@@ -90,3 +90,21 @@ test("community client mantém envelopes de mutação e caminhos codificados", a
   assert.equal(JSON.parse(calls.at(-1).options.body).appid, "steam:42")
   fs.rmSync(tmp.dir, { recursive: true, force: true })
 })
+
+
+test("community client descarta resposta que atravessa troca de conta", async () => {
+  const tmp = tempCache()
+  let scope = "account-a"
+  const client = createCommunityClient({
+    cachePath: () => path.join(tmp.dir, `${scope}.json`),
+    fetchImpl: async () => {
+      scope = "account-b"
+      return response({ collections: [{ id: "private-a", title: "A" }] })
+    },
+  })
+  const result = await client.listCollections({ mine: true })
+  assert.equal(result.ok, false)
+  assert.equal(result.code, "conta_trocada")
+  assert.equal(fs.existsSync(path.join(tmp.dir, "account-b.json")), false)
+  fs.rmSync(tmp.dir, { recursive: true, force: true })
+})
