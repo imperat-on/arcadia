@@ -14,6 +14,9 @@ unificado que o app Electron consome. Cada jogo vira:
       "logo":      "/caminho/logo.png"             | ""
     }
 
+O arquivo usa um envelope versionado (`version=1`, `games=[...]`), mas o
+Electron ainda lê arrays legados para upgrades sem migração destrutiva.
+
 Sem dependências obrigatórias: usa `python-vdf` se existir, senão cai num
 parser mínimo próprio. Bibliotecas vazias (ex.: Heroic sem login) são ignoradas
 sem erro.
@@ -982,7 +985,13 @@ def main() -> int:
         library.extend(items)
 
     library.sort(key=lambda g: g["title"].lower())
-    if not _atomic_write(OUT_FILE, json.dumps(library, ensure_ascii=False, indent=2)):
+    document = {
+        "version": 1,
+        "generated_at": int(time.time()),
+        "sources": counts,
+        "games": library,
+    }
+    if not _atomic_write(OUT_FILE, json.dumps(document, ensure_ascii=False, indent=2)):
         print(f"[erro] falha ao escrever {OUT_FILE}", file=sys.stderr)
         return 1
     total = len(library)

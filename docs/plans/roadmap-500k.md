@@ -75,6 +75,15 @@ clara, caminho de execução verificável e teste correspondente.
 - `ARCADIA_API_URL` tornou-se a configuração canônica do backend, com aliases
   legados normalizados e testados.
 
+### Fase 1.1 — biblioteca local versionada
+
+- `library.json` passou a usar envelope `version=1` com timestamp, fontes e jogos;
+- `library-store.js` lê o formato novo e arrays legados sem migração destrutiva;
+- indexador Python, Electron, sync de títulos e watcher de conquistas consomem
+  o mesmo leitor;
+- escrita continua atômica e versões futuras são rejeitadas com segurança;
+- testes cobrem leitura legada, escrita atômica e incompatibilidade de versão.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

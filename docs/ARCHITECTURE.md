@@ -126,8 +126,10 @@ Documentos de referencia:
 
 ## Posse de jogos por conta
 
-`library.json` (global, escrito pelo indexador `index.py`) lista todos os
-jogos detectados na maquina. A **posse** (quais a conta ve) fica em
+`library.json` (global, escrito pelo indexador `index.py`) usa um envelope
+versionado (`version`, `generated_at`, `sources`, `games`) e lista todos os
+jogos detectados na máquina. O leitor aceita arrays legados para upgrades sem
+migração destrutiva. A **posse** (quais a conta vê) fica em
 `owned_games.json` por conta. `readLibrary()` filtra o global pela posse
 quando logado. Guest ve tudo (zero regressao). Detalhe: um jogo instalado
 no disco que outra conta nao possui nao aparece na biblioteca dela.
