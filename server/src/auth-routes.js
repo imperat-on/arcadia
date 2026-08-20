@@ -206,17 +206,48 @@ async function tokenGrant(grantType, body) {
   }
 
   if (grantType === "refresh_token") {
-    const rt = String(body?.refresh_token || "")
-    const stored = (await db.query("SELECT * FROM refresh_tokens WHERE token = $1", [rt])).rows[0]
-    if (!stored || Date.parse(stored.expires_at) < Date.now()) {
-      return { status: 401, json: { error: "Invalid Refresh Token: Refresh Token Not Found" } }
-    }
-    const user = (await db.query("SELECT * FROM profiles WHERE id = $1", [stored.user_id])).rows[0]
-    if (!user) return { status: 401, json: { error: "Invalid Refresh Token: User Not Found" } }
-    return issueSessionJson(user, rt)
+    return rotateRefreshToken(String(body?.refresh_token || ""))
   }
 
   return { status: 400, json: { error: "invalid_grant" } }
+}
+
+async function rotateRefreshToken(token) {
+  return withTransaction(async (client) => {
+    // Lock the row before deleting it. Two concurrent refreshes must not both
+    // accept the same token (rotation is also replay protection).
+    const stored = (
+      await client.query(
+        "SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW() FOR UPDATE",
+        [token],
+      )
+    ).rows[0]
+    if (!stored) return { status: 401, json: { error: "Invalid Refresh Token: Refresh Token Not Found" } }
+    const user = (await client.query("SELECT * FROM profiles WHERE id = $1", [stored.user_id])).rows[0]
+    if (!user) return { status: 401, json: { error: "Invalid Refresh Token: User Not Found" } }
+    const session = issueTokens(user)
+    const now = nowIso()
+    await client.query("DELETE FROM refresh_tokens WHERE token = $1", [token])
+    await client.query(
+      "INSERT INTO refresh_tokens (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
+      [session.refresh_token, user.id, now, new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()],
+    )
+    return sessionResponse(session)
+  })
+}
+
+function sessionResponse(session) {
+  return {
+    status: 200,
+    json: {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_in: session.expires_in,
+      expires_at: session.expires_at,
+      token_type: session.token_type,
+      user: session.user,
+    },
+  }
 }
 
 async function issueSessionJson(user, replacedToken = "") {
@@ -229,17 +260,7 @@ async function issueSessionJson(user, replacedToken = "") {
       [session.refresh_token, user.id, now, new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()],
     )
   })
-  return {
-    status: 200,
-    json: {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_in: session.expires_in,
-      expires_at: session.expires_at,
-      token_type: session.token_type,
-      user: session.user,
-    },
-  }
+  return sessionResponse(session)
 }
 
 // ---------------------------------------------------------------------------
