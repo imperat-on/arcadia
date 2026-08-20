@@ -96,6 +96,31 @@ explicitamente: so ve o que e seu, publico ou amigo.
 - Serve publico em `/storage/v1/object/public/:bucket/:uid/:file`
 - Upload owner-scoped (uid do path == sub do token), magic bytes validados
 
+### Observabilidade, erros e readiness
+
+Todas as respostas HTTP recebem `X-Request-Id`. O cliente pode enviar um
+identificador seguro nesse mesmo header (ate 128 caracteres); se ausente ou
+invalido, o servidor gera um UUID. O header tambem e exposto ao renderer pelo
+CORS para correlacionar uma falha com os logs do servidor.
+
+Respostas de erro HTTP mantem a chave legada `error` para clientes existentes e
+agora incluem campos estruturados: `code` (igual a `error`), `message`
+generica e `request_id` (igual ao header). Exemplo:
+
+```json
+{
+  "error": "nao_autenticado",
+  "code": "nao_autenticado",
+  "message": "Autenticacao necessaria",
+  "request_id": "desktop-42"
+}
+```
+
+`GET /health` preserva o contrato anterior e verifica o processo + banco.
+`GET /ready` e o probe de readiness para deploy/orquestrador: responde `200`
+com `{"ok":true,"ready":true}` quando o PostgreSQL esta acessivel e `503`
+com erro estruturado quando nao esta.
+
 ### Realtime (`/realtime/v1/websocket`)
 Protocolo Phoenix-lite. Canal `friends-<me>`: evento `postgres_changes`
 no INSERT de friendships com `user_b=me` (badge de amigos).

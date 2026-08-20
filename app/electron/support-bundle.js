@@ -22,7 +22,7 @@ function redactText(value, { dataDir = "", homeDir = os.homedir() } = {}) {
     if (source) text = text.replace(new RegExp(escapeRegExp(source), "g"), replacement)
   }
   return text
-    .replace(/((?:access|refresh)[_-]?token|token|password|passwd|api[_-]?key|secret)\s*[:=]\s*["']?[^\s,"'}]+["']?/gi, "$1=<REDACTED>")
+    .replace(/((?:access|refresh)[_-]?token|token|password|passwd|api[_-]?key|x-api-key|authorization|cookie|secret)\s*[:=]\s*["']?[^\s,"'}]+["']?/gi, "$1=<REDACTED>")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <REDACTED>")
 }
 
