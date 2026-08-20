@@ -2669,6 +2669,7 @@ app.whenReady().then(() => {
   ipcMain.handle("dm:retry", (_e, appid) => dm.retry(appid))
   ipcMain.handle("dm:dismiss", (_e, appid) => dm.descartar(appid))
   ipcMain.handle("dm:resume", (_e, appid) => dm.resume(appid))
+  ipcMain.handle("dm:setPriority", (_e, appid, priority) => dm.setPriority(appid, priority))
   ipcMain.handle("dm:cancel", (_e, appid) => dm.cancel(appid))
 
   // --- Wine manager + ferramentas de prefixo --------------------------------
