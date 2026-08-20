@@ -11,7 +11,8 @@ app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
     main.js           # bootstrap, biblioteca, IPC e indexador
-    library-store.js  # leitura versionada e compatível da biblioteca local
+    library-store.js  # compatibilidade de leitura/escrita do formato local
+    library-repository.js # repositório: leitura, posse por conta e escrita atômica
     index-service.js  # job deduplicado/timeout do index.py
     launch-resolver.js # política pura de comando/perfil de execução
     launch-log.js      # logs rotacionados com fechamento seguro de descritor
@@ -66,6 +67,16 @@ Para rodar uma instalação isolada sem misturar estado com
 
 A especificação do manifest v1 e do registro local de plugins está em
 [`docs/PLUGINS.md`](../docs/PLUGINS.md).
+
+## Repositório da biblioteca
+
+`electron/library-repository.js` é a camada única para a biblioteca local:
+aceita o envelope versionado (e arrays legados), filtra `library.json` pelo
+`owned_games.json` da conta ativa, materializa a posse ausente somente na
+primeira leitura de uma conta e grava biblioteca/posse com `tmp + rename`.
+Guest continua vendo o `library.json` inteiro e não cria `owned_games.json` na
+raiz. O módulo não depende de Electron; um adaptador pequeno no main pode usá-lo
+sem alterar os canais IPC existentes.
 
 ## Conta e sync
 
