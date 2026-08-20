@@ -41,24 +41,27 @@ test("contrato de sync rejeita payloads inválidos e limita itens", () => {
     normalizeLibrarySyncItems([
       { appid: "steam:10", title: "Portal", platform: "linux" },
       { appid: "steam:11", removed: true, title: "ignorado" },
+      { appid: "steam:12", removed: "false", title: "não remover" },
       { appid: "", title: "descartado" },
-      { appid: "steam:12", title: "sem plataforma", platform: "unknown" },
+      { appid: "steam:13", title: "sem plataforma", platform: "unknown" },
     ]),
     [
       { appid: "steam:10", title: "Portal", platform: "linux" },
       { appid: "steam:11", removed: true },
-      { appid: "steam:12", title: "sem plataforma", platform: "windows" },
+      { appid: "steam:12", title: "não remover", platform: "windows" },
+      { appid: "steam:13", title: "sem plataforma", platform: "windows" },
     ],
   )
   assert.deepEqual(
     normalizePlaytimeItems([
       { appid: "steam:10", minutes: "30" },
       { appid: "steam:11", minutes: 0 },
-      { appid: "steam:12", minutes: 999999 },
+      { appid: "steam:12", minutes: true },
+      { appid: "steam:13", minutes: 999999 },
     ]),
     [
       { appid: "steam:10", minutes: 30 },
-      { appid: "steam:12", minutes: 999999 },
+      { appid: "steam:13", minutes: 999999 },
     ],
   )
 })
