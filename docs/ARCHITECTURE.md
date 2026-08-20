@@ -170,6 +170,21 @@ Documentos de referencia:
 - [Design da loja no servidor](superpowers/specs/2026-08-11-loja-servidor-design.md)
 - [Plano de implementacao](superpowers/plans/2026-08-11-loja-servidor.md)
 
+## Comunidade: reviews e coleções
+
+A API `/community/v1` vive no backend Express e usa a mesma autenticação JWT.
+Reviews são filtradas por appid; coleções respeitam visibilidade, bloqueios e
+propriedade dentro da consulta SQL. Reports e a fila de moderação compartilham a
+migration `0003_community.sql`, sem alterar o envelope legado do catálogo.
+
+No Electron, `app/electron/supabase/community.js` é o único cliente de rede:
+o main mantém tokens, expõe canais IPC tipados e grava um cache atômico por conta.
+Leituras públicas e privadas podem voltar marcadas como `offline` quando a rede
+cai; uma resposta que atravessa troca de conta é descartada com
+`error/code: "conta_trocada"` antes de tocar o cache seguinte. O renderer usa
+`CommunityPanel.tsx` nas páginas de jogo para avaliações e listas, sem acesso a
+`ipcRenderer`, credenciais ou caminhos locais.
+
 ## O que sincroniza por conta
 
 | Dado | Como | Sensivel? |
