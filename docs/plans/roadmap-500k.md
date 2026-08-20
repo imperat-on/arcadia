@@ -20,7 +20,7 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
-Essa era a fotografia inicial. Na árvore limpa do commit `aca94c1`, a medição
+Essa era a fotografia inicial. Na árvore limpa do commit `9c1cda6`, a medição
 recalculada com `find`/`wc -l` registra **59.994 linhas de código, testes e SQL**
 e **75.379 linhas textuais no total**, sem contar binários ou artefatos gerados.
 A fotografia está datada de **2026-08-20** e inclui o benchmark de busca, o cliente
@@ -292,7 +292,7 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`aca94c1`**;
+- commit-base: **`9c1cda6`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
