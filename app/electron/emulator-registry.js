@@ -304,7 +304,7 @@ function createEmulatorRegistry({
 } = {}) {
   const root = path.resolve(String(dataDir))
   const statePath = profilesPath ? path.resolve(profilesPath) : path.join(root, REGISTRY_FILENAME)
-  const catalog = { ...DEFINITIONS }
+  const catalog = Object.assign(Object.create(null), DEFINITIONS)
   const configuredDefinitions =
     definitionsOption === undefined ? extraDefinitions : definitionsOption
   const extensions = Array.isArray(configuredDefinitions)

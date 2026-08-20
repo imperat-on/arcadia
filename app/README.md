@@ -15,6 +15,7 @@ app/
     library-repository.js # repositório: leitura, posse por conta e escrita atômica
     index-service.js  # job deduplicado/timeout do index.py
     launch-resolver.js # política pura de comando/perfil de execução
+    emulator-registry.js # catálogo, perfis e argv de emuladores Linux
     launch-log.js      # logs rotacionados com fechamento seguro de descritor
     snapshot-service.js # snapshots locais versionados de saves
     diagnostics.js     # relatório local sem paths, credenciais ou rede
