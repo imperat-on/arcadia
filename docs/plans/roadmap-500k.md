@@ -290,7 +290,7 @@ com contratos e testes focados:
   detecção sem execução, validação de ROM/core sem symlink e resolução somente
   por `argv`. O preload/main expõem listagem, detecção, perfis e resolução; o
   painel de configurações e o modo de adicionar jogo ROM/ISO usam a mesma ponte;
-- validação após essas entregas: **193/193 testes do app**, incluindo contratos e
+- validação após essas entregas: **194/194 testes do app**, incluindo contratos e
   fixtures de emuladores, benchmark determinístico de busca local, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
