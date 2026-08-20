@@ -717,6 +717,7 @@ declare global {
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       getConfig: () => Promise<AppConfig>
       diagnostics: () => Promise<DiagnosticsReport>
+      diagnosticsExport: () => Promise<{ ok: boolean; canceled?: boolean; path?: string; files?: string[]; error?: string }>
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
