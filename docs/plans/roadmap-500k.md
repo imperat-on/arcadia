@@ -97,8 +97,9 @@ clara, caminho de execução verificável e teste correspondente.
 
 - parser VDF separado em `indexers/parsers.py`, mantendo fallback sem dependência;
 - transformação Steam (`build_steam_game`) separada de disco/rede/configuração;
+- transformações Legendary, Heroic, Lutris e SLSsteam também são puras;
 - `index.py` mantém os entrypoints e a ordem de descoberta existentes;
-- fixtures cobrem AppState, ferramentas/runtime e contrato de comando Steam.
+- fixtures cobrem AppState, ferramentas/runtime, imagens, dedupe e comandos.
 
 ## Fases de implementação
 

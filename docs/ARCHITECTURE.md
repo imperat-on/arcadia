@@ -20,8 +20,8 @@ proprio que sincroniza dados por conta entre maquinas.
 
 O `index.py` mantém a orquestração e a escrita atômica, enquanto `indexers/`
 concentra transformações puras dos providers. O primeiro corte separa o parser
-VDF e a construção de jogos Steam; esses módulos não acessam Electron, rede ou
-estado global e podem ser exercitados com fixtures.
+VDF e as construções Steam, Legendary, Heroic, Lutris e SLSsteam; esses módulos
+não acessam Electron, rede ou estado global e podem ser exercitados com fixtures.
 
 ## Contratos compartilhados
 
