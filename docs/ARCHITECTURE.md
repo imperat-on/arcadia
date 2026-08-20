@@ -16,6 +16,14 @@ proprio que sincroniza dados por conta entre maquinas.
   ~/.local/share/arcadia/                                 data/arcadia.db
 ```
 
+## Contratos compartilhados
+
+A pasta `contracts/` contém a versão runtime (`index.js`) e as declarações
+TypeScript (`index.d.ts`) dos payloads de biblioteca e sincronização. O main
+process normaliza dados locais antes do IPC; o backend repete a normalização
+antes de persistir `push_library`. Campos desconhecidos são preservados para
+permitir evolução compatível, enquanto entradas inválidas são descartadas.
+
 ## Os dois mundos
 
 ### 1. App Electron (`app/`)

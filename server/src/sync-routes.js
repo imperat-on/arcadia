@@ -4,6 +4,7 @@ const { db, nowEpochS, withTransaction } = require("./db")
 const { verifyToken, extractToken } = require("./jwt")
 const { notifyLibraryChange, notifyAchievementsChange } = require("./realtime")
 const asyncHandler = require("./async-handler")
+const { normalizeLibrarySyncItems, normalizePlaytimeItems } = require("../../contracts")
 
 function requireAuth(req) {
   const v = verifyToken(extractToken(req) || "")
@@ -142,8 +143,8 @@ async function rpcFriendProfile(uid, p_friend) {
 }
 
 async function rpcPushLibrary(uid, p_lib, p_playtime) {
-  const library = Array.isArray(p_lib) ? p_lib.slice(0, 1000) : []
-  const playtime = Array.isArray(p_playtime) ? p_playtime.slice(0, 1000) : []
+  const library = normalizeLibrarySyncItems(p_lib)
+  const playtime = normalizePlaytimeItems(p_playtime)
   await withTransaction(async (client) => {
     for (const game of library) {
       if (!game?.appid) continue

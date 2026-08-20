@@ -58,6 +58,16 @@ clara, caminho de execução verificável e teste correspondente.
 - o modo não escolhido deixa de ser baixado no primeiro render;
 - typecheck e build confirmam os chunks separados.
 
+### Fase 0.4 — contratos compartilhados da biblioteca
+
+- `contracts/index.js` e `contracts/index.d.ts` definem o contrato versionado
+  de jogos, biblioteca e payloads de sync;
+- Electron normaliza a biblioteca antes de expô-la por IPC;
+- backend normaliza `push_library`/playtime antes das queries;
+- metadados extras de providers são preservados e entradas inválidas são
+  descartadas de forma determinística;
+- testes unitários cobrem os consumidores app e server.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
