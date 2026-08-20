@@ -333,7 +333,9 @@ async function reportTarget(req, res, targetType) {
   const uid = requireUser(req, res)
   if (!uid) return
   const targetId = idValue(req.params.id)
-  if (!targetId) return fail(req, res, 400, "target_id_invalido")
+  if (!targetId || (targetType === "review" && !/^\d+$/.test(targetId))) {
+    return fail(req, res, 400, targetType === "review" ? "review_id_invalido" : "target_id_invalido")
+  }
   const normalized = normalizeReportInput(req.body)
   if (normalized.error) return validationFail(req, res, normalized.error)
   const existsQuery = targetType === "review"
@@ -637,9 +639,12 @@ async function moderate(req, res, kind) {
   if (!uid) return
   if (!(await isModerator(uid))) return fail(req, res, 403, "moderacao_negada")
   const id = idValue(req.params.id)
+  if (!id || (kind === "review" && !/^\d+$/.test(id))) {
+    return fail(req, res, 400, kind === "review" ? "review_id_invalido" : "colecao_id_invalido")
+  }
   const status = req.body?.status
   const allowed = kind === "review" ? REVIEW_STATUSES : COLLECTION_STATUSES
-  if (!id || !allowed.has(status)) return fail(req, res, 400, "status_moderacao_invalido")
+  if (!allowed.has(status)) return fail(req, res, 400, "status_moderacao_invalido")
   const reason = typeof req.body?.moderation_reason === "string" ? req.body.moderation_reason.trim().slice(0, 1000) || null : null
   const table = kind === "review" ? "user_reviews" : "collections"
   const row = (await db.query(

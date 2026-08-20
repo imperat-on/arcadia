@@ -84,13 +84,13 @@ function normalizeReviewInput(body = {}, routeAppid = undefined) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { error: invalid("body", "payload_invalido", "payload deve ser um objeto") }
   }
-  const appid = normalizeAppid(body.appid ?? body.app_id ?? routeAppid)
+  const appid = normalizeAppid(body.appid ?? body.app_id ?? body.game_id ?? body.gameId ?? routeAppid)
   if (appid.error) return appid
   const title = text(body.title, "title", MAX_REVIEW_TITLE, { collapse: true })
   if (title.error) return title
-  const reviewText = text(body.text ?? body.review ?? body.content, "text", MAX_REVIEW_TEXT, { required: true })
+  const reviewText = text(body.text ?? body.review ?? body.content ?? body.comment, "text", MAX_REVIEW_TEXT, { required: true })
   if (reviewText.error) return reviewText
-  const rating = normalizeRating(body.rating)
+  const rating = normalizeRating(body.rating ?? body.score)
   if (rating.error) return rating
   const positive = normalizePositive(body.positive, rating.value)
   if (positive.error) return positive
@@ -117,10 +117,11 @@ function normalizeVisibility(value, fallback = "public") {
 }
 
 function normalizeCollectionItem(item, index = 0) {
+  if (typeof item === "string" || typeof item === "number") item = { appid: item }
   if (!item || typeof item !== "object" || Array.isArray(item)) {
-    return { error: invalid(`items[${index}]`, "item_invalido", "cada item deve ser um objeto") }
+    return { error: invalid(`items[${index}]`, "item_invalido", "cada item deve ser um objeto ou appid") }
   }
-  const appid = normalizeAppid(item.appid ?? item.app_id ?? item.id)
+  const appid = normalizeAppid(item.appid ?? item.app_id ?? item.game_id ?? item.id)
   if (appid.error) return { error: { ...appid.error, field: `items[${index}].appid` } }
   const title = text(item.title ?? item.name, `items[${index}].title`, MAX_ITEM_TITLE, { collapse: true })
   if (title.error) return title
@@ -174,7 +175,7 @@ function normalizeCollectionInput(body = {}, { partial = false } = {}) {
     value.description = description.value
   }
   if (!partial || Object.prototype.hasOwnProperty.call(body, "visibility")) {
-    const visibility = normalizeVisibility(body.visibility, "public")
+    const visibility = normalizeVisibility(body.visibility ?? body.privacy, "public")
     if (visibility.error) return visibility
     value.visibility = visibility.value
   }

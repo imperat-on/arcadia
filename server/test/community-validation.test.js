@@ -58,6 +58,7 @@ test("collection normalizes privacy and preserves optional fields", () => {
   assert.equal(collection.value.visibility, "unlisted")
   assert.deepEqual(collection.value.items[0], { appid: "10", title: "Half-Life", note: "jogar", position: 0 })
   assert.equal(normalizeCollectionInput({ title: "x", visibility: "friends" }).error.code, "visibilidade_invalida")
+  assert.equal(normalizeCollectionInput({ title: "x", privacy: "private", items: ["42"] }).value.visibility, "private")
 })
 
 test("pagination is bounded while malformed values are rejected", () => {
