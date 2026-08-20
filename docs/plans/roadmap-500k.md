@@ -51,6 +51,13 @@ clara, caminho de execução verificável e teste correspondente.
 - `docker-compose.test.yml` e `.github/workflows/ci.yml` documentam PostgreSQL 16;
 - scripts históricos SQLite foram preservados com nomes explícitos.
 
+### Fase 0.3 — primeiro ganho de boot do frontend
+
+- `PS5Launcher` e `DesktopLauncher` passaram a ser carregados sob demanda;
+- o bundle inicial caiu de aproximadamente 1,24 MB para 305 KB;
+- o modo não escolhido deixa de ser baixado no primeiro render;
+- typecheck e build confirmam os chunks separados.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
