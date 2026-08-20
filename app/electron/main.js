@@ -1816,8 +1816,10 @@ app.whenReady().then(() => {
       customLaunchCmd,
       getGameSettings,
       exeLaunchCmd,
-      emulatorLaunch: (_id, _game, settings) => {
-        if (!settings?.emulatorId) return null
+      emulatorLaunch: (_id, game, settings) => {
+        // A settings key alone never authorizes launching a ROM: the game must
+        // still exist in the account-scoped library.
+        if (!game || !settings?.emulatorId) return null
         return emulatorRegistry.resolveLaunch({
           emulatorId: settings.emulatorId,
           romPath: settings.romPath,

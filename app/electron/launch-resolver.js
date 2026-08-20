@@ -25,7 +25,8 @@ function resolveLaunchRequest(
       // Jogos custom de emulador não possuem exe/launch_cmd: o perfil local
       // ainda passa pelo mesmo callback seguro usado pelos jogos da biblioteca.
       const settings = getGameSettings(gameId) || {}
-      const emulated = emulatorLaunch(gameId, findGame(gameId), settings)
+      const customGame = findGame(gameId)
+      const emulated = customGame ? emulatorLaunch(gameId, customGame, settings) : null
       if (emulated) {
         if (!emulated.ok || !Array.isArray(emulated.cmd) || !emulated.cmd.length) return emulated
         rawCmd = emulated.cmd
