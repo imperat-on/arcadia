@@ -33,8 +33,10 @@ sucesso. Falhas de rede deixam a fila intacta para retry com backoff.
 
 `sync.js` captura o escopo da conta antes de push/pull e verifica o escopo após
 a resposta da rede. Se ocorrer logout/login durante um RPC, o resultado antigo
-é descartado e não é gravado na conta nova. O `queueLen` exibido pela UI e os
-handlers IPC existentes permanecem compatíveis.
+é descartado e não é gravado na conta nova. `biblioteca.js` aplica a mesma
+barreira aos RPCs de biblioteca: nenhum watermark, override, posse ou jogo
+pendente é escrito depois da troca. O `queueLen` exibido pela UI e os handlers
+IPC existentes permanecem compatíveis.
 
 Para biblioteca e playtime, `sync_state.json` mantém watermarks por conta:
 `libPush` e `playtimePush`. Um push offline não avança esses watermarks; a
