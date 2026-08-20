@@ -74,7 +74,9 @@ function createSnapshotService({ snapshotsDir, fsImpl = fsDefault, now = () => n
 
   function create({ gameId, sourceDir, label = "" } = {}) {
     const source = absoluteDirectory(sourceDir)
-    if (!gameId || !source || !fsImpl.existsSync(source) || !fsImpl.statSync(source).isDirectory()) {
+    let sourceStat
+    try { sourceStat = source ? fsImpl.lstatSync(source) : null } catch { sourceStat = null }
+    if (!gameId || !sourceStat || !sourceStat.isDirectory() || sourceStat.isSymbolicLink()) {
       return { ok: false, error: "origem_invalida" }
     }
     const safeGame = safePart(gameId, "unknown")
@@ -121,21 +123,31 @@ function createSnapshotService({ snapshotsDir, fsImpl = fsDefault, now = () => n
       return { ok: false, error: "snapshot_sem_dados" }
     }
     const temporary = `${target}.arcadia-restore-${crypto.randomUUID().slice(0, 8)}`
-    let backupPath = ""
+    let previousPath = ""
+    const backupPath = backup ? `${target}.arcadia-backup-${Date.now()}` : ""
     try {
+      if (fsImpl.lstatSync(data).isSymbolicLink()) return { ok: false, error: "snapshot_invalido" }
       fsImpl.rmSync(temporary, { recursive: true, force: true })
-      fsImpl.cpSync(data, temporary, { recursive: true, force: false, dereference: false })
+      fsImpl.cpSync(data, temporary, {
+        recursive: true,
+        force: false,
+        dereference: false,
+        filter: (entry) => !fsImpl.lstatSync(entry).isSymbolicLink(),
+      })
       if (fsImpl.existsSync(target)) {
-        if (!backup) fsImpl.rmSync(target, { recursive: true, force: true })
-        else {
-          backupPath = `${target}.arcadia-backup-${Date.now()}`
-          fsImpl.renameSync(target, backupPath)
-        }
+        previousPath = backupPath || `${target}.arcadia-rollback-${crypto.randomUUID().slice(0, 8)}`
+        fsImpl.renameSync(target, previousPath)
       }
       fsImpl.renameSync(temporary, target)
+      if (previousPath && !backup) fsImpl.rmSync(previousPath, { recursive: true, force: true })
       return { ok: true, backupPath, snapshot: manifest }
     } catch (error) {
       try { fsImpl.rmSync(temporary, { recursive: true, force: true }) } catch {}
+      // If the final rename failed, put the previous save back before exposing
+      // the error. A failed restore must never leave the user's target absent.
+      if (previousPath && !fsImpl.existsSync(target) && fsImpl.existsSync(previousPath)) {
+        try { fsImpl.renameSync(previousPath, target) } catch {}
+      }
       return { ok: false, error: String(error.message || error), backupPath }
     }
   }
