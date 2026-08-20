@@ -40,6 +40,7 @@ from indexers.steam import build_steam_game
 from indexers.epic import build_heroic_game, build_legendary_game, heroic_games_list
 from indexers.lutris import build_lutris_game
 from indexers.slssteam import build_slssteam_game, parse_additional_apps
+from indexers.contracts import ProviderContext, execute_provider
 
 # Concorrência do enriquecimento (Steam Store / SteamGridDB / Web API). Pool
 # pequeno: paraleliza o gargalo de rede da primeira execução sem estourar o
@@ -907,20 +908,27 @@ def main() -> int:
 
     # Recomputa após owned+slssteam pra Lutris deduplicar contra biblioteca completa.
     all_steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
+    provider_context = ProviderContext(
+        data_dir=OUT_DIR,
+        config=cfg,
+        language=str(cfg.get("language") or "en-US"),
+        network_enabled=sources.get("network", True) is not False,
+    )
     for name, fn in (
         ("steam", lambda: steam_games),
         # Epic: preferência pelo Legendary próprio; GOG/Amazon sempre via Heroic.
         ("heroic", (index_epic_and_heroic if on("heroic") else (lambda: []))),
         ("lutris", (lambda: index_lutris(all_steam_appids)) if on("lutris") else (lambda: [])),
     ):
-        try:
-            items = fn()
-        except Exception as exc:  # nunca deixa um launcher derrubar o resto
-            print(f"[aviso] {name}: {exc}", file=sys.stderr)
+        result = execute_provider(name, fn, provider_context)
+        if result.errors:
+            for error in result.errors:
+                print(f"[aviso] {name}: {error}", file=sys.stderr)
             provider_errors.append(name)
-            items = []
-        counts[name] = len(items)
-        library.extend(items)
+        for warning in result.warnings:
+            print(f"[aviso] {name}: {warning}", file=sys.stderr)
+        counts[name] = len(result.games)
+        library.extend(result.games)
 
     library.sort(key=lambda g: g["title"].lower())
     if provider_errors and not library:
