@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.invoke("plugins:unregister", typeof id === "string" ? id : ""),
   pluginsEnable: (id) => ipcRenderer.invoke("plugins:enable", typeof id === "string" ? id : ""),
   pluginsDisable: (id) => ipcRenderer.invoke("plugins:disable", typeof id === "string" ? id : ""),
+  pluginsVerify: (id) => ipcRenderer.invoke("plugins:verify", typeof id === "string" ? id : ""),
   // API histórica preservada para SLSsteam/LuaTools.
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
