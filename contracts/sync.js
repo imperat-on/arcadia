@@ -139,7 +139,7 @@ function libraryValue(value) {
   if (!appid) return null
   const removed = value.removed === true
   const title = text(value.title, 1024)
-  const platform = value.platform === "linux" ? "linux" : "windows"
+  const platform = value.platform === "emulator" ? "emulator" : value.platform === "linux" ? "linux" : "windows"
   return {
     ...value,
     appid,
