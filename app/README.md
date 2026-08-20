@@ -10,7 +10,8 @@ contracts/            # contratos runtime + tipos compartilhados app/server
 app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
-    main.js           # main process (biblioteca, IPC, indexador)
+    main.js           # bootstrap, biblioteca, IPC e indexador
+    trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)
       client.js       # shim: auth, REST-lite, rpc, storage, realtime WS
