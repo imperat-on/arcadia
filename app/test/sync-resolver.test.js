@@ -50,6 +50,14 @@ test("biblioteca: título real vence placeholder quando backend antigo não tem 
   assert.equal(merged.title, "Portal 2")
 })
 
+test("biblioteca preserva plataforma de emulador no merge offline", () => {
+  const merged = resolveLibraryConflict(
+    { appid: "custom:rom", title: "ROM", platform: "emulator" },
+    { appid: "custom:rom", title: "ROM", platform: "emulator" },
+  )
+  assert.equal(merged.platform, "emulator")
+})
+
 test("playtime: merge monotônico preserva o total maior", () => {
   assert.equal(resolvePlaytimeConflict({ minutes: 90 }, { minutes: "120" }), 120)
   assert.equal(resolvePlaytimeConflict({ minutes: 300 }, { minutes: 2 }), 300)
