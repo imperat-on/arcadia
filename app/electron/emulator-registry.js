@@ -158,7 +158,24 @@ function normalizeArgs(value) {
   return { ok: true, value: args }
 }
 
+function hasSymlinkComponent(file, fsImpl) {
+  const absolute = path.resolve(file)
+  const root = path.parse(absolute).root
+  let current = root
+  const relative = path.relative(root, absolute)
+  for (const part of relative ? relative.split(path.sep) : []) {
+    current = path.join(current, part)
+    try {
+      if (fsImpl.lstatSync(current).isSymbolicLink()) return true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
 function isRegular(file, fsImpl) {
+  if (hasSymlinkComponent(file, fsImpl)) return false
   try {
     const stat = fsImpl.lstatSync(file)
     return stat.isFile() && !stat.isSymbolicLink()
@@ -220,6 +237,7 @@ function normalizeProfile(input, definition) {
 }
 
 function readState(file, fsImpl) {
+  if (hasSymlinkComponent(file, fsImpl)) return { profiles: {} }
   try {
     const stat = fsImpl.lstatSync(file)
     if (!stat.isFile() || stat.isSymbolicLink()) return { profiles: {} }
@@ -234,6 +252,7 @@ function readState(file, fsImpl) {
 
 function atomicWrite(file, value, fsImpl = fsDefault) {
   const directory = path.dirname(file)
+  if (hasSymlinkComponent(directory, fsImpl)) throw new Error("diretorio_emuladores_symlink")
   fsImpl.mkdirSync(directory, { recursive: true, mode: 0o700 })
   try {
     const stat = fsImpl.lstatSync(directory)
