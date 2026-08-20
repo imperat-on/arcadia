@@ -98,7 +98,7 @@ class AuthClient {
     return { data: { session: this._session }, error: null }
   }
 
-  async setSession(sessaoSalva) {
+  async setSession(sessaoSalva, { emitSignedIn = false } = {}) {
     // Valida o access_token e devolve o usuario. Se expirou, faz refresh.
     this._session = sessaoSalva
     const { error } = await this._request("GET", "/auth/v1/user", null, {
@@ -120,7 +120,8 @@ class AuthClient {
       this._session = null
       return { data: { session: null }, error: { message: "sessao invalida" } }
     }
-    return { data: { session: sessaoSalva }, error: null }
+    if (emitSignedIn) this.emitter.emit("SIGNED_IN", this._session)
+    return { data: { session: this._session }, error: null }
   }
 
   async signUp({ email, password, options } = {}) {
@@ -450,7 +451,7 @@ async function restoreSession() {
   const auth = getClient().auth
   if (saved) {
     try {
-      const { error } = await auth.setSession(saved)
+      const { error } = await auth.setSession(saved, { emitSignedIn: true })
       if (error) sessionStore.clearSession()
     } catch {
       sessionStore.clearSession()
