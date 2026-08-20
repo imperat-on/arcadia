@@ -883,14 +883,9 @@ function limparAposDesinstalar(id, { removePrefix, removeSettings } = {}) {
     }
   }
   if (removeSettings) {
-    const all = readAllGameSettings()
-    if (all[id]) {
-      delete all[id]
-      try {
-        fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
-        _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
-      } catch {}
-    }
+    // Use the service so emulator settings and its in-memory cache are removed
+    // atomically along with the older Wine settings.
+    gameSettingsService.remove(id)
     try {
       fs.rmSync(path.join(LOG_DIR, `${String(id).replace(/[^a-z0-9._-]/gi, "_")}.log`), {
         force: true,
