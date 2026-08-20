@@ -40,6 +40,8 @@ const { createDiagnosticsService } = require("./diagnostics")
 const { createSupportBundle } = require("./support-bundle")
 const { createGameSettingsService } = require("./game-settings-service")
 const { createEmulatorRegistry } = require("./emulator-registry")
+const { getEmulatorStatus, preflightEmulator } = require("./emulator-status")
+const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulator-runtime")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -1825,10 +1827,46 @@ app.whenReady().then(() => {
           romPath: settings.romPath,
           extraArgs: settings.emulatorArgs,
           corePath: settings.emulatorCorePath,
+          // Use Hydra-compatible deterministic flags only from the main
+          // process; the renderer cannot choose arbitrary launch templates.
+          launchMode: "hydra",
         })
       },
     })
     if (!resolved.ok) return resolved
+
+    // DuckStation/PCSX2 frequently exit silently when no valid BIOS exists.
+    // Check the local dump before wrapping/spawning; RPCS3 firmware is exposed
+    // as status but is not hard-blocked because RPCS3 can install/configure it
+    // through its own UI.
+    if (resolved.gameId && resolved.mode !== "steam") {
+      const emulatorSettings = getGameSettings(resolved.gameId)
+      if (emulatorSettings?.emulatorId) {
+        const profile = emulatorRegistry.getProfile(emulatorSettings.emulatorId)
+        const detected = emulatorRegistry.list().find((item) => item.id === emulatorSettings.emulatorId)
+        const preflight = preflightEmulator({
+          emulatorId: emulatorSettings.emulatorId,
+          executablePath: detected?.executable || profile?.executable || "",
+          biosPath: profile?.biosPath || "",
+        })
+        if (!preflight.ok) {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: preflight.error })
+          }
+          return preflight
+        }
+        const running = preflightRunningEmulator({
+          emulatorId: emulatorSettings.emulatorId,
+          executablePath: detected?.executable || profile?.executable || "",
+        })
+        if (!running.ok) {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: running.error })
+          }
+          return running
+        }
+      }
+    }
 
     let { rawCmd, gameId, envExtra } = resolved
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
@@ -2763,6 +2801,24 @@ app.whenReady().then(() => {
   ipcMain.handle("emulators:profile:set", (_e, profile) => emulatorRegistry.setProfile(profile || {}))
   ipcMain.handle("emulators:profile:remove", (_e, id) => emulatorRegistry.removeProfile(typeof id === "string" ? id : ""))
   ipcMain.handle("emulators:resolve", (_e, payload) => emulatorRegistry.resolveLaunch(payload || {}))
+  ipcMain.handle("emulators:status", () => {
+    const profiles = emulatorRegistry.profiles()
+    const statuses = emulatorRegistry.list().map((item) => {
+      const executablePath = item.executable || profiles[item.id]?.executable || ""
+      const status = getEmulatorStatus({
+        emulatorId: item.id,
+        executablePath,
+        biosPath: profiles[item.id]?.biosPath,
+      })
+      const running = getRunningEmulatorStatus({ emulatorId: item.id, executablePath })
+      return { ...status, running: running.running, runningPid: running.pid }
+    })
+    return { ok: true, statuses }
+  })
+  // A busca de ROMs só devolve arquivos locais validados pelo registry; não
+  // sincroniza caminhos nem executa o conteúdo encontrado.
+  ipcMain.handle("emulators:roms", (_e, payload) => emulatorRegistry.scanRoms(payload || {}))
+  ipcMain.handle("emulators:roms:index", () => ({ ok: true, emulators: emulatorRegistry.roms() }))
 
   // Executa um .exe dentro do prefixo do jogo (diálogo de configurações).
   ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {

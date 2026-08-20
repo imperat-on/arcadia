@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import type { EmulatorInfo, GameSettings } from "../../global"
+import type { EmulatorInfo, EmulatorRomEntry, EmulatorRomFolder, EmulatorStatus, GameSettings } from "../../global"
 
 /**
  * Configura o perfil de emulador e a ROM do jogo. A seleção apenas persiste
@@ -19,7 +19,14 @@ export function EmulatorProfilesPanel({
   const [items, setItems] = useState<EmulatorInfo[]>([])
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
   const [profileBusy, setProfileBusy] = useState(false)
+  const [scanBusy, setScanBusy] = useState(false)
+  const [scanResults, setScanResults] = useState<EmulatorRomEntry[]>([])
+  const [scanTruncated, setScanTruncated] = useState(false)
+  const [romFolders, setRomFolders] = useState<EmulatorRomFolder[]>([])
+  const [status, setStatus] = useState<EmulatorStatus | null>(null)
+  const [biosPath, setBiosPath] = useState("")
   const [executable, setExecutable] = useState("")
   const [corePath, setCorePath] = useState(settings.emulatorCorePath || "")
   const selected = useMemo(
@@ -40,6 +47,16 @@ export function EmulatorProfilesPanel({
       setItems(result.emulators || [])
       const current = (result.emulators || []).find((item) => item.id === settings.emulatorId)
       setExecutable(current?.profile?.executable || current?.executable || "")
+      setBiosPath(current?.profile?.biosPath || "")
+      setRomFolders(current?.profile?.romFolders || [])
+      const statuses = await api?.emulatorsStatus()
+      setStatus(statuses?.statuses?.find((item) => item.emulatorId === settings.emulatorId) || null)
+      const index = await api?.emulatorsRomIndex?.()
+      const cached = index?.emulators?.[settings.emulatorId || ""]
+      if (cached) {
+        setScanResults(cached.roms || [])
+        setScanTruncated(Boolean(cached.truncated))
+      }
     } catch (cause) {
       setError(
         String(cause instanceof Error ? cause.message : cause || "Falha ao carregar emuladores."),
@@ -63,6 +80,11 @@ export function EmulatorProfilesPanel({
   const selectEmulator = (id: string) => {
     const item = items.find((candidate) => candidate.id === id)
     setExecutable(item?.profile?.executable || item?.executable || "")
+    setBiosPath(item?.profile?.biosPath || "")
+    setRomFolders(item?.profile?.romFolders || [])
+    setStatus(null)
+    setScanResults([])
+    setScanTruncated(false)
     if (id !== "retroarch") {
       setCorePath("")
       onChange({ emulatorId: id || undefined, emulatorCorePath: undefined })
@@ -76,12 +98,125 @@ export function EmulatorProfilesPanel({
     if (result?.ok && result.path) onChange({ romPath: result.path })
   }
 
+  const scanRomFolder = async () => {
+    if (!selected) return
+    const folder = await window.launcherAPI?.pickFolder()
+    if (!folder?.ok || !folder.path) return
+    setScanBusy(true)
+    setError("")
+    try {
+      const result = await window.launcherAPI?.emulatorsRoms({
+        emulatorId: selected.id,
+        directory: folder.path,
+        recursive: true,
+        maxResults: 256,
+      })
+      if (!result?.ok) {
+        setError(result?.error || "Não foi possível pesquisar ROMs.")
+        setScanResults([])
+        return
+      }
+      setScanResults(result.roms || [])
+      setScanTruncated(Boolean(result.truncated))
+      setRomFolders((current) =>
+        current.some((item) => item.path === folder.path)
+          ? current
+          : [...current, { path: folder.path, recursive: true }],
+      )
+      if (!result.roms?.length) setError("Nenhuma ROM compatível encontrada nessa pasta.")
+    } catch (cause) {
+      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
+    } finally {
+      setScanBusy(false)
+    }
+  }
+
+  const scanConfiguredFolders = async () => {
+    if (!selected || !romFolders.length) {
+      setError("Salve ao menos uma pasta de ROM no perfil.")
+      return
+    }
+    setScanBusy(true)
+    setError("")
+    try {
+      const result = await window.launcherAPI?.emulatorsRoms({
+        emulatorId: selected.id,
+        recursive: true,
+        maxResults: 256,
+      })
+      if (!result?.ok) {
+        setError(result?.error || "Não foi possível pesquisar as pastas configuradas.")
+        return
+      }
+      setScanResults(result.roms || [])
+      setScanTruncated(Boolean(result.truncated))
+      setRomFolders(result.folders || romFolders)
+      if (!result.roms?.length) setError("Nenhuma ROM compatível encontrada nas pastas configuradas.")
+    } catch (cause) {
+      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
+    } finally {
+      setScanBusy(false)
+    }
+  }
+
+  const removeRomFolder = (folderPath: string) => {
+    setRomFolders((current) => current.filter((item) => item.path !== folderPath))
+  }
+
+  const importRom = async (rom: EmulatorRomEntry) => {
+    if (!selected) return
+    const title = (rom.name.replace(/\.[^.]+$/, "").trim() || rom.name).slice(0, 200)
+    const slug = `${selected.id}-${title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 90) || `${selected.id}-rom`
+    setError("")
+    setNotice("")
+    const check = await window.launcherAPI?.emulatorsResolve({
+      emulatorId: selected.id,
+      romPath: rom.path,
+      extraArgs: settings.emulatorArgs || [],
+      corePath: settings.emulatorCorePath || undefined,
+      launchMode: "hydra",
+    })
+    if (!check?.ok) {
+      setError(check?.error || "ROM inválida para o modo Hydra.")
+      return
+    }
+    const result = await window.launcherAPI?.customGameAdd({
+      id: `custom:${slug}`,
+      title,
+      platform: "emulator",
+      emulatorId: selected.id,
+      romPath: rom.path,
+      emulatorArgs: settings.emulatorArgs || [],
+      emulatorCorePath: settings.emulatorCorePath || undefined,
+    })
+    if (!result?.ok) {
+      setError(result?.error || "Não foi possível importar a ROM.")
+      return
+    }
+    await window.launcherAPI?.gameSettingsSet(`custom:${slug}`, {
+      emulatorId: selected.id,
+      romPath: rom.path,
+      emulatorArgs: settings.emulatorArgs || [],
+      emulatorCorePath: settings.emulatorCorePath || undefined,
+    })
+    setNotice(`ROM importada como “${title}”.`)
+  }
+
   const pickCore = async () => {
     const result = await window.launcherAPI?.pickFile()
     if (result?.ok && result.path) {
       setCorePath(result.path)
       onChange({ emulatorCorePath: result.path })
     }
+  }
+
+  const pickBios = async () => {
+    const result = await window.launcherAPI?.pickFolder()
+    if (result?.ok && result.path) setBiosPath(result.path)
   }
 
   const saveProfile = async () => {
@@ -96,6 +231,8 @@ export function EmulatorProfilesPanel({
         id: selected.id,
         executable: executable.trim(),
         corePath: selected.id === "retroarch" ? corePath || undefined : undefined,
+        biosPath: selected.id === "duckstation" || selected.id === "pcsx2" ? biosPath || undefined : undefined,
+        romFolders,
         args: selected.profile?.args || [],
       })
       if (!result?.ok) {
@@ -144,6 +281,11 @@ export function EmulatorProfilesPanel({
           className="rounded-lg border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs text-red-100"
         >
           {error}
+        </p>
+      )}
+      {notice && (
+        <p className="rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100">
+          {notice}
         </p>
       )}
       <label className="text-xs text-white/55">
@@ -199,6 +341,77 @@ export function EmulatorProfilesPanel({
               </div>
             </label>
           )}
+          {(selected.id === "duckstation" || selected.id === "pcsx2") && (
+            <label className="mt-2 block text-xs text-white/50">
+              Pasta do BIOS (opcional; detecção automática)
+              <div className="mt-1 flex gap-2">
+                <input
+                  value={biosPath}
+                  readOnly
+                  placeholder="Pasta bios do emulador"
+                  className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 font-mono text-xs text-white/70"
+                />
+                <button
+                  type="button"
+                  onClick={() => void pickBios()}
+                  className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10"
+                >
+                  Escolher
+                </button>
+              </div>
+              <span className={status?.installed ? "mt-1 block text-emerald-200/70" : "mt-1 block text-amber-200/70"}>
+                {status?.installed ? "BIOS detectado" : "BIOS não detectado; o lançamento será bloqueado"}
+              </span>
+            </label>
+          )}
+          {selected.id === "rpcs3" && status && (
+            <p className={status.installed ? "mt-2 text-xs text-emerald-200/70" : "mt-2 text-xs text-amber-200/70"}>
+              {status.installed ? "Firmware RPCS3 detectado" : "Firmware RPCS3 não detectado (configure no RPCS3)"}
+            </p>
+          )}
+          {status?.running && (
+            <p className="mt-2 text-xs text-red-200/80">
+              Este emulador já está em execução{status.runningPid ? ` (PID ${status.runningPid})` : ""}; o lançamento será bloqueado.
+            </p>
+          )}
+          <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2">
+            <p className="text-[11px] text-white/45">Pastas de ROM do perfil (salve para persistir)</p>
+            {romFolders.length > 0 && (
+              <div className="mt-1 space-y-1">
+                {romFolders.map((folder) => (
+                  <div key={folder.path} className="flex items-center gap-2 text-[11px] text-white/60">
+                    <span className="min-w-0 flex-1 truncate font-mono" title={folder.path}>{folder.path}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeRomFolder(folder.path)}
+                      className="shrink-0 text-red-100/60 hover:text-red-100"
+                      aria-label={`Remover pasta ${folder.path}`}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void scanRomFolder()}
+                disabled={scanBusy}
+                className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/65 hover:bg-white/10 disabled:opacity-40"
+              >
+                Adicionar pasta
+              </button>
+              <button
+                type="button"
+                onClick={() => void scanConfiguredFolders()}
+                disabled={scanBusy || !romFolders.length}
+                className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/65 hover:bg-white/10 disabled:opacity-40"
+              >
+                {scanBusy ? "Pesquisando…" : "Pesquisar configuradas"}
+              </button>
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -247,8 +460,46 @@ export function EmulatorProfilesPanel({
               >
                 Escolher
               </button>
+              <button
+                type="button"
+                onClick={() => void scanRomFolder()}
+                disabled={scanBusy}
+                className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10 disabled:opacity-40"
+              >
+                {scanBusy ? "Pesquisando…" : "Pesquisar pasta"}
+              </button>
             </div>
           </label>
+          {scanResults.length > 0 && (
+            <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2" aria-label="ROMs encontradas">
+              <p className="mb-1 text-[11px] text-white/45">
+                ROMs encontradas — clique para selecionar{scanTruncated ? " (limite atingido)" : ""}
+              </p>
+              <div className="max-h-36 space-y-1 overflow-y-auto">
+                {scanResults.map((rom) => (
+                  <div key={rom.path} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10">
+                    <button
+                      type="button"
+                      onClick={() => onChange({ romPath: rom.path })}
+                      className={`min-w-0 flex-1 truncate px-1 py-1 text-left text-[11px] ${
+                        settings.romPath === rom.path ? "text-white" : "text-white/60 hover:text-white"
+                      }`}
+                      title={rom.path}
+                    >
+                      {rom.relativePath} · {Math.max(0, Math.round(rom.sizeBytes / 1048576))} MiB
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void importRom(rom)}
+                      className="shrink-0 rounded border border-white/10 px-1.5 py-1 text-[10px] text-white/55 hover:text-white"
+                    >
+                      Importar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <label className="text-xs text-white/50">
             Argumentos adicionais (sem interpretação de shell)
             <input

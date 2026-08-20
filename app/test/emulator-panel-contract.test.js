@@ -21,7 +21,12 @@ test("painel de emuladores lista, detecta e persiste perfil/ROM via bridge", () 
     "emulatorsDetect",
     "emulatorProfileSet",
     "emulatorProfileRemove",
+    "emulatorsRoms",
+    "emulatorsStatus",
+    "customGameAdd",
+    "gameSettingsSet",
     "pickFile",
+    "pickFolder",
     "gameSettingsSet",
   ])
     assert.match(panel + dialog, new RegExp(method), method)

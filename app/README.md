@@ -15,7 +15,9 @@ app/
     library-repository.js # repositório: leitura, posse por conta e escrita atômica
     index-service.js  # job deduplicado/timeout do index.py
     launch-resolver.js # política pura de comando/perfil de execução
-    emulator-registry.js # catálogo, perfis e argv de emuladores Linux
+    emulator-registry.js # catálogo, perfis, scanner seguro e argv de emuladores Linux
+    emulator-status.js   # preflight local de BIOS/firmware sem executar binários
+    emulator-runtime.js  # detecção read-only de sessões concorrentes em /proc
     launch-log.js      # logs rotacionados com fechamento seguro de descritor
     snapshot-service.js # snapshots locais versionados de saves
     diagnostics.js     # relatório local sem paths, credenciais ou rede
@@ -68,6 +70,16 @@ Para rodar uma instalação isolada sem misturar estado com
 
 A especificação do manifest v1 e do registro local de plugins está em
 [`docs/PLUGINS.md`](../docs/PLUGINS.md).
+
+## Emuladores e ROMs
+
+`emulator-registry.js` detecta PCSX2, RPCS3, Dolphin, PPSSPP, DuckStation,
+RetroArch, melonDS e DeSmuME sem executar processos. Perfis, BIOS/core e pastas
+ROM ficam em `ARCADIA_DATA_DIR/emulators.json`; resultados do scanner ficam
+separados em `ARCADIA_DATA_DIR/roms.json`. O scanner aplica allowlist de
+extensões, rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
+pasta para pesquisar as pastas persistidas. O modo Hydra é opt-in no main e
+monta somente `cmd: string[]`; BIOS/firmware são apenas detectados localmente.
 
 ## Repositório da biblioteca
 
