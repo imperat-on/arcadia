@@ -3,11 +3,11 @@
 
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
 const { spawn } = require("child_process")
 const { RUNNERS_DIR, ensureLegendary } = require("./runners/download")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR = path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const QUEUE_FILE = path.join(DATA_DIR, "downloads.json")
 const GAMES_DIR = path.join(DATA_DIR, "games")
 const BIN = path.join(RUNNERS_DIR, "legendary")

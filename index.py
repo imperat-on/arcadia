@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Indexador de bibliotecas para o front-end PS5.
+"""Indexador de bibliotecas para o frontend do Arcadia.
 
 Varre Steam, Heroic (Epic/GOG/Amazon) e Lutris e gera um `library.json`
-unificado que o app Godot consome. Cada jogo vira:
+unificado que o app Electron consome. Cada jogo vira:
 
     {
       "id":        "steam:440",
@@ -39,7 +39,19 @@ from pathlib import Path
 ENRICH_WORKERS = 6
 
 HOME = Path.home()
-OUT_DIR = HOME / ".local/share/arcadia"
+
+
+def _data_dir() -> Path:
+    """Raiz de dados compartilhada com o Electron.
+
+    O override permite indexar uma instalação isolada ou um diretório temporário
+    sem misturar `library.json` com o estado padrão do usuário.
+    """
+    raw = os.environ.get("ARCADIA_DATA_DIR", "").strip()
+    return Path(raw).expanduser().resolve() if raw else HOME / ".local/share/arcadia"
+
+
+OUT_DIR = _data_dir()
 OUT_FILE = OUT_DIR / "library.json"
 
 # Steam

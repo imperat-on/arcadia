@@ -4,9 +4,10 @@
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
+const { getDataDir } = require("./runtime-paths")
 
 const HOME = os.homedir()
-const DATA_DIR = path.join(HOME, ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const BIN_DIR = path.join(DATA_DIR, "bin")
 const REGISTRY = path.join(BIN_DIR, "plugins.json")
 const CONFIG = path.join(DATA_DIR, "config.json")

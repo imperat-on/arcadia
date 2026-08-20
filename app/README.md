@@ -44,8 +44,13 @@ env `ARCADIA_SUPABASE_URL`.
 ## Testes
 
 ```bash
-node --test    # modulos puros (sem Electron runtime)
+npm test       # módulos puros (sem runtime do Electron)
+npx tsc --noEmit
+npm run build
 ```
+
+Para rodar uma instalação isolada sem misturar estado com
+`~/.local/share/arcadia`, defina `ARCADIA_DATA_DIR` antes do build/execução.
 
 ## Conta e sync
 

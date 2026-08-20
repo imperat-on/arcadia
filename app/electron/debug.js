@@ -5,10 +5,9 @@
 
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR =
-  process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const FILE = path.join(DATA_DIR, "logs", "debug.log")
 const MAX_BYTES = 1024 * 1024
 

@@ -28,6 +28,7 @@ const { showAchievementToast, closeAchievementToast } = require("./notify")
 const path = require("path")
 const fs = require("fs")
 const os = require("os")
+const { getDataDir } = require("./runtime-paths")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -60,9 +61,15 @@ const {
 } = require("./metadata")
 
 const HOME = os.homedir()
-const DATA_DIR = path.join(HOME, ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const LIB = path.join(DATA_DIR, "library.json")
-const INDEX = path.join(DATA_DIR, "index.py")
+// Em uma instalação clonada o indexador fica no checkout, não na pasta de
+// dados. Em uma instalação empacotada a cópia histórica em DATA_DIR continua
+// sendo aceita para não quebrar upgrades existentes.
+const INDEX_DATA = path.join(DATA_DIR, "index.py")
+const INDEX = fs.existsSync(INDEX_DATA)
+  ? INDEX_DATA
+  : path.join(__dirname, "..", "..", "index.py")
 const CONFIG = path.join(DATA_DIR, "config.json")
 
 const STEAM_LANG_MAP = {
