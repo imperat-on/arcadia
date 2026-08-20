@@ -140,6 +140,21 @@ clara, caminho de execução verificável e teste correspondente.
 - IPC/preload tipados expõem `app:diagnostics` para suporte local;
 - teste verifica agregação, contagem e ausência de dados sensíveis.
 
+### Fase 1.8 — integridade e recuperação de downloads
+
+- Legendary só conclui Epic após `legendary verify` retornar sucesso;
+- cada depot Steam exige código zero com `-validate` antes de registrar a instalação;
+- falhas preservam parciais, usam retry limitado com backoff e não ressuscitam
+  após pausa/cancelamento/shutdown;
+- estado de integridade e tentativas é persistido e testado por política pura.
+
+### Fase 2.1 — hardening da autenticação
+
+- endpoints públicos de auth recebem limite por IP configurável e headers
+  `RateLimit-*`/`Retry-After`;
+- rotação de refresh tokens usa transação com lock, impedindo replay concorrente;
+- testes cobrem limiter isolado, janela, capacidade e replay (integração DB na CI).
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
