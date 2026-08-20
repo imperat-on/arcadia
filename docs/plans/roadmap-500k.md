@@ -155,6 +155,13 @@ clara, caminho de execução verificável e teste correspondente.
 - rotação de refresh tokens usa transação com lock, impedindo replay concorrente;
 - testes cobrem limiter isolado, janela, capacidade e replay (integração DB na CI).
 
+### Fase 2.2 — storage local atômico
+
+- uploads de mídia usam arquivos temporários e `rename` atômico;
+- permissões dos novos arquivos são restritas e symlinks locais são rejeitados;
+- limpeza de órfãos usa o mesmo `DATA_DIR` do registro das rotas;
+- caminhos e magic bytes permanecem validados por testes puros.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

@@ -157,8 +157,28 @@ function registerStorageRoutes(app) {
       const dir = path.resolve(rootDe(req.params.bucket), uid)
       const dest = safeObjectPath(rootDe(req.params.bucket), uid, file)
       if (!dest) return res.status(400).json({ error: "caminho_invalido" })
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(dest, buf)
+      try {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+      } catch {
+        return res.status(500).json({ error: "falha_armazenamento" })
+      }
+      // Não deixar uma interrupção produzir um arquivo parcial nem seguir um
+      // symlink criado localmente dentro do bucket.
+      try {
+        if (fs.lstatSync(dir).isSymbolicLink() || (fs.existsSync(dest) && fs.lstatSync(dest).isSymbolicLink())) {
+          return res.status(400).json({ error: "caminho_invalido" })
+        }
+      } catch {
+        return res.status(400).json({ error: "caminho_invalido" })
+      }
+      const temporario = `${dest}.${process.pid}.${Date.now()}.tmp`
+      try {
+        fs.writeFileSync(temporario, buf, { mode: 0o600 })
+        fs.renameSync(temporario, dest)
+      } catch {
+        try { fs.rmSync(temporario, { force: true }) } catch {}
+        return res.status(500).json({ error: "falha_armazenamento" })
+      }
       res.status(200).json({ Key: `${uid}/${file}` })
     })
   })
@@ -171,6 +191,11 @@ function registerStorageRoutes(app) {
     if (!safeFile(cfg, req.params.file)) return res.status(400).json({ error: "nome_invalido" })
     const dest = safeObjectPath(rootDe(req.params.bucket), req.params.uid, req.params.file)
     if (!dest || !fs.existsSync(dest)) return res.status(404).json({ error: "nao_encontrado" })
+    try {
+      if (fs.lstatSync(dest).isSymbolicLink()) return res.status(404).json({ error: "nao_encontrado" })
+    } catch {
+      return res.status(404).json({ error: "nao_encontrado" })
+    }
     res.set("content-type", cfg.mimeFor(req.params.file))
     res.sendFile(dest)
   })
@@ -215,7 +240,8 @@ async function limparOrfaos() {
         const m = u.match(new RegExp(`/storage/v1/object/public/${bucket}/([0-9a-f-]+/[^?]+)`))
         if (m) usados.add(m[1])
       }
-      const raiz = path.join(__dirname, "..", bucket)
+      const dataDir = process.env.DATA_DIR || path.join(__dirname, "..", "data")
+      const raiz = path.join(dataDir, "..", bucket)
       if (!fs.existsSync(raiz)) continue
       for (const uid of fs.readdirSync(raiz)) {
         const dir = path.join(raiz, uid)
@@ -243,4 +269,4 @@ function startOrphanCleanup() {
   }
 }
 
-module.exports = { registerStorageRoutes, magicDeImagem, limparOrfaos, startOrphanCleanup }
+module.exports = { registerStorageRoutes, safeFile, safeObjectPath, magicDeImagem, limparOrfaos, startOrphanCleanup }
