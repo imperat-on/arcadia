@@ -17,6 +17,7 @@ import {
   stripHtml,
 } from "./GameDetailPanels"
 import { FixesPanel } from "./FixesPanel"
+import { CommunityPanel } from "../CommunityPanel"
 
 interface Sysinfo {
   download_size?: number
@@ -525,6 +526,7 @@ export function GamePage({
               {/* Avaliações + comentários abaixo da descrição. */}
               <ReviewsPanel appid={steamAppid} />
               <CommentsPanel appid={steamAppid} />
+              <CommunityPanel appid={steamAppid} title={g.title} />
             </div>
           )}
         </div>
