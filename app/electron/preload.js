@@ -6,9 +6,10 @@ contextBridge.exposeInMainWorld("launcherMode", process.env.ARCADIA_MODE || "con
 // Caminhos dinâmicos da máquina (NUNCA hardcodar /home/<usuário> no código).
 // Sem require("os"/"path"): o preload sandboxed não tem esses módulos.
 const HOME = process.env.HOME || ""
+const DATA_DIR = process.env.ARCADIA_DATA_DIR || `${HOME}/.local/share/arcadia`
 contextBridge.exposeInMainWorld("launcherPaths", {
   home: HOME,
-  dataDir: `${HOME}/.local/share/arcadia`,
+  dataDir: DATA_DIR,
 })
 
 // Ponte segura: o renderer (React) só enxerga estas funções.

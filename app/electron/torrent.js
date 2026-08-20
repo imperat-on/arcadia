@@ -9,8 +9,9 @@ const { spawn } = require("child_process")
 const { Readable } = require("stream")
 const { pipeline } = require("stream/promises")
 const { fetchRede } = require("./httpfetch")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR = path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const STATE = path.join(DATA_DIR, "torrent_state.json")
 const WORKER = path.join(__dirname, "torrent_rpc", "main.py")
 

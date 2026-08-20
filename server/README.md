@@ -31,7 +31,7 @@ server/
     storage-routes.js # buckets avatars (5MB) e backgrounds (25MB, video)
     realtime.js       # WS Phoenix-lite, canal friends-<me>
   data/               # arcadia.db (gitignored)
-  test/               # node --test (53 testes)
+  test/               # node --test (suíte unitária, integração e e2e)
 ```
 
 ## Rodar
