@@ -39,6 +39,9 @@ test("snapshot rejeita origem, versão e traversal inválidos", () => {
   try {
     const service = createSnapshotService({ snapshotsDir: path.join(root, "snapshots") })
     assert.deepEqual(service.create({ gameId: "steam:1", sourceDir: "/does/not/exist" }), { ok: false, error: "origem_invalida" })
+    const link = path.join(root, "source-link")
+    fs.symlinkSync(path.join(root, "missing"), link)
+    assert.deepEqual(service.create({ gameId: "steam:1", sourceDir: link }), { ok: false, error: "origem_invalida" })
     assert.deepEqual(service.restore({ gameId: "steam:1", snapshotId: "../../etc", targetDir: path.join(root, "target") }), { ok: false, error: "snapshot_invalido" })
     assert.deepEqual(service.remove({ gameId: "steam:1", snapshotId: "missing" }), { ok: false, error: "snapshot_invalido" })
   } finally {
