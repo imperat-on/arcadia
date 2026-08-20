@@ -20,9 +20,9 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
-Essa era a fotografia inicial. Na árvore limpa do commit `a65fd85`, a medição
-recalculada com `find`/`wc -l` registra **59.099 linhas de código, testes e SQL**
-e **74.472 linhas textuais no total**, sem contar binários ou artefatos gerados.
+Essa era a fotografia inicial. Na árvore limpa do commit `56bce8b`, a medição
+recalculada com `find`/`wc -l` registra **59.142 linhas de código, testes e SQL**
+e **74.515 linhas textuais no total**, sem contar binários ou artefatos gerados.
 A fotografia está datada de **2026-08-20** e inclui o benchmark de busca, o cliente
 IPC/cache da comunidade e o painel React de reviews/coleções.
 Os maiores pontos de concentração são `app/electron/main.js`,
@@ -292,12 +292,12 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`a65fd85`**;
+- commit-base: **`56bce8b`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado: **343 arquivos textuais / 74.472 linhas**; a seleção de código,
-  testes e SQL totaliza **271 arquivos / 59.099 linhas**.
+- resultado: **343 arquivos textuais / 74.515 linhas**; a seleção de código,
+  testes e SQL totaliza **271 arquivos / 59.142 linhas**.
 
 A contagem de linhas permanece uma métrica secundária: novas linhas devem
 corresponder a casos de uso, contratos, fixtures, documentação ou operação
