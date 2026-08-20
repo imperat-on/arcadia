@@ -31,6 +31,7 @@ app/
     owned.js          # posse de jogos por conta (owned_games.json)
     sources.js        # fontes de download (registro + caches)
     downloadmanager.js# fila de downloads
+    download-integrity.js # verificação e recuperação de downloads
     steamstore.js     # loja Steam
   test/               # node --test (módulos puros e contratos)
   package.json
