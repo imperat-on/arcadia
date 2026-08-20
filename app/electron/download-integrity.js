@@ -9,7 +9,7 @@ const DEFAULT_MAX_RECOVERY_ATTEMPTS = 2
 const DEFAULT_RETRY_DELAY_MS = 1500
 const MAX_RETRY_DELAY_MS = 30000
 const VERIFY_FAILURE =
-  /(?:error|fail(?:ed|ure)?|unable|aborting|denied|forbidden|missing|mismatch|corrupt|invalid|not[ ._-]+complete|incomplete)/i
+  /(?:\b(?:error|fail(?:ed|ure)?|unable|aborting|denied|forbidden|missing|mismatch|corrupt|invalid)\b|not[ ._-]+complete|incomplete)/i
 
 function asNonNegativeInt(value, fallback = 0) {
   const n = Number(value)

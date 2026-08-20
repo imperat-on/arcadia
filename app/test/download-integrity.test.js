@@ -75,6 +75,7 @@ test("pausa/cancelamento nunca viram retry e output de integridade não é suces
   })
   assert.equal(verificationOutputLooksFailed("ERROR: missing files"), true)
   assert.equal(verificationOutputLooksFailed("Verification complete"), false)
+  assert.equal(verificationOutputLooksFailed("Verification complete: 0 errors"), false)
   assert.equal(integrityMode({ engine: "steam" }), "depot-manifest")
   assert.equal(integrityMode({ engine: "epic" }), "legendary-verify")
 })
