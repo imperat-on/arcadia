@@ -39,6 +39,8 @@ export interface PluginManifest {
   description?: string
   entry: string
   entrySha256?: string
+  signingKeyId?: string
+  signature?: string
   permissions: PluginPermission[]
 }
 
@@ -55,6 +57,12 @@ export interface PluginVerification {
   digest: string
   source: "registry" | "manifest" | "none" | "builtin"
   error: string
+  signingKeyId?: string
+  signature?: string
+  signatureAlgorithm?: "ed25519"
+  signatureDeclared?: boolean
+  signatureVerified?: boolean
+  signatureValid?: boolean
 }
 
 /** Metadados de plugin devolvidos pelo main (não inclui caminho privado). */
