@@ -47,3 +47,51 @@ test("custom e override exe usam callbacks controlados pelo main", () => {
   const steam = resolveLaunchRequest({ gameId: "steam:440", mode: "steam" }, deps())
   assert.deepEqual(steam.rawCmd, ["steam", "steam://rungameid/440"])
 })
+
+
+test("game emulado usa o registry para montar argv sem aceitar cmd do renderer", () => {
+  const result = resolveLaunchRequest(
+    { gameId: "custom:emu" },
+    deps({
+      findGame: () => ({ id: "custom:emu", launch_cmd: ["placeholder"], launcher: "emulator" }),
+      getGameSettings: () => ({ emulatorId: "pcsx2", romPath: "/games/demo.iso" }),
+      emulatorLaunch: (_id, _game, settings) => ({ ok: true, cmd: ["pcsx2-qt", settings.romPath] }),
+    }),
+  )
+  assert.deepEqual(result.rawCmd, ["pcsx2-qt", "/games/demo.iso"])
+
+  const normal = resolveLaunchRequest(
+    { gameId: "emu:pcsx2:demo", cmd: ["evil"] },
+    deps({
+      findGame: () => ({ id: "emu:pcsx2:demo", launch_cmd: ["placeholder"], launcher: "emulator" }),
+      getGameSettings: () => ({ emulatorId: "pcsx2", romPath: "/games/demo.iso" }),
+      emulatorLaunch: (_id, _game, settings) => ({ ok: true, cmd: ["pcsx2-qt", settings.romPath] }),
+    }),
+  )
+  assert.deepEqual(normal.rawCmd, ["pcsx2-qt", "/games/demo.iso"])
+})
+
+test("jogo custom com perfil de emulador não exige exe/Wine", () => {
+  const result = resolveLaunchRequest(
+    { gameId: "custom:rom-demo", cmd: ["sh", "-c", "evil"] },
+    deps({
+      findGame: () => ({ id: "custom:rom-demo", launcher: "custom", platform: "emulator" }),
+      getGameSettings: () => ({ emulatorId: "dolphin", romPath: "/games/demo.iso" }),
+      emulatorLaunch: (_id, _game, settings) => ({ ok: true, cmd: ["dolphin-emu", settings.romPath] }),
+      customLaunchCmd: () => ({ cmd: ["wine", "/wrong.exe"] }),
+    }),
+  )
+  assert.deepEqual(result.rawCmd, ["dolphin-emu", "/games/demo.iso"])
+})
+
+test("falha do emulador interrompe o lançamento antes do comando legado", () => {
+  const result = resolveLaunchRequest(
+    { gameId: "emu:rpcs3:demo" },
+    deps({
+      findGame: () => ({ id: "emu:rpcs3:demo", launch_cmd: ["placeholder"] }),
+      getGameSettings: () => ({ emulatorId: "rpcs3", romPath: "/missing/game.rap" }),
+      emulatorLaunch: () => ({ ok: false, error: "rom_invalida" }),
+    }),
+  )
+  assert.deepEqual(result, { ok: false, error: "rom_invalida" })
+})

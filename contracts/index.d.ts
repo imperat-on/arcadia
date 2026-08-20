@@ -79,7 +79,7 @@ export function safeAccountEvent(event: unknown, session: unknown): SafeAccountE
 export interface ArcadiaLibrarySyncItem {
   appid: string
   title?: string
-  platform?: "linux" | "windows"
+  platform?: "linux" | "windows" | "emulator"
   removed?: boolean
 }
 
@@ -110,7 +110,7 @@ export interface SyncAchievementRecord {
 export interface SyncLibraryRecord {
   appid: string
   title?: string
-  platform?: "linux" | "windows"
+  platform?: "linux" | "windows" | "emulator"
   removed?: boolean
   revision?: number
   updated_at?: number | string
