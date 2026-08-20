@@ -27,6 +27,10 @@ const ENTRY_DIGEST_ALIASES = Object.freeze([
   "digest",
   "sha256",
 ])
+const SIGNATURE_LENGTH = 64
+const SIGNING_KEY_ID_MAX_LENGTH = 128
+const SIGNING_KEY_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$/
+const SIGNATURE_BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 // Permissões não são globais/wildcards. Cada capacidade que o host vier a
 // implementar precisa de um nome explícito neste allowlist e de uma checagem
@@ -172,6 +176,54 @@ function manifestEntryDigest(input, errors) {
   return normalizeEntryDigest(first(input, ...ENTRY_DIGEST_ALIASES), errors)
 }
 
+function normalizeSigningKeyId(value, errors) {
+  if (value === undefined) return ""
+  if (typeof value !== "string") {
+    errors.push("signing_key_id_invalido")
+    return ""
+  }
+  const keyId = value.trim()
+  if (
+    !keyId ||
+    keyId.length > SIGNING_KEY_ID_MAX_LENGTH ||
+    keyId.includes("\u0000") ||
+    keyId.includes("/") ||
+    keyId.includes("\\") ||
+    !SIGNING_KEY_ID_RE.test(keyId)
+  ) {
+    errors.push("signing_key_id_invalido")
+    return ""
+  }
+  return keyId
+}
+
+function normalizeSignature(value, errors) {
+  if (value === undefined) return ""
+  // Signatures are serialized as standard (not URL-safe) base64. Do not trim
+  // this field: accepting hidden whitespace would make the signed manifest
+  // differ from the value that was actually reviewed.
+  if (
+    typeof value !== "string" ||
+    value.length !== 88 ||
+    value.length % 4 !== 0 ||
+    !SIGNATURE_BASE64_RE.test(value)
+  ) {
+    errors.push("signature_invalida")
+    return ""
+  }
+  try {
+    const bytes = Buffer.from(value, "base64")
+    if (bytes.length !== SIGNATURE_LENGTH || bytes.toString("base64") !== value) {
+      errors.push("signature_invalida")
+      return ""
+    }
+  } catch {
+    errors.push("signature_invalida")
+    return ""
+  }
+  return value
+}
+
 // Keep one canonical serialized field while exposing read-only aliases for
 // callers that used the descriptive `entryDigest` spelling. Non-enumerable
 // aliases preserve exact v1 object shapes when no digest was declared.
@@ -235,6 +287,15 @@ function validateManifest(input, { requireEntry = true } = {}) {
   const description = stringField(input.description, "description", MAX_DESCRIPTION_LENGTH, errors)
   const entry = normalizeEntry(first(input, "entry", "entrypoint"), errors, { required: requireEntry })
   const entrySha256 = manifestEntryDigest(input, errors)
+  const hasSigningKeyId = own(input, "signingKeyId")
+  const hasSignature = own(input, "signature")
+  const signingKeyId = normalizeSigningKeyId(input.signingKeyId, errors)
+  const signature = normalizeSignature(input.signature, errors)
+  if (hasSigningKeyId !== hasSignature) {
+    errors.push("assinatura_incompleta")
+    if (!hasSigningKeyId) errors.push("signing_key_id_obrigatorio")
+    if (!hasSignature) errors.push("signature_obrigatoria")
+  }
   const permissions = normalizePermissions(input.permissions, errors)
 
   // Do not accept arbitrary fields. Keeping this list explicit makes the
@@ -253,6 +314,8 @@ function validateManifest(input, { requireEntry = true } = {}) {
     "entry",
     "entrypoint",
     ...ENTRY_DIGEST_ALIASES,
+    "signingKeyId",
+    "signature",
     "permissions",
   ])
   for (const key of Object.keys(input)) {
@@ -271,6 +334,10 @@ function validateManifest(input, { requireEntry = true } = {}) {
     permissions,
   }
   if (entrySha256) manifest.entrySha256 = entrySha256
+  if (signingKeyId && signature) {
+    manifest.signingKeyId = signingKeyId
+    manifest.signature = signature
+  }
   return {
     ok: true,
     manifest: addDigestAliases(manifest),
@@ -408,6 +475,10 @@ function publicManifest(manifest) {
     permissions: Array.isArray(manifest.permissions) ? [...manifest.permissions] : [],
   }
   if (manifest.entrySha256) result.entrySha256 = manifest.entrySha256
+  if (manifest.signingKeyId && manifest.signature) {
+    result.signingKeyId = manifest.signingKeyId
+    result.signature = manifest.signature
+  }
   return addDigestAliases(result)
 }
 
@@ -418,9 +489,14 @@ module.exports = {
   MAX_ID_LENGTH,
   ENTRY_DIGEST_LENGTH,
   ENTRY_DIGEST_ALIASES,
+  SIGNATURE_LENGTH,
+  SIGNING_KEY_ID_MAX_LENGTH,
+  SIGNING_KEY_ID_RE,
   PLUGIN_PERMISSIONS,
   normalizeId,
   validateId,
+  normalizeSigningKeyId,
+  normalizeSignature,
   validateManifest,
   parseManifest,
   readManifest,
