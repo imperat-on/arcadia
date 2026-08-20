@@ -261,6 +261,32 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   // Sync de conquistas (backend proprio)
   syncNow: () => ipcRenderer.invoke("sync:now"),
   syncState: () => ipcRenderer.invoke("sync:state"),
+  // Comunidade: o renderer recebe envelopes seguros do main (reviews/listas).
+  communityReviews: (appid, options) =>
+    ipcRenderer.invoke("community:reviews", typeof appid === "string" ? appid : "", options || {}),
+  communityReviewCreate: (payload) => ipcRenderer.invoke("community:review:create", payload || {}),
+  communityReviewUpdate: (id, payload) =>
+    ipcRenderer.invoke("community:review:update", typeof id === "string" || typeof id === "number" ? id : "", payload || {}),
+  communityReviewRemove: (id) =>
+    ipcRenderer.invoke("community:review:remove", typeof id === "string" || typeof id === "number" ? id : ""),
+  communityReviewReport: (id, payload) =>
+    ipcRenderer.invoke("community:review:report", typeof id === "string" || typeof id === "number" ? id : "", payload || {}),
+  communityCollections: (options) => ipcRenderer.invoke("community:collections", options || {}),
+  communityCollectionGet: (id) =>
+    ipcRenderer.invoke("community:collection:get", typeof id === "string" ? id : ""),
+  communityCollectionCreate: (payload) => ipcRenderer.invoke("community:collection:create", payload || {}),
+  communityCollectionUpdate: (id, payload) =>
+    ipcRenderer.invoke("community:collection:update", typeof id === "string" ? id : "", payload || {}),
+  communityCollectionRemove: (id) =>
+    ipcRenderer.invoke("community:collection:remove", typeof id === "string" ? id : ""),
+  communityCollectionAddItem: (id, appid) =>
+    ipcRenderer.invoke("community:collection:item:add", typeof id === "string" ? id : "", typeof appid === "string" ? appid : ""),
+  communityCollectionReplaceItems: (id, items) =>
+    ipcRenderer.invoke("community:collection:item:replace", typeof id === "string" ? id : "", Array.isArray(items) ? items : []),
+  communityCollectionRemoveItem: (id, appid) =>
+    ipcRenderer.invoke("community:collection:item:remove", typeof id === "string" ? id : "", typeof appid === "string" ? appid : ""),
+  communityCollectionReport: (id, payload) =>
+    ipcRenderer.invoke("community:collection:report", typeof id === "string" ? id : "", payload || {}),
   onSyncState: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("sync:state", h)

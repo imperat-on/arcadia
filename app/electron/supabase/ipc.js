@@ -8,6 +8,7 @@ const friends = require("./friends")
 const sync = require("./sync")
 const biblioteca = require("./biblioteca")
 const sourcesSync = require("./sources")
+const community = require("./community")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
 const {
   safeAuthResult,
@@ -153,6 +154,64 @@ function registerAccountIpc(broadcast, onConta) {
   ipcMain.handle("sync:state", async () => {
     await garantirSessao()
     return sync.getState()
+  })
+
+  // Comunidade (reviews/listas): requests e cache ficam no main, nunca no renderer.
+  ipcMain.handle("community:reviews", async (_e, appid, options) => {
+    await garantirSessao()
+    return community.listReviews(typeof appid === "string" ? appid : "", options || {})
+  })
+  ipcMain.handle("community:review:create", async (_e, payload) => {
+    await garantirSessao()
+    return community.createReview(payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:review:update", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.updateReview(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:review:remove", async (_e, id) => {
+    await garantirSessao()
+    return community.removeReview(String(id || ""))
+  })
+  ipcMain.handle("community:review:report", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.reportReview(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collections", async (_e, options) => {
+    await garantirSessao()
+    return community.listCollections(options || {})
+  })
+  ipcMain.handle("community:collection:get", async (_e, id) => {
+    await garantirSessao()
+    return community.getCollection(String(id || ""))
+  })
+  ipcMain.handle("community:collection:create", async (_e, payload) => {
+    await garantirSessao()
+    return community.createCollection(payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collection:update", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.updateCollection(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collection:remove", async (_e, id) => {
+    await garantirSessao()
+    return community.removeCollection(String(id || ""))
+  })
+  ipcMain.handle("community:collection:item:add", async (_e, id, appid) => {
+    await garantirSessao()
+    return community.addCollectionItem(String(id || ""), String(appid || ""))
+  })
+  ipcMain.handle("community:collection:item:replace", async (_e, id, items) => {
+    await garantirSessao()
+    return community.replaceCollectionItems(String(id || ""), Array.isArray(items) ? items : [])
+  })
+  ipcMain.handle("community:collection:item:remove", async (_e, id, appid) => {
+    await garantirSessao()
+    return community.removeCollectionItem(String(id || ""), String(appid || ""))
+  })
+  ipcMain.handle("community:collection:report", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.reportCollection(String(id || ""), payload && typeof payload === "object" ? payload : {})
   })
 
   return () => {
