@@ -16,6 +16,12 @@ proprio que sincroniza dados por conta entre maquinas.
   ~/.local/share/arcadia/                                 data/arcadia.db
 ```
 
+## Execução segura
+
+`launch-resolver.js` resolve `gameId`, perfil e comandos legados sem spawnar
+processos. O renderer não consegue substituir o comando de um jogo conhecido;
+custom/Wine e integração SLSsteam continuam callbacks controlados pelo main.
+
 ## Providers e pipeline da biblioteca
 
 O `index.py` mantém a orquestração e a escrita atômica, enquanto `indexers/`

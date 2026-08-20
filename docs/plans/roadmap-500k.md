@@ -101,6 +101,15 @@ clara, caminho de execução verificável e teste correspondente.
 - `index.py` mantém os entrypoints e a ordem de descoberta existentes;
 - fixtures cobrem AppState, ferramentas/runtime, imagens, dedupe e comandos.
 
+### Fase 1.4 — resolução segura de execução
+
+- `launch-resolver.js` separa a política de comando do spawn/Wine/Electron;
+- `gameId` ignora comandos arbitrários enviados pelo renderer;
+- jogos desconhecidos, comandos vazios e legado fora de `steam://run|install`
+  são rejeitados;
+- custom games e override de `exePath` continuam usando callbacks do main;
+- testes cobrem Steam, legado, custom, override e tentativas de injeção.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução
