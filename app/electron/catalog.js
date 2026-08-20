@@ -4,12 +4,12 @@
 // disco e e usada quando o servidor esta indisponivel.
 const fs = require("fs")
 const crypto = require("crypto")
-const os = require("os")
 const path = require("path")
 const { fetchRede } = require("./httpfetch")
 const config = require("./supabase/config")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR = process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const ESPELHO_DIR = path.join(DATA_DIR, "catalog_espelho")
 
 function espelhoPath(pathname) {

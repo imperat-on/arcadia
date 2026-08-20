@@ -4,8 +4,8 @@
 // akirabox) ficam de fora: esses precisam da janela oculta (fase 2).
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
 const { fetchRede } = require("./httpfetch")
+const { dataPath } = require("./runtime-paths")
 
 // Debrids (aba Integrações): desbloqueiam hosters que exigem JS/captcha
 // (datanodes, buzzheavier, 1fichier, vikingfile, mega, mediafire...). São
@@ -14,7 +14,7 @@ const { fetchRede } = require("./httpfetch")
 function lerConfig() {
   try {
     return JSON.parse(
-      fs.readFileSync(path.join(os.homedir(), ".local/share/arcadia/config.json"), "utf-8"),
+      fs.readFileSync(dataPath("config.json"), "utf-8"),
     )
   } catch {
     return {}

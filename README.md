@@ -123,7 +123,9 @@ install.sh     # setup · uninstall.sh (full removal)
 ```
 
 User data (config, library, downloads, prefixes, artwork) lives under
-`~/.local/share/arcadia/` and is **not** versioned.
+`~/.local/share/arcadia/` and is **not** versioned. Para usar um diretório
+isolado (desenvolvimento/testes), defina `ARCADIA_DATA_DIR=/caminho/absoluto`.
+O indexador, Electron e caches locais respeitam o mesmo diretório.
 
 
 ## Architecture

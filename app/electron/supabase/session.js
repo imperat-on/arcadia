@@ -9,17 +9,11 @@
 "use strict"
 
 const fs = require("fs")
-const path = require("path")
-
-const DEFAULT_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE || ".",
-  ".local",
-  "share",
-  "arcadia",
-)
+const path = require("node:path")
+const { getDataDir } = require("../runtime-paths")
 
 function dataDir() {
-  return process.env.ARCADIA_DATA_DIR || DEFAULT_DIR
+  return getDataDir()
 }
 
 function sessionPath() {

@@ -10,13 +10,13 @@
 // Sync usa ETag/If-Modified-Since: 304 = nada mudou, sem download nem parse.
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
 const crypto = require("crypto")
 const { fetchRede } = require("./httpfetch")
 const { catalogGet } = require("./catalog")
+const { getDataDir } = require("./runtime-paths")
 
 const { caminhoArquivoConta } = require("./supabase/conta")
-const DATA_DIR = process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const SRC_DIR = path.join(DATA_DIR, "sources")
 const REGISTRY = () => caminhoArquivoConta("sources.json")
 
