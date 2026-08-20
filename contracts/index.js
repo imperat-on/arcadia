@@ -95,7 +95,7 @@ function normalizeLibrarySyncItem(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const appid = text(value.appid, MAX_ID_LENGTH)
   if (!appid) return null
-  if (value.removed) return { appid, removed: true }
+  if (value.removed === true) return { appid, removed: true }
   return {
     appid,
     title: text(value.title, MAX_TITLE_LENGTH) || appid,
@@ -111,8 +111,14 @@ function normalizeLibrarySyncItems(value) {
 function normalizePlaytimeItem(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const appid = text(value.appid, MAX_ID_LENGTH)
-  const minutes = Number(value.minutes)
-  if (!appid || !Number.isSafeInteger(minutes) || minutes <= 0 || minutes > 999999) return null
+  const rawMinutes = value.minutes
+  if (
+    !appid ||
+    (typeof rawMinutes !== "number" && typeof rawMinutes !== "string") ||
+    (typeof rawMinutes === "string" && !/^-?[0-9]+$/.test(rawMinutes.trim()))
+  ) return null
+  const minutes = Number(rawMinutes)
+  if (!Number.isSafeInteger(minutes) || minutes <= 0 || minutes > 999999) return null
   return { appid, minutes }
 }
 
