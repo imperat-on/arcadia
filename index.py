@@ -35,6 +35,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from indexers.parsers import parse_vdf
+from indexers.steam import build_steam_game
+
 # Concorrência do enriquecimento (Steam Store / SteamGridDB / Web API). Pool
 # pequeno: paraleliza o gargalo de rede da primeira execução sem estourar o
 # rate limit dos endpoints. Cada worker só faz rede e devolve resultado; o
@@ -122,39 +125,6 @@ STEAM_TOOL_IDS = {
 STEAM_TOOL_WORDS = ("runtime", "redistributable", "proton", "steamworks")
 
 
-# --------------------------------------------------------------------------- #
-# VDF: usa a lib se houver, senão parser mínimo (chave/valor aninhado).
-# --------------------------------------------------------------------------- #
-try:
-    import vdf  # type: ignore
-
-    def parse_vdf(text: str) -> dict:
-        return vdf.loads(text)
-except Exception:  # pragma: no cover - fallback simples
-    def parse_vdf(text: str) -> dict:
-        root: dict = {}
-        stack = [root]
-        key_pat = re.compile(r'"((?:[^"\\]|\\.)*)"')
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("//"):
-                continue
-            if line == "{":
-                continue
-            if line == "}":
-                if len(stack) > 1:
-                    stack.pop()
-                continue
-            keys = key_pat.findall(line)
-            if len(keys) >= 2:
-                stack[-1][keys[0]] = keys[1]
-            elif len(keys) == 1:
-                child: dict = {}
-                stack[-1][keys[0]] = child
-                stack.append(child)
-        return root
-
-
 def _read(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8", errors="replace")
@@ -230,23 +200,18 @@ def index_steam() -> list[dict]:
                 continue
             data = parse_vdf(text).get("AppState", {})
             appid = str(data.get("appid", "")).strip()
-            name = str(data.get("name", "")).strip()
             if not appid or appid in seen:
                 continue
-            if appid in STEAM_TOOL_IDS:
-                continue
-            if any(w in name.lower() for w in STEAM_TOOL_WORDS):
+            game = build_steam_game(
+                data,
+                steam_art(appid),
+                tool_ids=STEAM_TOOL_IDS,
+                tool_words=STEAM_TOOL_WORDS,
+            )
+            if not game:
                 continue
             seen.add(appid)
-            art = steam_art(appid)
-            games.append({
-                "id": f"steam:{appid}",
-                "title": name or f"App {appid}",
-                "launcher": "steam",
-                "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
-                "installed": True,
-                **art,
-            })
+            games.append(game)
     return games
 
 
