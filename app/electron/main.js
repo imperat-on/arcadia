@@ -1877,12 +1877,11 @@ app.whenReady().then(() => {
   // Garante que o escopo da conta do boot (sessão restaurada) já está ativo
   // antes de o renderer ler library/conquistas — sem isso a UI pisca com os
   // dados guest e só depois troca (mesmo bug do "nome antigo").
-  const { restoreSession } = require("./supabase/client")
-  const contaPronta = restoreSession()
+  // O IPC de conta é o único dono da restauração. Reusar a mesma Promise
+  // evita duas chamadas concorrentes de setSession() no boot.
+  const { garantirSessao } = require("./supabase/ipc")
+  const contaPronta = garantirSessao()
     .then(async (r) => {
-      if (r?.session?.user?.user_metadata?.username) {
-        definirConta(r.session.user.user_metadata.username)
-      }
       // Reconstrói as conquistas dos schemas DA STEAM DEPOIS de a conta estar
       // ativa. Antes rodava no createWindow como guest e gravava na raiz, então
       // o painel (conta) ficava só com o que o watcher pegou ao vivo. Pro
@@ -1893,12 +1892,9 @@ app.whenReady().then(() => {
       } catch (e) {
         console.error("[achievements] boot load:", e)
       }
-      // Sync de biblioteca/horas + CONQUISTAS no BOOT com sessão restaurada. O
-      // reconcile só rodava no SIGNED_IN (login) — quem fechava e reabria o app
-      // com a sessão salva não puxava as mudanças feitas em outra máquina; só
-      // deslogando e logando de novo. Aqui o push+pull roda uma vez por boot
-      // logado (conquistas: mesma lógica — sem isto, desbloqueio de outra
-      // máquina só chegava num login explícito).
+      // A restauração agora emite SIGNED_IN quando a sessão salva é válida.
+      // O listener central do IPC inicia realtime e reconcilia biblioteca,
+      // conquistas e sources com o escopo da conta já selecionado.
       if (r?.session) {
         try {
           // Pré-aquece a arte dos jogos steam que o pull de biblioteca vai
@@ -1919,16 +1915,8 @@ app.whenReady().then(() => {
         } catch (e) {
           console.error("[biblioteca] boot pre-aquecimento:", e)
         }
-        try {
-          require("./supabase/biblioteca").reconcile()
-        } catch (e) {
-          console.error("[biblioteca] boot reconcile:", e)
-        }
-        try {
-          require("./supabase/sync").reconcile()
-        } catch (e) {
-          console.error("[conquistas] boot reconcile:", e)
-        }
+        // O reconcile já é disparado pelo evento SIGNED_IN da restauração,
+        // com o escopo da conta definido pelo IPC antes da operação.
       }
       return null
     })

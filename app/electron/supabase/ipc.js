@@ -61,14 +61,15 @@ function registerAccountIpc(broadcast, onConta) {
         : null,
     })
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      // O escopo precisa mudar ANTES de qualquer reconcile/realtime: esses
+      // módulos leem arquivos por conta e não podem iniciar como guest.
+      onConta?.(username)
       realtime.start()
       bibliotecaRealtime.start()
       syncRealtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
       biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
       sourcesSync.reconcile().catch(() => {})
-      // Troca o escopo dos arquivos locais pra conta logada
-      onConta?.(username)
     }
     if (event === "SIGNED_OUT" || event === "USER_DELETED") {
       realtime.stop()
@@ -163,4 +164,4 @@ function registerAccountIpc(broadcast, onConta) {
   }
 }
 
-module.exports = { registerAccountIpc }
+module.exports = { registerAccountIpc, garantirSessao }
