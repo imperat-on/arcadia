@@ -34,14 +34,14 @@ const DEFINITIONS = Object.freeze({
     name: "Dolphin",
     systems: ["GameCube", "Wii"],
     description: "Emulador de GameCube e Wii",
-    candidates: ["dolphin-emu"],
+    candidates: ["dolphin-emu", "dolphin"],
   }),
   ppsspp: Object.freeze({
     id: "ppsspp",
     name: "PPSSPP",
     systems: ["PlayStation Portable"],
     description: "Emulador de PSP",
-    candidates: ["ppsspp"],
+    candidates: ["ppsspp", "PPSSPP"],
   }),
   duckstation: Object.freeze({
     id: "duckstation",
