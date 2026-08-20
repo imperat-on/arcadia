@@ -16,10 +16,12 @@ test("painel de comunidade usa apenas a bridge e mantém o estado offline", () =
     "communityReviewCreate",
     "communityReviewUpdate",
     "communityReviewRemove",
+    "communityReviewReport",
     "communityCollections",
     "communityCollectionCreate",
     "communityCollectionUpdate",
     "communityCollectionRemove",
+    "communityCollectionReport",
   ]) assert.match(panel, new RegExp(method), method)
   assert.match(panel, /offline/i)
   assert.match(panel, /aria-label=/)
@@ -31,4 +33,5 @@ test("painel não acessa ipcRenderer nem transporta credenciais ou paths locais"
   assert.doesNotMatch(panel, /access_token|refresh_token|authorization/i)
   assert.doesNotMatch(panel, /file:\/\/|process\.env|\/home\//)
   assert.match(panel, /window\.confirm/)
+  assert.match(panel, /window\.prompt/)
 })
