@@ -13,6 +13,7 @@ app/
     main.js           # bootstrap, biblioteca, IPC e indexador
     library-store.js  # leitura versionada e compatível da biblioteca local
     index-service.js  # job deduplicado/timeout do index.py
+    launch-resolver.js # política pura de comando/perfil de execução
     trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)

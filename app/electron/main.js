@@ -32,6 +32,7 @@ const { getDataDir } = require("./runtime-paths")
 const { normalizeLibrary } = require("../../contracts")
 const { readLibraryFile } = require("./library-store")
 const { createIndexerService } = require("./index-service")
+const { resolveLaunchRequest } = require("./launch-resolver")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -1796,60 +1797,15 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("game:launch", async (_e, payload) => {
-    // Aceita { cmd, gameId } (novo) ou o array cmd direto (legado).
-    let rawCmd = Array.isArray(payload) ? payload : payload?.cmd
-    const gameId = Array.isArray(payload) ? undefined : payload?.gameId
-    // Modo explícito (menu Steam vs fora-da-Steam): "steam" força o launch_cmd
-    // da loja; "exe" força o executável do prefixo wine. Sem modo: decide sozinho
-    // (exePath vence quando existe).
-    const mode = Array.isArray(payload) ? undefined : payload?.mode
-    // SEGURANÇA (auditoria A-04): o cmd vindo do renderer NUNCA é executado
-    // como veio — um XSS executaria binário arbitrário. O comando é resolvido
-    // AQUI no main a partir dos dados locais (library.json/loja). Única exceção
-    // pro legado: o atalho steam://install|run/<appid> (padrão fixo).
-    if (typeof gameId === "string" && gameId) {
-      const g = readLibrary().find((x) => x.id === gameId)
-      if (g && Array.isArray(g.launch_cmd) && g.launch_cmd.length) rawCmd = g.launch_cmd
-    } else if (Array.isArray(rawCmd)) {
-      const legado = rawCmd.map((c) => String(c))
-      if (!(legado.length === 2 && legado[0] === "steam" && /^steam:\/\/(install|run)\/[0-9]+$/.test(legado[1]))) {
-        return { ok: false, error: "Comando de lançamento rejeitado (padrão não permitido)." }
-      }
-    }
-    // Jogo adicionado manualmente: monta o comando na hora (wine + exe).
-    let envExtra = {}
-    if (typeof gameId === "string" && gameId.startsWith("custom:")) {
-      const built = customLaunchCmd(gameId)
-      if (!built) {
-        return {
-          ok: false,
-          error: `Jogo custom não encontrado em custom_games.json (id: ${gameId}).`,
-        }
-      }
-      rawCmd = built.cmd
-      envExtra = built.env || {}
-    } else if (typeof gameId === "string" && mode !== "steam") {
-      // Override "Executável" (aba Localizações): roda o exe escolhido em vez do
-      // launch_cmd padrão da loja. Sem modo, só quando há exePath configurado.
-      const exe = getGameSettings(gameId).exePath
-      if (exe) {
-        const built = exeLaunchCmd(gameId, exe)
-        if (!built) {
-          return { ok: false, error: "Executável configurado não encontrado (exePath vazio)." }
-        }
-        if (built?.cmd?.length) {
-          rawCmd = built.cmd
-          envExtra = built.env || {}
-        }
-      }
-    }
-    if (!Array.isArray(rawCmd) || rawCmd.length === 0) {
-      return {
-        ok: false,
-        error:
-          "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações.",
-      }
-    }
+    const resolved = resolveLaunchRequest(payload, {
+      findGame: (id) => readLibrary().find((game) => game.id === id),
+      customLaunchCmd,
+      getGameSettings,
+      exeLaunchCmd,
+    })
+    if (!resolved.ok) return resolved
+
+    let { rawCmd, gameId, envExtra } = resolved
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
     // em diante o cmd[0] já não é mais o binário da Steam.
     rawCmd = steamSilencioso(rawCmd)
