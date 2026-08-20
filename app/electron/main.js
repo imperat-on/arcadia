@@ -31,6 +31,7 @@ const os = require("os")
 const { getDataDir } = require("./runtime-paths")
 const { normalizeLibrary } = require("../../contracts")
 const { readLibraryFile } = require("./library-store")
+const { createLibraryRepository } = require("./library-repository")
 const { createIndexerService } = require("./index-service")
 const { resolveLaunchRequest } = require("./launch-resolver")
 const { createLaunchLog } = require("./launch-log")
@@ -71,6 +72,9 @@ const {
 const HOME = os.homedir()
 const DATA_DIR = getDataDir()
 const LIB = path.join(DATA_DIR, "library.json")
+// O repositório concentra leitura/filtro por conta, sem alterar o restante da
+// montagem (custom/pending/overrides) nem o contrato IPC de library:get.
+const libraryRepository = createLibraryRepository({ dataDir: DATA_DIR, libraryPath: LIB })
 // Em uma instalação clonada o indexador fica no checkout, não na pasta de
 // dados. Em uma instalação empacotada a cópia histórica em DATA_DIR continua
 // sendo aceita para não quebrar upgrades existentes.
@@ -1243,8 +1247,8 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const globais = readLibraryFile(LIB).games
-    const games = filtrarPorPosse(globais)
+    const globais = libraryRepository.readGlobal()
+    const games = libraryRepository.filterByOwnership(globais)
     games.push(...normalizeLibrary(readJsonFile(caminhoConta(CUSTOM_GAMES), [])))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
