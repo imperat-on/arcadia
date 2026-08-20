@@ -19,6 +19,7 @@ function parseLibraryDocument(value) {
     legacy: false,
     generatedAt: value.generated_at ?? value.generatedAt ?? null,
     sources: value.sources && typeof value.sources === "object" ? value.sources : {},
+    errors: Array.isArray(value.errors) ? value.errors.map(String).slice(0, 32) : [],
     games: normalizeLibrary(value.games),
   }
 }
