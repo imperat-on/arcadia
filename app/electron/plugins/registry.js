@@ -18,6 +18,12 @@ const {
   computeEntrySha256,
   publicManifest,
 } = require("./manifest")
+const {
+  TRUST_STORE_FILENAME,
+  canonicalPayload,
+  verifySignature,
+  createTrustStore,
+} = require("./trust")
 
 const REGISTRY_VERSION = 1
 const REGISTRY_DIRNAME = "plugins"
@@ -198,12 +204,22 @@ function createPluginRegistry({
   now = nowMs,
   builtins = [],
   legacyRegistryPath,
+  trustStorePath,
+  trustStore,
 } = {}) {
   if (typeof dataDir !== "string" || !dataDir.trim()) throw new Error("dataDir é obrigatório")
   const root = path.resolve(dataDir)
   const registryDir = path.join(root, REGISTRY_DIRNAME)
   const registryPath = path.join(registryDir, REGISTRY_FILENAME)
   const legacyPath = legacyRegistryPath ? path.resolve(legacyRegistryPath) : path.join(root, LEGACY_REGISTRY_RELATIVE)
+  const resolvedTrustStorePath = trustStorePath
+    ? path.resolve(trustStorePath)
+    : path.join(registryDir, TRUST_STORE_FILENAME)
+  // A caller may inject a small in-memory/fake store for tests or a host
+  // policy. The normal path is the local atomic trusted-keys.json store.
+  const trusted = trustStore && typeof trustStore === "object"
+    ? trustStore
+    : createTrustStore({ storePath: resolvedTrustStorePath, fsImpl })
   const builtinMap = new Map()
 
   const definitions = Array.isArray(builtins) ? builtins : Object.values(builtins || {})
@@ -302,7 +318,51 @@ function createPluginRegistry({
         entry: checkedEntry.path,
         entrySha256: calculated.digest,
         expectedEntrySha256,
+        signatureDeclared: Boolean(parsed.manifest.signingKeyId && parsed.manifest.signature),
         errors: ["entry_digest_mismatch"],
+      }
+    }
+
+    const signatureDeclared = Boolean(parsed.manifest.signingKeyId && parsed.manifest.signature)
+    let signatureValid = false
+    let signatureError = ""
+    if (signatureDeclared) {
+      let publicKey = null
+      try {
+        if (typeof trusted.getPublicKey === "function") publicKey = trusted.getPublicKey(parsed.manifest.signingKeyId)
+        else if (typeof trusted.get === "function") publicKey = trusted.get(parsed.manifest.signingKeyId)
+      } catch {}
+      if (!publicKey) {
+        signatureError = "assinatura_chave_nao_confiavel"
+      } else {
+        // Signatures bind the canonical identity, version, and the bytes that
+        // were actually read. A declared digest has already been checked above;
+        // using the calculated value also makes signed manifests without the
+        // optional legacy digest tamper-evident.
+        signatureValid = verifySignature(
+          canonicalPayload({
+            id: parsed.manifest.id,
+            version: parsed.manifest.version,
+            entrySha256: calculated.digest,
+          }),
+          parsed.manifest.signature,
+          publicKey,
+        )
+        if (!signatureValid) signatureError = "assinatura_invalida"
+      }
+      if (!signatureValid) {
+        return {
+          ok: false,
+          manifest: parsed.manifest,
+          path: resolved,
+          entry: checkedEntry.path,
+          entrySha256: calculated.digest,
+          expectedEntrySha256,
+          signatureDeclared,
+          signatureValid: false,
+          signatureError,
+          errors: [signatureError || "assinatura_invalida"],
+        }
       }
     }
     return {
@@ -312,6 +372,9 @@ function createPluginRegistry({
       entry: checkedEntry.path,
       entrySha256: calculated.digest,
       expectedEntrySha256,
+      signatureDeclared,
+      signatureValid,
+      signatureError,
       errors: [],
     }
   }
@@ -524,7 +587,7 @@ function createPluginRegistry({
     let error = ""
     if (!packageInfo.ok) error = packageInfo.errors?.[0] || "entry_nao_verificavel"
     else if (verified && !digestMatches(expectedDigest, actualDigest)) error = "entry_digest_mismatch"
-    return {
+    const result = {
       id: normalized,
       ok: valid,
       valid,
@@ -539,6 +602,24 @@ function createPluginRegistry({
       source: record?.entrySha256 ? "registry" : (declaredDigest ? "manifest" : "none"),
       error,
     }
+    // Keep the v1 response shape byte-for-byte compatible for unsigned legacy
+    // manifests. Signature metadata is emitted only for a manifest that
+    // already declared both fields, and contains no package/path information.
+    const signedManifest = packageInfo.manifest
+    if (signedManifest?.signingKeyId && signedManifest?.signature) {
+      result.signingKeyId = signedManifest.signingKeyId
+      result.signature = signedManifest.signature
+      result.signatureAlgorithm = "ed25519"
+      result.signatureDeclared = true
+      result.signatureVerified = packageInfo.signatureValid === true && packageInfo.ok === true
+      result.signatureValid = result.signatureVerified
+      if (!result.signatureVerified && !result.error) result.error = packageInfo.signatureError || "assinatura_invalida"
+      if (!result.signatureVerified) {
+        result.ok = false
+        result.valid = false
+      }
+    }
+    return result
   }
 
   function verify(id) {
@@ -580,7 +661,7 @@ function createPluginRegistry({
 
   function paths() {
     // Internal diagnostics/testing only. Never return this value through IPC.
-    return { root, registryPath, legacyPath }
+    return { root, registryPath, legacyPath, trustStorePath: resolvedTrustStorePath }
   }
 
   return {
@@ -595,6 +676,7 @@ function createPluginRegistry({
     verifyPlugin: verify,
     verifyPackage,
     readPackage,
+    trustStore: trusted,
     paths,
     invalidate,
   }
