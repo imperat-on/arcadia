@@ -56,4 +56,6 @@ test("tipos do renderer descrevem manifest/permissões sem expor path do registr
   assert.match(types, /pluginsEnable:/)
   assert.match(types, /PluginVerification/)
   assert.match(types, /pluginsVerify:/)
+  assert.match(types, /signingKeyId\?: string/)
+  assert.match(types, /signatureVerified\?: boolean/)
 })
