@@ -31,6 +31,7 @@ const os = require("os")
 const { getDataDir } = require("./runtime-paths")
 const { normalizeLibrary } = require("../../contracts")
 const { readLibraryFile } = require("./library-store")
+const { createIndexerService } = require("./index-service")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -72,6 +73,15 @@ const INDEX_DATA = path.join(DATA_DIR, "index.py")
 const INDEX = fs.existsSync(INDEX_DATA)
   ? INDEX_DATA
   : path.join(__dirname, "..", "..", "index.py")
+const indexerService = createIndexerService({
+  indexPath: INDEX,
+  pythonPath: process.env.ARCADIA_PYTHON || "python3",
+  cwd: path.join(__dirname, "..", ".."),
+  env: { ...process.env, ARCADIA_DATA_DIR: DATA_DIR },
+  timeoutMs: Number(process.env.ARCADIA_INDEX_TIMEOUT_MS) || undefined,
+  logger: (message) => console.warn(`[arcadia:indexer] ${message}`),
+})
+
 const CONFIG = path.join(DATA_DIR, "config.json")
 
 const STEAM_LANG_MAP = {
@@ -1265,13 +1275,7 @@ function readLibrary() {
 }
 
 function runIndexer() {
-  return new Promise((res) => {
-    try {
-      execFile("python3", [INDEX], () => res())
-    } catch {
-      res()
-    }
-  })
+  return indexerService.run()
 }
 
 // Avisa o renderer e, em seguida, reindexa em SEGUNDO PLANO para avisar de

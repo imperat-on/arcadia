@@ -47,6 +47,7 @@ jobs:
           cache-dependency-path: |
             app/package-lock.json
             server/package-lock.json
+      - run: python3 -m unittest discover -s . -p 'test_*.py'
       - run: npm ci --ignore-scripts
         working-directory: app
       - run: npm ci --ignore-scripts
