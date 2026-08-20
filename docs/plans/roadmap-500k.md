@@ -281,9 +281,9 @@ com contratos e testes focados:
   tipados e painel React integrado às páginas de jogo;
 - **plugins** v1: manifesto validado, permissões declarativas, rejeição de
   traversal/symlink, registro atômico e espelho legado, SDK capability-based,
-  digest SHA-256 do entry e verificação sem execução; a superfície IPC/preload
-  inclui `details/get/register/unregister/enable/disable` e o canal
-  `plugins:verify`, sem devolver caminhos privados;
+  digest SHA-256 do entry, confiança Ed25519 opcional e verificação sem execução;
+  a superfície IPC/preload inclui `details/get/register/unregister/enable/disable`
+  e o canal `plugins:verify`, sem devolver caminhos privados;
 - validação após essas entregas: **168/168 testes do app**, benchmark determinístico
   de busca local, `tsc --noEmit`, build Vite e testes focados do servidor de
   observabilidade; a integração completa do servidor continua condicionada a
