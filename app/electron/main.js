@@ -33,6 +33,7 @@ const { normalizeLibrary } = require("../../contracts")
 const { readLibraryFile } = require("./library-store")
 const { createIndexerService } = require("./index-service")
 const { resolveLaunchRequest } = require("./launch-resolver")
+const { createLaunchLog } = require("./launch-log")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -82,6 +83,8 @@ const indexerService = createIndexerService({
   timeoutMs: Number(process.env.ARCADIA_INDEX_TIMEOUT_MS) || undefined,
   logger: (message) => console.warn(`[arcadia:indexer] ${message}`),
 })
+
+const launchLog = createLaunchLog({ logDir: LOG_DIR })
 
 const CONFIG = path.join(DATA_DIR, "config.json")
 
@@ -1811,6 +1814,7 @@ app.whenReady().then(() => {
     rawCmd = steamSilencioso(rawCmd)
     const sls = steamComInjecao(rawCmd)
     rawCmd = sls.cmd
+    let closeLaunchLog = () => {}
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
@@ -1845,24 +1849,11 @@ app.whenReady().then(() => {
       // Log SEMPRE ligado: stdout/stderr do jogo em logs/<id>.log (append com
       // rotação simples). verboseLogs só controla DXVK_HUD/WINEDEBUG — falha
       // de log não bloqueia o launch.
-      let stdio = "ignore"
-      try {
-        fs.mkdirSync(LOG_DIR, { recursive: true })
-        const logPath = path.join(
-          LOG_DIR,
-          `${String(gameId || "jogo").replace(/[^a-z0-9._-]/gi, "_")}.log`,
-        )
-        // Rotação simples: se >5MB, renomeia pra .old (sobrescreve .old anterior)
-        try {
-          const st = fs.statSync(logPath)
-          if (st.size > 5 * 1024 * 1024) fs.renameSync(logPath, logPath + ".old")
-        } catch {}
-        const fd = fs.openSync(logPath, "a")
-        fs.writeSync(fd, `\n\n=== ${new Date().toISOString()} launch: ${JSON.stringify(cmd)} ===\n`)
-        stdio = ["ignore", fd, fd]
-      } catch (e) {
-        console.warn("arcadia: log fd falhou:", e.message)
-        // segue com "ignore" — não bloqueia launch por falha de log
+      const openedLog = launchLog.open(gameId, cmd)
+      closeLaunchLog = openedLog.close
+      const stdio = openedLog.stdio
+      if (openedLog.error) {
+        console.warn("arcadia: log fd falhou:", openedLog.error.message)
       }
 
       // Script pré-jogo (aba AVANÇADO): espera terminar (máx. 60s) antes de lançar.
@@ -1885,6 +1876,7 @@ app.whenReady().then(() => {
       // Valida binários ANTES de qualquer spawn (steam URI ou direto).
       const binErro = validarBinariosLaunch(cmd, gameId)
       if (binErro) {
+        closeLaunchLog()
         discordRpc.clear()
         if (win && !win.isDestroyed()) {
           win.webContents.send("game:launchError", { gameId, error: binErro })
@@ -1893,8 +1885,22 @@ app.whenReady().then(() => {
       }
 
       const soltar = (c) => {
-        const child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+        let child
+        try {
+          child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+        } catch (error) {
+          closeLaunchLog()
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", {
+              gameId,
+              error: `spawn falhou: ${error.message}`,
+            })
+          }
+          return false
+        }
+        child.once("close", closeLaunchLog)
         child.on("error", (err) => {
+          closeLaunchLog()
           console.warn("arcadia: spawn erro:", err.message)
           if (win && !win.isDestroyed()) {
             win.webContents.send("game:launchError", {
@@ -1917,6 +1923,7 @@ app.whenReady().then(() => {
         }
         ultimoJogoAtivo = jogoAtivo
         armarPollJogo()
+        return true
       }
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
@@ -1985,6 +1992,7 @@ app.whenReady().then(() => {
       soltar(cmd)
       return { ok: true, warnings }
     } catch (e) {
+      closeLaunchLog()
       discordRpc.clear()
       return { ok: false, error: String(e) }
     }
