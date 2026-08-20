@@ -163,6 +163,17 @@ Documentos de referencia:
 | Sources publicas | `user_sources` + RPCs (`{id, url, name}`) | nao |
 | **API keys (debrid/Hubcap)** | **NUNCA sincronizam** | **SIM, fica local** |
 
+## Repositório local da biblioteca
+
+A leitura e a persistência local ficam em `app/electron/library-repository.js`.
+O repositório separa o `library.json` global (escrito pelo indexador) do
+`owned_games.json` escopado pela conta, aplica a regra de migração lazy e usa
+`tmp + rename` tanto para a biblioteca versionada quanto para a posse. Isso
+mantém a leitura tolerante a arquivos ausentes/corrompidos sem expor payloads
+inválidos ao renderer. Guest é tratado como o estado histórico: vê todos os
+jogos e nunca materializa posse na raiz; os handlers IPC continuam retornando o
+mesmo array de jogos.
+
 ## Posse de jogos por conta
 
 `library.json` (global, escrito pelo indexador `index.py`) usa um envelope
