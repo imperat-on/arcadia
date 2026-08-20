@@ -93,6 +93,11 @@ A superfície versionada adicional é:
 - `permissions(id)` / `hasPermission(id, permission)`;
 - `sdk(id)` — cria um contexto mínimo do SDK.
 
+No Electron, o preload preserva `pluginsList`/`pluginsInstall`/`pluginsRemove` e
+expõe os canais tipados `pluginsDetails`, `pluginsGet`, `pluginsRegister`,
+`pluginsUnregister`, `pluginsEnable` e `pluginsDisable`. O main normaliza IDs e
+caminhos, e as respostas continuam sem paths absolutos do registro.
+
 O módulo não importa o `entry` automaticamente. A execução de código de
 plugins e capabilities concretas deve ser adicionada em uma etapa posterior,
 com isolamento e revisão própria.
