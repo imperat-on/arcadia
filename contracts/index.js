@@ -1,5 +1,7 @@
 "use strict"
 
+const syncConflicts = require("./sync")
+
 // Contratos pequenos e deliberadamente sem dependências. O main process e o
 // backend usam as mesmas normalizações antes de aceitar dados vindos de disco,
 // IPC ou rede. Campos adicionais são preservados para permitir evolução
@@ -145,4 +147,5 @@ module.exports = {
   normalizeLibrarySyncItems,
   normalizePlaytimeItem,
   normalizePlaytimeItems,
+  ...syncConflicts,
 }

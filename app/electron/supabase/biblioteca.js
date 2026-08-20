@@ -20,6 +20,7 @@ const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
 const steamstore = require("../steamstore")
 const { readLibraryFile } = require("../library-store")
+const { resolveLibraryConflict, resolvePlaytimeConflict } = require("../../../contracts")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
 const PENDING = () => caminhoArquivoConta("pending_games.json")
@@ -265,9 +266,19 @@ async function pull() {
       mudou = true
     } else {
       const g = lib.find((x) => x.id === row.appid)
-      if (row.title && (!g.title || g.title === g.id)) {
-        g.title = row.title
-        mudou = true
+      const merged = resolveLibraryConflict(
+        { appid: g.id, title: g.title, platform: g.platform },
+        { appid: row.appid, title: row.title || row.appid, platform: row.platform || "windows" },
+      )
+      if (merged && !merged.removed) {
+        if (g.title !== merged.title) {
+          g.title = merged.title
+          mudou = true
+        }
+        if (merged.platform && g.platform !== merged.platform) {
+          g.platform = merged.platform
+          mudou = true
+        }
       }
     }
   }
@@ -309,9 +320,10 @@ async function pull() {
   for (const row of data) {
     const total = Number(row.minutes) || 0
     const local = Number(overrides[row.appid]?.playtime_added_minutes) || 0
-    if (total > local) {
-      overrides[row.appid] = { ...(overrides[row.appid] || {}), playtime_added_minutes: total }
-      wp[row.appid] = total
+    const merged = resolvePlaytimeConflict(local, total)
+    if (merged > local) {
+      overrides[row.appid] = { ...(overrides[row.appid] || {}), playtime_added_minutes: merged }
+      wp[row.appid] = merged
       mudou = true
     }
   }
