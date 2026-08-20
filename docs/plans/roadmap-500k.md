@@ -84,6 +84,15 @@ clara, caminho de execução verificável e teste correspondente.
 - escrita continua atômica e versões futuras são rejeitadas com segurança;
 - testes cobrem leitura legada, escrita atômica e incompatibilidade de versão.
 
+### Fase 1.2 — execução segura do indexador
+
+- `index-service.js` deduplica execuções concorrentes e expõe timeout/cancelamento;
+- `main.js` mantém `runIndexer()` e IPC compatíveis, mas não dispara processos
+  duplicados silenciosamente;
+- resultado do processo preserva `stdout`, `stderr`, código e diagnóstico;
+- testes cobrem sucesso, retry após falha, timeout e cancelamento;
+- teste Python do envelope entra no `unittest discover` da CI.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

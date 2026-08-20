@@ -969,12 +969,20 @@ def main() -> int:
 
     # Biblioteca completa da Steam (possuídos não instalados) via Web API.
     if on("steam"):
-        steam_games = steam_games + steam_owned_games(steam_appids)
+        try:
+            steam_games = steam_games + steam_owned_games(steam_appids)
+        except Exception as exc:
+            print(f"[aviso] steam-owned: {exc}", file=sys.stderr)
+            provider_errors.append("steam-owned")
 
     # Jogos injetados pelo SLSsteam (AdditionalApps), que a Web API não retorna.
     if on("slssteam"):
-        all_steam_ids = {g["id"].split(":", 1)[1] for g in steam_games}
-        steam_games = steam_games + index_slssteam(all_steam_ids, sls_config)
+        try:
+            all_steam_ids = {g["id"].split(":", 1)[1] for g in steam_games}
+            steam_games = steam_games + index_slssteam(all_steam_ids, sls_config)
+        except Exception as exc:
+            print(f"[aviso] slssteam: {exc}", file=sys.stderr)
+            provider_errors.append("slssteam")
 
     # Metadados (descrição/gênero/ano/nota) via Steam Store, cacheado.
     # Sem passar o idioma: quem traduz o código do config ("pt-BR") para o
@@ -985,12 +993,14 @@ def main() -> int:
         enrich_steam(steam_games, (cfg.get("steamgriddb_api_key") or "").strip())
     except Exception as exc:
         print(f"[aviso] steam-meta: {exc}", file=sys.stderr)
+        provider_errors.append("steam-meta")
 
     # Dados do JOGADOR (tempo de jogo) via Web API, cache 24h.
     try:
         enrich_player(steam_games, cfg)
     except Exception as exc:
         print(f"[aviso] player: {exc}", file=sys.stderr)
+        provider_errors.append("steam-player")
 
     # Recomputa após owned+slssteam pra Lutris deduplicar contra biblioteca completa.
     all_steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
