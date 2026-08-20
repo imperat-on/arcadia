@@ -75,6 +75,13 @@ clara, caminho de execução verificável e teste correspondente.
 - `ARCADIA_API_URL` tornou-se a configuração canônica do backend, com aliases
   legados normalizados e testados.
 
+### Fase 0.5 — diagnóstico local seguro
+
+- `diagnostics.js` agrega runtime, armazenamento, biblioteca, fila e snapshots;
+- o relatório não inclui caminhos absolutos, credenciais ou payloads de rede;
+- IPC/preload tipados expõem `app:diagnostics` para suporte local;
+- teste verifica agregação, contagem e ausência de dados sensíveis.
+
 ### Fase 1.1 — biblioteca local versionada
 
 - `library.json` passou a usar envelope `version=1` com timestamp, fontes e jogos;
@@ -134,13 +141,6 @@ clara, caminho de execução verificável e teste correspondente.
 - restauração faz rollback do destino se a troca atômica falhar;
 - IPC/preload expõem a operação sem mover arquivos para a rede.
 
-### Fase 0.5 — diagnóstico local seguro
-
-- `diagnostics.js` agrega runtime, armazenamento, biblioteca, fila e snapshots;
-- o relatório não inclui caminhos absolutos, credenciais ou payloads de rede;
-- IPC/preload tipados expõem `app:diagnostics` para suporte local;
-- teste verifica agregação, contagem e ausência de dados sensíveis.
-
 ### Fase 1.8 — integridade e recuperação de downloads
 
 - Legendary só conclui Epic após `legendary verify` retornar sucesso;
@@ -148,6 +148,15 @@ clara, caminho de execução verificável e teste correspondente.
 - falhas preservam parciais, usam retry limitado com backoff e não ressuscitam
   após pausa/cancelamento/shutdown;
 - estado de integridade e tentativas é persistido e testado por política pura.
+
+### Fase 1.9 — contrato interno de providers
+
+- `ProviderContext` concentra diretório de dados, configuração, idioma e modo
+  de rede sem alterar payloads persistidos;
+- `ProviderResult` normaliza jogos, warnings, erros e duração da execução;
+- `execute_provider` isola exceções e descarta entradas inválidas;
+- o pipeline Python usa a fronteira para Steam, Heroic e Lutris;
+- testes cobrem sucesso parcial, falha isolada, tipos inválidos e imutabilidade.
 
 ### Fase 2.1 — hardening da autenticação
 
@@ -162,15 +171,6 @@ clara, caminho de execução verificável e teste correspondente.
 - permissões dos novos arquivos são restritas e symlinks locais são rejeitados;
 - limpeza de órfãos usa o mesmo `DATA_DIR` do registro das rotas;
 - caminhos e magic bytes permanecem validados por testes puros.
-
-### Fase 1.9 — contrato interno de providers
-
-- `ProviderContext` concentra diretório de dados, configuração, idioma e modo
-  de rede sem alterar payloads persistidos;
-- `ProviderResult` normaliza jogos, warnings, erros e duração da execução;
-- `execute_provider` isola exceções e descarta entradas inválidas;
-- o pipeline Python usa a fronteira para Steam, Heroic e Lutris;
-- testes cobrem sucesso parcial, falha isolada, tipos inválidos e imutabilidade.
 
 ## Fases de implementação
 
