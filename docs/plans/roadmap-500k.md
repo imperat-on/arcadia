@@ -124,6 +124,15 @@ clara, caminho de execução verificável e teste correspondente.
 - descritores são fechados em sucesso, erro e rejeição de binário;
 - política testada sem spawn real e com rotação acima de 5 MiB.
 
+### Fase 1.7 — snapshots locais de saves
+
+- `snapshot-service.js` cria snapshots versionados por jogo, com manifest e cópia
+  atômica;
+- restauração cria backup automático do destino atual;
+- listagem/remoção validam jogo, versão e contenção de paths;
+- symlinks são ignorados e traversal não atravessa a pasta de snapshots;
+- IPC/preload expõem a operação sem mover arquivos para a rede.
+
 ## Fases de implementação
 
 ### Fase 0 — fundação e segurança de evolução

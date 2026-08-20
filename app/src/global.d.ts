@@ -213,6 +213,15 @@ export interface TorrentItem {
   folderName?: string
 }
 
+export interface SaveSnapshot {
+  version: 1
+  id: string
+  gameId: string
+  created_at: string
+  label: string
+  source_name: string
+}
+
 export interface DmItem {
   appid: string // epic:<app_name>
   appName: string
@@ -546,6 +555,20 @@ declare global {
           }[]
         } | null
       }>
+      /** Snapshots locais de saves; o caminho nunca é devolvido como token/rede. */
+      savesList: (gameId: string) => Promise<SaveSnapshot[]>
+      savesCreate: (payload: { gameId: string; sourceDir: string; label?: string }) => Promise<{
+        ok: boolean
+        error?: string
+        snapshot?: SaveSnapshot
+      }>
+      savesRestore: (payload: { gameId: string; snapshotId: string; targetDir: string; backup?: boolean }) => Promise<{
+        ok: boolean
+        error?: string
+        backupPath?: string
+        snapshot?: SaveSnapshot
+      }>
+      savesDelete: (payload: { gameId: string; snapshotId: string }) => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
       storeStatus: () => Promise<{
         dotnet?: string
