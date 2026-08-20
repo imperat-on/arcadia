@@ -20,6 +20,9 @@ scripts, SQL, testes e documentação.
 
 O código executável e testes somam aproximadamente 44,5 mil linhas; contando
 scripts, SQL e arquivos auxiliares, o repositório fica próximo de 48 mil linhas.
+Essa era a fotografia inicial. Após sync offline, busca local, SDK de plugins e
+seus testes, a medição atual fica em aproximadamente 55,5 mil linhas de código
+e testes e 68,5 mil incluindo documentação/configuração (sem binários gerados).
 Os maiores pontos de concentração são `app/electron/main.js`,
 `app/electron/steamstore.js`, `app/src/components/ps5-launcher/PS5Launcher.tsx`
 e `app/src/global.d.ts`.
