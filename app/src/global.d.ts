@@ -422,10 +422,17 @@ export type EmulatorSystem =
   | "Nintendo DS"
   | "Multi-sistema"
 
+export interface EmulatorRomFolder {
+  path: string
+  recursive: boolean
+}
+
 export interface EmulatorProfile {
   id: string
   executable: string
   corePath?: string
+  biosPath?: string
+  romFolders?: EmulatorRomFolder[]
   args: string[]
   updatedAt?: number
 }
@@ -440,6 +447,8 @@ export interface EmulatorInfo {
   available: boolean
   source: "builtin" | "detected" | "configured"
   requiresCore?: boolean
+  romExtensions?: string[]
+  romDirectoryMarkers?: string[]
   profile?: EmulatorProfile
 }
 
@@ -448,6 +457,69 @@ export interface EmulatorLaunchResult {
   emulatorId?: string
   system?: string
   cmd?: string[]
+  error?: string
+  code?: string
+  expectedPath?: string
+  titleId?: string
+}
+
+export interface EmulatorRomEntry {
+  path: string
+  name: string
+  relativePath: string
+  extension: string
+  kind?: "file" | "directory"
+  sizeBytes: number
+  mtimeMs: number
+  sidecars: string[]
+}
+
+export interface EmulatorStatus {
+  ok: boolean
+  emulatorId?: string
+  kind?: "bios" | "firmware" | null
+  required?: boolean
+  installed?: boolean
+  detectedPath?: string | null
+  error?: string
+  code?: "EMULATOR_UNKNOWN" | "BIOS_NOT_CONFIGURED" | string
+  legacyError?: string
+  running?: boolean
+  runningPid?: number | null
+}
+
+export interface EmulatorStatusResult {
+  ok: boolean
+  statuses?: EmulatorStatus[]
+  error?: string
+}
+
+export interface EmulatorRomScanResult {
+  ok: boolean
+  emulatorId?: string
+  directory?: string
+  recursive?: boolean
+  maxDepth?: number
+  romExtensions?: string[]
+  romDirectoryMarkers?: string[]
+  folders?: EmulatorRomFolder[]
+  truncated?: boolean
+  persisted?: boolean
+  roms?: EmulatorRomEntry[]
+  error?: string
+}
+
+export interface EmulatorRomIndexEntry {
+  updatedAt: number
+  directory: string
+  folders: EmulatorRomFolder[]
+  truncated: boolean
+  roms: EmulatorRomEntry[]
+}
+
+export interface EmulatorRomIndexResult {
+  ok: boolean
+  emulators?: Record<string, EmulatorRomIndexEntry>
   error?: string
 }
 
@@ -1048,7 +1120,11 @@ declare global {
       emulatorsProfiles: () => Promise<{ ok: boolean; profiles: Record<string, EmulatorProfile>; error?: string }>
       emulatorProfileSet: (profile: Partial<EmulatorProfile> & { id: string }) => Promise<{ ok: boolean; profile?: EmulatorProfile; error?: string }>
       emulatorProfileRemove: (id: string) => Promise<{ ok: boolean; removed?: boolean; error?: string }>
-      emulatorsResolve: (payload: { emulatorId: string; romPath: string; extraArgs?: string[]; corePath?: string }) => Promise<EmulatorLaunchResult>
+      emulatorsResolve: (payload: { emulatorId: string; romPath: string; extraArgs?: string[]; corePath?: string; launchMode?: "default" | "hydra" }) => Promise<EmulatorLaunchResult>
+      emulatorsStatus: () => Promise<EmulatorStatusResult>
+      /** Localiza ROMs por extensão, com limites e proteção contra symlink. */
+      emulatorsRoms: (payload: { emulatorId: string; directory?: string; rootPath?: string; folderPath?: string; recursive?: boolean; maxDepth?: number; maxResults?: number }) => Promise<EmulatorRomScanResult>
+      emulatorsRomIndex: () => Promise<EmulatorRomIndexResult>
       /** Escolhe uma pasta no sistema (temas customizados). */
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */

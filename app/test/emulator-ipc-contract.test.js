@@ -18,9 +18,16 @@ test("IPC de emuladores monta catálogo e perfis sem shell", () => {
     "emulators:profile:set",
     "emulators:profile:remove",
     "emulators:resolve",
+    "emulators:status",
+    "emulators:roms",
+    "emulators:roms:index",
   ])
     assert.ok(main.includes(`ipcMain.handle("${channel}"`), channel)
   assert.match(main, /emulatorRegistry\.resolveLaunch/)
+  assert.match(main, /launchMode:\s*["']hydra["']/)
+  assert.match(main, /preflightEmulator/)
+  assert.match(main, /preflightRunningEmulator/)
+  assert.match(main, /emulators:status/)
   const registry = fs.readFileSync(path.join(root, "electron", "emulator-registry.js"), "utf8")
   assert.doesNotMatch(main, /emulators:.*exec|emulators:.*spawn/i)
   assert.doesNotMatch(registry, /child_process|execFile|spawn\s*\(/)
@@ -34,6 +41,9 @@ test("preload/types expõem ponte explícita de emuladores", () => {
     "emulatorProfileSet",
     "emulatorProfileRemove",
     "emulatorsResolve",
+    "emulatorsStatus",
+    "emulatorsRoms",
+    "emulatorsRomIndex",
   ])
     assert.match(preload, new RegExp(`${method}\\s*:`), method)
   assert.match(types, /export interface EmulatorProfile/)

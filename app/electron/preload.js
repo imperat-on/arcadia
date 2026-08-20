@@ -159,6 +159,9 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   emulatorProfileSet: (profile) => ipcRenderer.invoke("emulators:profile:set", profile || {}),
   emulatorProfileRemove: (id) => ipcRenderer.invoke("emulators:profile:remove", typeof id === "string" ? id : ""),
   emulatorsResolve: (payload) => ipcRenderer.invoke("emulators:resolve", payload || {}),
+  emulatorsStatus: () => ipcRenderer.invoke("emulators:status"),
+  emulatorsRoms: (payload) => ipcRenderer.invoke("emulators:roms", payload || {}),
+  emulatorsRomIndex: () => ipcRenderer.invoke("emulators:roms:index"),
   pickFolder: () => ipcRenderer.invoke("app:pickFolder"),
   pickFile: () => ipcRenderer.invoke("app:pickFile"),
   onTrailerProgress: (cb) => {
