@@ -12,6 +12,7 @@
 
 const fs = require("node:fs")
 const path = require("node:path")
+const crypto = require("node:crypto")
 const { verifyToken, extractToken } = require("./jwt")
 const { db } = require("./db")
 
@@ -171,7 +172,7 @@ function registerStorageRoutes(app) {
       } catch {
         return res.status(400).json({ error: "caminho_invalido" })
       }
-      const temporario = `${dest}.${process.pid}.${Date.now()}.tmp`
+      const temporario = `${dest}.${process.pid}.${crypto.randomUUID()}.tmp`
       try {
         fs.writeFileSync(temporario, buf, { mode: 0o600 })
         fs.renameSync(temporario, dest)
