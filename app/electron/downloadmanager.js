@@ -7,6 +7,14 @@ const { spawn } = require("child_process")
 const { RUNNERS_DIR, ensureLegendary } = require("./runners/download")
 const { getDataDir } = require("./runtime-paths")
 const { nextQueued, normalizePriority } = require("./download-queue-policy")
+const {
+  DEFAULT_MAX_RECOVERY_ATTEMPTS,
+  normalizeRecoveryAttempts,
+  recoveryDecision,
+  verificationCommand,
+  verificationOutputLooksFailed,
+  integrityMode,
+} = require("./download-integrity")
 
 const DATA_DIR = getDataDir()
 const QUEUE_FILE = path.join(DATA_DIR, "downloads.json")
@@ -30,6 +38,7 @@ let activeChild = null
 let emitFn = null
 let lastEmit = ""
 let lastEmitAt = 0
+let recoveryTimer = null
 
 // O Legendary é Python e usa multiprocessing (as linhas "[DLManager]" são dos
 // processos-worker que baixam em paralelo). Matar/pausar só o PID do pai deixa
@@ -71,6 +80,11 @@ function persist() {
         dlcs,
         steamDir,
         priority,
+        integrity,
+        recoveryAttempts,
+        depotAtualId,
+        depotsOk,
+        depotsFalhos,
       }) => ({
         appid,
         appName,
@@ -92,6 +106,11 @@ function persist() {
         dlcs,
         steamDir,
         priority: normalizePriority(priority),
+        integrity,
+        recoveryAttempts: normalizeRecoveryAttempts(recoveryAttempts),
+        depotAtualId,
+        depotsOk,
+        depotsFalhos,
       }),
     )
     // Atômico (ver writeConfig): a fila é gravada a cada 3s durante o
@@ -107,11 +126,24 @@ function load() {
   try {
     queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf-8"))
     if (!Array.isArray(queue)) queue = []
-    queue = queue.map((item) => ({ ...item, priority: normalizePriority(item?.priority) }))
+    queue = queue.map((item) => ({
+      ...item,
+      priority: normalizePriority(item?.priority),
+      recoveryAttempts: normalizeRecoveryAttempts(item?.recoveryAttempts),
+      integrity:
+        item?.integrity && typeof item.integrity === "object"
+          ? { ...item.integrity, method: item.integrity.method || integrityMode(item) }
+          : { state: "pending", method: integrityMode(item) },
+    }))
     // Ao abrir: o que estava "downloading" morreu com o app → vira "paused".
-    // Concluídos não voltam (tela limpa — só fila ativa/erros).
+    // Concluídos não voltam (tela limpa — só fila ativa/erros). A fase de
+    // verificação também precisa voltar a pausado: sem isto um processo morto
+    // poderia ser confundido com uma instalação íntegra.
     queue = queue.filter((it) => {
-      if (it.status === "downloading") it.status = "paused"
+      if (it.status === "downloading") {
+        it.status = "paused"
+        if (it.integrity?.state === "verifying") it.integrity.state = "paused"
+      }
       return it.status !== "done"
     })
     persist()
@@ -150,6 +182,11 @@ function next() {
   }
   it.status = "downloading"
   it.error = ""
+  it.integrity = {
+    ...(it.integrity && typeof it.integrity === "object" ? it.integrity : {}),
+    state: "downloading",
+    method: integrityMode(it),
+  }
   persist()
   emit(true)
 
@@ -157,6 +194,20 @@ function next() {
   if (it.engine === "steam") {
     const ss = require("./steamstore")
     const appidLimpo = String(it.appid).replace(/^steam:/, "")
+
+    // Uma falha em um depot não pode transformar uma instalação incompleta em
+    // "done". O manager tenta o item inteiro novamente (o DepotDownloader
+    // valida e reaproveita os blocos bons) e só avança quando todos os depots
+    // selecionados terminarem com código 0.
+    const filaAtual = Array.isArray(it.fila) && it.fila.length ? it.fila : null
+    if (filaAtual && Number.isInteger(it.filaIdx) && filaAtual[it.filaIdx]) {
+      const atual = filaAtual[it.filaIdx]
+      it.depotAtualId = String(atual.depotId || "")
+      persist()
+      iniciarFilho(it, atual.cmd, atual.args, { phase: "depot" })
+      return
+    }
+
     // Itens antigos da fila podem não ter o size dos depots (total=0) —
     // re-busca o manifesto para ter total em MiB no progresso.
     const precisaSize = !(it.depots || []).length || (it.depots || []).some((d) => !d.size)
@@ -172,6 +223,9 @@ function next() {
           .catch(() => {})
       : Promise.resolve()
     comDepots.then(() => {
+      // O usuário pode cancelar/pausar enquanto o manifesto é consultado.
+      // Não ressuscitar um processo depois que o item saiu da fila.
+      if (!queue.includes(it) || it.status !== "downloading") return
       ss.prepareDownload({
         appid: appidLimpo,
         installdir: it.installdir,
@@ -179,16 +233,21 @@ function next() {
         steamDir: it.steamDir || ss.findSteamDir(),
       })
         .then((prep) => {
+          if (!queue.includes(it) || it.status !== "downloading") return
           if (!prep.ok) return finish(it, "error", prep.error || "falha ao preparar o download")
           // Um processo por depot, em sequência (estilo Acella). A fila fica no
-          // item para que pause/cancel/retomada saibam onde paramos.
+          // item em memória; comandos externos nunca são persistidos em JSON.
           it.fila = prep.cmds
           it.filaIdx = 0
+          it.depotsOk = 0
+          it.depotsFalhos = []
           // Só os depots que realmente vão baixar entram no total. Somando todos
           // (inclusive os pulados por falta de .manifest), a barra jamais
           // chegaria a 100% e o ETA ficaria eternamente errado.
           it.depotsBaixando = prep.cmds.map((c) => String(c.depotId))
-          iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args)
+          it.depotAtualId = String(prep.cmds[0].depotId || "")
+          persist()
+          iniciarFilho(it, prep.cmds[0].cmd, prep.cmds[0].args, { phase: "depot" })
         })
         .catch((e) => finish(it, "error", String(e)))
     })
@@ -202,24 +261,25 @@ function next() {
     const cores = Number(cfg.download_cpu_cores || 0)
     if (cores > 0) args.push("--max-workers", String(cores))
   } catch {}
-  iniciarFilho(it, BIN, args)
+  iniciarFilho(it, BIN, args, { phase: "download" })
 }
 
 // Spawna o processo do download (Legendary ou dotnet/DepotDownloader) e
 // conecta parsing de progresso + encerramento. Grupo próprio p/ sinais.
-function iniciarFilho(it, cmd, args) {
+function iniciarFilho(it, cmd, args, { phase = "download" } = {}) {
   // detached: cada download vira seu próprio grupo de processos, para o
   // cancel/pause conseguir matar/parar os workers junto do pai.
   activeChild = spawn(cmd, args, { env: { ...process.env }, detached: true })
   const child = activeChild
   it.pid = child.pid
   let percentMax = 0
+  let finalizado = false
 
   // Steam: total = soma dos depots (bytes do manifesto → MiB); baixado/veloc.
   // medidos pela pasta no disco a cada 3s (DepotDownloader não imprime isso).
   let poller = null
   let ultimoMiB = 0
-  if (it.engine === "steam" && it.installDir) {
+  if (phase === "depot" && it.engine === "steam" && it.installDir) {
     const baixando = it.depotsBaixando ? new Set(it.depotsBaixando) : null
     const totalMiB =
       (it.depots || [])
@@ -245,17 +305,21 @@ function iniciarFilho(it, cmd, args) {
   }
 
   // O Legendary emite o percentual de arquivos na linha "Progress" e os MiB
-  // baixados na linha seguinte ("Downloaded"). Guardamos ambos.
-  // Última linha de erro do DepotDownloader. Sem guardá-la, a UI só conseguia
-  // dizer "código 1" e o motivo real (ex.: 401 em manifesto antigo com conta
-  // anônima) se perdia — impossível diagnosticar sem rodar na mão.
+  // baixados na linha seguinte ("Downloaded"). Guardamos ambos. O output da
+  // verificação também é guardado para que o código de erro seja útil, mas
+  // nunca é tratado como prova de integridade: quem decide é o exit code do
+  // comando nativo.
   let ultimoErro = ""
+  let verifyOutput = ""
   const onOut = (text) => {
-    for (const linha of String(text).split("\n")) {
+    const chunk = String(text)
+    if (phase === "verify") verifyOutput = (verifyOutput + chunk).slice(-16000)
+    for (const linha of chunk.split("\n")) {
       if (/error|unable|aborting|401|403|denied|not completely/i.test(linha) && linha.trim()) {
         ultimoErro = linha.trim().slice(0, 300)
       }
     }
+    if (phase === "verify") return
     const p = RE_PROGRESS.exec(text)
     if (p) {
       update(it.appid, {
@@ -287,50 +351,153 @@ function iniciarFilho(it, cmd, args) {
       }
     }
   }
-  child.stdout.on("data", (d) => onOut(String(d)))
-  child.stderr.on("data", (d) => onOut(String(d)))
-  child.on("error", () => {
+
+  const tratarFechamento = (code, signal, spawnError = "") => {
+    if (finalizado) return
+    finalizado = true
     if (poller) clearInterval(poller)
-    finish(it, "error", "falha ao iniciar o download")
-  })
-  child.on("close", (code) => {
-    if (poller) clearInterval(poller)
+
+    // O processo pode ter sido encerrado pelo cancelamento/pausa. Nunca
+    // converta uma ação explícita do usuário em retry automático.
     if (it.status === "error" || it.status === "canceled") {
       activeChild = null
+      it.pid = null
       next()
       return
     }
     if (it.status === "paused") {
       activeChild = null // pausado: fica na fila até dmResume
+      it.pid = null
+      persist()
       return
     }
-    const fila = it.fila || []
-    if (fila.length) {
-      // Um depot que falha não derruba o jogo inteiro — é assim que o Acella
-      // trata (aviso e segue). Depots opcionais (idiomas, DLC) falham sozinhos
-      // com frequência; só damos erro se NENHUM depot tiver baixado.
-      if (code === 0) it.depotsOk = (it.depotsOk || 0) + 1
-      else {
+
+    const detail = spawnError || ultimoErro
+    // Alguns wrappers antigos imprimem "failed" e ainda saem 0. O código é
+    // a fonte principal, mas um marcador explícito de corrupção/incompleto na
+    // saída nunca pode virar instalação íntegra.
+    const outputInvalid = phase === "verify" && verificationOutputLooksFailed(verifyOutput)
+    const decision = recoveryDecision({
+      phase,
+      engine: it.engine,
+      code: outputInvalid ? 1 : code,
+      signal,
+      status: it.status,
+      attempts: it.recoveryAttempts,
+      maxAttempts: DEFAULT_MAX_RECOVERY_ATTEMPTS,
+      error: detail,
+    })
+
+    // Cada depot só é considerado íntegro quando o DepotDownloader (com
+    // -validate) retorna 0. Uma falha invalida a instalação inteira; os blocos
+    // já bons permanecem no disco e são reaproveitados no próximo retry.
+    if (phase === "depot") {
+      const fila = it.fila || []
+      const depot = fila[it.filaIdx]
+      if (decision.action !== "done") {
         it.depotsFalhos = it.depotsFalhos || []
-        it.depotsFalhos.push(fila[it.filaIdx]?.depotId || "?")
+        it.depotsFalhos.push(String(depot?.depotId || "?"))
         dlog(
-          `depot ${fila[it.filaIdx]?.depotId} falhou (código ${code}) em ${it.title}: ${(ultimoErro || "").slice(0, 200)}`,
+          `depot ${depot?.depotId || "?"} falhou (código ${code}) em ${it.title}: ${(detail || "").slice(0, 200)}`,
         )
-      }
-      if (it.filaIdx < fila.length - 1) {
-        it.filaIdx++
+        // Comandos externos são descartados antes de persistir. O próximo
+        // ciclo prepara um manifesto novo e não executa JSON adulterado.
+        it.fila = null
+        it.filaIdx = 0
+        it.depotAtualId = ""
+        it.depotsOk = 0
+      } else {
+        it.depotsOk = (it.depotsOk || 0) + 1
+        if (it.filaIdx < fila.length - 1) {
+          it.filaIdx++
+          activeChild = null
+          it.pid = null
+          const prox = fila[it.filaIdx]
+          it.depotAtualId = String(prox.depotId || "")
+          update(it.appid, {
+            depotAtual: it.filaIdx + 1,
+            depotsTotal: fila.length,
+            integrity: { ...(it.integrity || {}), state: "downloading" },
+          })
+          persist()
+          return iniciarFilho(it, prox.cmd, prox.args, { phase: "depot" })
+        }
+        // Todos os depots selecionados foram validados. Só agora o item pode
+        // entrar no callback onDone que registra a instalação na biblioteca.
+        it.integrity = {
+          ...(it.integrity || {}),
+          state: "verified",
+          method: "depot-manifest",
+          verifiedAt: new Date().toISOString(),
+        }
         activeChild = null
         it.pid = null
-        const prox = fila[it.filaIdx]
-        update(it.appid, { depotAtual: it.filaIdx + 1, depotsTotal: fila.length })
-        return iniciarFilho(it, prox.cmd, prox.args)
+        persist()
+        return finish(it, "done")
       }
-      if (it.depotsOk) return finish(it, "done")
-      return finish(it, "error", ultimoErro || `download falhou (código ${code})`)
     }
-    if (code === 0) finish(it, "done")
-    else finish(it, "error", ultimoErro || `download falhou (código ${code})`)
-  })
+
+    activeChild = null
+    it.pid = null
+    if (decision.action === "verify") {
+      const verify = verificationCommand(it, BIN, GAMES_DIR)
+      if (!verify) {
+        it.integrity = { ...(it.integrity || {}), state: "failed", method: integrityMode(it) }
+        return finish(it, "error", "verificação de integridade indisponível")
+      }
+      it.integrity = { ...(it.integrity || {}), state: "verifying", method: integrityMode(it) }
+      persist()
+      emit(true)
+      return iniciarFilho(it, verify.cmd, verify.args, { phase: "verify" })
+    }
+    if (decision.action === "done") {
+      it.integrity = {
+        ...(it.integrity || {}),
+        state: "verified",
+        method: integrityMode(it),
+        verifiedAt: new Date().toISOString(),
+      }
+      persist()
+      return finish(it, "done")
+    }
+    if (decision.action === "retry") return scheduleRecovery(it, decision)
+
+    it.integrity = { ...(it.integrity || {}), state: "failed", method: integrityMode(it) }
+    finish(it, "error", decision.error)
+  }
+
+  child.stdout.on("data", (d) => onOut(String(d)))
+  child.stderr.on("data", (d) => onOut(String(d)))
+  child.on("error", (error) => tratarFechamento(null, null, String(error?.message || error)))
+  child.on("close", (code, signal) => tratarFechamento(code, signal))
+}
+
+// Recoloca um item em fila sem apagar parciais. Atraso curto + limite de
+// tentativas evita loops infinitos em credenciais/manifests inválidos e dá à
+// rede uma chance de se recuperar. O método é deliberadamente interno: IPC
+// continua expondo apenas dm:retry para uma nova tentativa manual.
+function scheduleRecovery(it, decision) {
+  activeChild = null
+  it.status = "queued"
+  it.recoveryAttempts = normalizeRecoveryAttempts(decision.attempts)
+  it.error = `falha: ${decision.error}; nova tentativa ${it.recoveryAttempts}/${DEFAULT_MAX_RECOVERY_ATTEMPTS}`
+  it.integrity = {
+    ...(it.integrity && typeof it.integrity === "object" ? it.integrity : {}),
+    state: "retrying",
+    method: integrityMode(it),
+    lastError: decision.error,
+  }
+  // Uma falha Steam já limpou `fila`; para Epic os arquivos parciais também
+  // ficam no lugar e o Legendary retoma/valida no próximo install.
+  persist()
+  emit(true)
+  if (recoveryTimer) clearTimeout(recoveryTimer)
+  recoveryTimer = setTimeout(() => {
+    recoveryTimer = null
+    if (queue.includes(it) && it.status === "queued") next()
+  }, Math.max(0, Number(decision.delayMs) || 0))
+  // Não manter o processo Node/Electron aberto somente por este timer.
+  recoveryTimer.unref?.()
 }
 
 // Tamanho da pasta em MiB (du -sm) — base do progresso dos downloads Steam.
@@ -357,7 +524,15 @@ function fmtEta(seg) {
 
 function finish(it, status, error = "") {
   activeChild = null
-  update(it.appid, { status, error, speed: 0 })
+  const patch = { status, error, speed: 0 }
+  if (status === "error") {
+    patch.integrity = {
+      ...(it.integrity && typeof it.integrity === "object" ? it.integrity : {}),
+      state: "failed",
+      method: integrityMode(it),
+    }
+  }
+  update(it.appid, patch)
   emit(true)
   // Download concluído: avisa o main (reindex + refresh da biblioteca) e
   // tira o item da fila logo depois — a tela fica só com o que interessa.
@@ -404,6 +579,8 @@ async function install({ appid, title, cover, installPath, priority = 0 }) {
     speed: 0,
     error: "",
     installPath: destino,
+    integrity: { state: "pending", method: "legendary-verify" },
+    recoveryAttempts: 0,
     priority: normalizePriority(priority),
   })
   persist()
@@ -442,6 +619,8 @@ async function installSteam({ appid, title, cover, installdir, depots, token, dl
     error: "",
     installPath: path.join(dir, "steamapps", "common"),
     installDir: path.join(dir, "steamapps", "common", installdir),
+    integrity: { state: "pending", method: "depot-manifest" },
+    recoveryAttempts: 0,
     priority: normalizePriority(priority),
   })
   persist()
@@ -466,9 +645,24 @@ function retry(appid) {
   if (!it || it.status !== "error") return
   it.fila = null
   it.filaIdx = 0
+  it.depotAtualId = ""
   it.depotsOk = 0
   it.depotsFalhos = []
-  update(appid, { status: "queued", error: "", percent: 0, done: 0, speed: 0, eta: "" })
+  it.recoveryAttempts = 0
+  it.integrity = { state: "pending", method: integrityMode(it) }
+  if (recoveryTimer) {
+    clearTimeout(recoveryTimer)
+    recoveryTimer = null
+  }
+  update(appid, {
+    status: "queued",
+    error: "",
+    percent: 0,
+    done: 0,
+    speed: 0,
+    eta: "",
+    integrity: it.integrity,
+  })
   next()
 }
 
@@ -632,7 +826,17 @@ function onDone(fn) {
 // Encerramento do app: mata o download ativo (grupo inteiro). Como agora os
 // downloads são detached, sem isto o Legendary sobreviveria órfão ao fechar.
 function killActive() {
-  if (activeChild) signalGroup(activeChild, "SIGKILL")
+  if (!activeChild) return
+  // Fechamento do Electron não é uma falha de rede: marca pausado antes do
+  // SIGKILL para que o evento close não agende retry e não ressuscite o grupo
+  // durante o shutdown. O próximo boot poderá retomar explicitamente.
+  const it = queue.find((q) => q.pid === activeChild.pid)
+  if (it && it.status === "downloading") {
+    it.status = "paused"
+    it.integrity = { ...(it.integrity || {}), state: "paused", method: integrityMode(it) }
+    persist()
+  }
+  signalGroup(activeChild, "SIGKILL")
 }
 
 load()
