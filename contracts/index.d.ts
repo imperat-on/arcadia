@@ -41,6 +41,7 @@ export interface ArcadiaLibraryDocument {
   version: 1
   generated_at?: number
   sources?: Record<string, number>
+  errors?: string[]
   games: ArcadiaLibrary
 }
 
