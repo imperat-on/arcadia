@@ -1036,5 +1036,13 @@
   "editprofile.nav.background": "Fondo",
   "editprofile.background_desc": "Imagen de fondo del proyecto — se convierte en el fondo difuminado.",
   "editprofile.background_blur": "Desenfocar fondo",
-  "editprofile.background_blur_desc": "Desactívelo para mantener el fondo nítido en el perfil."
+  "editprofile.background_blur_desc": "Desactívelo para mantener el fondo nítido en el perfil.",
+  "store.retro_download": "Descargar opción {count}",
+  "store.retro_downloading": "Iniciando descarga…",
+  "store.retro_download_started": "Descarga añadida a la cola.",
+  "store.retro_download_failed": "No se pudo iniciar la descarga.",
+  "store.retro_source_id": "ID de la fuente",
+  "store.retro_feed": "Feed",
+  "store.retro_registry_source": "Incluida en Hydra Library · registro #{id}",
+  "store.retro_view_registry": "Ver registro de la fuente"
 }

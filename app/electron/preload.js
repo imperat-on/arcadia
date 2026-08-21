@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   sourcesSync: () => ipcRenderer.invoke("sources:sync"),
   sourcesSearch: (query, limit) => ipcRenderer.invoke("sources:search", { query, limit }),
   sourcesGame: (ref) => ipcRenderer.invoke("sources:game", ref),
+  retroList: (payload) => ipcRenderer.invoke("retro:list", payload || {}),
+  retroGame: (id) => ipcRenderer.invoke("retro:game", id),
   torrentStart: (payload) => ipcRenderer.invoke("torrent:start", payload),
   torrentPause: (gameId) => ipcRenderer.invoke("torrent:pause", gameId),
   torrentResume: (gameId) => ipcRenderer.invoke("torrent:resume", gameId),

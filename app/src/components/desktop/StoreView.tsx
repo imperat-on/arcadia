@@ -55,6 +55,8 @@ export function StoreView({
   } = useStoreActions(games)
 
   const [aba, setAba] = useState<"steam" | "retro">("steam")
+  const [retroDetailOpen, setRetroDetailOpen] = useState(false)
+  const [retroBackRequest, setRetroBackRequest] = useState(0)
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<ItemLoja[] | null>(null)
   const [sugestoes, setSugestoes] = useState<{ appid: string; title: string; cover?: string }[]>([])
@@ -322,6 +324,10 @@ export function StoreView({
           return true
         }
         if (aba === "retro") {
+          if (retroDetailOpen) {
+            setRetroBackRequest((value) => value + 1)
+            return true
+          }
           setAba("steam")
           return true
         }
@@ -355,6 +361,7 @@ export function StoreView({
     bigPicture,
     onAtalhos,
     aba,
+    retroDetailOpen,
     tecladoAberto,
     pagina,
     configGame,
@@ -412,8 +419,15 @@ export function StoreView({
             className="pointer-events-none fixed z-[9999] hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white transition-[width,height,background-color,filter] duration-75"
           />
         )}
-        <StoreTabs aba={aba} onAba={setAba} t={t} />
-        <RetroStoreView />
+        <StoreTabs
+          aba={aba}
+          onAba={(next) => {
+            setAba(next)
+            if (next !== "retro") setRetroDetailOpen(false)
+          }}
+          t={t}
+        />
+        <RetroStoreView backRequest={retroBackRequest} onDetailChange={setRetroDetailOpen} />
       </div>
     )
   }

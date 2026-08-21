@@ -10,6 +10,9 @@ export const RETRO_PAGE_SIZE = 24
 interface RetroStoreViewProps {
   /** Permite que a tela seja usada em um container já rolável (ex.: Loja). */
   className?: string
+  /** Integra o botão Voltar do gamepad sem expor detalhes ao container. */
+  backRequest?: number
+  onDetailChange?: (open: boolean) => void
 }
 
 /**
@@ -20,7 +23,11 @@ interface RetroStoreViewProps {
  * também quando a integração Retro ainda não está disponível (nesse caso ela
  * mostra uma mensagem de erro em vez de lançar uma exceção).
  */
-export function RetroStoreView({ className = "" }: RetroStoreViewProps) {
+export function RetroStoreView({
+  className = "",
+  backRequest = 0,
+  onDetailChange,
+}: RetroStoreViewProps) {
   const { t, locale } = useI18n()
   const [query, setQuery] = useState("")
   const [appliedQuery, setAppliedQuery] = useState("")
@@ -36,6 +43,8 @@ export function RetroStoreView({ className = "" }: RetroStoreViewProps) {
   const [detailSources, setDetailSources] = useState<RetroSource[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState("")
+  const [downloadUri, setDownloadUri] = useState("")
+  const [downloadMessage, setDownloadMessage] = useState("")
   const listGeneration = useRef(0)
   const detailGeneration = useRef(0)
 
@@ -140,6 +149,38 @@ export function RetroStoreView({ className = "" }: RetroStoreViewProps) {
     [t],
   )
 
+  const startDownload = useCallback(
+    async (game: RetroGame, uri: string) => {
+      setDownloadUri(uri)
+      setDownloadMessage("")
+      try {
+        const start = window.launcherAPI?.torrentStart
+        if (!start) {
+          setDownloadMessage(t("store.retro_unavailable"))
+          return
+        }
+        const response = await start({
+          gameId: game.id,
+          url: uri,
+          title: game.title,
+          cover: game.cover || game.capa || game.fallbackCover,
+        })
+        setDownloadMessage(
+          response?.ok
+            ? t("store.retro_download_started")
+            : response?.error || t("store.retro_download_failed"),
+        )
+      } catch (cause) {
+        setDownloadMessage(
+          cause instanceof Error ? cause.message : t("store.retro_download_failed"),
+        )
+      } finally {
+        setDownloadUri("")
+      }
+    },
+    [t],
+  )
+
   const closeGame = useCallback(() => {
     detailGeneration.current++
     setSelectedId(null)
@@ -147,7 +188,21 @@ export function RetroStoreView({ className = "" }: RetroStoreViewProps) {
     setDetailSources([])
     setDetailError("")
     setDetailLoading(false)
+    setDownloadUri("")
+    setDownloadMessage("")
   }, [])
+
+  useEffect(() => {
+    onDetailChange?.(Boolean(selectedId))
+    return () => onDetailChange?.(false)
+  }, [onDetailChange, selectedId])
+
+  const previousBackRequest = useRef(backRequest)
+  useEffect(() => {
+    if (backRequest === previousBackRequest.current) return
+    previousBackRequest.current = backRequest
+    if (selectedId) closeGame()
+  }, [backRequest, closeGame, selectedId])
 
   const submitSearch = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -211,7 +266,9 @@ export function RetroStoreView({ className = "" }: RetroStoreViewProps) {
             game={detail}
             sources={visibleSources}
             locale={locale}
-            onOpenUri={(uri) => void window.launcherAPI?.openExternal?.(uri)}
+            downloadUri={downloadUri}
+            downloadMessage={downloadMessage}
+            onDownloadUri={(uri) => void startDownload(detail, uri)}
             t={t}
           />
         )}
@@ -351,10 +408,11 @@ function RetroCard({
 }) {
   return (
     <article
-      data-testid={`retro-game-card-${game.id}`}
+      data-testid={`retro-game-card-container-${game.id}`}
       className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] transition-colors hover:border-white/20"
     >
       <button
+        data-testid={`retro-game-card-${game.id}`}
         type="button"
         onClick={onOpen}
         className="block aspect-[460/215] w-full cursor-pointer bg-black text-left"
@@ -388,19 +446,24 @@ function RetroDetail({
   game,
   sources,
   locale,
-  onOpenUri,
+  downloadUri,
+  downloadMessage,
+  onDownloadUri,
   t,
 }: {
   game: RetroGame
   sources: RetroSource[]
   locale: string
-  onOpenUri: (uri: string) => void
+  downloadUri: string
+  downloadMessage: string
+  onDownloadUri: (uri: string) => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
   const uris = Array.isArray(game.uris)
     ? game.uris.filter((uri): uri is string => Boolean(uri))
     : []
   const source = sources.find((item) => item.id === game.sourceId)
+  const statuses = Array.isArray(source?.status) ? source.status.filter(Boolean) : []
   const parsedDate = game.uploadDate ? new Date(game.uploadDate) : null
   const date =
     game.uploadDate && parsedDate && !Number.isNaN(parsedDate.getTime())
@@ -429,6 +492,14 @@ function RetroDetail({
               {game.description}
             </p>
           )}
+          {downloadMessage && (
+            <p
+              role="status"
+              className="mb-5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12px] text-white/65"
+            >
+              {downloadMessage}
+            </p>
+          )}
 
           <dl className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-white/[0.08] pt-4 text-[12px]">
             {game.fileSize && (
@@ -450,6 +521,34 @@ function RetroDetail({
       {(source || uris.length > 0) && (
         <div className="border-t border-white/[0.08] p-5 md:p-7">
           <h2 className="mb-3 text-sm font-medium text-white/80">{t("store.retro_sources")}</h2>
+          {source && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-white/55">
+              <Badge>
+                {t("store.retro_source_id")}: {source.id}
+              </Badge>
+              {statuses.map((status) => (
+                <Badge key={`${source.id}-${status}`}>{status}</Badge>
+              ))}
+              <button
+                type="button"
+                aria-label={t("store.retro_registry_source", { id: source.id })}
+                onClick={() =>
+                  void window.launcherAPI?.openExternal?.(
+                    source.registryUrl ||
+                      `https://library.hydra.wiki/sources/${encodeURIComponent(source.id)}`,
+                  )
+                }
+                className="text-[color:var(--accent)] hover:underline"
+              >
+                {t("store.retro_view_registry")}
+              </button>
+            </div>
+          )}
+          {source?.url && (
+            <p className="mb-3 break-all text-[11px] text-white/45" title={source.url}>
+              <span className="text-white/60">{t("store.retro_feed")}:</span> {source.url}
+            </p>
+          )}
           {source?.description && (
             <p className="mb-3 text-[12px] text-white/50">{source.description}</p>
           )}
@@ -459,11 +558,14 @@ function RetroDetail({
                 <button
                   key={`${uri}-${index}`}
                   type="button"
-                  onClick={() => onOpenUri(uri)}
-                  className="max-w-full truncate rounded-lg border border-white/10 px-3 py-2 text-left text-[11px] text-white/65 transition-colors hover:border-white/25 hover:text-white"
+                  onClick={() => onDownloadUri(uri)}
+                  disabled={Boolean(downloadUri)}
+                  className="max-w-full truncate rounded-lg border border-white/10 px-3 py-2 text-left text-[11px] text-white/65 transition-colors hover:border-white/25 hover:text-white disabled:cursor-wait disabled:opacity-50"
                   title={uri}
                 >
-                  {t("store.retro_open_source", { count: index + 1 })}
+                  {downloadUri === uri
+                    ? t("store.retro_downloading")
+                    : t("store.retro_download", { count: index + 1 })}
                 </button>
               ))}
             </div>

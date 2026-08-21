@@ -1036,5 +1036,13 @@
   "editprofile.nav.background": "Background",
   "editprofile.background_desc": "Project background image — becomes the blurred backdrop.",
   "editprofile.background_blur": "Blur background",
-  "editprofile.background_blur_desc": "Turn off to keep the background sharp in the profile."
+  "editprofile.background_blur_desc": "Turn off to keep the background sharp in the profile.",
+  "store.retro_download": "Download option {count}",
+  "store.retro_downloading": "Starting download…",
+  "store.retro_download_started": "Download added to the queue.",
+  "store.retro_download_failed": "Could not start the download.",
+  "store.retro_source_id": "Source ID",
+  "store.retro_feed": "Feed",
+  "store.retro_registry_source": "Listed in Hydra Library · registry #{id}",
+  "store.retro_view_registry": "View source registry"
 }

@@ -1,0 +1,28 @@
+"use strict"
+
+const test = require("node:test")
+const assert = require("node:assert/strict")
+const fs = require("node:fs")
+const path = require("node:path")
+
+const root = path.resolve(__dirname, "..")
+const read = (...parts) => fs.readFileSync(path.join(root, ...parts), "utf8")
+
+test("ponte aditiva do catálogo Retro permanece no main/preload/tipos", () => {
+  const main = read("electron", "main.js")
+  const preload = read("electron", "preload.js")
+  const types = read("src", "global.d.ts")
+  const store = read("src", "components", "desktop", "StoreView.tsx")
+  const retro = read("src", "components", "desktop", "RetroStoreView.tsx")
+  assert.match(main, /ipcMain\.handle\("retro:list"/)
+  assert.match(main, /ipcMain\.handle\("retro:game"/)
+  assert.match(preload, /retroList:.*retro:list/)
+  assert.match(preload, /retroGame:.*retro:game/)
+  assert.match(types, /retroList:/)
+  assert.match(types, /retroGame:/)
+  assert.match(store, /RetroStoreView/)
+  assert.match(store, /"steam" \| "retro"/)
+  assert.match(retro, /retroList/)
+  assert.match(retro, /retroGame/)
+  assert.match(retro, /torrentStart/)
+})
