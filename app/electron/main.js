@@ -3141,6 +3141,23 @@ app.whenReady().then(() => {
   }))
   ipcMain.handle("sources:game", async (_e, ref) => sources.getGame(ref))
 
+  // --- Loja Retro: somente fontes Hydra com status Classics ---------------
+  const retroCatalog = require("./retro-catalog")
+  ipcMain.handle("retro:list", async (_e, payload) => {
+    try {
+      return await retroCatalog.list(payload || {})
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+  ipcMain.handle("retro:game", async (_e, id) => {
+    try {
+      return await retroCatalog.getGame(id)
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
   // --- Torrent (worker Python + libtorrent; ver electron/torrent.js) -------
   const torrent = require("./torrent")
   torrent.onProgress((items) => {
