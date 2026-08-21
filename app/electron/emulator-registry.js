@@ -17,8 +17,25 @@ const MAX_ARG_LENGTH = 1024
 const MAX_SCAN_DEPTH = 8
 const MAX_SCAN_RESULTS = 4096
 const MAX_ROM_FOLDERS = 32
+// Discovery deliberately stays bounded and read-only.  A PATH entry can point
+// anywhere, so AppImage/Flatpak discovery never recursively walks a home tree
+// or executes a candidate to identify it.
+const MAX_APPIMAGE_RESULTS = 64
+const MAX_DISCOVERY_ENTRIES = 512
+const LINUX_STANDARD_PATHS = Object.freeze([
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+  "/usr/local/sbin",
+  "/usr/sbin",
+  "/sbin",
+  "/usr/local/games",
+  "/usr/games",
+  "/snap/bin",
+])
 const ID_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/
 const COMMAND_RE = /^[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}$/
+const FLATPAK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/
 const ROM_EXTENSION_RE = /^\.[a-z0-9][a-z0-9+_.-]{0,15}$/i
 
 // File types accepted by the built-in scanners. These are deliberately an
@@ -78,6 +95,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["PlayStation 2"],
     description: "Emulador de PlayStation 2",
     candidates: ["pcsx2-qt", "pcsx2"],
+    flatpakIds: ["net.pcsx2.PCSX2"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.pcsx2,
     romDirectoryMarkers: [],
   }),
@@ -87,6 +105,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["PlayStation 3"],
     description: "Emulador de PlayStation 3",
     candidates: ["rpcs3"],
+    flatpakIds: ["net.rpcs3.RPCS3"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.rpcs3,
     romDirectoryMarkers: ["PS3_GAME", "ps3_game"],
   }),
@@ -96,6 +115,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["GameCube", "Wii"],
     description: "Emulador de GameCube e Wii",
     candidates: ["dolphin-emu", "dolphin"],
+    flatpakIds: ["org.DolphinEmu.dolphin-emu"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.dolphin,
     romDirectoryMarkers: [],
   }),
@@ -105,6 +125,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["PlayStation Portable"],
     description: "Emulador de PSP",
     candidates: ["ppsspp", "PPSSPP"],
+    flatpakIds: ["org.ppsspp.PPSSPP"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.ppsspp,
     romDirectoryMarkers: [],
   }),
@@ -114,6 +135,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["PlayStation"],
     description: "Emulador de PlayStation 1",
     candidates: ["duckstation-qt", "duckstation"],
+    flatpakIds: ["org.duckstation.DuckStation"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.duckstation,
     romDirectoryMarkers: [],
   }),
@@ -123,6 +145,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["Multi-sistema"],
     description: "Frontend para cores libretro",
     candidates: ["retroarch"],
+    flatpakIds: ["org.libretro.RetroArch"],
     requiresCore: true,
     romExtensions: BUILTIN_ROM_EXTENSIONS.retroarch,
     romDirectoryMarkers: [],
@@ -133,6 +156,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["Nintendo DS"],
     description: "Emulador de Nintendo DS",
     candidates: ["melonDS", "melonds"],
+    flatpakIds: ["net.kuribo64.melonDS"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.melonds,
     romDirectoryMarkers: [],
   }),
@@ -142,6 +166,7 @@ const DEFINITIONS = Object.freeze({
     systems: ["Nintendo DS"],
     description: "Emulador de Nintendo DS",
     candidates: ["desmume"],
+    flatpakIds: ["org.desmume.DeSmuME"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.desmume,
     romDirectoryMarkers: [],
   }),
@@ -163,6 +188,17 @@ function normalizeCommand(value) {
   if (!command || command.includes("\u0000")) return ""
   if (path.isAbsolute(command)) return path.normalize(command)
   return COMMAND_RE.test(command) ? command : ""
+}
+
+function normalizeFlatpakId(value) {
+  if (typeof value !== "string" || value.includes("\u0000")) return ""
+  const id = value.trim()
+  return FLATPAK_ID_RE.test(id) ? id : ""
+}
+
+function normalizeFlatpakIds(value) {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map(normalizeFlatpakId).filter(Boolean))].slice(0, 8)
 }
 
 function normalizeRomExtension(value) {
@@ -231,6 +267,7 @@ function normalizeDefinition(input) {
     : []
   const romExtensions = normalizeRomExtensions(input.romExtensions ?? input.extensions)
   const romDirectoryMarkers = normalizeRomDirectoryMarkers(input.romDirectoryMarkers)
+  const flatpakIds = normalizeFlatpakIds(input.flatpakIds)
   if (
     !id ||
     !name ||
@@ -246,6 +283,7 @@ function normalizeDefinition(input) {
     systems,
     description,
     candidates: [...new Set(candidates)],
+    ...(flatpakIds.length ? { flatpakIds } : {}),
     romExtensions,
     romDirectoryMarkers,
     ...(input.requiresCore === true ? { requiresCore: true } : {}),
@@ -399,11 +437,192 @@ function isExecutable(file, fsImpl) {
   }
 }
 
+function splitPathValue(envPath) {
+  const value = envPath === undefined ? process.env.PATH : envPath
+  return String(value || "")
+    .split(path.delimiter)
+    .filter((entry) => entry && !entry.includes("\u0000"))
+}
+
+function normalizeDiscoveryPath(value) {
+  if (typeof value !== "string" || !value.trim() || value.includes("\u0000")) return ""
+  const raw = value.trim()
+  return path.isAbsolute(raw) ? path.normalize(raw) : ""
+}
+
+function uniqueDiscoveryPaths(values) {
+  const seen = new Set()
+  const result = []
+  for (const value of values || []) {
+    const normalized = normalizeDiscoveryPath(value)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
+function buildLinuxSearchPath(envPath, platform, homeDir) {
+  // Keep relative PATH entries intact: shells commonly use `.` or a project
+  // relative bin directory, and findOnPath historically accepted those. Only
+  // the appended standard directories go through absolute-path normalization.
+  const entries = splitPathValue(envPath)
+  if (platform !== "linux") return entries.join(path.delimiter)
+  const seen = new Set(entries)
+  for (const value of uniqueDiscoveryPaths([
+    homeDir ? path.join(homeDir, ".local", "bin") : "",
+    ...LINUX_STANDARD_PATHS,
+  ])) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    entries.push(value)
+  }
+  return entries.join(path.delimiter)
+}
+
+function readDirectoryNames(directory, fsImpl) {
+  if (!isDirectory(directory, fsImpl)) return []
+  let entries
+  try {
+    entries = fsImpl.readdirSync(directory, { withFileTypes: true })
+  } catch {
+    try {
+      entries = fsImpl.readdirSync(directory)
+    } catch {
+      return []
+    }
+  }
+  return (entries || [])
+    .map((entry) => (typeof entry === "string" ? entry : entry?.name))
+    .filter((name) => typeof name === "string" && name && !name.includes("\u0000"))
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, MAX_DISCOVERY_ENTRIES)
+}
+
+function compactDiscoveryName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
+function isAppImageForDefinition(name, definition) {
+  const lower = String(name || "").toLowerCase()
+  if (!lower.endsWith(".appimage")) return false
+  const aliases = [definition.id, ...(definition.candidates || [])]
+    .map((candidate) => compactDiscoveryName(path.basename(candidate)))
+    .filter(Boolean)
+  const compact = compactDiscoveryName(lower.slice(0, -".appimage".length))
+  return aliases.some((alias) => compact.includes(alias))
+}
+
+function buildAppImageDirectories({ platform, homeDir, envPath, appImageDirs = [] } = {}) {
+  if (platform !== "linux") return []
+  const envDirs = splitPathValue(envPath)
+  return uniqueDiscoveryPaths([
+    ...(Array.isArray(appImageDirs) ? appImageDirs : []),
+    ...envDirs,
+    homeDir ? path.join(homeDir, "Applications") : "",
+    homeDir ? path.join(homeDir, "AppImages") : "",
+    homeDir ? path.join(homeDir, "appimages") : "",
+    homeDir ? path.join(homeDir, "Downloads") : "",
+    homeDir ? path.join(homeDir, ".local", "bin") : "",
+    "/opt",
+    "/opt/Applications",
+    "/opt/AppImages",
+    "/opt/appimages",
+    "/usr/local/bin",
+    "/usr/bin",
+  ])
+}
+
+function findAppImage(definition, fsImpl, directories) {
+  let count = 0
+  for (const directory of directories || []) {
+    for (const name of readDirectoryNames(directory, fsImpl)) {
+      if (++count > MAX_APPIMAGE_RESULTS * 8) return ""
+      if (!isAppImageForDefinition(name, definition)) continue
+      const candidate = path.join(directory, name)
+      if (isExecutable(candidate, fsImpl)) return candidate
+    }
+  }
+  return ""
+}
+
+function buildFlatpakRoots({ platform, homeDir, env = process.env, flatpakRoots = [] } = {}) {
+  if (platform !== "linux") return []
+  const xdgDataHome = typeof env?.XDG_DATA_HOME === "string" ? env.XDG_DATA_HOME : ""
+  return uniqueDiscoveryPaths([
+    ...(Array.isArray(flatpakRoots) ? flatpakRoots : []),
+    xdgDataHome ? path.join(xdgDataHome, "flatpak") : "",
+    homeDir ? path.join(homeDir, ".local", "share", "flatpak") : "",
+    "/var/lib/flatpak",
+    "/usr/local/share/flatpak",
+  ])
+}
+
+// Flatpak's exported launcher is often a symlink. We inspect it only as an
+// installation marker and launch the validated `flatpak` binary directly;
+// never execute a wrapper or parse its shell script.
+function isFlatpakExport(file, fsImpl) {
+  const parent = path.dirname(file)
+  if (hasSymlinkComponent(parent, fsImpl)) return false
+  try {
+    const stat = fsImpl.lstatSync(file)
+    return stat.isFile() || stat.isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+function flatpakAppPresent(appId, fsImpl, roots) {
+  for (const root of roots || []) {
+    const appPaths = [
+      path.join(root, "app", appId),
+      path.join(root, appId),
+    ]
+    if (appPaths.some((candidate) => isDirectory(candidate, fsImpl))) return true
+    const desktop = path.join(root, "exports", "share", "applications", `${appId}.desktop`)
+    if (isFlatpakExport(desktop, fsImpl)) return true
+    const wrapper = path.join(root, "exports", "bin", appId)
+    if (isFlatpakExport(wrapper, fsImpl)) return true
+  }
+  return false
+}
+
+function findFlatpak(definition, fsImpl, envPath, roots) {
+  const ids = normalizeFlatpakIds(definition.flatpakIds)
+  if (!ids.length) return null
+  const executable = findOnPath("flatpak", fsImpl, envPath)
+  if (!executable) return null
+  for (const appId of ids) {
+    if (flatpakAppPresent(appId, fsImpl, roots)) {
+      // The app id is a fixed, validated argument. Keeping it as a separate
+      // argv item prevents shell metacharacters in paths or metadata from
+      // becoming executable code.
+      return { executable, args: ["run", appId] }
+    }
+  }
+  return null
+}
+
+function detectDefinition(definition, { fsImpl, envPath, appImageDirs, flatpakRoots } = {}) {
+  for (const candidate of definition.candidates || []) {
+    const executable = findOnPath(candidate, fsImpl, envPath)
+    if (executable) return { executable, args: [], source: "detected" }
+  }
+  const appImage = findAppImage(definition, fsImpl, appImageDirs)
+  if (appImage) return { executable: appImage, args: [], source: "detected" }
+  const flatpak = findFlatpak(definition, fsImpl, envPath, flatpakRoots)
+  if (flatpak) return { ...flatpak, source: "detected" }
+  return null
+}
+
 function findOnPath(command, fsImpl, envPath) {
   const normalized = normalizeCommand(command)
   if (!normalized) return ""
   if (path.isAbsolute(normalized)) return isExecutable(normalized, fsImpl) ? normalized : ""
-  for (const directory of String(envPath || process.env.PATH || "").split(path.delimiter)) {
+  // Keep the historical empty-value fallback for callers using findOnPath
+  // directly; the registry itself always supplies a concrete search path.
+  const pathValue = envPath || process.env.PATH || ""
+  for (const directory of String(pathValue).split(path.delimiter)) {
     if (!directory) continue
     const candidate = path.join(directory, normalized)
     if (isExecutable(candidate, fsImpl)) return candidate
@@ -547,11 +766,29 @@ function createEmulatorRegistry({
   ),
   profilesPath,
   fsImpl = fsDefault,
-  envPath = process.env.PATH,
+  envPath,
   homeDir = os.homedir(),
+  platform = process.platform,
+  env = process.env,
+  appImageDirs = [],
+  flatpakRoots = [],
   extraDefinitions = [],
   definitions: definitionsOption,
 } = {}) {
+  const effectiveEnvPath = envPath === undefined ? env?.PATH : envPath
+  const searchPath = buildLinuxSearchPath(effectiveEnvPath, platform, homeDir)
+  const appImageDirectories = buildAppImageDirectories({
+    platform,
+    homeDir,
+    envPath: effectiveEnvPath,
+    appImageDirs,
+  })
+  const flatpakDirectories = buildFlatpakRoots({
+    platform,
+    homeDir,
+    env,
+    flatpakRoots,
+  })
   const root = path.resolve(String(dataDir))
   const statePath = profilesPath ? path.resolve(profilesPath) : path.join(root, REGISTRY_FILENAME)
   const romsPath = path.join(root, ROMS_FILENAME)
@@ -588,20 +825,26 @@ function createEmulatorRegistry({
   function detectOne(definition, profiles) {
     const configured = profiles[definition.id]
     const configuredExecutable = configured
-      ? findOnPath(configured.executable, fsImpl, envPath)
+      ? findOnPath(configured.executable, fsImpl, searchPath)
       : ""
     const detected = configured
       ? configuredExecutable
-      : definition.candidates
-          .map((candidate) => findOnPath(candidate, fsImpl, envPath))
-          .find(Boolean) || ""
+        ? { executable: configuredExecutable, args: configured.args || [], source: "configured" }
+        : null
+      : detectDefinition(definition, {
+          fsImpl,
+          envPath: searchPath,
+          appImageDirs: appImageDirectories,
+          flatpakRoots: flatpakDirectories,
+        })
     return {
       ...clone(definition),
       // Keep the configured value visible for editing, but `available` only
       // becomes true after regular-file/executable validation.
-      executable: detected || configured?.executable || "",
+      executable: detected?.executable || configured?.executable || "",
       available: Boolean(detected),
       source: configured ? "configured" : detected ? "detected" : "builtin",
+      ...(!configured && detected?.args?.length ? { detectedArgs: [...detected.args] } : {}),
       profile: configured ? { ...clone(configured), executable: configured.executable } : undefined,
     }
   }
@@ -951,20 +1194,23 @@ function createEmulatorRegistry({
     const profiles = readProfiles()
     const configured = profiles[id]
     const configuredExecutable = configured
-      ? findOnPath(configured.executable, fsImpl, envPath)
+      ? findOnPath(configured.executable, fsImpl, searchPath)
       : ""
     if (configured && !configuredExecutable)
       return { ok: false, error: "executavel_configurado_invalido" }
-    const executable =
-      configuredExecutable ||
-      definition.candidates
-        .map((candidate) => findOnPath(candidate, fsImpl, envPath))
-        .find(Boolean) ||
-      ""
+    const detected = configured
+      ? { executable: configuredExecutable, args: configured.args || [] }
+      : detectDefinition(definition, {
+          fsImpl,
+          envPath: searchPath,
+          appImageDirs: appImageDirectories,
+          flatpakRoots: flatpakDirectories,
+        })
+    const executable = detected?.executable || ""
     if (!executable) return { ok: false, error: "emulador_nao_encontrado" }
     const args = normalizeArgs(extraArgs)
     if (!args.ok) return args
-    const baseArgs = configured?.args || []
+    const baseArgs = configured?.args || detected?.args || []
     const selectedCore = corePath || configured?.corePath || ""
     const hydraMode = launchMode === "hydra"
     const command = [executable, ...baseArgs]
@@ -1012,6 +1258,8 @@ module.exports = {
   DEFINITIONS,
   normalizeId,
   normalizeCommand,
+  normalizeFlatpakId,
+  normalizeFlatpakIds,
   normalizeRomExtension,
   normalizeRomExtensions,
   normalizeRomDirectoryMarkers,

@@ -1,0 +1,50 @@
+<!-- Original Arcadia artwork. No third-party logos or external resources. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="640" viewBox="0 0 1024 640" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract multi-system artwork</title>
+  <desc id="desc">A central square surrounded by orbital paths and colorful nodes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="45" y1="29" x2="978" y2="615" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2f1d35"/>
+      <stop offset=".5" stop-color="#573326"/>
+      <stop offset="1" stop-color="#151323"/>
+    </linearGradient>
+    <linearGradient id="core" x1="366" y1="156" x2="657" y2="469" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffc36f"/>
+      <stop offset=".5" stop-color="#df704f"/>
+      <stop offset="1" stop-color="#873e5e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(835 103) rotate(140) scale(430)">
+      <stop stop-color="#ffc878" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#ffc878" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="277" y="89" width="470" height="466" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="21" stdDeviation="22" flood-color="#090711" flood-opacity=".78"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="640" rx="34" fill="url(#bg)"/>
+  <rect width="1024" height="640" rx="34" fill="url(#glow)"/>
+  <path d="M0 540c196-76 331 15 500-14 190-32 331-95 524-37v151H0V540Z" fill="#0d0a18" fill-opacity=".55"/>
+  <g opacity=".28" stroke="#ffe1ac" stroke-width="2">
+    <path d="M64 125h173M64 149h94M800 510h160M864 486h96"/>
+    <circle cx="186" cy="467" r="37"/><circle cx="186" cy="467" r="18"/>
+  </g>
+  <g opacity=".8" stroke="#ffcd7d" stroke-width="5" stroke-linecap="round" stroke-dasharray="4 16">
+    <ellipse cx="512" cy="320" rx="296" ry="126" transform="rotate(-20 512 320)"/>
+    <ellipse cx="512" cy="320" rx="296" ry="126" transform="rotate(42 512 320)"/>
+  </g>
+  <g>
+    <circle cx="274" cy="171" r="22" fill="#8be3cf" stroke="#d6fff2" stroke-width="4"/>
+    <circle cx="756" cy="186" r="22" fill="#f397c0" stroke="#ffd9e9" stroke-width="4"/>
+    <circle cx="787" cy="468" r="22" fill="#8dc4ff" stroke="#d8eaff" stroke-width="4"/>
+    <circle cx="241" cy="456" r="22" fill="#f6cc72" stroke="#ffedba" stroke-width="4"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="345" y="153" width="334" height="334" rx="70" fill="#271a2e" stroke="#ffe1a6" stroke-opacity=".7" stroke-width="4" transform="rotate(5 512 320)"/>
+    <rect x="391" y="199" width="242" height="242" rx="42" fill="url(#core)" transform="rotate(5 512 320)"/>
+    <rect x="429" y="237" width="166" height="166" rx="27" fill="#251930" fill-opacity=".82" transform="rotate(5 512 320)"/>
+    <path d="m509 267 35 67-35 67-35-67 35-67Z" fill="#ffe29a"/>
+    <circle cx="509" cy="334" r="16" fill="#ad4f63"/>
+    <path d="M465 334h88M509 290v88" stroke="#ffe9b6" stroke-width="5" stroke-linecap="round" opacity=".72"/>
+  </g>
+  <path d="M290 557c141-25 307-23 452 0" stroke="#ffc97c" stroke-opacity=".5" stroke-width="3" stroke-linecap="round"/>
+</svg>
