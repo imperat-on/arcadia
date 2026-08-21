@@ -10,6 +10,7 @@ const {
   createRetroCatalog,
   normalizeSource,
   normalizePayload,
+  cleanRetroTitle,
 } = require("../electron/retro-catalog")
 
 function tempDir() {
@@ -81,6 +82,21 @@ test("catálogo Retro aceita somente fontes com status Classics", async () => {
   }
 })
 
+test("títulos Retro removem metadados de release sem perder a edição", () => {
+  assert.equal(
+    cleanRetroTitle(".hack//Outbreak Part 3 (dot Hack - Part 3 - Outbreak) [ENG|NTSC]"),
+    ".hack//Outbreak Part 3",
+  )
+  assert.equal(cleanRetroTitle("[PSX-PS3] Tail Concerto [PKG] [USA / RUS]"), "Tail Concerto")
+  assert.equal(
+    cleanRetroTitle("Dante's Inferno - Divine Edition [ISO] [USA / RUS]"),
+    "Dante's Inferno - Divine Edition",
+  )
+  assert.equal(cleanRetroTitle("'89 Dennou Kyuusei Uranai (Japan)"), "'89 Dennou Kyuusei Uranai")
+  assert.equal(cleanRetroTitle("[PSP-PS3] Game [RUS / Multi10 | PAL] [ViT Company]"), "Game")
+  assert.equal(cleanRetroTitle("The X [Director's Cut] [USA]"), "The X [Director's Cut]")
+})
+
 test("normalização rejeita URLs perigosas e URI sem transporte", () => {
   assert.equal(
     normalizeSource({ id: 1, title: "x", url: "http://example.test/x", status: ["Classics"] }),
@@ -98,14 +114,18 @@ test("normalização rejeita URLs perigosas e URI sem transporte", () => {
     {
       name: "Feed",
       downloads: [
-        { title: "ok", uris: ["https://example.test/file.zip", "file:///etc/passwd"] },
+        { title: "ok [ISO]", uris: ["https://example.test/file.zip", "file:///etc/passwd"] },
+        { title: "magnet", uris: ["MAGNET:?dn=game&xt=urn:btih:ABC123"] },
         { title: "bad", uris: ["javascript:alert(1)"] },
       ],
     },
     source,
   )
-  assert.equal(games.length, 1)
+  assert.equal(games.length, 2)
   assert.deepEqual(games[0].uris, ["https://example.test/file.zip"])
+  assert.equal(games[0].title, "ok")
+  assert.equal(games[0].originalTitle, "ok [ISO]")
+  assert.equal(games[1].uris[0], "magnet:?dn=game&xt=urn:btih:ABC123")
 })
 
 test("pagina, busca e cache offline preservam o catálogo anterior", async () => {
@@ -220,6 +240,32 @@ test("usa cache local de sources.js quando a fonte clássica responde 403", asyn
     const page = await catalog.list()
     assert.equal(page.ok, true)
     assert.equal(page.games[0].title, "Offline classic")
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("cache legado também recebe a limpeza de títulos", async () => {
+  const dir = tempDir()
+  fs.writeFileSync(
+    path.join(dir, "retro-catalog.json"),
+    JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      sources: [],
+      games: [{ id: "legacy:1", title: "Game [ISO]", sourceId: "legacy", sourceTitle: "Legacy" }],
+    }),
+  )
+  try {
+    const catalog = createRetroCatalog({
+      dataDir: dir,
+      fetchImpl: async () => {
+        throw new Error("offline")
+      },
+    })
+    const result = await catalog.list()
+    assert.equal(result.ok, true)
+    assert.equal(result.games[0].title, "Game")
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

@@ -289,10 +289,10 @@ export function DesktopLauncher() {
                 onRefresh={carregar}
               />
             )}
-            {!jogoPagina && view === "lojas" && <StoreView games={games} />}
+            {!jogoPagina && view === "lojas" && <StoreView games={games} onOpenDownloads={() => setView("downloads")} />}
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
-            {!jogoPagina && view === "fontes" && <SourcesView />}
+            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => setView("downloads")} />}
             {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
               <ProfilePage

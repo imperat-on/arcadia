@@ -331,6 +331,8 @@ export interface SourceGameFull {
 export interface RetroGame {
   id: string
   title: string
+  /** Raw Hydra filename/title retained for provenance while `title` is cleaned for display. */
+  originalTitle?: string
   sourceId: string
   sourceTitle: string
   platform?: string
@@ -1233,7 +1235,7 @@ declare global {
         fileIndices?: number[]
         title?: string
         cover?: string
-      }) => Promise<{ ok: boolean; error?: string }>
+      }) => Promise<{ ok: boolean; queued?: boolean; error?: string }>
       torrentPause: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentResume: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentCancel: (gameId: string) => Promise<{ ok: boolean; error?: string }>
