@@ -6,11 +6,12 @@ import { IntegrationsSection, MetadataSection } from "../ps5-launcher/SettingsPa
 import { GeneralSection } from "./GeneralSection"
 import { StoreSetup } from "./StoreSetup"
 import { AccessibilityView } from "./AccessibilityView"
+import { EmulationSection } from "./EmulationSection"
 
-type Sub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
+type Sub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "emulacao"
 
 // Configurações do modo desktop: o conteúdo das seções reais; a sub-navegação
-// (Integrações/Temas/Metadados) fica expandida na sidebar principal.
+// (Integrações/Metadados/Emulação) fica expandida na sidebar principal.
 export function SettingsView({ sub, onSaved }: { sub: Sub; onSaved: () => void }) {
   const [cfg, setCfg] = useState<AppConfig>({})
   const [status, setStatus] = useState<IntegrationsStatus | null>(null)
@@ -44,6 +45,7 @@ export function SettingsView({ sub, onSaved }: { sub: Sub; onSaved: () => void }
       )}
       {sub === "metadados" && <MetadataSection onSaved={onSaved} />}
       {sub === "acessibilidade" && <AccessibilityView />}
+      {sub === "emulacao" && <EmulationSection />}
     </div>
   )
 }
