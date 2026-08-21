@@ -327,6 +327,32 @@ export interface SourceGameFull {
   [k: string]: unknown
 }
 
+/** Jogo da aba Retro, originado exclusivamente de uma fonte com status Classics. */
+export interface RetroGame {
+  id: string
+  title: string
+  sourceId: string
+  sourceTitle: string
+  platform?: string
+  description?: string
+  fileSize?: string
+  uploadDate?: string
+  cover?: string
+  capa?: string
+  fallbackCover?: string
+  uris?: string[]
+}
+
+export interface RetroSource {
+  id: string
+  title: string
+  description?: string
+  url: string
+  registryUrl?: string
+  gamesCount?: number
+  status: string[]
+}
+
 /** Arquivo dentro de um torrent (para download seletivo). */
 export interface TorrentFileInfo {
   index: number
@@ -1178,6 +1204,27 @@ declare global {
       sourcesGame: (
         ref: string,
       ) => Promise<{ ok: boolean; game?: SourceGameFull; source?: string; error?: string }>
+      /** Catálogo Retro: somente jogos vindos de fontes Hydra marcadas Classics. */
+      retroList: (payload?: {
+        query?: string
+        offset?: number
+        limit?: number
+      }) => Promise<{
+        ok: boolean
+        games?: RetroGame[]
+        sources?: RetroSource[]
+        total?: number
+        offset?: number
+        limit?: number
+        hasMore?: boolean
+        error?: string
+      }>
+      retroGame: (id: string) => Promise<{
+        ok: boolean
+        game?: RetroGame
+        sources?: RetroSource[]
+        error?: string
+      }>
       /** Torrent (worker Python + libtorrent). Ids sempre "tor:...". */
       torrentStart: (payload: {
         gameId: string
