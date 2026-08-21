@@ -389,7 +389,13 @@ function createRetroCatalog({
       .toLowerCase()
       .slice(0, MAX_QUERY)
     const all = q
-      ? catalog.games.filter((game) => game.title.toLowerCase().includes(q))
+      ? catalog.games.filter((game) =>
+          [game.title, game.platform, game.sourceTitle, game.description]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q),
+        )
       : catalog.games
     const games = all.slice(off, off + lim).map(({ uris, ...game }) => game)
     return {
