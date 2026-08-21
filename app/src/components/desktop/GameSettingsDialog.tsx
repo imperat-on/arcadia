@@ -503,7 +503,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
 
             {aba === "SALVAMENTOS" && <SaveSnapshotsPanel game={game} />}
             {aba === "EMULADOR" && (
-              <EmulatorProfilesPanel gameId={game.id} settings={s} onChange={set} />
+              <EmulatorProfilesPanel gameId={game.id} settings={s} onChange={set} showProfileConfig={false} />
             )}
 
             {aba === "AVANÇADO" && (

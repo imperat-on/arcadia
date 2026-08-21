@@ -76,8 +76,9 @@ A especificação do manifest v1 e do registro local de plugins está em
 `emulator-registry.js` detecta PCSX2, RPCS3, Dolphin, PPSSPP, DuckStation,
 RetroArch, melonDS e DeSmuME sem executar processos. Perfis, BIOS/core e pastas
 ROM ficam em `ARCADIA_DATA_DIR/emulators.json`; resultados do scanner ficam
-separados em `ARCADIA_DATA_DIR/roms.json`. O scanner aplica allowlist de
-extensões, rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
+separados em `ARCADIA_DATA_DIR/roms.json`. A configuração global fica em
+**Configurações → Emulação**; os jogos só mantêm sua ROM/argv local. O scanner
+aplica allowlist de extensões, rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
 pasta para pesquisar as pastas persistidas. O modo Hydra é opt-in no main e
 monta somente `cmd: string[]`; BIOS/firmware são apenas detectados localmente.
 

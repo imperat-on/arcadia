@@ -11,10 +11,13 @@ export function EmulatorProfilesPanel({
   gameId,
   settings,
   onChange,
+  showProfileConfig = true,
 }: {
   gameId: string
   settings: GameSettings
   onChange: (patch: Partial<GameSettings>) => void
+  /** Global executable/BIOS/core editing belongs in Settings > Emulação. */
+  showProfileConfig?: boolean
 }) {
   const [items, setItems] = useState<EmulatorInfo[]>([])
   const [busy, setBusy] = useState(true)
@@ -118,11 +121,13 @@ export function EmulatorProfilesPanel({
       }
       setScanResults(result.roms || [])
       setScanTruncated(Boolean(result.truncated))
-      setRomFolders((current) =>
-        current.some((item) => item.path === folder.path)
-          ? current
-          : [...current, { path: folder.path, recursive: true }],
-      )
+      if (showProfileConfig) {
+        setRomFolders((current) =>
+          current.some((item) => item.path === folder.path)
+            ? current
+            : [...current, { path: folder.path, recursive: true }],
+        )
+      }
       if (!result.roms?.length) setError("Nenhuma ROM compatível encontrada nessa pasta.")
     } catch (cause) {
       setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
@@ -305,7 +310,21 @@ export function EmulatorProfilesPanel({
         </select>
       </label>
 
-      {selected && (
+      {selected && !showProfileConfig && (
+        <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-white/80">{selected.name}</span>
+            <span className={selected.available ? "text-emerald-200/80" : "text-amber-200/80"}>
+              {selected.available ? "detectado" : "não detectado"}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-white/40">
+            Executável, BIOS, core e pastas de ROM são configurados em <strong className="font-medium text-white/60">Configurações › Emulação</strong>.
+          </p>
+        </div>
+      )}
+
+      {selected && showProfileConfig && (
         <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
             <span className="font-medium text-white/80">{selected.name}</span>

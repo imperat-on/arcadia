@@ -38,8 +38,9 @@ test("painel de emuladores lista, detecta e persiste perfil/ROM via bridge", () 
     "utf8",
   )
   assert.match(addGame, /Emulador \(ROM\/ISO\)/)
-  assert.match(addGame, /emulatorProfileSet/)
+  assert.doesNotMatch(addGame, /emulatorProfileSet/)
   assert.match(addGame, /emulatorsResolve/)
+  assert.match(dialog, /showProfileConfig=\{false\}/)
 })
 
 test("painel não executa comandos nem acessa ipcRenderer", () => {
