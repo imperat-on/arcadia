@@ -56,9 +56,11 @@ Os handlers `emulators:*` expõem catálogo, perfis, status, busca local de ROMs
 resolução ao preload; `game:launch` chama tudo no main e ignora comandos
 arbitrários do renderer.
 
-`EmulatorProfilesPanel` e o modo **Emulador (ROM/ISO)** de `AddGameDialog`
-permitem configurar perfil, BIOS/core, ROM e argumentos adicionais sem interpretar
-sintaxe de shell. ROMs, BIOS, cores e configurações permanecem locais; somente
+A aba **Configurações → Emulação** mostra um card por sistema e abre o modal
+individual de configuração de executável, BIOS/core, pastas ROM e argv-base.
+`GameSettingsDialog` e o modo **Emulador (ROM/ISO)** de `AddGameDialog` ficam
+somente com a associação jogo/ROM/argv-extra, sem duplicar o perfil global.
+ROMs, BIOS, cores e configurações permanecem locais; somente
 metadados do jogo custom são adicionados à biblioteca.
 
 ## Providers e pipeline da biblioteca

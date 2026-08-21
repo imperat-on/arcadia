@@ -18,7 +18,7 @@ export type DesktopView =
   | "amigos"
   | "perfil"
   | "config"
-export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade"
+export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "emulacao"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
   { id: "inicio", label: "Início", labelKey: "sidebar.inicio", icon: <IconHome /> },
@@ -31,11 +31,12 @@ const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: 
   { id: "config", label: "Configurações", labelKey: "settings.title", icon: <IconGear /> },
 ]
 
-const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string }[] = [
+const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string; groupKey?: string; icon?: React.ReactNode; badgeKey?: string }[] = [
   { id: "gerais", label: "Config. Gerais", labelKey: "settings.general" },
   { id: "integracoes", label: "Integrações", labelKey: "settings.integracoes" },
   { id: "metadados", label: "Metadados", labelKey: "settings.metadados.titulo" },
   { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade" },
+  { id: "emulacao", label: "Emulação", labelKey: "settings.emulacao", groupKey: "settings.emulacao.grupo", icon: <IconGamepad />, badgeKey: "settings.emulacao.novo" },
 ]
 
 export function Sidebar({
@@ -233,24 +234,24 @@ export function Sidebar({
                   {CONFIG_SUBS.map((s) => {
                     const ativo = configSub === s.id
                     return (
-                      <button
-                        key={s.id}
-                        onClick={() => {
-                          onConfigSub(s.id)
-                          onView("config")
-                        }}
-                        className={`flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] transition-colors ${
-                          ativo
-                            ? "bg-white/[0.06] text-white"
-                            : "text-white/45 hover:bg-white/[0.03] hover:text-white/85"
-                        }`}
-                      >
-                        <span
-                          className="h-1 w-1 rounded-full"
-                          style={{ background: ativo ? "var(--accent)" : "rgba(255,255,255,0.25)" }}
-                        />
-                        {t(s.labelKey)}
-                      </button>
+                      <div key={s.id}>
+                        {s.groupKey && <p className="mb-1 mt-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/30">{t(s.groupKey)}</p>}
+                        <button
+                          onClick={() => {
+                            onConfigSub(s.id)
+                            onView("config")
+                          }}
+                          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] transition-colors ${
+                            ativo
+                              ? "bg-white/[0.06] text-white"
+                              : "text-white/45 hover:bg-white/[0.03] hover:text-white/85"
+                          }`}
+                        >
+                          {s.icon || <span className="h-1 w-1 rounded-full" style={{ background: ativo ? "var(--accent)" : "rgba(255,255,255,0.25)" }} />}
+                          <span className="min-w-0 flex-1">{t(s.labelKey)}</span>
+                          {s.badgeKey && <span className="rounded-full border border-[color:var(--accent)]/60 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[color:var(--accent)]">{t(s.badgeKey)}</span>}
+                        </button>
+                      </div>
                     )
                   })}
                 </div>
@@ -570,6 +571,16 @@ function IconGear() {
     <svg {...s}>
       <path d="M12 3.2 18.6 7v10L12 20.8 5.4 17V7z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+// Emulação: gamepad simples para a seção de clássicos.
+function IconGamepad() {
+  return (
+    <svg {...s}>
+      <path d="M7.5 8.5h9a4 4 0 0 1 3.8 3l1.2 4.5a2.5 2.5 0 0 1-4.6 1.7l-1.4-2.2h-7l-1.4 2.2a2.5 2.5 0 0 1-4.6-1.7l1.2-4.5a4 4 0 0 1 3.8-3Z" />
+      <path d="M7 12v4M5 14h4M16 13h.01M19 15h.01" />
     </svg>
   )
 }

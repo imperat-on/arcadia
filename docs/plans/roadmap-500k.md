@@ -295,9 +295,10 @@ com contratos e testes focados:
   para PKG RPCS3, recusando pacotes ainda não instalados sem executar nada; o
   preflight de runtime inspeciona `/proc` e bloqueia sessões concorrentes com
   código estruturado. O preload/main expõem listagem, detecção, perfis, status,
-  busca local e resolução;
-  o painel e o modo ROM/ISO usam a mesma ponte;
-- validação após essas entregas: **210/210 testes do app**, incluindo contratos e
+  busca local e resolução; **Configurações → Emulação** apresenta cards e
+  modal individual, enquanto o painel do jogo mantém apenas ROM/argv-extra;
+  ambos usam a mesma ponte;
+- validação após essas entregas: **212/212 testes do app**, incluindo contratos e
   fixtures de emuladores, benchmark determinístico de busca local, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
@@ -305,12 +306,12 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`ab2a1c3`**;
+- commit-base: **`ea2f6e2`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado após a ponte de emuladores: **356 arquivos textuais / 78.484 linhas**;
-  a seleção de código, testes e SQL totaliza aproximadamente **63,4 mil linhas**.
+- resultado após a ponte de emuladores: **360 arquivos textuais / 79.070 linhas**;
+  a seleção de código, testes e SQL totaliza aproximadamente **64,0 mil linhas**.
   A contagem continua excluindo binários, `.git`, `node_modules`, `dist` e
   `__pycache__`.
 

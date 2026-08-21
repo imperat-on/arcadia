@@ -38,7 +38,7 @@ export function AddGameDialog({
   const [emulators, setEmulators] = useState<EmulatorInfo[]>([])
   const [emulatorId, setEmulatorId] = useState((editGame as (Game & { emulatorId?: string }) | null)?.emulatorId || "")
   const [romPath, setRomPath] = useState((editGame as (Game & { romPath?: string }) | null)?.romPath || "")
-  const [emulatorExecutable, setEmulatorExecutable] = useState("")
+  // Backward-compatible per-game RetroArch override; global core editing lives in Settings > Emulação.
   const [emulatorCorePath, setEmulatorCorePath] = useState("")
   const [emulatorArgs, setEmulatorArgs] = useState("")
   const [prefix, setPrefix] = useState("")
@@ -96,29 +96,13 @@ export function AddGameDialog({
       if (!active || !r?.ok) return
       const detected = r.emulators || []
       setEmulators(detected)
-      const current = detected.find((item) => item.id === emulatorId)
-      if (current) {
-        setEmulatorExecutable((previous) => previous || current.profile?.executable || current.executable || "")
-      } else if (!emulatorId) {
+      if (!emulatorId) {
         const first = detected.find((item) => item.available)
-        if (first) {
-          // The functional update prevents a slower settings read from being
-          // overwritten by the automatic first detected emulator.
-          setEmulatorId((previous) => {
-            if (previous) return previous
-            setEmulatorExecutable(first.profile?.executable || first.executable || "")
-            return first.id
-          })
-        }
+        if (first) setEmulatorId((previous) => previous || first.id)
       }
     })
     return () => { active = false }
   }, [custom, platform])
-
-  useEffect(() => {
-    const selected = emulators.find((item) => item.id === emulatorId)
-    if (selected && !emulatorExecutable) setEmulatorExecutable(selected.profile?.executable || selected.executable || "")
-  }, [emulators, emulatorId, emulatorExecutable])
 
   const wineEscolhido = wines.find((w) => w.id === wineVersion)?.wine
   const prefixoEfetivo = prefix || prefixPadrao
@@ -135,11 +119,6 @@ export function AddGameDialog({
     const r = await window.launcherAPI?.pickFile()
     if (r?.ok && r.path) setRomPath(r.path)
   }
-  const pickCore = async () => {
-    const r = await window.launcherAPI?.pickFile()
-    if (r?.ok && r.path) setEmulatorCorePath(r.path)
-  }
-
   const rodarInstalador = async () => {
     setBusy(true)
     await window.launcherAPI?.customGameRunInstaller({
@@ -183,8 +162,9 @@ export function AddGameDialog({
     if (custom && platform === "emulator") {
       if (!emulatorId) return setErro("Selecione um emulador.")
       if (!romPath) return setErro("Selecione a ROM/ISO do jogo.")
-      if (!emulatorExecutable.trim()) return setErro("Informe o executável do emulador.")
-      if (emulatorId === "retroarch" && !emulatorCorePath) return setErro("Selecione um core do RetroArch.")
+      const selectedEmulator = emulators.find((item) => item.id === emulatorId)
+      if (!selectedEmulator?.profile && !selectedEmulator?.available) return setErro("Configure o emulador em Configurações › Emulação antes de adicionar jogos.")
+      if (selectedEmulator?.requiresCore && !selectedEmulator.profile?.corePath) return setErro("Selecione um core do RetroArch em Configurações › Emulação.")
     }
     setBusy(true)
     if (editando && !custom) {
@@ -201,16 +181,6 @@ export function AddGameDialog({
     }
 
     if (custom && platform === "emulator") {
-      const profile = await window.launcherAPI?.emulatorProfileSet({
-        id: emulatorId,
-        executable: emulatorExecutable.trim(),
-        corePath: emulatorCorePath || undefined,
-        args: emulators.find((item) => item.id === emulatorId)?.profile?.args || [],
-      })
-      if (!profile?.ok) {
-        setBusy(false)
-        return setErro(profile?.error || "Não foi possível salvar o perfil do emulador.")
-      }
       const check = await window.launcherAPI?.emulatorsResolve({
         emulatorId,
         romPath,
@@ -477,9 +447,7 @@ export function AddGameDialog({
                     value={emulatorId}
                     onChange={(e) => {
                       const next = e.target.value
-                      const item = emulators.find((candidate) => candidate.id === next)
                       setEmulatorId(next)
-                      setEmulatorExecutable(item?.profile?.executable || item?.executable || "")
                     }}
                     className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                   >
@@ -490,29 +458,14 @@ export function AddGameDialog({
                       </option>
                     ))}
                   </select>
-                  <label className="mb-1.5 block text-[12px] text-white/60">Executável</label>
-                  <input
-                    value={emulatorExecutable}
-                    onChange={(e) => setEmulatorExecutable(e.target.value)}
-                    placeholder="ex.: pcsx2-qt ou /usr/bin/pcsx2-qt"
-                    spellCheck={false}
-                    maxLength={1024}
-                    className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 font-mono text-[12px] text-white outline-none focus:border-[color:var(--accent)]"
-                  />
+                  <p className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-[11px] leading-relaxed text-white/45">
+                    O executável, BIOS e core são configurados em <strong className="font-medium text-white/65">Configurações › Emulação</strong>.
+                  </p>
                   <label className="mb-1.5 block text-[12px] text-white/60">ROM/ISO</label>
                   <div className="mb-3 flex gap-2">
                     <input value={romPath} readOnly placeholder="Selecione um arquivo" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white/70" />
                     <button type="button" onClick={pickRom} className="rounded-lg border border-white/10 px-3 text-xs text-white/70 hover:bg-white/10">Escolher</button>
                   </div>
-                  {emulatorId === "retroarch" && (
-                    <>
-                      <label className="mb-1.5 block text-[12px] text-white/60">Core libretro (.so)</label>
-                      <div className="mb-3 flex gap-2">
-                        <input value={emulatorCorePath} readOnly placeholder="Selecione o core" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white/70" />
-                        <button type="button" onClick={pickCore} className="rounded-lg border border-white/10 px-3 text-xs text-white/70 hover:bg-white/10">Escolher</button>
-                      </div>
-                    </>
-                  )}
                   <label className="block text-[12px] text-white/60">Argumentos adicionais (argv)</label>
                   <input
                     value={emulatorArgs}
