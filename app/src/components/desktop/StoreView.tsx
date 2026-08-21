@@ -27,12 +27,14 @@ export function StoreView({
   ativo = true,
   onOverlay,
   onAtalhos,
+  onOpenDownloads,
 }: {
   games?: Game[]
   bigPicture?: boolean
   ativo?: boolean
   onOverlay?: (aberto: boolean) => void
   onAtalhos?: (a: StoreAtalhos) => void
+  onOpenDownloads?: () => void
 }) {
   const { t } = useI18n()
   const {
@@ -427,7 +429,11 @@ export function StoreView({
           }}
           t={t}
         />
-        <RetroStoreView backRequest={retroBackRequest} onDetailChange={setRetroDetailOpen} />
+        <RetroStoreView
+          backRequest={retroBackRequest}
+          onDetailChange={setRetroDetailOpen}
+          onOpenDownloads={onOpenDownloads}
+        />
       </div>
     )
   }

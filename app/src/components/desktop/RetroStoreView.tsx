@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { RetroGame, RetroSource } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import { getRetroCover, loadRetroCovers } from "./retroArtwork"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
@@ -13,6 +14,7 @@ interface RetroStoreViewProps {
   /** Integra o botão Voltar do gamepad sem expor detalhes ao container. */
   backRequest?: number
   onDetailChange?: (open: boolean) => void
+  onOpenDownloads?: () => void
 }
 
 /**
@@ -27,6 +29,7 @@ export function RetroStoreView({
   className = "",
   backRequest = 0,
   onDetailChange,
+  onOpenDownloads,
 }: RetroStoreViewProps) {
   const { t, locale } = useI18n()
   const [query, setQuery] = useState("")
@@ -163,13 +166,14 @@ export function RetroStoreView({
           gameId: game.id,
           url: uri,
           title: game.title,
-          cover: game.cover || game.capa || game.fallbackCover,
+          cover: getRetroCover(game) || undefined,
         })
         setDownloadMessage(
           response?.ok
             ? t("store.retro_download_started")
             : response?.error || t("store.retro_download_failed"),
         )
+        if (response?.ok || response?.queued) onOpenDownloads?.()
       } catch (cause) {
         setDownloadMessage(
           cause instanceof Error ? cause.message : t("store.retro_download_failed"),
@@ -178,7 +182,7 @@ export function RetroStoreView({
         setDownloadUri("")
       }
     },
-    [t],
+    [onOpenDownloads, t],
   )
 
   const closeGame = useCallback(() => {
@@ -588,13 +592,18 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
   const [index, setIndex] = useState(0)
-  const urls = useMemo(
-    () =>
-      [game.cover, game.capa, game.fallbackCover].filter((value): value is string =>
-        Boolean(value),
-      ),
-    [game.cover, game.capa, game.fallbackCover],
-  )
+  const [resolvedCovers, setResolvedCovers] = useState<string[]>([])
+  const urls = resolvedCovers
+  useEffect(() => {
+    let alive = true
+    setResolvedCovers([])
+    void loadRetroCovers(game).then((covers) => {
+      if (alive) setResolvedCovers(covers)
+    })
+    return () => {
+      alive = false
+    }
+  }, [game.id, game.title, game.platform, game.cover, game.capa, game.fallbackCover])
   useEffect(() => setIndex(0), [game.id, urls.join("|")])
 
   if (!urls[index]) {
