@@ -57,7 +57,10 @@ resolução ao preload; `game:launch` chama tudo no main e ignora comandos
 arbitrários do renderer.
 
 A aba **Configurações → Emulação** mostra um card por sistema e abre o modal
-individual de configuração de executável, BIOS/core, pastas ROM e argv-base.
+individual de configuração de executável, BIOS/core, pastas ROM e argv-base. A detecção
+Linux é somente leitura e procura PATH/pastas padrão, AppImages compatíveis e exports do
+Flatpak; a resolução continua emitindo apenas `cmd: string[]`. Quando nada é encontrado,
+o guia oficial explica AppImage, Flatpak e seleção manual sem executar shell no renderer.
 `GameSettingsDialog` e o modo **Emulador (ROM/ISO)** de `AddGameDialog` ficam
 somente com a associação jogo/ROM/argv-extra, sem duplicar o perfil global.
 ROMs, BIOS, cores e configurações permanecem locais; somente

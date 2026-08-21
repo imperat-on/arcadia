@@ -1,0 +1,47 @@
+<!-- Original Arcadia artwork. No third-party logos or external resources. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="640" viewBox="0 0 1024 640" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract console artwork</title>
+  <desc id="desc">A geometric cube and disc motif in blue and gold.</desc>
+  <defs>
+    <linearGradient id="bg" x1="48" y1="24" x2="976" y2="624" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12283f"/>
+      <stop offset="0.52" stop-color="#1b4b68"/>
+      <stop offset="1" stop-color="#09151f"/>
+    </linearGradient>
+    <linearGradient id="face" x1="322" y1="170" x2="686" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9ed2e6"/>
+      <stop offset="1" stop-color="#3b7898"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="420" y1="168" x2="670" y2="422" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe39a"/>
+      <stop offset="1" stop-color="#e7a552"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(810 100) rotate(134) scale(430)">
+      <stop stop-color="#83d8ed" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#83d8ed" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="240" y="102" width="548" height="464" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#02070d" flood-opacity=".52"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="640" rx="34" fill="url(#bg)"/>
+  <rect width="1024" height="640" rx="34" fill="url(#glow)"/>
+  <path d="M0 534C189 458 265 548 445 520c175-27 309-153 579-97v217H0V534Z" fill="#07121b" fill-opacity=".48"/>
+  <g opacity=".22" stroke="#c8f2ff" stroke-width="2">
+    <path d="M56 116h166M56 140h94M798 510h166M870 486h94"/>
+    <circle cx="178" cy="468" r="44"/><circle cx="178" cy="468" r="25"/>
+  </g>
+  <g filter="url(#shadow)">
+    <path d="m324 237 184-101 193 107-184 104-193-110Z" fill="url(#face)" stroke="#c7eff8" stroke-opacity=".72" stroke-width="4"/>
+    <path d="M324 237v183l193 109V347L324 237Z" fill="#2b617f" stroke="#b3e7f2" stroke-opacity=".55" stroke-width="4"/>
+    <path d="m517 347 184-104v177L517 529V347Z" fill="#20516e" stroke="#a8ddea" stroke-opacity=".55" stroke-width="4"/>
+    <path d="m419 216 89-49 94 52-89 50-94-53Z" fill="#d8f6fb" fill-opacity=".26" stroke="#e8fbff" stroke-opacity=".72" stroke-width="3"/>
+    <path d="m452 200 57 31 56-31-57-30-56 30Z" fill="url(#gold)"/>
+    <circle cx="517" cy="376" r="64" fill="#0a2738" fill-opacity=".8" stroke="#b4ebf5" stroke-opacity=".7" stroke-width="4"/>
+    <circle cx="517" cy="376" r="35" fill="url(#gold)" fill-opacity=".9"/>
+    <circle cx="517" cy="376" r="12" fill="#25516a"/>
+    <path d="M395 382h53M421 356v52M627 398h22M627 421h22" stroke="#d9f8ff" stroke-linecap="round" stroke-width="8" opacity=".78"/>
+  </g>
+  <circle cx="517" cy="154" r="8" fill="#ffe5a4"/>
+  <path d="M273 560c107-26 258-28 394-4" stroke="#e4c27d" stroke-opacity=".48" stroke-width="3" stroke-linecap="round"/>
+</svg>

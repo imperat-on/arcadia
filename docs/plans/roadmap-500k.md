@@ -298,7 +298,7 @@ com contratos e testes focados:
   busca local e resolução; **Configurações → Emulação** apresenta cards e
   modal individual, enquanto o painel do jogo mantém apenas ROM/argv-extra;
   ambos usam a mesma ponte;
-- validação após essas entregas: **212/212 testes do app**, incluindo contratos e
+- validação após essas entregas: **215/215 testes do app**, incluindo contratos e
   fixtures de emuladores, benchmark determinístico de busca local, `tsc --noEmit`,
   build Vite e testes focados do servidor de observabilidade; a integração
   completa do servidor continua condicionada a PostgreSQL/`TEST_DATABASE_URL`.
@@ -306,12 +306,12 @@ com contratos e testes focados:
 ### Medição registrada
 
 - data: **2026-08-20**;
-- commit-base: **`ea2f6e2`**;
+- commit-base: **`4f7edd1`**;
 - método: árvore limpa desse commit, `find` com `-type f` e `wc -l`, filtrando
   binários com `grep -Iq` e excluindo `.git`, `node_modules`, `dist` e
   `__pycache__`;
-- resultado após a ponte de emuladores: **360 arquivos textuais / 79.070 linhas**;
-  a seleção de código, testes e SQL totaliza aproximadamente **64,0 mil linhas**.
+- resultado após a UI global de emulação, guia Linux e detecção segura: **366 arquivos textuais / 80.648 linhas**;
+  a seleção de código, testes e SQL totaliza aproximadamente **65,3 mil linhas**.
   A contagem continua excluindo binários, `.git`, `node_modules`, `dist` e
   `__pycache__`.
 

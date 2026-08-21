@@ -443,3 +443,91 @@ test("modo Hydra bloqueia MDS sem MDF sidecar com código estruturado", () => {
     fs.rmSync(f.root, { recursive: true, force: true })
   }
 })
+
+
+test("detecção Linux encontra instalação padrão fora do PATH", () => {
+  const f = fixture()
+  const standard = path.join(f.root, "home", ".local", "bin")
+  const executable = path.join(standard, "pcsx2-qt")
+  fs.mkdirSync(standard, { recursive: true })
+  fs.writeFileSync(executable, "binary")
+  fs.chmodSync(executable, 0o755)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: path.join(f.root, "missing-bin"),
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+    })
+    const detected = registry.list().find((item) => item.id === "pcsx2")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, executable)
+    assert.deepEqual(registry.resolveLaunch({ emulatorId: "pcsx2", romPath: f.rom }).cmd, [executable, f.rom])
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
+
+test("detecção e resolução de AppImage usam caminho direto sem shell", () => {
+  const f = fixture()
+  const appImages = path.join(f.root, "Applications")
+  const appImage = path.join(appImages, "PCSX2-v2.4;safe.AppImage")
+  fs.mkdirSync(appImages, { recursive: true })
+  fs.writeFileSync(appImage, "appimage")
+  fs.chmodSync(appImage, 0o755)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: path.join(f.root, "missing-bin"),
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+      appImageDirs: [appImages],
+    })
+    const detected = registry.list().find((item) => item.id === "pcsx2")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, appImage)
+    const result = registry.resolveLaunch({
+      emulatorId: "pcsx2",
+      romPath: f.rom,
+      extraArgs: ["--profile=quoted;arg"],
+    })
+    assert.deepEqual(result.cmd, [appImage, f.rom, "--profile=quoted;arg"])
+    assert.equal(result.cmd.some((arg) => arg.includes(" && ")), false)
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
+
+test("detecção Flatpak lê app exportado e resolve argv fixo sem executar wrapper", () => {
+  const f = fixture()
+  const flatpakBin = path.join(f.bin, "flatpak")
+  const flatpakRoot = path.join(f.root, "flatpak")
+  const exported = path.join(flatpakRoot, "exports", "bin", "net.pcsx2.PCSX2")
+  fs.writeFileSync(flatpakBin, "flatpak")
+  fs.chmodSync(flatpakBin, 0o755)
+  // Remove the fixture's regular PCSX2 candidate so Flatpak detection is
+  // exercised rather than short-circuiting on PATH.
+  fs.rmSync(f.exe)
+  fs.mkdirSync(path.dirname(exported), { recursive: true })
+  // Flatpak exports wrappers as symlinks. It is only an installation marker;
+  // the command returned by the registry must still be the validated binary.
+  fs.symlinkSync(flatpakBin, exported)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: f.bin,
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+      flatpakRoots: [flatpakRoot],
+    })
+    const detected = registry.list().find((item) => item.id === "pcsx2")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, flatpakBin)
+    assert.deepEqual(detected.detectedArgs, ["run", "net.pcsx2.PCSX2"])
+    const result = registry.resolveLaunch({ emulatorId: "pcsx2", romPath: f.rom })
+    assert.deepEqual(result.cmd, [flatpakBin, "run", "net.pcsx2.PCSX2", f.rom])
+    assert.equal(result.cmd.includes(exported), false)
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
