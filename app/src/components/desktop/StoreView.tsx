@@ -7,6 +7,7 @@ import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
 import type { Game } from "../ps5-launcher/types"
 import { StoreKeyboard, type SugestaoLoja } from "../ps5-launcher/StoreKeyboard"
+import { RetroStoreView } from "./RetroStoreView"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
 // Hydra (StoreGamePage) abre ao clicar no card.
@@ -53,6 +54,7 @@ export function StoreView({
     slsAtivo,
   } = useStoreActions(games)
 
+  const [aba, setAba] = useState<"steam" | "retro">("steam")
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<ItemLoja[] | null>(null)
   const [sugestoes, setSugestoes] = useState<{ appid: string; title: string; cover?: string }[]>([])
@@ -319,6 +321,10 @@ export function StoreView({
           setTecladoAberto(false)
           return true
         }
+        if (aba === "retro") {
+          setAba("steam")
+          return true
+        }
         if (pagina) {
           setPagina(null)
           return true
@@ -341,11 +347,14 @@ export function StoreView({
         }
         return false
       },
-      abrirTeclado: () => setTecladoAberto(true),
+      abrirTeclado: () => {
+        if (aba === "steam") setTecladoAberto(true)
+      },
     })
   }, [
     bigPicture,
     onAtalhos,
+    aba,
     tecladoAberto,
     pagina,
     configGame,
@@ -381,7 +390,6 @@ export function StoreView({
     }
   }
 
-
   const buscou = resultados !== null
   const grade = buscou ? resultados : []
   const carregandoGrade = buscando
@@ -394,6 +402,22 @@ export function StoreView({
     return m
   }, [games])
 
+  if (aba === "retro") {
+    return (
+      <div ref={containerLojaRef} data-gamepad-scroll className="h-full overflow-y-auto px-8 py-6">
+        {bigPicture && (
+          <div
+            ref={cursorGamepadRef}
+            aria-hidden="true"
+            className="pointer-events-none fixed z-[9999] hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white transition-[width,height,background-color,filter] duration-75"
+          />
+        )}
+        <StoreTabs aba={aba} onAba={setAba} t={t} />
+        <RetroStoreView />
+      </div>
+    )
+  }
+
   return (
     <div ref={containerLojaRef} data-gamepad-scroll className="h-full overflow-y-auto px-8 py-6">
       {bigPicture && (
@@ -403,6 +427,7 @@ export function StoreView({
           className="pointer-events-none fixed z-[9999] hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white transition-[width,height,background-color,filter] duration-75"
         />
       )}
+      <StoreTabs aba={aba} onAba={setAba} t={t} />
       <h1 className="ui-title mb-1">{t("store.titulo")}</h1>
       <p className="ui-subtitle mb-6">{t("store.descricao")}</p>
 
@@ -625,6 +650,43 @@ export function StoreView({
           onFechar={() => setTecladoAberto(false)}
         />
       )}
+    </div>
+  )
+}
+
+function StoreTabs({
+  aba,
+  onAba,
+  t,
+}: {
+  aba: "steam" | "retro"
+  onAba: (aba: "steam" | "retro") => void
+  t: (key: string, vars?: Record<string, string | number>) => string
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={t("store.tabs_label")}
+      className="mb-6 flex w-fit items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={aba === "steam"}
+        onClick={() => onAba("steam")}
+        className={`rounded-lg px-4 py-2 text-[12px] font-medium transition-colors ${aba === "steam" ? "bg-white/[0.12] text-white" : "text-white/50 hover:text-white"}`}
+      >
+        {t("store.steam_tab")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={aba === "retro"}
+        onClick={() => onAba("retro")}
+        className={`rounded-lg px-4 py-2 text-[12px] font-medium transition-colors ${aba === "retro" ? "bg-white/[0.12] text-white" : "text-white/50 hover:text-white"}`}
+      >
+        {t("store.retro_tab")}
+      </button>
     </div>
   )
 }
