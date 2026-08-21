@@ -77,8 +77,11 @@ A especificação do manifest v1 e do registro local de plugins está em
 RetroArch, melonDS e DeSmuME sem executar processos. Perfis, BIOS/core e pastas
 ROM ficam em `ARCADIA_DATA_DIR/emulators.json`; resultados do scanner ficam
 separados em `ARCADIA_DATA_DIR/roms.json`. A configuração global fica em
-**Configurações → Emulação**; os jogos só mantêm sua ROM/argv local. O scanner
-aplica allowlist de extensões, rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
+**Configurações → Emulação**; o assistente tenta detectar PATH, pastas Linux padrão,
+AppImages e Flatpaks instalados localmente. Se necessário, **Explorar manualmente** abre o
+seletor do executável; o guia também explica permissões de AppImage e wrapper/argv seguro
+para Flatpak. Os jogos só mantêm sua ROM/argv local. O scanner aplica allowlist de extensões,
+rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
 pasta para pesquisar as pastas persistidas. O modo Hydra é opt-in no main e
 monta somente `cmd: string[]`; BIOS/firmware são apenas detectados localmente.
 

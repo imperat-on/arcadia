@@ -444,6 +444,8 @@ export interface EmulatorInfo {
   description: string
   candidates?: string[]
   executable: string
+  /** Fixed argv prefix for an auto-detected wrapper (for example Flatpak). */
+  detectedArgs?: string[]
   available: boolean
   source: "builtin" | "detected" | "configured"
   requiresCore?: boolean
