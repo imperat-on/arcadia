@@ -21,15 +21,18 @@ export function LibraryView({
   tilesColor,
   alwaysTitles,
   onRefresh,
+  onRetroOpen,
 }: {
   games: Game[]
   tilesColor?: boolean
   alwaysTitles?: boolean
   onRefresh?: () => void
+  onRetroOpen?: (id: string) => void
 }) {
   const { t } = useI18n()
   const [busca, setBusca] = useState("")
   const [catFiltro, setCatFiltro] = useState("todas")
+  const [aba, setAba] = useState<"todos" | "retro">("todos")
   const [soInstalados, setSoInstalados] = useState(false)
   const [instalando, setInstalando] = useState<Game | null>(null)
   const [configurando, setConfigurando] = useState<Game | null>(null)
@@ -75,6 +78,8 @@ export function LibraryView({
 
   const lista = useMemo(() => {
     let l = games.filter((g) => !g.hidden)
+    if (aba === "retro") l = l.filter((g) => g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:"))
+    else l = l.filter((g) => !(g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")))
     if (catFiltro !== "todas") l = l.filter((g) => (g.categories || []).includes(catFiltro))
     if (soInstalados) l = l.filter((g) => g.installed !== false && !recemDesinstalados.has(g.id))
     const q = busca.trim().toLowerCase()
@@ -84,7 +89,12 @@ export function LibraryView({
       (a, b) =>
         Number(b.favorite || false) - Number(a.favorite || false) || a.title.localeCompare(b.title),
     )
-  }, [games, catFiltro, soInstalados, busca, recemDesinstalados])
+  }, [games, aba, catFiltro, soInstalados, busca, recemDesinstalados])
+
+  const retroCount = useMemo(
+    () => games.filter((g) => g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")).length,
+    [games],
+  )
 
   const salvar = (id: string, patch: Record<string, unknown>) =>
     window.launcherAPI?.setOverride(id, patch).then(() => onRefresh?.())
@@ -205,6 +215,21 @@ export function LibraryView({
         )}
       </div>
 
+      <div className="flex items-center gap-1 px-8 pb-4" role="tablist" aria-label="Library sections">
+        {(["todos", "retro"] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={aba === key}
+            onClick={() => setAba(key)}
+            className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${aba === key ? "bg-white/[0.12] text-white" : "text-white/50 hover:bg-white/[0.06] hover:text-white/80"}`}
+          >
+            {key === "retro" ? `Retro${retroCount ? ` (${retroCount})` : ""}` : "All games"}
+          </button>
+        ))}
+      </div>
+
       {/* Cabeçalho da grade */}
       <div className="flex items-center gap-4 px-8 pb-2">
         <h2 className="ui-title">
@@ -230,13 +255,19 @@ export function LibraryView({
                 onInstall={() => instalar(g)}
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
-                onOpen={() => (String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2))}
+                onOpen={() => {
+                  if (g2.launcher === "retro" || g2.retro === true || String(g2.id).startsWith("retro:")) {
+                    onRetroOpen?.(g2.id)
+                    return
+                  }
+                  String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2)
+                }}
                 onPlay={() => pedirJogar(g2)}
               />
             )
           })}
         </div>
-        {lista.length === 0 && <div className="ui-empty">{t("library.vazio")}</div>}
+          {lista.length === 0 && <div className="ui-empty">{aba === "retro" ? "No retro games in your library yet." : t("library.vazio")}</div>}
       </div>
 
       {/* Diálogo de instalação (escolher pasta, ver espaço em disco) */}

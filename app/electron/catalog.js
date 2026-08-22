@@ -107,7 +107,7 @@ async function catalogGet(pathname, opts = {}) {
     }
     // If-None-Match: se o espelho ja tem este etag, o servidor devolve 304
     // e nao re-baixamos o JSON.
-    const etag = catalogGetEtag(caminho)
+    const etag = opts.noMirror ? null : catalogGetEtag(caminho)
     if (etag) headers["if-none-match"] = etag
 
     const res = await fetchRede(url, {
@@ -118,7 +118,7 @@ async function catalogGet(pathname, opts = {}) {
 
     // 304: nada mudou — usa o espelho local (sem re-baixar).
     if (res.status === 304) {
-      const espelho = catalogGetEspelho(caminho)
+      const espelho = opts.noMirror ? null : catalogGetEspelho(caminho)
       if (espelho !== null) return { data: espelho, error: null, fallback: true, notModified: true }
       return { data: null, error: { message: "HTTP 304 sem espelho" } }
     }
@@ -127,15 +127,15 @@ async function catalogGet(pathname, opts = {}) {
       // 401: token expirado/invalido — renova a sessao (refresh) e retorna
       // um sinal para tentar de novo, em vez de cair no espelho imediatamente.
       if (res.status === 401) return { _renova: true }
-      const espelho = catalogGetEspelho(caminho)
+      const espelho = opts.noMirror ? null : catalogGetEspelho(caminho)
       if (espelho !== null) return { data: espelho, error: null, fallback: true }
       return { data: null, error: { message: `HTTP ${res.status}` } }
     }
 
     const novoEtag = res.headers?.get?.("etag")
-    if (novoEtag) gravarEtag(caminho, novoEtag)
+    if (novoEtag && !opts.noMirror) gravarEtag(caminho, novoEtag)
     const data = await res.json()
-    gravarEspelho(caminho, data)
+    if (!opts.noMirror) gravarEspelho(caminho, data)
     return { data, error: null, fallback: false }
   }
 
@@ -158,13 +158,13 @@ async function catalogGet(pathname, opts = {}) {
       }
       if (r1._renova) {
         // renovacao nao resolveu — fallback pro espelho
-        const espelho = catalogGetEspelho(caminho)
+        const espelho = opts.noMirror ? null : catalogGetEspelho(caminho)
         if (espelho !== null) return { data: espelho, error: null, fallback: true }
         return { data: null, error: { message: "HTTP 401" } }
       }
       return r1
     } catch (e) {
-      const espelho = catalogGetEspelho(caminho)
+      const espelho = opts.noMirror ? null : catalogGetEspelho(caminho)
       if (espelho !== null) return { data: espelho, error: null, fallback: true }
       return { data: null, error: { message: String(e?.message || e) } }
     }
