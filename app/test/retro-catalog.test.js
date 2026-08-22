@@ -94,7 +94,34 @@ test("títulos Retro removem metadados de release sem perder a edição", () => 
   )
   assert.equal(cleanRetroTitle("'89 Dennou Kyuusei Uranai (Japan)"), "'89 Dennou Kyuusei Uranai")
   assert.equal(cleanRetroTitle("[PSP-PS3] Game [RUS / Multi10 | PAL] [ViT Company]"), "Game")
+  assert.equal(
+    cleanRetroTitle(".hack//frägment (dot Hack - Fragment) [JAP|NTSC] + Patch-ENG+"),
+    ".hack//Fragment",
+  )
   assert.equal(cleanRetroTitle("The X [Director's Cut] [USA]"), "The X [Director's Cut]")
+  assert.equal(
+    cleanRetroTitle(
+      ".hack//G.U. Terminal Disc (dot hack - vol. 1//Rebirth (Special Edition)(2-nd Disk)) [ENG|NTSC]",
+    ),
+    ".hack//G.U. Terminal Disc",
+  )
+  const clipped = `Long Game ${"x".repeat(290)} [USA]`
+  assert.equal(cleanRetroTitle(clipped).includes("[USA]"), false)
+  assert.equal(
+    cleanRetroTitle("102 Dalmatians - Puppies to the Rescue"),
+    "102 Dalmatians - Puppies to the Rescue",
+  )
+  assert.equal(
+    cleanRetroTitle("Front Mission 5: Scars of the War [JAP|NTSC] + Patch-ENG + Patch-RUS"),
+    "Front Mission 5: Scars of the War",
+  )
+  assert.equal(cleanRetroTitle("Sonic Mega Collection (SEGA) [RUS/ENG|"), "Sonic Mega Collection")
+  assert.equal(
+    cleanRetroTitle("007: Everything or Nothing (password: psxroms.pro)"),
+    "007: Everything or Nothing",
+  )
+  const stable = cleanRetroTitle("Sonic Mega Collection (SEGA) [RUS/ENG|")
+  assert.equal(cleanRetroTitle(stable), stable)
 })
 
 test("normalização rejeita URLs perigosas e URI sem transporte", () => {

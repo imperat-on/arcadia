@@ -14,6 +14,7 @@ const { registerCatalogRoutes, warmUpCatalog, precarregarCatalogoCompleto } = re
 const { registerCommunityRoutes } = require("./community-routes")
 const { registerRealtime } = require("./realtime")
 const { registerHealthRoutes } = require("./health-routes")
+const { registerRetroRoutes, startRetroSync } = require("./retro-routes")
 const { requestContext, structuredErrors, sendError, handleError } = require("./api-observability")
 
 const PORT = process.env.PORT || 3000
@@ -47,6 +48,7 @@ registerRestRoutes(app)
 registerSyncRoutes(app)
 registerStorageRoutes(app)
 registerCatalogRoutes(app)
+registerRetroRoutes(app)
 registerCommunityRoutes(app)
 registerHealthRoutes(app, { checkDatabase: () => db.query("SELECT 1") })
 
@@ -65,6 +67,7 @@ let realtime
 async function startServer() {
   await initDb()
   startOrphanCleanup()
+  startRetroSync()
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`arcadia-server ouvindo em http://0.0.0.0:${PORT} (postgres=ok)`)
     warmUpCatalog().catch((error) => console.error("[warmup]", error))

@@ -26,6 +26,9 @@ export interface ArcadiaGame {
   exe?: string
   temExe?: boolean
   platform?: string
+  /** Entrada do catálogo retrô salva pelo usuário, ainda sem ROM instalada. */
+  retro?: boolean
+  systemId?: string
   developer?: string
   publisher?: string
   metacritic?: number

@@ -1,12 +1,24 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { RetroGame, RetroSource } from "../../global"
+import type { RetroGame, RetroOfferSummary, RetroSource } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
+import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
+
+const RETRO_SYSTEMS = [
+  ["sony-playstation", "PlayStation"], ["sony-playstation-2", "PlayStation 2"],
+  ["sony-playstation-3", "PlayStation 3"], ["sony-psp", "PSP"],
+  ["nintendo-nes", "Nintendo NES"], ["nintendo-snes", "Super Nintendo"],
+  ["nintendo-64", "Nintendo 64"], ["nintendo-gamecube", "Nintendo GameCube"],
+  ["nintendo-wii", "Nintendo Wii"], ["nintendo-ds", "Nintendo DS"],
+  ["nintendo-dsi", "Nintendo DSi"], ["nintendo-game-boy", "Game Boy"],
+  ["nintendo-game-boy-color", "Game Boy Color"], ["nintendo-game-boy-advance", "Game Boy Advance"],
+] as const
 
 interface RetroStoreViewProps {
   /** Permite que a tela seja usada em um container já rolável (ex.: Loja). */
@@ -14,7 +26,41 @@ interface RetroStoreViewProps {
   /** Integra o botão Voltar do gamepad sem expor detalhes ao container. */
   backRequest?: number
   onDetailChange?: (open: boolean) => void
+  onDownloadDialogChange?: (open: boolean) => void
   onOpenDownloads?: () => void
+  initialGameId?: string
+  onExit?: () => void
+}
+
+type RetroDownloadChoice = {
+  game: RetroGame
+  jogo: JogoLoja
+  opcoes: OpcaoTorrent[]
+}
+
+function makeRetroDownloadChoice(game: RetroGame): RetroDownloadChoice {
+  const uris = Array.isArray(game.uris)
+    ? game.uris.filter((uri): uri is string => Boolean(uri))
+    : []
+  const source = game.sourceTitle || game.sourceId
+  const title = game.originalTitle || game.title
+  return {
+    game,
+    jogo: {
+      appid: game.id,
+      title: game.title,
+      cover: getRetroCover(game) || undefined,
+      capa: game.capa,
+    },
+    opcoes: uris.map((uri, index) => ({
+      ref: `${game.id}:${index}`,
+      magnet: uri,
+      fonte: source,
+      tituloFonte: uris.length > 1 ? `${title} · ${index + 1}` : title,
+      fileSize: game.fileSize || "",
+      http: /^https?:\/\//i.test(uri),
+    })),
+  }
 }
 
 /**
@@ -29,30 +75,37 @@ export function RetroStoreView({
   className = "",
   backRequest = 0,
   onDetailChange,
+  onDownloadDialogChange,
   onOpenDownloads,
+  initialGameId,
+  onExit,
 }: RetroStoreViewProps) {
   const { t, locale } = useI18n()
   const [query, setQuery] = useState("")
   const [appliedQuery, setAppliedQuery] = useState("")
+  const [system, setSystem] = useState("")
   const [games, setGames] = useState<RetroGame[]>([])
   const [sources, setSources] = useState<RetroSource[]>([])
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState<number | null>(null)
+  const [totalOffers, setTotalOffers] = useState<number | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RetroGame | null>(null)
   const [detailSources, setDetailSources] = useState<RetroSource[]>([])
+  const [detailOffers, setDetailOffers] = useState<RetroOfferSummary[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState("")
   const [downloadUri, setDownloadUri] = useState("")
   const [downloadMessage, setDownloadMessage] = useState("")
+  const [downloadChoice, setDownloadChoice] = useState<RetroDownloadChoice | null>(null)
   const listGeneration = useRef(0)
   const detailGeneration = useRef(0)
 
   const loadList = useCallback(
-    async (nextQuery: string, nextOffset: number) => {
+    async (nextQuery: string, nextOffset: number, nextSystem: string) => {
       const generation = ++listGeneration.current
       setLoading(true)
       setError("")
@@ -69,23 +122,33 @@ export function RetroStoreView({
         return
       }
 
-      const payload: { query?: string; offset: number; limit: number } = {
+      const payload: { query?: string; system?: string; variants?: "all"; mode?: "essentials" | "all"; offset: number; limit: number } = {
         offset: nextOffset,
         limit: RETRO_PAGE_SIZE,
       }
       if (nextQuery) payload.query = nextQuery
+      if (nextSystem) payload.system = nextSystem
+      // A vitrine Retro abre no catálogo completo; a caixa de variantes só
+      // controla releases beta/demo/patches, não o modo editorial da lista.
+      payload.mode = "all"
 
       try {
         const response = await bridge.retroList(payload)
         if (generation !== listGeneration.current) return
         const items = Array.isArray(response?.games) ? response.games : []
+        const rawTotal = response?.total ?? response?.totalGames
         const responseTotal =
-          typeof response?.total === "number" && Number.isFinite(response.total)
-            ? Math.max(0, response.total)
+          typeof rawTotal === "number" && Number.isFinite(rawTotal)
+            ? Math.max(0, rawTotal)
             : null
         setGames(items)
         setSources(Array.isArray(response?.sources) ? response.sources : [])
         setTotal(responseTotal)
+        setTotalOffers(
+          typeof response?.totalOffers === "number" && Number.isFinite(response.totalOffers)
+            ? Math.max(0, response.totalOffers)
+            : null,
+        )
         setHasMore(
           typeof response?.hasMore === "boolean"
             ? response.hasMore
@@ -99,6 +162,7 @@ export function RetroStoreView({
         setGames([])
         setSources([])
         setTotal(0)
+        setTotalOffers(null)
         setHasMore(false)
         setError(cause instanceof Error ? cause.message : t("store.retro_load_failed"))
       } finally {
@@ -109,8 +173,8 @@ export function RetroStoreView({
   )
 
   useEffect(() => {
-    void loadList(appliedQuery, offset)
-  }, [appliedQuery, offset, loadList])
+    void loadList(appliedQuery, offset, system)
+  }, [appliedQuery, offset, system, loadList])
 
   const openGame = useCallback(
     async (game: RetroGame) => {
@@ -118,6 +182,7 @@ export function RetroStoreView({
       setSelectedId(game.id)
       setDetail(null)
       setDetailSources([])
+      setDetailOffers([])
       setDetailError("")
       setDetailLoading(true)
 
@@ -135,6 +200,7 @@ export function RetroStoreView({
         if (response?.ok && response.game) {
           setDetail(response.game)
           setDetailSources(Array.isArray(response.sources) ? response.sources : [])
+          setDetailOffers(Array.isArray(response.offers) ? response.offers : [])
         } else {
           setDetail(game)
           setDetailError(response?.error || t("store.retro_detail_failed"))
@@ -152,8 +218,64 @@ export function RetroStoreView({
     [t],
   )
 
+  useEffect(() => {
+    if (initialGameId) void openGame({ id: initialGameId, title: initialGameId })
+  }, [initialGameId, openGame])
+
+  // Every URI is represented in the shared Hydra download dialog. The single
+  // download action opens the source step with all alternatives, so Retro has
+  // the same source and folder choices as the regular Store flow.
+  const openDownloadDialog = useCallback(async (game: RetroGame) => {
+    const legacyChoice = makeRetroDownloadChoice(game)
+    if (legacyChoice.opcoes.length) {
+      setDownloadMessage("")
+      setDownloadChoice(legacyChoice)
+      return
+    }
+
+    const getOffer = window.launcherAPI?.retroOffer
+    if (!getOffer || !detailOffers.length) return
+    setDownloadMessage(t("store.retro_downloading"))
+    try {
+      const resolved = await Promise.all(detailOffers.map((offer) => getOffer(offer.id)))
+      const opcoes: OpcaoTorrent[] = []
+      for (const response of resolved) {
+        const offer = response?.ok ? response.offer : undefined
+        if (!offer) continue
+        for (const [index, uri] of (offer.uris || []).entries()) {
+          opcoes.push({
+            ref: `${offer.id}:${index}`,
+            magnet: uri,
+            fonte: offer.sourceTitle || offer.sourceId,
+            tituloFonte: offer.originalTitle || game.title,
+            fileSize: offer.fileSize || "",
+            http: /^https?:\/\//i.test(uri),
+          })
+        }
+      }
+      if (!opcoes.length) {
+        setDownloadMessage(t("store.retro_no_uris"))
+        return
+      }
+      setDownloadMessage("")
+      setDownloadChoice({
+        game,
+        jogo: {
+          appid: game.id,
+          title: game.title,
+          cover: getRetroCover(game) || undefined,
+          capa: game.capa,
+        },
+        opcoes,
+      })
+    } catch (cause) {
+      setDownloadMessage(cause instanceof Error ? cause.message : t("store.retro_download_failed"))
+    }
+  }, [detailOffers, t])
+
   const startDownload = useCallback(
-    async (game: RetroGame, uri: string) => {
+    async (game: RetroGame, uri: string, savePath: string) => {
+      setDownloadChoice(null)
       setDownloadUri(uri)
       setDownloadMessage("")
       try {
@@ -165,6 +287,7 @@ export function RetroStoreView({
         const response = await start({
           gameId: game.id,
           url: uri,
+          savePath,
           title: game.title,
           cover: getRetroCover(game) || undefined,
         })
@@ -190,23 +313,35 @@ export function RetroStoreView({
     setSelectedId(null)
     setDetail(null)
     setDetailSources([])
+    setDetailOffers([])
     setDetailError("")
     setDetailLoading(false)
     setDownloadUri("")
     setDownloadMessage("")
-  }, [])
+    setDownloadChoice(null)
+    if (initialGameId) onExit?.()
+  }, [initialGameId, onExit])
 
   useEffect(() => {
     onDetailChange?.(Boolean(selectedId))
     return () => onDetailChange?.(false)
   }, [onDetailChange, selectedId])
 
+  useEffect(() => {
+    onDownloadDialogChange?.(Boolean(downloadChoice))
+    return () => onDownloadDialogChange?.(false)
+  }, [downloadChoice, onDownloadDialogChange])
+
   const previousBackRequest = useRef(backRequest)
   useEffect(() => {
     if (backRequest === previousBackRequest.current) return
     previousBackRequest.current = backRequest
+    if (downloadChoice) {
+      setDownloadChoice(null)
+      return
+    }
     if (selectedId) closeGame()
-  }, [backRequest, closeGame, selectedId])
+  }, [backRequest, closeGame, downloadChoice, selectedId])
 
   const submitSearch = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -268,12 +403,26 @@ export function RetroStoreView({
         {detail && (
           <RetroDetail
             game={detail}
+            offers={detailOffers}
             sources={visibleSources}
             locale={locale}
             downloadUri={downloadUri}
             downloadMessage={downloadMessage}
-            onDownloadUri={(uri) => void startDownload(detail, uri)}
+            onDownloadUri={() => void openDownloadDialog(detail)}
             t={t}
+          />
+        )}
+
+        {downloadChoice && (
+          <MetodoDownloadDialog
+            jogo={downloadChoice.jogo}
+            opcoes={downloadChoice.opcoes}
+            // Retro games only have Hydra URIs. The shared dialog therefore
+            // starts at the source step and never offers a Depot action.
+            onDepot={() => setDownloadChoice(null)}
+            onTorrent={(uri, savePath) => void startDownload(downloadChoice.game, uri, savePath)}
+            onClose={() => setDownloadChoice(null)}
+            depotDisponivel={false}
           />
         )}
       </section>
@@ -293,12 +442,24 @@ export function RetroStoreView({
         </div>
         {total !== null && !loading && (
           <span className="text-[12px] text-white/40">
-            {t("store.retro_count", { count: total })}
+            {totalOffers !== null
+              ? t("store.retro_totals", { games: total, downloads: totalOffers })
+              : t("store.retro_count", { count: total })}
           </span>
         )}
       </div>
 
-      <form onSubmit={submitSearch} className="mb-5 flex max-w-[860px] gap-2" role="search">
+      <form onSubmit={submitSearch} className="mb-5 flex max-w-[1040px] gap-2" role="search">
+        <select
+          value={system}
+          onChange={(event) => { setSystem(event.target.value); setOffset(0) }}
+          aria-label={t("store.retro_platform_filter")}
+          className="ui-input min-w-[190px] px-3 py-2.5 text-[12px] text-white/75 [color-scheme:dark]"
+          style={{ colorScheme: "dark" }}
+        >
+          <option value="" className="bg-[#151515] text-white">{t("store.retro_all_platforms")}</option>
+          {RETRO_SYSTEMS.map(([id, label]) => <option key={id} value={id} className="bg-[#151515] text-white">{label}</option>)}
+        </select>
         <div className="relative flex-1">
           <input
             data-testid="retro-search"
@@ -345,7 +506,7 @@ export function RetroStoreView({
           {error}
           <button
             type="button"
-            onClick={() => void loadList(appliedQuery, offset)}
+            onClick={() => void loadList(appliedQuery, offset, system)}
             className="ml-3 rounded-md border border-white/15 px-2 py-1 text-[11px] text-white/75 hover:border-white/30 hover:text-white"
           >
             {t("store.retro_try_again")}
@@ -419,7 +580,7 @@ function RetroCard({
         data-testid={`retro-game-card-${game.id}`}
         type="button"
         onClick={onOpen}
-        className="block aspect-[460/215] w-full cursor-pointer bg-black text-left"
+        className="block aspect-[2/3] w-full cursor-pointer bg-black text-left"
         title={game.title}
       >
         <RetroArtwork game={game} title={game.title} />
@@ -438,7 +599,9 @@ function RetroCard({
             {game.platform || t("store.retro_platform_unknown")}
           </span>
           <span className="shrink-0 truncate" title={game.sourceTitle || game.sourceId}>
-            {game.sourceTitle || game.sourceId}
+            {game.offerCount
+              ? t("store.retro_offer_count", { count: game.offerCount })
+              : game.sourceTitle || game.sourceId}
           </span>
         </div>
       </div>
@@ -448,6 +611,7 @@ function RetroCard({
 
 function RetroDetail({
   game,
+  offers,
   sources,
   locale,
   downloadUri,
@@ -456,6 +620,7 @@ function RetroDetail({
   t,
 }: {
   game: RetroGame
+  offers: RetroOfferSummary[]
   sources: RetroSource[]
   locale: string
   downloadUri: string
@@ -463,121 +628,151 @@ function RetroDetail({
   onDownloadUri: (uri: string) => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
+  const [inLibrary, setInLibrary] = useState(false)
+  const [libraryMessage, setLibraryMessage] = useState("")
+  const [showDescription, setShowDescription] = useState(false)
+  const [selectedMedia, setSelectedMedia] = useState(0)
   const uris = Array.isArray(game.uris)
     ? game.uris.filter((uri): uri is string => Boolean(uri))
     : []
-  const source = sources.find((item) => item.id === game.sourceId)
-  const statuses = Array.isArray(source?.status) ? source.status.filter(Boolean) : []
+  const availableCount = uris.length || offers.reduce((sum, offer) => sum + offer.uriCount, 0)
   const parsedDate = game.uploadDate ? new Date(game.uploadDate) : null
   const date =
     game.uploadDate && parsedDate && !Number.isNaN(parsedDate.getTime())
       ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(parsedDate)
       : game.uploadDate || ""
+  const cover = getRetroCover(game)
+  const media = [...new Set([game.hero, cover, ...(game.screenshots || []), ...(game.titleScreens || [])].filter((value): value is string => Boolean(value)))]
+  const hero = media[0] || cover
+
+  useEffect(() => {
+    let ativo = true
+    window.launcherAPI?.getLibrary?.().then((games) => {
+      if (ativo && Array.isArray(games) && games.some((item) => item.id === game.id)) setInLibrary(true)
+    }).catch(() => {})
+    return () => { ativo = false }
+  }, [game.id])
 
   return (
     <article
-      className="overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.025]"
+      className="overflow-hidden rounded-2xl border border-white/[0.1] bg-black"
       data-testid="retro-detail-card"
     >
-      <div className="grid gap-0 md:grid-cols-[minmax(240px,0.75fr)_minmax(0,1.25fr)]">
-        <div className="aspect-[460/215] min-h-[190px] bg-black md:aspect-auto">
+      <div className="relative h-[min(62vh,620px)] min-h-[360px] overflow-hidden bg-black">
+        {hero ? (
+          <img src={hero} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" draggable={false} />
+        ) : (
           <RetroArtwork game={game} title={game.title} />
-        </div>
-        <div className="p-5 md:p-7">
-          <h1 className="mb-2 text-xl font-semibold text-white">{game.title}</h1>
-          <div className="mb-5 flex flex-wrap gap-2 text-[11px] text-white/55">
-            {game.platform && <Badge>{game.platform}</Badge>}
-            {(game.sourceTitle || game.sourceId) && (
-              <Badge>{game.sourceTitle || game.sourceId}</Badge>
-            )}
+        )}
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.2),rgba(0,0,0,.05)_38%,#000_100%)]" />
+        <div className="absolute inset-x-0 bottom-0 z-10 mx-auto flex max-w-[1400px] items-end gap-5 px-6 pb-7 md:px-10">
+          {cover && <img src={cover} alt="" className="hidden h-44 w-32 shrink-0 rounded-xl object-cover shadow-2xl ring-1 ring-white/15 md:block" draggable={false} />}
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold leading-tight text-white drop-shadow-2xl md:text-5xl">{game.title}</h1>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/70">
+              {game.platform && <Badge>{game.platform}</Badge>}
+              {game.sourceTitle && <Badge>{game.sourceTitle}</Badge>}
+              {date && <Badge>{date}</Badge>}
+            </div>
           </div>
-          {game.description && (
-            <p className="mb-6 whitespace-pre-wrap text-[13px] leading-relaxed text-white/65">
-              {game.description}
-            </p>
-          )}
-          {downloadMessage && (
-            <p
-              role="status"
-              className="mb-5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12px] text-white/65"
-            >
-              {downloadMessage}
-            </p>
-          )}
-
-          <dl className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-white/[0.08] pt-4 text-[12px]">
-            {game.fileSize && (
-              <div>
-                <dt className="text-white/35">{t("store.retro_size")}</dt>
-                <dd className="mt-0.5 text-white/75">{game.fileSize}</dd>
-              </div>
-            )}
-            {date && (
-              <div>
-                <dt className="text-white/35">{t("store.retro_date")}</dt>
-                <dd className="mt-0.5 text-white/75">{date}</dd>
-              </div>
-            )}
-          </dl>
         </div>
       </div>
 
-      {(source || uris.length > 0) && (
-        <div className="border-t border-white/[0.08] p-5 md:p-7">
-          <h2 className="mb-3 text-sm font-medium text-white/80">{t("store.retro_sources")}</h2>
-          {source && (
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-white/55">
-              <Badge>
-                {t("store.retro_source_id")}: {source.id}
-              </Badge>
-              {statuses.map((status) => (
-                <Badge key={`${source.id}-${status}`}>{status}</Badge>
-              ))}
-              <button
-                type="button"
-                aria-label={t("store.retro_registry_source", { id: source.id })}
-                onClick={() =>
-                  void window.launcherAPI?.openExternal?.(
-                    source.registryUrl ||
-                      `https://library.hydra.wiki/sources/${encodeURIComponent(source.id)}`,
-                  )
-                }
-                className="text-[color:var(--accent)] hover:underline"
-              >
-                {t("store.retro_view_registry")}
+      {media.length > 1 && (
+        <div className="border-b border-white/[0.08] bg-black/70 px-5 py-4 md:px-8">
+          <div className="relative aspect-video max-h-[420px] overflow-hidden rounded-xl bg-black">
+            <img src={media[selectedMedia] || media[0]} alt="" className="h-full w-full object-contain" draggable={false} />
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {media.map((image, index) => (
+              <button key={image} type="button" onClick={() => setSelectedMedia(index)} className={`h-14 w-24 shrink-0 overflow-hidden rounded-md border ${selectedMedia === index ? "border-[color:var(--accent)]" : "border-white/10 hover:border-white/30"}`}>
+                <img src={image} alt="" className="h-full w-full object-cover" draggable={false} />
               </button>
-            </div>
-          )}
-          {source?.url && (
-            <p className="mb-3 break-all text-[11px] text-white/45" title={source.url}>
-              <span className="text-white/60">{t("store.retro_feed")}:</span> {source.url}
-            </p>
-          )}
-          {source?.description && (
-            <p className="mb-3 text-[12px] text-white/50">{source.description}</p>
-          )}
-          {uris.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {uris.map((uri, index) => (
-                <button
-                  key={`${uri}-${index}`}
-                  type="button"
-                  onClick={() => onDownloadUri(uri)}
-                  disabled={Boolean(downloadUri)}
-                  className="max-w-full truncate rounded-lg border border-white/10 px-3 py-2 text-left text-[11px] text-white/65 transition-colors hover:border-white/25 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                  title={uri}
-                >
-                  {downloadUri === uri
-                    ? t("store.retro_downloading")
-                    : t("store.retro_download", { count: index + 1 })}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[12px] text-white/45">{t("store.retro_no_uris")}</p>
-          )}
+            ))}
+          </div>
         </div>
       )}
+
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-y border-white/[0.08] bg-black/80 px-5 py-3 backdrop-blur-xl md:px-8">
+        <span className="hidden flex-1 text-sm font-semibold text-white/80 md:block">{game.title}</span>
+        {downloadMessage && <span role="status" className="text-[12px] text-white/55">{downloadMessage}</span>}
+        {libraryMessage && <span role="status" className="text-[12px] text-emerald-300/80">{libraryMessage}</span>}
+        <button
+          type="button"
+          onClick={async () => {
+            if (inLibrary) return
+            const result = await window.launcherAPI?.retroLibraryAdd?.({
+              id: game.id,
+              title: game.title,
+              systemId: game.systemId,
+              platform: game.platform,
+              cover,
+              hero,
+              description: game.description,
+              genres: game.genres,
+              releaseYear: game.releaseYear,
+            })
+            if (result?.ok) {
+              setInLibrary(true)
+              setLibraryMessage("Added to Library")
+            } else {
+              setLibraryMessage(result?.error || "Could not add to Library")
+            }
+          }}
+          disabled={inLibrary}
+          className="rounded-full border border-white/15 px-4 py-2.5 text-[12px] font-semibold text-white/80 transition-colors hover:border-white/35 hover:text-white disabled:cursor-default disabled:border-emerald-400/30 disabled:text-emerald-300"
+        >
+          {inLibrary ? "In Library" : "Add to Library"}
+        </button>
+        {availableCount > 0 ? (
+          <button type="button" onClick={() => onDownloadUri(uris[0])} disabled={Boolean(downloadUri)} className="rounded-full bg-[color:var(--accent)] px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.02] disabled:opacity-50">
+            {downloadUri ? t("store.retro_downloading") : t("store.retro_choose_download", { count: availableCount })}
+          </button>
+        ) : <span className="text-[12px] text-white/45">{t("store.retro_no_uris")}</span>}
+      </div>
+
+      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1.35fr)_minmax(250px,.65fr)] md:p-8">
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-white/80">{t("store.retro_description")}</h2>
+          {game.description ? (
+            <div>
+              <p className={`whitespace-pre-wrap text-[13px] leading-relaxed text-white/60 ${showDescription ? "" : "line-clamp-4"}`}>{game.description}</p>
+              {game.description.length > 280 && <button type="button" onClick={() => setShowDescription((value) => !value)} className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[12px] text-white/65 hover:border-white/25 hover:text-white">{showDescription ? "Show less" : "Show more"}</button>}
+            </div>
+          ) : <p className="text-[13px] text-white/45">{t("store.retro_no_description")}</p>}
+        </div>
+        <div className="space-y-3">
+          <RetroInfoPanel title="Achievements">
+            <button
+              type="button"
+              onClick={() => void window.launcherAPI?.openExternal?.(`https://retroachievements.org/search.php?s=${encodeURIComponent(game.title)}`)}
+              className="flex w-full items-center gap-2 text-left text-[12px] text-white/70 transition-colors hover:text-white"
+            >
+              <span className="text-base" aria-hidden="true">🏆</span>
+              <span className="flex-1">Connect RetroAchievements to track your progress</span>
+              <span aria-hidden="true" className="text-lg text-white/45">›</span>
+            </button>
+          </RetroInfoPanel>
+
+          <RetroInfoPanel title="Stats">
+            <dl className="space-y-3 text-[12px]">
+              <div className="flex items-center justify-between"><dt className="text-white/55">Downloads</dt><dd className="text-white/80">{game.offerCount || availableCount}</dd></div>
+              <div className="flex items-center justify-between"><dt className="text-white/55">Active players</dt><dd className="text-white/80">—</dd></div>
+              <div className="flex items-center justify-between"><dt className="text-white/55">Rating</dt><dd className="text-white/80">—</dd></div>
+            </dl>
+          </RetroInfoPanel>
+
+          <RetroInfoPanel title="Details">
+            <dl className="space-y-2 text-[12px]">
+              <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Platform</dt><dd className="text-right text-white/55">{game.platform || "Retro"}</dd></div>
+              {game.genres?.length ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Genres</dt><dd className="text-right text-white/55">{game.genres.join(", ")}</dd></div> : null}
+              {game.releaseYear ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Release</dt><dd className="text-right text-white/55">{game.releaseYear}</dd></div> : null}
+              {game.developer?.length ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Developer</dt><dd className="text-right text-white/55">{game.developer.join(", ")}</dd></div> : null}
+            </dl>
+          </RetroInfoPanel>
+
+        </div>
+      </div>
     </article>
   )
 }
@@ -590,13 +785,24 @@ function Badge({ children }: { children: React.ReactNode }) {
   )
 }
 
+function RetroInfoPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]">
+      <h2 className="border-b border-white/[0.06] bg-white/[0.025] px-4 py-3 text-sm font-semibold text-white/85">⌃ <span className="ml-1">{title}</span></h2>
+      <div className="p-4">{children}</div>
+    </section>
+  )
+}
+
 function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
   const [index, setIndex] = useState(0)
-  const [resolvedCovers, setResolvedCovers] = useState<string[]>([])
+  const immediateCover = getRetroCover(game)
+  const [resolvedCovers, setResolvedCovers] = useState<string[]>(immediateCover ? [immediateCover] : [])
   const urls = resolvedCovers
   useEffect(() => {
     let alive = true
-    setResolvedCovers([])
+    const immediate = getRetroCover(game)
+    setResolvedCovers(immediate ? [immediate] : [])
     void loadRetroCovers(game).then((covers) => {
       if (alive) setResolvedCovers(covers)
     })
@@ -607,22 +813,27 @@ function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
   useEffect(() => setIndex(0), [game.id, urls.join("|")])
 
   if (!urls[index]) {
+    const platform = String(game.systemId || game.platform || "Retro")
+      .replace(/^sony-/, "")
+      .replace(/^nintendo-/, "")
+      .replace(/-/g, " ")
+    const initials = platform
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 4)
+      .toUpperCase()
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#121216] px-3 text-center text-white/35">
-        <svg
-          width="26"
-          height="26"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          aria-hidden="true"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <path d="m21 15-5-5L5 21" />
-        </svg>
-        <span className="text-[11px] leading-tight">{title}</span>
+      <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_20%,color-mix(in_srgb,var(--accent)_32%,#17171d),#0d0d11_68%)] px-5 text-center">
+        <span className="absolute left-4 top-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
+          Arcadia Retro
+        </span>
+        <span className="mb-5 flex h-20 w-20 items-center justify-center rounded-2xl border border-white/15 bg-black/25 text-2xl font-bold tracking-wider text-white/75 shadow-2xl">
+          {initials || "R"}
+        </span>
+        <span className="line-clamp-3 text-[14px] font-semibold leading-snug text-white/85">{title}</span>
+        <span className="mt-3 text-[10px] uppercase tracking-[0.16em] text-white/35">{platform}</span>
       </div>
     )
   }
@@ -651,7 +862,7 @@ function RetroSkeleton() {
           key={index}
           className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]"
         >
-          <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
+          <div className="aspect-[2/3] w-full animate-pulse bg-white/[0.05]" />
           <div className="p-3">
             <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
             <div className="h-3 animate-pulse rounded bg-white/[0.04]" />

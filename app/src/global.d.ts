@@ -333,8 +333,24 @@ export interface RetroGame {
   title: string
   /** Raw Hydra filename/title retained for provenance while `title` is cleaned for display. */
   originalTitle?: string
-  sourceId: string
-  sourceTitle: string
+  sourceId?: string
+  sourceTitle?: string
+  systemId?: string
+  offerCount?: number
+  titleLocale?: "en"
+  sortTitle?: string
+  aliases?: string[]
+  matchQuality?: "exact" | "strong" | "probable" | "unmatched"
+  artwork?: {
+    cover?: string
+    backgrounds?: string[]
+    screenshots?: string[]
+    titleScreens?: string[]
+    logos?: string[]
+    backCover?: string
+    cachedUrl?: string
+    provider?: "libretro" | "libretro-unverified" | "igdb" | "source" | "manual"
+  }
   platform?: string
   description?: string
   fileSize?: string
@@ -342,7 +358,40 @@ export interface RetroGame {
   cover?: string
   capa?: string
   fallbackCover?: string
+  hero?: string
+  screenshots?: string[]
+  titleScreens?: string[]
+  logo?: string
+  releaseYear?: number | null
+  developer?: string[]
+  publisher?: string[]
+  genres?: string[]
+  series?: string[]
+  playMode?: string[]
+  maxPlayers?: string
   uris?: string[]
+}
+
+export interface RetroOfferSummary {
+  id: string
+  sourceId: string
+  sourceTitle: string
+  originalTitle: string
+  normalizedTitle: string
+  systemId?: string
+  platformRaw?: string
+  region?: string | null
+  languages?: string[]
+  releaseKind?: string
+  fileSize?: string | null
+  uploadDate?: string | null
+  hasUris: boolean
+  uriCount: number
+  personal?: boolean
+}
+
+export interface RetroOffer extends RetroOfferSummary {
+  uris: string[]
 }
 
 export interface RetroSource {
@@ -1209,6 +1258,10 @@ declare global {
       /** Catálogo Retro: somente jogos vindos de fontes Hydra marcadas Classics. */
       retroList: (payload?: {
         query?: string
+        system?: string
+        systems?: string[]
+        variants?: "retail" | "all"
+        mode?: "essentials" | "all"
         offset?: number
         limit?: number
       }) => Promise<{
@@ -1216,6 +1269,9 @@ declare global {
         games?: RetroGame[]
         sources?: RetroSource[]
         total?: number
+        totalGames?: number
+        totalOffers?: number
+        unmatchedOffers?: number
         offset?: number
         limit?: number
         hasMore?: boolean
@@ -1224,9 +1280,39 @@ declare global {
       retroGame: (id: string) => Promise<{
         ok: boolean
         game?: RetroGame
+        offers?: RetroOfferSummary[]
         sources?: RetroSource[]
         error?: string
       }>
+      retroOffer: (id: string) => Promise<{ ok: boolean; offer?: RetroOffer; error?: string }>
+      retroStats: () => Promise<{
+        ok: boolean
+        stats?: { games: number; offers: number; matched: number; unmatched: number }
+        error?: string
+      }>
+      retroAudit: (payload?: { system?: string; samples?: number }) => Promise<{
+        ok: boolean
+        version?: string
+        totals?: { games: number; covers: number; descriptions: number; screenshots: number; heroes: number; logos: number }
+        systems?: Array<Record<string, string | number>>
+        missing?: Record<string, number>
+        unmatched?: { total: number; byReason: Record<string, number>; bySystem: Record<string, number>; samples: Array<{ title: string; platform: string; systemId?: string | null; reason: string }> }
+        samples?: Array<{ id: string; title: string; systemId: string; offer_count: number; missingField: string }>
+        error?: string
+      }>
+      retroMigrate: () => Promise<{ ok: boolean; result?: unknown; error?: string }>
+      retroLibraryAdd: (data: {
+        id: string
+        title: string
+        systemId?: string
+        platform?: string
+        cover?: string
+        hero?: string
+        description?: string
+        genres?: string[]
+        releaseYear?: number | null
+      }) => Promise<{ ok: boolean; added?: boolean; error?: string; games?: Game[] }>
+      retroLibraryRemove: (id: string) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Torrent (worker Python + libtorrent). Ids sempre "tor:...". */
       torrentStart: (payload: {
         gameId: string

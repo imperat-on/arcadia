@@ -58,7 +58,9 @@ export function MetodoDownloadDialog({
 
   const voltar =
     etapa === "fonte"
-      ? () => setEtapa("metodo")
+      ? depotDisponivel
+        ? () => setEtapa("metodo")
+        : null
       : etapa === "pasta"
         ? () => setEtapa("fonte")
         : null

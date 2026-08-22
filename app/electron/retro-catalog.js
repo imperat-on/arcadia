@@ -19,6 +19,7 @@ const MAX_SOURCES = 100
 const MAX_GAMES = 50000
 const MAX_URIS = 16
 const MAX_TITLE = 300
+const MAX_RAW_TITLE = 2048
 const MAX_DESCRIPTION = 2400
 const MAX_LIMIT = 48
 const MAX_QUERY = 120
@@ -136,6 +137,8 @@ const RETRO_LANGUAGE_TAGS = new Set([
   "chn",
   "ntsc",
   "english",
+  "portuguese",
+  "dutch",
   "french",
   "german",
   "italian",
@@ -148,7 +151,7 @@ const RETRO_PLATFORM_TAG_RE =
 const RETRO_SERIAL_TAG_RE =
   /^(?:[a-z]{2,8}[-_ ]?\d{2,}[a-z0-9\-/ %]*|\d{2,}[a-z][a-z0-9-]*|(?:rev|revision|ver|version|v|disc|disk|cd)\s*[a-z0-9._/-]+)$/i
 const RETRO_FLAG_TAG_RE =
-  /^(?:[!abfhp]|aftermarket|beta|convert|demo|digital|download|dlc|folder|full|hack|homebrew|mod|multi\d*|move|ntsc(?:-[a-z0-9]+)?|ode|pal|patch|pirate|proper|prototype|proto|region|repack|soft|translation|trainer|unl|unlicensed|virtual console)$/i
+  /^(?:[!abfhp]|aftermarket|all|beta|bios?|convert|demo|digital|dendy|download|dlc|folder|full|hack|homebrew|mod|multi\d*|move|ntsc(?:-[a-z0-9]+)?|ode|pal|patch|pirate|proper|prototype|proto|region|redump|repack|soft|translation|trainer|unl|unlicensed|virtual console)$/i
 const RETRO_GROUP_TAG_RE = /^[\p{L}\p{N}][\p{L}\p{N}._'-]{1,31}$/u
 
 function retroTagWords(value) {
@@ -157,7 +160,7 @@ function retroTagWords(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .split(/[\s,;|/+&()\-]+/)
+    .split(/[\s,;|/+&().\-]+/)
     .map((word) => word.trim())
     .filter(Boolean)
 }
@@ -177,7 +180,9 @@ function isRetroMetadataToken(value) {
   if (/^(?:ntsc|pal)(?:[-_][a-z0-9]+)?$/i.test(token)) return true
   if (/^\d{1,3}%$/.test(token) || /^ird(?:\d+%?)?$/i.test(token)) return true
   if (/^(?:dvd|cd|disc)\d+$/i.test(token)) return true
-  if (/^\d+$/.test(token)) return true
+  if (/^\d+$/.test(token) || /^~?\d+(?:x\d+)?$/i.test(token)) return true
+  if (/^\d+:\d+$/.test(token) || /^(?:true|false)$/i.test(token)) return true
+  if (/^(?:eng|rus)(?:sound|sounds|soundtracks|audio|bonus)(?:s)?$/i.test(token)) return true
   return RETRO_SERIAL_TAG_RE.test(token)
 }
 
@@ -193,6 +198,10 @@ function isRetroMetadataTag(value) {
   // this prevents meaningful `(Contra '93)` text from being discarded.
   if (/^(?:19|20)\d{2}(?:[-/.](?:0?\d|1[0-2]))?(?:[-/.](?:0?[1-9]|[12]\d|3[01]))?$/.test(tag))
     return true
+  if (/^\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2}$/.test(tag)) return true
+  if (/^~?\d[\d\s.,~]*(?:шт|items?|games?)\.?$/iu.test(tag)) return true
+  if (/^(?:all\s+)?region$|^non[-\s]?redump$/i.test(tag)) return true
+  if (/\bdlc\b/i.test(tag)) return true
   const words = retroTagWords(tag)
   if (!words.length) return true
   if (words.every(isRetroMetadataToken)) return true
@@ -224,7 +233,7 @@ function isRetroReleaseGroupTag(value) {
     /\b(?:company|convert|fan(?:s)?|mvo|retrogaming|rgr|studio|team|text|translation|transgen|version|voice|vhs)\b/i.test(
       tag,
     ) ||
-    /(?:текст|озвуч|фанат|перевод)/i.test(tag)
+    /(?:текст|озвуч|фанат|перевод|версии)/i.test(tag)
   )
     return true
   const words = retroTagWords(tag)
@@ -241,7 +250,17 @@ function stripRetroGroups(title) {
   // Release annotations can occur before a trailing patch/edition suffix, so
   // remove known square-bracket metadata throughout the filename, not only at
   // the very end. Unknown meaningful title groups remain untouched.
-  if (squareGroups.some((match) => isRetroMetadataTag(match[1]))) {
+  const explicitRelease = (value) =>
+    /(?:team|studio|company|translation|translated|voice|sound|patch|озвуч|перевод|текст|фанат|версии)/iu.test(
+      value,
+    )
+  if (
+    squareGroups.some(
+      (match) =>
+        isRetroMetadataTag(match[1]) ||
+        (isRetroReleaseGroupTag(match[1]) && explicitRelease(match[1])),
+    )
+  ) {
     cleaned = cleaned.replace(/\s*\[([^\]\n]*)\]/g, (raw, value) => {
       if (isRetroMetadataTag(value) || isRetroReleaseGroupTag(value)) return ""
       return raw
@@ -274,8 +293,59 @@ function stripRetroGroups(title) {
  * metadata and leaves unknown multi-word groups alone. It is exported so the
  * parser contract can test real feed examples without requiring a network.
  */
+function isRetroAliasGroup(group, before) {
+  const text = String(group || "").trim()
+  if (/^(?:dot\s+hack|biohazard|resident\s+evil)\b/i.test(text)) return true
+  if (/^(?:password|senha)\s*:/i.test(text)) return true
+  if (
+    /(?:team|studio|company)\s*$/iu.test(text) ||
+    /(?:translation|translated|voice|sound|patch|озвуч|перевод|текст|фанат|версии)/iu.test(text)
+  )
+    return true
+  const beforeWords = String(before || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2)
+  return words.filter((word) => beforeWords.includes(word)).length >= 2
+}
+
+function stripRetroAliasParentheticals(title) {
+  let output = ""
+  for (let index = 0; index < title.length;) {
+    if (title[index] !== "(") {
+      output += title[index++]
+      continue
+    }
+    let depth = 1
+    let end = index + 1
+    while (end < title.length && depth > 0) {
+      if (title[end] === "(") depth++
+      else if (title[end] === ")") depth--
+      end++
+    }
+    if (depth !== 0) {
+      output += title[index++]
+      continue
+    }
+    const group = title.slice(index + 1, end - 1)
+    if (isRetroAliasGroup(group, output)) {
+      output = output.replace(/\s+$/g, "")
+    } else {
+      output += title.slice(index, end)
+    }
+    index = end
+  }
+  return output
+}
+
 function normalizeRetroTitle(value, max = MAX_TITLE) {
-  const original = cleanText(value, max)
+  // Parse a larger bounded filename before stripping suffixes. A 300-byte
+  // pre-truncation can leave a dangling `[RUS`/`(dot Hack ...` marker.
+  const original = cleanText(value, MAX_RAW_TITLE)
   if (!original) return ""
   let title = original
     .normalize("NFKC")
@@ -283,6 +353,13 @@ function normalizeRetroTitle(value, max = MAX_TITLE) {
     .replace(/[_]+/g, " ")
     .replace(/\s+/g, " ")
     .replace(/\.(?:7z|7zip|bin|chd|cue|iso|nsp|pkg|rar|rom|rvz|wad|wbfs|xci)$/i, "")
+    .trim()
+
+  // Remove malformed groups from old/truncated caches before processing a
+  // valid trailing group that may sit immediately before them.
+  title = title
+    .replace(/\s+\[[^\]\n]*$/u, "")
+    .replace(/\s+\([^()\n]*$/u, "")
     .trim()
 
   // Platform/source labels are usually prepended by Rutracker and should not
@@ -295,37 +372,37 @@ function normalizeRetroTitle(value, max = MAX_TITLE) {
   title = stripRetroGroups(title)
 
   // RuTracker often repeats an alias in parentheses instead of a real edition:
-  // `.hack//Outbreak Part 3 (dot Hack - Part 3 - Outbreak)`.
-  title = title.replace(/\s*\(([^()]*)\)/g, (whole, group, offset, full) => {
-    const before = full
-      .slice(0, offset)
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-    const words = String(group)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .split(/\s+/)
-      .filter((word) => word.length > 2)
-    const overlap = words.filter((word) => before.includes(word)).length
-    if (/^(?:dot\s+hack|biohazard|resident\s+evil)\b/i.test(String(group).trim())) return ""
-    if (overlap >= 2) return ""
-    return whole
-  })
+  // `.hack//Outbreak Part 3 (dot Hack - Part 3 - Outbreak)`. The parser is
+  // balanced so aliases containing nested edition parentheses are removed too.
+  title = stripRetroAliasParentheticals(title)
+
+  // Normalize the two common Hydra spellings of the `.hack//` family. This
+  // fixes a feed typo/diacritic without changing the originalTitle provenance.
+  title = title
+    .replace(/^\.hack\/(?!\/)/i, ".hack//")
+    .replace(/^\.hack\/\/frägment\b/i, ".hack//Fragment")
 
   // Translation patches are sometimes plain suffixes rather than groups:
   // `Title [JAP|NTSC] + Patch-ENG+`.
-  title = title.replace(
-    /\s*(?:[+]\s*)?(?:patch|translation)[-_\s]+(?:eng|rus|jap|jpn|eur|usa)(?:[+|/]?(?:eng|rus|jap|jpn|eur|usa))*[+]?\s*$/i,
-    "",
-  )
+  let previousPatchTitle
+  do {
+    previousPatchTitle = title
+    title = title.replace(
+      /\s*(?:[+]\s*)?(?:patch|translation)[-_\s]+(?:eng|rus|jap|jpn|eur|usa)(?:[+|/]?(?:eng|rus|jap|jpn|eur|usa))*[+]?\s*$/i,
+      "",
+    )
+  } while (title !== previousPatchTitle)
 
   // A few feeds use plain ` - ISO`/` - USA` suffixes instead of groups.
   title = title
     .replace(
-      /\s*(?:[-–—|,:]\s*)?(?:7z|bin(?:\s*\/\s*cue)?|chd|cue|iso|nsp|pkg|rom|rvz|wad|wbfs|xci)\s*$/i,
+      /(?:^|[\s–—|,:-])(?:7z|bin(?:\s*\/\s*cue)?|chd|cso|cue|iso|nsp|pkg|rom|rvz|wad|wbfs|xci)\s*$/iu,
       "",
     )
+    // Old on-disk caches were clipped before normalization and may end in an
+    // unmatched release group. Do not display a dangling `[RU`/`(dot Hack`.
+    .replace(/\s+\[[^\]\n]*$/u, "")
+    .replace(/\s+\([^()\n]*$/u, "")
     .replace(/\s+/g, " ")
     .replace(/^[\s_-]+|[\s_-]+$/g, "")
     .trim()
@@ -386,7 +463,7 @@ function cleanRetroTitle(value) {
 
 function normalizeGame(download, source, index) {
   if (!download || typeof download !== "object") return null
-  const originalTitle = cleanText(download.title, MAX_TITLE)
+  const originalTitle = cleanText(download.title, MAX_RAW_TITLE)
   const title = cleanRetroTitle(originalTitle)
   const rawUris = Array.isArray(download.uris) ? download.uris : download.uri ? [download.uri] : []
   const uris = [...new Set(rawUris.map(normalizeUri).filter(Boolean))].slice(0, MAX_URIS)
@@ -514,10 +591,15 @@ function readCache(file, fsImpl = fs) {
       ...value,
       games: value.games
         .filter((game) => game && typeof game === "object")
-        .map((game) => ({
-          ...game,
-          title: cleanRetroTitle(game.title) || String(game.title || ""),
-        })),
+        .map((game) => {
+          const originalTitle = String(game.originalTitle || game.title || "").trim()
+          const title = cleanRetroTitle(originalTitle) || originalTitle
+          return {
+            ...game,
+            title,
+            ...(originalTitle && originalTitle !== title ? { originalTitle } : {}),
+          }
+        }),
     }
   } catch {
     return null
@@ -716,7 +798,19 @@ function createRetroCatalog({
     return { ok: true, game, sources: catalog.sources }
   }
 
-  return { list, getGame, refresh, cacheFile }
+  // Internal main-process export used by the V2 migrator. Unlike `list`, this
+  // is not exposed through IPC: it is intentionally unpaginated and retains
+  // the validated download URIs required to rebuild offers.
+  async function exportAll({ refresh: force = false } = {}) {
+    const catalog = await ensure(Boolean(force))
+    return {
+      sources: catalog.sources,
+      games: catalog.games,
+      updatedAt: catalog.updatedAt,
+    }
+  }
+
+  return { list, getGame, exportAll, refresh, cacheFile }
 }
 
 const singleton = createRetroCatalog()
