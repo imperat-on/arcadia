@@ -2290,8 +2290,8 @@ app.whenReady().then(() => {
         return { ok: true }
       }
       const legendary = g?.launch_cmd?.[0] || ""
-      if (launcher === "custom") {
-        // Jogo adicionado manualmente: só sai do custom_games.json.
+      if (launcher === "custom" || launcher === "retro") {
+        // Jogo manual/retrô: só sai do custom_games.json.
         const rest = readJsonFile(caminhoConta(CUSTOM_GAMES), []).filter((x) => x.id !== id)
         try {
           fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
@@ -3142,7 +3142,18 @@ app.whenReady().then(() => {
   ipcMain.handle("sources:game", async (_e, ref) => sources.getGame(ref))
 
   // --- Loja Retro: somente fontes Hydra com status Classics ---------------
-  const retroCatalog = require("./retro-catalog")
+  // Feature flag para ativar o catálogo V2 (canônico)
+  // V2 is the production default. Set ARCADIA_RETRO_V2=0 only as an explicit
+  // rollback while the legacy cache remains supported.
+  const RETRO_CATALOG_V2_ENABLED = process.env.ARCADIA_RETRO_V2 !== "0"
+
+  const RETRO_SERVER_ENABLED = process.env.ARCADIA_RETRO_SERVER !== "0"
+  const retroCatalog = RETRO_CATALOG_V2_ENABLED && RETRO_SERVER_ENABLED
+    ? require("./retro-server-catalog").createRetroServerCatalog({ dataDir: DATA_DIR })
+    : RETRO_CATALOG_V2_ENABLED
+      ? require("./retro-catalog-v2").createRetroCatalogV2({ dataDir: DATA_DIR })
+    : require("./retro-catalog")
+
   ipcMain.handle("retro:list", async (_e, payload) => {
     try {
       return await retroCatalog.list(payload || {})
@@ -3153,6 +3164,113 @@ app.whenReady().then(() => {
   ipcMain.handle("retro:game", async (_e, id) => {
     try {
       return await retroCatalog.getGame(id)
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Novo endpoint V2 para obter URIs de uma oferta específica
+  ipcMain.handle("retro:offer", async (_e, offerId) => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      return await retroCatalog.getOffer(offerId)
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Migração manual do V1 para V2
+  ipcMain.handle("retro:migrate", async () => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      const result = await retroCatalog.migrateFromV1()
+      return { ok: true, result }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Estatísticas do catálogo
+  ipcMain.handle("retro:stats", async () => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      const stats = retroCatalog.repository.getStats()
+      return { ok: true, stats }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Auditoria de cobertura de arte/metadados (somente leitura).
+  ipcMain.handle("retro:audit", async (_e, payload = {}) => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED || typeof retroCatalog.audit !== "function") {
+        return { ok: false, error: "retro_audit_unavailable" }
+      }
+      return await retroCatalog.audit(payload || {})
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Adiciona somente o item retrô à biblioteca. O ROM ainda não está instalado
+  // neste momento, portanto não passa pela validação de executável/emulador do
+  // customgame:add. Quando o download terminar, o indexador poderá enriquecer
+  // a entrada sem perder a posse da conta.
+  ipcMain.handle("retro:libraryAdd", (_e, payload = {}) => {
+    try {
+      const id = typeof payload.id === "string" ? payload.id.trim() : ""
+      const title = typeof payload.title === "string" ? payload.title.trim() : ""
+      if (!/^retro:[a-z0-9][a-z0-9._:-]{1,500}$/i.test(id) || !title || title.length > 1024) {
+        return { ok: false, error: "jogo retrô inválido" }
+      }
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
+      const existing = all.find((game) => game.id === id)
+      if (existing) return { ok: true, added: false, games: readLibrary() }
+      const cleanList = (value, max = 32) => Array.isArray(value)
+        ? value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, max)
+        : undefined
+      all.push({
+        id,
+        title,
+        launcher: "retro",
+        platform: typeof payload.platform === "string" ? payload.platform.slice(0, 80) : "retro",
+        systemId: typeof payload.systemId === "string" ? payload.systemId.slice(0, 120) : undefined,
+        cover: typeof payload.cover === "string" ? payload.cover.slice(0, 2000) : undefined,
+        hero: typeof payload.hero === "string" ? payload.hero.slice(0, 2000) : undefined,
+        description: typeof payload.description === "string" ? payload.description.slice(0, 10000) : undefined,
+        genres: cleanList(payload.genres),
+        releaseYear: Number.isInteger(payload.releaseYear) ? payload.releaseYear : undefined,
+        installed: false,
+        retro: true,
+      })
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
+      ownedAdd(id)
+      try { require("./supabase/biblioteca").agendarPush() } catch {}
+      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      return { ok: true, added: true, games: readLibrary() }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  ipcMain.handle("retro:libraryRemove", (_e, id) => {
+    try {
+      const value = typeof id === "string" ? id.trim() : ""
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
+      const rest = all.filter((game) => !(game.id === value && game.launcher === "retro"))
+      if (rest.length === all.length) return { ok: true, games: readLibrary() }
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
+      ownedRemove(value)
+      try { require("./supabase/biblioteca").agendarPush() } catch {}
+      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      return { ok: true, games: readLibrary() }
     } catch (e) {
       return { ok: false, error: String(e?.message || e) }
     }
@@ -3237,6 +3355,7 @@ app.whenReady().then(() => {
     const candidatos = []
     const erros = []
     let jogos = []
+    const retroPlatform = /^retro:([^:]+)/.exec(String(gameId || ""))?.[1] || null
 
     // Steam: arte oficial, sem chave. Só existe para jogos da Steam.
     try {
@@ -3263,7 +3382,7 @@ app.whenReady().then(() => {
 
     // IGDB: arte de qualquer plataforma (capa e artworks/screenshots).
     try {
-      candidatos.push(...igdbArtDe(await igdbProxy(titulo || ""), kind))
+      candidatos.push(...igdbArtDe(await igdbProxy(titulo || "", { plataforma: retroPlatform }), kind))
     } catch (e) {
       erros.push(`IGDB: ${e.message}`)
     }

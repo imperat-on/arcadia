@@ -58,6 +58,7 @@ export function StoreView({
 
   const [aba, setAba] = useState<"steam" | "retro">("steam")
   const [retroDetailOpen, setRetroDetailOpen] = useState(false)
+  const [retroDownloadOpen, setRetroDownloadOpen] = useState(false)
   const [retroBackRequest, setRetroBackRequest] = useState(0)
   const [busca, setBusca] = useState("")
   const [resultados, setResultados] = useState<ItemLoja[] | null>(null)
@@ -105,7 +106,9 @@ export function StoreView({
     window.launcherAPI?.storeWarm?.()
   }, [])
 
-  const gamepadSuspenso = Boolean(configGame || metodo || escolhendo || tecladoAberto)
+  const gamepadSuspenso = Boolean(
+    configGame || metodo || escolhendo || tecladoAberto || retroDownloadOpen,
+  )
 
   useEffect(() => {
     if (!bigPicture || !ativo || gamepadSuspenso) return
@@ -432,6 +435,7 @@ export function StoreView({
         <RetroStoreView
           backRequest={retroBackRequest}
           onDetailChange={setRetroDetailOpen}
+          onDownloadDialogChange={setRetroDownloadOpen}
           onOpenDownloads={onOpenDownloads}
         />
       </div>

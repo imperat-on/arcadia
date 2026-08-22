@@ -38,7 +38,12 @@ function canEncrypt() {
 // Tokens nao devem cair em texto puro em uma instalacao real. O fallback fica
 // disponivel apenas para testes ou quando o usuario opta explicitamente por ele.
 function allowPlaintextFallback() {
-  return process.env.NODE_ENV === "test" || process.env.ARCADIA_ALLOW_PLAINTEXT_SESSION === "1" || process.env.ARCADA_TEST_SESSION === "1"
+  // Algumas instalações Linux não expõem um keyring ao Electron (KWallet/
+  // Secret Service desativado). Nessa situação a sessão não pode simplesmente
+  // desaparecer ao fechar o app: persistimos o envelope base64 com permissão
+  // 0600 e mantemos a opção explícita para desativar esse fallback.
+  if (process.env.ARCADIA_DISABLE_PLAINTEXT_SESSION === "1") return false
+  return process.env.NODE_ENV === "test" || Boolean(process.versions?.electron) || process.env.ARCADIA_ALLOW_PLAINTEXT_SESSION === "1" || process.env.ARCADA_TEST_SESSION === "1"
 }
 
 function b64(s) {

@@ -53,6 +53,23 @@ test("catalogGet usa o espelho quando o servidor esta fora", async () => {
   assert.deepEqual(r.data.itens, [{ appid: "1" }])
 })
 
+test("catalogGet noMirror nunca persiste payload sensível nem usa fallback", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, offer: { uris: ["magnet:?xt=urn:btih:SECRET"] } }),
+  })
+  const route = "/catalog/v1/retro/offers/private-offer"
+  const online = await catalogGet(route, { noMirror: true })
+  assert.equal(online.data.offer.uris.length, 1)
+  assert.equal(catalogGetEspelho(route), null)
+
+  global.fetch = async () => { throw new Error("offline") }
+  const offline = await catalogGet(route, { noMirror: true })
+  assert.equal(offline.data, null)
+  assert.match(offline.error.message, /offline/)
+})
+
 test("espelho separa queries e permanece dentro do diretorio de catalogo", () => {
   const destino = espelhoPath("/catalog/v1/sources/../../passwd/games?q=x")
   assert.ok(destino.startsWith(path.join(tmp, "catalog_espelho") + path.sep))
