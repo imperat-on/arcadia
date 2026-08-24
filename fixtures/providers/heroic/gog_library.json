@@ -1,0 +1,18 @@
+{
+  "library": [
+    {
+      "appName": "cyberpunk_2077",
+      "title": "Cyberpunk 2077",
+      "is_installed": true,
+      "art_cover": "https://cdn.example/cp-cover.jpg",
+      "art_background": "https://cdn.example/cp-hero.jpg",
+      "art_logo": "https://cdn.example/cp-logo.png"
+    },
+    {
+      "appName": "disco_elysium",
+      "title": "Disco Elysium",
+      "is_installed": "false",
+      "art_square": "https://cdn.example/disco-square.jpg"
+    }
+  ]
+}

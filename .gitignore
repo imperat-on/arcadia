@@ -1,6 +1,7 @@
 # Dependências e builds
 node_modules/
 dist/
+app/release/
 .env
 server/.env
 __pycache__/

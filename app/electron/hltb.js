@@ -3,11 +3,11 @@
 // Falha silenciosa: qualquer erro retorna null, nunca lança.
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
 const { fetchRede } = require("./httpfetch")
+const { dataPath } = require("./runtime-paths")
 
-// Mesmo DATA_DIR de main.js (HOME/.local/share/arcadia).
-const CACHE_PATH = path.join(os.homedir(), ".local/share/arcadia", "hltb_cache.json")
+// Mesmo DATA_DIR de main.js, inclusive quando a instalação é isolada.
+const CACHE_PATH = dataPath("hltb_cache.json")
 
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
 

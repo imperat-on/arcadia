@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
+import { isRovingKey, nextRovingIndex } from "./rovingTab.cjs"
 
 interface GameRailProps {
   games: Game[]
@@ -35,6 +36,7 @@ export function GameRail({
   onSelect,
   onLaunch,
 }: GameRailProps) {
+  const railRef = useRef<HTMLDivElement>(null)
   const selRef = useRef<HTMLButtonElement>(null)
   const lastMove = useRef(0)
 
@@ -49,17 +51,28 @@ export function GameRail({
     const now = performance.now()
     const fast = now - lastMove.current < 320 // inclui o hold do gamepad (~260ms)
     lastMove.current = now
-    selRef.current?.scrollIntoView({
+    const selected = selRef.current
+    selected?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
       behavior: fast ? "auto" : "smooth",
     })
+
+    // Roving tabindex: se o trilho já tinha o foco, acompanha a seleção
+    // alterada pelo teclado ou pelo gamepad. Não rouba o foco da barra superior
+    // nem da seleção de perfil quando a home monta por baixo de um overlay.
+    if (railRef.current?.contains(document.activeElement) && selected) {
+      selected.focus({ preventScroll: true })
+    }
   }, [selectedIndex])
 
   return (
     // Capas alinhadas pelo topo, como na referência. Scrollbar escondida: navega-se por seleção.
     <div
+      ref={railRef}
       className="rail-anim flex shrink-0 items-start px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
+      role="group"
+      aria-label="Biblioteca de jogos"
       style={{
         // shrink-0 + minHeight: o trilho é item de uma coluna flex e, com o
         // flex-shrink padrão, era espremido quando faltava altura — cortando
@@ -76,7 +89,27 @@ export function GameRail({
         return (
           <button
             key={game.id}
+            type="button"
             ref={focused ? selRef : undefined}
+            tabIndex={focused ? 0 : -1}
+            data-roving-item="true"
+            onFocus={() => {
+              if (selectedIndex !== i) onSelect(i)
+            }}
+            onKeyDown={(e) => {
+              if (!isRovingKey(e.key)) return
+              e.preventDefault()
+              e.stopPropagation()
+              const next = nextRovingIndex(i, games.length, e.key)
+              if (next === null) return
+              onSelect(next)
+              requestAnimationFrame(() => {
+                const target = railRef.current?.querySelector<HTMLButtonElement>(
+                  `[data-roving-index="${next}"]`,
+                )
+                target?.focus({ preventScroll: true })
+              })
+            }}
             onClick={() => {
               if (focused) onLaunch(game)
               else onSelect(i)
@@ -96,6 +129,8 @@ export function GameRail({
               marginRight: i === games.length - 1 ? 0 : -40,
               zIndex: focused ? 10 : 1,
             }}
+            data-roving-index={i}
+            aria-keyshortcuts="ArrowLeft ArrowRight Home End"
             aria-label={`${game.title} — selecionar`}
           >
             <div

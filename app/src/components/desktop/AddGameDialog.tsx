@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import type { WineVer, ArtCandidate } from "../../global"
+import type { WineVer, ArtCandidate, EmulatorInfo } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
@@ -31,10 +31,16 @@ export function AddGameDialog({
   const custom = !editGame || editGame.launcher === "custom" // seções de Wine/exe
   const [titulo, setTitulo] = useState(editGame?.title || "")
   const [descricao, setDescricao] = useState(editGame?.description || "")
-  const [platform, setPlatform] = useState<"windows" | "linux">(
-    editGame?.platform === "linux" ? "linux" : "windows",
+  const [platform, setPlatform] = useState<"windows" | "linux" | "emulator">(
+    editGame?.platform === "emulator" ? "emulator" : editGame?.platform === "linux" ? "linux" : "windows",
   )
   const [exe, setExe] = useState(editGame?.exe || "")
+  const [emulators, setEmulators] = useState<EmulatorInfo[]>([])
+  const [emulatorId, setEmulatorId] = useState((editGame as (Game & { emulatorId?: string }) | null)?.emulatorId || "")
+  const [romPath, setRomPath] = useState((editGame as (Game & { romPath?: string }) | null)?.romPath || "")
+  // Backward-compatible per-game RetroArch override; global core editing lives in Settings > Emulação.
+  const [emulatorCorePath, setEmulatorCorePath] = useState("")
+  const [emulatorArgs, setEmulatorArgs] = useState("")
   const [prefix, setPrefix] = useState("")
   const [prefixPadrao, setPrefixPadrao] = useState("")
   const [wineVersion, setWineVersion] = useState("")
@@ -71,13 +77,32 @@ export function AddGameDialog({
   useEffect(() => {
     window.launcherAPI?.gameSettingsGet(id).then((r) => {
       setPrefixPadrao(r?.defaultPrefix || "")
-      // Editando: preenche prefixo e versão do Wine já configurados.
+      // Editando: preenche prefixo, Wine e perfil de emulador já configurados.
       if (editando) {
         setPrefix(r?.settings?.prefixPath || "")
         setWineVersion(r?.settings?.wineVersion || "")
+        setEmulatorId(r?.settings?.emulatorId || "")
+        setRomPath(r?.settings?.romPath || "")
+        setEmulatorCorePath(r?.settings?.emulatorCorePath || "")
+        setEmulatorArgs((r?.settings?.emulatorArgs || []).join(" "))
       }
     })
   }, [id])
+
+  useEffect(() => {
+    if (!custom || platform !== "emulator") return
+    let active = true
+    window.launcherAPI?.emulatorsList().then((r) => {
+      if (!active || !r?.ok) return
+      const detected = r.emulators || []
+      setEmulators(detected)
+      if (!emulatorId) {
+        const first = detected.find((item) => item.available)
+        if (first) setEmulatorId((previous) => previous || first.id)
+      }
+    })
+    return () => { active = false }
+  }, [custom, platform])
 
   const wineEscolhido = wines.find((w) => w.id === wineVersion)?.wine
   const prefixoEfetivo = prefix || prefixPadrao
@@ -90,7 +115,10 @@ export function AddGameDialog({
     const r = await window.launcherAPI?.pickFolder()
     if (r?.ok && r.path) setPrefix(r.path)
   }
-
+  const pickRom = async () => {
+    const r = await window.launcherAPI?.pickFile()
+    if (r?.ok && r.path) setRomPath(r.path)
+  }
   const rodarInstalador = async () => {
     setBusy(true)
     await window.launcherAPI?.customGameRunInstaller({
@@ -129,7 +157,15 @@ export function AddGameDialog({
   const terminar = async () => {
     setErro("")
     if (!titulo.trim()) return setErro(t("addgame.erro_titulo"))
-    if (custom && !exe) return setErro(t("addgame.erro_exe"))
+    if (custom && platform !== "emulator" && !exe) return setErro(t("addgame.erro_exe"))
+    const args = emulatorArgs.trim() ? emulatorArgs.trim().split(/\s+/).slice(0, 32) : []
+    if (custom && platform === "emulator") {
+      if (!emulatorId) return setErro("Selecione um emulador.")
+      if (!romPath) return setErro("Selecione a ROM/ISO do jogo.")
+      const selectedEmulator = emulators.find((item) => item.id === emulatorId)
+      if (!selectedEmulator?.profile && !selectedEmulator?.available) return setErro("Configure o emulador em Configurações › Emulação antes de adicionar jogos.")
+      if (selectedEmulator?.requiresCore && !selectedEmulator.profile?.corePath) return setErro("Selecione um core do RetroArch em Configurações › Emulação.")
+    }
     setBusy(true)
     if (editando && !custom) {
       // Jogo de loja (Steam/Epic/etc.): salva título/descrição via overrides.
@@ -143,14 +179,46 @@ export function AddGameDialog({
       onClose()
       return
     }
-    // Salva prefixo/versão do Wine nas configurações do jogo (usadas no launch).
+
+    if (custom && platform === "emulator") {
+      const check = await window.launcherAPI?.emulatorsResolve({
+        emulatorId,
+        romPath,
+        extraArgs: args,
+        corePath: emulatorCorePath || undefined,
+      })
+      if (!check?.ok) {
+        setBusy(false)
+        return setErro(check?.error || "ROM ou emulador inválido.")
+      }
+    }
+
+    // Configurações são locais: credenciais e ROMs nunca são enviadas ao backend.
     await window.launcherAPI?.gameSettingsSet(id, {
-      prefixPath: prefix || undefined,
-      wineVersion: wineVersion || undefined,
+      prefixPath: platform === "emulator" ? undefined : (prefix || undefined),
+      wineVersion: platform === "emulator" ? undefined : (wineVersion || undefined),
+      emulatorId: platform === "emulator" ? emulatorId : undefined,
+      romPath: platform === "emulator" ? romPath : undefined,
+      emulatorArgs: platform === "emulator" ? args : undefined,
+      emulatorCorePath: platform === "emulator" ? (emulatorCorePath || undefined) : undefined,
     })
     const r = editando
-      ? await window.launcherAPI?.customGameUpdate({ id, title: titulo.trim(), exe })
-      : await window.launcherAPI?.customGameAdd({ id, title: titulo.trim(), platform, exe })
+      ? await window.launcherAPI?.customGameUpdate({
+          id,
+          title: titulo.trim(),
+          exe: platform === "emulator" ? undefined : exe,
+          platform,
+        })
+      : await window.launcherAPI?.customGameAdd({
+          id,
+          title: titulo.trim(),
+          platform,
+          exe: platform === "emulator" ? "" : exe,
+          emulatorId: platform === "emulator" ? emulatorId : undefined,
+          romPath: platform === "emulator" ? romPath : undefined,
+          emulatorArgs: platform === "emulator" ? args : undefined,
+          emulatorCorePath: platform === "emulator" ? (emulatorCorePath || undefined) : undefined,
+        })
     if (!r?.ok) {
       setBusy(false)
       return setErro(
@@ -282,7 +350,7 @@ export function AddGameDialog({
               </label>
               <select
                 value={platform}
-                onChange={(e) => setPlatform(e.target.value as "windows" | "linux")}
+                onChange={(e) => setPlatform(e.target.value as "windows" | "linux" | "emulator")}
                 className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
               >
                 <option value="windows" className="bg-[#16161a]">
@@ -290,6 +358,9 @@ export function AddGameDialog({
                 </option>
                 <option value="linux" className="bg-[#16161a]">
                   {t("addgame.linux_nativo")}
+                </option>
+                <option value="emulator" className="bg-[#16161a]">
+                  Emulador (ROM/ISO)
                 </option>
               </select>
 
@@ -368,32 +439,75 @@ export function AddGameDialog({
                 </>
               )}
 
-              <label className="mb-1.5 block text-[12px] text-white/60">
-                {t("addgame.selecionar_exe")}
-              </label>
-              <div className="mb-2 flex gap-2">
-                <button
-                  onClick={pickExe}
-                  className={`flex flex-1 items-center justify-between rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
-                    exe ? "border-white/15 text-white/80" : "border-white/10 text-white/35"
-                  } bg-white/[0.04] hover:border-white/25`}
-                >
-                  <span className="truncate">{exe || t("addgame.selecionar_exe")}</span>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0 text-white/50"
+              {platform === "emulator" && (
+                <div className="mb-3 rounded-xl border border-white/[0.08] bg-black/20 p-3">
+                  <p className="mb-2 text-xs font-medium text-white/75">Configuração do emulador</p>
+                  <label className="mb-1.5 block text-[12px] text-white/60">Emulador</label>
+                  <select
+                    value={emulatorId}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setEmulatorId(next)
+                    }}
+                    className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                   >
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                </button>
-              </div>
+                    <option value="" className="bg-[#16161a]">Selecione…</option>
+                    {emulators.map((item) => (
+                      <option key={item.id} value={item.id} className="bg-[#16161a]">
+                        {item.name} · {item.systems.join(" / ")}{item.available ? "" : " (não detectado)"}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-[11px] leading-relaxed text-white/45">
+                    O executável, BIOS e core são configurados em <strong className="font-medium text-white/65">Configurações › Emulação</strong>.
+                  </p>
+                  <label className="mb-1.5 block text-[12px] text-white/60">ROM/ISO</label>
+                  <div className="mb-3 flex gap-2">
+                    <input value={romPath} readOnly placeholder="Selecione um arquivo" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white/70" />
+                    <button type="button" onClick={pickRom} className="rounded-lg border border-white/10 px-3 text-xs text-white/70 hover:bg-white/10">Escolher</button>
+                  </div>
+                  <label className="block text-[12px] text-white/60">Argumentos adicionais (argv)</label>
+                  <input
+                    value={emulatorArgs}
+                    onChange={(e) => setEmulatorArgs(e.target.value)}
+                    placeholder="--fullscreen"
+                    maxLength={4096}
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white outline-none focus:border-[color:var(--accent)]"
+                  />
+                  <p className="mt-2 text-[11px] text-white/35">Nenhum comando é interpretado por shell; os argumentos são enviados como array.</p>
+                </div>
+              )}
+
+              {platform !== "emulator" && (
+                <>
+                  <label className="mb-1.5 block text-[12px] text-white/60">
+                    {t("addgame.selecionar_exe")}
+                  </label>
+                  <div className="mb-2 flex gap-2">
+                    <button
+                      onClick={pickExe}
+                      className={`flex flex-1 items-center justify-between rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                        exe ? "border-white/15 text-white/80" : "border-white/10 text-white/35"
+                      } bg-white/[0.04] hover:border-white/25`}
+                    >
+                      <span className="truncate">{exe || t("addgame.selecionar_exe")}</span>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0 text-white/50"
+                      >
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <>

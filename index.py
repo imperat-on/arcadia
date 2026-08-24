@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Indexador de bibliotecas para o front-end PS5.
+"""Indexador de bibliotecas para o frontend do Arcadia.
 
 Varre Steam, Heroic (Epic/GOG/Amazon) e Lutris e gera um `library.json`
-unificado que o app Godot consome. Cada jogo vira:
+unificado que o app Electron consome. Cada jogo vira:
 
     {
       "id":        "steam:440",
@@ -13,6 +13,9 @@ unificado que o app Godot consome. Cada jogo vira:
       "hero":      "/caminho/library_hero.jpg"     | "",
       "logo":      "/caminho/logo.png"             | ""
     }
+
+O arquivo usa um envelope versionado (`version=1`, `games=[...]`), mas o
+Electron ainda lê arrays legados para upgrades sem migração destrutiva.
 
 Sem dependências obrigatórias: usa `python-vdf` se existir, senão cai num
 parser mínimo próprio. Bibliotecas vazias (ex.: Heroic sem login) são ignoradas
@@ -32,6 +35,18 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from indexers.parsers import parse_vdf
+from indexers.steam import build_steam_game
+from indexers.epic import (
+    build_heroic_game,
+    build_legendary_game,
+    heroic_games_list,
+    legendary_games_list,
+)
+from indexers.lutris import build_lutris_game
+from indexers.slssteam import build_slssteam_game, parse_additional_apps
+from indexers.contracts import ProviderContext, execute_provider
+
 # Concorrência do enriquecimento (Steam Store / SteamGridDB / Web API). Pool
 # pequeno: paraleliza o gargalo de rede da primeira execução sem estourar o
 # rate limit dos endpoints. Cada worker só faz rede e devolve resultado; o
@@ -39,7 +54,19 @@ from pathlib import Path
 ENRICH_WORKERS = 6
 
 HOME = Path.home()
-OUT_DIR = HOME / ".local/share/arcadia"
+
+
+def _data_dir() -> Path:
+    """Raiz de dados compartilhada com o Electron.
+
+    O override permite indexar uma instalação isolada ou um diretório temporário
+    sem misturar `library.json` com o estado padrão do usuário.
+    """
+    raw = os.environ.get("ARCADIA_DATA_DIR", "").strip()
+    return Path(raw).expanduser().resolve() if raw else HOME / ".local/share/arcadia"
+
+
+OUT_DIR = _data_dir()
 OUT_FILE = OUT_DIR / "library.json"
 
 # Steam
@@ -105,39 +132,6 @@ STEAM_TOOL_IDS = {
     "2180100",  # Proton Hotfix
 }
 STEAM_TOOL_WORDS = ("runtime", "redistributable", "proton", "steamworks")
-
-
-# --------------------------------------------------------------------------- #
-# VDF: usa a lib se houver, senão parser mínimo (chave/valor aninhado).
-# --------------------------------------------------------------------------- #
-try:
-    import vdf  # type: ignore
-
-    def parse_vdf(text: str) -> dict:
-        return vdf.loads(text)
-except Exception:  # pragma: no cover - fallback simples
-    def parse_vdf(text: str) -> dict:
-        root: dict = {}
-        stack = [root]
-        key_pat = re.compile(r'"((?:[^"\\]|\\.)*)"')
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("//"):
-                continue
-            if line == "{":
-                continue
-            if line == "}":
-                if len(stack) > 1:
-                    stack.pop()
-                continue
-            keys = key_pat.findall(line)
-            if len(keys) >= 2:
-                stack[-1][keys[0]] = keys[1]
-            elif len(keys) == 1:
-                child: dict = {}
-                stack[-1][keys[0]] = child
-                stack.append(child)
-        return root
 
 
 def _read(path: Path) -> str | None:
@@ -215,23 +209,18 @@ def index_steam() -> list[dict]:
                 continue
             data = parse_vdf(text).get("AppState", {})
             appid = str(data.get("appid", "")).strip()
-            name = str(data.get("name", "")).strip()
             if not appid or appid in seen:
                 continue
-            if appid in STEAM_TOOL_IDS:
-                continue
-            if any(w in name.lower() for w in STEAM_TOOL_WORDS):
+            game = build_steam_game(
+                data,
+                steam_art(appid),
+                tool_ids=STEAM_TOOL_IDS,
+                tool_words=STEAM_TOOL_WORDS,
+            )
+            if not game:
                 continue
             seen.add(appid)
-            art = steam_art(appid)
-            games.append({
-                "id": f"steam:{appid}",
-                "title": name or f"App {appid}",
-                "launcher": "steam",
-                "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
-                "installed": True,
-                **art,
-            })
+            games.append(game)
     return games
 
 
@@ -712,7 +701,7 @@ def index_legendary() -> list[dict]:
                            capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             return []
-        games = json.loads(r.stdout)
+        games = legendary_games_list(json.loads(r.stdout))
     except Exception:
         return []
     installed: set[str] = set()
@@ -720,44 +709,27 @@ def index_legendary() -> list[dict]:
         ri = subprocess.run([str(LEGENDARY_BIN), "list-installed", "--json"],
                             capture_output=True, text=True, timeout=60)
         if ri.returncode == 0:
-            installed = {g.get("app_name", "") for g in json.loads(ri.stdout)}
+            installed_data = legendary_games_list(json.loads(ri.stdout))
+            installed = {
+                str(g.get("app_name") or g.get("appName") or "").strip()
+                for g in installed_data
+                if isinstance(g, dict)
+            }
     except Exception:
         pass
 
-    def img(game, *types):
-        for t in types:
-            for i in (game.get("metadata", {}).get("keyImages") or []):
-                if i.get("type") == t and i.get("url"):
-                    return i["url"]
-        return ""
-
     out = []
     for g in games:
-        app_name = str(g.get("app_name") or "").strip()
-        title = str(g.get("app_title") or "").strip()
-        if not app_name or not title:
+        if not isinstance(g, dict):
             continue
-        out.append({
-            "id": f"epic:{app_name}",
-            "title": title,
-            "launcher": "epic",
-            "launch_cmd": [str(LEGENDARY_BIN), "launch", app_name],
-            "installed": app_name in installed,
-            "cover": img(g, "DieselGameBoxTall", "OfferImageTall"),
-            "hero": img(g, "DieselGameBox", "OfferImageWide", "VaultClosed"),
-            "logo": img(g, "DieselGameBoxLogo"),
-        })
+        game = build_legendary_game(g, installed, LEGENDARY_BIN)
+        if game:
+            out.append(game)
     return out
 
 
-def _heroic_games_list(data) -> list:
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("library", "games", "data"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
+# Compatibilidade interna para consumidores/fixtures antigos.
+_heroic_games_list = heroic_games_list
 
 
 def index_heroic() -> list[dict]:
@@ -773,25 +745,9 @@ def index_heroic() -> list[dict]:
         for g in _heroic_games_list(data):
             if not isinstance(g, dict):
                 continue
-            app_name = str(g.get("app_name") or g.get("appName") or "").strip()
-            title = str(g.get("title") or "").strip()
-            if not app_name:
-                continue
-            # Inclui TODA a biblioteca (possuídos, mesmo não instalados).
-            installed = bool(g.get("is_installed"))
-            art = g.get("art_cover") or g.get("art_square") or ""
-            hero = g.get("art_background") or g.get("art_square") or g.get("art_cover") or ""
-            logo = g.get("art_logo") or ""
-            games.append({
-                "id": f"heroic:{runner}:{app_name}",
-                "title": title or app_name,
-                "launcher": "heroic",
-                "launch_cmd": ["xdg-open", f"heroic://launch/{runner}/{app_name}"],
-                "installed": installed,
-                "cover": art,   # pode ser URL http(s) do CDN da Epic
-                "hero": hero,
-                "logo": logo,
-            })
+            game = build_heroic_game(g, runner)
+            if game:
+                games.append(game)
     return games
 
 
@@ -845,15 +801,11 @@ def index_lutris(steam_appids: set[str] | None = None) -> list[dict]:
         # Evita duplicar um jogo Steam que também está catalogado no Lutris.
         if service == "steam" and str(service_id) in steam_appids:
             continue
-        slug = slug or ""
-        games.append({
-            "id": f"lutris:{gid}",
-            "title": name or slug,
-            "launcher": "lutris",
-            "launch_cmd": ["lutris", f"lutris:rungameid/{gid}"],
-            "installed": True,
-            **lutris_art(slug),
-        })
+        game = build_lutris_game(
+            gid, name, slug, service, service_id, steam_appids, lutris_art(slug),
+        )
+        if game:
+            games.append(game)
     return games
 
 
@@ -861,23 +813,7 @@ def index_lutris(steam_appids: set[str] | None = None) -> list[dict]:
 def slssteam_appids(config_path: Path | None = None) -> list[str]:
     """AppIds injetados pelo SLSsteam (bloco AdditionalApps do config.yaml)."""
     text = _read(config_path or SLS_CONFIG)
-    if not text:
-        return []
-    ids: list[str] = []
-    in_block = False
-    for line in text.splitlines():
-        if re.match(r"^AdditionalApps\s*:", line):
-            in_block = True
-            continue
-        if in_block:
-            # Sai do bloco ao chegar em outra chave de topo (sem indentação).
-            if line and not line[0].isspace() and ":" in line \
-                    and not line.lstrip().startswith("#"):
-                break
-            m = re.match(r"^\s*-\s*(\d+)", line)
-            if m:
-                ids.append(m.group(1))
-    return ids
+    return parse_additional_apps(text) if text else []
 
 
 def index_slssteam(existing_appids: set[str],
@@ -892,22 +828,40 @@ def index_slssteam(existing_appids: set[str],
         seen.add(appid)
         art = steam_art(appid)
         installed = any((d / f"appmanifest_{appid}.acf").exists() for d in libdirs)
-        out.append({
-            "id": f"steam:{appid}",
-            "title": f"App {appid}",  # enrich_steam preenche o nome real
-            "launcher": "steam",
-            "launch_cmd": ["steam", f"steam://rungameid/{appid}"],
-            "installed": installed,
-            "cover": art["cover"] or f"{STEAM_CDN}/{appid}/library_600x900.jpg",
-            "hero": art["hero"] or f"{STEAM_CDN}/{appid}/library_hero.jpg",
-            "logo": art["logo"] or f"{STEAM_CDN}/{appid}/logo.png",
-        })
+        game = build_slssteam_game(
+            appid, existing_appids, installed, art, STEAM_CDN, STEAM_TOOL_IDS,
+        )
+        if game:
+            out.append(game)
     return out
 
 
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Nunca sobrescreva uma biblioteca criada por uma versão mais nova do
+    # indexador. Um checkout antigo deve falhar de forma explícita, preservando
+    # o snapshot que o app ainda consegue usar.
+    if OUT_FILE.exists():
+        try:
+            previous = json.loads(OUT_FILE.read_text(encoding="utf-8"))
+            raw_version = previous.get("version", 0) if isinstance(previous, dict) else 0
+            try:
+                previous_version = float(raw_version)
+            except (TypeError, ValueError):
+                previous_version = 0
+            if previous_version > 1:
+                print(
+                    f"[erro] library.json usa versão futura {previous['version']}; "
+                    "atualize o Arcadia antes de indexar",
+                    file=sys.stderr,
+                )
+                return 2
+        except (OSError, ValueError, TypeError):
+            # Snapshot inválido: o scan pode reconstruí-lo.
+            pass
+
     library: list[dict] = []
+    provider_errors: list[str] = []
     counts = {}
 
     # Toggles de fontes (padrão: todas ligadas) e caminho custom do SLSsteam.
@@ -925,17 +879,26 @@ def main() -> int:
         steam_games = index_steam() if on("steam") else []
     except Exception as exc:
         print(f"[aviso] steam: {exc}", file=sys.stderr)
+        provider_errors.append("steam")
         steam_games = []
     steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
 
     # Biblioteca completa da Steam (possuídos não instalados) via Web API.
     if on("steam"):
-        steam_games = steam_games + steam_owned_games(steam_appids)
+        try:
+            steam_games = steam_games + steam_owned_games(steam_appids)
+        except Exception as exc:
+            print(f"[aviso] steam-owned: {exc}", file=sys.stderr)
+            provider_errors.append("steam-owned")
 
     # Jogos injetados pelo SLSsteam (AdditionalApps), que a Web API não retorna.
     if on("slssteam"):
-        all_steam_ids = {g["id"].split(":", 1)[1] for g in steam_games}
-        steam_games = steam_games + index_slssteam(all_steam_ids, sls_config)
+        try:
+            all_steam_ids = {g["id"].split(":", 1)[1] for g in steam_games}
+            steam_games = steam_games + index_slssteam(all_steam_ids, sls_config)
+        except Exception as exc:
+            print(f"[aviso] slssteam: {exc}", file=sys.stderr)
+            provider_errors.append("slssteam")
 
     # Metadados (descrição/gênero/ano/nota) via Steam Store, cacheado.
     # Sem passar o idioma: quem traduz o código do config ("pt-BR") para o
@@ -946,31 +909,55 @@ def main() -> int:
         enrich_steam(steam_games, (cfg.get("steamgriddb_api_key") or "").strip())
     except Exception as exc:
         print(f"[aviso] steam-meta: {exc}", file=sys.stderr)
+        provider_errors.append("steam-meta")
 
     # Dados do JOGADOR (tempo de jogo) via Web API, cache 24h.
     try:
         enrich_player(steam_games, cfg)
     except Exception as exc:
         print(f"[aviso] player: {exc}", file=sys.stderr)
+        provider_errors.append("steam-player")
 
     # Recomputa após owned+slssteam pra Lutris deduplicar contra biblioteca completa.
     all_steam_appids = {g["id"].split(":", 1)[1] for g in steam_games}
+    provider_context = ProviderContext(
+        data_dir=OUT_DIR,
+        config=cfg,
+        language=str(cfg.get("language") or "en-US"),
+        network_enabled=sources.get("network", True) is not False,
+    )
     for name, fn in (
         ("steam", lambda: steam_games),
         # Epic: preferência pelo Legendary próprio; GOG/Amazon sempre via Heroic.
         ("heroic", (index_epic_and_heroic if on("heroic") else (lambda: []))),
         ("lutris", (lambda: index_lutris(all_steam_appids)) if on("lutris") else (lambda: [])),
     ):
-        try:
-            items = fn()
-        except Exception as exc:  # nunca deixa um launcher derrubar o resto
-            print(f"[aviso] {name}: {exc}", file=sys.stderr)
-            items = []
-        counts[name] = len(items)
-        library.extend(items)
+        result = execute_provider(name, fn, provider_context)
+        if result.errors:
+            for error in result.errors:
+                print(f"[aviso] {name}: {error}", file=sys.stderr)
+            provider_errors.append(name)
+        for warning in result.warnings:
+            print(f"[aviso] {name}: {warning}", file=sys.stderr)
+        counts[name] = len(result.games)
+        library.extend(result.games)
 
     library.sort(key=lambda g: g["title"].lower())
-    if not _atomic_write(OUT_FILE, json.dumps(library, ensure_ascii=False, indent=2)):
+    if provider_errors and not library:
+        print(
+            "[erro] nenhum provider respondeu (" + ", ".join(provider_errors) + "); "
+            "snapshot anterior preservado",
+            file=sys.stderr,
+        )
+        return 2
+    document = {
+        "version": 1,
+        "generated_at": int(time.time()),
+        "sources": counts,
+        "errors": provider_errors,
+        "games": library,
+    }
+    if not _atomic_write(OUT_FILE, json.dumps(document, ensure_ascii=False, indent=2)):
         print(f"[erro] falha ao escrever {OUT_FILE}", file=sys.stderr)
         return 1
     total = len(library)

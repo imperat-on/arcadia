@@ -124,9 +124,9 @@ export function TopBar({
   }, [])
 
   return (
-    <header className="anim-nav flex items-center justify-between px-10 pt-6 pb-4">
-      {/* Abas em pílulas: ícone + rótulo, ativa com fundo accent translúcido */}
-      <nav className="flex items-center gap-3">
+    <header className="anim-nav flex items-center justify-between px-10 pt-6 pb-4 relative z-30">
+      {/* Abas minimalistas com foco sutil */}
+      <nav className="flex items-center gap-2">
         {TABS.map((tab, i) => {
           const isActive = i === active
           const Icone = TAB_ICONES[i]
@@ -136,20 +136,19 @@ export function TopBar({
               onClick={() => onTab(i)}
               title={t(tab)}
               aria-label={t(tab)}
-              className="flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-200"
+              className="flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200"
               style={{
-                color: isActive ? "#ffffff" : "rgba(255,255,255,0.55)",
+                color: isActive ? "#ffffff" : "rgba(255,255,255,0.5)",
                 background: isActive
-                  ? "color-mix(in oklab, var(--accent) 22%, transparent)"
-                  : "rgba(255,255,255,0.05)",
+                  ? "rgba(255,255,255,0.08)"
+                  : "rgba(255,255,255,0.03)",
                 border: isActive
-                  ? "1px solid color-mix(in oklab, var(--accent) 40%, transparent)"
-                  : "1px solid rgba(255,255,255,0.08)",
+                  ? "1px solid rgba(0,168,255,0.25)"
+                  : "1px solid rgba(255,255,255,0.05)",
                 boxShadow: isActive
-                  ? "0 0 20px color-mix(in oklab, var(--accent) 18%, transparent)"
+                  ? "0 4px 20px rgba(0,0,0,0.5), 0 0 20px rgba(0,168,255,0.15)"
                   : "none",
-                backdropFilter: "blur(12px)",
-                filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.45))",
+                backdropFilter: "blur(16px)",
               }}
             >
               <Icone className="h-5 w-5" />
@@ -160,21 +159,21 @@ export function TopBar({
       </nav>
 
       {/* Direita: downloads + engrenagem + perfil + relógio */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-5">
         <button
           onClick={onOpenDownloads}
           title={t("topbar.downloads")}
           aria-label={t("topbar.downloads")}
-          className="relative text-white/75 transition-colors hover:text-white"
+          className="relative text-white/70 transition-all hover:text-white hover:scale-105"
           style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
         >
           <svg
-            width="24"
-            height="24"
+            width="22"
+            height="22"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.8"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
@@ -184,8 +183,11 @@ export function TopBar({
           </svg>
           {downloadsActive > 0 && (
             <span
-              className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-black"
-              style={{ background: "var(--accent)" }}
+              className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+              style={{
+                background: "var(--accent)",
+                boxShadow: "0 0 12px rgba(0,168,255,0.6)",
+              }}
             >
               {downloadsActive}
             </span>
@@ -196,10 +198,10 @@ export function TopBar({
           onClick={onOpenSettings}
           title={t("topbar.configuracoes")}
           aria-label={t("topbar.configuracoes")}
-          className="text-white/75 hover:text-white transition-colors"
+          className="text-white/70 hover:text-white transition-all hover:scale-105"
           style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19.14 12.94a7.6 7.6 0 000-1.88l2.03-1.58a.48.48 0 00.12-.61l-1.92-3.32a.48.48 0 00-.58-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.47.47 0 00-.47-.4h-3.84a.47.47 0 00-.47.4l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.48.48 0 00-.58.22L2.77 8.87a.48.48 0 00.12.61l2.03 1.58a7.6 7.6 0 000 1.88l-2.03 1.58a.48.48 0 00-.12.61l1.92 3.32c.12.21.37.29.58.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.23.24.4.47.4h3.84c.23 0 .43-.17.47-.4l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.46 0 .58-.22l1.92-3.32a.48.48 0 00-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z" />
           </svg>
         </button>
@@ -208,8 +210,12 @@ export function TopBar({
           <button
             onClick={onToggleMenu}
             title={t("topbar.perfil")}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden transition-transform hover:scale-105"
-            style={{ background: "linear-gradient(135deg, #0072ce, #003791)" }}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden transition-all hover:scale-105"
+            style={{
+              background: "linear-gradient(135deg, rgba(0,168,255,0.25), rgba(0,114,206,0.25))",
+              border: "1px solid rgba(0,168,255,0.3)",
+              boxShadow: "0 4px 15px rgba(0,0,0,0.4), 0 0 20px rgba(0,168,255,0.2)",
+            }}
           >
             {profile?.avatar ? (
               <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
@@ -230,8 +236,8 @@ export function TopBar({
         </div>
 
         <span
-          className="text-white text-[22px] font-medium tabular-nums"
-          style={{ textShadow: "0 2px 14px rgba(0,0,0,0.55)" }}
+          className="text-white text-[24px] font-semibold tabular-nums tracking-tight"
+          style={{ textShadow: "0 2px 20px rgba(0,0,0,0.7)" }}
         >
           {time}
         </span>
