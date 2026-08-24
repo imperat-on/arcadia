@@ -16,9 +16,10 @@ const { loadAchievements, saveAchievements } = require("./schema")
 const { log } = require("./../debug")
 
 const { findSteamDir } = require("./../steam-path")
+const { dataPath } = require("./../runtime-paths")
 const STATS_DIR = path.join(findSteamDir(), "appcache", "stats")
 const ICON_DIR = path.join(STATS_DIR, "achievement_images")
-const ICON_CACHE_DIR = path.join(os.homedir(), ".local/share/arcadia/achievement_icons")
+const ICON_CACHE_DIR = dataPath("achievement_icons")
 
 // Idioma preferido: pt-BR, en-US, en, fallback no primeiro string. Se nada bate, usa inglês.
 const LOCALE_CHAIN = ["brazilian", "english", "spanish"]

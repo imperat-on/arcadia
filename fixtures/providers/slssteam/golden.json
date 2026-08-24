@@ -1,0 +1,28 @@
+[
+  {
+    "id": "steam:123456",
+    "title": "App 123456",
+    "launcher": "steam",
+    "launch_cmd": [
+      "steam",
+      "steam://rungameid/123456"
+    ],
+    "installed": false,
+    "cover": "/art/123456.jpg",
+    "hero": "https://cdn.example/steam/123456/library_hero.jpg",
+    "logo": "https://cdn.example/steam/123456/logo.png"
+  },
+  {
+    "id": "steam:654321",
+    "title": "App 654321",
+    "launcher": "steam",
+    "launch_cmd": [
+      "steam",
+      "steam://rungameid/654321"
+    ],
+    "installed": false,
+    "cover": "https://cdn.example/steam/654321/library_600x900.jpg",
+    "hero": "https://cdn.example/steam/654321/library_hero.jpg",
+    "logo": "https://cdn.example/steam/654321/logo.png"
+  }
+]

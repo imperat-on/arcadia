@@ -16,6 +16,13 @@ if [ ! -f "$DIR/app/package.json" ] && [ -f "$HOME/.local/share/arcadia/app/pack
     DIR="$HOME/.local/share/arcadia"
 fi
 
+# A biblioteca é estado do usuário, não parte do checkout. O indexador Python
+# usa o mesmo override, evitando reindexar a cada execução quando o código está
+# em um clone separado de ~/.local/share/arcadia.
+DATA_DIR="${ARCADIA_DATA_DIR:-$HOME/.local/share/arcadia}"
+if [[ "$DATA_DIR" == "~/"* ]]; then DATA_DIR="$HOME/${DATA_DIR:2}"; fi
+if [[ "$DATA_DIR" != /* ]]; then DATA_DIR="$PWD/$DATA_DIR"; fi
+
 # Resolve o binário do Electron de forma tolerante: o caminho do npm às vezes
 # muda ou o download falha. Ordem: (1) caminho padrão do npm; (2) o que o
 # pacote 'electron' resolve; (3) Electron do sistema (pacman/apt). Se nada
@@ -38,9 +45,9 @@ fi
 #    Nas demais, o app abre na hora com o library.json anterior e reindexa em
 #    BACKGROUND (main.js), avisando o renderer quando terminar. Isso tira ~17s
 #    da abertura, que antes esperava o index.py rodar por completo.
-if [ ! -f "$DIR/library.json" ]; then
+if [ ! -f "$DATA_DIR/library.json" ]; then
     echo "arcadia: primeira indexação (só desta vez)…"
-    python3 "$DIR/index.py"
+    ARCADIA_DATA_DIR="$DATA_DIR" python3 "$DIR/index.py"
 fi
 
 # 2) Reconstrói o front-end se algum fonte mudou desde o último build

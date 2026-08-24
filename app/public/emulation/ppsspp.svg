@@ -1,0 +1,51 @@
+<!-- Original Arcadia artwork. No third-party logos or external resources. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="640" viewBox="0 0 1024 640" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract portable console artwork</title>
+  <desc id="desc">A handheld console silhouette with a violet and coral glow.</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="16" x2="966" y2="622" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#321c45"/>
+      <stop offset=".48" stop-color="#65304f"/>
+      <stop offset="1" stop-color="#180f2a"/>
+    </linearGradient>
+    <linearGradient id="body" x1="274" y1="167" x2="747" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d993c4"/>
+      <stop offset=".48" stop-color="#794b84"/>
+      <stop offset="1" stop-color="#392650"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="374" y1="215" x2="654" y2="392" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1a1633"/>
+      <stop offset="1" stop-color="#42255b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(218 107) rotate(50) scale(382)">
+      <stop stop-color="#ffbdcb" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#ffbdcb" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="230" y="116" width="565" height="428" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0a0614" flood-opacity=".7"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="640" rx="34" fill="url(#bg)"/>
+  <rect width="1024" height="640" rx="34" fill="url(#glow)"/>
+  <path d="M0 526c212-67 364 19 536-13 183-34 290-74 488-26v153H0V526Z" fill="#0b081a" fill-opacity=".5"/>
+  <g opacity=".25" stroke="#ffd5e1" stroke-width="2">
+    <path d="M70 120h168M70 145h92M794 116h156M845 141h105"/>
+    <path d="m120 484 48-48 48 48-48 48-48-48Z"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="273" y="161" width="478" height="316" rx="48" fill="url(#body)" stroke="#f6c0dc" stroke-opacity=".72" stroke-width="4"/>
+    <rect x="345" y="201" width="334" height="212" rx="18" fill="#211633" stroke="#f4bfd6" stroke-opacity=".35" stroke-width="4"/>
+    <rect x="364" y="220" width="296" height="174" rx="10" fill="url(#screen)"/>
+    <path d="M390 357c48-61 90-65 129-21 39 44 87 39 134-31" stroke="#dca5dc" stroke-opacity=".68" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="306" cy="318" r="35" fill="#492858" stroke="#efb4d8" stroke-opacity=".6" stroke-width="3"/>
+    <path d="M306 295v46M283 318h46" stroke="#f8c8dc" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="708" cy="274" r="14" fill="#ffd28f"/>
+    <circle cx="737" cy="303" r="14" fill="#e879a5"/>
+    <circle cx="679" cy="303" r="14" fill="#9ed5f6"/>
+    <circle cx="708" cy="332" r="14" fill="#b3e594"/>
+    <rect x="407" y="443" width="122" height="8" rx="4" fill="#f9c9dd" fill-opacity=".5"/>
+    <rect x="558" y="443" width="74" height="8" rx="4" fill="#f9c9dd" fill-opacity=".25"/>
+  </g>
+  <path d="M286 546c135-22 303-22 448 0" stroke="#ffb3c8" stroke-opacity=".48" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="780" cy="126" r="7" fill="#ffd495"/>
+</svg>

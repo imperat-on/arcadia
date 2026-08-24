@@ -11,10 +11,19 @@ const { registerRestRoutes } = require("./rest-routes")
 const { registerSyncRoutes } = require("./sync-routes")
 const { registerStorageRoutes, startOrphanCleanup } = require("./storage-routes")
 const { registerCatalogRoutes, warmUpCatalog, precarregarCatalogoCompleto } = require("./catalog-routes")
+const { registerCommunityRoutes } = require("./community-routes")
 const { registerRealtime } = require("./realtime")
+const { registerHealthRoutes } = require("./health-routes")
+const { registerRetroRoutes, startRetroSync } = require("./retro-routes")
+const { requestContext, structuredErrors, sendError, handleError } = require("./api-observability")
 
 const PORT = process.env.PORT || 3000
 const app = express()
+
+// Correlation is installed before parsers/routes so malformed requests and
+// early failures still carry the same request id in headers and JSON errors.
+app.use(requestContext)
+app.use(structuredErrors)
 
 // O renderer do Electron roda em file://; libera apenas leitura pública dos
 // objetos e chamadas da API do launcher. Credenciais continuam protegidas
@@ -25,7 +34,8 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin || "*")
   }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
-  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, apikey")
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, apikey, x-request-id")
+  res.setHeader("Access-Control-Expose-Headers", "X-Request-Id")
   if (req.method === "OPTIONS") return res.sendStatus(204)
   next()
 })
@@ -38,23 +48,18 @@ registerRestRoutes(app)
 registerSyncRoutes(app)
 registerStorageRoutes(app)
 registerCatalogRoutes(app)
+registerRetroRoutes(app)
+registerCommunityRoutes(app)
+registerHealthRoutes(app, { checkDatabase: () => db.query("SELECT 1") })
 
-// Healthcheck (usado pelo systemd e pelo deploy)
-app.get("/health", async (req, res, next) => {
-  try {
-    await db.query("SELECT 1")
-    res.json({ ok: true, name: "arcadia-server", time: new Date().toISOString() })
-  } catch (error) {
-    next(error)
-  }
-})
+// JSON para rotas desconhecidas; evita que proxies recebam a pagina HTML
+// padrao do Express e mantém o mesmo contrato de erro das demais APIs.
+app.use((req, res) => sendError(req, res, 404, "rota_nao_encontrada"))
 
-// Middleware de erro padrao (JSON, nao HTML)
+// Middleware de erro padrao (JSON, nao HTML). A chave legada `error` permanece
+// presente; `code`, `message` e `request_id` tornam o erro observavel.
 // eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error("[erro]", err)
-  res.status(500).json({ error: "erro_interno" })
-})
+app.use(handleError)
 
 let server
 let realtime
@@ -62,6 +67,7 @@ let realtime
 async function startServer() {
   await initDb()
   startOrphanCleanup()
+  startRetroSync()
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`arcadia-server ouvindo em http://0.0.0.0:${PORT} (postgres=ok)`)
     warmUpCatalog().catch((error) => console.error("[warmup]", error))

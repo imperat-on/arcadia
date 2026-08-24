@@ -16,6 +16,7 @@ const crypto = require("node:crypto")
 const { db, nowIso, withTransaction } = require("./db")
 const { issueTokens, verifyToken, extractToken, buildUser } = require("./jwt")
 const asyncHandler = require("./async-handler")
+const { createRateLimiter } = require("./rate-limit")
 
 // ---------------------------------------------------------------------------
 // Validacoes (mesmas do auth.js do app)
@@ -205,29 +206,37 @@ async function tokenGrant(grantType, body) {
   }
 
   if (grantType === "refresh_token") {
-    const rt = String(body?.refresh_token || "")
-    const stored = (await db.query("SELECT * FROM refresh_tokens WHERE token = $1", [rt])).rows[0]
-    if (!stored || Date.parse(stored.expires_at) < Date.now()) {
-      return { status: 401, json: { error: "Invalid Refresh Token: Refresh Token Not Found" } }
-    }
-    const user = (await db.query("SELECT * FROM profiles WHERE id = $1", [stored.user_id])).rows[0]
-    if (!user) return { status: 401, json: { error: "Invalid Refresh Token: User Not Found" } }
-    return issueSessionJson(user, rt)
+    return rotateRefreshToken(String(body?.refresh_token || ""))
   }
 
   return { status: 400, json: { error: "invalid_grant" } }
 }
 
-async function issueSessionJson(user, replacedToken = "") {
-  const session = issueTokens(user)
-  const now = nowIso()
-  await withTransaction(async (client) => {
-    if (replacedToken) await client.query("DELETE FROM refresh_tokens WHERE token = $1", [replacedToken])
+async function rotateRefreshToken(token) {
+  return withTransaction(async (client) => {
+    // Lock the row before deleting it. Two concurrent refreshes must not both
+    // accept the same token (rotation is also replay protection).
+    const stored = (
+      await client.query(
+        "SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW() FOR UPDATE",
+        [token],
+      )
+    ).rows[0]
+    if (!stored) return { status: 401, json: { error: "Invalid Refresh Token: Refresh Token Not Found" } }
+    const user = (await client.query("SELECT * FROM profiles WHERE id = $1", [stored.user_id])).rows[0]
+    if (!user) return { status: 401, json: { error: "Invalid Refresh Token: User Not Found" } }
+    const session = issueTokens(user)
+    const now = nowIso()
+    await client.query("DELETE FROM refresh_tokens WHERE token = $1", [token])
     await client.query(
       "INSERT INTO refresh_tokens (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
       [session.refresh_token, user.id, now, new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()],
     )
+    return sessionResponse(session)
   })
+}
+
+function sessionResponse(session) {
   return {
     status: 200,
     json: {
@@ -241,18 +250,49 @@ async function issueSessionJson(user, replacedToken = "") {
   }
 }
 
+async function issueSessionJson(user, replacedToken = "") {
+  const session = issueTokens(user)
+  const now = nowIso()
+  await withTransaction(async (client) => {
+    if (replacedToken) await client.query("DELETE FROM refresh_tokens WHERE token = $1", [replacedToken])
+    await client.query(
+      "INSERT INTO refresh_tokens (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
+      [session.refresh_token, user.id, now, new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()],
+    )
+  })
+  return sessionResponse(session)
+}
+
 // ---------------------------------------------------------------------------
 // Registro das rotas
 // ---------------------------------------------------------------------------
+function positiveEnvInt(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback
+}
+
 function registerAuthRoutes(app) {
+  // Alem do throttle por conta usado no login, limite por IP os endpoints
+  // publicos. Isso evita que um atacante distribua tentativas entre contas ou
+  // force bcrypt/consultas de signup indefinidamente. O limite fica em memoria
+  // por processo (adequado ao servidor unico) e pode ser ajustado no ambiente.
+  const authRateLimit = createRateLimiter({
+    windowMs: positiveEnvInt("AUTH_RATE_LIMIT_WINDOW_MS", 60 * 1000),
+    max: positiveEnvInt("AUTH_RATE_LIMIT_MAX", 60),
+  })
+  const credentialRateLimit = createRateLimiter({
+    windowMs: positiveEnvInt("AUTH_RATE_LIMIT_WINDOW_MS", 60 * 1000),
+    max: positiveEnvInt("AUTH_CREDENTIAL_RATE_LIMIT_MAX", 30),
+  })
+
   // POST /auth/v1/signup
-  app.post("/auth/v1/signup", asyncHandler(async (req, res) => {
+  app.post("/auth/v1/signup", credentialRateLimit, asyncHandler(async (req, res) => {
     const r = await signup(req.body)
     res.status(r.status).json(r.json)
   }))
 
   // POST /auth/v1/token?grant_type=...
-  app.post("/auth/v1/token", asyncHandler(async (req, res) => {
+  app.post("/auth/v1/token", credentialRateLimit, asyncHandler(async (req, res) => {
     const grantType = String(req.query.grant_type || "")
     const r = await tokenGrant(grantType, req.body)
     res.status(r.status).json(r.json)
@@ -279,13 +319,13 @@ function registerAuthRoutes(app) {
   }))
 
   // POST /rest/v1/rpc/login_check (publico)
-  app.post("/rest/v1/rpc/login_check", asyncHandler(async (req, res) => {
+  app.post("/rest/v1/rpc/login_check", credentialRateLimit, asyncHandler(async (req, res) => {
     const r = await rpcLoginCheck(req.body?.p_username, req.body?.p_password)
     res.json(r)
   }))
 
   // POST /rest/v1/rpc/username_available (publico)
-  app.post("/rest/v1/rpc/username_available", asyncHandler(async (req, res) => {
+  app.post("/rest/v1/rpc/username_available", authRateLimit, asyncHandler(async (req, res) => {
     res.json(await rpcUsernameAvailable(req.body?.p_username))
   }))
 }

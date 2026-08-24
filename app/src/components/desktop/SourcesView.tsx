@@ -9,7 +9,7 @@ import { useI18n } from "../../i18n/I18nContext"
 // magnet pelo subsistema torrent. O jogo aparece na seção Torrent da aba
 // Downloads e, ao concluir, o usuário instala/registra (fluxo manual por
 // enquanto — repacks têm setup.exe).
-export function SourcesView() {
+export function SourcesView({ onOpenDownloads }: { onOpenDownloads?: () => void }) {
   const { t } = useI18n()
   const [fontes, setFontes] = useState<SourceInfo[]>([])
   const [url, setUrl] = useState("")
@@ -86,7 +86,7 @@ export function SourcesView() {
     const full = await window.launcherAPI?.sourcesGame(g.ref)
     const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
     const uri =
-      uris.find((u) => String(u).startsWith("magnet:")) ||
+      uris.find((u) => /^magnet:/i.test(String(u))) ||
       uris.find((u) => /^https?:\/\//.test(String(u)))
     if (!uri) {
       setErro(t("fontes.sem_magnet"))
@@ -99,6 +99,7 @@ export function SourcesView() {
       title: g.title,
     })
     if (!r?.ok) setErro(r?.error || t("fontes.erro_download"))
+    if (r?.ok || r?.queued) onOpenDownloads?.()
     setBaixando("")
   }
 

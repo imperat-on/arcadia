@@ -4,6 +4,7 @@ const fs = require("node:fs")
 const path = require("node:path")
 const crypto = require("node:crypto")
 const { Pool, types } = require("pg")
+const { readMigrations, migrationTableSql } = require("./migrations")
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true })
 
@@ -49,16 +50,67 @@ const RESERVED = [
   "amigos", "sync", "biblioteca", "profile", "user",
 ]
 
+const MIGRATION_LOCK = "arcadia:migrations"
 let initPromise
+
+async function runMigrations() {
+  const client = await db.connect()
+  let locked = false
+  try {
+    if (DATABASE_SCHEMA !== "public") {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS ${DATABASE_SCHEMA}`)
+    }
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [MIGRATION_LOCK])
+    locked = true
+    await client.query(migrationTableSql())
+
+    const appliedRows = (
+      await client.query("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+    ).rows
+    const applied = new Map(appliedRows.map((row) => [Number(row.version), row]))
+
+    for (const migration of readMigrations()) {
+      const checksum = crypto.createHash("sha256").update(migration.sql).digest("hex")
+      const previous = applied.get(migration.version)
+      if (previous) {
+        if (previous.checksum !== checksum) {
+          throw new Error(
+            `checksum da migration ${migration.version} divergiu (${migration.name})`,
+          )
+        }
+        continue
+      }
+
+      await client.query("BEGIN")
+      try {
+        await client.query(migration.sql)
+        await client.query(
+          `INSERT INTO schema_migrations (version, name, checksum)
+           VALUES ($1, $2, $3)`,
+          [migration.version, migration.name, checksum],
+        )
+        await client.query("COMMIT")
+      } catch (error) {
+        await client.query("ROLLBACK")
+        throw error
+      }
+    }
+  } finally {
+    if (locked) {
+      try {
+        await client.query("SELECT pg_advisory_unlock(hashtext($1))", [MIGRATION_LOCK])
+      } catch {
+        // A conexão que será liberada não precisa bloquear o próximo boot.
+      }
+    }
+    client.release()
+  }
+}
 
 function initDb() {
   if (!initPromise) {
     initPromise = (async () => {
-      if (DATABASE_SCHEMA !== "public") {
-        await poolQuery(`CREATE SCHEMA IF NOT EXISTS ${DATABASE_SCHEMA}`)
-      }
-      const schema = fs.readFileSync(path.join(__dirname, "..", "sql", "schema.sql"), "utf8")
-      await poolQuery(schema)
+      await runMigrations()
       await poolQuery(
         `INSERT INTO reserved_usernames (username)
          SELECT unnest($1::text[])
@@ -109,6 +161,7 @@ module.exports = {
   DATA_DIR,
   DATABASE_URL,
   initDb,
+  runMigrations,
   withTransaction,
   nowIso,
   nowEpochS,

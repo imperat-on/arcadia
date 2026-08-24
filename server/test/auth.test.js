@@ -137,7 +137,7 @@ test("token grant_type=password devolve sessao", async () => {
   assert.ok(r.body.access_token)
 })
 
-test("token grant_type=refresh_token troca a sessao", async () => {
+test("token grant_type=refresh_token troca a sessao e impede replay", async () => {
   const login = await post("/auth/v1/token?grant_type=password", {
     email: "a@b.com",
     password: "senha123",
@@ -147,6 +147,10 @@ test("token grant_type=refresh_token troca a sessao", async () => {
   })
   assert.strictEqual(r.status, 200)
   assert.ok(r.body.access_token)
+  const replay = await post("/auth/v1/token?grant_type=refresh_token", {
+    refresh_token: login.body.refresh_token,
+  })
+  assert.strictEqual(replay.status, 401)
 })
 
 test("GET /auth/v1/user valida token e devolve perfil", async () => {

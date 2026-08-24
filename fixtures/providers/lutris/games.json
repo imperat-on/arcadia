@@ -1,0 +1,47 @@
+[
+  {
+    "id": 10,
+    "name": "Steam duplicate",
+    "slug": "steam-duplicate",
+    "runner": "steam",
+    "installed": 1,
+    "service": "steam",
+    "service_id": "440",
+    "art": {
+      "cover": "/lutris/duplicate.jpg"
+    }
+  },
+  {
+    "id": 11,
+    "name": "Wine Game",
+    "slug": "wine-game",
+    "runner": "wine",
+    "installed": 1,
+    "service": "lutris",
+    "service_id": null,
+    "art": {
+      "cover": "/lutris/wine.jpg",
+      "hero": null
+    }
+  },
+  {
+    "id": 12,
+    "name": null,
+    "slug": "fallback-title",
+    "runner": "linux",
+    "installed": 1,
+    "service": "lutris",
+    "service_id": "",
+    "art": {}
+  },
+  {
+    "id": 13,
+    "name": "Another duplicate",
+    "slug": "other",
+    "runner": "steam",
+    "installed": 1,
+    "service": " Steam ",
+    "service_id": 440,
+    "art": {}
+  }
+]

@@ -23,6 +23,9 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 const { loadAchievements, saveAchievements } = require("./schema")
+const { caminhoArquivoConta } = require("./../supabase/conta")
+const { dataPath } = require("./../runtime-paths")
+const { readLibraryFile } = require("../library-store")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
@@ -329,7 +332,7 @@ function caminhosPrefixados(prefixo, appid) {
 function resolvePrefixo(appid, entry) {
   // 1. Prefixo customizado do game_settings.json
   try {
-    const settingsFile = path.join(os.homedir(), ".local/share/arcadia", "game_settings.json")
+    const settingsFile = caminhoArquivoConta("game_settings.json")
     if (fs.existsSync(settingsFile)) {
       const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
       const key = entry && entry.id ? entry.id : `steam:${appid}`
@@ -346,15 +349,7 @@ function resolvePrefixo(appid, entry) {
 // --- Lógica principal ---
 
 function lerLibrary() {
-  try {
-    const raw = fs.readFileSync(
-      path.join(os.homedir(), ".local/share/arcadia", "library.json"),
-      "utf-8",
-    )
-    return JSON.parse(raw)
-  } catch {
-    return []
-  }
+  return readLibraryFile(dataPath("library.json")).games
 }
 
 function extrairAppid(entry) {
@@ -368,7 +363,7 @@ function resolveExeDir(entry, appid) {
   // Lê game_settings.json pra achar o caminho do executável.
   // Devolve o diretório-pai do .exe (onde SteamData/ e 3DMGAME/ costumam ficar).
   try {
-    const f = path.join(os.homedir(), ".local/share/arcadia", "game_settings.json")
+    const f = caminhoArquivoConta("game_settings.json")
     if (!fs.existsSync(f)) return null
     const settings = JSON.parse(fs.readFileSync(f, "utf-8"))
     const key = entry && entry.id ? entry.id : `steam:${appid}`
