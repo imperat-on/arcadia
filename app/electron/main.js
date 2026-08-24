@@ -1,4 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
+const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
+
+process.env.ARCADIA_MODE = resolveLauncherMode()
+ignoreBrokenPipe(process.stdout)
+ignoreBrokenPipe(process.stderr)
 
 // ── INSTÂNCIA ÚNICA ───────────────────────────────────────────────────
 // Um segundo lançamento (atalho, arcadia.sh, loja) só FOCA a janela que já
@@ -1286,10 +1291,6 @@ function readLibrary() {
       if (g && (settings[g.id]?.exePath || (settings[g.id]?.emulatorId && settings[g.id]?.romPath))) {
         if (g.installed === false) g.installed = true
         g.temExe = true // frontend decide se mostra o menu Steam vs fora-da-Steam
-        // Log para jogos retro
-        if (g.id && g.id.startsWith('retro:')) {
-          console.log('[readLibrary] Marked retro game as installed:', g.id, 'settings:', settings[g.id])
-        }
       }
     }
     for (const g of games) {
