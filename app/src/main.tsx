@@ -30,7 +30,7 @@ function LauncherLoading() {
 // Modo console (PS5, padrão) x modo desktop (estilo Heroic) — o backend é o
 // mesmo; muda só a UI montada na raiz. F11 alterna em runtime.
 function Root() {
-  const [modo, setModo] = useState<"console" | "desktop">((window.launcherMode as any) || "console")
+  const [modo, setModo] = useState<"console" | "desktop">((window.launcherMode as any) || "desktop")
   const [erro, setErro] = useState<string | null>(null)
   useEffect(() => {
     window.launcherAPI?.setFullscreen(modo === "console")
