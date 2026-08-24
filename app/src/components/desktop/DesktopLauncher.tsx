@@ -225,7 +225,14 @@ export function DesktopLauncher() {
         onToggleLibrarySidebar={toggleLibrarySidebar}
         onOpenGame={(g) => {
           setView("biblioteca")
-          setJogoPagina(g)
+          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca)
+          if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
+            setRetroPaginaId(g.id)
+            setJogoPagina(null)
+          } else {
+            setJogoPagina(g)
+            setRetroPaginaId(null)
+          }
         }}
         onAddGame={() => setAdicionando(true)}
         activeGameId={jogoPagina?.id}
@@ -269,7 +276,7 @@ export function DesktopLauncher() {
                 ocupado={false}
               />
             )}
-            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && (
+            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
               <GamePage
                 embedded
                 game={jogoPagina}

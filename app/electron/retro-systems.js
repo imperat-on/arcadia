@@ -15,6 +15,8 @@ const SYSTEMS = Object.freeze({
     mediaType: "disc",
     identityStrategy: ["serial", "sha1", "title"],
     serialPattern: /\b([A-Z]{4}[-_]?\d{5})\b/i,
+    // ID do console na RetroAchievements (rc_consoles.h RC_CONSOLE_PLAYSTATION).
+    retroachievementsConsoleId: 12,
   },
   "sony-playstation-2": {
     id: "sony-playstation-2",
@@ -26,6 +28,7 @@ const SYSTEMS = Object.freeze({
     mediaType: "disc",
     identityStrategy: ["serial", "sha1", "title"],
     serialPattern: /\b([A-Z]{4}[-_]?\d{5})\b/i,
+    retroachievementsConsoleId: 21,
   },
   "sony-playstation-3": {
     id: "sony-playstation-3",
@@ -48,6 +51,7 @@ const SYSTEMS = Object.freeze({
     mediaType: "mixed",
     identityStrategy: ["serial", "sha1", "title"],
     serialPattern: /\b([A-Z]{4}[-_]?\d{5})\b/i,
+    retroachievementsConsoleId: 41,
   },
   "nintendo-gamecube": {
     id: "nintendo-gamecube",
@@ -59,6 +63,7 @@ const SYSTEMS = Object.freeze({
     mediaType: "disc",
     identityStrategy: ["serial", "sha1", "title"],
     serialPattern: /\b(G[A-Z0-9]{3}[0-9]{2})\b/i,
+    retroachievementsConsoleId: 16,
   },
   "nintendo-wii": {
     id: "nintendo-wii",
@@ -70,6 +75,7 @@ const SYSTEMS = Object.freeze({
     mediaType: "disc",
     identityStrategy: ["serial", "sha1", "title"],
     serialPattern: /\b(R[A-Z0-9]{3}[0-9]{2})\b/i,
+    retroachievementsConsoleId: 19,
   },
   "nintendo-ds": {
     id: "nintendo-ds",
@@ -80,6 +86,9 @@ const SYSTEMS = Object.freeze({
     aliases: ["nds", "ds", "nintendo ds"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    // RA existe pra NDS (id 18), mas nem melonDS nem DeSmuME têm client RA
+    // embutido hoje — só o core "melonds"/"desmume" do RetroArch tem.
+    retroachievementsConsoleId: 18,
   },
   "nintendo-dsi": {
     id: "nintendo-dsi",
@@ -90,6 +99,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["dsi", "nintendo dsi"],
     mediaType: "digital",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 78,
   },
   "nintendo-nes": {
     id: "nintendo-nes",
@@ -100,6 +110,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["nes", "famicom", "nintendo entertainment system"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 7,
   },
   "nintendo-snes": {
     id: "nintendo-snes",
@@ -110,6 +121,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["snes", "sfc", "super famicom", "super nintendo"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 3,
   },
   "nintendo-game-boy": {
     id: "nintendo-game-boy",
@@ -120,6 +132,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["gb", "game boy", "gameboy"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 4,
   },
   "nintendo-game-boy-color": {
     id: "nintendo-game-boy-color",
@@ -130,6 +143,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["gbc", "game boy color", "gameboy color"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 6,
   },
   "nintendo-game-boy-advance": {
     id: "nintendo-game-boy-advance",
@@ -140,6 +154,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["gba", "game boy advance", "gameboy advance"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 5,
   },
   "nintendo-64": {
     id: "nintendo-64",
@@ -150,6 +165,7 @@ const SYSTEMS = Object.freeze({
     aliases: ["n64", "nintendo 64"],
     mediaType: "cartridge",
     identityStrategy: ["crc32", "sha1", "title"],
+    retroachievementsConsoleId: 2,
   },
 })
 
@@ -226,6 +242,18 @@ function isBuiltinSystem(systemId) {
   return Object.prototype.hasOwnProperty.call(SYSTEMS, systemId)
 }
 
+/**
+ * ID do console na RetroAchievements para um systemId canônico, se suportado.
+ * @param {string} systemId - ID canônico do sistema
+ * @returns {number|null} - Console ID da RA ou null se não suportado (ex: PS3)
+ */
+function getRetroachievementsConsoleId(systemId) {
+  const system = SYSTEMS[systemId]
+  return system && Number.isInteger(system.retroachievementsConsoleId)
+    ? system.retroachievementsConsoleId
+    : null
+}
+
 module.exports = {
   SYSTEMS,
   resolveSystem,
@@ -234,4 +262,5 @@ module.exports = {
   extractSerial,
   normalizeSerial,
   isBuiltinSystem,
+  getRetroachievementsConsoleId,
 }

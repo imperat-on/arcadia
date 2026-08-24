@@ -6,6 +6,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
+import { RetroAchievementsGamePanel } from "./RetroAchievementsGamePanel"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
@@ -379,10 +380,23 @@ export function RetroStoreView({
         <button
           type="button"
           onClick={closeGame}
-          className="mb-5 inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-[12px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          title={t("store.retro_back")}
+          aria-label={t("store.retro_back")}
+          className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/70 backdrop-blur transition-colors hover:border-white/25 hover:bg-white/[0.06] hover:text-white"
         >
-          <span aria-hidden="true">←</span>
-          {t("store.retro_back")}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
         </button>
 
         {detailLoading && (
@@ -632,6 +646,7 @@ function RetroDetail({
   const [libraryMessage, setLibraryMessage] = useState("")
   const [showDescription, setShowDescription] = useState(false)
   const [selectedMedia, setSelectedMedia] = useState(0)
+  const [hasEmulator, setHasEmulator] = useState(false)
   const uris = Array.isArray(game.uris)
     ? game.uris.filter((uri): uri is string => Boolean(uri))
     : []
@@ -647,8 +662,22 @@ function RetroDetail({
 
   useEffect(() => {
     let ativo = true
+    setInLibrary(false)
+    setLibraryMessage("")
     window.launcherAPI?.getLibrary?.().then((games) => {
       if (ativo && Array.isArray(games) && games.some((item) => item.id === game.id)) setInLibrary(true)
+    }).catch(() => {})
+    return () => { ativo = false }
+  }, [game.id])
+
+  // Um jogo retro só é "jogável" quando tem emulador + rom configurados
+  // (feito em Configurações do jogo). Sem isso, o botão Jogar não aparece.
+  useEffect(() => {
+    let ativo = true
+    setHasEmulator(false)
+    window.launcherAPI?.gameSettingsGet?.(game.id).then((response) => {
+      const settings = response?.settings
+      if (ativo && settings?.emulatorId && settings?.romPath) setHasEmulator(true)
     }).catch(() => {})
     return () => { ativo = false }
   }, [game.id])
@@ -697,36 +726,91 @@ function RetroDetail({
         <span className="hidden flex-1 text-sm font-semibold text-white/80 md:block">{game.title}</span>
         {downloadMessage && <span role="status" className="text-[12px] text-white/55">{downloadMessage}</span>}
         {libraryMessage && <span role="status" className="text-[12px] text-emerald-300/80">{libraryMessage}</span>}
-        <button
-          type="button"
-          onClick={async () => {
-            if (inLibrary) return
-            const result = await window.launcherAPI?.retroLibraryAdd?.({
-              id: game.id,
-              title: game.title,
-              systemId: game.systemId,
-              platform: game.platform,
-              cover,
-              hero,
-              description: game.description,
-              genres: game.genres,
-              releaseYear: game.releaseYear,
-            })
-            if (result?.ok) {
-              setInLibrary(true)
-              setLibraryMessage("Added to Library")
-            } else {
-              setLibraryMessage(result?.error || "Could not add to Library")
-            }
-          }}
-          disabled={inLibrary}
-          className="rounded-full border border-white/15 px-4 py-2.5 text-[12px] font-semibold text-white/80 transition-colors hover:border-white/35 hover:text-white disabled:cursor-default disabled:border-emerald-400/30 disabled:text-emerald-300"
-        >
-          {inLibrary ? "In Library" : "Add to Library"}
-        </button>
+        {!inLibrary && (
+          <button
+            type="button"
+            onClick={async () => {
+              const result = await window.launcherAPI?.retroLibraryAdd?.({
+                id: game.id,
+                title: game.title,
+                systemId: game.systemId,
+                platform: game.platform,
+                cover,
+                hero,
+                description: game.description,
+                genres: game.genres,
+                releaseYear: game.releaseYear,
+              })
+              if (result?.ok) {
+                setInLibrary(true)
+                setLibraryMessage("")
+              } else {
+                setLibraryMessage(result?.error || "Could not add to Library")
+              }
+            }}
+            className="flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-[12.5px] font-semibold text-white/85 transition-colors enabled:hover:border-white/25 enabled:hover:bg-white/[0.07] enabled:hover:text-white"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            {t("store.adicionar_biblioteca")}
+          </button>
+        )}
+        {hasEmulator && inLibrary && (
+          <button
+            type="button"
+            onClick={() => {
+              window.launcherAPI?.launch([], game.id).then((r) => {
+                if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
+              })
+              window.launcherAPI?.getConfig().then((c) => {
+                if (c?.disable_playtime_tracking !== true) {
+                  window.launcherAPI?.setOverride(game.id, { last_played: Date.now() })
+                }
+              })
+            }}
+            title={t("library.jogar")}
+            className="flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-[12.5px] font-bold text-black transition-transform hover:scale-[1.03]"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+              <path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.52.86z" />
+            </svg>
+            {t("gamepage.jogar")}
+          </button>
+        )}
         {availableCount > 0 ? (
-          <button type="button" onClick={() => onDownloadUri(uris[0])} disabled={Boolean(downloadUri)} className="rounded-full bg-[color:var(--accent)] px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.02] disabled:opacity-50">
-            {downloadUri ? t("store.retro_downloading") : t("store.retro_choose_download", { count: availableCount })}
+          <button
+            type="button"
+            onClick={() => onDownloadUri(uris[0])}
+            disabled={Boolean(downloadUri)}
+            className="flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-[12.5px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            {t("store.baixar")}
           </button>
         ) : <span className="text-[12px] text-white/45">{t("store.retro_no_uris")}</span>}
       </div>
@@ -742,17 +826,7 @@ function RetroDetail({
           ) : <p className="text-[13px] text-white/45">{t("store.retro_no_description")}</p>}
         </div>
         <div className="space-y-3">
-          <RetroInfoPanel title="Achievements">
-            <button
-              type="button"
-              onClick={() => void window.launcherAPI?.openExternal?.(`https://retroachievements.org/search.php?s=${encodeURIComponent(game.title)}`)}
-              className="flex w-full items-center gap-2 text-left text-[12px] text-white/70 transition-colors hover:text-white"
-            >
-              <span className="text-base" aria-hidden="true">🏆</span>
-              <span className="flex-1">Connect RetroAchievements to track your progress</span>
-              <span aria-hidden="true" className="text-lg text-white/45">›</span>
-            </button>
-          </RetroInfoPanel>
+          <RetroAchievementsGamePanel title={game.title} systemId={game.systemId} />
 
           <RetroInfoPanel title="Stats">
             <dl className="space-y-3 text-[12px]">

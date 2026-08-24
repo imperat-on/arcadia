@@ -926,22 +926,22 @@ export function PS5Launcher() {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "linear-gradient(to top, #000000 2%, rgba(0,0,0,0.86) 26%, rgba(0,0,0,0.42) 60%, rgba(0,0,0,0.22) 100%)",
+            "linear-gradient(to top, #000000 0%, rgba(0,0,0,0.92) 22%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.25) 100%)",
         }}
       />
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 42%, transparent 72%)",
+            "linear-gradient(to right, rgba(0,0,0,0.94) 0%, rgba(0,0,0,0.55) 38%, transparent 68%)",
         }}
       />
 
       {/* Gradiente sutil no topo, p/ legibilidade da barra transparente */}
       <div
-        className="absolute top-0 inset-x-0 h-28 z-20 pointer-events-none"
+        className="absolute top-0 inset-x-0 h-32 z-20 pointer-events-none"
         style={{
-          background: "linear-gradient(to bottom, rgba(3,5,10,0.5), transparent)",
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.35) 50%, transparent)",
         }}
       />
 
@@ -1326,27 +1326,30 @@ export function PS5Launcher() {
 function Toast({ visible, title }: { visible: boolean; title: string }) {
   return (
     <div
-      className="fixed bottom-16 right-8 flex items-center gap-3 px-5 py-3 rounded-xl z-50"
+      className="fixed bottom-16 right-8 flex items-center gap-3 px-6 py-4 rounded-xl z-50"
       style={{
-        background: "rgba(18,25,46,0.95)",
+        background: "rgba(10,10,10,0.95)",
         border: "1px solid rgba(0,168,255,0.3)",
         backdropFilter: "blur(20px)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(0,114,206,0.2)",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.6), 0 0 25px rgba(0,168,255,0.2)",
         opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(12px)",
-        transition: "opacity 0.3s, transform 0.3s cubic-bezier(0.22,1,0.36,1)",
+        transform: visible ? "translateY(0) scale(1)" : "translateY(12px) scale(0.96)",
+        transition: "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
         pointerEvents: "none",
       }}
     >
       <div
-        className="w-6 h-6 rounded-full flex items-center justify-center"
-        style={{ background: "rgba(0,114,206,0.3)" }}
+        className="w-7 h-7 rounded-full flex items-center justify-center"
+        style={{
+          background: "rgba(0,168,255,0.2)",
+          boxShadow: "0 0 15px rgba(0,168,255,0.3)",
+        }}
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="#00a8ff">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--accent)">
           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
         </svg>
       </div>
-      <span className="text-sm text-white font-medium">{title}</span>
+      <span className="text-sm text-white font-semibold drop-shadow-lg">{title}</span>
     </div>
   )
 }

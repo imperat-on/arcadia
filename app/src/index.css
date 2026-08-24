@@ -78,6 +78,12 @@
   --glass: rgba(255, 255, 255, 0.045); /* véu sobre o preto */
   --glass-strong: rgba(255, 255, 255, 0.075);
   --glass-border: rgba(255, 255, 255, 0.09);
+
+  /* Design OLED - cores sutis e elegantes */
+  --accent-glow: #0088cc;
+  --accent-soft: #005a99;
+  --surface-1: #0a0a0a;
+  --surface-2: #121212;
 }
 
 /* Quem pediu menos movimento no sistema recebe menos movimento. Antes só
@@ -1072,5 +1078,47 @@ select:disabled {
   }
   to {
     background-position: -200% 0;
+  }
+}
+
+/* Novas animações para o visual futurista */
+@keyframes scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes neon-pulse {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.8;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes hologram-flicker {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  75% {
+    opacity: 0.98;
   }
 }

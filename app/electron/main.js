@@ -42,6 +42,9 @@ const { createGameSettingsService } = require("./game-settings-service")
 const { createEmulatorRegistry } = require("./emulator-registry")
 const { getEmulatorStatus, preflightEmulator } = require("./emulator-status")
 const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulator-runtime")
+const raClient = require("./retroachievements/client")
+const raEmulatorConfig = require("./retroachievements/emulator-config")
+const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -75,6 +78,18 @@ const {
 
 const HOME = os.homedir()
 const DATA_DIR = getDataDir()
+const BOOT_VIDEO = path.join(DATA_DIR, "boot.mp4")
+const BUNDLED_BOOT_VIDEO = app.isPackaged
+  ? path.join(process.resourcesPath, "boot.mp4")
+  : path.join(__dirname, "..", "..", "boot.mp4")
+try {
+  if (!fs.existsSync(BOOT_VIDEO) && fs.existsSync(BUNDLED_BOOT_VIDEO)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.copyFileSync(BUNDLED_BOOT_VIDEO, BOOT_VIDEO, fs.constants.COPYFILE_EXCL)
+  }
+} catch (error) {
+  console.warn(`[arcadia:boot] não foi possível instalar o vídeo: ${error.message || error}`)
+}
 const LIB = path.join(DATA_DIR, "library.json")
 // O repositório concentra leitura/filtro por conta, sem alterar o restante da
 // montagem (custom/pending/overrides) nem o contrato IPC de library:get.
@@ -352,7 +367,13 @@ const discordRpc = new DiscordRpc(readConfig)
 // Chaves de API que NUNCA saem completas pro renderer (auditoria A-06): o form
 // de configurações mostra a máscara; o config:set reconhece a máscara e
 // preserva o valor real no disco.
-const SEGREDOS = ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]
+const SEGREDOS = [
+  "steam_api_key",
+  "steamgriddb_api_key",
+  "hubcap_api_key",
+  "retroachievements_token",
+  "retroachievements_web_api_key",
+]
 
 function redigirSegredos(cfg) {
   if (!cfg || typeof cfg !== "object") return cfg
@@ -845,7 +866,12 @@ async function fetchJson(url) {
 const gameSettingsService = createGameSettingsService({
   getPath: () => caminhoConta(GAME_SETTINGS),
 })
-const emulatorRegistry = createEmulatorRegistry({ dataDir: DATA_DIR })
+const emulatorRegistry = createEmulatorRegistry({
+  dataDir: DATA_DIR,
+  platform: process.platform,
+  homeDir: os.homedir(),
+  env: process.env,
+})
 
 // Aliases locais preservam os consumidores existentes enquanto o domínio fica
 // testável fora do Electron.
@@ -1260,6 +1286,10 @@ function readLibrary() {
       if (g && (settings[g.id]?.exePath || (settings[g.id]?.emulatorId && settings[g.id]?.romPath))) {
         if (g.installed === false) g.installed = true
         g.temExe = true // frontend decide se mostra o menu Steam vs fora-da-Steam
+        // Log para jogos retro
+        if (g.id && g.id.startsWith('retro:')) {
+          console.log('[readLibrary] Marked retro game as installed:', g.id, 'settings:', settings[g.id])
+        }
       }
     }
     for (const g of games) {
@@ -1865,6 +1895,22 @@ app.whenReady().then(() => {
           }
           return running
         }
+        // RetroAchievements: se há credencial salva e o emulador escolhido
+        // tem client RA nativo, garante que a config dele está atualizada
+        // antes de lançar. Melhor esforço — uma falha aqui não deve impedir
+        // o jogo de abrir sem conquistas.
+        try {
+          const raCfg = readConfig()
+          const raUsername = String(raCfg.retroachievements_username || "")
+          const raToken = String(raCfg.retroachievements_token || "")
+          if (raUsername && raToken) {
+            raEmulatorConfig.configureEmulatorCredentials(emulatorSettings.emulatorId, {
+              username: raUsername,
+              token: raToken,
+              home: HOME,
+            })
+          }
+        } catch {}
       }
     }
 
@@ -2410,7 +2456,13 @@ app.whenReady().then(() => {
     // config:get; se ele devolver a máscara de volta (form inalterado), mantém
     // o valor real no disco.
     const atual = readConfig()
-    for (const k of ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]) {
+    for (const k of [
+      "steam_api_key",
+      "steamgriddb_api_key",
+      "hubcap_api_key",
+      "retroachievements_token",
+      "retroachievements_web_api_key",
+    ]) {
       if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
         cfg[k] = atual[k] // preserva a chave real
       }
@@ -2819,6 +2871,73 @@ app.whenReady().then(() => {
   // sincroniza caminhos nem executa o conteúdo encontrado.
   ipcMain.handle("emulators:roms", (_e, payload) => emulatorRegistry.scanRoms(payload || {}))
   ipcMain.handle("emulators:roms:index", () => ({ ok: true, emulators: emulatorRegistry.roms() }))
+
+  // RetroAchievements: login troca usuário+senha por um token de sessão (a
+  // senha nunca é persistida por aqui); a chave salva em config.json é esse
+  // token, não a senha. `retroachievements:login` é o único ponto que vê a
+  // senha, e só a repassa pro client — nunca grava, nunca loga.
+  ipcMain.handle("retroachievements:login", async (_e, { username, password } = {}) => {
+    const result = await raClient.loginRequest({ username, password })
+    if (!result.ok) return result
+    writeConfig({
+      retroachievements_username: result.username,
+      retroachievements_token: result.token,
+    })
+    return { ok: true, username: result.username }
+  })
+
+  ipcMain.handle("retroachievements:logout", () => {
+    writeConfig({ retroachievements_username: "", retroachievements_token: "" })
+    return { ok: true }
+  })
+
+  ipcMain.handle("retroachievements:status", () => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const hasToken = Boolean(cfg.retroachievements_token)
+    return { ok: true, connected: Boolean(username && hasToken), username }
+  })
+
+  // Aplica a credencial salva no arquivo de config nativo de um emulador
+  // específico (chamado antes do launch de um jogo retro, e também
+  // disponível manualmente pela UI de Configurações/Emulador).
+  ipcMain.handle("retroachievements:applyToEmulator", (_e, { emulatorId } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const token = String(cfg.retroachievements_token || "")
+    if (!username || !token) return { ok: false, error: "nao_conectado" }
+    return raEmulatorConfig.configureEmulatorCredentials(emulatorId, { username, token, home: HOME })
+  })
+
+  // Web API Key: credencial DIFERENTE do connect_token acima — o connect_token
+  // só serve pro emulador desbloquear em tempo real; para LER progresso/lista
+  // de conquistas pela API pública (API_*.php) é preciso a Web API Key de
+  // controlpanel.php. Validamos antes de salvar pra não guardar chave inválida.
+  ipcMain.handle("retroachievements:setApiKey", async (_e, { apiKey } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    if (!username) return { ok: false, error: "nao_conectado" }
+    const result = await raClient.verifyApiKey({ username, apiKey })
+    if (!result.ok) return result
+    writeConfig({ retroachievements_web_api_key: String(apiKey || "").trim() })
+    return { ok: true }
+  })
+
+  // Progresso de um jogo retro: resolve o gameId da RA por título dentro do
+  // console certo (fallback sem hash — ver retro-systems.js) e busca a lista
+  // de achievements + o que o usuário já desbloqueou.
+  ipcMain.handle("retroachievements:gameProgress", async (_e, { title, systemId } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const apiKey = String(cfg.retroachievements_web_api_key || "")
+    if (!username || !apiKey) return { ok: false, error: "sem_web_api_key" }
+    const consoleId = getRetroachievementsConsoleId(systemId)
+    if (!consoleId) return { ok: false, error: "sistema_nao_suportado" }
+    const found = await raClient.findGameByTitle({ username, apiKey, title, consoleId })
+    if (!found.ok) return found
+    if (!found.game) return { ok: true, game: null, achievements: [] }
+    return raClient.getGameProgress({ username, apiKey, gameId: found.game.id })
+  })
 
   // Executa um .exe dentro do prefixo do jogo (diálogo de configurações).
   ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {
