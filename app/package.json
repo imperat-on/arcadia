@@ -1,11 +1,58 @@
 {
   "name": "arcadia",
   "version": "0.1.0",
+  "desktopName": "arcadia.desktop",
   "private": true,
   "main": "electron/main.js",
+  "build": {
+    "appId": "io.github.imperat-on.arcadia",
+    "productName": "Arcadia",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/logo-512.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../contracts",
+        "to": "contracts"
+      },
+      {
+        "from": "../index.py",
+        "to": "index.py"
+      },
+      {
+        "from": "../indexers",
+        "to": "indexers"
+      },
+      {
+        "from": "../boot.mp4",
+        "to": "boot.mp4"
+      }
+    ],
+    "linux": {
+      "executableName": "arcadia",
+      "syncDesktopName": true,
+      "target": [
+        "AppImage"
+      ],
+      "icon": "public/logo-512.png",
+      "category": "Game",
+      "artifactName": "Arcadia-${version}-${arch}.${ext}"
+    },
+    "appImage": {
+      "executableArgs": []
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "dist:appimage": "vite build && electron-builder --linux AppImage --x64",
     "test": "NODE_ENV=test node --test",
     "electron": "electron .",
     "start": "vite build && electron ."
@@ -23,6 +70,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.4.11",
+    "electron-builder": "^26.0.12",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",

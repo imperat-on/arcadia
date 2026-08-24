@@ -4,8 +4,18 @@ import { useEffect, useMemo, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import type { GameSettings, WineVer } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import { SaveSnapshotsPanel } from "./SaveSnapshotsPanel"
+import { EmulatorProfilesPanel } from "./EmulatorProfilesPanel"
 
-const ABAS = ["GERAL", "LOCALIZAÇÕES", "COMPATIBILIDADE", "DESEMPENHO", "AVANÇADO"] as const
+const ABAS = [
+  "GERAL",
+  "LOCALIZAÇÕES",
+  "SALVAMENTOS",
+  "EMULADOR",
+  "COMPATIBILIDADE",
+  "DESEMPENHO",
+  "AVANÇADO",
+] as const
 type Aba = (typeof ABAS)[number]
 
 const PADRAO: GameSettings = {
@@ -45,6 +55,8 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
   const ABA_LABEL: Record<Aba, string> = {
     GERAL: t("gamesettings.geral"),
     LOCALIZAÇÕES: t("gamesettings.localizacoes"),
+    SALVAMENTOS: t("gamesettings.salvamentos_aba"),
+    EMULADOR: t("gamesettings.emulador"),
     COMPATIBILIDADE: t("gamesettings.compatibilidade"),
     DESEMPENHO: t("gamesettings.desempenho"),
     AVANÇADO: t("gamesettings.avancado"),
@@ -487,6 +499,11 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                   </button>
                 </div>
               </>
+            )}
+
+            {aba === "SALVAMENTOS" && <SaveSnapshotsPanel game={game} />}
+            {aba === "EMULADOR" && (
+              <EmulatorProfilesPanel gameId={game.id} settings={s} onChange={set} showProfileConfig={false} />
             )}
 
             {aba === "AVANÇADO" && (

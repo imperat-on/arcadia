@@ -9,8 +9,9 @@ const { spawn } = require("child_process")
 const { Readable } = require("stream")
 const { pipeline } = require("stream/promises")
 const { fetchRede } = require("./httpfetch")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR = path.join(os.homedir(), ".local/share/arcadia")
+const DATA_DIR = getDataDir()
 const STATE = path.join(DATA_DIR, "torrent_state.json")
 const WORKER = path.join(__dirname, "torrent_rpc", "main.py")
 
@@ -21,9 +22,152 @@ let statusTimer = null
 let onProgress = null
 let _libtorrentOk = null // null = ainda não testado
 
+const MAX_TORRENT_ID_LENGTH = 256
+const MAX_DOWNLOAD_URI_LENGTH = 8192
+
+// IDs and URIs arrive from renderer IPC, so validate them again in the main
+// process.  Retro/source catalogs sanitize their own payloads too, but the
+// renderer is not a trust boundary.  Keeping this normalization here also
+// means both catalogs use the same ``tor:<stable-id>`` key in torrent_state.
+function normalizeTorrentId(value) {
+  const raw = typeof value === "string" ? value.trim() : String(value || "").trim()
+  if (!raw) return ""
+  const id = raw.startsWith("tor:") ? raw.slice(4) : raw
+  if (
+    !id ||
+    id.length > MAX_TORRENT_ID_LENGTH - 4 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id) ||
+    id.startsWith("tor:")
+  )
+    return ""
+  return `tor:${id}`
+}
+
+function isPrivateHost(hostname) {
+  const host = String(hostname || "")
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host === "::1") return true
+  if (host.includes(":")) return true // IPv6 literals, including link-local addresses.
+  if (/^(10|127)\./.test(host) || /^192\.168\./.test(host)) return true
+  const private172 = /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+  return private172
+}
+
+/**
+ * Normalize a download URI accepted by torrent:start.
+ *
+ * Only magnets carrying a BitTorrent xt and HTTP(S) URLs are valid.  This is
+ * deliberately kept in the main process: catalog normalization protects the
+ * normal Retro path, while this check protects the existing Sources path and
+ * arbitrary renderer IPC callers.  No file/javascript/custom protocol can
+ * reach the worker or HTTP resolver.
+ */
+function normalizeDownloadUri(value) {
+  if (typeof value !== "string") return ""
+  const uri = value.trim()
+  if (!uri || uri.length > MAX_DOWNLOAD_URI_LENGTH || /[\u0000-\u001f\u007f]/.test(uri)) return ""
+
+  if (/^magnet:/i.test(uri)) {
+    try {
+      const parsed = new URL(uri)
+      if (parsed.protocol.toLowerCase() !== "magnet:" || parsed.username || parsed.password)
+        return ""
+      const hasBtih = parsed.searchParams
+        .getAll("xt")
+        .some((xt) => /^urn:btih:[A-Za-z0-9]+$/i.test(xt))
+      if (!hasBtih) return ""
+      // The Python worker accepts the canonical lowercase magnet scheme.
+      return `magnet:${uri.slice(uri.indexOf(":") + 1)}`
+    } catch {
+      return ""
+    }
+  }
+
+  try {
+    const parsed = new URL(uri)
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return ""
+    if (parsed.username || parsed.password || parsed.hash || isPrivateHost(parsed.hostname))
+      return ""
+    return uri
+  } catch {
+    return ""
+  }
+}
+
+async function fetchPublicHttp(url, options = {}, maxRedirects = 5) {
+  let current = normalizeDownloadUri(url)
+  let requestOptions = { ...options }
+  if (!current || !/^https?:\/\//i.test(current)) throw new Error("URI de download inválida")
+  for (let redirects = 0; redirects <= maxRedirects; redirects++) {
+    const response = await fetchRede(current, { ...requestOptions, redirect: "manual" })
+    if (response.status < 300 || response.status >= 400) return response
+    const location = response.headers?.get?.("location")
+    try {
+      await response.body?.cancel?.()
+    } catch {}
+    if (!location) throw new Error("redirecionamento sem destino")
+    let next
+    try {
+      next = normalizeDownloadUri(new URL(location, current).toString())
+    } catch {
+      next = ""
+    }
+    if (!next || !/^https?:\/\//i.test(next)) throw new Error("redirecionamento inseguro")
+    try {
+      if (new URL(next).host !== new URL(current).host && requestOptions.headers) {
+        const headers = { ...requestOptions.headers }
+        for (const key of Object.keys(headers)) {
+          if (/^(?:authorization|cookie|proxy-authorization)$/i.test(key)) delete headers[key]
+        }
+        requestOptions = { ...requestOptions, headers }
+      }
+    } catch {}
+    current = next
+  }
+  throw new Error("redirecionamento em excesso")
+}
+
+function emitProgress() {
+  try {
+    onProgress?.(readState())
+  } catch {
+    // A renderer can disappear while an IPC event is being emitted.
+  }
+}
+
+function upsertState(item) {
+  const lista = readState().filter((current) => current.gameId !== item.gameId)
+  lista.push(item)
+  writeState(lista)
+  emitProgress()
+  return item
+}
+
+function patchState(gameId, patch) {
+  const lista = readState()
+  const item = lista.find((current) => current.gameId === gameId)
+  if (!item) return null
+  Object.assign(item, patch)
+  writeState(lista)
+  emitProgress()
+  return item
+}
+
+function markStateError(gameId, error) {
+  return patchState(gameId, {
+    erro: String(error || "falha ao iniciar download"),
+    // An errored item is retained for Downloads, but is not presented as an
+    // actively transferring item; resume clears the error and retries it.
+    pausado: true,
+    completo: false,
+  })
+}
+
 function readState() {
   try {
-    return JSON.parse(fs.readFileSync(STATE, "utf-8"))
+    const value = JSON.parse(fs.readFileSync(STATE, "utf-8"))
+    return Array.isArray(value) ? value.filter((item) => item && typeof item === "object") : []
   } catch {
     return []
   }
@@ -131,6 +275,12 @@ function armarPolling() {
       }
       const ativos = []
       for (const item of lista) {
+        // Preserve failed starts in the queue so Downloads can explain the
+        // failure and offer cancel/retry instead of silently dropping them.
+        if (item.erro) {
+          ativos.push(item)
+          continue
+        }
         // Esperando o debrid cachear: mostra parado (0 MB) até o link sair.
         if (item.cacheando) {
           ativos.push(item)
@@ -199,7 +349,7 @@ function armarPolling() {
         ),
       )
       if (onProgress) onProgress(ativos.map(({ _b, ...rest }) => rest))
-      if (!ativos.some((a) => !a.completo && !a.pausado)) {
+      if (!ativos.some((a) => !a.completo && !a.pausado && !a.erro)) {
         clearInterval(statusTimer)
         statusTimer = null
       }
@@ -260,9 +410,15 @@ function nomeArquivoHttp(url, cd) {
 }
 
 async function startHttp({ gameId, url, savePath, title, cover, direto }) {
+  const fail = (error) => {
+    const message = String(error || "falha ao iniciar download HTTP")
+    markStateError(gameId, message)
+    return { ok: false, queued: true, error: message }
+  }
   const res = await resolverHttp(url, direto)
-  if (res.erro) return { ok: false, error: res.erro }
-  const direta = res.url
+  if (res.erro) return fail(res.erro)
+  const direta = normalizeDownloadUri(res.url)
+  if (!direta || !/^https?:\/\//i.test(direta)) return fail("URI de download inválida")
   const headersExtra = res.headers || {}
   // Resume: o .part existente vira Range: bytes=N-.
   const it = readState().find((i) => i.gameId === gameId)
@@ -276,18 +432,15 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
 
   let r
   try {
-    r = await fetchRede(direta, { headers, redirect: "follow" })
+    r = await fetchPublicHttp(direta, { headers })
   } catch (e) {
-    return { ok: false, error: String(e.message || e) }
+    return fail(e.message || e)
   }
-  if (!r.ok && r.status !== 206) return { ok: false, error: `HTTP ${r.status}` }
+  if (!r.ok && r.status !== 206) return fail(`HTTP ${r.status}`)
   const ctype = String(r.headers.get("content-type") || "")
   if (ctype.includes("text/html")) {
     r.body?.cancel().catch(() => {})
-    return {
-      ok: false,
-      error: "hoster não suportado (respondeu página HTML — precisa de resolvedor)",
-    }
+    return fail("hoster não suportado (respondeu página HTML — precisa de resolvedor)")
   }
 
   const nomeFinal = fileName || nomeArquivoHttp(direta, r.headers.get("content-disposition"))
@@ -319,8 +472,10 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
   httpDls.set(gameId, h)
 
   // Grava o estado (engine http + nome do arquivo) antes de começar a baixar.
-  const lista = readState().filter((i) => i.gameId !== gameId)
-  lista.push({
+  // upsertState also emits immediately, so a mounted Downloads view does not
+  // have to wait for the one-second polling tick.
+  upsertState({
+    ...(it || {}),
     gameId,
     url,
     savePath,
@@ -329,10 +484,11 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
     fileName: nomeFinal,
     pausado: false,
     completo: false,
+    erro: "",
+    cacheando: false,
     cover: cover || it?.cover || "",
     fileSize: total || 0,
   })
-  writeState(lista)
   armarPolling()
 
   // Stream -> disco. Abort no pause: o .part fica para o resume.
@@ -355,13 +511,22 @@ async function startHttp({ gameId, url, savePath, title, cover, direto }) {
         const item = l.find((i) => i.gameId === gameId)
         if (item) {
           item.completo = true
+          item.pausado = false
+          item.erro = ""
           item.fileSize = h.total || item.fileSize
           writeState(l)
+          emitProgress()
         }
       }
     })
-    .catch(() => {
+    .catch((error) => {
       httpDls.delete(gameId) // abort/erro de rede: o .part garante o resume
+      if (h.reason === "cancel") return
+      if (h.reason === "pause") {
+        if (!httpDls.has(gameId)) patchState(gameId, { pausado: true, erro: "" })
+        return
+      }
+      markStateError(gameId, error?.message || "download interrompido")
     })
   return { ok: true }
 }
@@ -405,8 +570,8 @@ async function startHttpMulti({
   }, 1000)
 
   // Estado (engine http) — idêntico ao modo stream único.
-  const lista = readState().filter((i) => i.gameId !== gameId)
-  lista.push({
+  upsertState({
+    ...(it || {}),
     gameId,
     url: direta,
     savePath,
@@ -415,10 +580,11 @@ async function startHttpMulti({
     fileName: nomeFinal,
     pausado: false,
     completo: false,
+    erro: "",
+    cacheando: false,
     cover: cover || it?.cover || "",
     fileSize: total || 0,
   })
-  writeState(lista)
   armarPolling()
 
   const limpar = () => {
@@ -430,17 +596,19 @@ async function startHttpMulti({
     const item = l.find((i) => i.gameId === gameId)
     if (item) {
       item.completo = true
+      item.pausado = false
+      item.erro = ""
       item.fileSize = total
       writeState(l)
+      emitProgress()
     }
   }
 
   const baixarParte = async (p) => {
     const ja = fs.existsSync(p.arq) ? fs.statSync(p.arq).size : 0
     if (ja >= p.alvo) return
-    const rr = await fetchRede(direta, {
+    const rr = await fetchPublicHttp(direta, {
       headers: { "User-Agent": "arcadia", ...headersExtra, Range: `bytes=${p.ini + ja}-${p.fim}` },
-      redirect: "follow",
       signal: ctrl.signal,
     })
     if (rr.status !== 206 && !rr.ok) throw new Error(`HTTP ${rr.status}`)
@@ -462,8 +630,13 @@ async function startHttpMulti({
       out.end()
       await new Promise((res) => out.on("finish", res))
       marcarCompleto()
-    } catch {
-      // abort/erro de rede: os .part<i> garantem o resume
+    } catch (error) {
+      // Abortos intencionais de pausar/cancelar não são falhas de rede.
+      if (h.reason === "pause") {
+        if (!httpDls.has(gameId)) patchState(gameId, { pausado: true, erro: "" })
+      } else if (h.reason !== "cancel") {
+        markStateError(gameId, error?.message || "download interrompido")
+      }
     } finally {
       limpar()
     }
@@ -484,18 +657,60 @@ function defaultSavePath() {
   return path.join(DATA_DIR, "downloads", "torrent")
 }
 
-async function start({ gameId, url, savePath, fileIndices, title, cover }) {
+async function start({ gameId, url, savePath, fileIndices, title, cover } = {}) {
   if (!gameId || !url) return { ok: false, error: "missing_args" }
-  gameId = String(gameId)
-  if (!gameId.startsWith("tor:")) gameId = "tor:" + gameId
-  savePath = savePath || defaultSavePath()
+
+  const stableId = normalizeTorrentId(gameId)
+  const safeUrl = normalizeDownloadUri(url)
+  if (!stableId) return { ok: false, error: "invalid_game_id" }
+  if (!safeUrl) return { ok: false, error: "invalid_download_uri" }
+  gameId = stableId
+  url = safeUrl
+  savePath = typeof savePath === "string" && savePath.trim() ? savePath : defaultSavePath()
+
   try {
     fs.mkdirSync(savePath, { recursive: true })
   } catch (e) {
     return { ok: false, error: String(e.message || e) }
   }
-  // URL http(s): motor HTTP interno (sem worker Python).
-  if (/^https?:\/\//.test(String(url))) return startHttp({ gameId, url, savePath, title, cover })
+
+  const previous = readState().find((item) => item.gameId === gameId)
+  const sameUrl = previous?.url === url
+  const base = {
+    ...(sameUrl ? previous : {}),
+    gameId,
+    url,
+    savePath,
+    fileIndices:
+      fileIndices !== undefined
+        ? Array.isArray(fileIndices)
+          ? fileIndices
+          : null
+        : (previous?.fileIndices ?? null),
+    title: title || previous?.title || "",
+    cover: cover || previous?.cover || "",
+    pausado: false,
+    completo: false,
+    erro: "",
+  }
+  // A changed URI is a new payload for the same stable game key. Do not reuse
+  // an HTTP filename/engine from the previous source option.
+  if (!sameUrl) {
+    delete base.engine
+    delete base.fileName
+    delete base.fileSize
+    delete base.cacheando
+  }
+
+  // URL http(s): register the item before resolving/fetching. A slow hoster or
+  // an unavailable network must not make the Retro click disappear from
+  // Downloads; startHttp updates this placeholder with its real filename.
+  if (/^https?:\/\//i.test(url)) {
+    upsertState({ ...base, engine: "http", cacheando: false })
+    armarPolling()
+    return startHttp({ gameId, url, savePath, title, cover })
+  }
+
   // Magnet: com QUALQUER debrid configurado, o torrent baixa no servidor do
   // debrid. Enquanto cacheia, o item fica no Downloads como "cacheando" (0
   // MB) — SEM fallback para P2P: quem paga debrid quer o debrid. Quando o
@@ -503,19 +718,13 @@ async function start({ gameId, url, savePath, fileIndices, title, cover }) {
   if (temDebridConfigurado()) {
     const ctrl = new AbortController()
     debridJobs.set(gameId, ctrl)
-    const lista = readState().filter((i) => i.gameId !== gameId)
-    lista.push({
-      gameId,
-      url,
-      savePath,
-      title: title || "",
-      cover: cover || "",
+    upsertState({
+      ...base,
       engine: "debrid",
       cacheando: true,
       pausado: false,
       completo: false,
     })
-    writeState(lista)
     armarPolling()
     // Job de fundo: espera o debrid cachear e então inicia o download HTTP.
     ;(async () => {
@@ -528,62 +737,66 @@ async function start({ gameId, url, savePath, fileIndices, title, cover }) {
       } catch (e) {
         console.warn("arcadia: debrid magnet falhou:", String(e.message || e))
         // Marca erro no item para não ficar "cacheando" para sempre.
-        const l = readState()
-        const it = l.find((i) => i.gameId === gameId)
-        if (it) {
-          it.erro = String(e.message || e)
-          writeState(l)
-        }
+        markStateError(gameId, e.message || e)
       } finally {
         debridJobs.delete(gameId)
       }
     })()
     return { ok: true }
   }
+
+  // Persist the placeholder before dependency/worker checks. This makes an
+  // unsuccessful click observable in Downloads and keeps retry/cancel tied to
+  // the same stable ID instead of losing the user's request.
+  const torrentItem = { ...base }
+  delete torrentItem.engine
+  delete torrentItem.cacheando
+  upsertState(torrentItem)
   if (!(await libtorrentDisponivel())) {
-    return { ok: false, error: "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)" }
+    const error = "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)"
+    markStateError(gameId, error)
+    armarPolling()
+    return { ok: false, queued: true, error }
   }
   try {
     await rpc("action", {
       action: "start",
-      game_id: String(gameId),
+      game_id: gameId,
       url,
       save_path: savePath,
       file_indices: fileIndices ?? null,
     })
-    const lista = readState().filter((i) => i.gameId !== String(gameId))
-    lista.push({
-      gameId: String(gameId),
-      url,
-      savePath,
-      fileIndices: fileIndices ?? null,
-      title: title || "",
-      cover: cover || "",
-      pausado: false,
-      completo: false,
-    })
-    writeState(lista)
+    patchState(gameId, { erro: "", pausado: false, completo: false })
     armarPolling()
     return { ok: true }
   } catch (e) {
-    return { ok: false, error: String(e.code || e.message || e) }
+    const error = String(e.code || e.message || e)
+    markStateError(gameId, error)
+    armarPolling()
+    return { ok: false, queued: true, error }
   }
 }
 
 function normId(gameId) {
-  gameId = String(gameId || "")
-  return gameId.startsWith("tor:") ? gameId : "tor:" + gameId
+  return normalizeTorrentId(gameId)
 }
 
 async function pause(gameId) {
   gameId = normId(gameId)
+  if (!gameId) return { ok: false, error: "invalid_game_id" }
   try {
+    const current = readState().find((item) => item.gameId === gameId)
     const dj = debridJobs.get(gameId)
     const h = httpDls.get(gameId)
+    if (current?.erro && !dj && !h) {
+      patchState(gameId, { pausado: true })
+      return { ok: true }
+    }
     if (dj) {
       dj.abort()
       debridJobs.delete(gameId)
     } else if (h) {
+      h.reason = "pause"
       h.ctrl.abort()
       httpDls.delete(gameId)
     } else {
@@ -594,6 +807,7 @@ async function pause(gameId) {
     if (it) {
       it.pausado = true
       writeState(lista)
+      emitProgress()
     }
     return { ok: true }
   } catch (e) {
@@ -603,6 +817,7 @@ async function pause(gameId) {
 
 async function resume(gameId) {
   gameId = normId(gameId)
+  if (!gameId) return { ok: false, error: "invalid_game_id" }
   const it = readState().find((i) => i.gameId === gameId)
   if (!it) return { ok: false, error: "download não encontrado" }
   return start({ ...it, gameId: it.gameId })
@@ -610,13 +825,26 @@ async function resume(gameId) {
 
 async function cancel(gameId) {
   gameId = normId(gameId)
+  if (!gameId) return { ok: false, error: "invalid_game_id" }
   try {
+    const current = readState().find((item) => item.gameId === gameId)
     const dj = debridJobs.get(gameId)
     const h = httpDls.get(gameId)
+    if (
+      current &&
+      !dj &&
+      !h &&
+      (current.erro || current.engine === "http" || current.engine === "debrid")
+    ) {
+      writeState(readState().filter((item) => item.gameId !== gameId))
+      emitProgress()
+      return { ok: true }
+    }
     if (dj) {
       dj.abort()
       debridJobs.delete(gameId)
     } else if (h) {
+      h.reason = "cancel"
       h.ctrl.abort()
       httpDls.delete(gameId)
     } else {
@@ -633,6 +861,7 @@ async function cancel(gameId) {
       } catch {}
     }
     writeState(readState().filter((i) => i.gameId !== String(gameId)))
+    emitProgress()
     return { ok: true }
   } catch (e) {
     return { ok: false, error: String(e.code || e.message || e) }
@@ -640,11 +869,18 @@ async function cancel(gameId) {
 }
 
 async function files(magnet, timeoutMs) {
+  const safeMagnet = normalizeDownloadUri(magnet)
+  if (!safeMagnet || !/^magnet:/i.test(safeMagnet)) {
+    return { ok: false, error: "invalid_download_uri" }
+  }
   if (!(await libtorrentDisponivel())) {
     return { ok: false, error: "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)" }
   }
   try {
-    return { ok: true, ...(await rpc("torrent_files", { magnet, timeout_ms: timeoutMs }, 130000)) }
+    return {
+      ok: true,
+      ...(await rpc("torrent_files", { magnet: safeMagnet, timeout_ms: timeoutMs }, 130000)),
+    }
   } catch (e) {
     return { ok: false, error: String(e.code || e.message || e) }
   }
@@ -680,10 +916,16 @@ async function retomar() {
         // Espera de cache interrompida pelo fechamento do app: recomeça.
         await start(it)
       } else {
+        const stableId = normalizeTorrentId(it.gameId)
+        const safeUrl = normalizeDownloadUri(it.url)
+        if (!stableId || !safeUrl) {
+          markStateError(it.gameId, "URI de download inválida")
+          continue
+        }
         await rpc("action", {
           action: "start",
-          game_id: it.gameId,
-          url: it.url,
+          game_id: stableId,
+          url: safeUrl,
           save_path: it.savePath,
           file_indices: it.fileIndices ?? null,
         })
@@ -702,6 +944,8 @@ module.exports = {
   setLimit,
   list,
   retomar,
+  normalizeDownloadUri,
+  normalizeTorrentId,
   onProgress: (cb) => {
     onProgress = cb
   },

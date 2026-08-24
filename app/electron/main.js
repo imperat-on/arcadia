@@ -28,6 +28,23 @@ const { showAchievementToast, closeAchievementToast } = require("./notify")
 const path = require("path")
 const fs = require("fs")
 const os = require("os")
+const { getDataDir } = require("./runtime-paths")
+const { normalizeLibrary } = require("../../contracts")
+const { readLibraryFile } = require("./library-store")
+const { createLibraryRepository } = require("./library-repository")
+const { createIndexerService } = require("./index-service")
+const { resolveLaunchRequest } = require("./launch-resolver")
+const { createLaunchLog } = require("./launch-log")
+const { createSnapshotService } = require("./snapshot-service")
+const { createDiagnosticsService } = require("./diagnostics")
+const { createSupportBundle } = require("./support-bundle")
+const { createGameSettingsService } = require("./game-settings-service")
+const { createEmulatorRegistry } = require("./emulator-registry")
+const { getEmulatorStatus, preflightEmulator } = require("./emulator-status")
+const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulator-runtime")
+const raClient = require("./retroachievements/client")
+const raEmulatorConfig = require("./retroachievements/emulator-config")
+const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
 const DiscordRpc = require("./discord-rpc")
@@ -60,9 +77,41 @@ const {
 } = require("./metadata")
 
 const HOME = os.homedir()
-const DATA_DIR = path.join(HOME, ".local/share/arcadia")
+const DATA_DIR = getDataDir()
+const BOOT_VIDEO = path.join(DATA_DIR, "boot.mp4")
+const BUNDLED_BOOT_VIDEO = app.isPackaged
+  ? path.join(process.resourcesPath, "boot.mp4")
+  : path.join(__dirname, "..", "..", "boot.mp4")
+try {
+  if (!fs.existsSync(BOOT_VIDEO) && fs.existsSync(BUNDLED_BOOT_VIDEO)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.copyFileSync(BUNDLED_BOOT_VIDEO, BOOT_VIDEO, fs.constants.COPYFILE_EXCL)
+  }
+} catch (error) {
+  console.warn(`[arcadia:boot] não foi possível instalar o vídeo: ${error.message || error}`)
+}
 const LIB = path.join(DATA_DIR, "library.json")
-const INDEX = path.join(DATA_DIR, "index.py")
+// O repositório concentra leitura/filtro por conta, sem alterar o restante da
+// montagem (custom/pending/overrides) nem o contrato IPC de library:get.
+const libraryRepository = createLibraryRepository({ dataDir: DATA_DIR, libraryPath: LIB })
+// Em uma instalação clonada o indexador fica no checkout, não na pasta de
+// dados. Em uma instalação empacotada a cópia histórica em DATA_DIR continua
+// sendo aceita para não quebrar upgrades existentes.
+const INDEX_DATA = path.join(DATA_DIR, "index.py")
+const INDEX = fs.existsSync(INDEX_DATA)
+  ? INDEX_DATA
+  : path.join(__dirname, "..", "..", "index.py")
+const indexerService = createIndexerService({
+  indexPath: INDEX,
+  pythonPath: process.env.ARCADIA_PYTHON || "python3",
+  cwd: path.join(__dirname, "..", ".."),
+  env: { ...process.env, ARCADIA_DATA_DIR: DATA_DIR },
+  timeoutMs: Number(process.env.ARCADIA_INDEX_TIMEOUT_MS) || undefined,
+  logger: (message) => console.warn(`[arcadia:indexer] ${message}`),
+})
+
+const saveSnapshots = createSnapshotService({ snapshotsDir: path.join(DATA_DIR, "snapshots") })
+
 const CONFIG = path.join(DATA_DIR, "config.json")
 
 const STEAM_LANG_MAP = {
@@ -121,6 +170,14 @@ const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lut
 
 // Logs de lançamento ("Habilitar logs detalhados", aba AVANÇADO).
 const LOG_DIR = path.join(DATA_DIR, "logs")
+const launchLog = createLaunchLog({ logDir: LOG_DIR })
+const diagnostics = createDiagnosticsService({
+  dataDir: DATA_DIR,
+  appVersion: app.getVersion(),
+  getQueue: () => require("./downloadmanager").getQueue(),
+  getLibrary: () => readLibrary(),
+})
+const supportBundle = createSupportBundle({ dataDir: DATA_DIR })
 // Script pós-jogo pendente (aba AVANÇADO): roda quando o jogo fechar.
 let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
@@ -260,245 +317,16 @@ const YTDLP_ENV = {
 // explícito porque o PATH do app pode não incluir /usr/bin (ex.: no gamescope).
 const FFMPEG_DIR =
   ["/usr/bin", "/usr/local/bin", "/bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg"))) || ""
-const FF_ARGS = FFMPEG_DIR ? ["--ffmpeg-location", FFMPEG_DIR] : []
 const SLS_CONFIG = path.join(HOME, ".config/SLSsteam/config.yaml")
 
-// Diário do subsistema de trailers. Sem isto, toda falha (binário ausente,
-// rede, extractor do YouTube quebrado) chegava na tela como o mesmo
-// "Nenhum vídeo encontrado" — impossível de diagnosticar à distância.
+// Diário do subsistema de trailers. O serviço recebe o logger para continuar
+// diagnosticando falhas sem depender do Electron.
 const TRAILER_LOG = path.join(LOG_DIR, "trailers.log")
 function logTrailer(msg) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true })
     fs.appendFileSync(TRAILER_LOG, `${new Date().toISOString()} ${msg}\n`)
   } catch {}
-}
-
-// Trailers em andamento (evita baixar o mesmo jogo duas vezes ao mesmo tempo).
-const trailerJobs = new Map()
-
-function safeName(id) {
-  return String(id).replace(/[^a-z0-9._-]/gi, "_")
-}
-
-// Remove TODOS os arquivos de um jogo (inclusive parciais .part/.fNNN de
-// tentativas anteriores, que causam "HTTP 416 range not satisfiable").
-function limparTrailer(safe) {
-  try {
-    for (const f of fs.readdirSync(TRAILERS_DIR)) {
-      if (f === safe || f.startsWith(safe + ".")) {
-        try {
-          fs.unlinkSync(path.join(TRAILERS_DIR, f))
-        } catch {
-          /* já sumiu */
-        }
-      }
-    }
-  } catch {
-    /* pasta ainda não existe */
-  }
-}
-
-// Cookies do YouTube (arquivo cookies.txt do usuário) para vídeos com restrição
-// de idade. Vazio = sem cookies (a maioria dos vídeos não precisa).
-function cookieArgs() {
-  try {
-    const p = String(readConfig().youtube_cookies || "").trim()
-    if (p && fs.existsSync(p)) return ["--cookies", p]
-  } catch {
-    /* sem config */
-  }
-  return []
-}
-
-// Caminho local do trailer já baixado (mp4/webm), ou "" se não existe.
-function trailerLocal(id) {
-  const base = path.join(TRAILERS_DIR, safeName(id))
-  for (const ext of [".mp4", ".webm", ".mkv"]) {
-    if (fs.existsSync(base + ext)) return base + ext
-  }
-  return ""
-}
-
-// Baixa o trailer do YouTube via yt-dlp. Resolve com o caminho local.
-function baixarTrailer(id, titulo) {
-  const existe = trailerLocal(id)
-  if (existe) return Promise.resolve({ ok: true, path: existe })
-  if (trailerJobs.has(id)) return trailerJobs.get(id)
-
-  const job = new Promise((resolve) => {
-    fs.mkdirSync(TRAILERS_DIR, { recursive: true })
-    const safe = safeName(id)
-    limparTrailer(safe) // tira parciais que causariam HTTP 416
-    const args = [
-      `ytsearch5:${titulo} trailer`,
-      "--no-playlist",
-      "--no-warnings",
-      "--no-continue",
-      "--no-part",
-      "--match-filter",
-      "duration > 20 & duration < 360", // pega trailer curto, não gameplay de 1h
-      "-f",
-      "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-      "--remux-video",
-      "mp4",
-      ...FF_ARGS,
-      ...cookieArgs(),
-      "-o",
-      path.join(TRAILERS_DIR, `${safe}.%(ext)s`),
-    ]
-    execFile(YTDLP, args, { timeout: 180000, env: YTDLP_ENV }, (err) => {
-      // yt-dlp pode sair !=0 (limite/reject); o que vale é o arquivo existir.
-      const p = trailerLocal(id)
-      if (p) return resolve({ ok: true, path: p })
-      // ENOENT aqui é o binário ausente, não "sem resultado" — distinguir os
-      // dois evita mandar o usuário caçar um problema de rede que não existe.
-      if (err && err.code === "ENOENT") {
-        return resolve({ ok: false, error: "yt-dlp não instalado (instale o pacote yt-dlp)" })
-      }
-      resolve({ ok: false, error: "trailer não encontrado" })
-    })
-  }).finally(() => trailerJobs.delete(id))
-
-  trailerJobs.set(id, job)
-  return job
-}
-
-// URL de stream direto (mp4 progressivo) para pré-visualizar sem baixar. O
-// embed do YouTube recusa origem file:// (erro 153); um <video> nativo não.
-function streamTrailer(url) {
-  return new Promise((resolve) => {
-    execFile(
-      YTDLP,
-      // 22/18 são progressivos (áudio+vídeo num arquivo só) que quase todo vídeo
-      // tem — dá prévia mesmo nos que só têm faixas DASH separadas.
-      [
-        "-g",
-        "-f",
-        "best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best",
-        "--no-warnings",
-        ...cookieArgs(),
-        url,
-      ],
-      { timeout: 40000, maxBuffer: 1024 * 1024 * 4, env: YTDLP_ENV },
-      (err, stdout, stderr) => {
-        const link = String(stdout || "")
-          .split("\n")
-          .find((l) => l.startsWith("http"))
-        if (link) return resolve({ ok: true, url: link })
-        const age = /confirm your age|inappropriate/i.test(String(stderr || ""))
-        resolve({ ok: false, error: age ? "age" : "sem stream" })
-      },
-    )
-  })
-}
-
-// Busca (sem baixar) os vídeos do YouTube para o usuário escolher o certo.
-function buscarTrailers(query) {
-  return new Promise((resolve) => {
-    const args = [`ytsearch12:${query} trailer`, "--flat-playlist", "--dump-json", "--no-warnings"]
-    execFile(
-      YTDLP,
-      args,
-      { timeout: 40000, maxBuffer: 1024 * 1024 * 8, env: YTDLP_ENV },
-      (err, stdout, stderr) => {
-        const out = []
-        for (const line of String(stdout || "").split("\n")) {
-          if (!line.trim()) continue
-          try {
-            const d = JSON.parse(line)
-            const thumbs = d.thumbnails || []
-            out.push({
-              id: d.id,
-              url: d.url || `https://www.youtube.com/watch?v=${d.id}`,
-              title: d.title || "",
-              duration: d.duration || 0,
-              channel: d.channel || d.uploader || "",
-              thumbnail: d.thumbnail || (thumbs.length ? thumbs[thumbs.length - 1].url : ""),
-            })
-          } catch {
-            /* linha não-JSON: ignora */
-          }
-        }
-        // Sem resultado E com falha do yt-dlp são coisas MUITO diferentes (rede,
-        // binário quebrado, YouTube mudando o extractor), mas a tela mostrava
-        // "Nenhum vídeo encontrado" para as duas. Devolvemos o motivo real.
-        if (!out.length && err) {
-          const msg =
-            String(stderr || "")
-              .split("\n")
-              .filter((l) => /error/i.test(l))[0] ||
-            (err.code === "ENOENT"
-              ? "yt-dlp não encontrado"
-              : `yt-dlp falhou (${err.code ?? err.message})`)
-          logTrailer(`busca "${query}" falhou: ${msg}`)
-          return resolve({ results: [], error: msg })
-        }
-        logTrailer(`busca "${query}": ${out.length} resultado(s)`)
-        resolve({ results: out })
-      },
-    )
-  })
-}
-
-// Baixa um vídeo ESPECÍFICO do YouTube como trailer do jogo (escolha manual).
-// Emite progresso (%) por 'trailer:dlprogress' para a janela mostrar a barra.
-function baixarTrailerUrl(id, url) {
-  return new Promise((resolve) => {
-    fs.mkdirSync(TRAILERS_DIR, { recursive: true })
-    const safe = safeName(id)
-    // Apaga o trailer anterior E parciais (o usuário corrige um errado; e
-    // parciais de tentativas anteriores causam HTTP 416).
-    limparTrailer(safe)
-    const args = [
-      url,
-      "--no-playlist",
-      "--no-warnings",
-      "--no-continue",
-      "--no-part",
-      "--newline", // uma linha por atualização de progresso (fácil de parsear)
-      "-f",
-      "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-      "--remux-video",
-      "mp4",
-      ...FF_ARGS,
-      ...cookieArgs(),
-      "-o",
-      path.join(TRAILERS_DIR, `${safe}.%(ext)s`),
-    ]
-    const emit = (data) => {
-      if (win) win.webContents.send("trailer:dlprogress", { id, ...data })
-    }
-    let errBuf = ""
-    const child = spawn(YTDLP, args, { env: YTDLP_ENV })
-    const onData = (buf) => {
-      const s = buf.toString()
-      const m = s.match(/\[download\]\s+([0-9.]+)%/)
-      if (m) emit({ percent: parseFloat(m[1]), stage: "download" })
-      if (/\[VideoRemuxer\]|Merging/.test(s)) emit({ percent: 100, stage: "processando" })
-    }
-    child.stdout.on("data", onData)
-    child.stderr.on("data", (b) => {
-      errBuf += b.toString()
-      onData(b)
-    })
-    child.on("close", () => {
-      const p = trailerLocal(id)
-      emit({ percent: 100, stage: "done" })
-      if (p) return resolve({ ok: true, path: p })
-      if (/confirm your age|inappropriate/i.test(errBuf)) {
-        return resolve({ ok: false, error: "age" })
-      }
-      // Mostra o motivo real (ex.: ffmpeg ausente, vídeo indisponível).
-      const linha =
-        errBuf
-          .split("\n")
-          .reverse()
-          .find((l) => /error|ffmpeg/i.test(l)) || ""
-      resolve({ ok: false, error: linha.trim() || "falha ao baixar" })
-    })
-    child.on("error", (e) => resolve({ ok: false, error: String(e.message || e) }))
-  })
 }
 
 // Cache por mtime: readConfig é chamado dezenas de vezes no boot (createWindow,
@@ -524,12 +352,28 @@ function readConfig() {
   }
 }
 
+const { createTrailerService } = require("./trailer-service")
+const trailerService = createTrailerService({
+  trailersDir: TRAILERS_DIR,
+  ytdlpPath: YTDLP,
+  ffmpegDir: FFMPEG_DIR,
+  env: YTDLP_ENV,
+  getCookiesPath: () => String(readConfig().youtube_cookies || "").trim(),
+  logger: logTrailer,
+})
+
 const discordRpc = new DiscordRpc(readConfig)
 
 // Chaves de API que NUNCA saem completas pro renderer (auditoria A-06): o form
 // de configurações mostra a máscara; o config:set reconhece a máscara e
 // preserva o valor real no disco.
-const SEGREDOS = ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]
+const SEGREDOS = [
+  "steam_api_key",
+  "steamgriddb_api_key",
+  "hubcap_api_key",
+  "retroachievements_token",
+  "retroachievements_web_api_key",
+]
 
 function redigirSegredos(cfg) {
   if (!cfg || typeof cfg !== "object") return cfg
@@ -1018,37 +862,27 @@ async function fetchJson(url) {
   return r.json()
 }
 
-// Cache por mtime (padrão de _cfgCache): readAllGameSettings roda no readLibrary
-// e em vários handlers; setGameSettings invalida ao gravar.
-let _gsCache = { mtimeMs: -1, data: {} }
+// O caminho é resolvido por operação porque muda com a conta ativa.
+const gameSettingsService = createGameSettingsService({
+  getPath: () => caminhoConta(GAME_SETTINGS),
+})
+const emulatorRegistry = createEmulatorRegistry({
+  dataDir: DATA_DIR,
+  platform: process.platform,
+  homeDir: os.homedir(),
+  env: process.env,
+})
+
+// Aliases locais preservam os consumidores existentes enquanto o domínio fica
+// testável fora do Electron.
 function readAllGameSettings() {
-  try {
-    const m = fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs
-    if (m !== _gsCache.mtimeMs) {
-      _gsCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(caminhoConta(GAME_SETTINGS), "utf-8")) }
-    }
-    return _gsCache.data
-  } catch {
-    return {}
-  }
+  return gameSettingsService.readAll()
 }
-
 function getGameSettings(id) {
-  if (!id) return {}
-  return readAllGameSettings()[id] || {}
+  return gameSettingsService.get(id)
 }
-
 function setGameSettings(id, patch) {
-  if (!id) return {}
-  const all = readAllGameSettings()
-  all[id] = { ...(all[id] || {}), ...(patch || {}) }
-  try {
-    fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
-    _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
-  } catch {
-    /* disco cheio/permissão: segue sem salvar */
-  }
-  return all[id]
+  return gameSettingsService.set(id, patch)
 }
 
 // Prefixo padrão do jogo (respeita a pasta configurada em Config. Gerais).
@@ -1077,14 +911,9 @@ function limparAposDesinstalar(id, { removePrefix, removeSettings } = {}) {
     }
   }
   if (removeSettings) {
-    const all = readAllGameSettings()
-    if (all[id]) {
-      delete all[id]
-      try {
-        fs.writeFileSync(caminhoConta(GAME_SETTINGS), JSON.stringify(all, null, 2))
-        _gsCache = { mtimeMs: fs.statSync(caminhoConta(GAME_SETTINGS)).mtimeMs, data: all }
-      } catch {}
-    }
+    // Use the service so emulator settings and its in-memory cache are removed
+    // atomically along with the older Wine settings.
+    gameSettingsService.remove(id)
     try {
       fs.rmSync(path.join(LOG_DIR, `${String(id).replace(/[^a-z0-9._-]/gi, "_")}.log`), {
         force: true,
@@ -1428,13 +1257,13 @@ function readLibrary() {
   try {
     const chave = _libMtimeKey()
     if (chave === _libCache.chave) return _libCache.games
-    const globais = JSON.parse(fs.readFileSync(LIB, "utf-8"))
-    const games = filtrarPorPosse(globais)
-    games.push(...readJsonFile(caminhoConta(CUSTOM_GAMES), []))
+    const globais = libraryRepository.readGlobal()
+    const games = libraryRepository.filterByOwnership(globais)
+    games.push(...normalizeLibrary(readJsonFile(caminhoConta(CUSTOM_GAMES), [])))
     // Stubs otimistas: só entram se ainda não foram indexados de verdade.
     const jaTem = new Set(games.map((g) => g.id))
-    for (const p of readJsonFile(caminhoConta(PENDING_GAMES), [])) {
-      if (p && p.id && !jaTem.has(p.id)) games.push(p)
+    for (const p of normalizeLibrary(readJsonFile(caminhoConta(PENDING_GAMES), []))) {
+      if (!jaTem.has(p.id)) games.push(p)
     }
     applyOverrides(games, readOverrides(caminhoConta(OVERRIDES)))
     // Enriquece cada jogo Steam com ícone/capa vindos do catálogo do servidor
@@ -1454,9 +1283,13 @@ function readLibrary() {
     // "Instalar" e o botão Jogar nunca aparecia.
     const settings = readAllGameSettings()
     for (const g of games) {
-      if (g && settings[g.id]?.exePath) {
+      if (g && (settings[g.id]?.exePath || (settings[g.id]?.emulatorId && settings[g.id]?.romPath))) {
         if (g.installed === false) g.installed = true
         g.temExe = true // frontend decide se mostra o menu Steam vs fora-da-Steam
+        // Log para jogos retro
+        if (g.id && g.id.startsWith('retro:')) {
+          console.log('[readLibrary] Marked retro game as installed:', g.id, 'settings:', settings[g.id])
+        }
       }
     }
     for (const g of games) {
@@ -1466,21 +1299,16 @@ function readLibrary() {
         }
       }
     }
-    _libCache = { chave, games }
-    return games
+    const validGames = normalizeLibrary(games)
+    _libCache = { chave, games: validGames }
+    return validGames
   } catch (e) {
     return []
   }
 }
 
 function runIndexer() {
-  return new Promise((res) => {
-    try {
-      execFile("python3", [INDEX], () => res())
-    } catch {
-      res()
-    }
-  })
+  return indexerService.run()
 }
 
 // Avisa o renderer e, em seguida, reindexa em SEGUNDO PLANO para avisar de
@@ -1551,7 +1379,7 @@ function limparPendentesIndexados() {
   // readLibrary já injeta os próprios stubs de pending_games.json, então usá-lo
   // aqui fazia TODO stub recém-criado parecer "já indexado" e ser removido na
   // passada pós-indexação → o Add na loja nunca persistia.
-  const reais = readJsonFile(LIB, [])
+  const reais = readLibraryFile(LIB).games
   const idsReais = new Set(reais.map((g) => g.id))
   const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
   if (restantes.length !== atuais.length) {
@@ -1870,12 +1698,11 @@ app.whenReady().then(() => {
   // Garante que o escopo da conta do boot (sessão restaurada) já está ativo
   // antes de o renderer ler library/conquistas — sem isso a UI pisca com os
   // dados guest e só depois troca (mesmo bug do "nome antigo").
-  const { restoreSession } = require("./supabase/client")
-  const contaPronta = restoreSession()
+  // O IPC de conta é o único dono da restauração. Reusar a mesma Promise
+  // evita duas chamadas concorrentes de setSession() no boot.
+  const { garantirSessao } = require("./supabase/ipc")
+  const contaPronta = garantirSessao()
     .then(async (r) => {
-      if (r?.session?.user?.user_metadata?.username) {
-        definirConta(r.session.user.user_metadata.username)
-      }
       // Reconstrói as conquistas dos schemas DA STEAM DEPOIS de a conta estar
       // ativa. Antes rodava no createWindow como guest e gravava na raiz, então
       // o painel (conta) ficava só com o que o watcher pegou ao vivo. Pro
@@ -1886,12 +1713,9 @@ app.whenReady().then(() => {
       } catch (e) {
         console.error("[achievements] boot load:", e)
       }
-      // Sync de biblioteca/horas + CONQUISTAS no BOOT com sessão restaurada. O
-      // reconcile só rodava no SIGNED_IN (login) — quem fechava e reabria o app
-      // com a sessão salva não puxava as mudanças feitas em outra máquina; só
-      // deslogando e logando de novo. Aqui o push+pull roda uma vez por boot
-      // logado (conquistas: mesma lógica — sem isto, desbloqueio de outra
-      // máquina só chegava num login explícito).
+      // A restauração agora emite SIGNED_IN quando a sessão salva é válida.
+      // O listener central do IPC inicia realtime e reconcilia biblioteca,
+      // conquistas e sources com o escopo da conta já selecionado.
       if (r?.session) {
         try {
           // Pré-aquece a arte dos jogos steam que o pull de biblioteca vai
@@ -1912,16 +1736,8 @@ app.whenReady().then(() => {
         } catch (e) {
           console.error("[biblioteca] boot pre-aquecimento:", e)
         }
-        try {
-          require("./supabase/biblioteca").reconcile()
-        } catch (e) {
-          console.error("[biblioteca] boot reconcile:", e)
-        }
-        try {
-          require("./supabase/sync").reconcile()
-        } catch (e) {
-          console.error("[conquistas] boot reconcile:", e)
-        }
+        // O reconcile já é disparado pelo evento SIGNED_IN da restauração,
+        // com o escopo da conta definido pelo IPC antes da operação.
       }
       return null
     })
@@ -2012,66 +1828,99 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle("app:diagnostics", () => diagnostics.collect())
+  ipcMain.handle("app:diagnosticsExport", async () => {
+    const res = await dialog.showOpenDialog(win, {
+      title: "Exportar diagnóstico",
+      properties: ["openDirectory", "createDirectory"],
+    })
+    if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true }
+    return supportBundle.create({ outputDir: res.filePaths[0], report: diagnostics.collect() })
+  })
+  ipcMain.handle("saves:list", (_e, gameId) => saveSnapshots.list(gameId))
+  ipcMain.handle("saves:create", (_e, payload = {}) => saveSnapshots.create(payload))
+  ipcMain.handle("saves:restore", (_e, payload = {}) => saveSnapshots.restore(payload))
+  ipcMain.handle("saves:delete", (_e, payload = {}) => saveSnapshots.remove(payload))
+
   ipcMain.handle("game:launch", async (_e, payload) => {
-    // Aceita { cmd, gameId } (novo) ou o array cmd direto (legado).
-    let rawCmd = Array.isArray(payload) ? payload : payload?.cmd
-    const gameId = Array.isArray(payload) ? undefined : payload?.gameId
-    // Modo explícito (menu Steam vs fora-da-Steam): "steam" força o launch_cmd
-    // da loja; "exe" força o executável do prefixo wine. Sem modo: decide sozinho
-    // (exePath vence quando existe).
-    const mode = Array.isArray(payload) ? undefined : payload?.mode
-    // SEGURANÇA (auditoria A-04): o cmd vindo do renderer NUNCA é executado
-    // como veio — um XSS executaria binário arbitrário. O comando é resolvido
-    // AQUI no main a partir dos dados locais (library.json/loja). Única exceção
-    // pro legado: o atalho steam://install|run/<appid> (padrão fixo).
-    if (typeof gameId === "string" && gameId) {
-      const g = readLibrary().find((x) => x.id === gameId)
-      if (g && Array.isArray(g.launch_cmd) && g.launch_cmd.length) rawCmd = g.launch_cmd
-    } else if (Array.isArray(rawCmd)) {
-      const legado = rawCmd.map((c) => String(c))
-      if (!(legado.length === 2 && legado[0] === "steam" && /^steam:\/\/(install|run)\/[0-9]+$/.test(legado[1]))) {
-        return { ok: false, error: "Comando de lançamento rejeitado (padrão não permitido)." }
+    const resolved = resolveLaunchRequest(payload, {
+      findGame: (id) => readLibrary().find((game) => game.id === id),
+      customLaunchCmd,
+      getGameSettings,
+      exeLaunchCmd,
+      emulatorLaunch: (_id, game, settings) => {
+        // A settings key alone never authorizes launching a ROM: the game must
+        // still exist in the account-scoped library.
+        if (!game || !settings?.emulatorId) return null
+        return emulatorRegistry.resolveLaunch({
+          emulatorId: settings.emulatorId,
+          romPath: settings.romPath,
+          extraArgs: settings.emulatorArgs,
+          corePath: settings.emulatorCorePath,
+          // Use Hydra-compatible deterministic flags only from the main
+          // process; the renderer cannot choose arbitrary launch templates.
+          launchMode: "hydra",
+        })
+      },
+    })
+    if (!resolved.ok) return resolved
+
+    // DuckStation/PCSX2 frequently exit silently when no valid BIOS exists.
+    // Check the local dump before wrapping/spawning; RPCS3 firmware is exposed
+    // as status but is not hard-blocked because RPCS3 can install/configure it
+    // through its own UI.
+    if (resolved.gameId && resolved.mode !== "steam") {
+      const emulatorSettings = getGameSettings(resolved.gameId)
+      if (emulatorSettings?.emulatorId) {
+        const profile = emulatorRegistry.getProfile(emulatorSettings.emulatorId)
+        const detected = emulatorRegistry.list().find((item) => item.id === emulatorSettings.emulatorId)
+        const preflight = preflightEmulator({
+          emulatorId: emulatorSettings.emulatorId,
+          executablePath: detected?.executable || profile?.executable || "",
+          biosPath: profile?.biosPath || "",
+        })
+        if (!preflight.ok) {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: preflight.error })
+          }
+          return preflight
+        }
+        const running = preflightRunningEmulator({
+          emulatorId: emulatorSettings.emulatorId,
+          executablePath: detected?.executable || profile?.executable || "",
+        })
+        if (!running.ok) {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: running.error })
+          }
+          return running
+        }
+        // RetroAchievements: se há credencial salva e o emulador escolhido
+        // tem client RA nativo, garante que a config dele está atualizada
+        // antes de lançar. Melhor esforço — uma falha aqui não deve impedir
+        // o jogo de abrir sem conquistas.
+        try {
+          const raCfg = readConfig()
+          const raUsername = String(raCfg.retroachievements_username || "")
+          const raToken = String(raCfg.retroachievements_token || "")
+          if (raUsername && raToken) {
+            raEmulatorConfig.configureEmulatorCredentials(emulatorSettings.emulatorId, {
+              username: raUsername,
+              token: raToken,
+              home: HOME,
+            })
+          }
+        } catch {}
       }
     }
-    // Jogo adicionado manualmente: monta o comando na hora (wine + exe).
-    let envExtra = {}
-    if (typeof gameId === "string" && gameId.startsWith("custom:")) {
-      const built = customLaunchCmd(gameId)
-      if (!built) {
-        return {
-          ok: false,
-          error: `Jogo custom não encontrado em custom_games.json (id: ${gameId}).`,
-        }
-      }
-      rawCmd = built.cmd
-      envExtra = built.env || {}
-    } else if (typeof gameId === "string" && mode !== "steam") {
-      // Override "Executável" (aba Localizações): roda o exe escolhido em vez do
-      // launch_cmd padrão da loja. Sem modo, só quando há exePath configurado.
-      const exe = getGameSettings(gameId).exePath
-      if (exe) {
-        const built = exeLaunchCmd(gameId, exe)
-        if (!built) {
-          return { ok: false, error: "Executável configurado não encontrado (exePath vazio)." }
-        }
-        if (built?.cmd?.length) {
-          rawCmd = built.cmd
-          envExtra = built.env || {}
-        }
-      }
-    }
-    if (!Array.isArray(rawCmd) || rawCmd.length === 0) {
-      return {
-        ok: false,
-        error:
-          "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações.",
-      }
-    }
+
+    let { rawCmd, gameId, envExtra } = resolved
     // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
     // em diante o cmd[0] já não é mais o binário da Steam.
     rawCmd = steamSilencioso(rawCmd)
     const sls = steamComInjecao(rawCmd)
     rawCmd = sls.cmd
+    let closeLaunchLog = () => {}
     try {
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
@@ -2106,24 +1955,11 @@ app.whenReady().then(() => {
       // Log SEMPRE ligado: stdout/stderr do jogo em logs/<id>.log (append com
       // rotação simples). verboseLogs só controla DXVK_HUD/WINEDEBUG — falha
       // de log não bloqueia o launch.
-      let stdio = "ignore"
-      try {
-        fs.mkdirSync(LOG_DIR, { recursive: true })
-        const logPath = path.join(
-          LOG_DIR,
-          `${String(gameId || "jogo").replace(/[^a-z0-9._-]/gi, "_")}.log`,
-        )
-        // Rotação simples: se >5MB, renomeia pra .old (sobrescreve .old anterior)
-        try {
-          const st = fs.statSync(logPath)
-          if (st.size > 5 * 1024 * 1024) fs.renameSync(logPath, logPath + ".old")
-        } catch {}
-        const fd = fs.openSync(logPath, "a")
-        fs.writeSync(fd, `\n\n=== ${new Date().toISOString()} launch: ${JSON.stringify(cmd)} ===\n`)
-        stdio = ["ignore", fd, fd]
-      } catch (e) {
-        console.warn("arcadia: log fd falhou:", e.message)
-        // segue com "ignore" — não bloqueia launch por falha de log
+      const openedLog = launchLog.open(gameId, cmd)
+      closeLaunchLog = openedLog.close
+      const stdio = openedLog.stdio
+      if (openedLog.error) {
+        console.warn("arcadia: log fd falhou:", openedLog.error.message)
       }
 
       // Script pré-jogo (aba AVANÇADO): espera terminar (máx. 60s) antes de lançar.
@@ -2146,6 +1982,7 @@ app.whenReady().then(() => {
       // Valida binários ANTES de qualquer spawn (steam URI ou direto).
       const binErro = validarBinariosLaunch(cmd, gameId)
       if (binErro) {
+        closeLaunchLog()
         discordRpc.clear()
         if (win && !win.isDestroyed()) {
           win.webContents.send("game:launchError", { gameId, error: binErro })
@@ -2154,8 +1991,22 @@ app.whenReady().then(() => {
       }
 
       const soltar = (c) => {
-        const child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+        let child
+        try {
+          child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+        } catch (error) {
+          closeLaunchLog()
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("game:launchError", {
+              gameId,
+              error: `spawn falhou: ${error.message}`,
+            })
+          }
+          return false
+        }
+        child.once("close", closeLaunchLog)
         child.on("error", (err) => {
+          closeLaunchLog()
           console.warn("arcadia: spawn erro:", err.message)
           if (win && !win.isDestroyed()) {
             win.webContents.send("game:launchError", {
@@ -2178,6 +2029,7 @@ app.whenReady().then(() => {
         }
         ultimoJogoAtivo = jogoAtivo
         armarPollJogo()
+        return true
       }
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
@@ -2246,6 +2098,7 @@ app.whenReady().then(() => {
       soltar(cmd)
       return { ok: true, warnings }
     } catch (e) {
+      closeLaunchLog()
       discordRpc.clear()
       return { ok: false, error: String(e) }
     }
@@ -2339,23 +2192,45 @@ app.whenReady().then(() => {
   })
 
   // Adiciona um jogo manualmente ("Adicionar jogo"). Salva em custom_games.json
-  // e devolve a biblioteca já mesclada.
-  ipcMain.handle("customgame:add", (_e, { id, title, platform, exe } = {}) => {
+  // e devolve a biblioteca já mesclada. Jogos de emulador não guardam ROM/path
+  // no registro da biblioteca: esses dados ficam nas configurações locais.
+  ipcMain.handle("customgame:add", (_e, payload = {}) => {
     try {
-      if (!title || !exe) return { ok: false, error: "título e executável são obrigatórios" }
+      const { id, title, platform, exe, emulatorId, romPath, emulatorArgs, emulatorCorePath } = payload || {}
+      const customId = typeof id === "string" ? id.trim() : ""
+      const customTitle = typeof title === "string" ? title.trim() : ""
+      const isEmulator = platform === "emulator"
+      if (!/^custom:[a-z0-9][a-z0-9._-]{0,100}$/.test(customId) || !customTitle || customTitle.length > 200) {
+        return { ok: false, error: "título ou identificador inválido" }
+      }
+      if (!isEmulator && (typeof exe !== "string" || !exe.trim() || exe.includes("\u0000"))) {
+        return { ok: false, error: "título e executável são obrigatórios" }
+      }
+      if (isEmulator) {
+        const resolved = emulatorRegistry.resolveLaunch({
+          emulatorId,
+          romPath,
+          extraArgs: emulatorArgs,
+          corePath: emulatorCorePath,
+        })
+        // Resolve apenas valida o perfil/ROM e monta argv; não executa nada.
+        if (!resolved.ok) return { ok: false, error: resolved.error || "configuração do emulador inválida" }
+      } else if (!exe) {
+        return { ok: false, error: "título e executável são obrigatórios" }
+      }
       const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
-      if (all.some((g) => g.id === id))
+      if (all.some((g) => g.id === customId))
         return { ok: false, error: "já existe um jogo com esse nome" }
       all.push({
-        id,
-        title,
+        id: customId,
+        title: customTitle,
         launcher: "custom",
-        platform: platform === "linux" ? "linux" : "windows",
-        exe,
+        platform: isEmulator ? "emulator" : (platform === "linux" ? "linux" : "windows"),
+        ...(isEmulator ? {} : { exe }),
         installed: true,
       })
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
-      ownedAdd(id)
+      ownedAdd(customId)
       // Sincroniza a coleção com a conta (jogos seguem entre máquinas)
       try {
         require("./supabase/biblioteca").agendarPush()
@@ -2367,13 +2242,23 @@ app.whenReady().then(() => {
   })
 
   // Edita um jogo custom existente (título/executável). O id é preservado.
-  ipcMain.handle("customgame:update", (_e, { id, title, exe } = {}) => {
+  ipcMain.handle("customgame:update", (_e, payload = {}) => {
     try {
+      const { id, title, exe, platform } = payload || {}
+      const customId = typeof id === "string" ? id.trim() : ""
       const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
-      const g = all.find((x) => x.id === id)
+      const g = all.find((x) => x.id === customId)
       if (!g) return { ok: false, error: "jogo não encontrado" }
-      if (title) g.title = title
-      if (exe) g.exe = exe
+      if (title !== undefined) {
+        if (typeof title !== "string" || !title.trim() || title.trim().length > 200) return { ok: false, error: "título inválido" }
+        g.title = title.trim()
+      }
+      if (platform === "emulator" || platform === "windows" || platform === "linux") g.platform = platform
+      if (exe !== undefined) {
+        if (typeof exe !== "string" || exe.includes("\u0000")) return { ok: false, error: "executável inválido" }
+        if (exe) g.exe = exe
+      }
+      if (g.platform === "emulator") delete g.exe
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
       // Renomeou → título novo sobe pra conta
       try {
@@ -2451,8 +2336,8 @@ app.whenReady().then(() => {
         return { ok: true }
       }
       const legendary = g?.launch_cmd?.[0] || ""
-      if (launcher === "custom") {
-        // Jogo adicionado manualmente: só sai do custom_games.json.
+      if (launcher === "custom" || launcher === "retro") {
+        // Jogo manual/retrô: só sai do custom_games.json.
         const rest = readJsonFile(caminhoConta(CUSTOM_GAMES), []).filter((x) => x.id !== id)
         try {
           fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
@@ -2571,7 +2456,13 @@ app.whenReady().then(() => {
     // config:get; se ele devolver a máscara de volta (form inalterado), mantém
     // o valor real no disco.
     const atual = readConfig()
-    for (const k of ["steam_api_key", "steamgriddb_api_key", "hubcap_api_key"]) {
+    for (const k of [
+      "steam_api_key",
+      "steamgriddb_api_key",
+      "hubcap_api_key",
+      "retroachievements_token",
+      "retroachievements_web_api_key",
+    ]) {
       if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
         cfg[k] = atual[k] // preserva a chave real
       }
@@ -2930,6 +2821,7 @@ app.whenReady().then(() => {
   ipcMain.handle("dm:retry", (_e, appid) => dm.retry(appid))
   ipcMain.handle("dm:dismiss", (_e, appid) => dm.descartar(appid))
   ipcMain.handle("dm:resume", (_e, appid) => dm.resume(appid))
+  ipcMain.handle("dm:setPriority", (_e, appid, priority) => dm.setPriority(appid, priority))
   ipcMain.handle("dm:cancel", (_e, appid) => dm.cancel(appid))
 
   // --- Wine manager + ferramentas de prefixo --------------------------------
@@ -2952,6 +2844,100 @@ app.whenReady().then(() => {
     defaultPrefix: id ? defaultPrefix(id) : "",
   }))
   ipcMain.handle("gamesettings:set", (_e, { id, patch } = {}) => setGameSettings(id, patch))
+
+  // Emuladores: só catálogo/detecção e montagem de argv; nenhum handler executa
+  // binário ou passa comando por shell. A execução ocorre pelo fluxo game:launch.
+  ipcMain.handle("emulators:list", () => ({ ok: true, emulators: emulatorRegistry.list() }))
+  ipcMain.handle("emulators:detect", () => emulatorRegistry.detect())
+  ipcMain.handle("emulators:profiles", () => ({ ok: true, profiles: emulatorRegistry.profiles() }))
+  ipcMain.handle("emulators:profile:set", (_e, profile) => emulatorRegistry.setProfile(profile || {}))
+  ipcMain.handle("emulators:profile:remove", (_e, id) => emulatorRegistry.removeProfile(typeof id === "string" ? id : ""))
+  ipcMain.handle("emulators:resolve", (_e, payload) => emulatorRegistry.resolveLaunch(payload || {}))
+  ipcMain.handle("emulators:status", () => {
+    const profiles = emulatorRegistry.profiles()
+    const statuses = emulatorRegistry.list().map((item) => {
+      const executablePath = item.executable || profiles[item.id]?.executable || ""
+      const status = getEmulatorStatus({
+        emulatorId: item.id,
+        executablePath,
+        biosPath: profiles[item.id]?.biosPath,
+      })
+      const running = getRunningEmulatorStatus({ emulatorId: item.id, executablePath })
+      return { ...status, running: running.running, runningPid: running.pid }
+    })
+    return { ok: true, statuses }
+  })
+  // A busca de ROMs só devolve arquivos locais validados pelo registry; não
+  // sincroniza caminhos nem executa o conteúdo encontrado.
+  ipcMain.handle("emulators:roms", (_e, payload) => emulatorRegistry.scanRoms(payload || {}))
+  ipcMain.handle("emulators:roms:index", () => ({ ok: true, emulators: emulatorRegistry.roms() }))
+
+  // RetroAchievements: login troca usuário+senha por um token de sessão (a
+  // senha nunca é persistida por aqui); a chave salva em config.json é esse
+  // token, não a senha. `retroachievements:login` é o único ponto que vê a
+  // senha, e só a repassa pro client — nunca grava, nunca loga.
+  ipcMain.handle("retroachievements:login", async (_e, { username, password } = {}) => {
+    const result = await raClient.loginRequest({ username, password })
+    if (!result.ok) return result
+    writeConfig({
+      retroachievements_username: result.username,
+      retroachievements_token: result.token,
+    })
+    return { ok: true, username: result.username }
+  })
+
+  ipcMain.handle("retroachievements:logout", () => {
+    writeConfig({ retroachievements_username: "", retroachievements_token: "" })
+    return { ok: true }
+  })
+
+  ipcMain.handle("retroachievements:status", () => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const hasToken = Boolean(cfg.retroachievements_token)
+    return { ok: true, connected: Boolean(username && hasToken), username }
+  })
+
+  // Aplica a credencial salva no arquivo de config nativo de um emulador
+  // específico (chamado antes do launch de um jogo retro, e também
+  // disponível manualmente pela UI de Configurações/Emulador).
+  ipcMain.handle("retroachievements:applyToEmulator", (_e, { emulatorId } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const token = String(cfg.retroachievements_token || "")
+    if (!username || !token) return { ok: false, error: "nao_conectado" }
+    return raEmulatorConfig.configureEmulatorCredentials(emulatorId, { username, token, home: HOME })
+  })
+
+  // Web API Key: credencial DIFERENTE do connect_token acima — o connect_token
+  // só serve pro emulador desbloquear em tempo real; para LER progresso/lista
+  // de conquistas pela API pública (API_*.php) é preciso a Web API Key de
+  // controlpanel.php. Validamos antes de salvar pra não guardar chave inválida.
+  ipcMain.handle("retroachievements:setApiKey", async (_e, { apiKey } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    if (!username) return { ok: false, error: "nao_conectado" }
+    const result = await raClient.verifyApiKey({ username, apiKey })
+    if (!result.ok) return result
+    writeConfig({ retroachievements_web_api_key: String(apiKey || "").trim() })
+    return { ok: true }
+  })
+
+  // Progresso de um jogo retro: resolve o gameId da RA por título dentro do
+  // console certo (fallback sem hash — ver retro-systems.js) e busca a lista
+  // de achievements + o que o usuário já desbloqueou.
+  ipcMain.handle("retroachievements:gameProgress", async (_e, { title, systemId } = {}) => {
+    const cfg = readConfig()
+    const username = String(cfg.retroachievements_username || "")
+    const apiKey = String(cfg.retroachievements_web_api_key || "")
+    if (!username || !apiKey) return { ok: false, error: "sem_web_api_key" }
+    const consoleId = getRetroachievementsConsoleId(systemId)
+    if (!consoleId) return { ok: false, error: "sistema_nao_suportado" }
+    const found = await raClient.findGameByTitle({ username, apiKey, title, consoleId })
+    if (!found.ok) return found
+    if (!found.game) return { ok: true, game: null, achievements: [] }
+    return raClient.getGameProgress({ username, apiKey, gameId: found.game.id })
+  })
 
   // Executa um .exe dentro do prefixo do jogo (diálogo de configurações).
   ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {
@@ -3035,63 +3021,67 @@ app.whenReady().then(() => {
 
   // Trailer local já baixado (file://) ou "" se ainda não temos.
   ipcMain.handle("trailer:path", (_e, id) => {
-    const p = trailerLocal(id)
+    const p = trailerService.localPath(id)
     return { path: p ? "file://" + p : "" }
   })
 
   // Baixa o trailer do YouTube (se ainda não existe). Devolve o caminho.
   ipcMain.handle("trailer:download", async (_e, { id, title } = {}) => {
-    if (!id || !fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
-    const r = await baixarTrailer(id, title || "")
+    if (!id || !trailerService.isAvailable()) return { ok: false, error: "yt-dlp ausente" }
+    const r = await trailerService.download(id, title || "")
     return r.ok ? { ok: true, path: "file://" + r.path } : r
   })
 
   // Lista vídeos do YouTube para escolha manual (sem baixar).
   ipcMain.handle("trailer:search", async (_e, { query } = {}) => {
-    if (!YTDLP) {
+    if (!trailerService.isAvailable()) {
       logTrailer("busca abortada: yt-dlp não instalado")
       return { ok: false, error: "yt-dlp não está instalado — instale o pacote yt-dlp" }
     }
-    const { results, error } = await buscarTrailers(query || "")
+    const { results, error } = await trailerService.search(query || "")
     if (error) return { ok: false, error }
     return { ok: true, results }
   })
 
   // URL direta para pré-visualizar o vídeo num <video> (sem baixar).
   ipcMain.handle("trailer:streamUrl", async (_e, { url } = {}) => {
-    if (!url || !fs.existsSync(YTDLP)) return { ok: false, error: "pedido inválido" }
-    return streamTrailer(url)
+    if (!url || !trailerService.isAvailable()) return { ok: false, error: "pedido inválido" }
+    return trailerService.streamUrl(url)
   })
 
   // Baixa um vídeo específico do YouTube como trailer (escolha manual).
   ipcMain.handle("trailer:downloadUrl", async (_e, { id, url } = {}) => {
-    if (!id || !url || !fs.existsSync(YTDLP)) return { ok: false, error: "pedido inválido" }
-    const r = await baixarTrailerUrl(id, url)
+    if (!id || !url || !trailerService.isAvailable()) return { ok: false, error: "pedido inválido" }
+    const r = await trailerService.downloadUrl(id, url, {
+      onProgress: (data) => {
+        if (win && !win.isDestroyed()) win.webContents.send("trailer:dlprogress", data)
+      },
+    })
     return r.ok ? { ok: true, path: "file://" + r.path } : r
   })
 
   // Baixa TODOS os trailers que faltam. Emite progresso e devolve a contagem.
   ipcMain.handle("trailer:downloadAll", async (_e) => {
-    if (!fs.existsSync(YTDLP)) return { ok: false, error: "yt-dlp ausente" }
+    if (!trailerService.isAvailable()) return { ok: false, error: "yt-dlp ausente" }
     let lib = []
     try {
       lib = readLibrary()
     } catch {
       return { ok: false, error: "biblioteca não lida" }
     }
-    const faltam = lib.filter((g) => !trailerLocal(g.id))
+    const faltam = lib.filter((g) => !trailerService.localPath(g.id))
     let feitos = 0
     for (const g of faltam) {
-      if (win)
+      if (win && !win.isDestroyed())
         win.webContents.send("trailer:progress", {
           done: feitos,
           total: faltam.length,
           title: g.title,
         })
-      await baixarTrailer(g.id, g.title || "")
+      await trailerService.download(g.id, g.title || "")
       feitos++
     }
-    if (win)
+    if (win && !win.isDestroyed())
       win.webContents.send("trailer:progress", {
         done: feitos,
         total: faltam.length,
@@ -3099,6 +3089,7 @@ app.whenReady().then(() => {
       })
     return { ok: true, count: feitos }
   })
+
   ipcMain.handle("app:quit", () => app.quit())
 
   // ─── Fixes (crack/bypass/online) — port do luatools-moon ────────────────
@@ -3269,6 +3260,141 @@ app.whenReady().then(() => {
   }))
   ipcMain.handle("sources:game", async (_e, ref) => sources.getGame(ref))
 
+  // --- Loja Retro: somente fontes Hydra com status Classics ---------------
+  // Feature flag para ativar o catálogo V2 (canônico)
+  // V2 is the production default. Set ARCADIA_RETRO_V2=0 only as an explicit
+  // rollback while the legacy cache remains supported.
+  const RETRO_CATALOG_V2_ENABLED = process.env.ARCADIA_RETRO_V2 !== "0"
+
+  const RETRO_SERVER_ENABLED = process.env.ARCADIA_RETRO_SERVER !== "0"
+  const retroCatalog = RETRO_CATALOG_V2_ENABLED && RETRO_SERVER_ENABLED
+    ? require("./retro-server-catalog").createRetroServerCatalog({ dataDir: DATA_DIR })
+    : RETRO_CATALOG_V2_ENABLED
+      ? require("./retro-catalog-v2").createRetroCatalogV2({ dataDir: DATA_DIR })
+    : require("./retro-catalog")
+
+  ipcMain.handle("retro:list", async (_e, payload) => {
+    try {
+      return await retroCatalog.list(payload || {})
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+  ipcMain.handle("retro:game", async (_e, id) => {
+    try {
+      return await retroCatalog.getGame(id)
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Novo endpoint V2 para obter URIs de uma oferta específica
+  ipcMain.handle("retro:offer", async (_e, offerId) => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      return await retroCatalog.getOffer(offerId)
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Migração manual do V1 para V2
+  ipcMain.handle("retro:migrate", async () => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      const result = await retroCatalog.migrateFromV1()
+      return { ok: true, result }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Estatísticas do catálogo
+  ipcMain.handle("retro:stats", async () => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED) {
+        return { ok: false, error: "V2 catalog not enabled" }
+      }
+      const stats = retroCatalog.repository.getStats()
+      return { ok: true, stats }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Auditoria de cobertura de arte/metadados (somente leitura).
+  ipcMain.handle("retro:audit", async (_e, payload = {}) => {
+    try {
+      if (!RETRO_CATALOG_V2_ENABLED || typeof retroCatalog.audit !== "function") {
+        return { ok: false, error: "retro_audit_unavailable" }
+      }
+      return await retroCatalog.audit(payload || {})
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  // Adiciona somente o item retrô à biblioteca. O ROM ainda não está instalado
+  // neste momento, portanto não passa pela validação de executável/emulador do
+  // customgame:add. Quando o download terminar, o indexador poderá enriquecer
+  // a entrada sem perder a posse da conta.
+  ipcMain.handle("retro:libraryAdd", (_e, payload = {}) => {
+    try {
+      const id = typeof payload.id === "string" ? payload.id.trim() : ""
+      const title = typeof payload.title === "string" ? payload.title.trim() : ""
+      if (!/^retro:[a-z0-9][a-z0-9._:-]{1,500}$/i.test(id) || !title || title.length > 1024) {
+        return { ok: false, error: "jogo retrô inválido" }
+      }
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
+      const existing = all.find((game) => game.id === id)
+      if (existing) return { ok: true, added: false, games: readLibrary() }
+      const cleanList = (value, max = 32) => Array.isArray(value)
+        ? value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, max)
+        : undefined
+      all.push({
+        id,
+        title,
+        launcher: "retro",
+        platform: typeof payload.platform === "string" ? payload.platform.slice(0, 80) : "retro",
+        systemId: typeof payload.systemId === "string" ? payload.systemId.slice(0, 120) : undefined,
+        cover: typeof payload.cover === "string" ? payload.cover.slice(0, 2000) : undefined,
+        hero: typeof payload.hero === "string" ? payload.hero.slice(0, 2000) : undefined,
+        description: typeof payload.description === "string" ? payload.description.slice(0, 10000) : undefined,
+        genres: cleanList(payload.genres),
+        releaseYear: Number.isInteger(payload.releaseYear) ? payload.releaseYear : undefined,
+        installed: false,
+        retro: true,
+      })
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(all, null, 2))
+      ownedAdd(id)
+      try { require("./supabase/biblioteca").agendarPush() } catch {}
+      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      return { ok: true, added: true, games: readLibrary() }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
+  ipcMain.handle("retro:libraryRemove", (_e, id) => {
+    try {
+      const value = typeof id === "string" ? id.trim() : ""
+      const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
+      const rest = all.filter((game) => !(game.id === value && game.launcher === "retro"))
+      if (rest.length === all.length) return { ok: true, games: readLibrary() }
+      fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
+      ownedRemove(value)
+      try { require("./supabase/biblioteca").agendarPush() } catch {}
+      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
+      return { ok: true, games: readLibrary() }
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) }
+    }
+  })
+
   // --- Torrent (worker Python + libtorrent; ver electron/torrent.js) -------
   const torrent = require("./torrent")
   torrent.onProgress((items) => {
@@ -3286,15 +3412,55 @@ app.whenReady().then(() => {
   ipcMain.handle("torrent:setLimit", (_e, bytes) => torrent.setLimit(bytes))
   ipcMain.handle("torrent:list", () => ({ ok: true, downloads: torrent.list() }))
 
+  // Registry/SDK local de plugins. Os canais antigos permanecem estáveis;
+  // os novos só trafegam metadados sanitizados (nunca o caminho privado do
+  // registro). O módulo plugins valida manifest, entry e permissões antes de
+  // aceitar qualquer diretório informado pelo usuário.
+  const pluginIdFromIpc = (value) => (typeof value === "string" ? value : "")
+  const pluginPathFromIpc = (value) => {
+    if (typeof value === "string") return value
+    if (value && typeof value === "object" && typeof value.path === "string") return value.path
+    return ""
+  }
+  const notifyPluginsChanged = () => {
+    if (win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+  }
   ipcMain.handle("plugins:list", () => ({ ok: true, plugins: plugins.list() }))
+  ipcMain.handle("plugins:details", () => ({ ok: true, plugins: plugins.listDetailed() }))
+  ipcMain.handle("plugins:get", (_e, id) => {
+    const plugin = plugins.get(pluginIdFromIpc(id))
+    return plugin ? { ok: true, plugin } : { ok: false, error: "plugin_desconhecido" }
+  })
+  ipcMain.handle("plugins:register", (_e, value) => {
+    const r = plugins.register(pluginPathFromIpc(value))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:unregister", (_e, id) => {
+    const r = plugins.unregister(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:enable", (_e, id) => {
+    const r = plugins.enable(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  ipcMain.handle("plugins:disable", (_e, id) => {
+    const r = plugins.disable(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
+    return r
+  })
+  // Verifica o digest do entry sem expor o caminho privado do registro.
+  ipcMain.handle("plugins:verify", (_e, id) => plugins.verify(pluginIdFromIpc(id)))
   ipcMain.handle("plugins:install", async (_e, id) => {
-    const r = await plugins.install(String(id || ""))
-    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    const r = await plugins.install(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
     return r
   })
   ipcMain.handle("plugins:remove", async (_e, id) => {
-    const r = await plugins.remove(String(id || ""))
-    if (r?.ok && win && !win.isDestroyed()) win.webContents.send("plugins:changed")
+    const r = await plugins.remove(pluginIdFromIpc(id))
+    if (r?.ok) notifyPluginsChanged()
     return r
   })
 
@@ -3308,6 +3474,7 @@ app.whenReady().then(() => {
     const candidatos = []
     const erros = []
     let jogos = []
+    const retroPlatform = /^retro:([^:]+)/.exec(String(gameId || ""))?.[1] || null
 
     // Steam: arte oficial, sem chave. Só existe para jogos da Steam.
     try {
@@ -3334,7 +3501,7 @@ app.whenReady().then(() => {
 
     // IGDB: arte de qualquer plataforma (capa e artworks/screenshots).
     try {
-      candidatos.push(...igdbArtDe(await igdbProxy(titulo || ""), kind))
+      candidatos.push(...igdbArtDe(await igdbProxy(titulo || "", { plataforma: retroPlatform }), kind))
     } catch (e) {
       erros.push(`IGDB: ${e.message}`)
     }

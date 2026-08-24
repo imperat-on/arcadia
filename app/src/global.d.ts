@@ -14,6 +14,149 @@ export interface Profile {
   owner?: boolean
 }
 
+/** Permissões declarativas reconhecidas pelo SDK de plugins locais. */
+export type PluginPermission =
+  | "library:read"
+  | "library:write"
+  | "games:read"
+  | "games:launch"
+  | "events:subscribe"
+  | "commands:register"
+  | "network"
+  | "filesystem:read"
+  | "filesystem:write"
+  | "process:spawn"
+  | "notifications"
+  | "settings:read"
+  | "settings:write"
+
+export interface PluginManifest {
+  manifestVersion: 1
+  apiVersion: 1
+  id: string
+  name: string
+  version: string
+  description?: string
+  entry: string
+  entrySha256?: string
+  signingKeyId?: string
+  signature?: string
+  permissions: PluginPermission[]
+}
+
+/** Resultado de verificação; nunca contém paths locais. */
+export interface PluginVerification {
+  id: string
+  ok: boolean
+  valid: boolean
+  verified: boolean
+  declared: boolean
+  algorithm: "sha256"
+  expectedDigest: string
+  actualDigest: string
+  digest: string
+  source: "registry" | "manifest" | "none" | "builtin"
+  error: string
+  signingKeyId?: string
+  signature?: string
+  signatureAlgorithm?: "ed25519"
+  signatureDeclared?: boolean
+  signatureVerified?: boolean
+  signatureValid?: boolean
+}
+
+/** Metadados de plugin devolvidos pelo main (não inclui caminho privado). */
+export interface PluginInfo {
+  id: string
+  name: string
+  descKey: string
+  installed: boolean
+  enabled: boolean
+  manifest?: PluginManifest | null
+  valid?: boolean
+  error?: string
+  source?: "builtin" | "local"
+}
+
+/** Review publica da comunidade (dados sem credenciais ou paths locais). */
+export interface CommunityReview {
+  id: number
+  appid: string
+  title?: string | null
+  text: string
+  rating: number
+  positive: boolean
+  hours: number
+  created_at: string
+  updated_at: string
+  user_id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+  author?: {
+    id: string
+    username: string
+    display_name?: string | null
+    avatar_url?: string | null
+  }
+}
+
+export interface CommunityCollectionItem {
+  appid: string
+  position: number
+  title?: string | null
+  note?: string | null
+  created_at?: string
+}
+
+export interface CommunityCollection {
+  id: string
+  title: string
+  description?: string | null
+  visibility: "public" | "unlisted" | "private"
+  created_at: string
+  updated_at: string
+  user_id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+  owner?: {
+    id: string
+    username: string
+    display_name?: string | null
+    avatar_url?: string | null
+  }
+  item_count: number
+  items?: CommunityCollectionItem[]
+}
+
+export interface CommunityPagination {
+  limit: number
+  offset: number
+  has_more: boolean
+}
+
+export interface CommunityReviewsResult {
+  ok: boolean
+  reviews: CommunityReview[]
+  items: CommunityReview[]
+  pagination?: CommunityPagination
+  offline?: boolean
+  error?: string
+  code?: string
+}
+
+export interface CommunityCollectionsResult {
+  ok: boolean
+  collections: CommunityCollection[]
+  lists: CommunityCollection[]
+  items: CommunityCollection[]
+  pagination?: CommunityPagination
+  offline?: boolean
+  error?: string
+  code?: string
+}
+
 export interface Sources {
   steam?: boolean
   heroic?: boolean
@@ -184,6 +327,83 @@ export interface SourceGameFull {
   [k: string]: unknown
 }
 
+/** Jogo da aba Retro, originado exclusivamente de uma fonte com status Classics. */
+export interface RetroGame {
+  id: string
+  title: string
+  /** Raw Hydra filename/title retained for provenance while `title` is cleaned for display. */
+  originalTitle?: string
+  sourceId?: string
+  sourceTitle?: string
+  systemId?: string
+  offerCount?: number
+  titleLocale?: "en"
+  sortTitle?: string
+  aliases?: string[]
+  matchQuality?: "exact" | "strong" | "probable" | "unmatched"
+  artwork?: {
+    cover?: string
+    backgrounds?: string[]
+    screenshots?: string[]
+    titleScreens?: string[]
+    logos?: string[]
+    backCover?: string
+    cachedUrl?: string
+    provider?: "libretro" | "libretro-unverified" | "igdb" | "source" | "manual"
+  }
+  platform?: string
+  description?: string
+  fileSize?: string
+  uploadDate?: string
+  cover?: string
+  capa?: string
+  fallbackCover?: string
+  hero?: string
+  screenshots?: string[]
+  titleScreens?: string[]
+  logo?: string
+  releaseYear?: number | null
+  developer?: string[]
+  publisher?: string[]
+  genres?: string[]
+  series?: string[]
+  playMode?: string[]
+  maxPlayers?: string
+  uris?: string[]
+}
+
+export interface RetroOfferSummary {
+  id: string
+  sourceId: string
+  sourceTitle: string
+  originalTitle: string
+  normalizedTitle: string
+  systemId?: string
+  platformRaw?: string
+  region?: string | null
+  languages?: string[]
+  releaseKind?: string
+  fileSize?: string | null
+  uploadDate?: string | null
+  hasUris: boolean
+  uriCount: number
+  personal?: boolean
+}
+
+export interface RetroOffer extends RetroOfferSummary {
+  uris: string[]
+}
+
+export interface RetroSource {
+  id: string
+  title: string
+  description?: string
+  url: string
+  registryUrl?: string
+  gamesCount?: number
+  status: string[]
+}
+
 /** Arquivo dentro de um torrent (para download seletivo). */
 export interface TorrentFileInfo {
   index: number
@@ -213,6 +433,31 @@ export interface TorrentItem {
   folderName?: string
 }
 
+export interface DiagnosticsReport {
+  version: 1
+  generated_at: string
+  app: { version: string }
+  runtime: { platform: string; release: string; arch: string; node: string; electron: string }
+  storage: {
+    writable: boolean
+    data_dir_configured: boolean
+    library: { present: boolean; bytes: number }
+    downloads: { present: boolean; bytes: number }
+    snapshots: number
+  }
+  library: { total: number; by_launcher: Record<string, number> }
+  downloads: { total: number; by_status: Record<string, number> }
+}
+
+export interface SaveSnapshot {
+  version: 1
+  id: string
+  gameId: string
+  created_at: string
+  label: string
+  source_name: string
+}
+
 export interface DmItem {
   appid: string // epic:<app_name>
   appName: string
@@ -226,6 +471,7 @@ export interface DmItem {
   eta: string
   speed: number // MiB/s
   error: string
+  priority?: number // prioridade [-10,10] da fila persistida
   installPath?: string // pasta escolhida no diálogo de instalação
 }
 
@@ -241,6 +487,119 @@ export interface WineVer {
   releaseDate?: string
   /** Origem da versão: GE-Proton (baixável), Wine-GE (baixável) ou Proton da Steam (detectado). */
   kind?: "ge-proton" | "wine-ge" | "steam"
+}
+
+export type EmulatorSystem =
+  | "PlayStation"
+  | "PlayStation 2"
+  | "PlayStation 3"
+  | "PlayStation Portable"
+  | "GameCube"
+  | "Wii"
+  | "Nintendo DS"
+  | "Multi-sistema"
+
+export interface EmulatorRomFolder {
+  path: string
+  recursive: boolean
+}
+
+export interface EmulatorProfile {
+  id: string
+  executable: string
+  corePath?: string
+  biosPath?: string
+  romFolders?: EmulatorRomFolder[]
+  args: string[]
+  updatedAt?: number
+}
+
+export interface EmulatorInfo {
+  id: string
+  name: string
+  systems: string[]
+  description: string
+  candidates?: string[]
+  executable: string
+  /** Fixed argv prefix for an auto-detected wrapper (for example Flatpak). */
+  detectedArgs?: string[]
+  available: boolean
+  source: "builtin" | "detected" | "configured"
+  requiresCore?: boolean
+  romExtensions?: string[]
+  romDirectoryMarkers?: string[]
+  profile?: EmulatorProfile
+}
+
+export interface EmulatorLaunchResult {
+  ok: boolean
+  emulatorId?: string
+  system?: string
+  cmd?: string[]
+  error?: string
+  code?: string
+  expectedPath?: string
+  titleId?: string
+}
+
+export interface EmulatorRomEntry {
+  path: string
+  name: string
+  relativePath: string
+  extension: string
+  kind?: "file" | "directory"
+  sizeBytes: number
+  mtimeMs: number
+  sidecars: string[]
+}
+
+export interface EmulatorStatus {
+  ok: boolean
+  emulatorId?: string
+  kind?: "bios" | "firmware" | null
+  required?: boolean
+  installed?: boolean
+  detectedPath?: string | null
+  error?: string
+  code?: "EMULATOR_UNKNOWN" | "BIOS_NOT_CONFIGURED" | string
+  legacyError?: string
+  running?: boolean
+  runningPid?: number | null
+}
+
+export interface EmulatorStatusResult {
+  ok: boolean
+  statuses?: EmulatorStatus[]
+  error?: string
+}
+
+export interface EmulatorRomScanResult {
+  ok: boolean
+  emulatorId?: string
+  directory?: string
+  recursive?: boolean
+  maxDepth?: number
+  romExtensions?: string[]
+  romDirectoryMarkers?: string[]
+  folders?: EmulatorRomFolder[]
+  truncated?: boolean
+  persisted?: boolean
+  roms?: EmulatorRomEntry[]
+  error?: string
+}
+
+export interface EmulatorRomIndexEntry {
+  updatedAt: number
+  directory: string
+  folders: EmulatorRomFolder[]
+  truncated: boolean
+  roms: EmulatorRomEntry[]
+}
+
+export interface EmulatorRomIndexResult {
+  ok: boolean
+  emulators?: Record<string, EmulatorRomIndexEntry>
+  error?: string
 }
 
 /** Configurações por jogo (diálogo estilo Heroic). Salvas em game_settings.json. */
@@ -281,6 +640,11 @@ export interface GameSettings {
   wrappers?: { cmd: string; args: string }[]
   /** Variáveis de ambiente extras. */
   envVars?: { name: string; value: string }[]
+  /** Emulador e ROM usados para jogos não-Steam. */
+  emulatorId?: string
+  romPath?: string
+  emulatorArgs?: string[]
+  emulatorCorePath?: string
 }
 
 declare global {
@@ -335,7 +699,7 @@ declare global {
     launcherAPI?: {
       getLibrary: () => Promise<Game[]>
       /** Conta online (backend proprio) — fluxo por código enviado por email (OTP). */
-      accountStatus: () => Promise<{ session: AccountSession | null; error?: string }>
+      accountStatus: () => Promise<{ session: AccountSession | null; error?: string | null }>
       accountProfile: () => Promise<{
         ok: boolean
         profile?: {
@@ -408,6 +772,21 @@ declare global {
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
+      /** Reviews/listas da comunidade; GET usa cache local quando offline. */
+      communityReviews: (appid: string, options?: { limit?: number; offset?: number }) => Promise<CommunityReviewsResult>
+      communityReviewCreate: (payload: { appid: string; title?: string; text: string; rating: number; positive?: boolean; hours?: number }) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewUpdate: (id: string | number, payload: Partial<CommunityReview>) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewRemove: (id: string | number) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityReviewReport: (id: string | number, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
+      communityCollections: (options?: { limit?: number; offset?: number; mine?: boolean; owner?: string; visibility?: string }) => Promise<CommunityCollectionsResult>
+      communityCollectionGet: (id: string) => Promise<{ ok: boolean; collection?: CommunityCollection; data?: CommunityCollection; offline?: boolean; error?: string; code?: string }>
+      communityCollectionCreate: (payload: { title: string; description?: string; visibility?: string; items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
+      communityCollectionUpdate: (id: string, payload: Partial<CommunityCollection> & { items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
+      communityCollectionRemove: (id: string) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionAddItem: (id: string, appid: string) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
+      communityCollectionReplaceItems: (id: string, items: CommunityCollectionItem[]) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
+      communityCollectionRemoveItem: (id: string, appid: string) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionReport: (id: string, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
       launch: (
         cmd: string[],
         gameId?: string,
@@ -475,14 +854,19 @@ declare global {
       customGameAdd: (data: {
         id: string
         title: string
-        platform: "windows" | "linux"
-        exe: string
+        platform: "windows" | "linux" | "emulator"
+        exe?: string
+        emulatorId?: string
+        romPath?: string
+        emulatorArgs?: string[]
+        emulatorCorePath?: string
       }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
-      /** Edita um jogo custom existente (título/executável). */
+      /** Edita um jogo custom existente (título/executável/perfil). */
       customGameUpdate: (data: {
         id: string
         title?: string
         exe?: string
+        platform?: "windows" | "linux" | "emulator"
       }) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Roda um instalador .exe no prefixo (botão "Executar instalador antes"). */
       customGameRunInstaller: (opts: {
@@ -545,6 +929,20 @@ declare global {
           }[]
         } | null
       }>
+      /** Snapshots locais de saves; o caminho nunca é devolvido como token/rede. */
+      savesList: (gameId: string) => Promise<SaveSnapshot[]>
+      savesCreate: (payload: { gameId: string; sourceDir: string; label?: string }) => Promise<{
+        ok: boolean
+        error?: string
+        snapshot?: SaveSnapshot
+      }>
+      savesRestore: (payload: { gameId: string; snapshotId: string; targetDir: string; backup?: boolean }) => Promise<{
+        ok: boolean
+        error?: string
+        backupPath?: string
+        snapshot?: SaveSnapshot
+      }>
+      savesDelete: (payload: { gameId: string; snapshotId: string }) => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
       storeStatus: () => Promise<{
         dotnet?: string
@@ -676,6 +1074,8 @@ declare global {
         url: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       getConfig: () => Promise<AppConfig>
+      diagnostics: () => Promise<DiagnosticsReport>
+      diagnosticsExport: () => Promise<{ ok: boolean; canceled?: boolean; path?: string; files?: string[]; error?: string }>
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
@@ -762,6 +1162,7 @@ declare global {
         title: string
         cover?: string
         installPath?: string
+        priority?: number
       }) => Promise<{ ok: boolean; error?: string }>
       /** Espaço em disco (GiB) do path informado. */
       diskSpace: (
@@ -773,6 +1174,7 @@ declare global {
       /** Tira da lista um item já finalizado (erro/concluído). */
       dmDismiss: (appid: string) => Promise<void>
       dmResume: (appid: string) => Promise<void>
+      dmSetPriority: (appid: string, priority: number) => Promise<boolean>
       dmCancel: (appid: string) => Promise<void>
       onDmProgress: (cb: (items: DmItem[]) => void) => () => void
       /** Wine: versões instaladas + disponíveis, instalar/remover. */
@@ -791,21 +1193,74 @@ declare global {
       /** Configurações por jogo (diálogo estilo Heroic), salvas automaticamente. */
       gameSettingsGet: (id: string) => Promise<{ settings: GameSettings; defaultPrefix: string }>
       gameSettingsSet: (id: string, patch: Partial<GameSettings>) => Promise<GameSettings>
+      /** Catálogo/detecção de emuladores sem execução de binários. */
+      emulatorsList: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
+      emulatorsDetect: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
+      emulatorsProfiles: () => Promise<{ ok: boolean; profiles: Record<string, EmulatorProfile>; error?: string }>
+      emulatorProfileSet: (profile: Partial<EmulatorProfile> & { id: string }) => Promise<{ ok: boolean; profile?: EmulatorProfile; error?: string }>
+      emulatorProfileRemove: (id: string) => Promise<{ ok: boolean; removed?: boolean; error?: string }>
+      emulatorsResolve: (payload: { emulatorId: string; romPath: string; extraArgs?: string[]; corePath?: string; launchMode?: "default" | "hydra" }) => Promise<EmulatorLaunchResult>
+      emulatorsStatus: () => Promise<EmulatorStatusResult>
+      /** Localiza ROMs por extensão, com limites e proteção contra symlink. */
+      emulatorsRoms: (payload: { emulatorId: string; directory?: string; rootPath?: string; folderPath?: string; recursive?: boolean; maxDepth?: number; maxResults?: number }) => Promise<EmulatorRomScanResult>
+      emulatorsRomIndex: () => Promise<EmulatorRomIndexResult>
+      /** Troca usuário+senha da RetroAchievements por um token de sessão salvo em config.json; a senha nunca é persistida. */
+      retroachievementsLogin: (username: string, password: string) => Promise<{ ok: boolean; username?: string; error?: string }>
+      retroachievementsLogout: () => Promise<{ ok: boolean }>
+      retroachievementsStatus: () => Promise<{ ok: boolean; connected: boolean; username: string }>
+      /** Escreve a credencial RA salva no arquivo de config nativo do emulador (pcsx2 | duckstation | ppsspp). */
+      retroachievementsApplyToEmulator: (emulatorId: string) => Promise<{ ok: boolean; files?: string[]; error?: string }>
+      /** Valida e salva a Web API Key (controlpanel.php) — diferente do token de login, usada só para LER progresso/conquistas. */
+      retroachievementsSetApiKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>
+      /** Busca conquistas + progresso de um jogo retro pelo título (resolve o gameId da RA via busca por título dentro do console). */
+      retroachievementsGameProgress: (
+        title: string,
+        systemId: string,
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        game?: {
+          id: number
+          title: string
+          consoleName: string
+          numAchievements: number
+          numAwardedToUser: number
+          numAwardedToUserHardcore: number
+        } | null
+        achievements?: {
+          id: number
+          title: string
+          description: string
+          points: number
+          badgeName: string
+          unlocked: boolean
+          unlockedHardcore: boolean
+        }[]
+      }>
       /** Escolhe uma pasta no sistema (temas customizados). */
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */
       pickFile: () => Promise<{ ok: boolean; path?: string }>
-      /** Plugins opcionais (SLSsteam, luatools). */
-      pluginsList: () => Promise<{
+      /** Plugins opcionais (SLSsteam, LuaTools) — shape histórico. */
+      pluginsList: () => Promise<{ ok: boolean; plugins: PluginInfo[] }>
+      /** Registro/manifest v1; respostas nunca incluem paths locais. */
+      pluginsDetails: () => Promise<{ ok: boolean; plugins: PluginInfo[] }>
+      pluginsGet: (id: string) => Promise<{
         ok: boolean
-        plugins: {
-          id: string
-          name: string
-          descKey: string
-          installed: boolean
-          enabled: boolean
-        }[]
+        plugin?: PluginInfo
+        error?: string
       }>
+      pluginsRegister: (pluginPath: string) => Promise<{
+        ok: boolean
+        plugin?: PluginInfo
+        error?: string
+        errors?: string[]
+      }>
+      pluginsUnregister: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsEnable: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsDisable: (id: string) => Promise<{ ok: boolean; error?: string }>
+      pluginsVerify: (id: string) => Promise<PluginVerification>
+      /** APIs históricas preservadas para built-ins. */
       pluginsInstall: (id: string) => Promise<{ ok: boolean; error?: string }>
       pluginsRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
       /** Plugin ativado/desativado — telas de loja atualizam ações em tempo real. */
@@ -833,6 +1288,64 @@ declare global {
       sourcesGame: (
         ref: string,
       ) => Promise<{ ok: boolean; game?: SourceGameFull; source?: string; error?: string }>
+      /** Catálogo Retro: somente jogos vindos de fontes Hydra marcadas Classics. */
+      retroList: (payload?: {
+        query?: string
+        system?: string
+        systems?: string[]
+        variants?: "retail" | "all"
+        mode?: "essentials" | "all"
+        offset?: number
+        limit?: number
+      }) => Promise<{
+        ok: boolean
+        games?: RetroGame[]
+        sources?: RetroSource[]
+        total?: number
+        totalGames?: number
+        totalOffers?: number
+        unmatchedOffers?: number
+        offset?: number
+        limit?: number
+        hasMore?: boolean
+        error?: string
+      }>
+      retroGame: (id: string) => Promise<{
+        ok: boolean
+        game?: RetroGame
+        offers?: RetroOfferSummary[]
+        sources?: RetroSource[]
+        error?: string
+      }>
+      retroOffer: (id: string) => Promise<{ ok: boolean; offer?: RetroOffer; error?: string }>
+      retroStats: () => Promise<{
+        ok: boolean
+        stats?: { games: number; offers: number; matched: number; unmatched: number }
+        error?: string
+      }>
+      retroAudit: (payload?: { system?: string; samples?: number }) => Promise<{
+        ok: boolean
+        version?: string
+        totals?: { games: number; covers: number; descriptions: number; screenshots: number; heroes: number; logos: number }
+        systems?: Array<Record<string, string | number>>
+        missing?: Record<string, number>
+        unmatched?: { total: number; byReason: Record<string, number>; bySystem: Record<string, number>; samples: Array<{ title: string; platform: string; systemId?: string | null; reason: string }> }
+        samples?: Array<{ id: string; title: string; systemId: string; offer_count: number; missingField: string }>
+        error?: string
+      }>
+      retroMigrate: () => Promise<{ ok: boolean; result?: unknown; error?: string }>
+      retroLibraryAdd: (data: {
+        id: string
+        title: string
+        systemId?: string
+        platform?: string
+        cover?: string
+        hero?: string
+        description?: string
+        genres?: string[]
+        releaseYear?: number | null
+      }) => Promise<{ ok: boolean; added?: boolean; error?: string; games?: Game[] }>
+      retroLibraryRemove: (id: string) => Promise<{ ok: boolean; error?: string; games?: Game[] }>
       /** Torrent (worker Python + libtorrent). Ids sempre "tor:...". */
       torrentStart: (payload: {
         gameId: string
@@ -841,7 +1354,7 @@ declare global {
         fileIndices?: number[]
         title?: string
         cover?: string
-      }) => Promise<{ ok: boolean; error?: string }>
+      }) => Promise<{ ok: boolean; queued?: boolean; error?: string }>
       torrentPause: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentResume: (gameId: string) => Promise<{ ok: boolean; error?: string }>
       torrentCancel: (gameId: string) => Promise<{ ok: boolean; error?: string }>

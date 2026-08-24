@@ -6,10 +6,24 @@ Launcher de jogos para Linux com duas UIs: **desktop** (janela) e
 ## Estrutura
 
 ```
+contracts/            # contratos runtime + tipos compartilhados app/server
 app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
-    main.js           # main process (biblioteca, IPC, indexador)
+    main.js           # bootstrap, biblioteca, IPC e indexador
+    library-store.js  # compatibilidade de leitura/escrita do formato local
+    library-repository.js # repositório: leitura, posse por conta e escrita atômica
+    index-service.js  # job deduplicado/timeout do index.py
+    launch-resolver.js # política pura de comando/perfil de execução
+    emulator-registry.js # catálogo, perfis, scanner seguro e argv de emuladores Linux
+    emulator-status.js   # preflight local de BIOS/firmware sem executar binários
+    emulator-runtime.js  # detecção read-only de sessões concorrentes em /proc
+    launch-log.js      # logs rotacionados com fechamento seguro de descritor
+    snapshot-service.js # snapshots locais versionados de saves
+    diagnostics.js     # relatório local sem paths, credenciais ou rede
+    plugins.js         # fachada compatível do registro/SDK de plugins locais
+    plugins/            # manifest v1, registry atômico e capability SDK
+    trailer-service.js # downloads/busca yt-dlp sem dependência de Electron
     preload.js        # ponte seguro renderer <-> main
     supabase/         # client do backend proprio (shim fetch)
       client.js       # shim: auth, REST-lite, rpc, storage, realtime WS
@@ -23,8 +37,9 @@ app/
     owned.js          # posse de jogos por conta (owned_games.json)
     sources.js        # fontes de download (registro + caches)
     downloadmanager.js# fila de downloads
+    download-integrity.js # verificação e recuperação de downloads
     steamstore.js     # loja Steam
-  test/               # node --test (48 testes, modulos puros)
+  test/               # node --test (módulos puros e contratos)
   package.json
 ```
 
@@ -37,15 +52,48 @@ npm run dev       # vite (renderer)
 npm run electron  # electron main process
 ```
 
-O backend precisa estar de pe. Aponte `electron/supabase/config.js` para
-a URL do servidor (por padrao `http://127.0.0.1:3000`), ou use a
-env `ARCADIA_SUPABASE_URL`.
+O backend precisa estar de pé. Use `ARCADIA_API_URL` para apontar ao servidor
+Node (as variáveis `ARCADIA_SUPABASE_URL`/`SUPABASE_URL` continuam aceitas por
+compatibilidade). O URL é normalizado sem barras finais.
 
 ## Testes
 
 ```bash
-node --test    # modulos puros (sem Electron runtime)
+npm test       # módulos puros (sem runtime do Electron)
+# O contrato de biblioteca é compartilhado com server/ via ../contracts.
+npx tsc --noEmit
+npm run build
 ```
+
+Para rodar uma instalação isolada sem misturar estado com
+`~/.local/share/arcadia`, defina `ARCADIA_DATA_DIR` antes do build/execução.
+
+A especificação do manifest v1 e do registro local de plugins está em
+[`docs/PLUGINS.md`](../docs/PLUGINS.md).
+
+## Emuladores e ROMs
+
+`emulator-registry.js` detecta PCSX2, RPCS3, Dolphin, PPSSPP, DuckStation,
+RetroArch, melonDS e DeSmuME sem executar processos. Perfis, BIOS/core e pastas
+ROM ficam em `ARCADIA_DATA_DIR/emulators.json`; resultados do scanner ficam
+separados em `ARCADIA_DATA_DIR/roms.json`. A configuração global fica em
+**Configurações → Emulação**; o assistente tenta detectar PATH, pastas Linux padrão,
+AppImages e Flatpaks instalados localmente. Se necessário, **Explorar manualmente** abre o
+seletor do executável; o guia também explica permissões de AppImage e wrapper/argv seguro
+para Flatpak. Os jogos só mantêm sua ROM/argv local. O scanner aplica allowlist de extensões,
+rejeita symlinks, agrupa sidecars/playlists e pode ser chamado sem
+pasta para pesquisar as pastas persistidas. O modo Hydra é opt-in no main e
+monta somente `cmd: string[]`; BIOS/firmware são apenas detectados localmente.
+
+## Repositório da biblioteca
+
+`electron/library-repository.js` é a camada única para a biblioteca local:
+aceita o envelope versionado (e arrays legados), filtra `library.json` pelo
+`owned_games.json` da conta ativa, materializa a posse ausente somente na
+primeira leitura de uma conta e grava biblioteca/posse com `tmp + rename`.
+Guest continua vendo o `library.json` inteiro e não cria `owned_games.json` na
+raiz. O módulo não depende de Electron; um adaptador pequeno no main pode usá-lo
+sem alterar os canais IPC existentes.
 
 ## Conta e sync
 

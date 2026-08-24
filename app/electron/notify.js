@@ -6,9 +6,9 @@
 const { BrowserWindow, screen } = require("electron")
 const path = require("path")
 const fs = require("fs")
-const os = require("os")
+const { dataPath } = require("./runtime-paths")
 
-const CONFIG = path.join(os.homedir(), ".local/share/arcadia", "config.json")
+const CONFIG = dataPath("config.json")
 
 const HEADING_MAP = {
   "pt-BR": "Conquista desbloqueada!",

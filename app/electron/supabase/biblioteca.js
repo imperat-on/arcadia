@@ -19,6 +19,8 @@ const { caminhoArquivoConta, DATA_DIR } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
 const steamstore = require("../steamstore")
+const { readLibraryFile } = require("../library-store")
+const { resolveLibraryConflict, resolvePlaytimeConflict } = require("../../../contracts")
 
 const CUSTOM = () => caminhoArquivoConta("custom_games.json")
 const PENDING = () => caminhoArquivoConta("pending_games.json")
@@ -59,10 +61,23 @@ async function usuarioAtual() {
   return data?.user ?? null
 }
 
+// Paths de conta são funções (não constantes): um logout/login pode trocar o
+// escopo enquanto o RPC está em voo. Capturamos o username antes da rede e
+// nunca aplicamos uma resposta antiga no diretório da conta nova.
+function contaAindaAtiva(contexto) {
+  return conta() === contexto
+}
+
+function erroContaTrocada() {
+  return { ok: false, error: "conta_trocada", retryable: false }
+}
+
 // ---------- PUSH ----------
 async function push() {
+  const contexto = conta()
   const user = await usuarioAtual()
   if (!user) return
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
 
   const st = loadState()
   const enviados = st.libPush || {}
@@ -93,7 +108,7 @@ async function push() {
   // id feio ("steam:1091500") e ficava assim no servidor para sempre.
   let libGlobal = null
   try {
-    libGlobal = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "library.json"), "utf-8"))
+    libGlobal = readLibraryFile(path.join(DATA_DIR, "library.json")).games
   } catch {
     libGlobal = null
   }
@@ -133,8 +148,10 @@ async function push() {
   }
 
   if (!p_lib.length && !p_playtime.length) return
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
 
   const { error } = await getClient().rpc("push_library", { p_lib, p_playtime })
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
   if (error) {
     console.error("[biblioteca] push falhou:", error.message)
     return
@@ -148,15 +165,19 @@ async function push() {
   for (const p of p_playtime) wp[p.appid] = (Number(wp[p.appid]) || 0) + p.minutes
   st.libPush = enviados
   st.playtimePush = wp
+  if (!contaAindaAtiva(contexto)) return erroContaTrocada()
   saveState(st)
 }
 
 // ---------- PULL ----------
 async function pull() {
+  const contexto = conta()
   const user = await usuarioAtual()
   if (!user) return false
+  if (!contaAindaAtiva(contexto)) return false
 
   const { data, error } = await getClient().rpc("pull_library")
+  if (!contaAindaAtiva(contexto)) return false
   if (error || !Array.isArray(data)) {
     console.error("[biblioteca] pull falhou:", error?.message || "sem dados")
     return false
@@ -204,6 +225,7 @@ async function pull() {
     } catch {
       /* loja indisponivel: stub nasce com a arte chutada, curada depois */
     }
+    if (!contaAindaAtiva(contexto)) return false
   }
 
   for (const row of data) {
@@ -264,9 +286,19 @@ async function pull() {
       mudou = true
     } else {
       const g = lib.find((x) => x.id === row.appid)
-      if (row.title && (!g.title || g.title === g.id)) {
-        g.title = row.title
-        mudou = true
+      const merged = resolveLibraryConflict(
+        { appid: g.id, title: g.title, platform: g.platform },
+        { appid: row.appid, title: row.title || row.appid, platform: row.platform || "windows" },
+      )
+      if (merged && !merged.removed) {
+        if (g.title !== merged.title) {
+          g.title = merged.title
+          mudou = true
+        }
+        if (merged.platform && g.platform !== merged.platform) {
+          g.platform = merged.platform
+          mudou = true
+        }
       }
     }
   }
@@ -296,6 +328,7 @@ async function pull() {
     pendentes.push(...pendentesRestantes)
     pendentesMudou = true
   }
+  if (!contaAindaAtiva(contexto)) return false
   if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
   if (ownedMudou) {
@@ -308,9 +341,10 @@ async function pull() {
   for (const row of data) {
     const total = Number(row.minutes) || 0
     const local = Number(overrides[row.appid]?.playtime_added_minutes) || 0
-    if (total > local) {
-      overrides[row.appid] = { ...(overrides[row.appid] || {}), playtime_added_minutes: total }
-      wp[row.appid] = total
+    const merged = resolvePlaytimeConflict(local, total)
+    if (merged > local) {
+      overrides[row.appid] = { ...(overrides[row.appid] || {}), playtime_added_minutes: merged }
+      wp[row.appid] = merged
       mudou = true
     }
   }
@@ -342,6 +376,7 @@ async function pull() {
   }
 
   st.playtimePush = wp
+  if (!contaAindaAtiva(contexto)) return false
   saveState(st)
   return mudou
 }

@@ -161,48 +161,261 @@ function igdbImg(imageId, tamanho) {
 
 const IGDB_UA = "Arcadia (github.com/imperat-on/arcadia)"
 
-// Buscar e abrir a ficha são duas viagens. Reabrir o diálogo no mesmo jogo é
-// comum, então o resultado fica guardado pela sessão.
-const igdbCache = new Map()
+// ── Circuit Breaker para IGDB ──────────────────────────────────────────────
+// Protege contra falhas em cascata quando o serviço da IGDB está com problemas.
+// Depois de N falhas consecutivas, entra em estado "aberto" e rejeita pedidos
+// rápido sem tentar de verdade. Tenta de novo depois de um tempo (half-open).
 
-async function igdbProxy(titulo) {
+class CircuitBreaker {
+  constructor({ threshold = 5, timeout = 60000, resetTimeout = 30000 } = {}) {
+    this.threshold = threshold // falhas consecutivas para abrir
+    this.timeout = timeout // quanto tempo ficar aberto
+    this.resetTimeout = resetTimeout // quanto tempo em half-open antes de resetar
+    this.failures = 0
+    this.state = "closed" // closed | open | half-open
+    this.nextAttempt = 0
+  }
+
+  async execute(fn) {
+    if (this.state === "open") {
+      if (Date.now() < this.nextAttempt) {
+        throw new Error("IGDB circuit breaker aberto (muitas falhas recentes)")
+      }
+      // Tempo expirou: tenta de novo (half-open)
+      this.state = "half-open"
+    }
+
+    try {
+      const result = await fn()
+      // Sucesso: reseta o circuit breaker
+      if (this.state === "half-open") {
+        this.state = "closed"
+        this.failures = 0
+      } else if (this.state === "closed") {
+        this.failures = 0
+      }
+      return result
+    } catch (err) {
+      this.failures++
+      if (this.failures >= this.threshold) {
+        this.state = "open"
+        this.nextAttempt = Date.now() + this.timeout
+      }
+      throw err
+    }
+  }
+
+  reset() {
+    this.failures = 0
+    this.state = "closed"
+    this.nextAttempt = 0
+  }
+}
+
+const igdbCircuitBreaker = new CircuitBreaker({
+  threshold: 5,
+  timeout: 60000, // 1 minuto aberto
+  resetTimeout: 30000,
+})
+
+// ── Cache da IGDB com expiração ────────────────────────────────────────────
+// Buscar e abrir a ficha são duas viagens. Reabrir o diálogo no mesmo jogo é
+// comum, então o resultado fica guardado pela sessão. Agora com expiração e
+// limite de tamanho mais inteligente (LRU).
+
+class LRUCache {
+  constructor(maxSize = 100, ttl = 3600000) {
+    this.maxSize = maxSize // máximo de entradas
+    this.ttl = ttl // time to live em ms (padrão: 1 hora)
+    this.cache = new Map()
+  }
+
+  get(key) {
+    const entry = this.cache.get(key)
+    if (!entry) return undefined
+
+    // Verifica expiração
+    if (Date.now() > entry.expires) {
+      this.cache.delete(key)
+      return undefined
+    }
+
+    // Move para o final (mais recente)
+    this.cache.delete(key)
+    this.cache.set(key, entry)
+    return entry.value
+  }
+
+  set(key, value) {
+    // Remove se já existe (para reordenar)
+    if (this.cache.has(key)) {
+      this.cache.delete(key)
+    }
+
+    // Remove o mais antigo se atingiu o limite
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value
+      this.cache.delete(firstKey)
+    }
+
+    this.cache.set(key, {
+      value,
+      expires: Date.now() + this.ttl,
+    })
+  }
+
+  clear() {
+    this.cache.clear()
+  }
+
+  get size() {
+    return this.cache.size
+  }
+}
+
+const igdbCache = new LRUCache(100, 3600000) // 100 entradas, 1 hora de TTL
+
+// ── Matching melhorado com plataforma e ano ────────────────────────────────
+// A IGDB pode ter dezenas de versões do mesmo jogo (PS4, PS5, Switch, PC...).
+// Considerar plataforma e ano de lançamento melhora a precisão da escolha.
+
+function scoreIgdbMatch(candidato, busca) {
+  const nomeNorm = normalizaTitulo(candidato.name || "")
+  const buscaNorm = normalizaTitulo(busca.titulo || "")
+  let score = 0
+
+  // Match exato de título: +100
+  if (nomeNorm === buscaNorm) {
+    score += 100
+  }
+  // Título começa com a busca ou vice-versa: +50
+  else if (nomeNorm.startsWith(buscaNorm) || buscaNorm.startsWith(nomeNorm)) {
+    score += 50
+  }
+  // Título contém a busca: +20
+  else if (nomeNorm.includes(buscaNorm) || buscaNorm.includes(nomeNorm)) {
+    score += 20
+  }
+
+  // Match de plataforma: +30
+  if (busca.plataforma && candidato.platforms) {
+    const plat = busca.plataforma.toLowerCase()
+    const plataformasNome = candidato.platforms.map((p) =>
+      (p.name || "").toLowerCase()
+    )
+
+    // Mapeamento de plataformas comuns
+    const platMap = {
+      windows: ["pc", "windows", "microsoft windows"],
+      pc: ["pc", "windows", "microsoft windows"],
+      playstation: ["playstation", "ps4", "ps5", "sony"],
+      ps4: ["ps4", "playstation 4"],
+      ps5: ["ps5", "playstation 5"],
+      xbox: ["xbox", "microsoft"],
+      switch: ["switch", "nintendo switch"],
+      steam: ["pc", "windows", "steam"],
+      "sony-playstation": ["playstation", "playstation 1"],
+      "sony-playstation-2": ["playstation 2"],
+      "sony-playstation-3": ["playstation 3"],
+      "sony-psp": ["playstation portable", "psp"],
+      "nintendo-gamecube": ["gamecube"],
+      "nintendo-wii": ["wii"],
+      "nintendo-ds": ["nintendo ds"],
+      "nintendo-dsi": ["nintendo dsi"],
+      "nintendo-nes": ["nintendo entertainment system", "nes"],
+      "nintendo-snes": ["super nintendo entertainment system", "snes"],
+      "nintendo-game-boy": ["game boy"],
+      "nintendo-game-boy-color": ["game boy color"],
+      "nintendo-game-boy-advance": ["game boy advance"],
+      "nintendo-64": ["nintendo 64"],
+    }
+
+    const aliases = platMap[plat] || [plat]
+    if (plataformasNome.some((p) => aliases.some((a) => p.includes(a)))) {
+      score += 30
+    }
+  }
+
+  // Match de ano: +20 se igual, -10 se diferença > 2 anos
+  if (busca.ano && candidato.first_release_date) {
+    const anoJogo = new Date(candidato.first_release_date * 1000).getFullYear()
+    const anoBusca = parseInt(busca.ano, 10)
+
+    if (anoJogo === anoBusca) {
+      score += 20
+    } else {
+      const diff = Math.abs(anoJogo - anoBusca)
+      if (diff <= 1) {
+        score += 10 // ano próximo
+      } else if (diff > 2) {
+        score -= 10 // ano distante
+      }
+    }
+  }
+
+  // Penaliza jogos sem release date (provavelmente não lançados)
+  if (!candidato.first_release_date) {
+    score -= 5
+  }
+
+  return score
+}
+
+async function igdbProxy(titulo, { plataforma = null, ano = null } = {}) {
   const t = String(titulo || "").trim()
   if (!t) return []
-  const chave = t.toLowerCase()
-  if (igdbCache.has(chave)) return igdbCache.get(chave)
 
-  const r = await fetchRede(`${IGDB_PROXY}/igdb/search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": IGDB_UA },
-    body: JSON.stringify({ SearchTerm: t }),
-    signal: AbortSignal.timeout(20000),
+  // Cache key inclui plataforma e ano para melhor precisão
+  const chave = `${t.toLowerCase()}|${plataforma || ""}|${ano || ""}`
+  const cached = igdbCache.get(chave)
+  if (cached) return cached
+
+  return igdbCircuitBreaker.execute(async () => {
+    const r = await fetchRede(`${IGDB_PROXY}/igdb/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": IGDB_UA },
+      body: JSON.stringify({ SearchTerm: t }),
+      signal: AbortSignal.timeout(15000), // timeout menor (15s)
+    })
+    if (!r.ok) throw new Error(`IGDB respondeu HTTP ${r.status}`)
+    const achados = (await r.json())?.data || []
+    if (!achados.length) {
+      igdbCache.set(chave, [])
+      return []
+    }
+
+    // A busca é fuzzy e ela não devolve o resumo nem as artes — só a ficha
+    // completa tem. Então: escolhe um e busca a ficha.
+    //
+    // Agora usa scoring inteligente considerando plataforma e ano, não apenas
+    // o título. "Resident Evil 4" no PS5 é diferente da versão de GameCube.
+    const busca = { titulo: t, plataforma, ano }
+    const candidatosComScore = achados.map((c) => ({
+      ...c,
+      score: scoreIgdbMatch(c, busca),
+    }))
+
+    // Ordena por score (maior primeiro)
+    candidatosComScore.sort((a, b) => b.score - a.score)
+
+    // Pega o melhor match, mas só se o score for razoável (> 0)
+    const melhor = candidatosComScore[0]
+    if (!melhor || melhor.score <= 0) {
+      igdbCache.set(chave, [])
+      return []
+    }
+
+    const f = await fetchRede(`${IGDB_PROXY}/igdb/game/${melhor.id}`, {
+      headers: { "User-Agent": IGDB_UA },
+      signal: AbortSignal.timeout(15000), // timeout menor (15s)
+    })
+    if (!f.ok) throw new Error(`IGDB respondeu HTTP ${f.status}`)
+    const ficha = (await f.json())?.data
+    const jogos = ficha ? [igdbNormaliza(ficha)] : []
+
+    igdbCache.set(chave, jogos)
+    return jogos
   })
-  if (!r.ok) throw new Error(`IGDB respondeu HTTP ${r.status}`)
-  const achados = (await r.json())?.data || []
-  if (!achados.length) return []
-
-  // A busca é fuzzy e ela não devolve o resumo nem as artes — só a ficha
-  // completa tem. Então: escolhe um e busca a ficha.
-  //
-  // O título exato vem primeiro de propósito. "Hades" traz "Hade" no topo, e
-  // o `tituloBate` aceita prefixo ("hades" começa com "hade"), então confiar
-  // só nele entregava a ficha do jogo errado.
-  const alvo = normalizaTitulo(t)
-  const melhor =
-    achados.find((g) => normalizaTitulo(g.name) === alvo) ||
-    achados.find((g) => tituloBate(g.name, t)) ||
-    achados[0]
-  const f = await fetchRede(`${IGDB_PROXY}/igdb/game/${melhor.id}`, {
-    headers: { "User-Agent": IGDB_UA },
-    signal: AbortSignal.timeout(20000),
-  })
-  if (!f.ok) throw new Error(`IGDB respondeu HTTP ${f.status}`)
-  const ficha = (await f.json())?.data
-  const jogos = ficha ? [igdbNormaliza(ficha)] : []
-
-  if (igdbCache.size > 100) igdbCache.clear()
-  igdbCache.set(chave, jogos)
-  return jogos
 }
 
 /**

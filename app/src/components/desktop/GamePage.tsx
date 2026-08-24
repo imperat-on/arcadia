@@ -17,6 +17,7 @@ import {
   stripHtml,
 } from "./GameDetailPanels"
 import { FixesPanel } from "./FixesPanel"
+import { CommunityPanel } from "../CommunityPanel"
 
 interface Sysinfo {
   download_size?: number
@@ -57,7 +58,22 @@ export function GamePage({
   embedded?: boolean
 }) {
   const { t } = useI18n()
-  const instalado = g.installed !== false
+
+  // Verifica se jogo retro tem emulador configurado
+  const [hasEmulator, setHasEmulator] = useState(false)
+
+  useEffect(() => {
+    if (g.id?.startsWith('retro:')) {
+      window.launcherAPI?.gameSettingsGet?.(g.id).then((response) => {
+        const settings = response?.settings
+        if (settings?.emulatorId && settings?.romPath) setHasEmulator(true)
+      }).catch(() => {})
+    }
+  }, [g.id])
+
+  const isRetroGame = g.id?.startsWith('retro:')
+  const instalado = g.installed !== false || (isRetroGame && hasEmulator)
+
   const epic = g.launcher === "epic"
   const steamAppid = g.launcher === "steam" ? String(g.id).replace(/^steam:/, "") : ""
   const [aba, setAba] = useState<"dados" | "requisitos">("dados")
@@ -238,33 +254,34 @@ export function GamePage({
               )}
 
               <div className="mt-3 flex gap-2.5">
-                {instalado ? (
+                {rodando ? (
                   <>
-                    {rodando ? (
-                      <>
-                        <button
-                          disabled
-                          className="flex cursor-default items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black"
-                          style={{ background: "#22c55e" }}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
-                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
-                            <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                          </svg>
-                          {t("gamepage.rodando")}
-                        </button>
-                        <button
-                          onClick={() => window.launcherAPI?.closeGame()}
-                          className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-white transition-transform hover:scale-[1.03]"
-                          style={{ background: "rgba(239,68,68,0.9)" }}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                            <rect x="5" y="5" width="14" height="14" rx="2" />
-                          </svg>
-                          {t("gamepage.parar")}
-                        </button>
-                      </>
-                    ) : (
+                    <button
+                      disabled
+                      className="flex cursor-default items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black"
+                      style={{ background: "#22c55e" }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
+                        <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                      </svg>
+                      {t("gamepage.rodando")}
+                    </button>
+                    <button
+                      onClick={() => window.launcherAPI?.closeGame()}
+                      className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-white transition-transform hover:scale-[1.03]"
+                      style={{ background: "rgba(239,68,68,0.9)" }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="5" y="5" width="14" height="14" rx="2" />
+                      </svg>
+                      {t("gamepage.parar")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Botão Jogar - jogos retro só quando emulador+ROM configurados */}
+                    {instalado && (
                       <button
                         onClick={onJogar}
                         className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
@@ -279,53 +296,36 @@ export function GamePage({
                         {t("gamepage.jogar")}
                       </button>
                     )}
-                    <button
-                      onClick={onConfig}
-                      className="flex items-center gap-2 rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+
+                    {/* Botão Instalar - só para jogos não-retro não instalados */}
+                    {!instalado && !isRetroGame && (
+                      <button
+                        onClick={onInstalar}
+                        className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
+                        style={{
+                          background: "var(--accent)",
+                          boxShadow: "0 4px 20px color-mix(in oklab, var(--accent) 35%, transparent)",
+                        }}
                       >
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.32.22.66.22 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                      </svg>
-                      {t("gamepage.gerenciar")}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={onInstalar}
-                      className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
-                      style={{
-                        background: "var(--accent)",
-                        boxShadow: "0 4px 20px color-mix(in oklab, var(--accent) 35%, transparent)",
-                      }}
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      {t("gamepage.instalar")}
-                    </button>
-                    {epic && (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        {t("gamepage.instalar")}
+                      </button>
+                    )}
+
+                    {epic && !instalado && (
                       <button
                         onClick={onImportar}
                         className="rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -333,6 +333,7 @@ export function GamePage({
                         {t("gamepage.importar_jogo")}
                       </button>
                     )}
+
                     <button
                       onClick={onConfig}
                       className="flex items-center gap-2 rounded-lg border border-white/20 px-6 py-2.5 text-[13px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -525,6 +526,7 @@ export function GamePage({
               {/* Avaliações + comentários abaixo da descrição. */}
               <ReviewsPanel appid={steamAppid} />
               <CommentsPanel appid={steamAppid} />
+              <CommunityPanel appid={steamAppid} title={g.title} />
             </div>
           )}
         </div>

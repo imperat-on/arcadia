@@ -6,8 +6,9 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 const { spawn } = require("child_process")
+const { getDataDir } = require("./runtime-paths")
 
-const DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
+const DATA_DIR = getDataDir()
 const PREFIX_DIR = path.join(DATA_DIR, "prefixes")
 
 // Pastas onde a Steam guarda os Protons oficiais (steamapps/common) e os

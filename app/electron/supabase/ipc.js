@@ -8,7 +8,13 @@ const friends = require("./friends")
 const sync = require("./sync")
 const biblioteca = require("./biblioteca")
 const sourcesSync = require("./sources")
+const community = require("./community")
 const { getClient, attachAuthPersistence, restoreSession } = require("./client")
+const {
+  safeAuthResult,
+  safeAccountStatus,
+  safeAccountEvent,
+} = require("../../../contracts")
 
 // Sessão restaurada UMA vez por boot (memoizado). Todo handler que depende de
 // sessão existente aguarda essa promise antes de responder — elimina o race
@@ -48,27 +54,17 @@ function registerAccountIpc(broadcast, onConta) {
   // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
   getClient().auth.onAuthStateChange((event, session) => {
     const username = session?.user?.user_metadata?.username || null
-    broadcast("account:changed", {
-      event,
-      session: session
-        ? {
-            user: {
-              id: session.user?.id,
-              email: session.user?.email,
-              username,
-            },
-          }
-        : null,
-    })
+    broadcast("account:changed", safeAccountEvent(event, session))
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      // O escopo precisa mudar ANTES de qualquer reconcile/realtime: esses
+      // módulos leem arquivos por conta e não podem iniciar como guest.
+      onConta?.(username)
       realtime.start()
       bibliotecaRealtime.start()
       syncRealtime.start()
       sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
       biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
       sourcesSync.reconcile().catch(() => {})
-      // Troca o escopo dos arquivos locais pra conta logada
-      onConta?.(username)
     }
     if (event === "SIGNED_OUT" || event === "USER_DELETED") {
       realtime.stop()
@@ -84,7 +80,7 @@ function registerAccountIpc(broadcast, onConta) {
 
   ipcMain.handle("account:status", async () => {
     await garantirSessao()
-    return auth.status()
+    return safeAccountStatus(await auth.status())
   })
   ipcMain.handle("account:profile", async () => {
     await garantirSessao()
@@ -110,8 +106,12 @@ function registerAccountIpc(broadcast, onConta) {
     await garantirSessao()
     return auth.setAvatarBytes(buf, mime, ext)
   })
-  ipcMain.handle("account:signUp", async (_e, payload) => auth.signUp(payload || {}))
-  ipcMain.handle("account:signIn", async (_e, payload) => auth.signIn(payload || {}))
+  ipcMain.handle("account:signUp", async (_e, payload) =>
+    safeAuthResult(await auth.signUp(payload || {})),
+  )
+  ipcMain.handle("account:signIn", async (_e, payload) =>
+    safeAuthResult(await auth.signIn(payload || {})),
+  )
   ipcMain.handle("account:signOut", async () => auth.signOut())
 
   ipcMain.handle("friends:search", async (_e, query) => {
@@ -156,6 +156,64 @@ function registerAccountIpc(broadcast, onConta) {
     return sync.getState()
   })
 
+  // Comunidade (reviews/listas): requests e cache ficam no main, nunca no renderer.
+  ipcMain.handle("community:reviews", async (_e, appid, options) => {
+    await garantirSessao()
+    return community.listReviews(typeof appid === "string" ? appid : "", options || {})
+  })
+  ipcMain.handle("community:review:create", async (_e, payload) => {
+    await garantirSessao()
+    return community.createReview(payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:review:update", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.updateReview(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:review:remove", async (_e, id) => {
+    await garantirSessao()
+    return community.removeReview(String(id || ""))
+  })
+  ipcMain.handle("community:review:report", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.reportReview(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collections", async (_e, options) => {
+    await garantirSessao()
+    return community.listCollections(options || {})
+  })
+  ipcMain.handle("community:collection:get", async (_e, id) => {
+    await garantirSessao()
+    return community.getCollection(String(id || ""))
+  })
+  ipcMain.handle("community:collection:create", async (_e, payload) => {
+    await garantirSessao()
+    return community.createCollection(payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collection:update", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.updateCollection(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+  ipcMain.handle("community:collection:remove", async (_e, id) => {
+    await garantirSessao()
+    return community.removeCollection(String(id || ""))
+  })
+  ipcMain.handle("community:collection:item:add", async (_e, id, appid) => {
+    await garantirSessao()
+    return community.addCollectionItem(String(id || ""), String(appid || ""))
+  })
+  ipcMain.handle("community:collection:item:replace", async (_e, id, items) => {
+    await garantirSessao()
+    return community.replaceCollectionItems(String(id || ""), Array.isArray(items) ? items : [])
+  })
+  ipcMain.handle("community:collection:item:remove", async (_e, id, appid) => {
+    await garantirSessao()
+    return community.removeCollectionItem(String(id || ""), String(appid || ""))
+  })
+  ipcMain.handle("community:collection:report", async (_e, id, payload) => {
+    await garantirSessao()
+    return community.reportCollection(String(id || ""), payload && typeof payload === "object" ? payload : {})
+  })
+
   return () => {
     realtime.stop()
     bibliotecaRealtime.stop()
@@ -163,4 +221,4 @@ function registerAccountIpc(broadcast, onConta) {
   }
 }
 
-module.exports = { registerAccountIpc }
+module.exports = { registerAccountIpc, garantirSessao }

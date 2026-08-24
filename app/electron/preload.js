@@ -6,9 +6,10 @@ contextBridge.exposeInMainWorld("launcherMode", process.env.ARCADIA_MODE || "con
 // Caminhos dinâmicos da máquina (NUNCA hardcodar /home/<usuário> no código).
 // Sem require("os"/"path"): o preload sandboxed não tem esses módulos.
 const HOME = process.env.HOME || ""
+const DATA_DIR = process.env.ARCADIA_DATA_DIR || `${HOME}/.local/share/arcadia`
 contextBridge.exposeInMainWorld("launcherPaths", {
   home: HOME,
-  dataDir: `${HOME}/.local/share/arcadia`,
+  dataDir: DATA_DIR,
 })
 
 // Ponte segura: o renderer (React) só enxerga estas funções.
@@ -35,6 +36,10 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   gameSysinfo: (game) => ipcRenderer.invoke("game:sysinfo", game),
   gameProtonDb: (appid) => ipcRenderer.invoke("game:protondb", appid),
   gameStats: (appid) => ipcRenderer.invoke("game:stats", appid),
+  savesList: (gameId) => ipcRenderer.invoke("saves:list", gameId),
+  savesCreate: (payload) => ipcRenderer.invoke("saves:create", payload),
+  savesRestore: (payload) => ipcRenderer.invoke("saves:restore", payload),
+  savesDelete: (payload) => ipcRenderer.invoke("saves:delete", payload),
   storeStatus: () => ipcRenderer.invoke("store:status"),
   storeSearch: (query) => ipcRenderer.invoke("store:search", query),
   storeSuggest: (query) => ipcRenderer.invoke("store:suggest", query),
@@ -66,6 +71,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   getNews: () => ipcRenderer.invoke("news:get"),
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
   getConfig: () => ipcRenderer.invoke("config:get"),
+  diagnostics: () => ipcRenderer.invoke("app:diagnostics"),
+  diagnosticsExport: () => ipcRenderer.invoke("app:diagnosticsExport"),
   setConfig: (cfg) => ipcRenderer.invoke("config:set", cfg),
   quit: () => ipcRenderer.invoke("app:quit"),
   enterConsole: () => ipcRenderer.invoke("app:enterConsole"),
@@ -90,6 +97,14 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   sourcesSync: () => ipcRenderer.invoke("sources:sync"),
   sourcesSearch: (query, limit) => ipcRenderer.invoke("sources:search", { query, limit }),
   sourcesGame: (ref) => ipcRenderer.invoke("sources:game", ref),
+  retroList: (payload) => ipcRenderer.invoke("retro:list", payload || {}),
+  retroGame: (id) => ipcRenderer.invoke("retro:game", id),
+  retroOffer: (id) => ipcRenderer.invoke("retro:offer", id),
+  retroStats: () => ipcRenderer.invoke("retro:stats"),
+  retroAudit: (payload) => ipcRenderer.invoke("retro:audit", payload || {}),
+  retroMigrate: () => ipcRenderer.invoke("retro:migrate"),
+  retroLibraryAdd: (data) => ipcRenderer.invoke("retro:libraryAdd", data),
+  retroLibraryRemove: (id) => ipcRenderer.invoke("retro:libraryRemove", id),
   torrentStart: (payload) => ipcRenderer.invoke("torrent:start", payload),
   torrentPause: (gameId) => ipcRenderer.invoke("torrent:pause", gameId),
   torrentResume: (gameId) => ipcRenderer.invoke("torrent:resume", gameId),
@@ -103,6 +118,18 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     return () => ipcRenderer.removeListener("torrent:progress", h)
   },
   pluginsList: () => ipcRenderer.invoke("plugins:list"),
+  /** Metadados versionados do registro; caminhos privados nunca são devolvidos. */
+  pluginsDetails: () => ipcRenderer.invoke("plugins:details"),
+  pluginsGet: (id) => ipcRenderer.invoke("plugins:get", typeof id === "string" ? id : ""),
+  /** Registra um diretório/plugin.json já existente; não baixa nem executa entry. */
+  pluginsRegister: (pluginPath) =>
+    ipcRenderer.invoke("plugins:register", typeof pluginPath === "string" ? pluginPath : ""),
+  pluginsUnregister: (id) =>
+    ipcRenderer.invoke("plugins:unregister", typeof id === "string" ? id : ""),
+  pluginsEnable: (id) => ipcRenderer.invoke("plugins:enable", typeof id === "string" ? id : ""),
+  pluginsDisable: (id) => ipcRenderer.invoke("plugins:disable", typeof id === "string" ? id : ""),
+  pluginsVerify: (id) => ipcRenderer.invoke("plugins:verify", typeof id === "string" ? id : ""),
+  // API histórica preservada para SLSsteam/LuaTools.
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
@@ -120,6 +147,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   dmRetry: (appid) => ipcRenderer.invoke("dm:retry", appid),
   dmDismiss: (appid) => ipcRenderer.invoke("dm:dismiss", appid),
   dmResume: (appid) => ipcRenderer.invoke("dm:resume", appid),
+  dmSetPriority: (appid, priority) => ipcRenderer.invoke("dm:setPriority", appid, priority),
   dmCancel: (appid) => ipcRenderer.invoke("dm:cancel", appid),
   diskSpace: (p) => ipcRenderer.invoke("app:diskSpace", p),
   onDmProgress: (cb) => {
@@ -131,8 +159,26 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   prefixTool: (appid, tool, opts) =>
     ipcRenderer.invoke("wine:prefixTool", { appid, tool, ...(opts || {}) }),
   wineRunExe: (appid, opts) => ipcRenderer.invoke("wine:runExe", { appid, ...(opts || {}) }),
-  gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", id),
-  gameSettingsSet: (id, patch) => ipcRenderer.invoke("gamesettings:set", { id, patch }),
+  gameSettingsGet: (id) => ipcRenderer.invoke("gamesettings:get", typeof id === "string" ? id : ""),
+  gameSettingsSet: (id, patch) => ipcRenderer.invoke("gamesettings:set", { id: typeof id === "string" ? id : "", patch: patch || {} }),
+  emulatorsList: () => ipcRenderer.invoke("emulators:list"),
+  emulatorsDetect: () => ipcRenderer.invoke("emulators:detect"),
+  emulatorsProfiles: () => ipcRenderer.invoke("emulators:profiles"),
+  emulatorProfileSet: (profile) => ipcRenderer.invoke("emulators:profile:set", profile || {}),
+  emulatorProfileRemove: (id) => ipcRenderer.invoke("emulators:profile:remove", typeof id === "string" ? id : ""),
+  emulatorsResolve: (payload) => ipcRenderer.invoke("emulators:resolve", payload || {}),
+  emulatorsStatus: () => ipcRenderer.invoke("emulators:status"),
+  emulatorsRoms: (payload) => ipcRenderer.invoke("emulators:roms", payload || {}),
+  emulatorsRomIndex: () => ipcRenderer.invoke("emulators:roms:index"),
+  retroachievementsLogin: (username, password) =>
+    ipcRenderer.invoke("retroachievements:login", { username, password }),
+  retroachievementsLogout: () => ipcRenderer.invoke("retroachievements:logout"),
+  retroachievementsStatus: () => ipcRenderer.invoke("retroachievements:status"),
+  retroachievementsApplyToEmulator: (emulatorId) =>
+    ipcRenderer.invoke("retroachievements:applyToEmulator", { emulatorId }),
+  retroachievementsSetApiKey: (apiKey) => ipcRenderer.invoke("retroachievements:setApiKey", { apiKey }),
+  retroachievementsGameProgress: (title, systemId) =>
+    ipcRenderer.invoke("retroachievements:gameProgress", { title, systemId }),
   pickFolder: () => ipcRenderer.invoke("app:pickFolder"),
   pickFile: () => ipcRenderer.invoke("app:pickFile"),
   onTrailerProgress: (cb) => {
@@ -241,6 +287,32 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   // Sync de conquistas (backend proprio)
   syncNow: () => ipcRenderer.invoke("sync:now"),
   syncState: () => ipcRenderer.invoke("sync:state"),
+  // Comunidade: o renderer recebe envelopes seguros do main (reviews/listas).
+  communityReviews: (appid, options) =>
+    ipcRenderer.invoke("community:reviews", typeof appid === "string" ? appid : "", options || {}),
+  communityReviewCreate: (payload) => ipcRenderer.invoke("community:review:create", payload || {}),
+  communityReviewUpdate: (id, payload) =>
+    ipcRenderer.invoke("community:review:update", typeof id === "string" || typeof id === "number" ? id : "", payload || {}),
+  communityReviewRemove: (id) =>
+    ipcRenderer.invoke("community:review:remove", typeof id === "string" || typeof id === "number" ? id : ""),
+  communityReviewReport: (id, payload) =>
+    ipcRenderer.invoke("community:review:report", typeof id === "string" || typeof id === "number" ? id : "", payload || {}),
+  communityCollections: (options) => ipcRenderer.invoke("community:collections", options || {}),
+  communityCollectionGet: (id) =>
+    ipcRenderer.invoke("community:collection:get", typeof id === "string" ? id : ""),
+  communityCollectionCreate: (payload) => ipcRenderer.invoke("community:collection:create", payload || {}),
+  communityCollectionUpdate: (id, payload) =>
+    ipcRenderer.invoke("community:collection:update", typeof id === "string" ? id : "", payload || {}),
+  communityCollectionRemove: (id) =>
+    ipcRenderer.invoke("community:collection:remove", typeof id === "string" ? id : ""),
+  communityCollectionAddItem: (id, appid) =>
+    ipcRenderer.invoke("community:collection:item:add", typeof id === "string" ? id : "", typeof appid === "string" ? appid : ""),
+  communityCollectionReplaceItems: (id, items) =>
+    ipcRenderer.invoke("community:collection:item:replace", typeof id === "string" ? id : "", Array.isArray(items) ? items : []),
+  communityCollectionRemoveItem: (id, appid) =>
+    ipcRenderer.invoke("community:collection:item:remove", typeof id === "string" ? id : "", typeof appid === "string" ? appid : ""),
+  communityCollectionReport: (id, payload) =>
+    ipcRenderer.invoke("community:collection:report", typeof id === "string" ? id : "", payload || {}),
   onSyncState: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("sync:state", h)

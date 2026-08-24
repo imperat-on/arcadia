@@ -12,14 +12,12 @@
 // (os dados já existentes passam a ser dela). Contas seguintes começam vazias.
 
 const fs = require("fs")
-const os = require("os")
 const path = require("path")
 const { log } = require("./../debug")
+const { getDataDir } = require("../runtime-paths")
 
-// Mesmo padrão do sync.js/main.js: honra ARCADIA_DATA_DIR se definido
-const DATA_DIR =
-  process.env.ARCADIA_DATA_DIR ||
-  path.join(os.homedir(), ".local/share/arcadia")
+// Todos os arquivos locais partem da mesma raiz, inclusive em testes.
+const DATA_DIR = getDataDir()
 const CONTAS_DIR = path.join(DATA_DIR, "contas")
 
 // library.json NÃO entra: é global (o indexador escreve na raiz).

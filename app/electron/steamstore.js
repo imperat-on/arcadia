@@ -8,9 +8,84 @@ const { catalogGet } = require("./catalog")
 const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
+const { getDataDir } = require("./runtime-paths")
+const {
+  createLocalSearchIndex,
+  CATALOG_SOURCE,
+  buildEntry,
+  matchesFilters,
+} = require("./local-search")
 
-const DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
+const DATA_DIR = getDataDir()
 const BIN_DIR = path.join(DATA_DIR, "bin")
+// O catálogo servido pelo backend é paginado e cada rota/query tem um espelho
+// próprio em catalog_espelho/. Este índice leve junta as páginas já vistas em
+// uma busca offline determinística; nunca contém URIs de fontes Hydra.
+const CATALOG_SEARCH_INDEX = path.join(DATA_DIR, "catalog_search_index.json")
+const catalogSearchIndex = createLocalSearchIndex({ indexPath: CATALOG_SEARCH_INDEX })
+let catalogSearchHydrated = false
+
+function garantirIndiceCatalogo() {
+  if (catalogSearchHydrated) return
+  catalogSearchHydrated = true
+  // A leitura é lazy: boot não deve parsear caches grandes antes da primeira
+  // ida à loja. Um espelho inválido/antigo só é ignorado, sem derrubar a UI.
+  catalogSearchIndex.hydrateCacheFiles(DATA_DIR, { persist: true })
+}
+
+function indexarCatalogo(itens, options = {}) {
+  garantirIndiceCatalogo()
+  catalogSearchIndex.upsert(itens, { source: CATALOG_SOURCE, persist: true, ...options })
+}
+
+function buscarCatalogoLocal(query, limit = 24, options = {}) {
+  garantirIndiceCatalogo()
+  if (limit && typeof limit === "object") {
+    options = limit
+    limit = options.limit
+  }
+  const max = options.limit === undefined ? limit : options.limit
+  return catalogSearchIndex.search(query, { ...options, source: CATALOG_SOURCE, limit: max })
+}
+
+function paginaCatalogoLocal(options = {}) {
+  garantirIndiceCatalogo()
+  return catalogSearchIndex.page({ ...options, source: CATALOG_SOURCE })
+}
+
+function metadadosCatalogoLocal(options = {}) {
+  garantirIndiceCatalogo()
+  return {
+    index: catalogSearchIndex.metadata(),
+    facets: catalogSearchIndex.facets({ ...options, source: CATALOG_SOURCE }),
+  }
+}
+
+// Filters are intentionally applied after normalizing each item.  This keeps
+// remote pages, old mirrors and the persisted index on the exact same facet
+// semantics; absent fields never accidentally pass a requested facet.
+function possuiFiltrosCatalogo(options = {}) {
+  const keys = ["launcher", "genre", "genres", "genero", "tag", "tags", "installed", "instalado"]
+  if (keys.some((key) => Object.prototype.hasOwnProperty.call(options || {}, key))) return true
+  for (const key of ["filters", "filtros", "facets", "facetas"]) {
+    const nested = options?.[key]
+    if (
+      nested &&
+      typeof nested === "object" &&
+      keys.some((name) => Object.prototype.hasOwnProperty.call(nested, name))
+    )
+      return true
+  }
+  return false
+}
+
+function filtrarCatalogo(itens, options = {}) {
+  if (!possuiFiltrosCatalogo(options)) return Array.isArray(itens) ? itens : []
+  return (Array.isArray(itens) ? itens : []).filter((item) => {
+    const entry = buildEntry(item, CATALOG_SOURCE)
+    return entry && matchesFilters(entry, options)
+  })
+}
 const DEPS_DIR = path.join(BIN_DIR, "deps", "depotdownloader")
 const TMP_DIR = path.join(BIN_DIR, "tmp")
 const LOG_DIR = path.join(DATA_DIR, "logs")
@@ -618,6 +693,15 @@ async function suggest(query) {
 }
 
 async function suggestDaSteam(q, chave) {
+  // Sugestão local primeiro: evita seis segundos de timeout quando o app está
+  // sem rede e reaproveita exatamente o mesmo índice/ranking da busca completa.
+  const locais = buscarCatalogoLocal(q, 8).map((jogo) => ({
+    appid: String(jogo.appid || jogo.id || ""),
+    title: String(jogo.title || ""),
+    cover: jogo.cover || jogo.capa || "",
+  }))
+  if (locais.length) return { ok: true, jogos: locais, cache: true }
+
   // As sugestões do dropdown vêm da Steam viva (storesearch) — as MESMAS que a
   // Steam mostra, rápidas (~0.3s) e na ordem de popularidade dela. O catálogo
   // do servidor ficava como fallback (sem DLCs, mas pode estar frio). O filtro
@@ -673,34 +757,108 @@ async function suggestDaSteam(q, chave) {
 // download funcionando perfeitamente por eles. Agora a Steam dá a lista de
 // títulos (catálogo completo, sem key) e cada resultado é conferido contra
 // todos os provedores.
-async function search(query) {
-  const chave = String(query || "")
+function normalizarOpcoesBusca(options) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) return {}
+  return { ...options }
+}
+
+function chaveOpcoesBusca(options = {}) {
+  const out = {}
+  for (const key of [
+    "launcher",
+    "genre",
+    "genres",
+    "genero",
+    "tag",
+    "tags",
+    "installed",
+    "instalado",
+    "filters",
+    "filtros",
+    "facets",
+    "facetas",
+    "offset",
+    "limit",
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(options, key)) continue
+    const value = options[key]
+    if (Array.isArray(value)) out[key] = [...value].map(String).sort()
+    else if (value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+    } else out[key] = value
+  }
+  return JSON.stringify(out)
+}
+
+function metadadosBusca(options = {}) {
+  const local = metadadosCatalogoLocal(options)
+  return { indice: local.index, index: local.index, facets: local.facets, facetas: local.facets }
+}
+
+async function search(query, options = {}) {
+  if (typeof options === "number") options = { limit: options }
+  const filtros = normalizarOpcoesBusca(options)
+  const chaveBase = String(query || "")
     .trim()
     .toLowerCase()
-  if (chave.length >= 2) {
+  const chave = `${chaveBase}|${chaveOpcoesBusca(filtros)}`
+  if (chaveBase.length >= 2) {
     const hit = buscaCache.get(chave)
     if (hit && Date.now() - hit.at < BUSCA_TTL) return { ...hit.res, cache: true }
     if (buscaEmVoo.has(chave)) return buscaEmVoo.get(chave)
-    const pedido = _searchReal(query, chave).finally(() => buscaEmVoo.delete(chave))
+    const pedido = _searchReal(query, chaveBase, filtros, chave).finally(() =>
+      buscaEmVoo.delete(chave),
+    )
     buscaEmVoo.set(chave, pedido)
     return pedido
   }
-  return _searchReal(query, chave)
+  return _searchReal(query, chaveBase, filtros, chave)
 }
 
-async function _searchReal(query, chave) {
-  // Busca primeiro no catálogo do servidor (85k jogos Steam com appid real +
-  // capa). Resultados com capa e que abrem a tela rica. Só cai na rede
-  // (Hubcap+Steam) se o catálogo não tiver nada — como a Steam faz.
+async function _searchReal(query, chaveBase, options = {}, cacheKey = chaveBase) {
+  const buscaOffset =
+    Number.isSafeInteger(Number(options.offset)) && Number(options.offset) >= 0
+      ? Number(options.offset)
+      : 0
+  const buscaLimit =
+    Number.isSafeInteger(Number(options.limit)) && Number(options.limit) > 0
+      ? Number(options.limit)
+      : BUSCA_MAX
+  const catalogLimit =
+    Number.isSafeInteger(Number(options.limit)) && Number(options.limit) > 0
+      ? Number(options.limit)
+      : 40
+  // Primeiro tenta o índice local persistido. A busca fica útil mesmo sem
+  // servidor/DNS e não espera o timeout de rede para devolver uma página já
+  // conhecida. A atualização do índice acontece quando uma página remota é
+  // recebida (ou no warm-up/paginação da loja).
+  const locais = buscarCatalogoLocal(query, BUSCA_MAX, options)
+  if (locais.length) {
+    const meta = metadadosBusca(options)
+    const res = { ok: true, jogos: locais, fonte: "local", avisos: [], cache: true, ...meta }
+    if (chaveBase.length >= 2) {
+      if (buscaCache.size > 50) buscaCache.clear()
+      buscaCache.set(cacheKey, { at: Date.now(), res })
+    }
+    return res
+  }
+
+  // Sem hit local, consulta o catálogo do servidor (85k jogos Steam com appid
+  // real + capa). Resultados recebidos também entram no índice para a próxima
+  // busca offline; o payload público continua { ok, jogos, fonte, avisos }.
   try {
     const remoto = await catalogGet(`/catalog/v1/search?q=${encodeURIComponent(query)}`)
     const itens = Array.isArray(remoto.data?.itens) ? remoto.data.itens : []
     if (itens.length) {
-      const jogos = await preparar(itens.slice(0, 40))
-      const res = { ok: true, jogos, fonte: "catalogo", avisos: [] }
-      if (chave.length >= 2) {
+      indexarCatalogo(itens)
+      const filtrados = filtrarCatalogo(itens, options)
+      const selecionados = filtrados.slice(buscaOffset, buscaOffset + catalogLimit)
+      const jogos = selecionados.length ? await preparar(selecionados) : []
+      const meta = metadadosBusca(options)
+      const res = { ok: true, jogos, fonte: "catalogo", avisos: [], ...meta }
+      if (chaveBase.length >= 2) {
         if (buscaCache.size > 50) buscaCache.clear()
-        buscaCache.set(chave, { at: Date.now(), res })
+        buscaCache.set(cacheKey, { at: Date.now(), res })
       }
       return res
     }
@@ -767,7 +925,8 @@ async function _searchReal(query, chave) {
     erros.push(`Steam: ${e.message}`)
   }
 
-  const jogos = [...porId.values()]
+  const jogos = filtrarCatalogo([...porId.values()], options)
+  if (jogos.length) indexarCatalogo(jogos)
   if (!jogos.length) {
     return { ok: false, error: erros.join(" · ") || "nenhum resultado" }
   }
@@ -776,12 +935,13 @@ async function _searchReal(query, chave) {
   // ninguém olha o final. Ordenando por relevância primeiro, o corte cai só na
   // cauda irrelevante.
   ordenar(jogos, query)
-  const encontrados = await preparar(jogos.slice(0, BUSCA_MAX), comHubcap)
+  const encontrados = await preparar(jogos.slice(buscaOffset, buscaOffset + buscaLimit), comHubcap)
   ordenar(encontrados, query)
-  const res = { ok: true, jogos: encontrados, fonte: "multi", avisos: erros }
-  if (chave.length >= 2) {
+  const meta = metadadosBusca(options)
+  const res = { ok: true, jogos: encontrados, fonte: "multi", avisos: erros, ...meta }
+  if (chaveBase.length >= 2) {
     if (buscaCache.size > 50) buscaCache.clear()
-    buscaCache.set(chave, { at: Date.now(), res })
+    buscaCache.set(cacheKey, { at: Date.now(), res })
   }
   return res
 }
@@ -828,6 +988,7 @@ async function buscarPopular(lista = "top100in2weeks") {
     fs.mkdirSync(DATA_DIR, { recursive: true })
     fs.writeFileSync(POPULAR_CACHE, JSON.stringify({ at: Date.now(), completa }))
   } catch {}
+  indexarCatalogo(completa)
   return completa
 }
 
@@ -836,7 +997,49 @@ async function buscarPopular(lista = "top100in2weeks") {
 // sozinho para a próxima vez, em vez de fazer o usuário esperar.
 // `lista` escolhe entre a quinzena (Em alta) e o acumulado (Mais jogados).
 let popularEmVoo = null
-async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
+function normalizarArgsPopular(lista, limite, offset, options) {
+  if (lista && typeof lista === "object") {
+    const arg = lista
+    return {
+      lista: arg.lista || "top100in2weeks",
+      limite: arg.limite ?? arg.limit ?? 40,
+      offset: arg.offset ?? 0,
+      options: { ...arg, ...(options || {}) },
+    }
+  }
+  if (offset && typeof offset === "object") {
+    return {
+      lista: lista || "top100in2weeks",
+      limite,
+      offset: 0,
+      options: { ...offset, ...(options || {}) },
+    }
+  }
+  return { lista: lista || "top100in2weeks", limite, offset, options: options || {} }
+}
+
+function paginaComMeta(jogos, offset, limit, options = {}) {
+  const itens = Array.isArray(jogos) ? jogos : []
+  const off = Math.max(0, Number(offset) | 0)
+  const lim = Math.max(1, Number(limit) | 0)
+  const fatia = itens.slice(off, off + lim)
+  return {
+    jogos: fatia,
+    offset: off,
+    total: itens.length,
+    limit: lim,
+    has_more: off + fatia.length < itens.length,
+    next_offset: off + fatia.length < itens.length ? off + fatia.length : null,
+    ...metadadosBusca(options),
+  }
+}
+
+async function popular(lista = "top100in2weeks", limite = 40, offset = 0, options = {}) {
+  const args = normalizarArgsPopular(lista, limite, offset, options)
+  lista = args.lista
+  limite = args.limite
+  offset = args.offset
+  const filtros = args.options
   const off = Math.max(0, Number(offset) | 0)
   const lim = Math.max(1, Number(limite) | 0)
 
@@ -848,14 +1051,47 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   if (lista === "all") {
     const remoto = await catalogGet(`/catalog/v1/catalog?offset=${off}&limite=${lim}`)
     if (Array.isArray(remoto.data?.itens)) {
+      indexarCatalogo(remoto.data.itens)
+      const itens = filtrarCatalogo(remoto.data.itens, filtros)
+      const meta = metadadosBusca(filtros)
       return {
         ok: true,
-        jogos: remoto.data.itens,
+        jogos: itens,
         offset: off,
-        total: Number(remoto.data.total) || remoto.data.itens.length,
+        total: possuiFiltrosCatalogo(filtros)
+          ? itens.length
+          : Number(remoto.data.total) || itens.length,
+        limit: lim,
+        has_more: off + itens.length < (Number(remoto.data.total) || itens.length),
+        next_offset:
+          off + itens.length < (Number(remoto.data.total) || itens.length)
+            ? off + itens.length
+            : null,
         cache: Boolean(remoto.fallback),
+        ...meta,
       }
     }
+    // Se esta página ainda não tem espelho, o índice pode ter sido alimentado
+    // por outra página/execução. Entrega uma fatia local determinística em vez
+    // de transformar a aba em uma tela vazia offline.
+    garantirIndiceCatalogo()
+    const localPage = paginaCatalogoLocal({ offset: off, limit: lim, ...filtros })
+    if (localPage.total)
+      return {
+        ok: true,
+        jogos: localPage.itens,
+        offset: localPage.offset,
+        total: localPage.total,
+        limit: localPage.limit,
+        has_more: localPage.has_more,
+        next_offset: localPage.next_offset,
+        cache: true,
+        offline: true,
+        facets: localPage.facets,
+        facetas: localPage.facets,
+        index: localPage.index,
+        indice: localPage.index,
+      }
     // fallback: se o catalog falhar, cai no fluxo antigo abaixo
   }
 
@@ -868,8 +1104,10 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
       ? dadosRemotos
       : dadosRemotos?.completa || dadosRemotos?.jogos
     if (Array.isArray(listaRemota) && listaRemota.length) {
-      const fatia = await preparar(listaRemota.slice(off, off + lim))
-      return { ok: true, jogos: fatia, offset: off, total: listaRemota.length }
+      indexarCatalogo(listaRemota)
+      const filtrada = filtrarCatalogo(listaRemota, filtros)
+      const fatia = await preparar(filtrada.slice(off, off + lim))
+      return { ok: true, ...paginaComMeta(filtrada, off, lim, filtros), jogos: fatia }
     }
     const cache = lerCache(GENERO_CACHE) || {}
     const chave = `__${lista}`
@@ -885,30 +1123,31 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
         gravarCache(GENERO_CACHE, cache)
       } catch (e) {
         if (guardado && Array.isArray(guardado.jogos)) {
-          const fatia = guardado.jogos.slice(off, off + lim)
-          return {
-            ok: true,
-            jogos: fatia,
-            offset: off,
-            total: guardado.jogos.length,
-            cache: true,
-            velho: true,
-          }
+          const filtrada = filtrarCatalogo(guardado.jogos, filtros)
+          const pagina = paginaComMeta(filtrada, off, lim, filtros)
+          return { ok: true, ...pagina, cache: true, velho: true }
         }
         return { ok: false, error: String(e.message || e) }
       }
     }
-    const fatia = await preparar(completa.slice(off, off + lim))
-    return { ok: true, jogos: fatia, offset: off, total: completa.length }
+    indexarCatalogo(completa)
+    const filtrada = filtrarCatalogo(completa, filtros)
+    const fatia = await preparar(filtrada.slice(off, off + lim))
+    return { ok: true, ...paginaComMeta(filtrada, off, lim, filtros), jogos: fatia }
   }
   const remoto = await catalogGet("/catalog/v1/popular?limite=1000&offset=0")
   if (Array.isArray(remoto.data?.itens) && remoto.data.itens.length) {
-    const fatia = await preparar(remoto.data.itens.slice(off, off + lim))
+    indexarCatalogo(remoto.data.itens)
+    const filtrada = filtrarCatalogo(remoto.data.itens, filtros)
+    const fatia = await preparar(filtrada.slice(off, off + lim))
+    const pagina = paginaComMeta(filtrada, off, lim, filtros)
     return {
       ok: true,
+      ...pagina,
       jogos: fatia,
-      offset: off,
-      total: Number(remoto.data.total) || remoto.data.itens.length,
+      total: possuiFiltrosCatalogo(filtros)
+        ? pagina.total
+        : Number(remoto.data.total) || pagina.total,
       cache: Boolean(remoto.fallback),
     }
   }
@@ -917,11 +1156,16 @@ async function popular(lista = "top100in2weeks", limite = 40, offset = 0) {
   const c = lerPopularCache()
   const velho = !c || Date.now() - (c.at || 0) > POPULAR_TTL
   const servir = async (completa) => {
-    const fatia = await preparar(completa.slice(off, off + lim))
-    return { jogos: fatia, offset: off, total: completa.length }
+    indexarCatalogo(completa)
+    const filtrada = filtrarCatalogo(completa, filtros)
+    const fatia = await preparar(filtrada.slice(off, off + lim))
+    const pagina = paginaComMeta(filtrada, off, lim, filtros)
+    return { ...pagina, jogos: fatia }
   }
   const completaDo = (c) =>
     Array.isArray(c?.completa) ? c.completa : Array.isArray(c?.jogos) ? c.jogos : null
+  const completaLocal = completaDo(c)
+  if (completaLocal?.length) indexarCatalogo(completaLocal)
   if (c && !velho) {
     const completa = completaDo(c)
     if (completa) {
@@ -2071,6 +2315,10 @@ async function status() {
 
 module.exports = {
   search,
+  indexarCatalogo,
+  buscarCatalogoLocal,
+  paginaCatalogoLocal,
+  metadadosCatalogoLocal,
   comandoSteam,
   appidsInjetados,
   steamInjetada,

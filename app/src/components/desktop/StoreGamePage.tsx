@@ -21,6 +21,7 @@ import {
 } from "./GameDetailPanels"
 import { AchievementsPanel } from "./AchievementsPanel"
 import { FixesPanel } from "./FixesPanel"
+import { CommunityPanel } from "../CommunityPanel"
 
 type ItemLoja = {
   appid: string
@@ -447,6 +448,7 @@ export function StoreGamePage({
             )}
             <ReviewsPanel appid={jogo.appid} />
             <CommentsPanel appid={jogo.appid} />
+            <CommunityPanel appid={jogo.appid} title={jogo.title} />
           </div>
 
           <div className="flex flex-col gap-4">

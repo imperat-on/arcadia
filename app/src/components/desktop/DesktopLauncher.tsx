@@ -29,6 +29,7 @@ import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
 import { SyncStatusIndicator } from "./SyncStatusIndicator"
+import { RetroStoreView } from "./RetroStoreView"
 
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
@@ -90,6 +91,7 @@ export function DesktopLauncher() {
   }>({})
   const [librarySidebar, setLibrarySidebar] = useState(true)
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
+  const [retroPaginaId, setRetroPaginaId] = useState<string | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
   // Pós sign-out: a tela de login fica OBRIGATÓRIA (X não fecha) até logar —
@@ -203,6 +205,7 @@ export function DesktopLauncher() {
         view={view}
         onView={(v) => {
           setJogoPagina(null)
+          setRetroPaginaId(null)
           setView(v)
         }}
         downloadsActive={dmAtivos + torrAtivos}
@@ -222,7 +225,14 @@ export function DesktopLauncher() {
         onToggleLibrarySidebar={toggleLibrarySidebar}
         onOpenGame={(g) => {
           setView("biblioteca")
-          setJogoPagina(g)
+          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca)
+          if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
+            setRetroPaginaId(g.id)
+            setJogoPagina(null)
+          } else {
+            setJogoPagina(g)
+            setRetroPaginaId(null)
+          }
         }}
         onAddGame={() => setAdicionando(true)}
         activeGameId={jogoPagina?.id}
@@ -266,7 +276,7 @@ export function DesktopLauncher() {
                 ocupado={false}
               />
             )}
-            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && (
+            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
               <GamePage
                 embedded
                 game={jogoPagina}
@@ -280,19 +290,29 @@ export function DesktopLauncher() {
                 onConfig={() => setJogoConfig(jogoPagina)}
               />
             )}
-            {!jogoPagina && view === "inicio" && <HomeView games={games} />}
-            {!jogoPagina && view === "biblioteca" && (
+            {retroPaginaId && view === "biblioteca" && !jogoPagina && (
+              <div className="h-full overflow-y-auto px-8 py-6">
+                <RetroStoreView
+                  initialGameId={retroPaginaId}
+                  onExit={() => setRetroPaginaId(null)}
+                  onOpenDownloads={() => setView("downloads")}
+                />
+              </div>
+            )}
+            {!jogoPagina && !retroPaginaId && view === "inicio" && <HomeView games={games} />}
+            {!jogoPagina && !retroPaginaId && view === "biblioteca" && (
               <LibraryView
                 games={games}
                 tilesColor={cfg.tiles_color}
                 alwaysTitles={cfg.always_titles}
                 onRefresh={carregar}
+                onRetroOpen={(id) => setRetroPaginaId(id)}
               />
             )}
-            {!jogoPagina && view === "lojas" && <StoreView games={games} />}
+            {!jogoPagina && view === "lojas" && <StoreView games={games} onOpenDownloads={() => setView("downloads")} />}
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView />}
-            {!jogoPagina && view === "fontes" && <SourcesView />}
+            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => setView("downloads")} />}
             {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
               <ProfilePage

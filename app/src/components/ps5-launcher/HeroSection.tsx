@@ -20,79 +20,93 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
       {/* Conteúdo do hero (o fundo é a imagem de tela cheia do app) */}
       {game && (
         <div key={game.id} className="w-full px-10 animate-fade-slide-up">
-          <div className="anim-fade max-w-xl">
+          <div className="anim-fade max-w-2xl">
             {/* Logo do jogo, ou o título grande */}
             {game.logo ? (
               <img
                 src={game.logo}
                 alt={game.title}
-                className="max-h-32 max-w-md object-contain mb-5"
-                style={{ filter: "drop-shadow(0 2px 12px rgba(0,0,0,0.7))" }}
+                className="max-h-36 max-w-lg object-contain mb-6"
+                style={{ filter: "drop-shadow(0 4px 20px rgba(0,0,0,0.9))" }}
               />
             ) : (
               <h1
-                className="game-name text-6xl font-bold text-white leading-[1.05] text-balance mb-5"
+                className="game-name text-7xl font-black text-white leading-[0.95] text-balance mb-6"
                 style={{
-                  textShadow: "0 2px 16px rgba(0,0,0,0.6)",
-                  background:
-                    "linear-gradient(120deg, #fff 50%, color-mix(in oklab, var(--accent) 60%, #fff))",
-                  WebkitBackgroundClip: "text",
-                  backgroundClip: "text",
-                  color: "transparent",
+                  textShadow: "0 2px 20px rgba(0,0,0,0.8)",
+                  letterSpacing: "-0.02em",
                 }}
               >
                 {game.title}
               </h1>
             )}
 
-            {/* Sinopse curta: duas linhas, como na referência */}
+            {/* Sinopse curta: duas linhas */}
             {game.description && (
               <p
-                className="text-[19px] text-white/90 leading-snug line-clamp-2 mb-8"
-                style={{ textShadow: "0 2px 12px rgba(0,0,0,0.7)" }}
+                className="text-[20px] text-white/90 leading-relaxed line-clamp-2 mb-10 font-medium"
+                style={{ textShadow: "0 2px 15px rgba(0,0,0,0.8)" }}
               >
                 {game.description}
               </p>
             )}
 
-            {/* Ações: pílula translúcida larga + "..." redondo */}
+            {/* Ações: botão principal + secundário */}
             <div className="flex items-center gap-4">
-              {/* Rodando: o mesmo laranja do card "jogando" do desktop, para a
-                  troca ser percebida sem precisar ler o rótulo. */}
+              {/* Botão principal elegante */}
               <button
                 onClick={onLaunch}
-                className="px-16 py-4 rounded-full text-[19px] font-semibold text-white transition-all hover:scale-[1.03] hover:bg-white/25"
+                className="relative px-20 py-5 rounded-full text-[20px] font-bold text-white transition-all hover:scale-[1.02] group overflow-hidden"
                 style={{
                   background: rodando
-                    ? "#e8703a"
-                    : "linear-gradient(135deg, color-mix(in oklab, var(--accent) 35%, transparent), rgba(255,255,255,0.12))",
-                  backdropFilter: "blur(10px)",
+                    ? "rgba(232, 112, 58, 0.95)"
+                    : "rgba(0, 168, 255, 0.2)",
+                  backdropFilter: "blur(20px)",
                   boxShadow: rodando
-                    ? "0 6px 28px rgba(0,0,0,0.35), 0 0 30px rgba(232,112,58,0.3)"
-                    : "0 6px 28px rgba(0,0,0,0.35), 0 0 24px color-mix(in oklab, var(--accent) 22%, transparent)",
-                  border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)",
+                    ? "0 8px 30px rgba(232, 112, 58, 0.4), 0 0 40px rgba(232, 112, 58, 0.25)"
+                    : "0 8px 30px rgba(0, 0, 0, 0.6), 0 0 35px rgba(0, 168, 255, 0.3)",
+                  border: rodando
+                    ? "1px solid rgba(232, 112, 58, 0.5)"
+                    : "1px solid rgba(0, 168, 255, 0.4)",
                 }}
               >
-                {rodando
-                  ? t("hero.parar")
-                  : abrindo
-                    ? t("hero.abrindo")
-                    : game.installed === false
-                      ? t("hero.instalar")
-                      : t("hero.jogar")}
+                {/* Overlay sutil no hover */}
+                <div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                  style={{
+                    background: rodando
+                      ? "rgba(255, 140, 80, 0.2)"
+                      : "rgba(0, 168, 255, 0.15)",
+                  }}
+                />
+                <span className="relative z-10 drop-shadow-lg">
+                  {rodando
+                    ? t("hero.parar")
+                    : abrindo
+                      ? t("hero.abrindo")
+                      : game.installed === false
+                        ? t("hero.instalar")
+                        : t("hero.jogar")}
+                </span>
               </button>
+
+              {/* Botão secundário minimalista */}
               <button
                 onClick={onMore}
                 aria-label={t("hero.mais_opcoes")}
-                className="w-16 h-16 rounded-full flex items-center justify-center text-white transition-all hover:scale-[1.05] hover:bg-white/25"
+                className="w-[72px] h-[72px] rounded-full flex items-center justify-center text-white transition-all hover:scale-105 group"
                 style={{
-                  background: "rgba(255,255,255,0.12)",
-                  backdropFilter: "blur(10px)",
-                  boxShadow: "0 6px 28px rgba(0,0,0,0.35)",
+                  background: "rgba(255,255,255,0.06)",
+                  backdropFilter: "blur(20px)",
+                  boxShadow: "0 8px 25px rgba(0,0,0,0.5)",
                   border: "1px solid rgba(255,255,255,0.15)",
                 }}
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <div
+                  className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ background: "rgba(0, 168, 255, 0.1)" }}
+                />
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="relative z-10">
                   <circle cx="5" cy="12" r="2" />
                   <circle cx="12" cy="12" r="2" />
                   <circle cx="19" cy="12" r="2" />
