@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
 // Modo da UI: "console" (PS5, tela cheia) ou "desktop" (estilo Heroic, janela).
-contextBridge.exposeInMainWorld("launcherMode", process.env.ARCADIA_MODE || "console")
+contextBridge.exposeInMainWorld("launcherMode", process.env.ARCADIA_MODE || "desktop")
 
 // Caminhos dinâmicos da máquina (NUNCA hardcodar /home/<usuário> no código).
 // Sem require("os"/"path"): o preload sandboxed não tem esses módulos.
