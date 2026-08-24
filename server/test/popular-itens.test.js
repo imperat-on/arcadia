@@ -6,15 +6,24 @@
 // nascia com capa cinza e a sidebar só ganhava o ícone após a cura.
 // Teste com fetchItems injetado (o closure interno não é patchável).
 
-const test = require("node:test")
+const { test, after } = require("node:test")
 const assert = require("node:assert")
 const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 
-const DATA = path.join(os.homedir(), ".local", "share", "arcadia")
+const ORIGINAL_DATA_DIR = process.env.ARCADIA_DATA_DIR
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-popular-itens-"))
 const ITENS_CACHE = path.join(DATA, "store_items_cache.json")
-const ORIGINAL = fs.readFileSync(ITENS_CACHE, "utf8")
+const ORIGINAL = "{}"
+process.env.ARCADIA_DATA_DIR = DATA
+fs.writeFileSync(ITENS_CACHE, ORIGINAL)
+
+after(() => {
+  if (ORIGINAL_DATA_DIR === undefined) delete process.env.ARCADIA_DATA_DIR
+  else process.env.ARCADIA_DATA_DIR = ORIGINAL_DATA_DIR
+  fs.rmSync(DATA, { recursive: true, force: true })
+})
 
 function carregarMod() {
   const caminho = require.resolve("../../app/electron/steamstore.js")
