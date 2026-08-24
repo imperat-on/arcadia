@@ -1204,6 +1204,39 @@ declare global {
       /** Localiza ROMs por extensão, com limites e proteção contra symlink. */
       emulatorsRoms: (payload: { emulatorId: string; directory?: string; rootPath?: string; folderPath?: string; recursive?: boolean; maxDepth?: number; maxResults?: number }) => Promise<EmulatorRomScanResult>
       emulatorsRomIndex: () => Promise<EmulatorRomIndexResult>
+      /** Troca usuário+senha da RetroAchievements por um token de sessão salvo em config.json; a senha nunca é persistida. */
+      retroachievementsLogin: (username: string, password: string) => Promise<{ ok: boolean; username?: string; error?: string }>
+      retroachievementsLogout: () => Promise<{ ok: boolean }>
+      retroachievementsStatus: () => Promise<{ ok: boolean; connected: boolean; username: string }>
+      /** Escreve a credencial RA salva no arquivo de config nativo do emulador (pcsx2 | duckstation | ppsspp). */
+      retroachievementsApplyToEmulator: (emulatorId: string) => Promise<{ ok: boolean; files?: string[]; error?: string }>
+      /** Valida e salva a Web API Key (controlpanel.php) — diferente do token de login, usada só para LER progresso/conquistas. */
+      retroachievementsSetApiKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>
+      /** Busca conquistas + progresso de um jogo retro pelo título (resolve o gameId da RA via busca por título dentro do console). */
+      retroachievementsGameProgress: (
+        title: string,
+        systemId: string,
+      ) => Promise<{
+        ok: boolean
+        error?: string
+        game?: {
+          id: number
+          title: string
+          consoleName: string
+          numAchievements: number
+          numAwardedToUser: number
+          numAwardedToUserHardcore: number
+        } | null
+        achievements?: {
+          id: number
+          title: string
+          description: string
+          points: number
+          badgeName: string
+          unlocked: boolean
+          unlockedHardcore: boolean
+        }[]
+      }>
       /** Escolhe uma pasta no sistema (temas customizados). */
       pickFolder: () => Promise<{ ok: boolean; path?: string }>
       /** Escolhe um arquivo qualquer (scripts pré/pós-jogo). */

@@ -468,6 +468,30 @@ test("detecção Linux encontra instalação padrão fora do PATH", () => {
   }
 })
 
+test("detecção Linux reconhece PCSX2 em symlink e nome uppercase", () => {
+  const f = fixture()
+  const target = path.join(f.bin, "PCSX2.real")
+  const link = path.join(f.bin, "PCSX2")
+  fs.rmSync(f.exe)
+  fs.writeFileSync(target, "binary")
+  fs.chmodSync(target, 0o755)
+  fs.symlinkSync(target, link)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: f.bin,
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+    })
+    const detected = registry.list().find((item) => item.id === "pcsx2")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, link)
+    assert.deepEqual(registry.resolveLaunch({ emulatorId: "pcsx2", romPath: f.rom }).cmd, [link, f.rom])
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
+
 test("detecção e resolução de AppImage usam caminho direto sem shell", () => {
   const f = fixture()
   const appImages = path.join(f.root, "Applications")
@@ -527,6 +551,31 @@ test("detecção Flatpak lê app exportado e resolve argv fixo sem executar wrap
     const result = registry.resolveLaunch({ emulatorId: "pcsx2", romPath: f.rom })
     assert.deepEqual(result.cmd, [flatpakBin, "run", "net.pcsx2.PCSX2", f.rom])
     assert.equal(result.cmd.includes(exported), false)
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
+
+test("detecção encontra AppImage em ~/appimages (lowercase) sem configuração manual", () => {
+  const f = fixture()
+  const appimagesDir = path.join(f.root, "home", "appimages")
+  const appImage = path.join(appimagesDir, "pcsx2.appimage")
+  fs.rmSync(f.exe)
+  fs.mkdirSync(appimagesDir, { recursive: true })
+  fs.writeFileSync(appImage, "appimage")
+  fs.chmodSync(appImage, 0o755)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: path.join(f.root, "missing-bin"),
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+    })
+    const detected = registry.list().find((item) => item.id === "pcsx2")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, appImage)
+    assert.equal(detected.source, "detected")
+    assert.deepEqual(registry.resolveLaunch({ emulatorId: "pcsx2", romPath: f.rom }).cmd, [appImage, f.rom])
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true })
   }

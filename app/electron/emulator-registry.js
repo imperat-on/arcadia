@@ -94,7 +94,7 @@ const DEFINITIONS = Object.freeze({
     name: "PCSX2",
     systems: ["PlayStation 2"],
     description: "Emulador de PlayStation 2",
-    candidates: ["pcsx2-qt", "pcsx2"],
+    candidates: ["pcsx2-qt", "pcsx2", "PCSX2"],
     flatpakIds: ["net.pcsx2.PCSX2"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.pcsx2,
     romDirectoryMarkers: [],
@@ -429,9 +429,9 @@ function resolveHydraBootPath(emulatorId, romPath, fsImpl, executablePath, homeD
 }
 
 function isExecutable(file, fsImpl) {
-  if (!isRegular(file, fsImpl)) return false
   try {
-    return (fsImpl.statSync(file).mode & 0o111) !== 0
+    const stat = fsImpl.statSync(file)
+    return stat.isFile() && (stat.mode & 0o111) !== 0
   } catch {
     return false
   }
@@ -462,7 +462,7 @@ function uniqueDiscoveryPaths(values) {
   return result
 }
 
-function buildLinuxSearchPath(envPath, platform, homeDir) {
+function buildLinuxSearchPath(envPath, platform, homeDir, includeStandardPaths = true) {
   // Keep relative PATH entries intact: shells commonly use `.` or a project
   // relative bin directory, and findOnPath historically accepted those. Only
   // the appended standard directories go through absolute-path normalization.
@@ -471,7 +471,7 @@ function buildLinuxSearchPath(envPath, platform, homeDir) {
   const seen = new Set(entries)
   for (const value of uniqueDiscoveryPaths([
     homeDir ? path.join(homeDir, ".local", "bin") : "",
-    ...LINUX_STANDARD_PATHS,
+    ...(includeStandardPaths ? LINUX_STANDARD_PATHS : []),
   ])) {
     if (seen.has(value)) continue
     seen.add(value)
@@ -515,10 +515,8 @@ function isAppImageForDefinition(name, definition) {
 
 function buildAppImageDirectories({ platform, homeDir, envPath, appImageDirs = [] } = {}) {
   if (platform !== "linux") return []
-  const envDirs = splitPathValue(envPath)
   return uniqueDiscoveryPaths([
     ...(Array.isArray(appImageDirs) ? appImageDirs : []),
-    ...envDirs,
     homeDir ? path.join(homeDir, "Applications") : "",
     homeDir ? path.join(homeDir, "AppImages") : "",
     homeDir ? path.join(homeDir, "appimages") : "",
@@ -776,7 +774,12 @@ function createEmulatorRegistry({
   definitions: definitionsOption,
 } = {}) {
   const effectiveEnvPath = envPath === undefined ? env?.PATH : envPath
-  const searchPath = buildLinuxSearchPath(effectiveEnvPath, platform, homeDir)
+  const searchPath = buildLinuxSearchPath(
+    effectiveEnvPath,
+    platform,
+    homeDir,
+    envPath === undefined,
+  )
   const appImageDirectories = buildAppImageDirectories({
     platform,
     homeDir,

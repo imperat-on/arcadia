@@ -170,6 +170,15 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   emulatorsStatus: () => ipcRenderer.invoke("emulators:status"),
   emulatorsRoms: (payload) => ipcRenderer.invoke("emulators:roms", payload || {}),
   emulatorsRomIndex: () => ipcRenderer.invoke("emulators:roms:index"),
+  retroachievementsLogin: (username, password) =>
+    ipcRenderer.invoke("retroachievements:login", { username, password }),
+  retroachievementsLogout: () => ipcRenderer.invoke("retroachievements:logout"),
+  retroachievementsStatus: () => ipcRenderer.invoke("retroachievements:status"),
+  retroachievementsApplyToEmulator: (emulatorId) =>
+    ipcRenderer.invoke("retroachievements:applyToEmulator", { emulatorId }),
+  retroachievementsSetApiKey: (apiKey) => ipcRenderer.invoke("retroachievements:setApiKey", { apiKey }),
+  retroachievementsGameProgress: (title, systemId) =>
+    ipcRenderer.invoke("retroachievements:gameProgress", { title, systemId }),
   pickFolder: () => ipcRenderer.invoke("app:pickFolder"),
   pickFile: () => ipcRenderer.invoke("app:pickFile"),
   onTrailerProgress: (cb) => {
