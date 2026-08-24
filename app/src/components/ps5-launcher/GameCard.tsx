@@ -63,16 +63,16 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
         width,
         aspectRatio: "2 / 3",
         transformOrigin: "center bottom",
-        transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
-        transform: focused ? "scale(1.06)" : "scale(0.94)",
-        opacity: focused ? 1 : 0.72,
+        transition: "transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s",
+        transform: focused ? "scale(1.06) translateY(-4px)" : "scale(0.94)",
+        opacity: focused ? 1 : 0.7,
         zIndex: focused ? 10 : 1,
       }}
       aria-label={game.title}
     >
       {/* Card surface */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 transition-all duration-300"
         style={{
           background: hasCover ? undefined : fallbackGradient,
         }}
@@ -82,7 +82,10 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
           <img
             src={coverSrc}
             alt={game.title}
-            className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"}`}
+            className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500`}
+            style={{
+              transform: focused ? "scale(1.03)" : "scale(1)",
+            }}
             loading="lazy"
             onError={() =>
               setFaseCapa((f) =>
@@ -94,12 +97,15 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
           /* Fallback art */
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4">
             <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ background: "rgba(255,255,255,0.08)" }}
+              className="w-14 h-14 rounded-xl flex items-center justify-center"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
             >
-              <LauncherIcon launcher={game.launcher} size={24} />
+              <LauncherIcon launcher={game.launcher} size={26} />
             </div>
-            <p className="text-white text-xs font-semibold text-center text-balance leading-snug">
+            <p className="text-white text-sm font-bold text-center text-balance leading-snug">
               {game.title}
             </p>
             <LauncherPill launcher={game.launcher} />
@@ -110,70 +116,71 @@ export function GameCard({ game, focused, onFocus, onLaunch, width }: GameCardPr
       {/* Selo "Instalar" para jogos possuídos mas não baixados */}
       {game.installed === false && (
         <div
-          className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md"
+          className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
           style={{
-            background: "rgba(0,0,0,0.65)",
-            backdropFilter: "blur(4px)",
-            border: "1px solid rgba(0,168,255,0.35)",
+            background: "rgba(0, 168, 255, 0.15)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(0, 168, 255, 0.3)",
+            boxShadow: "0 4px 15px rgba(0, 0, 0, 0.5)",
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="#00a8ff">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--accent)">
             <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
           </svg>
-          <span className="text-[9px] font-semibold text-white">{t("gamecard.instalar")}</span>
+          <span className="text-[10px] font-bold text-white drop-shadow">{t("gamecard.instalar")}</span>
         </div>
       )}
 
-      {/* Focused glow border */}
+      {/* Borda elegante quando focado */}
       <div
-        className="absolute inset-0 rounded-xl pointer-events-none"
+        className="absolute inset-0 rounded-xl pointer-events-none transition-all duration-300"
         style={{
-          border: focused ? "2px solid var(--accent)" : "2px solid rgba(255,255,255,0.06)",
+          border: focused
+            ? "2px solid rgba(0, 168, 255, 0.5)"
+            : "2px solid rgba(255,255,255,0.06)",
           boxShadow: focused
-            ? "0 0 0 1px var(--accent), 0 8px 40px rgba(0,0,0,0.6), 0 0 55px color-mix(in srgb, var(--accent) 45%, transparent)"
+            ? "0 0 30px rgba(0, 168, 255, 0.4), 0 8px 40px rgba(0,0,0,0.7), inset 0 0 20px rgba(0, 168, 255, 0.08)"
             : "none",
-          transition: "border-color 0.25s, box-shadow 0.25s",
         }}
       />
 
-      {/* Halo de acento suave atrás do card em foco (assinatura) */}
+      {/* Halo de acento suave atrás do card em foco */}
       <div
-        className="absolute -inset-1.5 rounded-2xl pointer-events-none opacity-40 blur-xl"
+        className="absolute -inset-3 rounded-2xl pointer-events-none opacity-50 blur-xl transition-all duration-400"
         style={{
           background: focused
-            ? "color-mix(in oklab, var(--accent) 50%, transparent)"
+            ? "radial-gradient(ellipse, rgba(0, 168, 255, 0.4) 0%, transparent 70%)"
             : "transparent",
-          transition: "background 0.3s, opacity 0.3s",
         }}
       />
 
       {/* Bottom gradient with info (show on focus) */}
       <div
-        className="absolute inset-x-0 bottom-0 flex flex-col justify-end px-3 pb-3 pt-10"
+        className="absolute inset-x-0 bottom-0 flex flex-col justify-end px-3.5 pb-3.5 pt-12 transition-opacity duration-300"
         style={{
           background:
-            "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
+            "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.6) 40%, transparent 100%)",
           opacity: focused ? 1 : hasCover ? 0 : 1,
-          transition: "opacity 0.25s",
         }}
       >
         {hasCover && (
-          <p className="text-white text-xs font-semibold leading-tight text-balance mb-1">
+          <p className="text-white text-sm font-semibold leading-tight text-balance mb-1.5 drop-shadow-lg">
             {game.title}
           </p>
         )}
         <LauncherPill launcher={game.launcher} />
       </div>
 
-      {/* Focus indicator top bar */}
-      <div
-        className="absolute top-0 inset-x-0 h-0.5 rounded-t-xl"
-        style={{
-          background: "linear-gradient(90deg, transparent, var(--accent), transparent)",
-          opacity: focused ? 1 : 0,
-          transition: "opacity 0.25s",
-        }}
-      />
+      {/* Linha superior sutil quando focado */}
+      {focused && (
+        <div
+          className="absolute top-0 inset-x-0 h-[2px] rounded-t-xl"
+          style={{
+            background: "linear-gradient(90deg, transparent, rgba(0, 168, 255, 0.6), transparent)",
+            boxShadow: "0 0 10px rgba(0, 168, 255, 0.5)",
+          }}
+        />
+      )}
     </button>
   )
 }

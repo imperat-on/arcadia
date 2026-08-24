@@ -15,8 +15,8 @@ function resolveLaunchRequest(
     emulatorLaunch = () => null,
   } = {},
 ) {
-  let rawCmd = Array.isArray(payload) ? payload : payload?.cmd
   const gameId = Array.isArray(payload) ? undefined : payload?.gameId
+  let rawCmd = gameId ? null : Array.isArray(payload) ? payload : payload?.cmd
   const mode = Array.isArray(payload) ? undefined : payload?.mode
   let envExtra = {}
 
@@ -42,29 +42,33 @@ function resolveLaunchRequest(
     } else {
       const game = findGame(gameId)
       if (!game) return { ok: false, error: "Jogo não encontrado na biblioteca." }
-      if (!Array.isArray(game.launch_cmd) || !game.launch_cmd.length) {
-        return { ok: false, error: "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações." }
-      }
-      rawCmd = game.launch_cmd
 
-      if (mode !== "steam") {
-        const settings = getGameSettings(gameId) || {}
+      const settings = getGameSettings(gameId) || {}
+      // Jogos retro não têm launch_cmd, mas só um perfil persistido autoriza o
+      // registry a montar argv. Um payload do renderer nunca escolhe o comando.
+      if (mode !== "steam" && settings.emulatorId) {
         const emulated = emulatorLaunch(gameId, game, settings)
         if (emulated) {
           if (!emulated.ok || !Array.isArray(emulated.cmd) || !emulated.cmd.length) return emulated
           rawCmd = emulated.cmd
           envExtra = emulated.env || {}
-        } else {
-          const exe = settings.exePath
-          if (exe) {
-            const built = exeLaunchCmd(gameId, exe)
-            if (!built?.cmd?.length) {
-              return { ok: false, error: "Executável configurado não encontrado (exePath vazio)." }
-            }
-            rawCmd = built.cmd
-            envExtra = built.env || {}
-          }
         }
+      }
+      if (!rawCmd && mode === "exe" && settings.exePath) {
+        const built = exeLaunchCmd(gameId, settings.exePath)
+        if (!built?.cmd?.length) {
+          return { ok: false, error: "Executável configurado não encontrado (exePath vazio)." }
+        }
+        rawCmd = built.cmd
+        envExtra = built.env || {}
+      }
+
+      // Se não conseguiu comando via emulador/exe, usa launch_cmd da biblioteca
+      if (!rawCmd) {
+        if (!Array.isArray(game.launch_cmd) || !game.launch_cmd.length) {
+          return { ok: false, error: "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações." }
+        }
+        rawCmd = game.launch_cmd
       }
     }
   } else if (Array.isArray(rawCmd)) {

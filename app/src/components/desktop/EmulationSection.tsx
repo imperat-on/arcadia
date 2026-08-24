@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { EmulatorInstallDialog } from "./EmulatorInstallDialog"
+import { RetroAchievementsPanel } from "./RetroAchievementsPanel"
 import type {
   EmulatorInfo,
   EmulatorRomEntry,
@@ -95,6 +96,8 @@ export function EmulationSection() {
           </p>
         )}
 
+        <RetroAchievementsPanel />
+
         {busy && !items.length ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 6 }, (_, index) => (
@@ -157,6 +160,18 @@ function EmulatorCard({
   const ready = Boolean(
     item.profile && item.available && !biosMissing && !coreMissing && !status?.running,
   )
+
+  // Determine the card state: running > not-available > detected > configured > ready
+  const cardState = status?.running
+    ? "running"
+    : !item.available
+      ? "not-available"
+      : biosMissing || coreMissing
+        ? "missing-deps"
+        : !item.profile
+          ? "detected"
+          : "configured"
+
   const statusText = status?.running
     ? "Emulação em execução"
     : !item.available
@@ -169,6 +184,75 @@ function EmulatorCard({
             ? "Emulador detectado"
             : "Configurado"
 
+  // Visual styling based on card state
+  const getBadgeStyle = () => {
+    switch (cardState) {
+      case "running":
+        return "border-purple-300/20 text-purple-200/80"
+      case "not-available":
+        return "border-amber-300/20 text-amber-200/80"
+      case "missing-deps":
+        return "border-amber-300/20 text-amber-200/80"
+      case "detected":
+        return "border-blue-300/20 text-blue-200/80"
+      case "configured":
+        return "border-emerald-300/20 text-emerald-200/80"
+      default:
+        return "border-white/20 text-white/60"
+    }
+  }
+
+  const getBadgeLabel = () => {
+    switch (cardState) {
+      case "running":
+        return "Em uso"
+      case "not-available":
+        return "Ação"
+      case "missing-deps":
+        return "Ação"
+      case "detected":
+        return "Detectado"
+      case "configured":
+        return "OK"
+      default:
+        return "—"
+    }
+  }
+
+  const getStatusBoxStyle = () => {
+    switch (cardState) {
+      case "running":
+        return "border-purple-300/10 bg-purple-400/[0.06]"
+      case "not-available":
+        return "border-amber-300/10 bg-amber-400/[0.06]"
+      case "missing-deps":
+        return "border-amber-300/10 bg-amber-400/[0.06]"
+      case "detected":
+        return "border-blue-300/10 bg-blue-400/[0.06]"
+      case "configured":
+        return "border-emerald-300/10 bg-emerald-400/[0.06]"
+      default:
+        return "border-white/10 bg-white/[0.03]"
+    }
+  }
+
+  const getStatusIcon = () => {
+    switch (cardState) {
+      case "running":
+        return "●"
+      case "not-available":
+        return "△"
+      case "missing-deps":
+        return "△"
+      case "detected":
+        return "◆"
+      case "configured":
+        return "●"
+      default:
+        return "○"
+    }
+  }
+
   return (
     <article className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101014] shadow-xl shadow-black/10 transition-colors hover:border-white/[0.16]">
       <ConsoleArt item={item} />
@@ -179,16 +263,16 @@ function EmulatorCard({
             <p className="mt-0.5 text-sm text-white/45">{item.name}</p>
           </div>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ready ? "border-emerald-300/20 text-emerald-200/80" : "border-amber-300/20 text-amber-200/80"}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getBadgeStyle()}`}
           >
-            {ready ? "OK" : "Ação"}
+            {getBadgeLabel()}
           </span>
         </div>
         <div
-          className={`mt-4 rounded-xl border px-3 py-2.5 ${ready ? "border-emerald-300/10 bg-emerald-400/[0.06]" : "border-amber-300/10 bg-amber-400/[0.06]"}`}
+          className={`mt-4 rounded-xl border px-3 py-2.5 ${getStatusBoxStyle()}`}
         >
           <div className="flex items-center gap-2 text-sm text-white/75">
-            <span aria-hidden="true">{ready ? "●" : "△"}</span>
+            <span aria-hidden="true">{getStatusIcon()}</span>
             <span>{statusText}</span>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-white/40">

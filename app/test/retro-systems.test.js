@@ -9,6 +9,7 @@ const {
   extractSerial,
   normalizeSerial,
   isBuiltinSystem,
+  getRetroachievementsConsoleId,
 } = require("../electron/retro-systems.js")
 
 test("resolveSystem recognizes all PlayStation aliases", () => {
@@ -236,4 +237,29 @@ test("serial patterns capture correctly", () => {
     const result = extractSerial(text, systemId)
     assert.equal(result, expected, `Failed to extract serial from "${text}" for ${systemId}`)
   }
+})
+
+test("getRetroachievementsConsoleId returns the correct RA console ID for supported systems", () => {
+  assert.equal(getRetroachievementsConsoleId("sony-playstation"), 12)
+  assert.equal(getRetroachievementsConsoleId("sony-playstation-2"), 21)
+  assert.equal(getRetroachievementsConsoleId("sony-psp"), 41)
+  assert.equal(getRetroachievementsConsoleId("nintendo-gamecube"), 16)
+  assert.equal(getRetroachievementsConsoleId("nintendo-wii"), 19)
+  assert.equal(getRetroachievementsConsoleId("nintendo-ds"), 18)
+  assert.equal(getRetroachievementsConsoleId("nintendo-nes"), 7)
+  assert.equal(getRetroachievementsConsoleId("nintendo-snes"), 3)
+  assert.equal(getRetroachievementsConsoleId("nintendo-game-boy"), 4)
+  assert.equal(getRetroachievementsConsoleId("nintendo-game-boy-color"), 6)
+  assert.equal(getRetroachievementsConsoleId("nintendo-game-boy-advance"), 5)
+  assert.equal(getRetroachievementsConsoleId("nintendo-64"), 2)
+})
+
+test("getRetroachievementsConsoleId returns null for PS3 (not covered by RetroAchievements)", () => {
+  assert.equal(getRetroachievementsConsoleId("sony-playstation-3"), null)
+})
+
+test("getRetroachievementsConsoleId returns null for unknown systems", () => {
+  assert.equal(getRetroachievementsConsoleId("unknown-system"), null)
+  assert.equal(getRetroachievementsConsoleId(""), null)
+  assert.equal(getRetroachievementsConsoleId(null), null)
 })
