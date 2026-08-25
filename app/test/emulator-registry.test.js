@@ -492,6 +492,31 @@ test("detecção Linux reconhece PCSX2 em symlink e nome uppercase", () => {
   }
 })
 
+test("detecção Dolphin ignora o gerenciador de arquivos KDE", () => {
+  const f = fixture()
+  const fileManager = path.join(f.bin, "dolphin")
+  fs.writeFileSync(fileManager, "kde file manager")
+  fs.chmodSync(fileManager, 0o755)
+  try {
+    const registry = createEmulatorRegistry({
+      dataDir: path.join(f.root, "state"),
+      envPath: f.bin,
+      homeDir: path.join(f.root, "home"),
+      platform: "linux",
+    })
+    assert.equal(registry.list().find((item) => item.id === "dolphin").available, false)
+
+    const emulator = path.join(f.bin, "dolphin-emu")
+    fs.writeFileSync(emulator, "dolphin emulator")
+    fs.chmodSync(emulator, 0o755)
+    const detected = registry.list().find((item) => item.id === "dolphin")
+    assert.equal(detected.available, true)
+    assert.equal(detected.executable, emulator)
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
+
 test("detecção e resolução de AppImage usam caminho direto sem shell", () => {
   const f = fixture()
   const appImages = path.join(f.root, "Applications")
