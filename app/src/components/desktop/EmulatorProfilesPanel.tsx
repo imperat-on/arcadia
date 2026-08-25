@@ -298,11 +298,12 @@ export function EmulatorProfilesPanel({
         <select
           value={settings.emulatorId || ""}
           onChange={(event) => selectEmulator(event.target.value)}
-          className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-[color:var(--accent)]"
+          className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none [color-scheme:dark] focus:border-[color:var(--accent)]"
+          style={{ colorScheme: "dark" }}
         >
-          <option value="">Usar comando padrão do jogo</option>
+          <option value="" className="bg-[#151515] text-white">Usar comando padrão do jogo</option>
           {items.map((item) => (
-            <option key={item.id} value={item.id}>
+            <option key={item.id} value={item.id} className="bg-[#151515] text-white">
               {item.name} · {item.systems.join(" / ")}
               {item.available ? "" : " (não detectado)"}
             </option>
