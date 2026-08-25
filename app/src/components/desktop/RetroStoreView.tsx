@@ -435,7 +435,7 @@ export function RetroStoreView({
           </svg>
         </button>
 
-        {detailLoading && !detail && <RetroDetailSkeleton />}
+        {detailLoading && <RetroDetailSkeleton />}
 
         {detailError && (
           <p
@@ -446,7 +446,7 @@ export function RetroStoreView({
           </p>
         )}
 
-        {detail && (
+        {detail && !detailLoading && (
           <RetroDetail
             game={detail}
             offers={detailOffers}
