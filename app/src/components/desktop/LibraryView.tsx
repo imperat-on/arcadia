@@ -27,7 +27,7 @@ export function LibraryView({
   tilesColor?: boolean
   alwaysTitles?: boolean
   onRefresh?: () => void
-  onRetroOpen?: (id: string) => void
+  onRetroOpen?: (game: Game) => void
 }) {
   const { t } = useI18n()
   const [busca, setBusca] = useState("")
@@ -257,7 +257,7 @@ export function LibraryView({
                 onMenu={(x, y) => setMenu({ g, x, y })}
                 onOpen={() => {
                   if (g2.launcher === "retro" || g2.retro === true || String(g2.id).startsWith("retro:")) {
-                    onRetroOpen?.(g2.id)
+                    onRetroOpen?.(g2)
                     return
                   }
                   String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import type { Profile, TorrentItem } from "../../global"
 import { Sidebar, type DesktopView, type ConfigSub } from "./Sidebar"
@@ -29,7 +29,7 @@ import { FriendsProvider } from "../account/FriendsContext"
 import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
 import { SyncStatusIndicator } from "./SyncStatusIndicator"
-import { RetroStoreView } from "./RetroStoreView"
+import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
@@ -91,7 +91,7 @@ export function DesktopLauncher() {
   }>({})
   const [librarySidebar, setLibrarySidebar] = useState(true)
   const [jogoPagina, setJogoPagina] = useState<Game | null>(null)
-  const [retroPaginaId, setRetroPaginaId] = useState<string | null>(null)
+  const [retroPaginaJogo, setRetroPaginaJogo] = useState<Game | null>(null)
   const [jogoConfig, setJogoConfig] = useState<Game | null>(null)
   const [contaAberta, setContaAberta] = useState(false)
   // Pós sign-out: a tela de login fica OBRIGATÓRIA (X não fecha) até logar —
@@ -101,6 +101,10 @@ export function DesktopLauncher() {
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const atualizacao = useAtualizacao()
+  const retroPaginaSeed = useMemo(
+    () => (retroPaginaJogo ? retroGameFromLibrary(retroPaginaJogo) : undefined),
+    [retroPaginaJogo],
+  )
 
   const toggleLibrarySidebar = useCallback(() => {
     setLibrarySidebar((v) => {
@@ -205,7 +209,7 @@ export function DesktopLauncher() {
         view={view}
         onView={(v) => {
           setJogoPagina(null)
-          setRetroPaginaId(null)
+          setRetroPaginaJogo(null)
           setView(v)
         }}
         downloadsActive={dmAtivos + torrAtivos}
@@ -227,11 +231,11 @@ export function DesktopLauncher() {
           setView("biblioteca")
           // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca)
           if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
-            setRetroPaginaId(g.id)
+            setRetroPaginaJogo(g)
             setJogoPagina(null)
           } else {
             setJogoPagina(g)
-            setRetroPaginaId(null)
+            setRetroPaginaJogo(null)
           }
         }}
         onAddGame={() => setAdicionando(true)}
@@ -290,23 +294,24 @@ export function DesktopLauncher() {
                 onConfig={() => setJogoConfig(jogoPagina)}
               />
             )}
-            {retroPaginaId && view === "biblioteca" && !jogoPagina && (
+            {retroPaginaJogo && view === "biblioteca" && !jogoPagina && (
               <div className="h-full overflow-y-auto px-8 py-6">
                 <RetroStoreView
-                  initialGameId={retroPaginaId}
-                  onExit={() => setRetroPaginaId(null)}
+                  initialGameId={retroPaginaJogo.id}
+                  initialGame={retroPaginaSeed}
+                  onExit={() => setRetroPaginaJogo(null)}
                   onOpenDownloads={() => setView("downloads")}
                 />
               </div>
             )}
-            {!jogoPagina && !retroPaginaId && view === "inicio" && <HomeView games={games} />}
-            {!jogoPagina && !retroPaginaId && view === "biblioteca" && (
+            {!jogoPagina && !retroPaginaJogo && view === "inicio" && <HomeView games={games} />}
+            {!jogoPagina && !retroPaginaJogo && view === "biblioteca" && (
               <LibraryView
                 games={games}
                 tilesColor={cfg.tiles_color}
                 alwaysTitles={cfg.always_titles}
                 onRefresh={carregar}
-                onRetroOpen={(id) => setRetroPaginaId(id)}
+                onRetroOpen={(game) => setRetroPaginaJogo(game)}
               />
             )}
             {!jogoPagina && view === "lojas" && <StoreView games={games} onOpenDownloads={() => setView("downloads")} />}

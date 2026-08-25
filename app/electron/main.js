@@ -3383,8 +3383,15 @@ app.whenReady().then(() => {
   ipcMain.handle("retro:libraryRemove", (_e, id) => {
     try {
       const value = typeof id === "string" ? id.trim() : ""
+      if (!/^retro:[a-z0-9][a-z0-9._:-]{1,500}$/i.test(value)) {
+        return { ok: false, error: "jogo retrô inválido" }
+      }
       const all = readJsonFile(caminhoConta(CUSTOM_GAMES), [])
-      const rest = all.filter((game) => !(game.id === value && game.launcher === "retro"))
+      // Versões antigas salvaram alguns jogos Retro (incluindo entradas
+      // importadas do LaunchBox) com launcher="custom". O namespace retro: é
+      // a identidade canônica; exigir launcher="retro" tornava a remoção um
+      // falso sucesso e deixava esses jogos presos na biblioteca.
+      const rest = all.filter((game) => game.id !== value)
       if (rest.length === all.length) return { ok: true, games: readLibrary() }
       fs.writeFileSync(caminhoConta(CUSTOM_GAMES), JSON.stringify(rest, null, 2))
       ownedRemove(value)

@@ -7,6 +7,7 @@ import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
 import { RetroAchievementsGamePanel } from "./RetroAchievementsGamePanel"
+import type { Game } from "../ps5-launcher/types"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
@@ -30,6 +31,7 @@ interface RetroStoreViewProps {
   onDownloadDialogChange?: (open: boolean) => void
   onOpenDownloads?: () => void
   initialGameId?: string
+  initialGame?: RetroGame
   onExit?: () => void
 }
 
@@ -37,6 +39,32 @@ type RetroDownloadChoice = {
   game: RetroGame
   jogo: JogoLoja
   opcoes: OpcaoTorrent[]
+}
+
+export function retroGameFromLibrary(game: Game): RetroGame {
+  const rawGenres = game.genres
+  const genres = Array.isArray(rawGenres)
+    ? rawGenres.filter((genre): genre is string => typeof genre === "string")
+    : undefined
+  const rawReleaseYear = game.releaseYear ?? game.year
+  const parsedReleaseYear =
+    typeof rawReleaseYear === "number"
+      ? rawReleaseYear
+      : typeof rawReleaseYear === "string" && /^\d{4}$/.test(rawReleaseYear)
+        ? Number(rawReleaseYear)
+        : undefined
+
+  return {
+    id: game.id,
+    title: game.title,
+    cover: game.cover,
+    hero: game.hero,
+    platform: game.platform,
+    description: game.description,
+    genres,
+    releaseYear: parsedReleaseYear,
+    systemId: game.systemId,
+  }
 }
 
 function makeRetroDownloadChoice(game: RetroGame): RetroDownloadChoice {
@@ -79,6 +107,7 @@ export function RetroStoreView({
   onDownloadDialogChange,
   onOpenDownloads,
   initialGameId,
+  initialGame,
   onExit,
 }: RetroStoreViewProps) {
   const { t, locale } = useI18n()
@@ -173,15 +202,21 @@ export function RetroStoreView({
     [t],
   )
 
+  // Aberto direto num jogo (Library): a grade nunca aparece nessa rota, então
+  // buscar retro:list só desperdiça a query mais cara do catálogo. Se essa rota
+  // passar a voltar para a grade sem desmontar, a guarda deverá considerar selectedId.
   useEffect(() => {
+    if (initialGameId) return
     void loadList(appliedQuery, offset, system)
-  }, [appliedQuery, offset, system, loadList])
+  }, [appliedQuery, offset, system, loadList, initialGameId])
 
   const openGame = useCallback(
     async (game: RetroGame) => {
       const generation = ++detailGeneration.current
       setSelectedId(game.id)
-      setDetail(null)
+      // Semeia com o que já sabemos (card da grade ou jogo da biblioteca): a página
+      // pinta na hora e o retro:game só substitui/completa os campos.
+      setDetail(game.title && game.title !== game.id ? game : null)
       setDetailSources([])
       setDetailOffers([])
       setDetailError("")
@@ -220,8 +255,9 @@ export function RetroStoreView({
   )
 
   useEffect(() => {
-    if (initialGameId) void openGame({ id: initialGameId, title: initialGameId })
-  }, [initialGameId, openGame])
+    if (!initialGameId) return
+    void openGame(initialGame || { id: initialGameId, title: initialGameId })
+  }, [initialGameId, initialGame, openGame])
 
   // Every URI is represented in the shared Hydra download dialog. The single
   // download action opens the source step with all alternatives, so Retro has
@@ -399,11 +435,7 @@ export function RetroStoreView({
           </svg>
         </button>
 
-        {detailLoading && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 text-[13px] text-white/55">
-            {t("store.retro_loading_detail")}
-          </div>
-        )}
+        {detailLoading && !detail && <RetroDetailSkeleton />}
 
         {detailError && (
           <p
@@ -423,6 +455,7 @@ export function RetroStoreView({
             downloadUri={downloadUri}
             downloadMessage={downloadMessage}
             onDownloadUri={() => void openDownloadDialog(detail)}
+            onRemoved={initialGameId ? closeGame : undefined}
             t={t}
           />
         )}
@@ -631,6 +664,7 @@ function RetroDetail({
   downloadUri,
   downloadMessage,
   onDownloadUri,
+  onRemoved,
   t,
 }: {
   game: RetroGame
@@ -640,10 +674,13 @@ function RetroDetail({
   downloadUri: string
   downloadMessage: string
   onDownloadUri: (uri: string) => void
+  onRemoved?: () => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
   const [inLibrary, setInLibrary] = useState(false)
   const [libraryMessage, setLibraryMessage] = useState("")
+  const [confirmandoRemover, setConfirmandoRemover] = useState(false)
+  const [removendo, setRemovendo] = useState(false)
   const [showDescription, setShowDescription] = useState(false)
   const [selectedMedia, setSelectedMedia] = useState(0)
   const [hasEmulator, setHasEmulator] = useState(false)
@@ -662,13 +699,38 @@ function RetroDetail({
 
   useEffect(() => {
     let ativo = true
-    setInLibrary(false)
     setLibraryMessage("")
-    window.launcherAPI?.getLibrary?.().then((games) => {
-      if (ativo && Array.isArray(games) && games.some((item) => item.id === game.id)) setInLibrary(true)
-    }).catch(() => {})
-    return () => { ativo = false }
+    const verificar = () => {
+      window.launcherAPI?.getLibrary?.().then((games) => {
+        if (!ativo) return
+        setInLibrary(Array.isArray(games) && games.some((item) => item.id === game.id))
+      }).catch(() => {})
+    }
+    verificar()
+    // O main emite library:changed em retro:libraryAdd/Remove; sem assinar, o
+    // botão ficava preso no estado de quando a página abriu.
+    const off = window.launcherAPI?.onLibraryChanged?.(() => verificar())
+    return () => { ativo = false; off?.() }
   }, [game.id])
+
+  const remover = async () => {
+    setRemovendo(true)
+    setLibraryMessage("")
+    try {
+      const response = await window.launcherAPI?.retroLibraryRemove?.(game.id)
+      if (response?.ok) {
+        setConfirmandoRemover(false)
+        // library:changed chega do main e o effect acima revalida inLibrary.
+        onRemoved?.()
+      } else {
+        setLibraryMessage(response?.error || t("store.retro_remover_erro"))
+      }
+    } catch {
+      setLibraryMessage(t("store.retro_remover_erro"))
+    } finally {
+      setRemovendo(false)
+    }
+  }
 
   // Um jogo retro só é "jogável" quando tem emulador + rom configurados
   // (feito em Configurações do jogo). Sem isso, o botão Jogar não aparece.
@@ -683,10 +745,11 @@ function RetroDetail({
   }, [game.id])
 
   return (
-    <article
+    <>
+      <article
       className="overflow-hidden rounded-2xl border border-white/[0.1] bg-black"
       data-testid="retro-detail-card"
-    >
+      >
       <div className="relative h-[min(62vh,620px)] min-h-[360px] overflow-hidden bg-black">
         {hero ? (
           <img src={hero} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" draggable={false} />
@@ -725,7 +788,7 @@ function RetroDetail({
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-y border-white/[0.08] bg-black/80 px-5 py-3 backdrop-blur-xl md:px-8">
         <span className="hidden flex-1 text-sm font-semibold text-white/80 md:block">{game.title}</span>
         {downloadMessage && <span role="status" className="text-[12px] text-white/55">{downloadMessage}</span>}
-        {libraryMessage && <span role="status" className="text-[12px] text-emerald-300/80">{libraryMessage}</span>}
+        {libraryMessage && <span role="alert" className="text-[12px] text-[#ff8b9d]">{libraryMessage}</span>}
         {!inLibrary && (
           <button
             type="button"
@@ -813,6 +876,17 @@ function RetroDetail({
             {t("store.baixar")}
           </button>
         ) : <span className="text-[12px] text-white/45">{t("store.retro_no_uris")}</span>}
+        {inLibrary && (
+          <button
+            type="button"
+            onClick={() => setConfirmandoRemover(true)}
+            disabled={removendo}
+            title={t("store.remover_tooltip")}
+            className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+          >
+            {t("common.remover")}
+          </button>
+        )}
       </div>
 
       <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1.35fr)_minmax(250px,.65fr)] md:p-8">
@@ -847,7 +921,48 @@ function RetroDetail({
 
         </div>
       </div>
-    </article>
+      </article>
+
+      {confirmandoRemover && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => { if (!removendo) setConfirmandoRemover(false) }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="retro-remove-title"
+            className="w-[460px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="retro-remove-title" className="mb-2 text-lg font-semibold text-white">
+              {t("store.retro_remover_titulo")}
+            </h2>
+            <p className="mb-5 text-[13px] leading-relaxed text-white/60">
+              {t("store.retro_remover_desc", { title: game.title })}
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmandoRemover(false)}
+                disabled={removendo}
+                className="rounded-lg border border-white/15 px-5 py-2.5 text-[12px] font-semibold text-white/70 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:opacity-50"
+              >
+                {t("common.cancelar")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void remover()}
+                disabled={removendo}
+                className="rounded-lg border border-[#ff6b81]/45 px-5 py-2.5 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+              >
+                {t("common.remover")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -943,6 +1058,38 @@ function RetroSkeleton() {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function RetroDetailSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-black">
+      <div className="relative h-[min(62vh,620px)] min-h-[360px] animate-pulse bg-white/[0.05]">
+        <div className="absolute inset-x-6 bottom-8 flex items-end gap-5 md:inset-x-10">
+          <div className="hidden h-44 w-32 rounded-xl bg-white/[0.07] md:block" />
+          <div className="flex-1 space-y-3">
+            <div className="h-9 w-2/5 rounded-lg bg-white/[0.08]" />
+            <div className="h-6 w-1/4 rounded-full bg-white/[0.05]" />
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end gap-3 border-y border-white/[0.08] px-5 py-3 md:px-8">
+        <div className="h-9 w-28 animate-pulse rounded-full bg-white/[0.05]" />
+        <div className="h-9 w-24 animate-pulse rounded-full bg-white/[0.07]" />
+      </div>
+      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1.35fr)_minmax(250px,.65fr)] md:p-8">
+        <div className="space-y-3">
+          <div className="h-4 w-36 animate-pulse rounded bg-white/[0.07]" />
+          <div className="h-3 w-full animate-pulse rounded bg-white/[0.05]" />
+          <div className="h-3 w-11/12 animate-pulse rounded bg-white/[0.05]" />
+          <div className="h-3 w-4/5 animate-pulse rounded bg-white/[0.05]" />
+        </div>
+        <div className="space-y-3">
+          <div className="h-28 animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.04]" />
+          <div className="h-36 animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.04]" />
+        </div>
+      </div>
     </div>
   )
 }
