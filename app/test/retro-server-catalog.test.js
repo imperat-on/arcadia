@@ -36,3 +36,56 @@ test("server-first cai no V2 local quando backend está indisponível", async ()
   assert.equal((await catalog.getGame("local")).game.id, "local")
 })
 
+test("detalhe não espera fontes pessoais lentas", async () => {
+  const catalog = createRetroServerCatalog({
+    catalogGet: async () => ({
+      data: { ok: true, game: { title: "Mario", offerCount: 1 }, offers: [] },
+    }),
+    sources: {
+      search: () => new Promise(() => {}),
+      getGame: async () => ({ ok: false }),
+    },
+    fallback: {
+      list: async () => ({ ok: false }),
+      getGame: async () => ({ ok: false }),
+      getOffer: async () => ({ ok: false }),
+      refresh: async () => {}, migrateFromV1: async () => {}, repository: {},
+    },
+  })
+  const inicio = Date.now()
+  const response = await catalog.getGame("retro:nes:mario")
+  assert.equal(response.ok, true)
+  assert.ok(Date.now() - inicio < 1000, "getGame deve responder sem esperar as fontes")
+  assert.equal(response.offers.length, 0)
+})
+
+test("ofertas pessoais entram quando respondem a tempo", async () => {
+  const catalog = createRetroServerCatalog({
+    catalogGet: async () => ({
+      data: {
+        ok: true,
+        game: { title: "Mario", systemId: "nintendo-nes", offerCount: 1 },
+        offers: [],
+      },
+    }),
+    sources: {
+      search: async () => [{
+        ref: "fonte:mario",
+        src: "Minha fonte",
+        title: "Mario",
+        fileSize: "4 MB",
+      }],
+      getGame: async () => ({ ok: false }),
+    },
+    fallback: {
+      list: async () => ({ ok: false }),
+      getGame: async () => ({ ok: false }),
+      getOffer: async () => ({ ok: false }),
+      refresh: async () => {}, migrateFromV1: async () => {}, repository: {},
+    },
+  })
+  const response = await catalog.getGame("retro:nes:mario")
+  assert.equal(response.offers.length, 1)
+  assert.equal(response.offers[0].id, "personal:fonte:mario")
+  assert.equal(response.game.offerCount, 2)
+})
