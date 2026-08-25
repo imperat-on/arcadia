@@ -12,7 +12,8 @@ const RUNNING_CODES = Object.freeze({
 const PROCESS_NAMES = Object.freeze({
   pcsx2: ["pcsx2", "pcsx2-qt"],
   rpcs3: ["rpcs3"],
-  dolphin: ["dolphin-emu", "dolphin"],
+  // `dolphin` é o file manager do KDE; o processo do emulador é dolphin-emu.
+  dolphin: ["dolphin-emu"],
   ppsspp: ["ppsspp", "ppssppheadless"],
   duckstation: ["duckstation", "duckstation-qt"],
   retroarch: ["retroarch"],
