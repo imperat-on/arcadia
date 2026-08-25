@@ -46,3 +46,29 @@ test("downloads Retro usam o diálogo e a pasta compartilhados", () => {
   assert.match(retro, /sourceTitle \|\| game\.sourceId/)
   assert.match(retro, /cover: getRetroCover\(game\)/)
 })
+
+test("detalhe Retro expõe remoção da biblioteca", () => {
+  const retro = read("src", "components", "desktop", "RetroStoreView.tsx")
+  const preload = read("electron", "preload.js")
+  const main = read("electron", "main.js")
+  assert.match(preload, /retroLibraryRemove:.*retro:libraryRemove/)
+  assert.match(main, /ipcMain\.handle\("retro:libraryRemove"/)
+  assert.match(retro, /retroLibraryRemove/)
+  assert.match(retro, /onLibraryChanged/)
+})
+
+test("remoção Retro aceita entradas legadas salvas como launcher custom", () => {
+  const main = read("electron", "main.js")
+  const start = main.indexOf('ipcMain.handle("retro:libraryRemove"')
+  const handler = main.slice(start, start + 1400)
+  assert.ok(start >= 0)
+  assert.match(handler, /\^retro:/)
+  assert.match(handler, /game\.id !== value/)
+  assert.doesNotMatch(handler, /game\.launcher === "retro"/)
+})
+
+test("detalhe Retro aberto pela Library não busca a grade", () => {
+  const retro = read("src", "components", "desktop", "RetroStoreView.tsx")
+  // A guarda de 4.1: com initialGameId, retro:list não é chamado.
+  assert.match(retro, /if \(initialGameId\) return/)
+})

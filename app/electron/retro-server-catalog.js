@@ -5,6 +5,8 @@ const { createRetroCatalogV2 } = require("./retro-catalog-v2")
 const { getDataDir } = require("./runtime-paths")
 const { normalizeRetroTitle } = require("./retro-title-parser")
 
+const PERSONAL_OFFERS_TIMEOUT_MS = 400
+
 function serverError(result) {
   return result?.error ? new Error(result.error.message || String(result.error)) : new Error("retro_server_unavailable")
 }
@@ -40,6 +42,29 @@ function createRetroServerCatalog(options = {}) {
     )
   }
 
+  async function buscarOfertasPessoais(game) {
+    const canonical = normalizeRetroTitle(game.title).toLowerCase()
+    const candidates = await personalSources.search(game.title, 50)
+    const local = candidates.filter((candidate) => normalizeRetroTitle(candidate.title).toLowerCase() === canonical)
+    return local.map((candidate) => {
+      const id = `personal:${candidate.ref}`
+      personalOffers.set(id, candidate.ref)
+      return {
+        id,
+        sourceId: String(candidate.ref).split(":")[0],
+        sourceTitle: candidate.src || "Personal source",
+        originalTitle: candidate.title,
+        normalizedTitle: game.title,
+        systemId: game.systemId,
+        fileSize: candidate.fileSize || "",
+        uploadDate: candidate.uploadDate || "",
+        hasUris: true,
+        uriCount: 1,
+        personal: true,
+      }
+    })
+  }
+
   async function getGame(gameId) {
     const id = encodeURIComponent(String(gameId || "").slice(0, 240))
     const response = await withFallback(
@@ -47,32 +72,21 @@ function createRetroServerCatalog(options = {}) {
       async () => fallback.getGame(gameId),
     )
     if (!response?.ok || !response.game?.title || !personalSources?.search) return response
-    try {
-      const canonical = normalizeRetroTitle(response.game.title).toLowerCase()
-      const candidates = await personalSources.search(response.game.title, 50)
-      const local = candidates.filter((candidate) => normalizeRetroTitle(candidate.title).toLowerCase() === canonical)
-      const summaries = local.map((candidate) => {
-        const id = `personal:${candidate.ref}`
-        personalOffers.set(id, candidate.ref)
-        return {
-          id,
-          sourceId: String(candidate.ref).split(":")[0],
-          sourceTitle: candidate.src || "Personal source",
-          originalTitle: candidate.title,
-          normalizedTitle: response.game.title,
-          systemId: response.game.systemId,
-          fileSize: candidate.fileSize || "",
-          uploadDate: candidate.uploadDate || "",
-          hasUris: true,
-          uriCount: 1,
-          personal: true,
-        }
-      })
-      if (local.length) {
-        response.offers = [...(response.offers || []), ...summaries]
-        response.game.offerCount = Number(response.game.offerCount || 0) + local.length
-      }
-    } catch {}
+
+    // As ofertas de fontes pessoais enriquecem o detalhe, mas o primeiro clique
+    // paga a construção do índice (parse de 10-15 MB por fonte). A página abre com
+    // o catálogo canônico e as fontes entram se chegarem a tempo; senão o índice
+    // segue aquecendo em background para o próximo clique.
+    const busca = buscarOfertasPessoais(response.game).catch(() => [])
+    const prazo = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), PERSONAL_OFFERS_TIMEOUT_MS)
+      if (process.versions?.electron) timer.unref?.()
+    })
+    const summaries = await Promise.race([busca, prazo])
+    if (summaries?.length) {
+      response.offers = [...(response.offers || []), ...summaries]
+      response.game.offerCount = Number(response.game.offerCount || 0) + summaries.length
+    }
     return response
   }
 
