@@ -39,3 +39,21 @@ test("ignora nomes parecidos, PID inválido e /proc indisponível", () => {
     fs.rmSync(f.root, { recursive: true, force: true })
   }
 })
+
+test("Dolphin ignora o processo do gerenciador de arquivos KDE", () => {
+  const f = fixture()
+  try {
+    fs.writeFileSync(path.join(f.proc, "4242", "comm"), "dolphin\n")
+    assert.equal(
+      getRunningEmulatorStatus({ emulatorId: "dolphin", procRoot: f.proc }).running,
+      false,
+    )
+    fs.writeFileSync(path.join(f.proc, "4242", "comm"), "dolphin-emu\n")
+    assert.equal(
+      getRunningEmulatorStatus({ emulatorId: "dolphin", procRoot: f.proc }).running,
+      true,
+    )
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})

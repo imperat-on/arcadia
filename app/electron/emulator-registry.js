@@ -114,7 +114,9 @@ const DEFINITIONS = Object.freeze({
     name: "Dolphin",
     systems: ["GameCube", "Wii"],
     description: "Emulador de GameCube e Wii",
-    candidates: ["dolphin-emu", "dolphin"],
+    // `dolphin` sozinho é o gerenciador de arquivos do KDE no Linux. O
+    // emulador instala `dolphin-emu`; aceitar o nome curto gera falso positivo.
+    candidates: ["dolphin-emu"],
     flatpakIds: ["org.DolphinEmu.dolphin-emu"],
     romExtensions: BUILTIN_ROM_EXTENSIONS.dolphin,
     romDirectoryMarkers: [],

@@ -47,3 +47,9 @@ test("painel não executa comandos nem acessa ipcRenderer", () => {
   assert.doesNotMatch(panel, /ipcRenderer|child_process|spawn\(/)
   assert.doesNotMatch(panel, /access_token|refresh_token|authorization/i)
 })
+
+test("seletor de emulador usa o tema escuro do Arcadia", () => {
+  assert.match(panel, /colorScheme: "dark"/)
+  assert.match(panel, /\[color-scheme:dark\]/)
+  assert.match(panel, /<option[^>]+bg-\[#151515\][^>]+text-white/)
+})
