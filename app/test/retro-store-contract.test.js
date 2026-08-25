@@ -72,3 +72,12 @@ test("detalhe Retro aberto pela Library não busca a grade", () => {
   // A guarda de 4.1: com initialGameId, retro:list não é chamado.
   assert.match(retro, /if \(initialGameId\) return/)
 })
+
+test("detalhe Retro não exibe a semente parcial enquanto carrega", () => {
+  const retro = read("src", "components", "desktop", "RetroStoreView.tsx")
+  // O jogo vindo da Library pode ter hero antes da capa/detalhes canônicos.
+  // Enquanto retro:game resolve, só o skeleton pode aparecer; isso evita o
+  // flash do hero gigante antes do layout final.
+  assert.match(retro, /detailLoading && <RetroDetailSkeleton \/>/)
+  assert.match(retro, /detail && !detailLoading && \(/)
+})
