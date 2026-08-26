@@ -1,6 +1,6 @@
 {
   "name": "arcadia",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "desktopName": "arcadia.desktop",
   "private": true,
   "main": "electron/main.js",
@@ -59,7 +59,6 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
-    "adm-zip": "^0.6.0",
     "hls.js": "^1.6.16",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

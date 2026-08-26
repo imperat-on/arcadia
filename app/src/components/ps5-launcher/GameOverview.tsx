@@ -38,6 +38,7 @@ interface GameOverviewProps {
   game: Game
   news: NewsItem[]
   appFocused?: boolean
+  visible?: boolean
   rodando?: boolean
   abrindo?: boolean
   closing?: boolean
@@ -94,7 +95,7 @@ function timeSince(date: string): string {
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
-  { game, news, appFocused = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
+  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
   ref,
 ) {
   const { t } = useI18n()
@@ -103,36 +104,69 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const [trailer, setTrailer] = useState<string | null>(null)
   const [media, setMedia] = useState("hero")
   const [achievements, setAchievements] = useState<Achievement[] | null>(null)
-  const [retroProgress, setRetroProgress] = useState<{ unlocked: number; total: number } | null>(null)
+  const [retroProgress, setRetroProgress] = useState<{ unlocked: number; total: number } | null>(
+    null,
+  )
+  // Consultas IPC e leitura de trailer são adiadas até o painel terminar de
+  // subir. Dispará-las no primeiro frame roubava tempo da animação.
+  const [ready, setReady] = useState(false)
   const backRef = useRef<HTMLButtonElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => backRef.current?.focus({ preventScroll: true }))
+    if (!visible) return
+    const frame = window.requestAnimationFrame(() =>
+      backRef.current?.focus({ preventScroll: true }),
+    )
     return () => window.cancelAnimationFrame(frame)
-  }, [game.id])
+  }, [game.id, visible])
+
+  useEffect(() => {
+    setReady(false)
+    if (!visible) return
+    const timer = window.setTimeout(() => setReady(true), 1050)
+    return () => window.clearTimeout(timer)
+  }, [game.id, visible])
 
   useEffect(() => {
     let live = true
     setMeta(null)
+    if (!ready) return () => { live = false }
     const api = window.launcherAPI
-    if (!api) return () => { live = false }
-    api.gameSysinfo(game).then((result) => {
-      if (live) setMeta(result?.info || null)
-    }).catch(() => {})
-    return () => { live = false }
-  }, [game.id])
+    if (!api)
+      return () => {
+        live = false
+      }
+    api
+      .gameSysinfo(game)
+      .then((result) => {
+        if (live) setMeta(result?.info || null)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [game.id, ready])
 
   useEffect(() => {
     let live = true
     setTrailer(null)
+    if (!ready) return () => { live = false }
     const api = window.launcherAPI
-    if (!api) return () => { live = false }
-    api.trailerPath(game.id).then((result) => {
-      if (live) setTrailer(result?.path || null)
-    }).catch(() => {})
-    return () => { live = false }
-  }, [game.id])
+    if (!api)
+      return () => {
+        live = false
+      }
+    api
+      .trailerPath(game.id)
+      .then((result) => {
+        if (live) setTrailer(result?.path || null)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [game.id, ready])
 
   useEffect(() => {
     if (trailer || !meta?.movies?.length) return
@@ -145,34 +179,50 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     let live = true
     setAchievements(null)
     setRetroProgress(null)
+    if (!ready) return () => { live = false }
     const api = window.launcherAPI
-    if (!api) return () => { live = false }
+    if (!api)
+      return () => {
+        live = false
+      }
 
     if (game.retro && game.systemId && api.retroachievementsGameProgress) {
-      api.retroachievementsGameProgress(game.title, game.systemId).then((result) => {
-        if (live && result?.game) {
-          setRetroProgress({
-            unlocked: result.game.numAwardedToUser || 0,
-            total: result.game.numAchievements || 0,
-          })
-        }
-      }).catch(() => {})
-      return () => { live = false }
+      api
+        .retroachievementsGameProgress(game.title, game.systemId)
+        .then((result) => {
+          if (live && result?.game) {
+            setRetroProgress({
+              unlocked: result.game.numAwardedToUser || 0,
+              total: result.game.numAchievements || 0,
+            })
+          }
+        })
+        .catch(() => {})
+      return () => {
+        live = false
+      }
     }
 
     if (game.launcher !== "steam") {
       setAchievements([])
-      return () => { live = false }
+      return () => {
+        live = false
+      }
     }
 
     const appid = String(game.id).replace(/^steam:/, "")
-    api.achievementsGet(appid).then((items) => {
-      if (live) setAchievements(Array.isArray(items) ? items : [])
-    }).catch(() => {
-      if (live) setAchievements([])
-    })
-    return () => { live = false }
-  }, [game.id, game.launcher, game.retro, game.systemId, game.title])
+    api
+      .achievementsGet(appid)
+      .then((items) => {
+        if (live) setAchievements(Array.isArray(items) ? items : [])
+      })
+      .catch(() => {
+        if (live) setAchievements([])
+      })
+    return () => {
+      live = false
+    }
+  }, [game.id, game.launcher, game.retro, game.systemId, game.title, ready])
 
   useEffect(() => {
     setMedia("hero")
@@ -187,7 +237,9 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
   const backdrop = game.hero || meta?.background || meta?.header || game.cover || ""
   const cover = game.cover || meta?.header || backdrop
-  const description = cleanText(game.description || meta?.short_description || meta?.about) || t("gameoverview.sem_descricao")
+  const description =
+    cleanText(game.description || meta?.short_description || meta?.about) ||
+    t("gameoverview.sem_descricao")
   const developer = game.developer || meta?.developers?.[0] || game.publisher || game.launcher
   const publisher = game.publisher || meta?.publishers?.[0] || "—"
   const platform = game.platform || game.systemId || game.launcher
@@ -197,145 +249,99 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     .filter(Boolean)
     .slice(0, 4)
 
-  const screenshots = useMemo(() => unique([
-    ...(mediaGame.screenshots || []),
-    ...(mediaGame.titleScreens || []),
-    ...(meta?.screenshots || []).flatMap((shot) => [shot.full, shot.thumb]),
-  ]).filter((image) => image !== backdrop).slice(0, 5), [mediaGame.screenshots, mediaGame.titleScreens, meta?.screenshots, backdrop])
+  const screenshots = useMemo(
+    () =>
+      unique([
+        ...(mediaGame.screenshots || []),
+        ...(mediaGame.titleScreens || []),
+        ...(meta?.screenshots || []).flatMap((shot) => [shot.full, shot.thumb]),
+      ])
+        .filter((image) => image !== backdrop)
+        .slice(0, 5),
+    [mediaGame.screenshots, mediaGame.titleScreens, meta?.screenshots, backdrop],
+  )
 
-  const mediaItems = useMemo<MediaItem[]>(() => [
-    ...(trailer ? [{
-      src: meta?.movies?.[0]?.thumb || backdrop || cover,
-      full: "trailer",
-      label: t("gameoverview.trailer"),
-      trailer: true,
-    }] : []),
-    ...screenshots.map((image, index) => ({
-      src: image,
-      full: image,
-      label: `Imagem ${index + 1}`,
-    })),
-  ].filter((item): item is MediaItem => Boolean(item.src)), [trailer, meta?.movies, backdrop, cover, screenshots, t])
+  const mediaItems = useMemo<MediaItem[]>(
+    () =>
+      [
+        ...(trailer
+          ? [
+              {
+                src: meta?.movies?.[0]?.thumb || backdrop || cover,
+                full: "trailer",
+                label: t("gameoverview.trailer"),
+                trailer: true,
+              },
+            ]
+          : []),
+        ...screenshots.map((image, index) => ({
+          src: image,
+          full: image,
+          label: `Imagem ${index + 1}`,
+        })),
+      ].filter((item): item is MediaItem => Boolean(item.src)),
+    [trailer, meta?.movies, backdrop, cover, screenshots, t],
+  )
 
   const relatedNews = useMemo(() => {
-    const words = game.title.toLocaleLowerCase().split(/\s+/).filter((word) => word.length > 3)
-    const related = news.filter((item) => words.some((word) =>
-      `${item.title} ${item.summary}`.toLocaleLowerCase().includes(word),
-    ))
+    const words = game.title
+      .toLocaleLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 3)
+    const related = news.filter((item) =>
+      words.some((word) => `${item.title} ${item.summary}`.toLocaleLowerCase().includes(word)),
+    )
     return (related.length ? related : news).slice(0, 2)
   }, [game.title, news])
 
-  const unlocked = retroProgress?.unlocked ?? achievements?.filter((item) => item.achieved).length ?? 0
+  const unlocked =
+    retroProgress?.unlocked ?? achievements?.filter((item) => item.achieved).length ?? 0
   const total = retroProgress?.total ?? achievements?.length ?? 0
   const progress = total ? Math.round((unlocked / total) * 100) : 0
   const preview = media !== "trailer" && media !== "hero" ? media : backdrop || cover
   const showingTrailer = media === "trailer" && Boolean(trailer) && appFocused
+  const overviewTime = new Date().toLocaleTimeString(userLocale(), { hour: "2-digit", minute: "2-digit" })
 
   return (
     <div
       ref={ref}
-      data-theme-slot="overview.root"
-      className={`arcadia-overview gp-scope fixed inset-0 z-[70] overflow-hidden text-white ${closing ? "is-closing" : ""}`}
+      className={`arcadia-overview gp-scope fixed inset-0 z-[70] overflow-hidden text-white ${closing ? "is-closing" : ""} ${!visible ? "is-hidden" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={`${t("gameoverview.detalhes")}: ${game.title}`}
     >
-      <div className="arcadia-overview__backdrop" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
-      <div className="arcadia-overview__backdrop-blur" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
-      <div className="arcadia-overview__wash" />
-      <div className="arcadia-overview__grid" />
-      <div className="arcadia-overview__scanlines" />
-      <div className="arcadia-overview__sweep" />
-
-      <header className="arcadia-overview__top">
-        <button ref={backRef} type="button" data-theme-action="back" onClick={onClose} className="arcadia-overview__back-button">
-          <span className="arcadia-overview__key">B</span>
-          <span>{t("gameoverview.controle.voltar")}</span>
-        </button>
-        <div className="arcadia-overview__brand" aria-hidden="true">
-          <strong>ARCADIA</strong>
-          <span>GAME HUB / {String(game.launcher).toUpperCase()}</span>
-        </div>
-        <span className="arcadia-overview__signal"><i /> ONLINE // {String(platform).toUpperCase()}</span>
+      <div className="ps5-overview-bg" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
+      <div className="ps5-overview-wash" />
+      <header className="ps5-overview-top">
+        <button ref={backRef} type="button" onClick={onClose} className="ps5-overview-back sr-only">{t("gameoverview.controle.voltar")}</button>
+        <div className="ps5-overview-game"><div className="ps5-overview-icon">{cover && <img src={cover} alt="" />}</div><span>{game.title}</span></div>
+        <time className="ps5-overview-time-top">{overviewTime}</time>
       </header>
-
-      <main className="arcadia-overview__layout">
-        <section className="arcadia-overview__hero">
-          <div className="arcadia-overview__cover-column">
-            <div className="arcadia-overview__cover-halo" />
-            <div className="arcadia-overview__cover-card">
-              {cover ? <img src={cover} alt="" draggable={false} /> : <span>{game.title}</span>}
-              <div className="arcadia-overview__cover-shade" />
-              <span className="arcadia-overview__cover-label">{game.installed === false ? "NÃO INSTALADO" : "NA BIBLIOTECA"}</span>
-            </div>
-            <span className="arcadia-overview__cover-index">ARC // {String(game.id).replace(/^steam:/, "").slice(0, 12)}</span>
-          </div>
-
-          <div className="arcadia-overview__identity">
-            <span className="arcadia-overview__eyebrow">{developer} <b>//</b> JOGO SELECIONADO</span>
-            {game.logo ? <img src={game.logo} alt={game.title} className="arcadia-overview__logo" /> : <h1>{game.title}</h1>}
-            <div className="arcadia-overview__tags">
-              {tags.map((tag) => <span key={tag}>{tag}</span>)}
-              <span>{release}</span>
-            </div>
-            <p className="arcadia-overview__description">{description}</p>
-            <div className="arcadia-overview__actions">
-              <button type="button" onClick={() => onLaunch(game)} className="arcadia-overview__action arcadia-overview__action--primary">
-                <span className="arcadia-overview__action-icon">{rodando ? "■" : "▶"}</span>
-                {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("gameoverview.jogar_agora")}
-              </button>
-              {trailer && <button type="button" onClick={() => setMedia("trailer")} className="arcadia-overview__action">
-                <span className="arcadia-overview__action-icon">▷</span>
-                {t("gameoverview.trailer")}
-              </button>}
-            </div>
-            <div className="arcadia-overview__controls"><span><b>A</b> selecionar</span><span><b>B</b> voltar</span><span><b>R1</b> próxima aba</span></div>
+      <main key={game.id} className="ps5-overview-main">
+        <section className="ps5-overview-activity">
+          <span className="ps5-overview-badge">{tags[0] || String(platform)}</span>
+          {game.logo ? <img src={game.logo} alt={game.title} className="ps5-overview-logo" /> : <h1>{game.title}</h1>}
+          <p>{game.playtime_minutes ? `Continue de onde parou · ${formatPlaytime(game.playtime_minutes)}` : description}</p>
+          <div className="ps5-overview-actions">
+            <button type="button" onClick={() => onLaunch(game)} className="ps5-overview-play">{rodando ? "■" : "▶"} {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("gameoverview.jogar_agora")}</button>
+            <button type="button" onClick={() => trailer ? setMedia("trailer") : onLaunch(game)} className="ps5-overview-more" aria-label="Mais opções">•••</button>
+            {trailer && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
           </div>
         </section>
-
-        <aside className="arcadia-overview__side">
-          <section className="arcadia-overview__panel arcadia-overview__progress-panel">
-            <div className="arcadia-overview__panel-heading"><span>PROGRESSO // JORNADA</span><strong>{progress}%</strong></div>
-            <div className="arcadia-overview__progress-line"><span style={{ width: `${progress}%` }} /></div>
-            <div className="arcadia-overview__progress-copy"><span>{total ? `${unlocked}/${total}` : "—"} CONQUISTAS</span><span>{game.playtime_minutes ? formatPlaytime(game.playtime_minutes) : "NOVA SESSÃO"}</span></div>
-          </section>
-
-          <section className="arcadia-overview__preview">
-            <div className="arcadia-overview__preview-media">
-              {showingTrailer && trailer ? <video ref={videoRef} key={trailer} src={trailer} poster={backdrop || cover} autoPlay loop muted playsInline /> : preview ? <img key={preview} src={preview} alt="" draggable={false} /> : <span className="arcadia-overview__preview-empty">SEM ARTE DISPONÍVEL</span>}
-              <div className="arcadia-overview__preview-shade" />
-              <span className="arcadia-overview__preview-status">{showingTrailer ? "TRAILER // PLAYING" : "SIGNAL // READY"}</span>
-              <span className="arcadia-overview__preview-code">{String(game.id).slice(0, 8).toUpperCase()}</span>
-            </div>
-          </section>
-
-          <section className="arcadia-overview__panel arcadia-overview__data-panel">
-            <div className="arcadia-overview__panel-heading"><span>DADOS DO JOGO</span><span className="arcadia-overview__panel-dot" /></div>
-            <DataRow label="Plataforma" value={String(platform)} />
-            <DataRow label="Última sessão" value={formatLastPlayed(game.last_played)} />
-            <DataRow label="Desenvolvedora" value={developer} />
-            <DataRow label="Distribuidora" value={publisher} />
-          </section>
+        <aside className="ps5-overview-product">
+          {cover ? <img src={cover} alt="" /> : <span>{game.title}</span>}
+          <strong>{game.installed === false ? t("hero.instalar") : "Na biblioteca"}</strong>
+          <small>{release} · {developer}</small>
         </aside>
-
-        <section className="arcadia-overview__activity">
-          <div className="arcadia-overview__activity-heading"><span>ATIVIDADES</span><small>SELECIONE UMA ATIVIDADE</small></div>
-          <div className="arcadia-overview__activity-rail">
-            <button type="button" onClick={() => onLaunch(game)} className="arcadia-overview__activity-card arcadia-overview__activity-card--launch">
-              <span className="arcadia-overview__activity-mark">▶</span>
-              <span><b>{rodando ? "JOGO EM EXECUÇÃO" : "CONTINUAR JOGANDO"}</b><small>{game.playtime_minutes ? formatPlaytime(game.playtime_minutes) : "Começar uma nova sessão"}</small></span>
-              <em>A</em>
-            </button>
-            {mediaItems.map((item) => <button type="button" key={`${item.full}-${item.label}`} onClick={() => setMedia(item.full)} className={`arcadia-overview__activity-card arcadia-overview__activity-card--media ${media === item.full ? "is-active" : ""}`}>
-              <span className="arcadia-overview__activity-thumb"><img src={item.src} alt="" draggable={false} />{item.trailer && <i>▶</i>}</span>
-              <span><b>{item.label}</b><small>{item.trailer ? "Assistir agora" : "Abrir captura"}</small></span>
-            </button>)}
-            {relatedNews.map((item) => <button type="button" key={item.id} onClick={() => onOpenNews(item.url)} className="arcadia-overview__activity-card arcadia-overview__activity-card--news">
-              <span className="arcadia-overview__activity-mark">✦</span>
-              <span><b>{item.title}</b><small>{item.source} {timeSince(item.date) && `// ${timeSince(item.date)}`}</small></span>
-            </button>)}
-            {!mediaItems.length && !relatedNews.length && <div className="arcadia-overview__empty-activity">Nenhuma atividade adicional disponível.</div>}
-          </div>
+        <div className="ps5-overview-stats">
+          <section className="ps5-overview-progress"><span>◔ Progresso do jogo</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? `${unlocked}/${total} conquistas` : "Sem conquistas disponíveis"}</small></section>
+          <section className="ps5-overview-time">◷ {game.playtime_minutes ? `Jogado ${formatPlaytime(game.playtime_minutes)}` : "Ainda não jogado"}</section>
+        </div>
+        <section className="ps5-overview-cards">
+          <article><span>🏆</span><b>Conquistas</b><small>{total ? `${unlocked} de ${total} desbloqueadas` : "Ainda não há dados"}</small></article>
+          <article><span>♟</span><b>Amigos que jogam</b><small>Nenhum amigo jogando agora</small></article>
+          <article><span>✦</span><b>Ajuda do jogo</b><small>{relatedNews[0]?.title || "Dicas, notícias e informações"}</small></article>
+          {mediaItems.slice(0, 1).map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} className="ps5-overview-media">{showingTrailer && trailer ? <video ref={videoRef} src={trailer} autoPlay loop muted playsInline /> : <img src={item.src} alt="" />}<span>{item.label}</span></button>)}
         </section>
       </main>
     </div>
@@ -343,5 +349,10 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 })
 
 function DataRow({ label, value }: { label: string; value: string }) {
-  return <div className="arcadia-overview__data-row"><span>{label}</span><strong>{value}</strong></div>
+  return (
+    <div className="arcadia-overview__data-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
 }

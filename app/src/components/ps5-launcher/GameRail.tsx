@@ -53,7 +53,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
   const move = (delta: number) => onSelect(Math.max(0, Math.min(games.length - 1, selectedIndex + delta)))
 
   return (
-    <section data-theme-slot="home.rail" className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
+    <section className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
       <div className="retro-featured-label mb-2 px-1 text-[10px] font-black uppercase tracking-[0.12em]">Em destaque</div>
       <button type="button" onClick={() => move(-1)} disabled={selectedIndex === 0} className="retro-rail-arrow retro-rail-arrow-left absolute left-1 top-1/2 z-20 grid h-12 w-7 place-items-center text-2xl disabled:opacity-15" aria-label="Jogo anterior">‹</button>
       <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Biblioteca de jogos">
@@ -66,8 +66,6 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
               ref={focused ? selectedRef : undefined}
               type="button"
               tabIndex={focused ? 0 : -1}
-              data-theme-slot="home.game-card"
-              data-theme-state={focused ? "selected" : game.favorite ? "favorite" : undefined}
               data-roving-item="true"
               data-roving-index={index}
               data-active={focused}
@@ -87,7 +85,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
               aria-label={`${game.title} — selecionar`}
             >
               <div className="retro-library-cover relative overflow-hidden" style={{ height: Math.round(cardWidth * 1.42), background: FALLBACK_GRADIENTS[game.launcher] || "#09100f" }}>
-                {cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} /> : (
+                {cover ? <img src={cover} alt={game.title} className="ps5-cover-art" loading="lazy" draggable={false} /> : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-3 text-center text-white/50">
                     <LauncherIcon launcher={game.launcher} size={28} />
                     <span className="line-clamp-3 text-[11px] font-bold uppercase">{game.title}</span>

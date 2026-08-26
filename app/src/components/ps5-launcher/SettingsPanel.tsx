@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
 import type { AppConfig, IntegrationsStatus } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
-import { FullscreenThemeGallery } from "./FullscreenThemeGallery"
 
 // Os três idiomas traduzidos. O rótulo fica no idioma nativo de cada um: quem
 // abriu o app no idioma errado precisa reconhecer o seu na lista.
@@ -21,7 +20,7 @@ interface SettingsPanelProps {
   onUiChange?: (c: { card_scale?: number; accent?: string }) => void
 }
 
-type Section = "temas" | "fullscreen-themes"
+type Section = "temas"
 
 export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPanelProps) {
   const { t } = useI18n()
@@ -59,20 +58,22 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      onClose()
+    }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, onClose, section])
 
   if (!open) return null
 
   const NAV: { id: Section; label: string; icon: JSX.Element }[] = [
     { id: "temas", label: t("settings.temas"), icon: <IconTheme /> },
-    { id: "fullscreen-themes", label: t("themes.titulo"), icon: <IconTheme /> },
   ]
 
   return (
-    <div ref={rootRef} data-theme-slot="settings.root" className="retro-settings-shell gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
+    <div ref={rootRef} className="retro-settings-shell gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
       {/* Sidebar */}
       <aside className="retro-settings-nav flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
         <div className="mb-6 flex items-center gap-2 px-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
@@ -161,9 +162,6 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
               }, 120)
             }}
           />
-        )}
-        {section === "fullscreen-themes" && (
-          <FullscreenThemeGallery onClose={() => setSection("temas")} />
         )}
       </main>
     </div>

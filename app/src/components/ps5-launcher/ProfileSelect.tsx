@@ -139,20 +139,20 @@ export default function ProfileSelect({
                       e.stopPropagation()
                       setMenuOpen((v) => !v)
                     }}
-                    className="grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white/80 opacity-0 transition-opacity duration-200 hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100 [.ps5-slot[data-focus=true]_&]:opacity-100"
+                    className="player-select-menu-button grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white/80 opacity-0 transition-opacity duration-200 hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100 [.ps5-slot[data-focus=true]_&]:opacity-100"
                   >
                     <span className="text-lg leading-none">⋯</span>
                   </button>
                   {menuOpen && (
                     <div
                       role="menu"
-                      className="absolute right-0 top-10 min-w-[9rem] overflow-hidden rounded-md border border-white/10 bg-[var(--color-ps-surface2)] shadow-2xl"
+                      className="player-select-menu absolute right-0 top-10 min-w-[9rem] overflow-hidden rounded-md border border-white/10 bg-[var(--color-ps-surface2)] shadow-2xl"
                     >
                       {onEdit && (
                         <button
                           type="button"
                           role="menuitem"
-                          className="block w-full px-4 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                          className="player-select-menu-item block w-full px-4 py-2 text-left text-sm text-white/90 hover:bg-white/10"
                           onClick={(e) => {
                             e.stopPropagation()
                             setMenuOpen(false)
@@ -166,7 +166,7 @@ export default function ProfileSelect({
                         <button
                           type="button"
                           role="menuitem"
-                          className="block w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10"
+                          className="player-select-menu-item player-select-menu-item--danger block w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10"
                           onClick={(e) => {
                             e.stopPropagation()
                             setMenuOpen(false)

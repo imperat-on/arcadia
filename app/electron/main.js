@@ -43,9 +43,6 @@ const { createSnapshotService } = require("./snapshot-service")
 const { createDiagnosticsService } = require("./diagnostics")
 const { createSupportBundle } = require("./support-bundle")
 const { createGameSettingsService } = require("./game-settings-service")
-const { createThemeService } = require("./themes/service")
-const { registerThemeIpc } = require("./themes/ipc")
-const { createProtocolHandler } = require("./themes/protocol")
 const { createEmulatorRegistry } = require("./emulator-registry")
 const { getEmulatorStatus, preflightEmulator } = require("./emulator-status")
 const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulator-runtime")
@@ -186,17 +183,6 @@ const diagnostics = createDiagnosticsService({
   getLibrary: () => readLibrary(),
 })
 const supportBundle = createSupportBundle({ dataDir: DATA_DIR })
-// Serviço de temas Fullscreen: registro, validação e descoberta.
-const themeService = createThemeService({ themesDir: path.join(DATA_DIR, "themes") })
-const themeProtocol = createProtocolHandler({ themesDir: path.join(DATA_DIR, "themes") })
-// Modo seguro: --safe-theme ou ARCADIA_SAFE_THEME=1 forçam o tema embutido.
-const SAFE_THEME = process.argv.includes("--safe-theme") || process.env.ARCADIA_SAFE_THEME === "1"
-if (SAFE_THEME) {
-  // Força Default e limpa pending sem destruir o registro do usuário.
-  themeService.registry.reset()
-  themeService.registry.confirmActivation("arcadia.default")
-  console.warn("[themes] modo seguro ativo: tema forçado para arcadia.default")
-}
 // Script pós-jogo pendente (aba AVANÇADO): roda quando o jogo fechar.
 let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
@@ -1706,16 +1692,6 @@ function configurarLojaSteam() {
   } catch {}
 }
 
-// Registra o scheme arcadia-theme como privilegiado antes do app estar pronto.
-// Sem isso, o Electron não permite registrar o handler depois.
-try {
-  const { protocol } = require("electron")
-  protocol.registerSchemesAsPrivileged([{
-    scheme: "arcadia-theme",
-    privileges: { bypassCSP: false, supportFetchAPI: false, corsEnabled: false, stream: false },
-  }])
-} catch {}
-
 app.whenReady().then(() => {
   // Modo diagnóstico: imprime o estado interno (conta, achievements, bins do
   // Steam, fila de sync, erros recentes) e fecha. Sem janela.
@@ -1753,33 +1729,6 @@ app.whenReady().then(() => {
     )
   } catch (e) {
     console.error("[supabase] falha ao registrar IPC de conta:", e)
-  }
-  // IPC de temas Fullscreen: lista, ativa, remove e importa temas.
-  try {
-    registerThemeIpc({
-      ipcMain,
-      themeService,
-      protocolHandler: themeProtocol,
-      dialog,
-      browserWindow: require("electron").BrowserWindow,
-    })
-    // Registra temas locais válidos no protocolo de assets.
-    const themeList = themeService.list()
-    for (const t of themeList) {
-      if (t.source === "local" && t.valid) {
-        const themeDir = path.join(DATA_DIR, "themes", "fullscreen", t.id)
-        themeProtocol.registerTheme(t.id, themeDir)
-      }
-    }
-    // Registra o handler do protocolo arcadia-theme:// no Electron.
-    try {
-      const { protocol } = require("electron")
-      themeProtocol.registerElectronProtocol(protocol)
-    } catch (e) {
-      console.warn("[themes] protocolo arcadia-theme:// não registrado:", e.message)
-    }
-  } catch (e) {
-    console.error("[themes] falha ao registrar IPC de temas:", e)
   }
   // Não há prefetch de vitrine: a loja é a página web da Steam embutida
   // (StoreConsole/webview), que se cacheia sozinha. O que vale a pena é abrir

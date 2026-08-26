@@ -463,24 +463,6 @@ input,
     transform var(--dur-1) var(--ease);
 }
 
-/* ─── Modo console (Big Picture) ───────────────────────────────────────────
-   Troca de aba (Notícias · Jogos · Biblioteca). Um pouco mais suave que o
-   equivalente do desktop: aqui a navegação é por gamepad, mais lenta, e a
-   tela inteira muda de conteúdo de uma vez. */
-@keyframes tabIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.tab-in {
-  animation: tabIn var(--dur-3) var(--ease-out) both;
-}
-
 /* O trilho de capas e a grade são navegados com o controle: a resposta ao
    mover a seleção precisa ser imediata, senão parece atraso de input. Só a
    sombra e a escala acompanham, e no tempo mais curto. */
@@ -1485,81 +1467,68 @@ select:disabled {
   box-shadow: 8px 8px 0 rgba(182,255,57,.16), 0 0 28px rgba(182,255,57,.18) !important;
 }
 
-/* Seleção de jogador — terminal neon violeta. Mantém os mesmos botões,
-   callbacks e navegação por gamepad; somente a apresentação é substituída. */
+/* Seleção de jogador — tela de usuário no mesmo tratamento visual do PS5. */
 .player-select-root {
-  --player-violet: #e46bff;
-  --player-violet-bright: #f3adff;
-  --player-violet-dim: #83369b;
+  --player-focus: #fff;
+  --player-blue: #78b9ff;
   justify-content: center;
-  padding-top: 0;
-  padding-bottom: clamp(18px, 3vh, 36px);
+  padding: clamp(38px, 7vh, 78px) clamp(24px, 4vw, 70px) clamp(28px, 5vh, 54px);
   background:
-    radial-gradient(ellipse at 50% 42%, rgba(109, 30, 139, .14), transparent 37%),
-    radial-gradient(ellipse at 50% 112%, rgba(114, 28, 149, .18), transparent 46%),
-    linear-gradient(180deg, #030205 0%, #050307 66%, #07030a 100%) !important;
-  font-family: "Inter", sans-serif;
+    linear-gradient(180deg, rgba(4, 12, 26, .08), rgba(2, 6, 14, .88)),
+    radial-gradient(circle at 72% 16%, rgba(92, 164, 255, .22), transparent 35%),
+    radial-gradient(circle at 25% 92%, rgba(255, 255, 255, .07), transparent 34%),
+    #071326 !important;
+  font-family: Inter, sans-serif;
 }
 
 .player-select-atmosphere {
   overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.035), transparent 26%),
+    linear-gradient(90deg, rgba(0,0,0,.3), transparent 20%, transparent 78%, rgba(0,0,0,.34));
+}
+
+.player-select-atmosphere::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.42));
 }
 
 .player-select-scanlines {
-  z-index: 4;
-  opacity: .42;
-  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0, 0, 0, .42) 4px);
-  mix-blend-mode: multiply;
+  display: none !important;
 }
 
 .player-select-noise {
-  z-index: 3;
-  opacity: .16;
-  background-image:
-    radial-gradient(circle at 8% 12%, rgba(222, 83, 255, .7) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 77% 21%, rgba(222, 83, 255, .5) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 23% 69%, rgba(222, 83, 255, .35) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 91% 61%, rgba(222, 83, 255, .4) 0 1px, transparent 1.5px);
-  background-size: 311px 197px, 419px 263px, 271px 229px, 367px 307px;
-  animation: player-noise-drift 9s steps(3) infinite;
+  display: none !important;
 }
 
 .player-select-grid {
-  z-index: 2;
-  height: 34%;
-  opacity: .52;
-  border-top: 1px solid rgba(226, 87, 255, .28);
-  background-image:
-    linear-gradient(rgba(211, 69, 244, .34) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(211, 69, 244, .3) 1px, transparent 1px);
-  background-size: 52px 26px;
-  transform-origin: 50% 100%;
-  transform: perspective(350px) rotateX(62deg) scaleX(1.42) scaleY(1.7);
-  box-shadow: 0 -18px 55px rgba(126, 29, 154, .08);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 100%);
+  display: none !important;
 }
 
 .player-select-kicker {
-  margin: 0;
-  color: rgba(238, 139, 255, .78);
-  font-family: "Orbitron", sans-serif;
-  font-size: clamp(7px, .62vw, 11px);
-  letter-spacing: .28em;
-  text-shadow: 0 0 12px rgba(222, 83, 255, .5);
+  margin: 0 0 14px;
+  color: rgba(255,255,255,.56);
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .player-select-title {
-  margin-top: clamp(9px, 1.2vh, 16px);
-  color: var(--player-violet) !important;
-  font-size: clamp(25px, 3.05vw, 49px) !important;
-  letter-spacing: .13em !important;
-  line-height: 1;
-  text-shadow:
-    0 0 7px rgba(238, 130, 255, .88),
-    0 0 25px rgba(208, 66, 239, .35),
-    3px 0 0 rgba(123, 39, 145, .25) !important;
-  animation: player-title-signal 5.5s linear infinite;
+  margin: 0;
+  color: #fff !important;
+  font-family: Inter, sans-serif !important;
+  font-size: 3rem !important;
+  font-weight: 300 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.05;
+  text-transform: none !important;
+  text-shadow: 0 8px 36px rgba(0,0,0,.48) !important;
+  animation: none !important;
 }
 
 .player-select-title::before {
@@ -1567,99 +1536,134 @@ select:disabled {
 }
 
 .player-select-list {
-  gap: clamp(28px, 3.2vw, 54px);
-  margin-top: clamp(34px, 5.5vh, 62px);
+  gap: clamp(24px, 3vw, 44px);
+  margin-top: clamp(48px, 8vh, 92px);
+  align-items: flex-start;
 }
 
 .player-select-card {
-  width: clamp(126px, 11vw, 176px) !important;
-  height: clamp(126px, 11vw, 176px) !important;
-  border: 1px solid rgba(203, 69, 233, .68) !important;
-  border-radius: 0 !important;
-  opacity: .68 !important;
-  transform: scale(.96) !important;
-  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px) !important;
-  background:
-    repeating-linear-gradient(to bottom, rgba(255,255,255,.018) 0 2px, rgba(0,0,0,.075) 3px),
-    radial-gradient(circle at 50% 42%, rgba(190, 74, 225, .2), transparent 66%),
-    #09060d !important;
-  box-shadow: inset 0 0 30px rgba(167, 49, 201, .07) !important;
-  transition: transform 180ms ease, opacity 180ms ease, border-color 180ms ease, box-shadow 180ms ease !important;
+  width: clamp(120px, 10vw, 164px) !important;
+  height: clamp(120px, 10vw, 164px) !important;
+  border: 0 !important;
+  border-radius: 18px !important;
+  opacity: .72 !important;
+  transform: translateY(12px) scale(.96) !important;
+  clip-path: none !important;
+  background: rgba(255,255,255,.1) !important;
+  box-shadow: 0 13px 34px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.08) !important;
+  backdrop-filter: blur(18px);
+  transition: transform 260ms cubic-bezier(.16,1,.3,1), opacity 220ms ease, box-shadow 220ms ease, background-color 220ms ease !important;
 }
+
+.player-select-card img { border-radius: inherit; }
 
 .player-select-initial {
   color: #fff;
-  font-family: "Orbitron", sans-serif;
-  font-size: clamp(36px, 3.2vw, 56px);
-  background: radial-gradient(circle, rgba(194, 80, 224, .2), transparent 68%);
-  text-shadow: 0 0 15px rgba(231, 117, 255, .62);
+  font-family: Inter, sans-serif;
+  font-size: 4rem;
+  background: linear-gradient(145deg, #1764ae, #6fb5ff);
+  text-shadow: none;
 }
 
 .player-select-add {
-  border: 1px dashed rgba(207, 77, 237, .72) !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
   clip-path: none !important;
-  background: rgba(9, 5, 13, .52) !important;
+  background: rgba(255,255,255,.08) !important;
 }
 
 .player-select-plus {
-  color: rgba(221, 100, 249, .75);
-  font-size: clamp(48px, 4.1vw, 72px);
+  color: white;
+  font-size: 4rem;
   line-height: 1;
-  text-shadow: 0 0 18px rgba(210, 75, 241, .34);
+  text-shadow: none;
+  transform: translateY(-3px);
 }
 
 .player-select-slot[data-focus="true"] .player-select-card,
 .player-select-card:focus-visible {
   opacity: 1 !important;
-  transform: scale(1.04) !important;
-  border-color: var(--player-violet-bright) !important;
-  box-shadow:
-    inset 0 0 32px rgba(204, 71, 237, .18),
-    0 0 0 1px rgba(240, 153, 255, .38),
-    0 0 24px rgba(210, 75, 241, .42),
-    0 0 62px rgba(136, 36, 165, .18) !important;
+  transform: translateY(0) scale(1.08) !important;
+  border-color: transparent !important;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px rgba(88,156,255,.24) !important;
+  background: rgba(255,255,255,.16) !important;
 }
 
 .player-select-name {
-  color: rgba(248, 218, 255, .78);
-  letter-spacing: .035em;
-  text-shadow: 0 0 12px rgba(204, 72, 233, .25);
+  margin-top: 22px !important;
+  color: rgba(255,255,255,.78);
+  letter-spacing: 0;
+  text-shadow: 0 2px 18px rgba(0,0,0,.45);
+  transition: opacity 220ms ease, transform 260ms cubic-bezier(.16,1,.3,1);
 }
 
 .player-select-slot:not([data-focus="true"]) .player-select-name {
-  color: rgba(222, 100, 247, .65);
+  color: rgba(255,255,255,.42);
+  opacity: .82;
+}
+
+.player-select-slot[data-focus="true"] .player-select-name {
+  color: #fff;
+  transform: translateY(4px);
 }
 
 .player-select-prompt {
-  margin-top: clamp(34px, 6.5vh, 72px);
-  color: rgba(236, 217, 241, .56);
-  font-family: "Orbitron", sans-serif;
-  font-size: clamp(7px, .65vw, 11px) !important;
-  letter-spacing: .22em;
+  margin-top: clamp(42px, 7vh, 82px);
+  color: rgba(255,255,255,.46);
+  font-family: Inter, sans-serif;
+  font-size: .875rem !important;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none !important;
 }
 
 .player-select-prompt kbd {
-  border: 1px solid rgba(218, 90, 246, .55);
-  border-radius: 3px;
-  color: #f0a4ff;
-  background: rgba(137, 37, 161, .13);
-  box-shadow: 0 0 10px rgba(205, 69, 235, .18);
+  border: 0;
+  border-radius: 999px;
+  color: #111;
+  background: rgba(255,255,255,.9);
+  box-shadow: none;
+  font-weight: 700;
 }
 
-@keyframes player-title-signal {
-  0%, 91%, 94%, 100% { opacity: 1; transform: translateX(0); filter: none; }
-  92% { opacity: .78; transform: translateX(2px); filter: brightness(1.45); }
-  93% { opacity: .92; transform: translateX(-1px); }
+.player-select-menu-button {
+  color: #fff !important;
+  background: rgba(12,15,20,.72) !important;
+  backdrop-filter: blur(16px);
 }
 
-@keyframes player-noise-drift {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(13px, -7px); }
+.player-select-menu-button:hover,
+.player-select-menu-button:focus-visible {
+  color: #111 !important;
+  background: #fff !important;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .player-select-title,
-  .player-select-noise { animation: none !important; }
+.player-select-menu {
+  border: 1px solid rgba(255,255,255,.14) !important;
+  border-radius: 14px !important;
+  background: rgba(22,27,35,.94) !important;
+  box-shadow: 0 18px 48px rgba(0,0,0,.48) !important;
+  backdrop-filter: blur(24px);
+}
+
+.player-select-menu-item {
+  min-height: 42px;
+  color: rgba(255,255,255,.82) !important;
+  font-family: Inter, sans-serif;
+  font-size: .875rem !important;
+}
+
+.player-select-menu-item:hover,
+.player-select-menu-item:focus-visible {
+  color: #111 !important;
+  background: #fff !important;
+}
+
+.player-select-menu-item--danger { color: #ff707b !important; }
+.player-select-menu-item--danger:hover,
+.player-select-menu-item--danger:focus-visible { color: #fff !important; background: #c73545 !important; }
+
+@media (max-width: 900px) {
+  .player-select-title { font-size: 2.25rem !important; }
 }
 
 .retro-settings-shell,
@@ -2239,48 +2243,6 @@ select:disabled {
    primeiro o fundo aproxima, depois a capa voa para o lugar e por fim as
    atividades entram em cascata.
    ---------------------------------------------------------------------- */
-@keyframes arcadiaOverviewBackdropIn {
-  from { opacity: 0; transform: scale(1.16); filter: saturate(.55) brightness(.2) blur(8px); }
-  to { opacity: .86; transform: scale(1.035); filter: saturate(.88) brightness(.48) blur(0); }
-}
-
-@keyframes arcadiaOverviewBlurIn {
-  from { opacity: 0; transform: scale(1.22); }
-  to { opacity: .48; transform: scale(1.06); }
-}
-
-@keyframes arcadiaOverviewCoverIn {
-  from { opacity: 0; transform: translate3d(28vw, 25vh, 0) scale(1.58) rotate(-4deg); filter: brightness(1.35) blur(1px); }
-  68% { opacity: 1; transform: translate3d(-8px, 4px, 0) scale(1.015) rotate(.4deg); filter: brightness(1.05) blur(0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1) rotate(0); filter: none; }
-}
-
-@keyframes arcadiaOverviewContentIn {
-  from { opacity: 0; transform: translate3d(0, 34px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-@keyframes arcadiaOverviewSideIn {
-  from { opacity: 0; transform: translate3d(38px, 0, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-@keyframes arcadiaOverviewActivityIn {
-  from { opacity: 0; transform: translate3d(0, 30px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-@keyframes arcadiaOverviewSweep {
-  from { opacity: 0; transform: translate3d(-150%, 0, 0) skewX(-17deg); }
-  24% { opacity: .75; }
-  to { opacity: 0; transform: translate3d(760%, 0, 0) skewX(-17deg); }
-}
-
-@keyframes arcadiaOverviewOut {
-  from { opacity: 1; transform: scale(1); }
-  to { opacity: 0; transform: scale(1.025); }
-}
-
 .arcadia-overview {
   --overview-ice: #d9f6ff;
   --overview-cyan: #72ddff;
@@ -2295,7 +2257,6 @@ select:disabled {
 
 .arcadia-overview.is-closing {
   pointer-events: none;
-  animation: arcadiaOverviewOut 280ms cubic-bezier(.2, 0, 0, 1) both;
 }
 
 .arcadia-overview__backdrop,
@@ -2314,7 +2275,6 @@ select:disabled {
   inset: -7%;
   background-position: center;
   background-size: cover;
-  animation: arcadiaOverviewBackdropIn 760ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .arcadia-overview__backdrop-blur {
@@ -2325,7 +2285,6 @@ select:disabled {
   opacity: .48;
   filter: blur(28px) saturate(1.2) brightness(.65);
   transform: scale(1.06);
-  animation: arcadiaOverviewBlurIn 920ms ease-out both;
 }
 
 .arcadia-overview__wash {
@@ -2359,7 +2318,6 @@ select:disabled {
   width: 7%;
   background: linear-gradient(90deg, transparent, rgba(195, 241, 255, .2), transparent);
   filter: blur(3px);
-  animation: arcadiaOverviewSweep 1150ms cubic-bezier(.2, 0, .1, 1) 120ms both;
 }
 
 .arcadia-overview__top {
@@ -2488,7 +2446,6 @@ select:disabled {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  animation: arcadiaOverviewCoverIn 780ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .arcadia-overview__cover-halo {
@@ -2565,7 +2522,6 @@ select:disabled {
 
 .arcadia-overview__identity {
   min-width: 0;
-  animation: arcadiaOverviewContentIn 650ms cubic-bezier(.16, 1, .3, 1) 170ms both;
 }
 
 .arcadia-overview__eyebrow {
@@ -2693,7 +2649,6 @@ select:disabled {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  animation: arcadiaOverviewSideIn 650ms cubic-bezier(.16, 1, .3, 1) 300ms both;
 }
 
 .arcadia-overview__panel,
@@ -2828,7 +2783,6 @@ select:disabled {
 .arcadia-overview__activity {
   grid-column: 1 / -1;
   min-width: 0;
-  animation: arcadiaOverviewActivityIn 650ms cubic-bezier(.16, 1, .3, 1) 430ms both;
 }
 
 .arcadia-overview__activity-heading {
@@ -2868,13 +2822,8 @@ select:disabled {
   padding: 9px 11px;
   border-radius: 5px;
   text-align: left;
-  animation: arcadiaOverviewActivityIn 560ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.arcadia-overview__activity-card:nth-child(1) { animation-delay: 450ms; }
-.arcadia-overview__activity-card:nth-child(2) { animation-delay: 500ms; }
-.arcadia-overview__activity-card:nth-child(3) { animation-delay: 550ms; }
-.arcadia-overview__activity-card:nth-child(4) { animation-delay: 600ms; }
 
 .arcadia-overview__activity-card--launch {
   border-color: rgba(125, 204, 255, .42);
@@ -4086,4 +4035,216 @@ select:disabled {
 @media (max-width: 900px) {
   .detail-layout { grid-template-columns: 1fr !important; }
   .detail-layout > aside { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+/* Big Picture — linguagem visual PS5: tipografia leve, navegação horizontal,
+   arte em tela cheia e superfícies brancas translúcidas. */
+.retro-big-picture { background:#071326; font-family:Inter,sans-serif; }
+.retro-big-picture::before { position:absolute;inset:0;z-index:0;content:"";pointer-events:none;background:radial-gradient(circle at 74% 24%,rgba(35,117,215,.2),transparent 35%),linear-gradient(180deg,rgba(2,9,20,.08),rgba(2,8,18,.86)); }
+.retro-big-picture .retro-hero-background { display:block!important;width:100%!important;height:100%!important;object-fit:cover;background-repeat:no-repeat;filter:saturate(.88) contrast(1.03) brightness(.72);transform:none; }
+/* Regra legada escondia especificamente vídeos absolutos; o áudio seguia
+   tocando, mas a imagem virava uma tela preta. */
+.retro-big-picture > video.retro-hero-background.absolute { display:block!important;visibility:visible!important;opacity:1!important;z-index:0; }
+.ps5-topbar .retro-user-menu {
+  width:290px!important;
+  border:1px solid rgba(255,255,255,.14)!important;
+  border-radius:14px!important;
+  clip-path:none!important;
+  color:rgba(255,255,255,.9)!important;
+  background:rgba(22,27,35,.94)!important;
+  background-image:none!important;
+  box-shadow:0 18px 48px rgba(0,0,0,.48)!important;
+  backdrop-filter:blur(24px);
+}
+.ps5-topbar .retro-user-menu::before,.ps5-topbar .retro-user-menu-header::after,.ps5-topbar .retro-user-menu-item::before { display:none!important; }
+.ps5-topbar .retro-user-menu-header { border:0!important;background:rgba(255,255,255,.055)!important; }
+.ps5-topbar .retro-user-menu-header:hover,.ps5-topbar .retro-user-menu-header:focus-visible { background:rgba(255,255,255,.11)!important; }
+.ps5-topbar .retro-user-menu-avatar { border:0!important;border-radius:50%!important;clip-path:none!important;background:#1764ae!important;box-shadow:none!important; }
+.ps5-topbar .retro-user-menu-header .text-sm { font-family:Inter,sans-serif!important;font-size:14px!important;font-weight:600!important;letter-spacing:0!important;text-transform:none!important; }
+.ps5-topbar .retro-user-menu-divider { margin:5px 12px;height:1px;background:rgba(255,255,255,.1)!important; }
+.ps5-topbar .retro-user-menu-item { min-height:45px;padding:0 16px!important;color:rgba(255,255,255,.82)!important;font-family:Inter,sans-serif!important;font-size:14px!important;letter-spacing:0!important;text-transform:none!important; }
+.ps5-topbar .retro-user-menu-item:hover,.ps5-topbar .retro-user-menu-item:focus-visible { padding:0 16px!important;color:#111!important;outline:0!important;background:white!important;box-shadow:none!important; }
+.ps5-topbar .retro-user-menu-hint { color:rgba(255,255,255,.52)!important;font-family:Inter,sans-serif!important;font-size:12px!important; }
+.ps5-topbar .retro-user-menu-item:hover .retro-user-menu-hint,.ps5-topbar .retro-user-menu-item:focus-visible .retro-user-menu-hint { color:rgba(0,0,0,.6)!important; }
+.ps5-topbar .retro-user-menu-item[data-danger="true"] { color:#ff707b!important; }
+.ps5-topbar .retro-user-menu-item[data-danger="true"]:hover,.ps5-topbar .retro-user-menu-item[data-danger="true"]:focus-visible { color:#fff!important;background:#c73545!important; }
+
+/* Hub do jogo: composição cinematográfica inspirada na navegação de console. */
+.arcadia-overview { background:transparent!important; }
+.ps5-overview-bg,.ps5-overview-wash { position:absolute;inset:0;pointer-events:none; }
+.ps5-overview-bg,.ps5-overview-wash { display:none; }
+.ps5-overview-top { position:relative;z-index:2;display:flex;align-items:center;height:132px;padding:0 4vw;color:#fff; }
+.ps5-overview-game{display:flex;align-items:center;gap:14px;font-size:25px;font-weight:400;text-shadow:0 2px 12px rgba(0,0,0,.42)}.ps5-overview-icon{width:68px;height:68px;overflow:hidden;border-radius:12px;background:#152231;box-shadow:0 5px 18px rgba(0,0,0,.22)}.ps5-overview-icon img{width:100%;height:100%;object-fit:cover}.ps5-overview-platform{padding:5px 12px;border-radius:4px;background:rgba(255,255,255,.92);color:#17202a;font-size:10px;font-weight:700;letter-spacing:.08em}.ps5-overview-game i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.9)}.ps5-overview-time-top{margin-left:auto;font-size:28px;font-weight:300;letter-spacing:.02em}.ps5-overview-back{position:absolute}
+.ps5-overview-main { position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) 310px;grid-template-rows:1fr auto auto;gap:16px 42px;height:calc(100vh - 132px);padding:8vh 8.5vw 5vh; }
+.ps5-overview-activity { align-self:center;max-width:620px;color:white; }.ps5-overview-badge{display:inline-block;padding:4px 9px;border:1px solid rgba(255,255,255,.65);border-radius:3px;font-size:10px}.ps5-overview-activity h1{margin:13px 0 7px;font-size:clamp(2.4rem,4.2vw,4.5rem);font-weight:400;letter-spacing:-.055em}.ps5-overview-logo{display:block;max-width:440px;max-height:115px;margin:15px 0;object-fit:contain;object-position:left}.ps5-overview-activity p{margin:0;color:rgba(255,255,255,.78);font-size:16px}.ps5-overview-actions{display:flex;align-items:center;gap:28px;margin-top:46px}.ps5-overview-play{min-width:195px;padding:15px 24px;border-radius:28px;background:#fff;color:#161616;font-size:16px;font-weight:600}.ps5-overview-link{color:white;font-size:16px;text-shadow:0 2px 7px #000}
+.ps5-overview-product { align-self:center;overflow:hidden;border-radius:3px;background:rgba(5,8,12,.74);box-shadow:0 14px 38px rgba(0,0,0,.38);color:white; }.ps5-overview-product>img{display:block;width:100%;aspect-ratio:1.32;object-fit:cover}.ps5-overview-product>span{display:grid;aspect-ratio:1.32;place-items:center;padding:15px}.ps5-overview-product strong,.ps5-overview-product small{display:block;padding:8px 12px 0}.ps5-overview-product strong{font-size:15px}.ps5-overview-product small{padding-bottom:12px;color:rgba(255,255,255,.67);font-size:11px}
+.ps5-overview-stats{grid-column:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-self:end}.ps5-overview-progress,.ps5-overview-time{box-sizing:border-box;min-width:0;min-height:76px;padding:12px 16px;border-radius:9px;background:rgba(8,12,17,.76);backdrop-filter:blur(14px);color:white;font-size:14px}.ps5-overview-progress{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 10px}.ps5-overview-progress span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ps5-overview-progress b{justify-self:end}.ps5-overview-progress i{grid-column:1/-1;height:4px;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.2)}.ps5-overview-progress i em{display:block;height:100%;border-radius:inherit;background:white}.ps5-overview-progress small{grid-column:1/-1;overflow:hidden;color:rgba(255,255,255,.65);font-size:11px;white-space:nowrap;text-overflow:ellipsis}.ps5-overview-time{display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.25}
+.ps5-overview-cards { grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-self:end }.ps5-overview-cards article,.ps5-overview-media{min-height:148px;padding:22px 24px;border-radius:13px;background:rgba(12,15,20,.88);box-shadow:inset 0 1px rgba(255,255,255,.06);backdrop-filter:blur(16px);color:white;text-align:left}.ps5-overview-cards article span{float:left;margin-right:14px;font-size:27px}.ps5-overview-cards article b,.ps5-overview-cards article small{display:block}.ps5-overview-cards article b{margin-top:9px;font-size:19px}.ps5-overview-cards article small{margin-top:5px;color:rgba(255,255,255,.62);font-size:14px}.ps5-overview-media{display:none}.ps5-overview-media img,.ps5-overview-media video{width:100%;height:100%;object-fit:cover}.ps5-overview-media span{position:absolute;right:0;bottom:0;left:0;padding:10px;background:linear-gradient(transparent,rgba(0,0,0,.85));font-size:12px}
+.ps5-overview-play { background:rgba(55,35,39,.9)!important;color:#fff!important;box-shadow:0 8px 22px rgba(0,0,0,.22); }.ps5-overview-more{display:grid;width:50px;height:50px;place-items:center;border-radius:50%;background:rgba(56,35,39,.9);color:#fff;font-size:22px;line-height:0;letter-spacing:1px}.ps5-overview-link:hover,.ps5-overview-more:hover{background:rgba(255,255,255,.18)}
+@keyframes ps5HubRise { from { opacity:0; transform:translate3d(0,110px,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+.ps5-overview-main > * { animation:ps5HubRise 860ms cubic-bezier(.16,1,.3,1) both; }.ps5-overview-main > :nth-child(1){animation-delay:90ms}.ps5-overview-main > :nth-child(2){animation-delay:170ms}.ps5-overview-main > :nth-child(3){animation-delay:250ms}.ps5-overview-main > :nth-child(4){animation-delay:320ms}.ps5-overview-main > :nth-child(5){animation-delay:400ms}
+/* Ao mudar o jogo na biblioteca, título, ações e ícones sobem em cascata. */
+.retro-hero-section.anim-rise { animation:ps5HubRise 780ms cubic-bezier(.16,1,.3,1) both; }.retro-hero-section.anim-rise .retro-game-copy > *{animation:ps5HubRise 740ms cubic-bezier(.16,1,.3,1) both}.retro-hero-section.anim-rise .retro-game-copy > :nth-child(1){animation-delay:80ms}.retro-hero-section.anim-rise .retro-game-copy > :nth-child(2){animation-delay:150ms}.retro-hero-section.anim-rise .retro-game-copy > :nth-child(3){animation-delay:220ms}.retro-hero-section.anim-rise .retro-game-copy > :nth-child(4){animation-delay:290ms}.retro-hero-section.anim-rise .retro-game-copy > :nth-child(5){animation-delay:360ms}
+.overview-active .ps5-hero-actions { animation:none!important;transform:none!important; }
+.ps5-hero-logo{display:block;max-width:min(560px,60vw);max-height:175px;margin:0 0 18px;object-fit:contain;object-position:left}.retro-game-copy .game-name{font-size:clamp(3.1rem,5.2vw,5.8rem)!important}.ps5-hero-tagline{margin:0;color:rgba(255,255,255,.84)!important;font-size:clamp(1rem,1.35vw,1.45rem)!important;line-height:1.35!important}.ps5-hero-actions{display:flex;align-items:center;gap:12px;margin-top:38px}.retro-game-copy .retro-play-button{display:inline-flex;min-width:230px!important;height:50px;align-items:center;justify-content:center;border:0!important;border-radius:28px!important;background:rgba(67,43,47,.88)!important;color:#fff!important;font-size:17px!important;font-weight:500!important;letter-spacing:0!important;text-transform:none!important}.ps5-hero-more{display:grid;width:50px;height:50px;place-items:center;border-radius:50%;background:rgba(67,43,47,.88);color:white;font-size:22px;letter-spacing:1px}.ps5-hero-more:hover,.retro-game-copy .retro-play-button:hover{background:rgba(255,255,255,.92)!important;color:#171717!important}
+
+/* Transição vertical entre a biblioteca e o hub do jogo. */
+@keyframes ps5LibraryExit { from { transform:translateY(0); opacity:1; } to { transform:translateY(-100vh); opacity:.92; } }
+@keyframes ps5LibraryReturn { from { transform:translateY(-100vh); opacity:.92; } to { transform:translateY(0); opacity:1; } }
+@keyframes ps5OverviewEnter { from { transform:translateY(100vh); } to { transform:translateY(0); } }
+@keyframes ps5OverviewExit { from { transform:translateY(0); } to { transform:translateY(100vh); } }
+.overview-active .retro-main-stage { animation:ps5LibraryExit 980ms cubic-bezier(.16,1,.3,1) both;pointer-events:none;will-change:transform; }
+.overview-returning .retro-main-stage { animation:ps5LibraryReturn 980ms cubic-bezier(.16,1,.3,1) both;will-change:transform; }
+.arcadia-overview { animation:ps5OverviewEnter 980ms cubic-bezier(.16,1,.3,1) both!important;will-change:transform;backface-visibility:hidden; }
+.arcadia-overview.is-closing { animation:ps5OverviewExit 980ms cubic-bezier(.16,1,.3,1) both!important;will-change:transform; }
+.arcadia-overview.is-hidden { visibility:hidden;pointer-events:none;animation:none!important; }
+/* A barra já existe dentro da biblioteca; acompanha a mesma volta sem
+   desaparecer e reaparecer por um timer separado. */
+@keyframes ps5TopbarReturn { from { transform:translate3d(0,-18px,0); } to { transform:translate3d(0,0,0); } }
+.overview-returning .ps5-topbar { animation:ps5TopbarReturn 980ms cubic-bezier(.16,1,.3,1) both;will-change:transform; }
+@media(max-width:900px){.ps5-overview-main{grid-template-columns:1fr;padding:4vh 6vw 3vh}.ps5-overview-product{display:none}.ps5-overview-stats{grid-column:1}.ps5-overview-cards{grid-template-columns:1fr 1fr}.ps5-overview-cards article:nth-child(3),.ps5-overview-media{display:none}}
+.retro-crt-overlay,.retro-console-footer { display:none!important; }
+.retro-main-stage { width:100%!important;margin-left:0!important;background:transparent!important; }
+.retro-store-stage { left:0!important;top:92px!important; }
+.ps5-topbar { background:linear-gradient(180deg,rgba(2,9,21,.78),transparent);text-shadow:0 2px 10px rgba(0,0,0,.6); }
+.ps5-mark { display:grid;width:42px;height:42px;margin-right:42px;place-items:center;border:2px solid rgba(255,255,255,.92);border-radius:13px 4px 13px 4px;font-size:21px;font-weight:700;font-style:italic;transform:skew(-7deg); }
+.ps5-primary-nav button { position:relative;padding:13px 0;color:rgba(255,255,255,.62);font-size:16px;transition:.2s; }
+.ps5-primary-nav button[data-active="true"] { color:white;font-weight:600; }
+.ps5-primary-nav button[data-active="true"]::after { position:absolute;right:0;bottom:4px;left:0;height:2px;border-radius:2px;background:white;content:""; }
+.retro-big-picture .ps5-topbar button:focus,
+.retro-big-picture .ps5-topbar button:focus-visible { outline:none!important;box-shadow:none!important; }
+.retro-big-picture .ps5-topbar .ps5-round-action:focus-visible,
+.retro-big-picture .ps5-topbar .ps5-profile-button:focus-visible { box-shadow:0 0 0 2px white!important; }
+.ps5-library-filters { padding-left:28px;border-left:1px solid rgba(255,255,255,.22); }
+.ps5-library-filters button { color:rgba(255,255,255,.48);font-size:12px; }
+.ps5-library-filters button[data-active="true"] { color:white; }
+.ps5-search { display:flex;width:150px;align-items:center;gap:8px;padding:9px 13px;border-radius:20px;background:rgba(255,255,255,.1);backdrop-filter:blur(14px); }
+.ps5-search input { width:100%;border:0!important;background:transparent!important;box-shadow:none!important;color:white;font-size:12px;outline:0; }
+.ps5-round-action { position:relative;display:grid;width:38px;height:38px;place-items:center;border-radius:50%;background:rgba(255,255,255,.12);backdrop-filter:blur(12px);transition:.18s; }
+.ps5-round-action:hover,.ps5-round-action:focus-visible { background:white;color:#111;transform:scale(1.08); }
+.ps5-round-action b { position:absolute;top:-4px;right:-5px;min-width:17px;padding:2px;border-radius:10px;background:#1789ff;color:white;font-size:9px; }
+.ps5-time { font-size:15px;font-weight:600;letter-spacing:.02em; }
+.ps5-profile-button { display:grid;width:42px;height:42px;place-items:center;overflow:hidden;border:2px solid rgba(255,255,255,.72);border-radius:50%;background:#1764ae;font-size:12px;font-weight:700; }
+.ps5-profile-button img { width:100%;height:100%;object-fit:cover; }
+
+.retro-featured { position:absolute;z-index:12;top:105px;left:4.5vw;width:91vw;height:285px!important;min-height:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important; }
+.retro-featured-label,.retro-page-dots { display:none!important; }
+.retro-game-rail { height:100%;padding:12px 8px!important;gap:18px!important;align-items:flex-start;overflow:visible!important; }
+.retro-library-card { width:112px!important;opacity:.58;filter:brightness(.62) saturate(.72);transform:translateY(18px);transition:width .24s var(--ease-out),transform .24s var(--ease-out),opacity .2s,filter .2s; }
+.retro-library-cover { box-sizing:border-box;height:168px!important;border:0!important;border-radius:5px;box-shadow:0 8px 22px rgba(0,0,0,.5);transition:height .24s var(--ease-out),box-shadow .2s; }
+.retro-library-cover .ps5-cover-art { display:block;width:100%;height:100%;object-fit:cover;object-position:center;transform:none; }
+.retro-library-card strong { margin-top:11px!important;padding:0!important;color:white!important;font-size:12px!important;text-transform:none!important;letter-spacing:0!important;opacity:0;transition:.2s; }
+.retro-library-card>span { display:none!important; }
+.retro-library-card[data-active="true"],.retro-library-card:focus-visible { width:142px!important;opacity:1;filter:none;outline:none!important;transform:translateY(0); }
+.retro-library-card[data-active="true"] strong,.retro-library-card:focus-visible strong { opacity:1; }
+.retro-library-card[data-active="true"] .retro-library-cover,.retro-library-card:focus-visible .retro-library-cover { height:213px!important;outline:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.72),0 0 24px rgba(105,177,255,.2),0 16px 38px rgba(0,0,0,.62)!important; }
+.retro-library-card[data-active="true"] .retro-library-cover .ps5-cover-art,.retro-library-card:focus-visible .retro-library-cover .ps5-cover-art { object-fit:cover;object-position:center;transform:none; }
+.retro-rail-arrow { display:none!important; }
+
+.retro-hero-section { position:absolute!important;inset:0!important;z-index:5;padding:405px 5vw 48px!important;border:0!important;background:transparent!important; }
+.retro-game-dashboard { display:block!important; }
+.retro-game-copy { width:min(560px,48vw);height:100%;justify-content:flex-end!important;padding:0 0 2vh!important;border:0!important; }
+.retro-game-copy>span { margin:0 0 10px!important;color:rgba(255,255,255,.7)!important;font-size:12px!important;letter-spacing:.08em!important; }
+.retro-game-copy .game-name { font-family:Inter,sans-serif!important;font-size:clamp(2.7rem,4.5vw,5.4rem)!important;font-weight:600!important;letter-spacing:-.055em!important;text-shadow:0 4px 28px rgba(0,0,0,.7)!important; }
+.retro-game-copy p { color:rgba(255,255,255,.72)!important;font-size:14px!important;line-height:1.55!important; }
+.retro-play-button,.retro-outline-button { min-height:48px!important;border:0!important;border-radius:24px!important;clip-path:none!important;padding:0 25px!important;font-size:12px!important;letter-spacing:.02em!important;text-transform:none!important; }
+.retro-play-button { min-width:175px!important;background:white!important;color:#111!important;box-shadow:0 8px 25px rgba(0,0,0,.3)!important; }
+.retro-outline-button { background:rgba(255,255,255,.14)!important;color:white!important;backdrop-filter:blur(18px); }
+.retro-crt-frame { display:none!important; }
+.retro-crt-frame::before,.retro-crt-controls,.retro-crt-screen-lines { display:none!important; }
+.retro-crt-screen { height:100%!important;border:0!important;border-radius:0!important;background:#071326!important;box-shadow:none!important; }
+.retro-crt-screen img,.retro-crt-video { width:100%;height:100%;object-fit:cover;filter:saturate(.82) brightness(.62)!important; }
+.retro-game-dashboard>aside { display:none!important; }
+
+/* O hub segue a composição de detalhes do PS5 e remove o tratamento arcade. */
+.arcadia-overview { --overview-ice:#fff;--overview-cyan:#fff;--overview-blue:#1688ff;--overview-violet:#73b7ff;background:#071326;font-family:Inter,sans-serif; }
+.arcadia-overview__grid,.arcadia-overview__scanlines,.arcadia-overview__sweep,.arcadia-overview__backdrop-blur { display:none; }
+.arcadia-overview__backdrop { inset:0;opacity:.68!important;transform:scale(1.02)!important;filter:saturate(.8) brightness(.7)!important; }
+.arcadia-overview__wash { background:linear-gradient(90deg,rgba(3,9,19,.97),rgba(3,9,19,.62) 53%,rgba(3,9,19,.18)),linear-gradient(0deg,rgba(3,9,19,.98),transparent 60%); }
+.arcadia-overview__brand span,.arcadia-overview__signal,.arcadia-overview__cover-index,.arcadia-overview__controls { display:none; }
+.arcadia-overview__brand strong { font-family:Inter,sans-serif;font-size:15px;letter-spacing:.18em;text-shadow:none; }
+.arcadia-overview__back-button,.arcadia-overview__action,.arcadia-overview__activity-card { border:0;border-radius:22px;background:rgba(255,255,255,.14);backdrop-filter:blur(18px); }
+.arcadia-overview__action--primary { background:white!important;color:#111!important;box-shadow:none!important; }
+.arcadia-overview__cover-card { border:0!important;border-radius:10px!important;box-shadow:0 18px 50px rgba(0,0,0,.55)!important; }
+.arcadia-overview__cover-halo,.arcadia-overview__cover-label { display:none; }
+.arcadia-overview__identity h1 { font-family:Inter,sans-serif!important;font-weight:600!important;letter-spacing:-.055em!important;text-shadow:0 4px 30px rgba(0,0,0,.5)!important; }
+.arcadia-overview__eyebrow b { color:#4da5ff!important; }
+.arcadia-overview__tags span { border:0!important;border-radius:12px!important;background:rgba(255,255,255,.13)!important;color:white!important; }
+.arcadia-overview__panel,.arcadia-overview__preview,.arcadia-overview__activity-card { border:0!important;border-radius:12px!important;background:rgba(7,18,35,.62)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);backdrop-filter:blur(20px); }
+.arcadia-overview__progress-line span { background:#1688ff!important;box-shadow:none!important; }
+.arcadia-overview__activity-card--launch { background:rgba(255,255,255,.92)!important;color:#111!important; }
+
+@media(max-width:1050px){.ps5-library-filters,.ps5-search{display:none}.ps5-topbar{padding-inline:28px}.ps5-mark{margin-right:24px}.retro-library-card{width:88px!important}.retro-library-cover{height:132px!important}.retro-library-card[data-active="true"],.retro-library-card:focus-visible{width:116px!important}.retro-library-card[data-active="true"] .retro-library-cover,.retro-library-card:focus-visible .retro-library-cover{height:174px!important}.retro-game-copy{width:65vw}}
+
+/* Big Picture: seleção de usuário, Loja e Notícias compartilham a mesma
+   linguagem de vidro escuro e foco branco do restante da interface PS5. */
+.retro-big-picture .retro-profile-root {
+  background:
+    linear-gradient(180deg, rgba(4,12,26,.08), rgba(2,6,14,.88)),
+    radial-gradient(circle at 72% 16%, rgba(92,164,255,.22), transparent 35%),
+    radial-gradient(circle at 25% 92%, rgba(255,255,255,.07), transparent 34%),
+    #071326 !important;
+  background-size: auto !important;
+}
+.retro-big-picture .retro-profile-root .ps5-glow { background:radial-gradient(circle at 50% 50%, rgba(104,178,255,.12), transparent 48%) !important; filter:blur(28px); }
+.retro-big-picture .retro-profile-title { color:#fff !important; font-family:Inter,sans-serif !important; font-weight:300 !important; letter-spacing:0 !important; text-shadow:0 8px 36px rgba(0,0,0,.48) !important; }
+.retro-big-picture .retro-profile-title::before { content:none !important; }
+.retro-big-picture .retro-profile-avatar { border:0 !important; border-radius:18px !important; clip-path:none !important; box-shadow:0 13px 34px rgba(0,0,0,.32) !important; }
+.retro-big-picture .retro-profile-slot[data-focus="true"] .retro-profile-avatar { border-color:transparent !important; box-shadow:0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px rgba(88,156,255,.24) !important; }
+
+.retro-big-picture .retro-console-store {
+  box-sizing: border-box;
+  padding: 28px 4vw 42px !important;
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(3,9,19,.72), rgba(3,9,19,.96)),
+    radial-gradient(circle at 76% 4%, rgba(71,150,255,.16), transparent 34%),
+    #071326 !important;
+  background-size: auto !important;
+  font-family: Inter, sans-serif;
+}
+.retro-big-picture .retro-console-store [role="tablist"] {
+  margin: 0 0 30px !important;
+  gap: 4px !important;
+  border: 0 !important;
+  border-radius: 24px !important;
+  background: rgba(255,255,255,.08) !important;
+  padding: 4px !important;
+  backdrop-filter: blur(18px);
+}
+.retro-big-picture .retro-console-store [role="tab"] { border-radius:20px !important; color:rgba(255,255,255,.54) !important; font-family:Inter,sans-serif; font-size:.875rem !important; font-weight:500; transition:background-color .2s,color .2s,transform .25s; }
+.retro-big-picture .retro-console-store [role="tab"][aria-selected="true"] { background:rgba(255,255,255,.92) !important; color:#111 !important; }
+.retro-big-picture .retro-console-store [role="tab"]:hover,.retro-big-picture .retro-console-store [role="tab"]:focus-visible { color:#fff !important; background:rgba(255,255,255,.14) !important; outline:0; }
+.retro-big-picture .retro-console-store [role="tab"][aria-selected="true"]:hover { color:#111 !important; background:#fff !important; }
+.retro-big-picture .retro-console-store .ui-title { margin-top:0 !important; color:#fff !important; font-family:Inter,sans-serif !important; font-size:2.15rem !important; font-weight:300 !important; letter-spacing:0 !important; text-transform:none !important; }
+.retro-big-picture .retro-console-store .ui-subtitle { color:rgba(255,255,255,.56) !important; font-size:.95rem !important; }
+.retro-big-picture .retro-console-store .ui-input { border:0 !important; border-radius:24px !important; background:rgba(255,255,255,.1) !important; color:#fff !important; box-shadow:inset 0 1px rgba(255,255,255,.06) !important; backdrop-filter:blur(16px); }
+.retro-big-picture .retro-console-store .ui-input:focus { box-shadow:0 0 0 2px rgba(255,255,255,.75),inset 0 1px rgba(255,255,255,.1) !important; }
+.retro-big-picture .retro-console-store .ui-btn-primary { min-height:42px; border:0 !important; border-radius:22px !important; background:rgba(255,255,255,.92) !important; color:#111 !important; font-family:Inter,sans-serif !important; font-size:.85rem; font-weight:600; letter-spacing:0 !important; text-transform:none !important; }
+.retro-big-picture .retro-console-store .retro-store-grid { grid-template-columns:repeat(auto-fill,minmax(180px,1fr)) !important; gap:18px !important; }
+.retro-big-picture .retro-console-store .retro-store-grid > div { border:0 !important; border-radius:12px !important; background:rgba(255,255,255,.08) !important; clip-path:none !important; box-shadow:0 12px 32px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.06) !important; backdrop-filter:blur(16px); transition:transform .26s cubic-bezier(.16,1,.3,1),background-color .2s,box-shadow .2s !important; }
+.retro-big-picture .retro-console-store .retro-store-grid > div::after { display:none !important; }
+.retro-big-picture .retro-console-store .retro-store-grid > div:hover,.retro-big-picture .retro-console-store .retro-store-grid > div:focus-within { border-color:transparent !important; background:rgba(255,255,255,.13) !important; transform:translateY(-7px); box-shadow:0 0 0 2px rgba(255,255,255,.9),0 18px 42px rgba(0,0,0,.45) !important; }
+.retro-big-picture .retro-console-store .retro-store-grid > div button:focus-visible { outline:0; box-shadow:inset 0 0 0 2px rgba(255,255,255,.9); }
+
+.retro-big-picture .retro-news-view {
+  color:#fff;
+  background:
+    linear-gradient(180deg, rgba(3,9,19,.66), rgba(3,9,19,.96)),
+    radial-gradient(circle at 78% 8%, rgba(76,156,255,.18), transparent 36%),
+    #071326 !important;
+  background-size:auto !important;
+  font-family:Inter,sans-serif;
+}
+.retro-big-picture .retro-news-view > div { max-width:none !important; padding:28px 4vw 48px !important; }
+.retro-big-picture .retro-news-view > div > div:first-child { margin-bottom:24px !important; color:rgba(255,255,255,.62) !important; font-family:Inter,sans-serif; font-size:.85rem; letter-spacing:.02em; text-transform:none; }
+.retro-big-picture .retro-news-view > div > div:first-child > span { display:none; }
+.retro-big-picture .retro-news-view button { border:0 !important; border-radius:12px !important; background:rgba(255,255,255,.08) !important; box-shadow:0 14px 36px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.06) !important; backdrop-filter:blur(16px); transition:transform .28s cubic-bezier(.16,1,.3,1),background-color .2s,box-shadow .2s !important; }
+.retro-big-picture .retro-news-view button:hover,.retro-big-picture .retro-news-view button:focus-visible { border-color:transparent !important; background:rgba(255,255,255,.13) !important; box-shadow:0 0 0 2px rgba(255,255,255,.9),0 20px 48px rgba(0,0,0,.46) !important; transform:translateY(-6px); outline:0 !important; }
+.retro-big-picture .retro-news-view button h2,.retro-big-picture .retro-news-view button h3 { font-family:Inter,sans-serif; letter-spacing:-.02em; font-weight:500; }
+.retro-big-picture .retro-news-view button img { filter:saturate(.88) brightness(.8); }
+
+@media (max-width: 900px) {
+  .retro-big-picture .retro-console-store,.retro-big-picture .retro-news-view > div { padding-inline:24px !important; }
+  .retro-big-picture .retro-console-store .ui-title { font-size:1.8rem !important; }
 }

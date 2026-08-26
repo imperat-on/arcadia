@@ -204,6 +204,8 @@ export function useGamepadNav(
   extras?: {
     onX?: (alvo: HTMLElement | null) => void
     onY?: (alvo: HTMLElement | null) => void
+    /** Atalho contextual para direcional/analógico para cima. */
+    onUp?: () => void
     // A loja usa um cursor virtual próprio no analógico esquerdo: aqui a gente
     // não move o foco espacial (que não existe dentro do webview) nem clica em
     // activeElement no A. B, X, Y e o scroll do analógico direito seguem valendo.
@@ -296,6 +298,10 @@ export function useGamepadNav(
     const move = (dx: number, dy: number) => {
       const root2 = rootRef.current
       if (!root2) return
+      if (dy < 0 && extras?.onUp) {
+        extras.onUp()
+        return
+      }
       const ativo = document.activeElement as HTMLElement | null
       const dentro = ativo && root2.contains(ativo) ? ativo : null
 

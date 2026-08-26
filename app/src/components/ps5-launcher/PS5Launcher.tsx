@@ -21,7 +21,6 @@ import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
 import { useStoreActions } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { useLibraryState } from "../useLibraryState"
-import { useDownloadBadges } from "../useDownloadBadges"
 import { fmtMiB } from "../tamanho"
 import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
@@ -111,7 +110,7 @@ export function PS5Launcher() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [cardScale, setCardScale] = useState(1.6)
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Loja
+  // Abas: 0 Notícias · 1 Jogos (trilho)
   const [activeTab, setActiveTab] = useState(1) // abre em Jogos (Notícias é a aba 0)
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all")
   const [librarySearch, setLibrarySearch] = useState("")
@@ -148,17 +147,29 @@ export function PS5Launcher() {
   const [newsLoading, setNewsLoading] = useState(false)
   const newsRef = useRef<HTMLDivElement>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
+  const [overviewMounted, setOverviewMounted] = useState(false)
   const [overviewClosing, setOverviewClosing] = useState(false)
+  const overviewReopenRef = useRef(false)
   const overviewRef = useRef<HTMLDivElement>(null)
   const overviewCloseTimer = useRef<number | null>(null)
   const openOverview = useCallback(() => {
+    // O hub só existe na aba Jogos. A Loja e Notícias têm suas próprias telas
+    // e nunca devem receber o Game Overview por cima ao pressionar ↓.
+    if (activeTab !== 1) return
+    // Um novo "descer" durante o retorno não pode se perder: guarda a intenção
+    // e abre assim que a animação inversa terminar.
+    if (overviewClosing) {
+      overviewReopenRef.current = true
+      return
+    }
     if (overviewCloseTimer.current) {
       window.clearTimeout(overviewCloseTimer.current)
       overviewCloseTimer.current = null
     }
     setOverviewClosing(false)
+    setOverviewMounted(true)
     setOverviewOpen(true)
-  }, [])
+  }, [activeTab, overviewClosing])
   const closeOverview = useCallback(() => {
     if (overviewCloseTimer.current) window.clearTimeout(overviewCloseTimer.current)
     setOverviewClosing(true)
@@ -166,7 +177,11 @@ export function PS5Launcher() {
       setOverviewOpen(false)
       setOverviewClosing(false)
       overviewCloseTimer.current = null
-    }, 280)
+      if (overviewReopenRef.current) {
+        overviewReopenRef.current = false
+        window.requestAnimationFrame(() => setOverviewOpen(true))
+      }
+    }, 1000)
   }, [])
   useEffect(() => {
     return () => {
@@ -274,7 +289,6 @@ export function PS5Launcher() {
       setDestinosEpic([])
     }
   }, [instalarGame])
-  const dmAtivos = useDownloadBadges()
   const dmRef = useRef<HTMLDivElement>(null)
 
   // modalOpenRef: algum overlay/modal aberto → bloqueia TUDO (inclusive trocar aba).
@@ -301,7 +315,9 @@ export function PS5Launcher() {
   const uiBlockedRef = useRef(false)
   // A Loja tem navegação própria por foco, igual às Notícias: sem isto o
   // direcional moveria a seleção do trilho de jogos por trás da loja.
-  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 3
+  // Notícias (0) e Loja (2) têm navegação/foco próprios. O handler global
+  // da biblioteca não pode abrir o Game Overview por cima dessas telas.
+  uiBlockedRef.current = modalOpenRef.current || activeTab === 0 || activeTab === 2
 
   // Ambas as abas mostram a biblioteca inteira; muda só a forma de exibir.
   // Jogos ocultos só aparecem com "Mostrar ocultos" ligado (menu do Select).
@@ -316,10 +332,16 @@ export function PS5Launcher() {
       return true
     })
   }, [games, showHidden, libraryFilter, librarySearch])
-  // Abas: 0 Notícias · 1 Jogos (trilho) · 2 Loja
+  // Abas: 0 Notícias · 1 Jogos (trilho); a Loja fica fora do Big Picture.
   const newsMode = activeTab === 0
   const storeMode = activeTab === 2
   const columns = GRID_COLUMNS
+
+  // A Loja antiga pode ter ficado selecionada durante hot reload; no Big
+  // Picture atual existem somente Notícias e Jogos.
+  useEffect(() => {
+    if (activeTab > 1) setActiveTab(1)
+  }, [activeTab])
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
 
@@ -517,6 +539,7 @@ export function PS5Launcher() {
   // para voltar à biblioteca.
   const overviewNavActive =
     overviewOpen &&
+    !overviewClosing &&
     appFocused &&
     !showSettings &&
     !showEditProfile &&
@@ -525,11 +548,13 @@ export function PS5Launcher() {
     !ctxGame &&
     !editGame &&
     !trailerPickGame
-  useGamepadNav(overviewRef, overviewNavActive, closeOverview)
+  useGamepadNav(overviewRef, overviewNavActive, closeOverview, false, { onUp: closeOverview })
 
   // Navegação por controle no perfil (D-pad move o foco, B fecha).
   const profileRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile, () => setShowProfile(false))
+  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile, () =>
+    setShowProfile(false),
+  )
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
   useGamepadNav(perfilRef, perfilGate && !boot && appFocused)
@@ -560,7 +585,10 @@ export function PS5Launcher() {
   useEffect(() => {
     if (!overviewOpen) return
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeOverview()
+      if (event.key === "Escape" || event.key === "ArrowUp") {
+        event.preventDefault()
+        closeOverview()
+      }
     }
     window.addEventListener("keydown", handleEscape)
     return () => window.removeEventListener("keydown", handleEscape)
@@ -630,30 +658,39 @@ export function PS5Launcher() {
   }, [viewGames, selectedIndex, _activate])
 
   // Salva metadados editados à mão. Mesmo caminho do ocultar: overrides.json.
-  const _save_meta = useCallback((game: Game, patch: Record<string, unknown>) => {
-    if (!Object.keys(patch).length) return
-    void saveMetadata(game, patch)
-    setToast({ title: t("ps5.toast.metadados_salvos", { title: game.title }), visible: true })
-    setTimeout(() => setToast((current) => ({ ...current, visible: false })), 2500)
-  }, [saveMetadata, t])
+  const _save_meta = useCallback(
+    (game: Game, patch: Record<string, unknown>) => {
+      if (!Object.keys(patch).length) return
+      void saveMetadata(game, patch)
+      setToast({ title: t("ps5.toast.metadados_salvos", { title: game.title }), visible: true })
+      setTimeout(() => setToast((current) => ({ ...current, visible: false })), 2500)
+    },
+    [saveMetadata, t],
+  )
 
   // As mutações da biblioteca ficam no hook compartilhado; estes wrappers só
   // cuidam do feedback visual específico do modo console.
-  const _toggle_hidden = useCallback((game: Game) => {
-    const nowHidden = !game.hidden
-    void toggleHidden(game)
-    setToast({
-      title: nowHidden
-        ? t("ps5.toast.oculto", { title: game.title })
-        : t("ps5.toast.reexibido", { title: game.title }),
-      visible: true,
-    })
-    setTimeout(() => setToast((current) => ({ ...current, visible: false })), 2500)
-  }, [t, toggleHidden])
+  const _toggle_hidden = useCallback(
+    (game: Game) => {
+      const nowHidden = !game.hidden
+      void toggleHidden(game)
+      setToast({
+        title: nowHidden
+          ? t("ps5.toast.oculto", { title: game.title })
+          : t("ps5.toast.reexibido", { title: game.title }),
+        visible: true,
+      })
+      setTimeout(() => setToast((current) => ({ ...current, visible: false })), 2500)
+    },
+    [t, toggleHidden],
+  )
 
-  const _toggle_favorite = useCallback((game: Game) => {
-    void toggleFavorite(game)
-  }, [toggleFavorite])
+  const _toggle_favorite = useCallback(
+    (game: Game) => {
+      void toggleFavorite(game)
+    },
+    [toggleFavorite],
+  )
 
   const _refresh_library = useCallback(() => {
     void refreshLibrary()
@@ -670,6 +707,11 @@ export function PS5Launcher() {
     const step = (d: number) => setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + d)))
 
     const handleKey = (e: KeyboardEvent) => {
+      if (overviewClosing && e.key === "ArrowDown") {
+        e.preventDefault()
+        openOverview()
+        return
+      }
       if (uiBlockedRef.current) return // painel de config aberto
       // Buttons and links already implement Enter/Space themselves. Ignoring
       // those targets avoids launching the selected game a second time when a
@@ -700,7 +742,7 @@ export function PS5Launcher() {
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview])
+  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing])
 
   // Navegação por controle (Gamepad API): D-pad/analógico, A=jogar, Start=atualizar.
   useEffect(() => {
@@ -785,6 +827,9 @@ export function PS5Launcher() {
       if (gp) {
         const now = Date.now()
         const primed = prev.length > 0
+        if (overviewClosing && primed && gp.buttons[13]?.pressed && !prev[13]) {
+          openOverview()
+        }
         if (primed && gp.buttons[8]?.pressed && !prev[8] && !gameRunningRef.current) {
           setMenuOpen((v) => !v)
         }
@@ -823,11 +868,15 @@ export function PS5Launcher() {
             cy = ry
             candSince = now
           }
-          if (now - candSince >= DEBOUNCE && (sx !== cx || sy !== cy)) {
+          // Descer abre uma tela, não percorre uma lista: responde no primeiro
+          // quadro para parecer um gesto direto. As demais direções continuam
+          // com debounce/intervalo contra drift do analógico.
+          const aberturaOverview = cy > 0
+          if (now - candSince >= (aberturaOverview ? 0 : DEBOUNCE) && (sx !== cx || sy !== cy)) {
             const wasNeutral = sx === 0 && sy === 0
             sx = cx
             sy = cy
-            if ((sx || sy) && wasNeutral && now - lastStep >= MIN_GAP) {
+            if ((sx || sy) && wasNeutral && now - lastStep >= (aberturaOverview ? 0 : MIN_GAP)) {
               move(sx, sy)
               lastStep = now
               holdStart = now
@@ -857,13 +906,76 @@ export function PS5Launcher() {
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview])
+  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing])
+
+  const topBarNode = (
+    <TopBar
+      profile={
+        conta?.perfil
+          ? {
+              ...profile,
+              name: conta.perfil.display_name || conta.perfil.username || profile.name,
+              avatar: conta.perfil.avatar_url ?? "",
+            }
+          : profile
+      }
+      activeTab={activeTab}
+      onTab={setActiveTab}
+      onRefresh={_refresh_library}
+      onOpenSettings={() => setShowSettings(true)}
+      onOpenProfile={() => setShowProfile(true)}
+      menuOpen={menuOpen}
+      onToggleMenu={() => setMenuOpen((v) => !v)}
+      onCloseMenu={() => setMenuOpen(false)}
+      showHidden={showHidden}
+      onToggleShowHidden={() => setShowHidden((v) => !v)}
+      libraryFilter={libraryFilter}
+      onLibraryFilter={(filter) => {
+        setLibraryFilter(filter)
+        setSelectedIndex(0)
+      }}
+      search={librarySearch}
+      onSearch={(value) => {
+        setLibrarySearch(value)
+        setSelectedIndex(0)
+      }}
+    />
+  )
+  const railNode =
+    viewGames.length > 0 ? (
+      <GameRail
+        games={viewGames}
+        selectedIndex={selectedIndex}
+        cardScale={cardScale}
+        onSelect={setSelectedIndex}
+        onLaunch={_activate}
+      />
+    ) : (
+      <div className="px-10 py-10 text-[#8a93a6]">{t("ps5.biblioteca.vazia")}</div>
+    )
+  const heroNode = (
+    <HeroSection
+      game={selectedGame}
+      trailerUrl={appFocused && !gameRunning && !boot && !perfilGate ? trailerUrl : null}
+      rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
+      abrindo={Boolean(
+        selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
+      )}
+      onLaunch={_launch_selected}
+      onMore={() => selectedGame && openOverview()}
+      onToggleFavorite={() => selectedGame && _toggle_favorite(selectedGame)}
+    />
+  )
+  const footerNode = (
+    <footer className="retro-console-footer flex h-7 shrink-0 items-center justify-between border-t px-10 text-[9px] font-black uppercase tracking-[0.16em]">
+      <span>Press Start</span>
+      <strong>Arcadia</strong>
+      <span>Insert Coin</span>
+    </footer>
+  )
 
   return (
-    <div
-      data-theme-slot="shell.root"
-      className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${posLogin ? "pos-login home-reveal" : ""}`}
-    >
+    <div className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${posLogin ? "pos-login home-reveal" : ""} ${overviewOpen ? (overviewClosing ? "overview-returning" : "overview-active") : ""}`}>
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
@@ -890,8 +1002,8 @@ export function PS5Launcher() {
           que a antiga sai. Sem gap preto. */}
       <HeroBackground
         preto={newsMode || storeMode}
-        hero={selectedGame?.hero}
-        id={selectedGame?.id}
+        hero={trailerUrl || selectedGame?.hero || selectedGame?.cover}
+        id={selectedGame ? `${selectedGame.id}:${trailerUrl ? "trailer" : "art"}` : null}
       />
 
       {/* Escurecimento p/ contraste: forte embaixo (trilho) e à esquerda (texto) */}
@@ -899,7 +1011,7 @@ export function PS5Launcher() {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "linear-gradient(to top, #000000 0%, rgba(0,0,0,0.92) 22%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.25) 100%)",
+            "linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 28%, rgba(0,0,0,0.18) 62%, rgba(0,0,0,0.12) 100%)",
         }}
       />
 
@@ -917,47 +1029,12 @@ export function PS5Launcher() {
       <div
         className="absolute top-0 inset-x-0 h-32 z-20 pointer-events-none"
         style={{
-          background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.35) 50%, transparent)",
+          background:
+            "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.35) 50%, transparent)",
         }}
       />
 
       {/* Top bar transparente, flutuando sobre o fundo */}
-      <div className="absolute top-0 inset-x-0 z-30">
-        <TopBar
-          profile={
-            conta?.perfil
-              ? {
-                  ...profile,
-                  name: conta.perfil.display_name || conta.perfil.username || profile.name,
-                  avatar: conta.perfil.avatar_url ?? "",
-                }
-              : profile
-          }
-          activeTab={activeTab}
-          onTab={setActiveTab}
-          onRefresh={_refresh_library}
-          onOpenSettings={() => setShowSettings(true)}
-          onOpenProfile={() => setShowProfile(true)}
-          menuOpen={menuOpen}
-          onToggleMenu={() => setMenuOpen((v) => !v)}
-          onCloseMenu={() => setMenuOpen(false)}
-          showHidden={showHidden}
-          onToggleShowHidden={() => setShowHidden((v) => !v)}
-          downloadsActive={dmAtivos}
-          onOpenDownloads={() => setShowDownloads(true)}
-          libraryFilter={libraryFilter}
-          onLibraryFilter={(filter) => {
-            setLibraryFilter(filter)
-            setSelectedIndex(0)
-          }}
-          search={librarySearch}
-          onSearch={(value) => {
-            setLibrarySearch(value)
-            setSelectedIndex(0)
-          }}
-        />
-      </div>
-
       {/* Painel de configurações (chave da Steam API etc.) */}
       <SettingsPanel
         open={showSettings}
@@ -982,7 +1059,17 @@ export function PS5Launcher() {
             open
             embedded={false}
             navActive={!showEditProfile}
-            profile={conta?.perfil ? { ...profile, name: conta.perfil.display_name || conta.perfil.username || profile.name, avatar: conta.perfil.avatar_url ?? "", background: conta.perfil.background_url ?? "", banner: conta.perfil.banner_url ?? "" } : profile}
+            profile={
+              conta?.perfil
+                ? {
+                    ...profile,
+                    name: conta.perfil.display_name || conta.perfil.username || profile.name,
+                    avatar: conta.perfil.avatar_url ?? "",
+                    background: conta.perfil.background_url ?? "",
+                    banner: conta.perfil.banner_url ?? "",
+                  }
+                : profile
+            }
             games={games}
             onClose={() => setShowProfile(false)}
             onEdit={() => setShowEditProfile(true)}
@@ -991,12 +1078,13 @@ export function PS5Launcher() {
         </div>
       )}
 
-      {overviewOpen && selectedGame && (
+      {overviewMounted && selectedGame && (
         <GameOverview
           ref={overviewRef}
           game={selectedGame}
           news={news}
           appFocused={appFocused}
+          visible={overviewOpen}
           rodando={Boolean(
             selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id,
           )}
@@ -1022,7 +1110,11 @@ export function PS5Launcher() {
           <ProfileSelect
             profiles={[
               {
-                name: conta?.perfil?.display_name || conta?.perfil?.username || profile?.name || t("profile.jogador"),
+                name:
+                  conta?.perfil?.display_name ||
+                  conta?.perfil?.username ||
+                  profile?.name ||
+                  t("profile.jogador"),
                 avatar: conta?.perfil?.avatar_url ?? profile?.avatar,
                 background: conta?.perfil?.background_url ?? profile?.background,
                 banner: conta?.perfil?.banner_url ?? profile?.banner,
@@ -1046,8 +1138,9 @@ export function PS5Launcher() {
           de abertura, que ja tem a sua propria sequencia. */}
       <div
         key={boot || perfilGate ? "intro" : activeTab}
-        className={`retro-main-stage ${boot || perfilGate ? "" : "tab-in "}${newsMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex min-h-screen flex-col"}`}
+        className={`retro-main-stage ${newsMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex min-h-screen flex-col"}`}
       >
+        {topBarNode}
         {storeMode /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
              pela `key`): remontar destruía o webview e a loja da Steam
              recarregava do zero — vários segundos de tela preta a cada visita.
@@ -1067,38 +1160,11 @@ export function PS5Launcher() {
             <div className="h-[54px]" />
 
             {/* Trilho de capas no topo */}
-            {viewGames.length > 0 ? (
-              <GameRail
-                games={viewGames}
-                selectedIndex={selectedIndex}
-                cardScale={cardScale}
-                onSelect={setSelectedIndex}
-                onLaunch={_activate}
-              />
-            ) : (
-              <div className="px-10 py-10 text-[#8a93a6]">{t("ps5.biblioteca.vazia")}</div>
-            )}
+            {railNode}
 
             {/* Hero embaixo à esquerda, com as ações */}
-            <HeroSection
-              game={selectedGame}
-              trailerUrl={appFocused && !gameRunning && !boot && !perfilGate ? trailerUrl : null}
-              rodando={Boolean(
-                selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id,
-              )}
-              abrindo={Boolean(
-                selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
-              )}
-              onLaunch={_launch_selected}
-              onMore={() => selectedGame && openOverview()}
-              onToggleFavorite={() => selectedGame && _toggle_favorite(selectedGame)}
-            />
-
-            <footer className="retro-console-footer flex h-7 shrink-0 items-center justify-between border-t px-10 text-[9px] font-black uppercase tracking-[0.16em]">
-              <span>Press Start</span>
-              <strong>Arcadia</strong>
-              <span>Insert Coin</span>
-            </footer>
+            {heroNode}
+            {footerNode}
           </>
         )}
       </div>
@@ -1221,10 +1287,7 @@ export function PS5Launcher() {
               <button
                 autoFocus
                 onClick={() => {
-                  void launchCommand([
-                    "steam",
-                    `steam://install/${semManifesto.jogo.appid}`,
-                  ])
+                  void launchCommand(["steam", `steam://install/${semManifesto.jogo.appid}`])
                   setToast({
                     title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }),
                     visible: true,
@@ -1311,7 +1374,8 @@ function Toast({ visible, title }: { visible: boolean; title: string }) {
         boxShadow: "0 8px 30px rgba(0,0,0,0.6), 0 0 25px rgba(0,168,255,0.2)",
         opacity: visible ? 1 : 0,
         transform: visible ? "translateY(0) scale(1)" : "translateY(12px) scale(0.96)",
-        transition: "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+        transition:
+          "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
         pointerEvents: "none",
       }}
     >
