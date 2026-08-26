@@ -2255,6 +2255,10 @@ select:disabled {
   font-family: "Inter", sans-serif;
 }
 
+.arcadiaOverviewCoverIn {
+  animation: none;
+}
+
 .arcadia-overview.is-closing {
   pointer-events: none;
 }
