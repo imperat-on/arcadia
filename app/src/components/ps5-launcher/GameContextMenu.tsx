@@ -72,7 +72,7 @@ export function GameContextMenu({
 
       <div
         ref={ref}
-        className="gp-scope fixed z-50 left-1/2 top-1/2 w-[420px] rounded-xl overflow-hidden"
+        className="retro-context-menu gp-scope fixed left-1/2 top-1/2 z-50 w-[420px] overflow-hidden rounded-xl"
         style={{
           transform: "translate(-50%, -50%)",
           background: "rgba(10,22,54,0.98)",

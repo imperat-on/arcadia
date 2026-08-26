@@ -1,0 +1,252 @@
+/* Tema embutido Arcadia Aurora — visual cinematográfico azul/violeta.
+   Tema demonstrativo oficial que mostra as capacidades da API de temas. */
+
+[data-fullscreen-theme="arcadia.aurora"] {
+  /* Tokens do tema Aurora */
+  --fs-color-bg: #05070d;
+  --fs-color-surface: rgba(10, 15, 30, 0.92);
+  --fs-color-surface-strong: rgba(20, 30, 60, 0.88);
+  --fs-color-text: #e8ecf4;
+  --fs-color-muted: rgba(200, 210, 240, 0.55);
+  --fs-color-accent: #72ddff;
+  --fs-color-accent-2: #c2a0ff;
+  --fs-color-danger: #ff5577;
+
+  --fs-focus-color: #72ddff;
+  --fs-focus-width: 2px;
+  --fs-focus-offset: 3px;
+  --fs-focus-glow: rgba(114, 221, 255, 0.35);
+
+  --fs-font-body: "Inter", sans-serif;
+  --fs-font-display: "Inter", sans-serif;
+  --fs-font-action: "Inter", sans-serif;
+  --fs-font-scale: 1;
+
+  --fs-radius-sm: 6px;
+  --fs-radius-md: 12px;
+  --fs-radius-lg: 20px;
+  --fs-border-color: rgba(114, 221, 255, 0.15);
+
+  --fs-glass-bg: rgba(10, 15, 30, 0.75);
+  --fs-glass-blur: 24px;
+  --fs-shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.5);
+  --fs-shadow-focus: 0 0 20px rgba(114, 221, 255, 0.3);
+
+  --fs-space-1: 4px;
+  --fs-space-2: 8px;
+  --fs-space-3: 12px;
+  --fs-space-4: 16px;
+  --fs-space-5: 20px;
+  --fs-space-6: 24px;
+  --fs-space-7: 32px;
+  --fs-space-8: 48px;
+
+  --fs-motion-fast: 150ms;
+  --fs-motion-normal: 300ms;
+  --fs-motion-slow: 600ms;
+  --fs-ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --fs-ease-exit: cubic-bezier(0.55, 0, 1, 0.45);
+
+  --fs-cover-width: 150px;
+  --fs-cover-ratio: 1.42;
+  --fs-rail-gap: 14px;
+  --fs-selected-scale: 1.06;
+
+  /* Cores Aurora específicas */
+  --aurora-blue: #72ddff;
+  --aurora-violet: #c2a0ff;
+  --aurora-deep: #0a0f1e;
+  --aurora-glow: rgba(114, 221, 255, 0.12);
+}
+
+/* Fundo com gradiente aurora */
+[data-fullscreen-theme="arcadia.aurora"] .retro-big-picture {
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(114, 221, 255, 0.08), transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(194, 160, 255, 0.06), transparent 50%),
+    linear-gradient(180deg, #05070d 0%, #0a0f1e 50%, #05070d 100%);
+  color: var(--fs-color-text);
+}
+
+/* Navegação lateral — glass com blur */
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-shell {
+  border-color: rgba(114, 221, 255, 0.1) !important;
+  background: var(--fs-glass-bg) !important;
+  backdrop-filter: blur(var(--fs-glass-blur));
+  box-shadow: 8px 0 60px rgba(0, 0, 0, 0.5);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-brand {
+  color: rgba(232, 236, 244, 0.5);
+  font-family: var(--fs-font-body);
+  font-weight: 600;
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-brand strong {
+  color: var(--aurora-blue);
+  text-shadow: 0 0 20px rgba(114, 221, 255, 0.4);
+  letter-spacing: 0.15em;
+}
+
+/* Botões de navegação — estilo glass */
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-button {
+  color: rgba(232, 236, 244, 0.5) !important;
+  background: rgba(114, 221, 255, 0.03) !important;
+  border-color: rgba(114, 221, 255, 0.06) !important;
+  border-radius: var(--fs-radius-md) !important;
+  transition: all var(--fs-motion-fast) var(--fs-ease-enter);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-button:hover,
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-button:focus-visible {
+  color: white !important;
+  border-color: rgba(114, 221, 255, 0.3) !important;
+  background: rgba(114, 221, 255, 0.08) !important;
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-nav-button[data-active="true"] {
+  color: #05070d !important;
+  border-color: var(--aurora-blue) !important;
+  background: linear-gradient(135deg, var(--aurora-blue), var(--aurora-violet)) !important;
+  box-shadow: 0 4px 20px rgba(114, 221, 255, 0.25) !important;
+}
+
+/* Botão Jogar — gradiente aurora */
+[data-fullscreen-theme="arcadia.aurora"] .retro-play-button {
+  color: #05070d;
+  background: linear-gradient(135deg, var(--aurora-blue), var(--aurora-violet));
+  border-color: transparent;
+  border-radius: var(--fs-radius-md);
+  box-shadow: 0 4px 24px rgba(114, 221, 255, 0.3);
+  text-shadow: none;
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-play-button:hover {
+  box-shadow: 0 6px 32px rgba(114, 221, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-play-button.is-running {
+  color: white;
+  background: rgba(255, 85, 119, 0.15);
+  border: 1px solid rgba(255, 85, 119, 0.4);
+  box-shadow: 0 4px 20px rgba(255, 85, 119, 0.2);
+}
+
+/* Botão secundário */
+[data-fullscreen-theme="arcadia.aurora"] .retro-outline-button {
+  color: rgba(232, 236, 244, 0.7);
+  border-color: rgba(114, 221, 255, 0.15);
+  background: rgba(114, 221, 255, 0.04);
+  border-radius: var(--fs-radius-md);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-outline-button:hover {
+  border-color: rgba(114, 221, 255, 0.4);
+  background: rgba(114, 221, 255, 0.1);
+}
+
+/* Cards da biblioteca */
+[data-fullscreen-theme="arcadia.aurora"] .retro-library-card {
+  transition: transform var(--fs-motion-fast) var(--fs-ease-enter);
+  border-radius: var(--fs-radius-sm);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-library-card[data-active="true"] {
+  transform: scale(var(--fs-selected-scale));
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-library-cover {
+  border: 2px solid rgba(114, 221, 255, 0.08);
+  border-radius: var(--fs-radius-sm);
+  overflow: hidden;
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-library-card[data-active="true"] .retro-library-cover {
+  border-color: var(--aurora-blue);
+  box-shadow: 0 0 24px rgba(114, 221, 255, 0.3);
+}
+
+/* Trilho de jogos */
+[data-fullscreen-theme="arcadia.aurora"] .retro-featured {
+  background: rgba(10, 15, 30, 0.5);
+  border-color: rgba(114, 221, 255, 0.08) !important;
+}
+
+/* Seção hero */
+[data-fullscreen-theme="arcadia.aurora"] .retro-hero-section {
+  background: linear-gradient(180deg, rgba(5, 7, 13, 0.2), rgba(5, 7, 13, 0.95));
+  border-color: rgba(114, 221, 255, 0.08) !important;
+}
+
+/* Top strip — glass */
+[data-fullscreen-theme="arcadia.aurora"] .retro-top-strip {
+  background: rgba(10, 15, 30, 0.7);
+  border-color: rgba(114, 221, 255, 0.08) !important;
+  backdrop-filter: blur(20px);
+}
+
+/* Relógio */
+[data-fullscreen-theme="arcadia.aurora"] .retro-clock {
+  border-color: rgba(114, 221, 255, 0.1) !important;
+  color: var(--aurora-blue);
+  font-family: var(--fs-font-body);
+  font-weight: 600;
+}
+
+/* Estrelas de avaliação */
+[data-fullscreen-theme="arcadia.aurora"] .retro-stars i[data-filled="true"] {
+  color: var(--aurora-violet);
+  text-shadow: 0 0 8px rgba(194, 160, 255, 0.5);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-stars i[data-filled="false"] {
+  color: rgba(232, 236, 244, 0.12);
+}
+
+/* Overview — estilo Aurora cinematográfico */
+[data-fullscreen-theme="arcadia.aurora"] .arcadia-overview {
+  background: linear-gradient(135deg, rgba(5, 7, 13, 0.97), rgba(10, 15, 30, 0.97));
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .arcadia-overview__back-button {
+  color: var(--aurora-blue);
+  border-color: rgba(114, 221, 255, 0.2);
+  background: rgba(114, 221, 255, 0.06);
+  border-radius: var(--fs-radius-md);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .arcadia-overview__back-button:hover {
+  background: rgba(114, 221, 255, 0.12);
+  border-color: rgba(114, 221, 255, 0.4);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .arcadia-overview__action--primary {
+  background: linear-gradient(135deg, var(--aurora-blue), var(--aurora-violet));
+  color: #05070d;
+  border-color: transparent;
+  border-radius: var(--fs-radius-md);
+  box-shadow: 0 4px 24px rgba(114, 221, 255, 0.3);
+}
+
+/* Settings */
+[data-fullscreen-theme="arcadia.aurora"] .retro-settings-shell {
+  background: rgba(5, 7, 13, 0.95);
+  backdrop-filter: blur(30px);
+}
+
+[data-fullscreen-theme="arcadia.aurora"] .retro-settings-nav {
+  background: rgba(10, 15, 30, 0.5);
+  border-color: rgba(114, 221, 255, 0.06);
+}
+
+/* Downloads */
+[data-fullscreen-theme="arcadia.aurora"] .retro-download-shell {
+  background: rgba(5, 7, 13, 0.97);
+  backdrop-filter: blur(30px);
+}
+
+/* Notícias */
+[data-fullscreen-theme="arcadia.aurora"] .retro-news-view {
+  background: linear-gradient(180deg, #05070d, #0a0f1e);
+}

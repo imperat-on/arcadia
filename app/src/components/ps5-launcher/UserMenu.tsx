@@ -55,28 +55,20 @@ export function UserMenu({
         onClose()
         onClick()
       }}
-      className="w-full flex items-center justify-between gap-6 px-4 py-2.5 text-sm text-left transition-colors"
-      style={{ color: opts?.danger ? "#ff6b6b" : "#e8eaf0" }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      className="retro-user-menu-item flex w-full items-center justify-between gap-6 px-4 py-2.5 text-left"
+      data-danger={opts?.danger || undefined}
     >
       <span>{label}</span>
-      {opts?.hint && <span className="text-xs text-[#7a8aaa]">{opts.hint}</span>}
+      {opts?.hint && <span className="retro-user-menu-hint text-xs">{opts.hint}</span>}
     </button>
   )
 
-  const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
+  const divider = <div className="retro-user-menu-divider" />
 
   return (
     <div
       ref={ref}
-      className="gp-scope absolute right-0 top-12 w-64 rounded-xl overflow-hidden z-50"
-      style={{
-        background: "rgba(0,0,0,0.92)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
-        backdropFilter: "blur(16px)",
-      }}
+      className="retro-user-menu gp-scope absolute right-0 top-12 z-50 w-64 overflow-hidden"
     >
       {/* Cabeçalho da conta (clique abre o perfil) */}
       <button
@@ -84,12 +76,10 @@ export function UserMenu({
           onClose()
           onOpenProfile()
         }}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left transition-colors hover:brightness-125"
-        style={{ background: "rgba(255,255,255,0.05)" }}
+        className="retro-user-menu-header flex w-full items-center gap-3 px-4 py-3 text-left"
       >
         <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #0072ce, #003791)" }}
+          className="retro-user-menu-avatar flex h-9 w-9 items-center justify-center overflow-hidden text-xs font-bold text-white"
         >
           {profile?.avatar ? (
             <img src={profile.avatar} alt="" className="w-full h-full object-cover" />

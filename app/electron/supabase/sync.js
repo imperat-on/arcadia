@@ -100,7 +100,7 @@ function isRetryable(error) {
   const msg = String(error?.message || "")
   const code = String(error?.code || "")
   if (/permission denied|42501/i.test(`${msg} ${code}`)) return false // RLS: bug de código, não retry
-  if (/^Failed to fetch|fetch failed|ECONN|ENOTFOUND|ETIMEDOUT|network|timeout|socket/i.test(msg)) return true
+  if (/^Failed to fetch|fetch failed|ECONN|ENOTFOUND|ETIMEDOUT|network|timeout|socket|rede_indisponivel/i.test(msg)) return true
   if (error?.status === 429 || error?.code === "429") return true
   return true
 }

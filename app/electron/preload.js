@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   searchText: (gameId, titulo) => ipcRenderer.invoke("meta:text", { gameId, titulo }),
   downloadArt: (id, kind, url) => ipcRenderer.invoke("art:download", { id, kind, url }),
   getNews: () => ipcRenderer.invoke("news:get"),
+  getGameNews: (appid) => ipcRenderer.invoke("news:game", appid),
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
   getConfig: () => ipcRenderer.invoke("config:get"),
   diagnostics: () => ipcRenderer.invoke("app:diagnostics"),
@@ -78,6 +79,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   enterConsole: () => ipcRenderer.invoke("app:enterConsole"),
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),
   setFullscreen: (on) => ipcRenderer.invoke("app:setFullscreen", on),
+  setLauncherMode: (mode) => ipcRenderer.invoke("app:setMode", mode),
   setZoom: (z, modo) => ipcRenderer.invoke("app:setZoom", z, modo),
   rebuildMeta: () => ipcRenderer.invoke("meta:rebuild"),
   integrationsStatus: () => ipcRenderer.invoke("integrations:status"),
@@ -317,5 +319,21 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("sync:state", h)
     return () => ipcRenderer.removeListener("sync:state", h)
+  },
+  // --- Fullscreen Themes ---
+  fullscreenThemesList: () => ipcRenderer.invoke("fullscreenThemes:list"),
+  fullscreenThemeGet: (id) => ipcRenderer.invoke("fullscreenThemes:get", id),
+  fullscreenThemesGetPayload: (id) => ipcRenderer.invoke("fullscreenThemes:getPayload", id),
+  fullscreenThemesActivate: (id) => ipcRenderer.invoke("fullscreenThemes:activate", id),
+  fullscreenThemesConfirmReady: (id) => ipcRenderer.invoke("fullscreenThemes:confirmReady", id),
+  fullscreenThemesRollbackPending: () => ipcRenderer.invoke("fullscreenThemes:rollbackPending"),
+  fullscreenThemesRemove: (id) => ipcRenderer.invoke("fullscreenThemes:remove", id),
+  fullscreenThemesImport: () => ipcRenderer.invoke("fullscreenThemes:import"),
+  fullscreenThemesRecover: () => ipcRenderer.invoke("fullscreenThemes:recover"),
+  fullscreenThemesGetActiveId: () => ipcRenderer.invoke("fullscreenThemes:getActiveId"),
+  onFullscreenThemesChanged: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("fullscreenThemes:changed", h)
+    return () => ipcRenderer.removeListener("fullscreenThemes:changed", h)
   },
 })

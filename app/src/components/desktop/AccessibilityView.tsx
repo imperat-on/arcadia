@@ -5,7 +5,10 @@ import { useI18n } from "../../i18n/I18nContext"
 import type { AppConfig } from "../../global"
 import { temaPorId } from "../../themes"
 
-const ZOONS = [60, 80, 100, 120, 140, 160, 180, 200]
+// 100% corresponde ao antigo 120%; o desktop promove o padrão para 110% lógico
+// para manter os rótulos legíveis. A faixa abaixo continua permitindo reduzir
+// ou ampliar a interface.
+const ZOONS = [70, 80, 90, 100, 110]
 
 // Nomes de fonte não se traduzem; só as duas entradas com texto descritivo
 // passam pelo dicionário.
@@ -65,8 +68,16 @@ export function AccessibilityView() {
 
   useEffect(() => {
     window.launcherAPI?.getConfig().then((c) => {
-      setCfg(c || {})
-      aplicarA11y(c || {})
+      const loaded = c || {}
+      const requested = Number(loaded.ui_scale)
+      const promoteDefault = loaded.desktop_font_scale_v3 !== true && (!Number.isFinite(requested) || requested === 1)
+      const safeScale = Math.min(1.1, Math.max(.7, promoteDefault ? 1.1 : (Number.isFinite(requested) ? requested : 1.1)))
+      const normalized = { ...loaded, ui_scale: safeScale, desktop_font_scale_v3: true }
+      setCfg(normalized)
+      if (loaded.ui_scale !== safeScale || loaded.desktop_font_scale_v3 !== true) {
+        window.launcherAPI?.setConfig({ ui_scale: safeScale, desktop_font_scale_v3: true })
+      }
+      aplicarA11y(normalized)
     })
   }, [])
 

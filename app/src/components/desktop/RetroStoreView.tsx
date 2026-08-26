@@ -6,7 +6,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
-import { RetroAchievementsGamePanel } from "./RetroAchievementsGamePanel"
+import { ArcadiaStoreGameDetail, type ArcadiaStoreGameDetailAction } from "./ArcadiaStoreGameDetail"
 import type { Game } from "../ps5-launcher/types"
 
 /** Número de itens por página usado pelo catálogo Retro. */
@@ -30,6 +30,8 @@ interface RetroStoreViewProps {
   onDetailChange?: (open: boolean) => void
   onDownloadDialogChange?: (open: boolean) => void
   onOpenDownloads?: () => void
+  /** Lançamento da biblioteca compartilhado entre desktop e console. */
+  onLaunchGame?: (game: Game) => void
   initialGameId?: string
   initialGame?: RetroGame
   onExit?: () => void
@@ -106,11 +108,12 @@ export function RetroStoreView({
   onDetailChange,
   onDownloadDialogChange,
   onOpenDownloads,
+  onLaunchGame,
   initialGameId,
   initialGame,
   onExit,
 }: RetroStoreViewProps) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [query, setQuery] = useState("")
   const [appliedQuery, setAppliedQuery] = useState("")
   const [system, setSystem] = useState("")
@@ -411,30 +414,8 @@ export function RetroStoreView({
       <section
         data-testid="retro-game-detail"
         aria-label={t("store.retro_detail")}
-        className={`min-h-full ${className}`}
+        className={`h-full min-h-0 ${className}`}
       >
-        <button
-          type="button"
-          onClick={closeGame}
-          title={t("store.retro_back")}
-          aria-label={t("store.retro_back")}
-          className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/70 backdrop-blur transition-colors hover:border-white/25 hover:bg-white/[0.06] hover:text-white"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-
         {detailLoading && <RetroDetailSkeleton />}
 
         {detailError && (
@@ -451,11 +432,12 @@ export function RetroStoreView({
             game={detail}
             offers={detailOffers}
             sources={visibleSources}
-            locale={locale}
             downloadUri={downloadUri}
             downloadMessage={downloadMessage}
             onDownloadUri={() => void openDownloadDialog(detail)}
+            onClose={closeGame}
             onRemoved={initialGameId ? closeGame : undefined}
+            onLaunchGame={onLaunchGame}
             t={t}
           />
         )}
@@ -660,42 +642,37 @@ function RetroDetail({
   game,
   offers,
   sources,
-  locale,
   downloadUri,
   downloadMessage,
   onDownloadUri,
+  onClose,
   onRemoved,
+  onLaunchGame,
   t,
 }: {
   game: RetroGame
   offers: RetroOfferSummary[]
   sources: RetroSource[]
-  locale: string
   downloadUri: string
   downloadMessage: string
   onDownloadUri: (uri: string) => void
+  onClose: () => void
   onRemoved?: () => void
+  onLaunchGame?: (game: Game) => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
   const [inLibrary, setInLibrary] = useState(false)
   const [libraryMessage, setLibraryMessage] = useState("")
   const [confirmandoRemover, setConfirmandoRemover] = useState(false)
   const [removendo, setRemovendo] = useState(false)
-  const [showDescription, setShowDescription] = useState(false)
-  const [selectedMedia, setSelectedMedia] = useState(0)
   const [hasEmulator, setHasEmulator] = useState(false)
   const uris = Array.isArray(game.uris)
     ? game.uris.filter((uri): uri is string => Boolean(uri))
     : []
   const availableCount = uris.length || offers.reduce((sum, offer) => sum + offer.uriCount, 0)
-  const parsedDate = game.uploadDate ? new Date(game.uploadDate) : null
-  const date =
-    game.uploadDate && parsedDate && !Number.isNaN(parsedDate.getTime())
-      ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(parsedDate)
-      : game.uploadDate || ""
   const cover = getRetroCover(game)
   const media = [...new Set([game.hero, cover, ...(game.screenshots || []), ...(game.titleScreens || [])].filter((value): value is string => Boolean(value)))]
-  const hero = media[0] || cover
+  const hero = media[0] || cover || "/placeholder.jpg"
 
   useEffect(() => {
     let ativo = true
@@ -707,11 +684,39 @@ function RetroDetail({
       }).catch(() => {})
     }
     verificar()
-    // O main emite library:changed em retro:libraryAdd/Remove; sem assinar, o
-    // botão ficava preso no estado de quando a página abriu.
     const off = window.launcherAPI?.onLibraryChanged?.(() => verificar())
     return () => { ativo = false; off?.() }
   }, [game.id])
+
+  useEffect(() => {
+    let ativo = true
+    setHasEmulator(false)
+    window.launcherAPI?.gameSettingsGet?.(game.id).then((response) => {
+      const settings = response?.settings
+      if (ativo && settings?.emulatorId && settings?.romPath) setHasEmulator(true)
+    }).catch(() => {})
+    return () => { ativo = false }
+  }, [game.id])
+
+  const adicionar = async () => {
+    const result = await window.launcherAPI?.retroLibraryAdd?.({
+      id: game.id,
+      title: game.title,
+      systemId: game.systemId,
+      platform: game.platform,
+      cover,
+      hero,
+      description: game.description,
+      genres: game.genres,
+      releaseYear: game.releaseYear,
+    })
+    if (result?.ok) {
+      setInLibrary(true)
+      setLibraryMessage("")
+    } else {
+      setLibraryMessage(result?.error || "Could not add to Library")
+    }
+  }
 
   const remover = async () => {
     setRemovendo(true)
@@ -720,7 +725,6 @@ function RetroDetail({
       const response = await window.launcherAPI?.retroLibraryRemove?.(game.id)
       if (response?.ok) {
         setConfirmandoRemover(false)
-        // library:changed chega do main e o effect acima revalida inLibrary.
         onRemoved?.()
       } else {
         setLibraryMessage(response?.error || t("store.retro_remover_erro"))
@@ -732,196 +736,95 @@ function RetroDetail({
     }
   }
 
-  // Um jogo retro só é "jogável" quando tem emulador + rom configurados
-  // (feito em Configurações do jogo). Sem isso, o botão Jogar não aparece.
-  useEffect(() => {
-    let ativo = true
-    setHasEmulator(false)
-    window.launcherAPI?.gameSettingsGet?.(game.id).then((response) => {
-      const settings = response?.settings
-      if (ativo && settings?.emulatorId && settings?.romPath) setHasEmulator(true)
-    }).catch(() => {})
-    return () => { ativo = false }
-  }, [game.id])
+  const retroGame: Game = {
+    id: game.id,
+    title: game.title,
+    launcher: "retro",
+    launch_cmd: [],
+    cover,
+    hero,
+    description: game.description,
+    platform: game.platform,
+    systemId: game.systemId,
+    genre: game.genres?.join(", "),
+    year: game.releaseYear ?? undefined,
+    developer: game.developer?.[0],
+    publisher: game.publisher?.[0],
+    installed: inLibrary,
+    retro: true,
+  }
+
+  const jogar = () => onLaunchGame?.(retroGame)
+
+  const actions: ArcadiaStoreGameDetailAction[] = []
+  if (!inLibrary) {
+    actions.push({ label: t("store.adicionar_biblioteca"), onClick: () => void adicionar(), kind: "outline", icon: "plus" })
+  }
+  if (inLibrary && hasEmulator) {
+    actions.push({ label: t("gamepage.jogar"), onClick: jogar, kind: "primary", icon: "play" })
+  }
+  if (availableCount > 0) {
+    actions.push({
+      label: t("store.baixar"),
+      onClick: () => onDownloadUri(""),
+      disabled: Boolean(downloadUri),
+      kind: inLibrary && hasEmulator ? "outline" : "primary",
+      icon: "download",
+    })
+  }
+  if (inLibrary) {
+    actions.push({
+      label: t("common.remover"),
+      onClick: () => setConfirmandoRemover(true),
+      disabled: removendo,
+      kind: "danger",
+      icon: "trash",
+    })
+  }
+
+  const detailInfo = {
+    short_description: game.description,
+    about: game.description,
+    developers: game.developer,
+    publishers: game.publisher,
+    release_date: game.releaseYear ? String(game.releaseYear) : undefined,
+    header: hero,
+    screenshots: media.slice(1).map((image) => ({ thumb: image, full: image })),
+    movies: [],
+  }
+  const links = sources
+    .filter((source) => source?.url)
+    .slice(0, 4)
+    .map((source) => ({ label: source.title || source.id, onClick: () => window.launcherAPI?.openExternal(source.url) }))
 
   return (
     <>
-      <article
-      className="overflow-hidden rounded-2xl border border-white/[0.1] bg-black"
-      data-testid="retro-detail-card"
-      >
-      <div className="relative h-[min(62vh,620px)] min-h-[360px] overflow-hidden bg-black">
-        {hero ? (
-          <img src={hero} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" draggable={false} />
-        ) : (
-          <RetroArtwork game={game} title={game.title} />
-        )}
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.2),rgba(0,0,0,.05)_38%,#000_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 z-10 mx-auto flex max-w-[1400px] items-end gap-5 px-6 pb-7 md:px-10">
-          {cover && <img src={cover} alt="" className="hidden h-44 w-32 shrink-0 rounded-xl object-cover shadow-2xl ring-1 ring-white/15 md:block" draggable={false} />}
-          <div className="min-w-0">
-            <h1 className="text-3xl font-semibold leading-tight text-white drop-shadow-2xl md:text-5xl">{game.title}</h1>
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/70">
-              {game.platform && <Badge>{game.platform}</Badge>}
-              {game.sourceTitle && <Badge>{game.sourceTitle}</Badge>}
-              {date && <Badge>{date}</Badge>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {media.length > 1 && (
-        <div className="border-b border-white/[0.08] bg-black/70 px-5 py-4 md:px-8">
-          <div className="relative aspect-video max-h-[420px] overflow-hidden rounded-xl bg-black">
-            <img src={media[selectedMedia] || media[0]} alt="" className="h-full w-full object-contain" draggable={false} />
-          </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-            {media.map((image, index) => (
-              <button key={image} type="button" onClick={() => setSelectedMedia(index)} className={`h-14 w-24 shrink-0 overflow-hidden rounded-md border ${selectedMedia === index ? "border-[color:var(--accent)]" : "border-white/10 hover:border-white/30"}`}>
-                <img src={image} alt="" className="h-full w-full object-cover" draggable={false} />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-y border-white/[0.08] bg-black/80 px-5 py-3 backdrop-blur-xl md:px-8">
-        <span className="hidden flex-1 text-sm font-semibold text-white/80 md:block">{game.title}</span>
-        {downloadMessage && <span role="status" className="text-[12px] text-white/55">{downloadMessage}</span>}
-        {libraryMessage && <span role="alert" className="text-[12px] text-[#ff8b9d]">{libraryMessage}</span>}
-        {!inLibrary && (
-          <button
-            type="button"
-            onClick={async () => {
-              const result = await window.launcherAPI?.retroLibraryAdd?.({
-                id: game.id,
-                title: game.title,
-                systemId: game.systemId,
-                platform: game.platform,
-                cover,
-                hero,
-                description: game.description,
-                genres: game.genres,
-                releaseYear: game.releaseYear,
-              })
-              if (result?.ok) {
-                setInLibrary(true)
-                setLibraryMessage("")
-              } else {
-                setLibraryMessage(result?.error || "Could not add to Library")
-              }
-            }}
-            className="flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-[12.5px] font-semibold text-white/85 transition-colors enabled:hover:border-white/25 enabled:hover:bg-white/[0.07] enabled:hover:text-white"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            {t("store.adicionar_biblioteca")}
-          </button>
-        )}
-        {hasEmulator && inLibrary && (
-          <button
-            type="button"
-            onClick={() => {
-              window.launcherAPI?.launch([], game.id).then((r) => {
-                if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
-              })
-              window.launcherAPI?.getConfig().then((c) => {
-                if (c?.disable_playtime_tracking !== true) {
-                  window.launcherAPI?.setOverride(game.id, { last_played: Date.now() })
-                }
-              })
-            }}
-            title={t("library.jogar")}
-            className="flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-[12.5px] font-bold text-black transition-transform hover:scale-[1.03]"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-              <path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.52.86z" />
-            </svg>
-            {t("gamepage.jogar")}
-          </button>
-        )}
-        {availableCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => onDownloadUri(uris[0])}
-            disabled={Boolean(downloadUri)}
-            className="flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-[12.5px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            {t("store.baixar")}
-          </button>
-        ) : <span className="text-[12px] text-white/45">{t("store.retro_no_uris")}</span>}
-        {inLibrary && (
-          <button
-            type="button"
-            onClick={() => setConfirmandoRemover(true)}
-            disabled={removendo}
-            title={t("store.remover_tooltip")}
-            className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
-          >
-            {t("common.remover")}
-          </button>
-        )}
-      </div>
-
-      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1.35fr)_minmax(250px,.65fr)] md:p-8">
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-white/80">{t("store.retro_description")}</h2>
-          {game.description ? (
-            <div>
-              <p className={`whitespace-pre-wrap text-[13px] leading-relaxed text-white/60 ${showDescription ? "" : "line-clamp-4"}`}>{game.description}</p>
-              {game.description.length > 280 && <button type="button" onClick={() => setShowDescription((value) => !value)} className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[12px] text-white/65 hover:border-white/25 hover:text-white">{showDescription ? "Show less" : "Show more"}</button>}
-            </div>
-          ) : <p className="text-[13px] text-white/45">{t("store.retro_no_description")}</p>}
-        </div>
-        <div className="space-y-3">
-          <RetroAchievementsGamePanel title={game.title} systemId={game.systemId} />
-
-          <RetroInfoPanel title="Stats">
-            <dl className="space-y-3 text-[12px]">
-              <div className="flex items-center justify-between"><dt className="text-white/55">Downloads</dt><dd className="text-white/80">{game.offerCount || availableCount}</dd></div>
-              <div className="flex items-center justify-between"><dt className="text-white/55">Active players</dt><dd className="text-white/80">—</dd></div>
-              <div className="flex items-center justify-between"><dt className="text-white/55">Rating</dt><dd className="text-white/80">—</dd></div>
-            </dl>
-          </RetroInfoPanel>
-
-          <RetroInfoPanel title="Details">
-            <dl className="space-y-2 text-[12px]">
-              <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Platform</dt><dd className="text-right text-white/55">{game.platform || "Retro"}</dd></div>
-              {game.genres?.length ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Genres</dt><dd className="text-right text-white/55">{game.genres.join(", ")}</dd></div> : null}
-              {game.releaseYear ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Release</dt><dd className="text-right text-white/55">{game.releaseYear}</dd></div> : null}
-              {game.developer?.length ? <div className="flex justify-between gap-3"><dt className="font-medium text-white/70">Developer</dt><dd className="text-right text-white/55">{game.developer.join(", ")}</dd></div> : null}
-            </dl>
-          </RetroInfoPanel>
-
-        </div>
-      </div>
-      </article>
+      <ArcadiaStoreGameDetail
+        appid={game.id}
+        title={game.title}
+        hero={hero}
+        header={hero}
+        info={detailInfo}
+        game={retroGame}
+        busy={false}
+        actions={actions}
+        onClose={onClose}
+        statusMessage={libraryMessage || downloadMessage}
+        retro={{
+          systemId: game.systemId,
+          platform: game.platform,
+          description: game.description,
+          genres: game.genres,
+          releaseYear: game.releaseYear,
+          developers: game.developer,
+          publishers: game.publisher,
+          offerCount: game.offerCount,
+          availableCount,
+          fileSize: game.fileSize,
+          sourceCount: sources.length,
+          links,
+        }}
+      />
 
       {confirmandoRemover && (
         <div
@@ -963,23 +866,6 @@ function RetroDetail({
         </div>
       )}
     </>
-  )
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
-      {children}
-    </span>
-  )
-}
-
-function RetroInfoPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]">
-      <h2 className="border-b border-white/[0.06] bg-white/[0.025] px-4 py-3 text-sm font-semibold text-white/85">⌃ <span className="ml-1">{title}</span></h2>
-      <div className="p-4">{children}</div>
-    </section>
   )
 }
 
@@ -1064,30 +950,24 @@ function RetroSkeleton() {
 
 function RetroDetailSkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-black">
-      <div className="relative h-[min(62vh,620px)] min-h-[360px] animate-pulse bg-white/[0.05]">
-        <div className="absolute inset-x-6 bottom-8 flex items-end gap-5 md:inset-x-10">
-          <div className="hidden h-44 w-32 rounded-xl bg-white/[0.07] md:block" />
-          <div className="flex-1 space-y-3">
-            <div className="h-9 w-2/5 rounded-lg bg-white/[0.08]" />
-            <div className="h-6 w-1/4 rounded-full bg-white/[0.05]" />
+    <div className="arcadia-game-detail flex h-full min-h-0 flex-col overflow-hidden bg-[#030405] text-white">
+      <div className="flex h-[50px] shrink-0 items-center gap-3 border-b border-white/[.09] bg-[#050608] px-4">
+        <div className="h-8 w-8 animate-pulse rounded bg-white/[0.05]" />
+        <div className="h-3 w-40 animate-pulse rounded bg-white/[0.07]" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="detail-layout mx-auto grid h-full max-w-[1500px] grid-cols-[minmax(0,1fr)_292px] gap-4 px-4 py-3">
+          <div className="space-y-3">
+            <div className="h-[330px] animate-pulse rounded-[7px] border border-white/[.1] bg-white/[0.05]" />
+            <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(260px,1fr)] gap-3">
+              <div className="h-40 animate-pulse rounded-[7px] bg-white/[0.04]" />
+              <div className="h-40 animate-pulse rounded-[7px] bg-white/[0.04]" />
+            </div>
           </div>
-        </div>
-      </div>
-      <div className="flex justify-end gap-3 border-y border-white/[0.08] px-5 py-3 md:px-8">
-        <div className="h-9 w-28 animate-pulse rounded-full bg-white/[0.05]" />
-        <div className="h-9 w-24 animate-pulse rounded-full bg-white/[0.07]" />
-      </div>
-      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1.35fr)_minmax(250px,.65fr)] md:p-8">
-        <div className="space-y-3">
-          <div className="h-4 w-36 animate-pulse rounded bg-white/[0.07]" />
-          <div className="h-3 w-full animate-pulse rounded bg-white/[0.05]" />
-          <div className="h-3 w-11/12 animate-pulse rounded bg-white/[0.05]" />
-          <div className="h-3 w-4/5 animate-pulse rounded bg-white/[0.05]" />
-        </div>
-        <div className="space-y-3">
-          <div className="h-28 animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.04]" />
-          <div className="h-36 animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.04]" />
+          <div className="space-y-3">
+            <div className="h-64 animate-pulse rounded-[7px] bg-white/[0.04]" />
+            <div className="h-36 animate-pulse rounded-[7px] bg-white/[0.04]" />
+          </div>
         </div>
       </div>
     </div>

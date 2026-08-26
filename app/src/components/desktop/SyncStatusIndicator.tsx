@@ -50,7 +50,7 @@ export function SyncStatusIndicator() {
     <button
       onClick={sincronizar}
       title={st.lastError || undefined}
-      className="fixed bottom-4 right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[#16161c]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[#1d1d24]"
+      className="desktop-sync-status fixed bottom-[56px] right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[#16161c]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[#1d1d24]"
     >
       <span
         className={`h-2 w-2 rounded-full ${sincronizando ? "animate-pulse" : ""}`}

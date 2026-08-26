@@ -99,6 +99,8 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
         return t("account.erro_sem_senha")
       case "credenciais_invalidas":
         return t("account.erro_credenciais")
+      case "rede_indisponivel":
+        return t("account.erro_rede")
       case "confirmacao_necessaria":
         return t("account.erro_confirmacao")
       default:

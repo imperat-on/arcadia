@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
 
-process.env.ARCADIA_MODE = resolveLauncherMode()
 ignoreBrokenPipe(process.stdout)
 ignoreBrokenPipe(process.stderr)
 
@@ -44,6 +43,9 @@ const { createSnapshotService } = require("./snapshot-service")
 const { createDiagnosticsService } = require("./diagnostics")
 const { createSupportBundle } = require("./support-bundle")
 const { createGameSettingsService } = require("./game-settings-service")
+const { createThemeService } = require("./themes/service")
+const { registerThemeIpc } = require("./themes/ipc")
+const { createProtocolHandler } = require("./themes/protocol")
 const { createEmulatorRegistry } = require("./emulator-registry")
 const { getEmulatorStatus, preflightEmulator } = require("./emulator-status")
 const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulator-runtime")
@@ -52,6 +54,7 @@ const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, execFile } = require("child_process")
 const { fetchRede } = require("./httpfetch")
+const { createSteamNewsImageResolver, extractSteamNewsImage } = require("./steam-news")
 const DiscordRpc = require("./discord-rpc")
 const { catalogGet } = require("./catalog")
 // Escopo por conta dos arquivos locais — PRECISA estar no escopo do módulo
@@ -183,6 +186,17 @@ const diagnostics = createDiagnosticsService({
   getLibrary: () => readLibrary(),
 })
 const supportBundle = createSupportBundle({ dataDir: DATA_DIR })
+// Serviço de temas Fullscreen: registro, validação e descoberta.
+const themeService = createThemeService({ themesDir: path.join(DATA_DIR, "themes") })
+const themeProtocol = createProtocolHandler({ themesDir: path.join(DATA_DIR, "themes") })
+// Modo seguro: --safe-theme ou ARCADIA_SAFE_THEME=1 forçam o tema embutido.
+const SAFE_THEME = process.argv.includes("--safe-theme") || process.env.ARCADIA_SAFE_THEME === "1"
+if (SAFE_THEME) {
+  // Força Default e limpa pending sem destruir o registro do usuário.
+  themeService.registry.reset()
+  themeService.registry.confirmActivation("arcadia.default")
+  console.warn("[themes] modo seguro ativo: tema forçado para arcadia.default")
+}
 // Script pós-jogo pendente (aba AVANÇADO): roda quando o jogo fechar.
 let postGameScript = ""
 // Jogo lançado por nós: { pid (líder do grupo), alvo }. O grupo de processos
@@ -505,7 +519,13 @@ async function getSysinfo(g) {
   // evita que a página do jogo fique em português depois de trocar o app para
   // inglês — este cache não tem validade, era para sempre.
   const lang = steamLang()
-  if (cache[id] && cache[id]._lang === lang) return cache[id]
+  const cached = cache[id]
+  // Entradas antigas não têm `movies` porque trailers foram adicionados depois
+  // do formato original. Rebusca só essas entradas para não deixar a loja sem
+  // trailer até o usuário limpar o cache manualmente.
+  const steamSemFilmes =
+    (g?.launcher === "steam" || id.startsWith("steam:")) && !Array.isArray(cached?.movies)
+  if (cached && cached._lang === lang && !steamSemFilmes) return cached
   const info = await buildSysinfo(g)
   info._lang = lang
   cache[id] = info
@@ -866,6 +886,8 @@ async function fetchJson(url) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
+
+const resolveSteamNewsImage = createSteamNewsImageResolver({ fetchImpl: fetchRede })
 
 // O caminho é resolvido por operação porque muda com a conta ativa.
 const gameSettingsService = createGameSettingsService({
@@ -1493,21 +1515,26 @@ function onUnlockAchievement(payload) {
 
 function createWindow() {
   const cfgIni = readConfig()
+  const launcherMode = resolveLauncherMode(process.env, cfgIni)
+  // O preload só pode expor o modo inicial depois que o main resolveu todas as
+  // fontes (env legado + preferência). A mesma variável também mantém a
+  // resolução idempotente caso a janela seja recriada.
+  process.env.ARCADIA_MODE = launcherMode
   win = new BrowserWindow({
     width: 1600,
     height: 900,
     backgroundColor: "#000000",
     autoHideMenuBar: true,
     icon: path.join(__dirname, "..", "public", "logo-512.png"),
-    fullscreen: process.env.PS5_FULLSCREEN === "1",
+    fullscreen: launcherMode === "console",
     // Não mostra até o primeiro paint estar pronto: sem isto a janela abre
     // branca/vazia e só depois o React pinta. Com ready-to-show o usuário vê
     // a janela já com conteúdo, sem flash branco.
     show: false,
-    // Modo desktop usa barra de título própria (botões estilo macOS na UI), então
-    // a janela é frameless. "Usar janela sem moldura" (Config. Gerais) força o
-    // mesmo no modo console. Requer reiniciar o app.
-    frame: process.env.ARCADIA_MODE !== "desktop" && !cfgIni.frameless_window,
+    // As duas interfaces podem trocar com F11 na mesma BrowserWindow. Uma
+    // janela com moldura não pode virar frameless em runtime, então o shell
+    // usa sempre a faixa própria do desktop; no console o fullscreen a oculta.
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1568,8 +1595,33 @@ function createWindow() {
     // janela = ui_scale. Antes só aplicava o ui_scale do desktop — um 1.25
     // salvo no console vazava pro desktop no próximo load.
     const chave = win.isFullScreen() ? "console_ui_scale" : "ui_scale"
-    const z = Number(readConfig()[chave]) || 1
-    win.webContents.setZoomFactor(Math.min(2, Math.max(0.7, z)))
+    let config = readConfig()
+    // Recalibração única: o antigo 120% vira o novo 100%, sem alterar o
+    // tamanho que a pessoa já vê. Instalações novas começam diretamente em 100%.
+    if (!win.isFullScreen() && config.desktop_scale_base_v2 !== true) {
+      const escalaAntiga = Number(config.ui_scale)
+      const escalaLogica = Number.isFinite(escalaAntiga)
+        ? Math.min(1.1, Math.max(0.7, escalaAntiga / 1.2))
+        : 1
+      writeConfig({ ui_scale: escalaLogica, desktop_scale_base_v2: true })
+      config = readConfig()
+    }
+    // O padrão anterior de 100% deixava os rótulos compactos do desktop
+    // pequenos demais. Promove somente esse padrão para 110%; valores que o
+    // usuário já escolheu no controle de acessibilidade continuam intactos.
+    if (!win.isFullScreen() && config.desktop_font_scale_v3 !== true) {
+      const escalaAtual = Number(config.ui_scale)
+      const escalaLegivel = !Number.isFinite(escalaAtual) || escalaAtual === 1
+        ? 1.1
+        : Math.min(1.1, Math.max(0.7, escalaAtual))
+      writeConfig({ ui_scale: escalaLegivel, desktop_font_scale_v3: true })
+      config = readConfig()
+    }
+    const z = Number(config[chave]) || (win.isFullScreen() ? 1.3 : 1)
+    const factor = win.isFullScreen()
+      ? Math.min(2, Math.max(0.7, z))
+      : Math.min(1.4, Math.max(0.84, z * 1.2))
+    win.webContents.setZoomFactor(factor)
     // Modo console (tela cheia): cursor OCULTO por padrão, mas aparece ao
     // mexer o mouse e some após ~2s parado (navegação continua por gamepad).
     if (win.isFullScreen()) {
@@ -1654,6 +1706,16 @@ function configurarLojaSteam() {
   } catch {}
 }
 
+// Registra o scheme arcadia-theme como privilegiado antes do app estar pronto.
+// Sem isso, o Electron não permite registrar o handler depois.
+try {
+  const { protocol } = require("electron")
+  protocol.registerSchemesAsPrivileged([{
+    scheme: "arcadia-theme",
+    privileges: { bypassCSP: false, supportFetchAPI: false, corsEnabled: false, stream: false },
+  }])
+} catch {}
+
 app.whenReady().then(() => {
   // Modo diagnóstico: imprime o estado interno (conta, achievements, bins do
   // Steam, fila de sync, erros recentes) e fecha. Sem janela.
@@ -1664,6 +1726,11 @@ app.whenReady().then(() => {
     app.exit(0)
     return
   }
+  // Resolve o modo antes de criar a BrowserWindow/preload. Sem isto o
+  // `start_in_console_mode` só era conhecido pelo script de shell e o
+  // renderer recebia o fallback desktop mesmo quando a preferência estava
+  // ligada.
+  process.env.ARCADIA_MODE = resolveLauncherMode(process.env, readConfig())
   configurarLojaSteam()
   startSysinfoPrefetch()
   // Conta online (backend proprio): registra IPC de auth e espelha eventos pro renderer.
@@ -1686,6 +1753,33 @@ app.whenReady().then(() => {
     )
   } catch (e) {
     console.error("[supabase] falha ao registrar IPC de conta:", e)
+  }
+  // IPC de temas Fullscreen: lista, ativa, remove e importa temas.
+  try {
+    registerThemeIpc({
+      ipcMain,
+      themeService,
+      protocolHandler: themeProtocol,
+      dialog,
+      browserWindow: require("electron").BrowserWindow,
+    })
+    // Registra temas locais válidos no protocolo de assets.
+    const themeList = themeService.list()
+    for (const t of themeList) {
+      if (t.source === "local" && t.valid) {
+        const themeDir = path.join(DATA_DIR, "themes", "fullscreen", t.id)
+        themeProtocol.registerTheme(t.id, themeDir)
+      }
+    }
+    // Registra o handler do protocolo arcadia-theme:// no Electron.
+    try {
+      const { protocol } = require("electron")
+      themeProtocol.registerElectronProtocol(protocol)
+    } catch (e) {
+      console.warn("[themes] protocolo arcadia-theme:// não registrado:", e.message)
+    }
+  } catch (e) {
+    console.error("[themes] falha ao registrar IPC de temas:", e)
   }
   // Não há prefetch de vitrine: a loja é a página web da Steam embutida
   // (StoreConsole/webview), que se cacheia sozinha. O que vale a pena é abrir
@@ -2427,7 +2521,7 @@ app.whenReady().then(() => {
     return { ...r, reiniciou: true }
   })
 
-  // "Big Picture": fecha o modo desktop e abre o modo console (PS5, tela cheia).
+  // Compatibilidade com versões antigas: ainda pode abrir o modo console via reinício.
   ipcMain.handle("app:enterConsole", () => {
     try {
       // Libera o lock de instância única ANTES de spawnar: o processo novo
@@ -2443,13 +2537,30 @@ app.whenReady().then(() => {
         cwd: path.join(__dirname, ".."),
         detached: true,
         stdio: "ignore",
-        env: { ...process.env, PS5_FULLSCREEN: "1", ARCADIA_MODE: "" },
+        env: { ...process.env, PS5_FULLSCREEN: "1", ARCADIA_MODE: "console" },
       })
       child.unref()
       setTimeout(() => app.quit(), 500)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
+    }
+  })
+  ipcMain.handle("app:setMode", (_e, mode) => {
+    if (mode !== "console" && mode !== "desktop") return { ok: false, error: "modo inválido" }
+    if (!win || win.isDestroyed()) return { ok: false, error: "janela indisponível" }
+    try {
+      win.setFullScreen(mode === "console")
+      process.env.ARCADIA_MODE = mode
+      const cfg = readConfig()
+      const logical = Number(cfg[mode === "console" ? "console_ui_scale" : "ui_scale"]) || (mode === "console" ? 1.3 : 1)
+      const factor = mode === "console"
+        ? Math.min(2, Math.max(0.7, logical))
+        : Math.min(1.4, Math.max(0.84, logical * 1.2))
+      win.webContents.setZoomFactor(factor)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e.message || e) }
     }
   })
   ipcMain.handle("config:set", (_e, cfg) => {
@@ -2550,6 +2661,45 @@ app.whenReady().then(() => {
       return await renovarNews(slot)
     } catch (e) {
       console.error("[news:get]", e.message)
+      return []
+    }
+  })
+
+  ipcMain.handle("news:game", async (_event, rawAppid) => {
+    const appid = String(rawAppid || "").trim()
+    if (!/^\d{1,12}$/.test(appid)) return []
+    try {
+      const endpoint = new URL("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/")
+      endpoint.searchParams.set("appid", appid)
+      endpoint.searchParams.set("count", "6")
+      endpoint.searchParams.set("maxlength", "500")
+      endpoint.searchParams.set("feeds", "steam_community_announcements")
+      const payload = await fetchJson(endpoint.href)
+      const items = payload?.appnews?.newsitems
+      if (!Array.isArray(items)) return []
+      return Promise.all(items.slice(0, 6).map(async (item) => {
+        const html = String(item.contents || "")
+        // GetNewsForApp remove o markup/imagem em muitos anúncios. Quando
+        // isso acontece, a página oficial ainda expõe a capa em og:image.
+        const image = extractSteamNewsImage(html) || await resolveSteamNewsImage(item)
+        const summary = html
+          .replace(/\[img\][\s\S]*?\[\/img\]/gi, " ")
+          .replace(/\[[^\]]+\]/g, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+        return {
+          id: String(item.gid || item.url || item.date),
+          title: String(item.title || "Atualização"),
+          summary,
+          source: String(item.author || "Steam"),
+          url: String(item.url || `https://store.steampowered.com/news/app/${appid}`),
+          image,
+          date: new Date(Number(item.date || 0) * 1000).toISOString(),
+        }
+      }))
+    } catch (error) {
+      console.error("[news:game]", error.message)
       return []
     }
   })
@@ -3182,10 +3332,16 @@ app.whenReady().then(() => {
   })
   ipcMain.handle("win:close", () => win?.close())
   ipcMain.handle("app:toggleFullscreen", () => {
-    if (win) win.setFullScreen(!win.isFullScreen())
+    if (win) {
+      const consoleMode = !win.isFullScreen()
+      win.setFullScreen(consoleMode)
+      process.env.ARCADIA_MODE = consoleMode ? "console" : "desktop"
+    }
   })
   ipcMain.handle("app:setFullscreen", (_e, on) => {
-    if (win) win.setFullScreen(Boolean(on))
+    const consoleMode = Boolean(on)
+    if (win) win.setFullScreen(consoleMode)
+    process.env.ARCADIA_MODE = consoleMode ? "console" : "desktop"
   })
   ipcMain.handle("app:setZoom", (_e, z, modo) => {
     // Escalas do console e do desktop são independentes: o setZoomFactor é
@@ -3193,8 +3349,14 @@ app.whenReady().then(() => {
     // do desktop (e vice-versa). Cada chamada carrega o modo que a originou;
     // só aplica se for o modo ativo — senão o zoom fica com o do outro modo.
     const ativo = win?.isFullScreen() ? "console" : "desktop"
-    if (modo && modo !== ativo) return Number(readConfig()?.ui_scale) || 1
-    const factor = Math.min(2, Math.max(0.7, Number(z) || 1))
+    if (modo && modo !== ativo) {
+      const chave = modo === "console" ? "console_ui_scale" : "ui_scale"
+      return Number(readConfig()?.[chave]) || 1
+    }
+    const logical = Number(z) || 1
+    const factor = ativo === "desktop"
+      ? Math.min(1.4, Math.max(0.84, logical * 1.2))
+      : Math.min(2, Math.max(0.7, logical))
     if (win) win.webContents.setZoomFactor(factor)
     return factor
   })

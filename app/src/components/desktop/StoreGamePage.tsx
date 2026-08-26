@@ -22,6 +22,7 @@ import {
 import { AchievementsPanel } from "./AchievementsPanel"
 import { FixesPanel } from "./FixesPanel"
 import { CommunityPanel } from "../CommunityPanel"
+import { ArcadiaStoreGameDetail } from "./ArcadiaStoreGameDetail"
 
 type ItemLoja = {
   appid: string
@@ -46,6 +47,7 @@ export function StoreGamePage({
   naBiblioteca,
   ocupado,
   embedded,
+  bigPicture = false,
   game,
 }: {
   jogo: ItemLoja
@@ -59,6 +61,7 @@ export function StoreGamePage({
   naBiblioteca: boolean
   ocupado: boolean
   embedded?: boolean
+  bigPicture?: boolean
 }) {
   const { t } = useI18n()
   const [info, setInfo] = useState<Info | null>(null)
@@ -174,6 +177,48 @@ export function StoreGamePage({
   const dev = info?.developers?.[0]
   const pub = info?.publishers?.[0]
   const instalado = game ? game.installed !== false : Boolean(onJogar)
+
+  if (!bigPicture) {
+    const actions = !naBiblioteca
+      ? [
+          { label: t("store.adicionar_biblioteca"), onClick: onAdicionar, disabled: ocupado, kind: "outline" as const, icon: "plus" as const },
+          ...((slsAtivo || temTorrent) && temDownload
+            ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }]
+            : []),
+        ]
+      : instalado
+        ? [
+            ...(onJogar
+              ? [{
+                  label: rodando ? t("gamepage.parar") : t("gamepage.jogar"),
+                  onClick: rodando ? () => { void window.launcherAPI?.closeGame() } : onJogar,
+                  disabled: ocupado,
+                  kind: rodando ? "danger" as const : "primary" as const,
+                  icon: rodando ? "stop" as const : "play" as const,
+                }]
+              : []),
+            ...(onConfig ? [{ label: t("gamepage.gerenciar"), onClick: onConfig, disabled: ocupado, kind: "outline" as const, icon: "settings" as const }] : []),
+            ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
+          ]
+        : [
+            ...((slsAtivo || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
+            ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
+          ]
+
+    return (
+      <ArcadiaStoreGameDetail
+        appid={jogo.appid}
+        title={jogo.title}
+        hero={hero}
+        header={header}
+        info={info}
+        game={game}
+        busy={busy}
+        actions={actions}
+        onClose={onClose}
+      />
+    )
+  }
 
   return (
     <div

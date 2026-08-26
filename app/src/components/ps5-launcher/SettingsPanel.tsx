@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import type { AppConfig, IntegrationsStatus } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { FullscreenThemeGallery } from "./FullscreenThemeGallery"
 
 // Os três idiomas traduzidos. O rótulo fica no idioma nativo de cada um: quem
 // abriu o app no idioma errado precisa reconhecer o seu na lista.
@@ -20,7 +21,7 @@ interface SettingsPanelProps {
   onUiChange?: (c: { card_scale?: number; accent?: string }) => void
 }
 
-type Section = "temas"
+type Section = "temas" | "fullscreen-themes"
 
 export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPanelProps) {
   const { t } = useI18n()
@@ -67,12 +68,13 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
 
   const NAV: { id: Section; label: string; icon: JSX.Element }[] = [
     { id: "temas", label: t("settings.temas"), icon: <IconTheme /> },
+    { id: "fullscreen-themes", label: t("themes.titulo"), icon: <IconTheme /> },
   ]
 
   return (
-    <div ref={rootRef} className="gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
+    <div ref={rootRef} data-theme-slot="settings.root" className="retro-settings-shell gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
       {/* Sidebar */}
-      <aside className="flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
+      <aside className="retro-settings-nav flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
         <div className="mb-6 flex items-center gap-2 px-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full"
@@ -115,11 +117,11 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
       </aside>
 
       {/* Conteúdo */}
-      <main className="flex-1 overflow-y-auto p-10">
+      <main className="retro-settings-content flex-1 overflow-y-auto p-10">
         {section === "temas" && (
           <ThemeSection
-            scale={cfg.console_ui_scale ?? 1}
-            cardScale={cfg.card_scale ?? 1}
+            scale={cfg.console_ui_scale ?? 1.3}
+            cardScale={cfg.card_scale ?? 1.6}
             accent={cfg.accent ?? "#00a8ff"}
             onScale={(z) => {
               // Slider % anima ao vivo (via setCfg); zoom real só ao parar.
@@ -154,11 +156,14 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
               if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
               accentCommitRef.current = window.setTimeout(() => {
                 window.launcherAPI?.setConfig({ accent: hex })
-                onUiChange?.({ card_scale: cfg.card_scale ?? 1, accent: hex })
+                onUiChange?.({ card_scale: cfg.card_scale ?? 1.6, accent: hex })
                 accentCommitRef.current = null
               }, 120)
             }}
           />
+        )}
+        {section === "fullscreen-themes" && (
+          <FullscreenThemeGallery onClose={() => setSection("temas")} />
         )}
       </main>
     </div>
@@ -493,9 +498,9 @@ export function ThemeSection({
         onChange={onScale}
         presets={[
           { label: t("settings.temas.pequeno"), z: 0.9 },
-          { label: t("common.padrao"), z: 1.0 },
+          { label: t("settings.temas.medio"), z: 1.0 },
           { label: t("settings.temas.grande"), z: 1.15 },
-          { label: t("settings.temas.enorme"), z: 1.3 },
+          { label: t("common.padrao"), z: 1.3 },
           { label: t("settings.temas.gigante"), z: 1.5 },
         ]}
       />
@@ -506,10 +511,10 @@ export function ThemeSection({
         onChange={onCardScale}
         presets={[
           { label: t("settings.temas.compacto"), z: 0.85 },
-          { label: t("common.padrao"), z: 1.0 },
+          { label: t("settings.temas.pequeno"), z: 1.0 },
           { label: t("settings.temas.medio"), z: 1.2 },
           { label: t("settings.temas.grande"), z: 1.4 },
-          { label: t("settings.temas.enorme"), z: 1.6 },
+          { label: t("common.padrao"), z: 1.6 },
         ]}
       />
 

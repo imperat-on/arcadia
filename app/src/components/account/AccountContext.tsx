@@ -71,6 +71,17 @@ interface AccountCtx {
 
 const Ctx = createContext<AccountCtx | null>(null)
 
+function withTimeout<T>(promise: Promise<T> | undefined, ms: number): Promise<T | undefined> {
+  if (!promise) return Promise.resolve(undefined)
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(undefined), ms)
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value) },
+      () => { window.clearTimeout(timer); resolve(undefined) },
+    )
+  })
+}
+
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AccountStatus>("carregando")
   const [session, setSession] = useState<AccountSession | null>(null)
@@ -78,7 +89,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const carregarPerfil = useCallback(async () => {
     try {
-      const r = await window.launcherAPI?.accountProfile()
+      const r = await withTimeout(window.launcherAPI?.accountProfile(), 10_000)
       if (r?.ok && r.profile) {
         setPerfil(r.profile)
         return
@@ -92,7 +103,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let vivo = true
-    window.launcherAPI?.accountStatus().then(async (r) => {
+    withTimeout(window.launcherAPI?.accountStatus(), 12_000).then(async (r) => {
       if (!vivo) return
       setSession(r?.session ?? null)
       setStatus(r?.session ? "logado" : "deslogado")

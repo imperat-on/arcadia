@@ -8,195 +8,105 @@ import { isRovingKey, nextRovingIndex } from "./rovingTab.cjs"
 interface GameRailProps {
   games: Game[]
   selectedIndex: number
-  /** Escala das capas vinda das configurações. */
   cardScale?: number
   onSelect: (index: number) => void
   onLaunch: (game: Game) => void
 }
 
-const BASE_TILE_W = 100 // capa comum (retrato 2:3)
-const BASE_TILE_SEL_W = 152 // capa selecionada
-const RATIO = 1.5 // altura = largura * 1.5
-const PANEL_PAD = 10 // respiro do painel atrás da selecionada
-// Folga embaixo para a sombra projetada da capa selecionada (0 18px 44px):
-// o contêiner rola no eixo X, e isso faz o navegador recortar também no Y.
-const SHADOW_ROOM = 28
-
 const FALLBACK_GRADIENTS: Record<string, string> = {
-  steam: "linear-gradient(160deg, #1b2838 0%, #0d1a26 60%, #1b2838 100%)",
-  heroic: "linear-gradient(160deg, #1c1f2e 0%, #0f1119 60%, #1e1028 100%)",
-  lutris: "linear-gradient(160deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%)",
-  psn: "linear-gradient(160deg, #0a1a3a 0%, #04122b 60%, #002a6b 100%)",
+  steam: "linear-gradient(145deg,#142231,#071018)",
+  heroic: "linear-gradient(145deg,#202038,#0b0b14)",
+  lutris: "linear-gradient(145deg,#17283a,#091018)",
+  psn: "linear-gradient(145deg,#0a2550,#041027)",
 }
 
-export function GameRail({
-  games,
-  selectedIndex,
-  cardScale = 1,
-  onSelect,
-  onLaunch,
-}: GameRailProps) {
+function coverFor(game: Game) {
+  const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
+  if (game.cover?.includes("/header.jpg") && appid) {
+    return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
+  }
+  return game.cover
+}
+
+export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLaunch }: GameRailProps) {
   const railRef = useRef<HTMLDivElement>(null)
-  const selRef = useRef<HTMLButtonElement>(null)
+  const selectedRef = useRef<HTMLButtonElement>(null)
   const lastMove = useRef(0)
+  const cardWidth = Math.round(142 * Math.min(1.6, Math.max(.85, cardScale)))
 
-  const TILE_W = BASE_TILE_W * cardScale
-  const TILE_SEL_W = BASE_TILE_SEL_W * cardScale
-  const ROW_H = TILE_SEL_W * RATIO + PANEL_PAD * 2
-
-  // Mantém a capa selecionada à vista. Rolagem rápida usa scroll INSTANTÂNEO
-  // (o smooth do navegador não cancela o anterior e acumula, "pulando tudo de
-  // uma vez"); passo único fica suave.
   useEffect(() => {
     const now = performance.now()
-    const fast = now - lastMove.current < 320 // inclui o hold do gamepad (~260ms)
+    const fast = now - lastMove.current < 320
     lastMove.current = now
-    const selected = selRef.current
-    selected?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-      behavior: fast ? "auto" : "smooth",
-    })
-
-    // Roving tabindex: se o trilho já tinha o foco, acompanha a seleção
-    // alterada pelo teclado ou pelo gamepad. Não rouba o foco da barra superior
-    // nem da seleção de perfil quando a home monta por baixo de um overlay.
-    if (railRef.current?.contains(document.activeElement) && selected) {
-      selected.focus({ preventScroll: true })
+    const rail = railRef.current
+    const selected = selectedRef.current
+    if (rail && selected) {
+      // scrollIntoView também rolava o documento inteiro quando o trilho era
+      // o primeiro item. Em tela cheia isso empurrava a sidebar para fora do
+      // viewport. Alterar apenas scrollLeft mantém o shell imóvel.
+      const target = selected.offsetLeft - (rail.clientWidth - selected.offsetWidth) / 2
+      rail.scrollTo({ left: Math.max(0, target), behavior: fast ? "auto" : "smooth" })
     }
+    if (railRef.current?.contains(document.activeElement)) selectedRef.current?.focus({ preventScroll: true })
   }, [selectedIndex])
 
+  const move = (delta: number) => onSelect(Math.max(0, Math.min(games.length - 1, selectedIndex + delta)))
+
   return (
-    // Capas alinhadas pelo topo, como na referência. Scrollbar escondida: navega-se por seleção.
-    <div
-      ref={railRef}
-      className="rail-anim flex shrink-0 items-start px-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden select-none"
-      role="group"
-      aria-label="Biblioteca de jogos"
-      style={{
-        // shrink-0 + minHeight: o trilho é item de uma coluna flex e, com o
-        // flex-shrink padrão, era espremido quando faltava altura — cortando
-        // a base da capa selecionada. `height` sozinho não impede isso.
-        minHeight: ROW_H + SHADOW_ROOM,
-        // overflow-x cria contexto de rolagem, o que também recorta no eixo Y.
-        // Esta folga é o espaço da sombra projetada sob a capa selecionada.
-        paddingBottom: SHADOW_ROOM,
-        background: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.35) 100%)",
-      }}
-    >
-      {games.map((game, i) => {
-        const focused = i === selectedIndex
-        return (
-          <button
-            key={game.id}
-            type="button"
-            ref={focused ? selRef : undefined}
-            tabIndex={focused ? 0 : -1}
-            data-roving-item="true"
-            onFocus={() => {
-              if (selectedIndex !== i) onSelect(i)
-            }}
-            onKeyDown={(e) => {
-              if (!isRovingKey(e.key)) return
-              e.preventDefault()
-              e.stopPropagation()
-              const next = nextRovingIndex(i, games.length, e.key)
-              if (next === null) return
-              onSelect(next)
-              requestAnimationFrame(() => {
-                const target = railRef.current?.querySelector<HTMLButtonElement>(
-                  `[data-roving-index="${next}"]`,
-                )
-                target?.focus({ preventScroll: true })
-              })
-            }}
-            onClick={() => {
-              if (focused) onLaunch(game)
-              else onSelect(i)
-            }}
-            className="relative flex-shrink-0 rounded-2xl outline-none scroll-mx-10"
-            style={{
-              // Slot de tamanho fixo, igual para todos. Antes animávamos
-              // width/height ao selecionar: são propriedades de layout, então
-              // o trilho inteiro era refeito a cada frame e os vizinhos
-              // escorregavam junto. Agora nada no layout muda com a seleção.
-              width: TILE_SEL_W + PANEL_PAD * 2,
-              height: TILE_SEL_W * RATIO + PANEL_PAD * 2,
-              padding: PANEL_PAD,
-              // O slot largo deixaria 72px entre as capas (eram 32px). A
-              // margem negativa devolve o espaçamento original sem encolher o
-              // slot — os slots se sobrepõem, as capas não.
-              marginRight: i === games.length - 1 ? 0 : -40,
-              zIndex: focused ? 10 : 1,
-            }}
-            data-roving-index={i}
-            aria-keyshortcuts="ArrowLeft ArrowRight Home End"
-            aria-label={`${game.title} — selecionar`}
-          >
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{
-                // A capa tem, no layout, o tamanho GRANDE — e são as não
-                // selecionadas que encolhem. Era o contrário: a caixa tinha o
-                // tamanho pequeno e a selecionada era ampliada 1,52x. Isso
-                // causava dois defeitos de uma vez. A capa em foco, justamente
-                // a que se está olhando, era rasterizada a 100x150 e esticada
-                // pela GPU (saía borrada); e, por crescer para fora da própria
-                // caixa, qualquer estouro virava corte — o `overflow-x` do
-                // trilho faz o navegador recortar também no eixo Y.
-                // Encolher nunca estoura, então não há mais como cortar.
-                width: TILE_SEL_W,
-                height: TILE_SEL_W * RATIO,
-                margin: "0 auto",
-                background:
-                  FALLBACK_GRADIENTS[game.launcher] ??
-                  "linear-gradient(160deg, #0d0d0f 0%, #000000 100%)",
-                // Origem no topo porque as capas são alinhadas pelo topo. A
-                // selecionada fica no tamanho natural e sobe um pouco; escala
-                // e deslocamento são compostos na GPU, sem reflow.
-                transform: focused
-                  ? "translateY(-6px) scale(1)"
-                  : `translateY(0) scale(${TILE_W / TILE_SEL_W})`,
-                transformOrigin: "center top",
-                boxShadow: focused
-                  ? "0 18px 44px rgba(0,0,0,0.7), 0 0 0 2px var(--accent), 0 0 42px color-mix(in srgb, var(--accent) 40%, transparent)"
-                  : "0 2px 12px rgba(0,0,0,0.4)",
-                // Oculto (visível só com "Mostrar ocultos"): apagado e sem cor.
-                opacity: game.hidden ? 0.4 : focused ? 1 : 0.7,
-                filter: game.hidden ? "grayscale(1)" : focused ? "none" : "brightness(0.75)",
-                transition:
-                  "transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), filter var(--dur-2) var(--ease)",
-                willChange: "transform",
+    <section data-theme-slot="home.rail" className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
+      <div className="retro-featured-label mb-2 px-1 text-[10px] font-black uppercase tracking-[0.12em]">Em destaque</div>
+      <button type="button" onClick={() => move(-1)} disabled={selectedIndex === 0} className="retro-rail-arrow retro-rail-arrow-left absolute left-1 top-1/2 z-20 grid h-12 w-7 place-items-center text-2xl disabled:opacity-15" aria-label="Jogo anterior">‹</button>
+      <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Biblioteca de jogos">
+        {games.map((game, index) => {
+          const focused = index === selectedIndex
+          const cover = coverFor(game)
+          return (
+            <button
+              key={game.id}
+              ref={focused ? selectedRef : undefined}
+              type="button"
+              tabIndex={focused ? 0 : -1}
+              data-theme-slot="home.game-card"
+              data-theme-state={focused ? "selected" : game.favorite ? "favorite" : undefined}
+              data-roving-item="true"
+              data-roving-index={index}
+              data-active={focused}
+              onFocus={() => index !== selectedIndex && onSelect(index)}
+              onClick={() => focused ? onLaunch(game) : onSelect(index)}
+              onKeyDown={(event) => {
+                if (!isRovingKey(event.key)) return
+                event.preventDefault()
+                event.stopPropagation()
+                const next = nextRovingIndex(index, games.length, event.key)
+                if (next === null) return
+                onSelect(next)
+                requestAnimationFrame(() => railRef.current?.querySelector<HTMLButtonElement>(`[data-roving-index="${next}"]`)?.focus({ preventScroll: true }))
               }}
+              className="retro-library-card shrink-0 text-left outline-none"
+              style={{ width: cardWidth }}
+              aria-label={`${game.title} — selecionar`}
             >
-              {(() => {
-                const appid =
-                  game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-                const coverSrc =
-                  game.cover?.includes("/header.jpg") && appid
-                    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
-                    : game.cover
-                const isLandscape = coverSrc?.includes("/header.jpg")
-                return coverSrc ? (
-                  <img
-                    src={coverSrc}
-                    alt=""
-                    className={`w-full h-full ${isLandscape ? "object-contain" : "object-cover"}`}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
-                    <LauncherIcon launcher={game.launcher} size={30} />
-                    <span className="text-white/80 text-[14px] font-medium text-center leading-tight line-clamp-3">
-                      {game.title}
-                    </span>
+              <div className="retro-library-cover relative overflow-hidden" style={{ height: Math.round(cardWidth * 1.42), background: FALLBACK_GRADIENTS[game.launcher] || "#09100f" }}>
+                {cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} /> : (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-3 text-center text-white/50">
+                    <LauncherIcon launcher={game.launcher} size={28} />
+                    <span className="line-clamp-3 text-[11px] font-bold uppercase">{game.title}</span>
                   </div>
-                )
-              })()}
-            </div>
-          </button>
-        )
-      })}
-    </div>
+                )}
+              </div>
+              <strong className="mt-2 block truncate px-1 text-[9px] font-bold uppercase tracking-[0.025em] text-white/80">{game.title}</strong>
+              <span className="mt-1 block px-1 text-[9px] font-black text-[var(--retro-phosphor)]">{game.year || "—"}</span>
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" onClick={() => move(1)} disabled={selectedIndex >= games.length - 1} className="retro-rail-arrow retro-rail-arrow-right absolute right-1 top-1/2 z-20 grid h-12 w-7 place-items-center text-2xl disabled:opacity-15" aria-label="Próximo jogo">›</button>
+      <div className="retro-page-dots mt-2 flex justify-center gap-2" aria-hidden="true">
+        {Array.from({ length: Math.min(4, Math.max(1, Math.ceil(games.length / 6))) }).map((_, index) => {
+          const current = Math.min(3, Math.floor(selectedIndex / Math.max(1, Math.ceil(games.length / 4))))
+          return <span key={index} data-active={index === current} />
+        })}
+      </div>
+    </section>
   )
 }

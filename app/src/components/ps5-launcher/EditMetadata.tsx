@@ -6,6 +6,7 @@ import { useGamepadNav } from "./useGamepadNav"
 import { ArtSearch } from "./ArtSearch"
 import { TextSearch } from "./TextSearch"
 import { useI18n } from "../../i18n/I18nContext"
+import { useMode } from "../ModeContext"
 
 interface EditMetadataProps {
   game: Game | null
@@ -19,17 +20,10 @@ type ArtDraft = string | null | undefined
 
 // Tema por modo: no console (Big Picture) o editor fica no azul PS5 clássico;
 // no desktop segue o tema aplicado. (Antes era um fundo só para os dois.)
-const CONSOLE = typeof window !== "undefined" && window.launcherMode !== "desktop"
-const BG_DIALOG = CONSOLE ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)"
-const BG_HEADER = CONSOLE ? "rgba(0,0,0,0.5)" : "var(--bg)"
-// Cores fixas do PS5 no console (o tema do desktop NÃO vaza pra cá — senão
-// accent claro vira botão branco com texto branco).
-const ACCENT = CONSOLE ? "#00a8ff" : "var(--accent)"
-const ACCENT_TEXT = CONSOLE ? "#ffffff" : "#000000"
-const MUTED = CONSOLE ? "#8a93a6" : "var(--muted)"
 
 export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
   const { t } = useI18n()
+  const { isConsole } = useMode()
   const ref = useRef<HTMLDivElement>(null)
   const open = Boolean(game)
   useGamepadNav(ref, open, onClose)
@@ -96,11 +90,11 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
         className="gp-scope fixed z-50 left-1/2 top-1/2 w-[720px] max-h-[86vh] overflow-y-auto rounded-2xl"
         style={{
           transform: "translate(-50%, -50%)",
-          background: BG_DIALOG,
+          background: isConsole ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)",
           border: "1px solid rgba(255,255,255,0.14)",
           boxShadow: "0 24px 70px rgba(0,0,0,0.7)",
           backdropFilter: "blur(16px)",
-          color: CONSOLE ? "#fff" : "var(--text)",
+          color: isConsole ? "#fff" : "var(--text)",
         }}
         role="dialog"
         aria-label={t("editmetadata.editar_metadados", { title: game.title })}
@@ -108,8 +102,8 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
         <div
           className="px-6 py-4 text-[15px] font-semibold tracking-wide uppercase truncate sticky top-0 z-10"
           style={{
-            background: BG_HEADER,
-            color: CONSOLE ? "#fff" : "var(--text)",
+            background: isConsole ? "rgba(0,0,0,0.5)" : "var(--bg)",
+            color: isConsole ? "#fff" : "var(--text)",
             backdropFilter: "blur(8px)",
           }}
         >
@@ -137,7 +131,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               <button
                 onClick={() => setBuscandoTexto(true)}
                 className="px-3 py-1 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
-                style={{ background: ACCENT, color: ACCENT_TEXT }}
+                style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
               >
                 {t("editmetadata.buscar_online")}
               </button>
@@ -163,6 +157,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               onPick={() => pick("cover")}
               onSearch={() => setBuscando("cover")}
               onReset={() => setCover(null)}
+              isConsole={isConsole}
             />
             <ArtField
               kind="hero"
@@ -172,6 +167,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               onPick={() => pick("hero")}
               onSearch={() => setBuscando("hero")}
               onReset={() => setHero(null)}
+              isConsole={isConsole}
             />
             <ArtField
               kind="logo"
@@ -181,6 +177,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               onPick={() => pick("logo")}
               onSearch={() => setBuscando("logo")}
               onReset={() => setLogo(null)}
+              isConsole={isConsole}
             />
           </div>
 
@@ -195,7 +192,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
             <button
               onClick={save}
               className="px-7 py-2.5 rounded-lg text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
-              style={{ background: ACCENT, color: ACCENT_TEXT }}
+              style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
             >
               {t("common.salvar")}
             </button>
@@ -244,6 +241,7 @@ function ArtField({
   onPick,
   onSearch,
   onReset,
+  isConsole,
 }: {
   kind: "cover" | "hero" | "logo"
   draft: ArtDraft
@@ -252,6 +250,7 @@ function ArtField({
   onPick: () => void
   onSearch: () => void
   onReset: () => void
+  isConsole: boolean
 }) {
   const { t } = useI18n()
   // Rascunho vence a arte atual. O caminho vem cru do Electron: vira file://
@@ -288,7 +287,7 @@ function ArtField({
       <button
         onClick={onSearch}
         className="w-full px-2 py-1.5 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
-        style={{ background: ACCENT, color: ACCENT_TEXT }}
+        style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
       >
         {t("editmetadata.buscar_online")}
       </button>

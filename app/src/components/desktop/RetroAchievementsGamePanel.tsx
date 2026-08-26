@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { Panel } from "./GameDetailPanels"
+import { AchievementsFullScreen } from "./AchievementsFullScreen"
 
 type ItemConquista = {
   id: number
@@ -25,7 +26,15 @@ type ItemConquista = {
   unlockedHardcore?: boolean
 }
 
-export function RetroAchievementsGamePanel({ title, systemId }: { title: string; systemId?: string }) {
+export function RetroAchievementsGamePanel({
+  title,
+  systemId,
+  compact = false,
+}: {
+  title: string
+  systemId?: string
+  compact?: boolean
+}) {
   const { t } = useI18n()
   const [needsApiKey, setNeedsApiKey] = useState(false)
   const [apiKey, setApiKey] = useState("")
@@ -77,8 +86,125 @@ export function RetroAchievementsGamePanel({ title, systemId }: { title: string;
 
   const done = items ? items.filter((x) => x.unlocked).length : 0
   const total = items ? items.length : 0
+  const progress = total ? Math.round((done / total) * 100) : 0
+  const [allOpen, setAllOpen] = useState(false)
+
+  useEffect(() => {
+    if (!allOpen) return
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAllOpen(false)
+    }
+    window.addEventListener("keydown", closeWithEscape)
+    return () => window.removeEventListener("keydown", closeWithEscape)
+  }, [allOpen])
 
   if (!systemId) return null
+
+  if (compact) {
+    return (
+      <>
+      <section className="h-[286px] overflow-hidden rounded-[7px] border border-white/[.1] bg-[#080a0d] p-3.5 shadow-[0_8px_20px_rgba(0,0,0,.22)]">
+        <header className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-[10px] font-bold uppercase tracking-[.09em] text-white/78">Conquistas</h3>
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] text-white/45">
+              {items && !needsApiKey ? t("conquistas.contador", { done: String(done), total: String(total) }) : "Carregando…"}
+            </span>
+            {items && items.length > 6 && <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
+              Ver todas
+            </button>}
+          </div>
+        </header>
+
+        <div className="mb-3 h-1 overflow-hidden rounded bg-white/10">
+          <span className="block h-full bg-[var(--desktop-green)]" style={{ width: `${progress}%` }} />
+        </div>
+
+        {needsApiKey ? (
+          <div className="flex flex-col gap-2.5 py-2">
+            <p className="text-[11px] text-white/50">{t("retroachievements.precisa_apikey")}</p>
+            <div className="flex gap-2">
+              <input
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                type="password"
+                spellCheck={false}
+                placeholder={t("retroachievements.apikey_placeholder")}
+                className="min-w-0 flex-1 rounded-[4px] border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-[var(--desktop-green)]"
+              />
+              <button
+                type="button"
+                onClick={salvarApiKey}
+                disabled={savingKey || !apiKey.trim()}
+                className="detail-action-primary"
+              >
+                {savingKey ? t("retroachievements.conectando") : t("common.salvar")}
+              </button>
+            </div>
+            {keyError && <p className="text-[10px] text-red-300/80">{keyError}</p>}
+          </div>
+        ) : items?.length ? (
+          <div className="detail-achievement-grid grid max-h-[210px] gap-2 overflow-x-hidden overflow-y-auto pb-1 pr-1">
+            {items.slice(0, 6).map((item) => (
+              <article
+                key={item.id}
+                className={`detail-achievement-card flex h-[210px] min-w-0 flex-col overflow-hidden rounded-[6px] border px-2 py-2.5 text-center ${item.unlocked ? "border-[var(--desktop-green)]/45 bg-[var(--desktop-green)]/[.035]" : "border-white/[.08] bg-white/[.015]"}`}
+              >
+                <div className="detail-achievement-icon relative mx-auto mb-3 aspect-square w-16 shrink-0 overflow-hidden rounded-[5px] bg-white/5">
+                  {item.badgeUrl || item.badgeLockedUrl ? (
+                    <img
+                      src={item.unlocked ? item.badgeUrl : item.badgeLockedUrl || item.badgeUrl}
+                      alt=""
+                      loading="lazy"
+                      className={`h-full w-full object-cover ${item.unlocked ? "" : "opacity-55 sepia"}`}
+                    />
+                  ) : null}
+                </div>
+                <h4 className={`line-clamp-2 text-[9px] font-semibold leading-[1.35] ${item.unlocked ? "text-white/90" : "text-white/65"}`}>
+                  {item.title}
+                </h4>
+                <p className="mt-2 line-clamp-3 text-[7px] leading-[1.45] text-white/35">
+                  {item.description || (item.unlocked ? "Desbloqueada" : "Bloqueada")}
+                </p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="py-8 text-center text-[10px] text-white/30">
+            {items === null ? "Carregando conquistas…" : error || (!gameFound ? t("retroachievements.jogo_nao_encontrado") : t("conquistas.vazio"))}
+          </p>
+        )}
+      </section>
+      {allOpen && items?.length && <AchievementsFullScreen done={done} total={total} progress={progress} onClose={() => setAllOpen(false)}>
+        <div className="detail-achievement-full-grid grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+          {items.map((item) => (
+            <article
+              key={item.id}
+              className={`detail-achievement-card flex min-h-[230px] min-w-0 flex-col overflow-hidden rounded-[6px] border px-3 py-3 text-center ${item.unlocked ? "border-[var(--desktop-green)]/45 bg-[var(--desktop-green)]/[.035]" : "border-white/[.08] bg-white/[.015]"}`}
+            >
+              <div className="detail-achievement-icon relative mx-auto mb-4 aspect-square w-20 shrink-0 overflow-hidden rounded-[5px] bg-white/5">
+                {item.badgeUrl || item.badgeLockedUrl ? (
+                  <img
+                    src={item.unlocked ? item.badgeUrl : item.badgeLockedUrl || item.badgeUrl}
+                    alt=""
+                    loading="lazy"
+                    className={`h-full w-full object-cover ${item.unlocked ? "" : "opacity-55 sepia"}`}
+                  />
+                ) : null}
+              </div>
+              <h4 className={`line-clamp-2 text-[11px] font-semibold leading-[1.35] ${item.unlocked ? "text-white/90" : "text-white/65"}`}>
+                {item.title}
+              </h4>
+              <p className="mt-2 line-clamp-4 text-[9px] leading-[1.45] text-white/35">
+                {item.description || (item.unlocked ? "Desbloqueada" : "Bloqueada")}
+              </p>
+            </article>
+          ))}
+        </div>
+      </AchievementsFullScreen>}
+      </>
+    )
+  }
 
   return (
     <Panel

@@ -1,17 +1,44 @@
 "use client"
 
-import { forwardRef, useEffect, useMemo, useState } from "react"
-import type { Game } from "./types"
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react"
 import type { NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import { userLocale } from "../../i18n/locale"
+import type { Game } from "./types"
+
+type OverviewInfo = {
+  short_description?: string
+  about?: string
+  publishers?: string[]
+  developers?: string[]
+  release_date?: string
+  languages?: string
+  header?: string
+  background?: string
+  screenshots?: { thumb: string; full: string }[]
+  movies?: { id: number; name: string; thumb: string; mp4?: string; webm?: string }[]
+}
+
+type Achievement = {
+  title: string
+  desc?: string
+  icon?: string
+  icongray?: string
+  achieved?: boolean
+}
+
+type MediaItem = {
+  src: string
+  full: string
+  label: string
+  trailer?: boolean
+}
 
 interface GameOverviewProps {
   game: Game
   news: NewsItem[]
-  appFocused?: boolean // foco real da janela (gamescope)
-  /** Este jogo é o que está rodando agora — o botão vira "Parar jogo". */
+  appFocused?: boolean
   rodando?: boolean
-  /** Lançado, esperando o processo subir. */
   abrindo?: boolean
   closing?: boolean
   onClose: () => void
@@ -19,81 +46,51 @@ interface GameOverviewProps {
   onOpenNews: (url: string) => void
 }
 
-// Notícias relacionadas: casa palavras significativas do título do jogo
-// com o título da notícia (ex.: "Silksong", "Diablo").
-function noticiasRelacionadas(game: Game, news: NewsItem[]): NewsItem[] {
-  const palavras = game.title
-    .toLowerCase()
-    .split(/[^a-z0-9à-ÿ]+/i)
-    .filter((w) => w.length >= 4)
-  if (!palavras.length) return []
-  return news
-    .filter((n) => {
-      const t = n.title.toLowerCase()
-      return palavras.some((w) => t.includes(w))
-    })
-    .slice(0, 3)
+type OverviewGame = Game & {
+  screenshots?: string[]
+  titleScreens?: string[]
 }
 
-function tempoRelativo(iso: string, t: (k: string, v?: any) => string): string {
-  if (!iso) return ""
-  const diff = Date.now() - new Date(iso).getTime()
-  if (isNaN(diff)) return ""
-  const h = Math.floor(diff / 3600000)
-  if (h < 1) return t("gameoverview.agora")
-  if (h < 24) return t("gameoverview.horas_atras", { h: String(h) })
-  const d = Math.floor(h / 24)
-  return d === 1 ? t("gameoverview.um_dia_atras") : t("gameoverview.dias_atras", { d: String(d) })
+const unique = (values: (string | undefined | null)[]) => [
+  ...new Set(values.filter((value): value is string => Boolean(value))),
+]
+
+function cleanText(value?: string): string {
+  return (value || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
-// "20,3 h", "45 min", "1 h 20 min"
-function tempoDeJogo(mins: number, t: (k: string, v?: any) => string): string {
-  if (mins < 60) return t("gameoverview.tempo.minutos", { mins: String(mins) })
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  if (h < 10 && m > 0) return t("gameoverview.tempo.horas_minutos", { h: String(h), m: String(m) })
-  return `${String(h).replace(".", ",")} h`
+function formatPlaytime(minutes?: number): string {
+  if (!minutes) return "—"
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (!hours) return `${rest} min`
+  return `${hours}h${rest ? ` ${rest}m` : ""}`
 }
 
-function Tag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="flex h-7 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] px-3 text-xs font-medium tracking-wide text-white/80 backdrop-blur-sm">
-      {children}
-    </span>
-  )
+function formatLastPlayed(timestamp?: number): string {
+  if (!timestamp) return "Nunca"
+  return new Date(timestamp).toLocaleDateString(userLocale(), {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
 }
 
-// Rótulo de seção com o ponto de acento (assinatura visual dos painéis)
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.26em] text-white/55">
-      <span className="inline-block h-[6px] w-[6px] rounded-full shadow-[0_0_8px_var(--accent)]" style={{ background: "var(--accent)" }} />
-      {children}
-    </span>
-  )
-}
-
-// Anel de progresso SVG (assinatura visual: conquistas num anel, não barra)
-function Ring({ pct, size = 54 }: { pct: number; size?: number }) {
-  const r = (size - 8) / 2
-  const c = 2 * Math.PI * r
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={c * (1 - Math.min(1, Math.max(0, pct / 100)))}
-        style={{ transition: "stroke-dashoffset 0.8s var(--ease-out)" }}
-      />
-    </svg>
-  )
+function timeSince(date: string): string {
+  const stamp = new Date(date).getTime()
+  if (!Number.isFinite(stamp)) return ""
+  const minutes = Math.max(0, Math.floor((Date.now() - stamp) / 60000))
+  if (minutes < 60) return `${Math.max(1, minutes)} min atrás`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h atrás`
+  return `${Math.floor(hours / 24)}d atrás`
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
@@ -101,541 +98,250 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   ref,
 ) {
   const { t } = useI18n()
-  const relacionadas = useMemo(() => noticiasRelacionadas(game, news), [game, news])
-  const destaque = relacionadas[0] ?? null
-  const [somTrailer, setSomTrailer] = useState(false)
-
-  // Trailer local resolvido NA HORA (sem o delay de 1,5s da home e sem
-  // baixar nada): undefined = carregando, null = não existe, string = path.
-  const [trailer, setTrailer] = useState<string | null | undefined>(undefined)
-
-  // Fallback remoto (Steam sysinfo) pros campos de detalhe vazios.
-  const [meta, setMeta] = useState<{
-    short_description?: string
-    about?: string
-    developers?: string[]
-    publishers?: string[]
-    release_date?: string
-    movies?: Array<{
-      id?: string | number
-      name?: string
-      thumb?: string
-      mp4?: string
-      webm?: string
-      hls?: string
-    }>
-    header?: string
-  } | null>(null)
+  const mediaGame = game as OverviewGame
+  const [meta, setMeta] = useState<OverviewInfo | null>(null)
+  const [trailer, setTrailer] = useState<string | null>(null)
+  const [media, setMedia] = useState("hero")
+  const [achievements, setAchievements] = useState<Achievement[] | null>(null)
+  const [retroProgress, setRetroProgress] = useState<{ unlocked: number; total: number } | null>(null)
+  const backRef = useRef<HTMLButtonElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    let vivo = true
+    const frame = window.requestAnimationFrame(() => backRef.current?.focus({ preventScroll: true }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [game.id])
+
+  useEffect(() => {
+    let live = true
     setMeta(null)
-    const precisaEnriquecer = !game.description || !game.developer || !game.publisher || !game.genre
-    if (!precisaEnriquecer) return
     const api = window.launcherAPI
-    if (!api?.gameSysinfo) return
-    api
-      .gameSysinfo(game)
-      .then((r: any) => {
-        if (vivo && r && typeof r === "object") setMeta(r?.info ?? null)
-      })
-      .catch(() => {})
-    return () => {
-      vivo = false
-    }
-  }, [game.id])
-  // HowLongToBeat: tempos de jogo (horas). Falha silenciosa — sem linha na UI.
-  const [hltb, setHltb] = useState<{
-    main: number
-    mainExtra: number
-    completionist: number
-  } | null>(null)
-
-  useEffect(() => {
-    let vivo = true
-    setHltb(null)
-    const api = window.launcherAPI
-    if (!api?.hltbGet || !game.title) return
-    api
-      .hltbGet(game.title)
-      .then((r) => {
-        if (!vivo || !r) return
-        setHltb({
-          main: r.main || 0,
-          mainExtra: r.mainExtra || 0,
-          completionist: r.completionist || 0,
-        })
-      })
-      .catch(() => {})
-    return () => {
-      vivo = false
-    }
-  }, [game.id])
-  useEffect(() => {
-    let vivo = true
-    const api = window.launcherAPI
-    if (!api) {
-      setTrailer(null)
-      return
-    }
-    api
-      .trailerPath(game.id)
-      .then((r) => {
-        if (vivo) setTrailer(r?.path || null)
-      })
-      .catch(() => {
-        if (vivo) setTrailer(null)
-      })
-    return () => {
-      vivo = false
-    }
+    if (!api) return () => { live = false }
+    api.gameSysinfo(game).then((result) => {
+      if (live) setMeta(result?.info || null)
+    }).catch(() => {})
+    return () => { live = false }
   }, [game.id])
 
-  // Fallback: sem trailer local, usa o primeiro vídeo remoto do sysinfo.
   useEffect(() => {
-    if (trailer !== null) return
-    const m = meta?.movies?.[0]
-    if (!m) return
-    const remoto = m.mp4 || m.webm || m.hls
-    if (remoto) setTrailer(remoto)
+    let live = true
+    setTrailer(null)
+    const api = window.launcherAPI
+    if (!api) return () => { live = false }
+    api.trailerPath(game.id).then((result) => {
+      if (live) setTrailer(result?.path || null)
+    }).catch(() => {})
+    return () => { live = false }
+  }, [game.id])
+
+  useEffect(() => {
+    if (trailer || !meta?.movies?.length) return
+    const movie = meta.movies[0]
+    const source = movie.mp4 || movie.webm || null
+    if (source) setTrailer(source)
   }, [meta, trailer])
 
-  const detalhes: [string, string | number | undefined][] = [
-    [t("gameoverview.detalhes.desenvolvedora"), game.developer || meta?.developers?.[0]],
-    [t("gameoverview.detalhes.publicadora"), game.publisher || meta?.publishers?.[0]],
-    [t("gameoverview.detalhes.genero"), game.genre],
-    [t("gameoverview.detalhes.lancamento"), game.year || meta?.release_date],
-    [t("gameoverview.detalhes.jogadores"), game.players],
-    [
-      t("gameoverview.detalhes.tempo_jogo"),
-      game.playtime_minutes ? tempoDeJogo(game.playtime_minutes, t) : undefined,
-    ],
-    [t("gameoverview.detalhes.hltb_main"), hltb?.main ? tempoDeJogo(hltb.main, t) : undefined],
-    [
-      t("gameoverview.detalhes.hltb_main_extra"),
-      hltb?.mainExtra ? tempoDeJogo(hltb.mainExtra, t) : undefined,
-    ],
-    [
-      t("gameoverview.detalhes.hltb_100"),
-      hltb?.completionist ? tempoDeJogo(hltb.completionist, t) : undefined,
-    ],
-    [
-      t("gameoverview.detalhes.metacritic"),
-      game.metacritic ? `${game.metacritic} / 100` : undefined,
-    ],
-    [t("gameoverview.detalhes.fonte"), game.launcher],
-  ]
+  useEffect(() => {
+    let live = true
+    setAchievements(null)
+    setRetroProgress(null)
+    const api = window.launcherAPI
+    if (!api) return () => { live = false }
+
+    if (game.retro && game.systemId && api.retroachievementsGameProgress) {
+      api.retroachievementsGameProgress(game.title, game.systemId).then((result) => {
+        if (live && result?.game) {
+          setRetroProgress({
+            unlocked: result.game.numAwardedToUser || 0,
+            total: result.game.numAchievements || 0,
+          })
+        }
+      }).catch(() => {})
+      return () => { live = false }
+    }
+
+    if (game.launcher !== "steam") {
+      setAchievements([])
+      return () => { live = false }
+    }
+
+    const appid = String(game.id).replace(/^steam:/, "")
+    api.achievementsGet(appid).then((items) => {
+      if (live) setAchievements(Array.isArray(items) ? items : [])
+    }).catch(() => {
+      if (live) setAchievements([])
+    })
+    return () => { live = false }
+  }, [game.id, game.launcher, game.retro, game.systemId, game.title])
+
+  useEffect(() => {
+    setMedia("hero")
+  }, [game.id])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || media !== "trailer" || !trailer || !appFocused) return
+    video.muted = true
+    void video.play().catch(() => {})
+  }, [media, trailer, appFocused])
+
+  const backdrop = game.hero || meta?.background || meta?.header || game.cover || ""
+  const cover = game.cover || meta?.header || backdrop
+  const description = cleanText(game.description || meta?.short_description || meta?.about) || t("gameoverview.sem_descricao")
+  const developer = game.developer || meta?.developers?.[0] || game.publisher || game.launcher
+  const publisher = game.publisher || meta?.publishers?.[0] || "—"
+  const platform = game.platform || game.systemId || game.launcher
+  const release = game.year || meta?.release_date || "—"
+  const tags = unique([game.genre, ...(game.categories || [])])
+    .flatMap((value) => value.split(/[,/]/).map((item) => item.trim()))
+    .filter(Boolean)
+    .slice(0, 4)
+
+  const screenshots = useMemo(() => unique([
+    ...(mediaGame.screenshots || []),
+    ...(mediaGame.titleScreens || []),
+    ...(meta?.screenshots || []).flatMap((shot) => [shot.full, shot.thumb]),
+  ]).filter((image) => image !== backdrop).slice(0, 5), [mediaGame.screenshots, mediaGame.titleScreens, meta?.screenshots, backdrop])
+
+  const mediaItems = useMemo<MediaItem[]>(() => [
+    ...(trailer ? [{
+      src: meta?.movies?.[0]?.thumb || backdrop || cover,
+      full: "trailer",
+      label: t("gameoverview.trailer"),
+      trailer: true,
+    }] : []),
+    ...screenshots.map((image, index) => ({
+      src: image,
+      full: image,
+      label: `Imagem ${index + 1}`,
+    })),
+  ].filter((item): item is MediaItem => Boolean(item.src)), [trailer, meta?.movies, backdrop, cover, screenshots, t])
+
+  const relatedNews = useMemo(() => {
+    const words = game.title.toLocaleLowerCase().split(/\s+/).filter((word) => word.length > 3)
+    const related = news.filter((item) => words.some((word) =>
+      `${item.title} ${item.summary}`.toLocaleLowerCase().includes(word),
+    ))
+    return (related.length ? related : news).slice(0, 2)
+  }, [game.title, news])
+
+  const unlocked = retroProgress?.unlocked ?? achievements?.filter((item) => item.achieved).length ?? 0
+  const total = retroProgress?.total ?? achievements?.length ?? 0
+  const progress = total ? Math.round((unlocked / total) * 100) : 0
+  const preview = media !== "trailer" && media !== "hero" ? media : backdrop || cover
+  const showingTrailer = media === "trailer" && Boolean(trailer) && appFocused
 
   return (
     <div
       ref={ref}
-      className="gp-scope fixed inset-0 z-40 overflow-hidden bg-black text-white antialiased"
+      data-theme-slot="overview.root"
+      className={`arcadia-overview gp-scope fixed inset-0 z-[70] overflow-hidden text-white ${closing ? "is-closing" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${t("gameoverview.detalhes")}: ${game.title}`}
     >
-      {/* Fundo: hero à DIREITA, afundando num gradiente OLED pesado — a arte
-          fica como clima, nunca atrapalha a leitura */}
-      <div className={closing ? "ov-out absolute inset-0" : "ov-bg-in absolute inset-0"}>
-        {game.hero && (
-          <img
-            src={game.hero}
-            alt=""
-            className="absolute inset-y-0 right-0 h-full w-[70%] object-cover object-right"
-            style={{
-              maskImage: "linear-gradient(to left, black 30%, transparent 95%)",
-              WebkitMaskImage: "linear-gradient(to left, black 30%, transparent 95%)",
-            }}
-            draggable={false}
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/85 to-black/40" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/60" />
-        {/* Glow de acento na base — luz do jogo sobe do rodapé (assinatura) */}
-        <div
-          className="absolute inset-x-0 bottom-0 h-48 pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(ellipse 55% 100% at 50% 100%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 75%)",
-          }}
-        />
-        {/* Fase 2: sombra sobe da borda inferior p/ legibilidade dos painéis */}
-        {!closing && (
-          <div className="ov-shade absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black via-black/70 to-transparent" />
-        )}
-      </div>
+      <div className="arcadia-overview__backdrop" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
+      <div className="arcadia-overview__backdrop-blur" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
+      <div className="arcadia-overview__wash" />
+      <div className="arcadia-overview__grid" />
+      <div className="arcadia-overview__scanlines" />
+      <div className="arcadia-overview__sweep" />
 
-      <div className="relative z-10 mx-auto flex h-full max-w-[1900px] flex-col px-12 py-10">
-        {/* Cabeçalho: capa + meta + ação + nota */}
-        <section className={`flex items-start gap-8 ${closing ? "ov-out" : ""}`}>
-          <div className={`relative shrink-0 ${closing ? "" : "ov-hero-card"}`}>
-            {game.cover && (
-              <img
-                src={game.cover}
-                alt={game.title}
-                className="h-[190px] w-[142px] rounded-xl object-cover shadow-2xl shadow-black/80 ring-1 ring-white/15"
-                draggable={false}
-              />
-            )}
-            {/* halo de acento atrás da capa (camada -1: sombra colorida) */}
-            <div
-              className="pointer-events-none absolute -inset-3 -z-10 rounded-2xl opacity-50 blur-2xl"
-              style={{ background: "color-mix(in oklab, var(--accent) 45%, transparent)" }}
-            />
-          </div>
-
-          <div className={`min-w-0 flex-1 pt-1 ${closing ? "" : "ov-hero-text"}`}>
-            {game.logo ? (
-              <img
-                src={game.logo}
-                alt={game.title}
-                className="max-h-16 max-w-[380px] object-contain object-left"
-                draggable={false}
-              />
-            ) : (
-              <h1
-                className="game-name truncate text-4xl font-bold tracking-wide"
-                style={{
-                  background:
-                    "linear-gradient(120deg, #fff 55%, color-mix(in oklab, var(--accent) 85%, #fff))",
-                  WebkitBackgroundClip: "text",
-                  backgroundClip: "text",
-                  color: "transparent",
-                }}
-              >
-                {game.title}
-              </h1>
-            )}
-            <p className="mt-3 line-clamp-3 max-w-[560px] text-[15px] font-light leading-relaxed text-white/65">
-              {game.description || meta?.short_description || t("gameoverview.sem_descricao")}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {game.year && <Tag>{game.year}</Tag>}
-              {game.genre && <Tag>{game.genre}</Tag>}
-              {game.players && <Tag>{game.players}</Tag>}
-              {game.metacritic && (
-                <span className="flex h-7 items-center gap-1.5 rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 px-3 text-xs font-bold text-white backdrop-blur-sm">
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3" style={{ color: "var(--accent)" }} aria-hidden="true">
-                    <path d="M12 2l2.9 6.26L21.5 9.3l-4.75 4.5 1.15 6.7L12 17.1l-5.9 3.4 1.15-6.7L2.5 9.3l6.6-1.04L12 2z" />
-                  </svg>
-                  {game.metacritic}
-                </span>
-              )}
-            </div>
-            <button
-              onClick={() => onLaunch(game)}
-              className={`group mt-6 inline-flex items-center gap-3 rounded-full py-3 pl-5 pr-7 text-sm font-semibold outline-none transition-all hover:scale-[1.04] focus-visible:shadow-[0_0_0_2px_var(--accent),0_0_30px_var(--accent)] ${
-                rodando ? "bg-[#e8703a] text-white" : "bg-white text-black"
-              }`}
-              style={{
-                boxShadow: rodando
-                  ? "0 10px 40px -10px rgba(232,112,58,0.55)"
-                  : "0 10px 40px -10px rgba(255,255,255,0.35)",
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                {rodando ? (
-                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
-                ) : (
-                  <path d="M8 5v14l11-7z" />
-                )}
-              </svg>
-              {rodando
-                ? t("gameoverview.parar_jogo")
-                : abrindo
-                  ? t("common.abrindo")
-                  : t("gameoverview.jogar_agora")}
-            </button>
-          </div>
-        </section>
-
-        {/* Corpo: trailer + detalhes */}
-        <section
-          className={`mt-8 grid min-h-0 flex-1 gap-6 grid-cols-[1.4fr_1fr_1fr] ${closing ? "ov-out" : ""}`}
-        >
-          {/* Trailer — clicar liga/desliga o som. Sem trailer local, mostra a
-              notícia relacionada. */}
-          {trailer !== null ? (
-            <button
-              onClick={() => setSomTrailer((v) => !v)}
-              className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black text-left outline-none transition-colors hover:border-white/25 focus-visible:border-[color:var(--accent)] ${closing ? "" : "ov-w1"}`}
-            >
-              <div className="relative min-h-0 flex-1 overflow-hidden">
-                {trailer && appFocused && (
-                  <video
-                    key={trailer}
-                    src={trailer}
-                    autoPlay
-                    loop
-                    muted={!somTrailer}
-                    playsInline
-                    onError={() => setTrailer(null)}
-                    className="h-full w-full object-cover"
-                  />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
-                <span className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg bg-black/50 ring-1 ring-white/15 backdrop-blur-md">
-                  {somTrailer ? (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                    >
-                      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
-                      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-                      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-                    </svg>
-                  ) : (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                    >
-                      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
-                      <line x1="22" x2="16" y1="9" y2="15" />
-                      <line x1="16" x2="22" y1="9" y2="15" />
-                    </svg>
-                  )}
-                </span>
-                <span className="absolute bottom-4 left-5 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                  />
-                  {t("gameoverview.trailer")}
-                </span>
-              </div>
-            </button>
-          ) : (
-            <button
-              onClick={() => destaque && onOpenNews(destaque.url)}
-              className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] text-left outline-none backdrop-blur-xl transition-colors hover:border-white/25 focus-visible:border-[color:var(--accent)] ${closing ? "" : "ov-w1"}`}
-            >
-              <div className="relative min-h-0 flex-1 overflow-hidden">
-                {destaque?.image || game.hero ? (
-                  <img
-                    src={destaque?.image || game.hero}
-                    alt=""
-                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm font-light text-white/40">
-                    {t("gameoverview.sem_noticias")}
-                  </div>
-                )}
-                {destaque && (
-                  <>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-                    <div className="absolute inset-x-0 bottom-0 p-6">
-                      <h5 className="line-clamp-2 max-w-[90%] text-lg font-normal text-white/95">
-                        {destaque.title}
-                      </h5>
-                      <p className="mt-1 text-xs tracking-wide text-white/50">
-                        {tempoRelativo(destaque.date, t)}
-                      </p>
-                    </div>
-                  </>
-                )}
-                <span className="absolute left-5 top-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/70">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                  />
-                  {t("gameoverview.noticias")}
-                </span>
-              </div>
-            </button>
-          )}
-
-          {/* Detalhes — fundo quase sólido para leitura perfeita sobre a arte */}
-          <div
-            className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w2"}`}
-          >
-            <div className="px-6 pt-5"><SectionLabel>{t("gameoverview.detalhes")}</SectionLabel></div>
-            <div className="mt-3 flex-1 space-y-0 overflow-y-auto px-6 pb-4">
-              {detalhes.filter(([, v]) => v).length <= 1 &&
-                game.launcher === "steam" &&
-                meta === null && (
-                  <div className="space-y-3 py-3">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className="flex items-center justify-between gap-4">
-                        <div className="h-3 w-20 rounded bg-white/5 animate-pulse" />
-                        <div className="h-3 w-32 rounded bg-white/5 animate-pulse" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              {detalhes
-                .filter(([, v]) => v)
-                .map(([label, valor], i, arr) => (
-                  <div
-                    key={label}
-                    className={`flex items-baseline justify-between gap-4 py-3 text-sm ${i < arr.length - 1 ? "border-b border-white/[0.07]" : ""}`}
-                  >
-                    <span className="shrink-0 text-white/45">{label}</span>
-                    <span className="text-right font-light text-white/90">{valor}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Conquistas — painel estilo Steam no terceiro bloco */}
-          <AchievementsCard
-            appid={String((game as any).appid || game.id?.replace("steam:", "") || "")}
-            t={t}
-            closing={closing}
-          />
-        </section>
-
-        {/* Dica de controle */}
-        <div
-          className={`flex items-center justify-end gap-6 pt-5 text-xs text-white/60 ${closing ? "ov-out" : "ov-w4"}`}
-        >
-          <span className="flex items-center gap-2">
-            <Glyph kind="cross" />
-            <span>{t("gameoverview.controle.jogar")}</span>
-          </span>
-          <button
-            onClick={onClose}
-            className="flex items-center gap-2 outline-none transition-colors hover:text-white focus-visible:text-[color:var(--accent)]"
-          >
-            <Glyph kind="circle" />
-            <span>{t("gameoverview.controle.voltar")}</span>
-          </button>
+      <header className="arcadia-overview__top">
+        <button ref={backRef} type="button" data-theme-action="back" onClick={onClose} className="arcadia-overview__back-button">
+          <span className="arcadia-overview__key">B</span>
+          <span>{t("gameoverview.controle.voltar")}</span>
+        </button>
+        <div className="arcadia-overview__brand" aria-hidden="true">
+          <strong>ARCADIA</strong>
+          <span>GAME HUB / {String(game.launcher).toUpperCase()}</span>
         </div>
-      </div>
+        <span className="arcadia-overview__signal"><i /> ONLINE // {String(platform).toUpperCase()}</span>
+      </header>
+
+      <main className="arcadia-overview__layout">
+        <section className="arcadia-overview__hero">
+          <div className="arcadia-overview__cover-column">
+            <div className="arcadia-overview__cover-halo" />
+            <div className="arcadia-overview__cover-card">
+              {cover ? <img src={cover} alt="" draggable={false} /> : <span>{game.title}</span>}
+              <div className="arcadia-overview__cover-shade" />
+              <span className="arcadia-overview__cover-label">{game.installed === false ? "NÃO INSTALADO" : "NA BIBLIOTECA"}</span>
+            </div>
+            <span className="arcadia-overview__cover-index">ARC // {String(game.id).replace(/^steam:/, "").slice(0, 12)}</span>
+          </div>
+
+          <div className="arcadia-overview__identity">
+            <span className="arcadia-overview__eyebrow">{developer} <b>//</b> JOGO SELECIONADO</span>
+            {game.logo ? <img src={game.logo} alt={game.title} className="arcadia-overview__logo" /> : <h1>{game.title}</h1>}
+            <div className="arcadia-overview__tags">
+              {tags.map((tag) => <span key={tag}>{tag}</span>)}
+              <span>{release}</span>
+            </div>
+            <p className="arcadia-overview__description">{description}</p>
+            <div className="arcadia-overview__actions">
+              <button type="button" onClick={() => onLaunch(game)} className="arcadia-overview__action arcadia-overview__action--primary">
+                <span className="arcadia-overview__action-icon">{rodando ? "■" : "▶"}</span>
+                {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("gameoverview.jogar_agora")}
+              </button>
+              {trailer && <button type="button" onClick={() => setMedia("trailer")} className="arcadia-overview__action">
+                <span className="arcadia-overview__action-icon">▷</span>
+                {t("gameoverview.trailer")}
+              </button>}
+            </div>
+            <div className="arcadia-overview__controls"><span><b>A</b> selecionar</span><span><b>B</b> voltar</span><span><b>R1</b> próxima aba</span></div>
+          </div>
+        </section>
+
+        <aside className="arcadia-overview__side">
+          <section className="arcadia-overview__panel arcadia-overview__progress-panel">
+            <div className="arcadia-overview__panel-heading"><span>PROGRESSO // JORNADA</span><strong>{progress}%</strong></div>
+            <div className="arcadia-overview__progress-line"><span style={{ width: `${progress}%` }} /></div>
+            <div className="arcadia-overview__progress-copy"><span>{total ? `${unlocked}/${total}` : "—"} CONQUISTAS</span><span>{game.playtime_minutes ? formatPlaytime(game.playtime_minutes) : "NOVA SESSÃO"}</span></div>
+          </section>
+
+          <section className="arcadia-overview__preview">
+            <div className="arcadia-overview__preview-media">
+              {showingTrailer && trailer ? <video ref={videoRef} key={trailer} src={trailer} poster={backdrop || cover} autoPlay loop muted playsInline /> : preview ? <img key={preview} src={preview} alt="" draggable={false} /> : <span className="arcadia-overview__preview-empty">SEM ARTE DISPONÍVEL</span>}
+              <div className="arcadia-overview__preview-shade" />
+              <span className="arcadia-overview__preview-status">{showingTrailer ? "TRAILER // PLAYING" : "SIGNAL // READY"}</span>
+              <span className="arcadia-overview__preview-code">{String(game.id).slice(0, 8).toUpperCase()}</span>
+            </div>
+          </section>
+
+          <section className="arcadia-overview__panel arcadia-overview__data-panel">
+            <div className="arcadia-overview__panel-heading"><span>DADOS DO JOGO</span><span className="arcadia-overview__panel-dot" /></div>
+            <DataRow label="Plataforma" value={String(platform)} />
+            <DataRow label="Última sessão" value={formatLastPlayed(game.last_played)} />
+            <DataRow label="Desenvolvedora" value={developer} />
+            <DataRow label="Distribuidora" value={publisher} />
+          </section>
+        </aside>
+
+        <section className="arcadia-overview__activity">
+          <div className="arcadia-overview__activity-heading"><span>ATIVIDADES</span><small>SELECIONE UMA ATIVIDADE</small></div>
+          <div className="arcadia-overview__activity-rail">
+            <button type="button" onClick={() => onLaunch(game)} className="arcadia-overview__activity-card arcadia-overview__activity-card--launch">
+              <span className="arcadia-overview__activity-mark">▶</span>
+              <span><b>{rodando ? "JOGO EM EXECUÇÃO" : "CONTINUAR JOGANDO"}</b><small>{game.playtime_minutes ? formatPlaytime(game.playtime_minutes) : "Começar uma nova sessão"}</small></span>
+              <em>A</em>
+            </button>
+            {mediaItems.map((item) => <button type="button" key={`${item.full}-${item.label}`} onClick={() => setMedia(item.full)} className={`arcadia-overview__activity-card arcadia-overview__activity-card--media ${media === item.full ? "is-active" : ""}`}>
+              <span className="arcadia-overview__activity-thumb"><img src={item.src} alt="" draggable={false} />{item.trailer && <i>▶</i>}</span>
+              <span><b>{item.label}</b><small>{item.trailer ? "Assistir agora" : "Abrir captura"}</small></span>
+            </button>)}
+            {relatedNews.map((item) => <button type="button" key={item.id} onClick={() => onOpenNews(item.url)} className="arcadia-overview__activity-card arcadia-overview__activity-card--news">
+              <span className="arcadia-overview__activity-mark">✦</span>
+              <span><b>{item.title}</b><small>{item.source} {timeSince(item.date) && `// ${timeSince(item.date)}`}</small></span>
+            </button>)}
+            {!mediaItems.length && !relatedNews.length && <div className="arcadia-overview__empty-activity">Nenhuma atividade adicional disponível.</div>}
+          </div>
+        </section>
+      </main>
     </div>
   )
 })
 
-function AchievementsCard({
-  appid,
-  t,
-  closing,
-}: { appid: string; t: any; closing: boolean }) {
-  const [items, setItems] = useState<any[] | null>(null)
-  const [recente, setRecente] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!appid) return
-    let vivo = true
-    window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
-      if (vivo && arr?.length) setItems(arr)
-    })
-    return () => { vivo = false }
-  }, [appid])
-
-  useEffect(() => {
-    if (!appid) return
-    const off = window.launcherAPI?.onAchievementUnlocked((p: any) => {
-      if (p.appid !== appid) return
-      setRecente(p.key)
-      setTimeout(() => setRecente(null), 2500)
-      window.launcherAPI?.achievementsGet(appid).then((arr: any[]) => {
-        if (arr?.length) setItems(arr)
-      })
-    })
-    return off
-  }, [appid])
-
-  if (!appid || !items?.length) return null
-
-  const desbloq = items.filter((i: any) => i.achieved).length
-  const pct = Math.round((desbloq / items.length) * 100)
-  const ordenadas = [...items].sort((a: any, b: any) => {
-    if (a.achieved !== b.achieved) return a.achieved ? -1 : 1
-    return (b.unlock || 0) - (a.unlock || 0)
-  })
-
-  return (
-    <div
-      className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-2xl ${closing ? "" : "ov-w3"}`}
-    >
-      {/* Cabeçalho: anel de progresso + título */}
-      <div className="flex items-center gap-4 px-6 py-5">
-        <Ring pct={pct} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
-              {t("conquistas.titulo")}
-            </span>
-            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold text-white/55">
-              {t("conquistas.contador", { done: String(desbloq), total: String(items.length) })}
-            </span>
-          </div>
-          <div className="mt-1 text-xs font-medium text-white/40">
-            {pct}% {t("conquistas.concluido")}
-          </div>
-        </div>
-      </div>
-
-      {/* Lista de conquistas */}
-      <div className="flex-1 space-y-0.5 overflow-y-auto px-4 py-3">
-        {ordenadas.map((it: any) => {
-          const key = `${it.block}|${it.bit}`
-          const ehRecem = recente === key
-          return (
-            <div
-              key={it.apiname || `${it.block}.${it.bit}`}
-              className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors ${
-                ehRecem ? "bg-accent/10 ring-1 ring-accent/30" : ""
-              } ${it.achieved ? "" : "opacity-35"}`}
-            >
-              {it.icon ? (
-                <img
-                  src={it.achieved ? it.icon : it.icongray || it.icon}
-                  alt=""
-                  className="h-9 w-9 shrink-0 rounded-md object-cover"
-                  style={{ filter: it.achieved ? "none" : "grayscale(1)" }}
-                />
-              ) : (
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/5 text-xs">
-                  🏆
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div
-                  className={`truncate text-[11px] font-medium leading-tight ${
-                    it.achieved ? "text-white/90" : "text-white/35"
-                  }`}
-                >
-                  {it.title || it.apiname}
-                </div>
-                <div className="truncate text-[10px] leading-tight text-white/25">
-                  {it.desc || " "}
-                </div>
-              </div>
-              {it.achieved && (
-                <svg viewBox="0 0 24 24" fill="var(--accent)" className="h-3.5 w-3.5 shrink-0">
-                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                </svg>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function Glyph({ kind }: { kind: "cross" | "circle" }) {
-  const cfg =
-    kind === "cross"
-      ? { ch: "✕", bg: "rgba(0,114,206,0.22)", border: "rgba(0,114,206,0.55)", fg: "#7ec8ff" }
-      : { ch: "○", bg: "rgba(240,53,59,0.22)", border: "rgba(240,53,59,0.55)", fg: "#ff8085" }
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-6 w-6 items-center justify-center rounded-full border text-[13px] font-semibold leading-none"
-      style={{ background: cfg.bg, borderColor: cfg.border, color: cfg.fg }}
-    >
-      {cfg.ch}
-    </span>
-  )
+function DataRow({ label, value }: { label: string; value: string }) {
+  return <div className="arcadia-overview__data-row"><span>{label}</span><strong>{value}</strong></div>
 }

@@ -12,21 +12,21 @@ import { UninstallDialog } from "./UninstallDialog"
 import { EditMetadata } from "../ps5-launcher/EditMetadata"
 
 import { AddGameDialog } from "./AddGameDialog"
-import { LaunchModeDialog } from "./LaunchModeDialog"
 import { useI18n } from "../../i18n/I18nContext"
+import type { GameActions } from "../useGameActions"
 
 // Biblioteca do modo desktop: busca, filtros e grade de capas 2:3.
 export function LibraryView({
   games,
   tilesColor,
   alwaysTitles,
-  onRefresh,
+  actions,
   onRetroOpen,
 }: {
   games: Game[]
   tilesColor?: boolean
   alwaysTitles?: boolean
-  onRefresh?: () => void
+  actions: GameActions
   onRetroOpen?: (game: Game) => void
 }) {
   const { t } = useI18n()
@@ -42,7 +42,6 @@ export function LibraryView({
   const [desinstalando, setDesinstalando] = useState<Game | null>(null)
   const [pagina, setPagina] = useState<Game | null>(null)
   const [paginaLoja, setPaginaLoja] = useState<Game | null>(null)
-  const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
   const [menu, setMenu] = useState<{ g: Game; x: number; y: number } | null>(null)
   const [recemDesinstalados, setRecemDesinstalados] = useState<Set<string>>(new Set())
@@ -91,46 +90,21 @@ export function LibraryView({
     )
   }, [games, aba, catFiltro, soInstalados, busca, recemDesinstalados])
 
-  const retroCount = useMemo(
-    () => games.filter((g) => g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")).length,
-    [games],
-  )
-
-  const salvar = (id: string, patch: Record<string, unknown>) =>
-    window.launcherAPI?.setOverride(id, patch).then(() => onRefresh?.())
-
   // Instalar um jogo não instalado, conforme a loja. Steam não tem fila
   // interna: redireciona pro cliente (steam://install abre o diálogo da Steam).
   // Epic/outros passam pelo InstallDialog (escolhe pasta, usa a fila).
   const instalar = (g: Game) => {
     if (g.launcher === "steam") {
       const appid = String(g.id).replace(/^steam:/, "")
-      window.launcherAPI?.launch(["steam", `steam://install/${appid}`])
+      void actions.launchCommand(["steam", `steam://install/${appid}`])
       return
     }
     setInstalando(g)
   }
 
-  // Lança o jogo, mostra o card "jogando" e registra a última jogatina
-  // (a menos que "Desativar a sincronização do tempo de jogo" esteja ligada).
-  const jogar = (g: Game, mode?: "steam" | "exe") => {
-    window.launcherAPI?.launch(g.launch_cmd, g.id, mode).then((r) => {
-      if (r?.warnings?.length) console.warn("arcadia:", r.warnings.join("; "))
-    })
-    window.launcherAPI?.getConfig().then((c) => {
-      if (c?.disable_playtime_tracking !== true) salvar(g.id, { last_played: Date.now() })
-    })
-  }
-
-  // Steam com executável configurado: duas formas de iniciar → abre o menu.
-  const pedirJogar = (g: Game) => {
-    if (g.launcher === "steam" && g.temExe) setEscolhendoLaunch(g)
-    else jogar(g)
-  }
-
   const acoesMenu = (g: Game): CtxActions => ({
     jogar: () => {
-      if (g.installed !== false) pedirJogar(g)
+      if (g.installed !== false) void actions.launch(g)
       else instalar(g)
     },
     detalhes: () => setDetalhes(g),
@@ -138,14 +112,14 @@ export function LibraryView({
     registros: async () => Boolean((await window.launcherAPI?.gamelogOpen(g.id))?.ok),
     editar: () => setEditandoCustom(g),
     metadados: () => setMetaEdit(g),
-    ocultar: () => salvar(g.id, { hidden: true }),
-    favorito: () => salvar(g.id, { favorite: !g.favorite }),
-    categorias: (cats) => salvar(g.id, { categories: cats }),
+    ocultar: () => void actions.toggleHidden(g),
+    favorito: () => void actions.toggleFavorite(g),
+    categorias: (cats) => void actions.saveOverride(g.id, { categories: cats }),
     desinstalar: () => {
       if (g.launcher === "steam") {
         // A Steam mostra o diálogo de confirmação dela.
         window.launcherAPI?.gameUninstall(g)
-        setTimeout(() => onRefresh?.(), 5000)
+        setTimeout(() => void actions.refresh(), 5000)
         return
       }
       setDesinstalando(g)
@@ -168,8 +142,68 @@ export function LibraryView({
         })
         window.alert(r?.error || t("library.falha_desinstalar"))
       }
-      onRefresh?.()
+      void actions.refresh()
     })
+  }
+
+  if (paginaLoja) {
+    return (
+      <>
+        <StoreGamePage
+          embedded
+          jogo={{
+            appid: String(paginaLoja.id).replace(/^steam:/, ""),
+            title: paginaLoja.title,
+            cover: paginaLoja.cover,
+            capa: paginaLoja.cover,
+            heroi: paginaLoja.hero,
+            manifest: true,
+          }}
+          game={paginaLoja}
+          onClose={() => setPaginaLoja(null)}
+          onBaixar={() => instalar(paginaLoja)}
+          onAdicionar={() => {}}
+          onRemover={() => {
+            window.launcherAPI
+              ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
+              .then(() => actions.refresh())
+            setPaginaLoja(null)
+          }}
+          onConfig={() => setConfigurando(paginaLoja)}
+          onJogar={paginaLoja.installed !== false ? () => void actions.launch(paginaLoja) : undefined}
+          naBiblioteca
+          ocupado={false}
+        />
+        {configurando && (
+          <GameSettingsDialog
+            game={configurando}
+            onClose={() => { setConfigurando(null); void actions.refresh() }}
+          />
+        )}
+      </>
+    )
+  }
+
+  if (pagina) {
+    return (
+      <>
+        <GamePage
+          embedded
+          game={pagina}
+          onClose={() => setPagina(null)}
+          onJogar={() => void actions.launch(pagina)}
+          onInstalar={() => instalar(pagina)}
+          onImportar={() => window.launcherAPI?.gameImport(pagina)}
+          onConfig={() => setConfigurando(pagina)}
+        />
+        {configurando && (
+          <GameSettingsDialog
+            game={configurando}
+            onClose={() => { setConfigurando(null); void actions.refresh() }}
+          />
+        )}
+      </>
+    )
   }
 
   return (
@@ -223,9 +257,12 @@ export function LibraryView({
             role="tab"
             aria-selected={aba === key}
             onClick={() => setAba(key)}
-            className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${aba === key ? "bg-white/[0.12] text-white" : "text-white/50 hover:bg-white/[0.06] hover:text-white/80"}`}
+            className={`desktop-library-tab flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${aba === key ? "bg-white/[0.12] text-white" : "text-white/50 hover:bg-white/[0.06] hover:text-white/80"}`}
           >
-            {key === "retro" ? `Retro${retroCount ? ` (${retroCount})` : ""}` : "All games"}
+            <span className="desktop-library-tab-icon" aria-hidden="true">
+              {key === "retro" ? <RetroLibraryIcon /> : <AllGamesIcon />}
+            </span>
+            {key === "retro" ? "Retro" : "All games"}
           </button>
         ))}
       </div>
@@ -262,7 +299,7 @@ export function LibraryView({
                   }
                   String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2)
                 }}
-                onPlay={() => pedirJogar(g2)}
+                onPlay={() => void actions.launch(g2)}
               />
             )
           })}
@@ -275,7 +312,7 @@ export function LibraryView({
 
       {/* Adicionar jogo manualmente */}
       {adicionando && (
-        <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => onRefresh?.()} />
+        <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => { void actions.refresh() }} />
       )}
 
       {/* Editar jogo custom (título, executável, imagens, instalador) */}
@@ -283,7 +320,7 @@ export function LibraryView({
         <AddGameDialog
           editGame={editandoCustom}
           onClose={() => setEditandoCustom(null)}
-          onAdded={() => onRefresh?.()}
+          onAdded={() => { void actions.refresh() }}
         />
       )}
 
@@ -293,80 +330,10 @@ export function LibraryView({
           game={configurando}
           onClose={() => {
             setConfigurando(null)
-            onRefresh?.()
+            void actions.refresh()
           }}
         />
       )}
-      {escolhendoLaunch && (
-        <LaunchModeDialog
-          game={escolhendoLaunch}
-          onEscolher={(m) => {
-            const g = escolhendoLaunch
-            setEscolhendoLaunch(null)
-            jogar(g, m)
-          }}
-          onClose={() => setEscolhendoLaunch(null)}
-        />
-      )}
-
-      {/* Página da loja para jogos Steam da biblioteca */}
-      {paginaLoja && (
-        <StoreGamePage
-          jogo={{
-            appid: String(paginaLoja.id).replace(/^steam:/, ""),
-            title: paginaLoja.title,
-            cover: paginaLoja.cover,
-            heroi: paginaLoja.hero,
-            manifest: true,
-          }}
-          game={paginaLoja}
-          onClose={() => setPaginaLoja(null)}
-          onBaixar={() => instalar(paginaLoja)}
-          onAdicionar={() => {}}
-          onRemover={() => {
-            window.launcherAPI
-              ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
-              .then(() => onRefresh?.())
-            setPaginaLoja(null)
-          }}
-          onConfig={() => setConfigurando(paginaLoja)}
-          onJogar={
-            paginaLoja.installed !== false
-              ? () => {
-                  console.log('[LibraryView] Launching game:', paginaLoja.id, 'installed:', paginaLoja.installed)
-                  // Fica na página do jogo ao lançar (não volta pra Library).
-                  pedirJogar(paginaLoja)
-                }
-              : undefined
-          }
-          naBiblioteca
-          ocupado={false}
-        />
-      )}
-
-      {/* Página do jogo (clique no card) */}
-      {pagina && (
-        <GamePage
-          game={pagina}
-          onClose={() => setPagina(null)}
-          onJogar={() => {
-            // Fica na página do jogo ao lançar (não volta pra Library).
-            pedirJogar(pagina)
-          }}
-          onInstalar={() => {
-            setPagina(null)
-            instalar(pagina)
-          }}
-          onImportar={() => {
-            window.launcherAPI?.gameImport(pagina).then((r) => {
-              if (!r?.ok && r?.error !== "cancelado")
-                window.alert(r?.error || t("library.falha_importar"))
-            })
-          }}
-          onConfig={() => setConfigurando(pagina)}
-        />
-      )}
-
       {/* Detalhes do jogo */}
       {detalhes && <GameDetailsDialog game={detalhes} onClose={() => setDetalhes(null)} />}
 
@@ -383,7 +350,7 @@ export function LibraryView({
       <EditMetadata
         game={metaEdit}
         onClose={() => setMetaEdit(null)}
-        onSave={(patch) => metaEdit && salvar(metaEdit.id, patch)}
+        onSave={(patch) => metaEdit && void actions.saveMetadata(metaEdit, patch)}
       />
 
       {/* Menu de contexto (botão direito) */}
@@ -443,6 +410,26 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
         setFase((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))
       }
     />
+  )
+}
+
+function AllGamesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
+    </svg>
+  )
+}
+
+function RetroLibraryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 7h10a3 3 0 0 1 3 3v5.5a2.5 2.5 0 0 1-4.6 1.35L14 15H10l-1.4 1.85A2.5 2.5 0 0 1 4 15.5V10a3 3 0 0 1 3-3Z" />
+      <path d="M8 10v3M6.5 11.5h3M16.5 11.5h.01M18 13.5h.01" />
+    </svg>
   )
 }
 
@@ -583,7 +570,7 @@ function Card({
         </div>
       </div>
       <div
-        className={`truncate px-3 py-2.5 text-[13px] text-white/85 ${alwaysTitles === false ? "opacity-0 transition-opacity group-hover:opacity-100" : ""}`}
+        className={`truncate px-3 py-2.5 text-[14px] font-medium leading-snug text-white/85 ${alwaysTitles === false ? "opacity-0 transition-opacity group-hover:opacity-100" : ""}`}
         title={g.title}
       >
         {g.title}

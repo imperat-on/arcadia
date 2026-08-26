@@ -103,6 +103,12 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
           value={cfg.check_updates_on_start !== false}
           onChange={(v) => set("check_updates_on_start", v)}
         />
+        <Toggle
+          label={t("settings.console_mode.label")}
+          desc={t("settings.console_mode.desc")}
+          value={cfg.start_in_console_mode === true}
+          onChange={(v) => set("start_in_console_mode", v)}
+        />
         <ProcurarAtualizacao />
         <Toggle
           label={t("settings.hide_changelog.label")}

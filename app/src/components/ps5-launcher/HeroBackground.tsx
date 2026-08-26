@@ -91,7 +91,7 @@ function CamadaBG({ hero, entrando }: { hero: string; entrando?: boolean }) {
   if (isVideo(hero)) {
     return (
       <video
-        className="absolute inset-0 w-full h-full object-cover"
+        className="retro-hero-background absolute inset-0 h-full w-full object-cover"
         src={hero}
         style={{ opacity, transition }}
         autoPlay
@@ -103,7 +103,7 @@ function CamadaBG({ hero, entrando }: { hero: string; entrando?: boolean }) {
   }
   return (
     <div
-      className="absolute inset-0"
+      className="retro-hero-background absolute inset-0"
       style={{
         opacity,
         transition,

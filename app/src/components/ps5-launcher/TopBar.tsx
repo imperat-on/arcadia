@@ -1,10 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { UserMenu } from "./UserMenu"
 import type { Profile } from "../../global"
 import { userLocale } from "../../i18n/locale"
 import { useI18n } from "../../i18n/I18nContext"
+
+export type LibraryFilter = "all" | "favorites" | "collections"
 
 interface TopBarProps {
   profile?: Profile
@@ -20,228 +22,105 @@ interface TopBarProps {
   onToggleShowHidden: () => void
   downloadsActive?: number
   onOpenDownloads?: () => void
+  libraryFilter?: LibraryFilter
+  onLibraryFilter?: (filter: LibraryFilter) => void
+  search?: string
+  onSearch?: (value: string) => void
 }
 
-// Ícones das abas (traço 1.8, estilo lucide — combina com o resto do app).
-const IconeBase = ({
-  className = "",
-  children,
-}: {
-  className?: string
-  children: React.ReactNode
-}) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    aria-hidden="true"
-  >
+const Icon = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     {children}
   </svg>
 )
 
-const IconeNoticias = ({ className = "" }: { className?: string }) => (
-  <IconeBase className={className}>
-    <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V9" />
-    <path d="M18 14h-8" />
-    <path d="M15 18h-5" />
-    <path d="M10 6h8v4h-8V6Z" />
-  </IconeBase>
-)
-
-const IconeJogos = ({ className = "" }: { className?: string }) => (
-  <IconeBase className={className}>
-    <line x1="6" x2="10" y1="11" y2="11" />
-    <line x1="8" x2="8" y1="9" y2="13" />
-    <line x1="15" x2="15.01" y1="12" y2="12" />
-    <line x1="18" x2="18.01" y1="10" y2="10" />
-    <path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" />
-  </IconeBase>
-)
-
-const IconeBiblioteca = ({ className = "" }: { className?: string }) => (
-  <IconeBase className={className}>
-    <rect width="7" height="7" x="3" y="3" rx="1" />
-    <rect width="7" height="7" x="14" y="3" rx="1" />
-    <rect width="7" height="7" x="14" y="14" rx="1" />
-    <rect width="7" height="7" x="3" y="14" rx="1" />
-  </IconeBase>
-)
-
-const IconeLoja = ({ className = "" }: { className?: string }) => (
-  <IconeBase className={className}>
-    <path d="M3 9h18l-1.5 10.5a2 2 0 0 1-2 1.5H6.5a2 2 0 0 1-2-1.5z" />
-    <path d="M3 9l2-5h14l2 5" />
-    <path d="M8.5 13a3.5 3.5 0 0 0 7 0" />
-  </IconeBase>
-)
-
-const IconePerfil = ({ className = "" }: { className?: string }) => (
-  <IconeBase className={className}>
-    <circle cx="12" cy="8" r="4" />
-    <path d="M4 20a8 8 0 0 1 16 0" />
-  </IconeBase>
-)
+const Gamepad = ({ className = "" }: { className?: string }) => <Icon className={className}><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6C2.6 9.4 2 14.5 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.4-1.4A2 2 0 0 1 9.8 16h4.4a2 2 0 0 1 1.4.6L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.5-.6-6.6-.7-7.4A4 4 0 0 0 17.3 5Z"/></Icon>
+const News = ({ className = "" }: { className?: string }) => <Icon className={className}><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V9"/><path d="M10 6h8v4h-8zM10 14h8M10 18h5"/></Icon>
+const Store = ({ className = "" }: { className?: string }) => <Icon className={className}><path d="M3 9h18l-1.5 10.5a2 2 0 0 1-2 1.5h-11a2 2 0 0 1-2-1.5zM3 9l2-5h14l2 5M8.5 13a3.5 3.5 0 0 0 7 0"/></Icon>
+const Gear = ({ className = "" }: { className?: string }) => <Icon className={className}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></Icon>
 
 export const TABS = ["topbar.noticias", "topbar.jogos", "topbar.loja"]
-const TAB_ICONES = [IconeNoticias, IconeJogos, IconeLoja]
 
 export function TopBar({
-  profile,
-  activeTab,
-  onTab,
-  onRefresh,
-  onOpenSettings,
-  onOpenProfile,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
-  showHidden,
-  onToggleShowHidden,
-  downloadsActive = 0,
-  onOpenDownloads,
+  profile, activeTab, onTab, onRefresh, onOpenSettings, onOpenProfile,
+  menuOpen, onToggleMenu, onCloseMenu, showHidden, onToggleShowHidden,
+  downloadsActive = 0, onOpenDownloads, libraryFilter = "all",
+  onLibraryFilter, search = "", onSearch,
 }: TopBarProps) {
   const { t } = useI18n()
   const initial = (profile?.name?.[0] || t("topbar.fallback_inicial")).toUpperCase()
-  const [time, setTime] = useState("")
-  const active = activeTab
+  const [now, setNow] = useState(new Date())
 
   useEffect(() => {
-    const update = () =>
-      setTime(
-        new Date().toLocaleTimeString(userLocale(), {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      )
-    update()
-    const interval = setInterval(update, 1000)
-    return () => clearInterval(interval)
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
   }, [])
 
+  const navigation = [
+    { tab: 1, label: t("topbar.jogos"), Icon: Gamepad },
+    { tab: 0, label: t("topbar.noticias"), Icon: News },
+    { tab: 2, label: t("topbar.loja"), Icon: Store },
+  ]
+  const sectionTitle = activeTab === 0 ? t("topbar.noticias") : activeTab === 2 ? t("topbar.loja") : ""
+
   return (
-    <header className="anim-nav flex items-center justify-between px-10 pt-6 pb-4 relative z-30">
-      {/* Abas minimalistas com foco sutil */}
-      <nav className="flex items-center gap-2">
-        {TABS.map((tab, i) => {
-          const isActive = i === active
-          const Icone = TAB_ICONES[i]
-          return (
-            <button
-              key={tab}
-              onClick={() => onTab(i)}
-              title={t(tab)}
-              aria-label={t(tab)}
-              className="flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200"
-              style={{
-                color: isActive ? "#ffffff" : "rgba(255,255,255,0.5)",
-                background: isActive
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(255,255,255,0.03)",
-                border: isActive
-                  ? "1px solid rgba(0,168,255,0.25)"
-                  : "1px solid rgba(255,255,255,0.05)",
-                boxShadow: isActive
-                  ? "0 4px 20px rgba(0,0,0,0.5), 0 0 20px rgba(0,168,255,0.15)"
-                  : "none",
-                backdropFilter: "blur(16px)",
-              }}
-            >
-              <Icone className="h-5 w-5" />
-              <span>{t(tab)}</span>
-            </button>
-          )
-        })}
-      </nav>
-
-      {/* Direita: downloads + engrenagem + perfil + relógio */}
-      <div className="flex items-center gap-5">
-        <button
-          onClick={onOpenDownloads}
-          title={t("topbar.downloads")}
-          aria-label={t("topbar.downloads")}
-          className="relative text-white/70 transition-all hover:text-white hover:scale-105"
-          style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
-        >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" x2="12" y1="15" y2="3" />
-          </svg>
-          {downloadsActive > 0 && (
-            <span
-              className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-              style={{
-                background: "var(--accent)",
-                boxShadow: "0 0 12px rgba(0,168,255,0.6)",
-              }}
-            >
-              {downloadsActive}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={onOpenSettings}
-          title={t("topbar.configuracoes")}
-          aria-label={t("topbar.configuracoes")}
-          className="text-white/70 hover:text-white transition-all hover:scale-105"
-          style={{ filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.6))" }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19.14 12.94a7.6 7.6 0 000-1.88l2.03-1.58a.48.48 0 00.12-.61l-1.92-3.32a.48.48 0 00-.58-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.47.47 0 00-.47-.4h-3.84a.47.47 0 00-.47.4l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.48.48 0 00-.58.22L2.77 8.87a.48.48 0 00.12.61l2.03 1.58a7.6 7.6 0 000 1.88l-2.03 1.58a.48.48 0 00-.12.61l1.92 3.32c.12.21.37.29.58.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.23.24.4.47.4h3.84c.23 0 .43-.17.47-.4l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.46 0 .58-.22l1.92-3.32a.48.48 0 00-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z" />
-          </svg>
-        </button>
-
-        <div className="relative">
-          <button
-            onClick={onToggleMenu}
-            title={t("topbar.perfil")}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden transition-all hover:scale-105"
-            style={{
-              background: "linear-gradient(135deg, rgba(0,168,255,0.25), rgba(0,114,206,0.25))",
-              border: "1px solid rgba(0,168,255,0.3)",
-              boxShadow: "0 4px 15px rgba(0,0,0,0.4), 0 0 20px rgba(0,168,255,0.2)",
-            }}
-          >
-            {profile?.avatar ? (
-              <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              initial
-            )}
-          </button>
-          <UserMenu
-            open={menuOpen}
-            onClose={onCloseMenu}
-            onOpenSettings={onOpenSettings}
-            onOpenProfile={onOpenProfile}
-            onRefresh={onRefresh}
-            showHidden={showHidden}
-            onToggleShowHidden={onToggleShowHidden}
-            profile={profile}
-          />
+    <>
+      <aside data-theme-slot="home.navigation" className="retro-nav-shell anim-nav fixed inset-y-0 left-0 z-30 flex w-[124px] flex-col border-r">
+        <div className="retro-nav-brand flex h-[74px] flex-col justify-center border-b px-5">
+          <strong className="leading-none">ARCADIA</strong>
         </div>
 
-        <span
-          className="text-white text-[24px] font-semibold tabular-nums tracking-tight"
-          style={{ textShadow: "0 2px 20px rgba(0,0,0,0.7)" }}
-        >
-          {time}
-        </span>
+        <nav className="flex flex-col px-2 py-3" aria-label="Main navigation">
+          {navigation.map(({ tab, label, Icon: ItemIcon }) => (
+            <button key={tab} onClick={() => onTab(tab)} data-active={activeTab === tab} className="retro-nav-button relative flex h-[78px] flex-col items-center justify-center gap-1 border text-[10px] font-bold uppercase tracking-[0.08em]">
+              <ItemIcon className="h-7 w-7" />
+              <span>{label}</span>
+            </button>
+          ))}
+          <button onClick={onOpenSettings} className="retro-nav-button relative flex h-[78px] flex-col items-center justify-center gap-1 border text-[10px] font-bold uppercase tracking-[0.08em]">
+            <Gear className="h-7 w-7" />
+            <span>{t("topbar.configuracoes")}</span>
+          </button>
+        </nav>
+
+        <div className="mt-auto px-2 pb-4">
+          <div className="retro-clock mb-3 border-y px-2 py-3 text-center">
+            <strong className="block font-display text-lg tabular-nums">{now.toLocaleTimeString(userLocale(), { hour: "2-digit", minute: "2-digit" })}</strong>
+            <span className="mt-1 block text-[8px] tabular-nums tracking-[0.08em]">{now.toLocaleDateString(userLocale())}</span>
+          </div>
+          <button onClick={onOpenDownloads} className="retro-nav-tool relative mx-auto grid h-10 w-10 place-items-center border" title={t("topbar.downloads")}>
+            <Icon className="h-5 w-5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></Icon>
+            {downloadsActive > 0 && <span className="absolute -right-1 -top-1 min-w-4 bg-[var(--retro-phosphor)] px-1 text-[8px] font-black text-black">{downloadsActive}</span>}
+          </button>
+        </div>
+      </aside>
+
+      <div data-theme-slot="home.topbar" className="retro-top-strip fixed left-[124px] right-0 top-0 z-30 flex h-[54px] items-center border-b px-6">
+        {activeTab === 1 ? (
+          <nav className="retro-library-tabs mx-auto flex h-full items-center gap-10" aria-label="Library filters">
+            {([ ["all", "Biblioteca"], ["favorites", "Favoritos"], ["collections", "Coleções"] ] as [LibraryFilter, string][]).map(([filter, label]) => (
+              <button key={filter} onClick={() => onLibraryFilter?.(filter)} data-active={libraryFilter === filter} className="relative flex h-full items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em]">
+                {filter === "all" && <Gamepad className="h-4 w-4" />}
+                {label}
+              </button>
+            ))}
+          </nav>
+        ) : <strong className="text-[11px] uppercase tracking-[0.18em] text-white/70">{sectionTitle}</strong>}
+
+        {activeTab === 1 && (
+          <label className="retro-search-box absolute right-[86px] flex h-8 w-[230px] items-center gap-2 border px-3">
+            <Icon className="h-4 w-4"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></Icon>
+            <input value={search} onChange={(event) => onSearch?.(event.target.value)} placeholder="Buscar jogos..." className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[10px] text-white outline-none" />
+          </label>
+        )}
+
+        <div className="absolute right-5 top-1/2 -translate-y-1/2">
+          <button onClick={onToggleMenu} className="retro-profile-button grid h-9 w-9 place-items-center overflow-hidden border text-[10px] font-black">
+            {profile?.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : initial}
+          </button>
+          <UserMenu open={menuOpen} onClose={onCloseMenu} onOpenSettings={onOpenSettings} onOpenProfile={onOpenProfile} onRefresh={onRefresh} showHidden={showHidden} onToggleShowHidden={onToggleShowHidden} profile={profile} />
+        </div>
       </div>
-    </header>
+    </>
   )
 }
