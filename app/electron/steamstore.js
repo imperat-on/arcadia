@@ -1362,7 +1362,7 @@ async function extrairProvedor(p, appid, cfg, outDir) {
 
 // Baixa o zip do appid de VÁRIOS provedores e monta um outDir final com o
 // melhor conjunto de .manifest disponíveis, cobrindo o caso em que nenhum
-// provedor sozinho tem tudo (o RDR2 do bug do usuário). Early-exit quando
+// provedor sozinho tem tudo. Early-exit quando
 // o primeiro provedor já traz o pacote completo, para não gastar rede à toa.
 //
 // Estratégia:

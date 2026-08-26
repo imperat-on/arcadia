@@ -387,7 +387,7 @@ async function reconcile() {
   // limpa o owned_games.json local ANTES do push reenviar. Com push-primeiro,
   // uma maquina que ainda tinha o jogo no owned local (nunca puxou a remocao)
   // reenviava o jogo ao servidor, ressuscitando-o apos o DELETE da outra
-  // maquina — o sintoma era "removi no notebook e o jogo voltou no PC".
+  // maquina, evitando que um push com estado antigo ressuscite a remoção.
   const mudou = await pull()
   await push()
   avisar(mudou)
