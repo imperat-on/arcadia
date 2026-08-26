@@ -123,4 +123,4 @@ test("processaAvatar: estático pequeno passa sem re-encode (≤256)", () => {
   assert.equal(r.erro, undefined)
   assert.equal(r.mime, "image/webp")
 })
-// (setBackground testado em server/test/e2e-conta.test.js)
+// O fluxo de upload é exercitado pela suíte de integração do backend.

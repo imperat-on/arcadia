@@ -133,12 +133,9 @@ O indexador, Electron e caches locais respeitam o mesmo diretório.
 
 - **`app/`** — Electron launcher (desktop + Big Picture). React renderer in
   `app/src`, Electron main process in `app/electron`.
-- **`server/`** — Node backend (Express + PostgreSQL) that syncs accounts
-  across machines: library ownership, achievements, playtime, friends,
-  avatar, profile background and public download sources. Replaces the
-  former Supabase backend. See [server/README.md](server/README.md).
-- **`docs/ARCHITECTURE.md`** — how the two worlds fit together, what syncs
-  per account, and what stays local (API keys never leave the machine).
+- **Backend separado** — o cliente conversa com a API pública do Arcadia por
+  HTTPS. O código do servidor e as migrações ficam no repositório
+  [`arcadia-server`](https://github.com/imperat-on/arcadia-server).
 
 Per-account sync: the app talks to the backend over HTTPS (Tailscale
 Funnel when self-hosted). `owned_games.json` (per account) decides which
@@ -146,11 +143,12 @@ games from the global `library.json` each account sees. Guest sees
 everything. Sensitive data (debrid/Hubcap API keys, source caches) is
 **never** uploaded.
 
-## Deploy
+## Backend
 
-Run the backend on your own notebook and expose it publicly:
-[docs/DEPLOY.md](docs/DEPLOY.md) covers systemd, Tailscale Funnel, backups,
-schema migrations and troubleshooting.
+Para hospedar sua própria API, consulte o repositório público
+[`arcadia-server`](https://github.com/imperat-on/arcadia-server). Configure o
+cliente com `ARCADIA_API_URL`; a instalação do launcher não exige PostgreSQL
+local.
 
 ## Credits
 
