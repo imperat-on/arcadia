@@ -760,14 +760,22 @@ declare global {
       friendsSend: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsAccept: (userId: string) => Promise<{ ok: boolean; error?: string }>
       friendsCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>
-      friendsList: (opts?: { forcar?: boolean }) => Promise<{ ok: boolean; data?: FriendsListData; deCache?: boolean; error?: string }>
+      friendsList: (opts?: {
+        forcar?: boolean
+      }) => Promise<{ ok: boolean; data?: FriendsListData; deCache?: boolean; error?: string }>
       friendsAchievements: (
         userId: string,
       ) => Promise<{ ok: boolean; achievements?: FriendAchievement[]; error?: string }>
       friendsProfile: (userId: string) => Promise<{
         ok: boolean
         error?: string
-        profile?: Profile & { username?: string | null; avatar_url?: string | null; display_name?: string | null; background_url?: string | null; banner_url?: string | null }
+        profile?: Profile & {
+          username?: string | null
+          avatar_url?: string | null
+          display_name?: string | null
+          background_url?: string | null
+          banner_url?: string | null
+        }
         games?: { appid: string; title: string; platform?: string; minutes?: number }[]
         friends?: FriendProfile[]
         stats?: ProfileStats
@@ -780,20 +788,100 @@ declare global {
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
       /** Reviews/listas da comunidade; GET usa cache local quando offline. */
-      communityReviews: (appid: string, options?: { limit?: number; offset?: number }) => Promise<CommunityReviewsResult>
-      communityReviewCreate: (payload: { appid: string; title?: string; text: string; rating: number; positive?: boolean; hours?: number }) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
-      communityReviewUpdate: (id: string | number, payload: Partial<CommunityReview>) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
-      communityReviewRemove: (id: string | number) => Promise<{ ok: boolean; error?: string; code?: string }>
-      communityReviewReport: (id: string | number, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
-      communityCollections: (options?: { limit?: number; offset?: number; mine?: boolean; owner?: string; visibility?: string }) => Promise<CommunityCollectionsResult>
-      communityCollectionGet: (id: string) => Promise<{ ok: boolean; collection?: CommunityCollection; data?: CommunityCollection; offline?: boolean; error?: string; code?: string }>
-      communityCollectionCreate: (payload: { title: string; description?: string; visibility?: string; items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
-      communityCollectionUpdate: (id: string, payload: Partial<CommunityCollection> & { items?: CommunityCollectionItem[] }) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
-      communityCollectionRemove: (id: string) => Promise<{ ok: boolean; error?: string; code?: string }>
-      communityCollectionAddItem: (id: string, appid: string) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
-      communityCollectionReplaceItems: (id: string, items: CommunityCollectionItem[]) => Promise<{ ok: boolean; items?: CommunityCollectionItem[]; error?: string; code?: string }>
-      communityCollectionRemoveItem: (id: string, appid: string) => Promise<{ ok: boolean; error?: string; code?: string }>
-      communityCollectionReport: (id: string, payload: { reason: string; details?: string }) => Promise<{ ok: boolean; report?: { id: number; status: string }; error?: string; code?: string }>
+      communityReviews: (
+        appid: string,
+        options?: { limit?: number; offset?: number },
+      ) => Promise<CommunityReviewsResult>
+      communityReviewCreate: (payload: {
+        appid: string
+        title?: string
+        text: string
+        rating: number
+        positive?: boolean
+        hours?: number
+      }) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewUpdate: (
+        id: string | number,
+        payload: Partial<CommunityReview>,
+      ) => Promise<{ ok: boolean; review?: CommunityReview; error?: string; code?: string }>
+      communityReviewRemove: (
+        id: string | number,
+      ) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityReviewReport: (
+        id: string | number,
+        payload: { reason: string; details?: string },
+      ) => Promise<{
+        ok: boolean
+        report?: { id: number; status: string }
+        error?: string
+        code?: string
+      }>
+      communityCollections: (options?: {
+        limit?: number
+        offset?: number
+        mine?: boolean
+        owner?: string
+        visibility?: string
+      }) => Promise<CommunityCollectionsResult>
+      communityCollectionGet: (
+        id: string,
+      ) => Promise<{
+        ok: boolean
+        collection?: CommunityCollection
+        data?: CommunityCollection
+        offline?: boolean
+        error?: string
+        code?: string
+      }>
+      communityCollectionCreate: (payload: {
+        title: string
+        description?: string
+        visibility?: string
+        items?: CommunityCollectionItem[]
+      }) => Promise<{
+        ok: boolean
+        collection?: CommunityCollection
+        error?: string
+        code?: string
+      }>
+      communityCollectionUpdate: (
+        id: string,
+        payload: Partial<CommunityCollection> & { items?: CommunityCollectionItem[] },
+      ) => Promise<{ ok: boolean; collection?: CommunityCollection; error?: string; code?: string }>
+      communityCollectionRemove: (
+        id: string,
+      ) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionAddItem: (
+        id: string,
+        appid: string,
+      ) => Promise<{
+        ok: boolean
+        items?: CommunityCollectionItem[]
+        error?: string
+        code?: string
+      }>
+      communityCollectionReplaceItems: (
+        id: string,
+        items: CommunityCollectionItem[],
+      ) => Promise<{
+        ok: boolean
+        items?: CommunityCollectionItem[]
+        error?: string
+        code?: string
+      }>
+      communityCollectionRemoveItem: (
+        id: string,
+        appid: string,
+      ) => Promise<{ ok: boolean; error?: string; code?: string }>
+      communityCollectionReport: (
+        id: string,
+        payload: { reason: string; details?: string },
+      ) => Promise<{
+        ok: boolean
+        report?: { id: number; status: string }
+        error?: string
+        code?: string
+      }>
       launch: (
         cmd: string[],
         gameId?: string,
@@ -943,13 +1031,21 @@ declare global {
         error?: string
         snapshot?: SaveSnapshot
       }>
-      savesRestore: (payload: { gameId: string; snapshotId: string; targetDir: string; backup?: boolean }) => Promise<{
+      savesRestore: (payload: {
+        gameId: string
+        snapshotId: string
+        targetDir: string
+        backup?: boolean
+      }) => Promise<{
         ok: boolean
         error?: string
         backupPath?: string
         snapshot?: SaveSnapshot
       }>
-      savesDelete: (payload: { gameId: string; snapshotId: string }) => Promise<{ ok: boolean; error?: string }>
+      savesDelete: (payload: {
+        gameId: string
+        snapshotId: string
+      }) => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: status dos pré-requisitos (dotnet, depotdownloader, slssteam, key). */
       storeStatus: () => Promise<{
         dotnet?: string
@@ -969,9 +1065,7 @@ declare global {
       /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */
       storeWarm: () => Promise<{ ok: boolean; error?: string }>
       /** Loja Steam: sugestões rápidas enquanto digita (só títulos). */
-      storeSuggest: (
-        query: string,
-      ) => Promise<{
+      storeSuggest: (query: string) => Promise<{
         ok: boolean
         error?: string
         jogos?: { appid: string; title: string; cover?: string }[]
@@ -1084,7 +1178,13 @@ declare global {
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       getConfig: () => Promise<AppConfig>
       diagnostics: () => Promise<DiagnosticsReport>
-      diagnosticsExport: () => Promise<{ ok: boolean; canceled?: boolean; path?: string; files?: string[]; error?: string }>
+      diagnosticsExport: () => Promise<{
+        ok: boolean
+        canceled?: boolean
+        path?: string
+        files?: string[]
+        error?: string
+      }>
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
@@ -1206,20 +1306,47 @@ declare global {
       /** Catálogo/detecção de emuladores sem execução de binários. */
       emulatorsList: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
       emulatorsDetect: () => Promise<{ ok: boolean; emulators: EmulatorInfo[]; error?: string }>
-      emulatorsProfiles: () => Promise<{ ok: boolean; profiles: Record<string, EmulatorProfile>; error?: string }>
-      emulatorProfileSet: (profile: Partial<EmulatorProfile> & { id: string }) => Promise<{ ok: boolean; profile?: EmulatorProfile; error?: string }>
-      emulatorProfileRemove: (id: string) => Promise<{ ok: boolean; removed?: boolean; error?: string }>
-      emulatorsResolve: (payload: { emulatorId: string; romPath: string; extraArgs?: string[]; corePath?: string; launchMode?: "default" | "hydra" }) => Promise<EmulatorLaunchResult>
+      emulatorsProfiles: () => Promise<{
+        ok: boolean
+        profiles: Record<string, EmulatorProfile>
+        error?: string
+      }>
+      emulatorProfileSet: (
+        profile: Partial<EmulatorProfile> & { id: string },
+      ) => Promise<{ ok: boolean; profile?: EmulatorProfile; error?: string }>
+      emulatorProfileRemove: (
+        id: string,
+      ) => Promise<{ ok: boolean; removed?: boolean; error?: string }>
+      emulatorsResolve: (payload: {
+        emulatorId: string
+        romPath: string
+        extraArgs?: string[]
+        corePath?: string
+        launchMode?: "default" | "hydra"
+      }) => Promise<EmulatorLaunchResult>
       emulatorsStatus: () => Promise<EmulatorStatusResult>
       /** Localiza ROMs por extensão, com limites e proteção contra symlink. */
-      emulatorsRoms: (payload: { emulatorId: string; directory?: string; rootPath?: string; folderPath?: string; recursive?: boolean; maxDepth?: number; maxResults?: number }) => Promise<EmulatorRomScanResult>
+      emulatorsRoms: (payload: {
+        emulatorId: string
+        directory?: string
+        rootPath?: string
+        folderPath?: string
+        recursive?: boolean
+        maxDepth?: number
+        maxResults?: number
+      }) => Promise<EmulatorRomScanResult>
       emulatorsRomIndex: () => Promise<EmulatorRomIndexResult>
       /** Troca usuário+senha da RetroAchievements por um token de sessão salvo em config.json; a senha nunca é persistida. */
-      retroachievementsLogin: (username: string, password: string) => Promise<{ ok: boolean; username?: string; error?: string }>
+      retroachievementsLogin: (
+        username: string,
+        password: string,
+      ) => Promise<{ ok: boolean; username?: string; error?: string }>
       retroachievementsLogout: () => Promise<{ ok: boolean }>
       retroachievementsStatus: () => Promise<{ ok: boolean; connected: boolean; username: string }>
       /** Escreve a credencial RA salva no arquivo de config nativo do emulador (pcsx2 | duckstation | ppsspp). */
-      retroachievementsApplyToEmulator: (emulatorId: string) => Promise<{ ok: boolean; files?: string[]; error?: string }>
+      retroachievementsApplyToEmulator: (
+        emulatorId: string,
+      ) => Promise<{ ok: boolean; files?: string[]; error?: string }>
       /** Valida e salva a Web API Key (controlpanel.php) — diferente do token de login, usada só para LER progresso/conquistas. */
       retroachievementsSetApiKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>
       /** Busca conquistas + progresso de um jogo retro pelo título (resolve o gameId da RA via busca por título dentro do console). */
@@ -1336,11 +1463,34 @@ declare global {
       retroAudit: (payload?: { system?: string; samples?: number }) => Promise<{
         ok: boolean
         version?: string
-        totals?: { games: number; covers: number; descriptions: number; screenshots: number; heroes: number; logos: number }
+        totals?: {
+          games: number
+          covers: number
+          descriptions: number
+          screenshots: number
+          heroes: number
+          logos: number
+        }
         systems?: Array<Record<string, string | number>>
         missing?: Record<string, number>
-        unmatched?: { total: number; byReason: Record<string, number>; bySystem: Record<string, number>; samples: Array<{ title: string; platform: string; systemId?: string | null; reason: string }> }
-        samples?: Array<{ id: string; title: string; systemId: string; offer_count: number; missingField: string }>
+        unmatched?: {
+          total: number
+          byReason: Record<string, number>
+          bySystem: Record<string, number>
+          samples: Array<{
+            title: string
+            platform: string
+            systemId?: string | null
+            reason: string
+          }>
+        }
+        samples?: Array<{
+          id: string
+          title: string
+          systemId: string
+          offer_count: number
+          missingField: string
+        }>
         error?: string
       }>
       retroMigrate: () => Promise<{ ok: boolean; result?: unknown; error?: string }>
@@ -1421,29 +1571,6 @@ declare global {
         iconsCopied?: number
         total?: number
       }>
-      // --- Fullscreen Themes ---
-      /** Lista todos os temas disponíveis (built-ins + instalados). */
-      fullscreenThemesList: () => Promise<import("./themes/fullscreen/types").FullscreenThemeInfo[]>
-      /** Retorna descritor público de um tema por ID. */
-      fullscreenThemeGet: (id: string) => Promise<import("./themes/fullscreen/types").FullscreenThemeInfo | null>
-      /** Payload seguro com CSS normalizado, layouts e opções. */
-      fullscreenThemesGetPayload: (id: string) => Promise<import("./themes/fullscreen/types").FullscreenThemePayload | null>
-      /** Ativa um tema válido como pendente (requer confirmação de health check). */
-      fullscreenThemesActivate: (id: string) => Promise<{ ok: boolean; error?: string }>
-      /** Confirma que o tema ativo está saudável. */
-      fullscreenThemesConfirmReady: (id: string) => Promise<{ ok: boolean; error?: string }>
-      /** Desfaz ativação pendente e volta ao tema anterior. */
-      fullscreenThemesRollbackPending: () => Promise<{ ok: boolean }>
-      /** Remove tema externo não ativo. */
-      fullscreenThemesRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
-      /** Importa pacote .arcadiatheme (path permanece no main). */
-      fullscreenThemesImport: () => Promise<{ ok: boolean; id?: string; version?: string; error?: string; errors?: string[] }>
-      /** Recupera para o último tema saudável. */
-      fullscreenThemesRecover: () => Promise<{ ok: boolean; id?: string }>
-      /** Retorna o ID do tema ativo. */
-      fullscreenThemesGetActiveId: () => Promise<string>
-      /** Escuta mudanças na lista/tema ativo. */
-      onFullscreenThemesChanged: (cb: (data: { reason?: string; activeId?: string; pendingId?: string | null; changedId?: string }) => void) => () => void
     }
   }
 }

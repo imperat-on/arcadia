@@ -73,7 +73,6 @@ export const NewsView = forwardRef<HTMLDivElement, NewsViewProps>(function NewsV
   return (
     <div
       ref={ref}
-      data-theme-slot="news.root"
       className="retro-news-view h-full w-full overflow-y-auto overflow-x-hidden bg-black text-white antialiased"
     >
       <div className="mx-auto max-w-[1400px] px-10 py-6">

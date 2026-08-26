@@ -6,15 +6,9 @@ import "@fontsource/inter/500.css"
 import "@fontsource/inter/600.css"
 import "@fontsource/inter/700.css"
 import "./index.css"
-import "./themes/fullscreen/base.css"
-import "./themes/fullscreen/accessibility.css"
-import "./themes/fullscreen/builtin-default.css"
-import "./themes/fullscreen/builtin-aurora.css"
 import { I18nProvider } from "./i18n/I18nContext"
 import { AccountProvider } from "./components/account/AccountContext"
 import { FriendsProvider } from "./components/account/FriendsContext"
-import { FullscreenThemeProvider } from "./components/themes/FullscreenThemeContext"
-import { FullscreenThemeStyle } from "./components/themes/FullscreenThemeStyle"
 
 // O modo inicial é conhecido pelo processo principal. Carregar somente a UI
 // escolhida evita baixar o desktop inteiro durante o boot do Big Picture (e
@@ -66,14 +60,7 @@ function Root() {
     <AccountProvider>
       <FriendsProvider>
         <Suspense fallback={<LauncherLoading />}>
-          {mode === "console" ? (
-            <FullscreenThemeProvider>
-              <FullscreenThemeStyle />
-              <PS5Launcher />
-            </FullscreenThemeProvider>
-          ) : (
-            <DesktopLauncher />
-          )}
+          {mode === "console" ? <PS5Launcher /> : <DesktopLauncher />}
         </Suspense>
         {erro && (
         <div className="fixed bottom-6 right-6 z-[9999] max-w-md rounded-lg bg-red-900/95 text-white px-5 py-4 shadow-2xl border border-red-500/50 backdrop-blur">

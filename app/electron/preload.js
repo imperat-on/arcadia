@@ -320,20 +320,4 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("sync:state", h)
     return () => ipcRenderer.removeListener("sync:state", h)
   },
-  // --- Fullscreen Themes ---
-  fullscreenThemesList: () => ipcRenderer.invoke("fullscreenThemes:list"),
-  fullscreenThemeGet: (id) => ipcRenderer.invoke("fullscreenThemes:get", id),
-  fullscreenThemesGetPayload: (id) => ipcRenderer.invoke("fullscreenThemes:getPayload", id),
-  fullscreenThemesActivate: (id) => ipcRenderer.invoke("fullscreenThemes:activate", id),
-  fullscreenThemesConfirmReady: (id) => ipcRenderer.invoke("fullscreenThemes:confirmReady", id),
-  fullscreenThemesRollbackPending: () => ipcRenderer.invoke("fullscreenThemes:rollbackPending"),
-  fullscreenThemesRemove: (id) => ipcRenderer.invoke("fullscreenThemes:remove", id),
-  fullscreenThemesImport: () => ipcRenderer.invoke("fullscreenThemes:import"),
-  fullscreenThemesRecover: () => ipcRenderer.invoke("fullscreenThemes:recover"),
-  fullscreenThemesGetActiveId: () => ipcRenderer.invoke("fullscreenThemes:getActiveId"),
-  onFullscreenThemesChanged: (cb) => {
-    const h = (_e, data) => cb(data)
-    ipcRenderer.on("fullscreenThemes:changed", h)
-    return () => ipcRenderer.removeListener("fullscreenThemes:changed", h)
-  },
 })

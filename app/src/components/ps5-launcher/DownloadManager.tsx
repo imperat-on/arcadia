@@ -35,7 +35,6 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
     return (
       <div
         ref={ref}
-        data-theme-slot="downloads.root"
         className="retro-download-shell gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
       >
         {/* Glow ambiente de acento no topo (assinatura da tela) */}
