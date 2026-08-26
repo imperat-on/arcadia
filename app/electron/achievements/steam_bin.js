@@ -1,7 +1,6 @@
 // Vigia de conquistas: observa os bins locais do Steam (appcache/stats) e
 // emite "achievement:unlocked" quando surge uma conquista nova — funciona em
-// jogos legítimos e injetados (via schema do SLScheevo). Só Steam nativo bin;
-// Goldberg (repacks) fica pra uma fase futura.
+// jogos legítimos e injetados (via schema do SLScheevo). Só Steam nativo bin.
 //
 // Além do vigia de bins, este módulo traz o scrape sob demanda da página
 // pública da Steam (fetchAchievementsForApp), usado pela loja.
