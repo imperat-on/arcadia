@@ -28,6 +28,7 @@ export function StoreView({
   onOverlay,
   onAtalhos,
   onOpenDownloads,
+  onLaunchGame,
 }: {
   games?: Game[]
   bigPicture?: boolean
@@ -35,6 +36,7 @@ export function StoreView({
   onOverlay?: (aberto: boolean) => void
   onAtalhos?: (a: StoreAtalhos) => void
   onOpenDownloads?: () => void
+  onLaunchGame?: (game: Game) => void
 }) {
   const { t } = useI18n()
   const {
@@ -414,9 +416,54 @@ export function StoreView({
     return m
   }, [games])
 
+  if (pagina) {
+    const naBiblioteca = bloqueados.has(pagina.appid)
+    const game = naBiblioteca ? gamePorAppid.get(pagina.appid) : undefined
+    return (
+      <>
+        <StoreGamePage
+          jogo={pagina}
+          game={game}
+          onClose={() => setPagina(null)}
+          onBaixar={() => baixar(pagina)}
+          onAdicionar={() => adicionar(pagina)}
+          onRemover={() => remover(pagina)}
+          onConfig={game ? () => setConfigGame(game) : undefined}
+          onJogar={game && game.installed !== false && onLaunchGame ? () => onLaunchGame(game) : undefined}
+          naBiblioteca={naBiblioteca}
+          ocupado={acaoBusy !== ""}
+          bigPicture={bigPicture}
+        />
+        {metodo && (
+          <MetodoDownloadDialog
+            jogo={metodo.jogo}
+            opcoes={metodo.opcoes}
+            onDepot={() => { const j = metodo.jogo; setMetodo(null); baixarDepot(j) }}
+            onTorrent={(magnet, pasta) => confirmarTorrent(metodo.jogo, magnet, pasta)}
+            onClose={() => setMetodo(null)}
+            depotDisponivel={slsAtivo}
+          />
+        )}
+        {escolhendo && (
+          <EscolhaDownloadDialog
+            escolhendo={escolhendo}
+            onCancel={() => setEscolhendo(null)}
+            onConfirm={(steamDir, sel) => confirmarBaixar(escolhendo.jogo, escolhendo.info, steamDir, sel)}
+            titulo={t("store.instalar_em", { title: escolhendo.jogo.title })}
+          />
+        )}
+        {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
+      </>
+    )
+  }
+
   if (aba === "retro") {
     return (
-      <div ref={containerLojaRef} data-gamepad-scroll className="h-full overflow-y-auto px-8 py-6">
+      <div
+        ref={containerLojaRef}
+        data-gamepad-scroll
+        className={`h-full ${retroDetailOpen ? "overflow-hidden" : "overflow-y-auto px-8 py-6"} ${bigPicture ? "retro-console-store" : ""}`}
+      >
         {bigPicture && (
           <div
             ref={cursorGamepadRef}
@@ -424,26 +471,27 @@ export function StoreView({
             className="pointer-events-none fixed z-[9999] hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white transition-[width,height,background-color,filter] duration-75"
           />
         )}
-        <StoreTabs
+        {!retroDetailOpen && <StoreTabs
           aba={aba}
           onAba={(next) => {
             setAba(next)
             if (next !== "retro") setRetroDetailOpen(false)
           }}
           t={t}
-        />
+        />}
         <RetroStoreView
           backRequest={retroBackRequest}
           onDetailChange={setRetroDetailOpen}
           onDownloadDialogChange={setRetroDownloadOpen}
           onOpenDownloads={onOpenDownloads}
+          onLaunchGame={onLaunchGame}
         />
       </div>
     )
   }
 
   return (
-    <div ref={containerLojaRef} data-gamepad-scroll className="h-full overflow-y-auto px-8 py-6">
+    <div ref={containerLojaRef} data-gamepad-scroll className={`h-full overflow-y-auto px-8 py-6 ${bigPicture ? "retro-console-store" : ""}`}>
       {bigPicture && (
         <div
           ref={cursorGamepadRef}
@@ -552,7 +600,7 @@ export function StoreView({
         const carregando = mostraCat ? catCarregando : carregandoGrade
         return (
           <>
-            <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-6">
+            <div className="retro-store-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-6">
               {carregando &&
                 esqueletos.map((i) => (
                   <div
@@ -592,29 +640,6 @@ export function StoreView({
         )
       })()}
 
-      {pagina &&
-        (() => {
-          const naBiblioteca = bloqueados.has(pagina.appid)
-          const game = naBiblioteca ? gamePorAppid.get(pagina.appid) : undefined
-          return (
-            <StoreGamePage
-              jogo={pagina}
-              game={game}
-              onClose={() => setPagina(null)}
-              onBaixar={() => baixar(pagina)}
-              onAdicionar={() => adicionar(pagina)}
-              onRemover={() => remover(pagina)}
-              onConfig={game ? () => setConfigGame(game) : undefined}
-              onJogar={
-                game && game.installed !== false
-                  ? () => window.launcherAPI?.launch(game.launch_cmd, game.id)
-                  : undefined
-              }
-              naBiblioteca={naBiblioteca}
-              ocupado={acaoBusy !== ""}
-            />
-          )
-        })()}
 
       {metodo && (
         <MetodoDownloadDialog

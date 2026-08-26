@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { TextCandidate } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { useMode } from "../ModeContext"
 
 interface TextSearchProps {
   gameId: string
@@ -12,11 +13,10 @@ interface TextSearchProps {
   onPicked: (texto: string) => void
 }
 
-const CONSOLE = typeof window !== "undefined" && window.launcherMode !== "desktop"
-
 export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
+  const { isConsole } = useMode()
   useGamepadNav(ref, true, onClose)
 
   const [termo, setTermo] = useState(titulo)
@@ -56,7 +56,7 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
         className="gp-scope fixed z-[61] left-1/2 top-1/2 w-[780px] max-h-[86vh] flex flex-col rounded-2xl overflow-hidden"
         style={{
           transform: "translate(-50%, -50%)",
-          background: CONSOLE ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)",
+          background: isConsole ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)",
           border: "1px solid rgba(255,255,255,0.14)",
           boxShadow: "0 24px 70px rgba(0,0,0,0.7)",
         }}

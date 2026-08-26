@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ArtCandidate } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { useMode } from "../ModeContext"
 
 interface ArtSearchProps {
   gameId: string
@@ -32,10 +33,9 @@ const RESOLUCOES: Record<string, { valor: string; rotulo: string }[]> = {
   logo: [],
 }
 
-const CONSOLE = typeof window !== "undefined" && window.launcherMode !== "desktop"
-
 export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearchProps) {
   const { t } = useI18n()
+  const { isConsole } = useMode()
 
   const TITULOS = {
     cover: t("editmetadata.buscar_capa"),
@@ -108,7 +108,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
         className="gp-scope fixed z-[61] left-1/2 top-1/2 w-[860px] max-h-[86vh] flex flex-col rounded-2xl overflow-hidden"
         style={{
           transform: "translate(-50%, -50%)",
-          background: CONSOLE ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)",
+          background: isConsole ? "rgba(10,22,54,0.98)" : "var(--sidebar-bg)",
           border: "1px solid rgba(255,255,255,0.14)",
           boxShadow: "0 24px 70px rgba(0,0,0,0.7)",
         }}

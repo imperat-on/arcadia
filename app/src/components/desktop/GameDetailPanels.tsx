@@ -38,16 +38,41 @@ export function GameMediaGallery({
   const direto = mov?.mp4 || mov?.webm || ""
   useEffect(() => {
     const v = vidRef.current
-    if (!v || !mov || direto || !mov.hls) return
+    if (!v || !mov) return
+    let live = true
+    const iniciar = () => {
+      if (!live) return
+      v.defaultMuted = true
+      v.muted = true
+      void v.play().catch(() => {})
+    }
+    v.addEventListener("loadedmetadata", iniciar)
+    v.addEventListener("canplay", iniciar)
+    const limpar = () => {
+      live = false
+      v.removeEventListener("loadedmetadata", iniciar)
+      v.removeEventListener("canplay", iniciar)
+    }
+    if (direto) {
+      iniciar()
+      return limpar
+    }
+    if (!mov.hls) return limpar
     if (!Hls.isSupported()) {
       v.src = mov.hls
-      return
+      v.load()
+      iniciar()
+      return limpar
     }
     const hls = new Hls()
     hls.loadSource(mov.hls)
     hls.attachMedia(v)
-    return () => hls.destroy()
-  }, [mov?.id, direto])
+    hls.on(Hls.Events.MANIFEST_PARSED, iniciar)
+    return () => {
+      limpar()
+      hls.destroy()
+    }
+  }, [mov?.id, mov?.hls, direto])
 
   if (!temMovie && screenshots.length === 0) return null
 
@@ -68,6 +93,8 @@ export function GameMediaGallery({
             controls
             autoPlay
             muted
+            playsInline
+            preload="auto"
             className="h-full w-full object-contain"
           />
         ) : screenshots[sel.idx] ? (

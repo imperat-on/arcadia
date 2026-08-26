@@ -59,7 +59,7 @@ export function StoreImg({
           <circle cx="8.5" cy="8.5" r="1.5" />
           <path d="m21 15-5-5L5 21" />
         </svg>
-        <span className="text-[11px] leading-tight text-white/30">{title}</span>
+        <span className="text-[12px] leading-tight text-white/30">{title}</span>
       </div>
     )
   }
@@ -107,12 +107,12 @@ export function CartaoLoja({
         />
       </button>
       <div className="p-3">
-        <div className="mb-2 truncate text-[13px] font-medium text-white" title={jogo.title}>
+        <div className="mb-2 truncate text-[14px] font-medium leading-snug text-white" title={jogo.title}>
           {jogo.title}
         </div>
         {naBiblioteca || adicionado ? (
           <div
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/35 py-2 text-[12px] font-semibold"
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--accent)]/35 py-2 text-[13px] font-semibold"
             style={{ color: "var(--accent)" }}
           >
             <svg
@@ -130,7 +130,7 @@ export function CartaoLoja({
             {t("store.na_biblioteca")}
           </div>
         ) : (
-          <p className="rounded-lg border border-white/10 py-2 text-center text-[12px] text-white/45">
+          <p className="rounded-lg border border-white/10 py-2 text-center text-[13px] text-white/45">
             {t("store.ver_detalhes")}
           </p>
         )}

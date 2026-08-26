@@ -211,6 +211,10 @@ export interface AppConfig {
   steamgriddb_api_key?: string
   steam_id64?: string
   ui_scale?: number
+  /** Migração: 100% no desktop usa a antiga escala visual de 120%. */
+  desktop_scale_base_v2?: boolean
+  /** Migração: tipografia do desktop passa a iniciar em 110% lógico. */
+  desktop_font_scale_v3?: boolean
   /** API key do Hubcap (catálogo de manifestos Steam, aba Lojas). */
   hubcap_api_key?: string
   /** Tokens dos serviços debrid (aba Integrações). Ter QUALQUER um já basta —
@@ -222,6 +226,9 @@ export interface AppConfig {
   /** Zoom do modo console (separado do desktop para não conflitarem). */
   console_ui_scale?: number
   card_scale?: number
+  /** Padrões do Big Picture migrados para interface 130% e capas 160%. */
+  big_picture_scale_defaults_v2?: boolean
+  big_picture_scale_defaults_v3?: boolean
   accent?: string
   sources?: Sources
   slssteam_path?: string
@@ -1036,6 +1043,8 @@ declare global {
       refresh: () => Promise<Game[]>
       /** Notícias de jogos (RSS PT-BR), já normalizadas e cacheadas. */
       getNews: () => Promise<NewsItem[]>
+      /** Notícias oficiais da comunidade Steam para um jogo específico. */
+      getGameNews: (appid: string) => Promise<NewsItem[]>
       /** Abre um link no navegador padrão do sistema. */
       openExternal: (url: string) => Promise<void>
       /** Salva edições do usuário (null num campo desfaz a edição). */
@@ -1084,6 +1093,7 @@ declare global {
       enterConsole: () => Promise<{ ok: boolean; error?: string }>
       toggleFullscreen: () => Promise<void>
       setFullscreen: (on: boolean) => Promise<void>
+      setLauncherMode: (mode: "console" | "desktop") => Promise<{ ok: boolean; error?: string }>
       setZoom: (z: number, modo?: "console" | "desktop") => Promise<number>
       rebuildMeta: () => Promise<Game[]>
       integrationsStatus: () => Promise<IntegrationsStatus>
@@ -1411,6 +1421,29 @@ declare global {
         iconsCopied?: number
         total?: number
       }>
+      // --- Fullscreen Themes ---
+      /** Lista todos os temas disponíveis (built-ins + instalados). */
+      fullscreenThemesList: () => Promise<import("./themes/fullscreen/types").FullscreenThemeInfo[]>
+      /** Retorna descritor público de um tema por ID. */
+      fullscreenThemeGet: (id: string) => Promise<import("./themes/fullscreen/types").FullscreenThemeInfo | null>
+      /** Payload seguro com CSS normalizado, layouts e opções. */
+      fullscreenThemesGetPayload: (id: string) => Promise<import("./themes/fullscreen/types").FullscreenThemePayload | null>
+      /** Ativa um tema válido como pendente (requer confirmação de health check). */
+      fullscreenThemesActivate: (id: string) => Promise<{ ok: boolean; error?: string }>
+      /** Confirma que o tema ativo está saudável. */
+      fullscreenThemesConfirmReady: (id: string) => Promise<{ ok: boolean; error?: string }>
+      /** Desfaz ativação pendente e volta ao tema anterior. */
+      fullscreenThemesRollbackPending: () => Promise<{ ok: boolean }>
+      /** Remove tema externo não ativo. */
+      fullscreenThemesRemove: (id: string) => Promise<{ ok: boolean; error?: string }>
+      /** Importa pacote .arcadiatheme (path permanece no main). */
+      fullscreenThemesImport: () => Promise<{ ok: boolean; id?: string; version?: string; error?: string; errors?: string[] }>
+      /** Recupera para o último tema saudável. */
+      fullscreenThemesRecover: () => Promise<{ ok: boolean; id?: string }>
+      /** Retorna o ID do tema ativo. */
+      fullscreenThemesGetActiveId: () => Promise<string>
+      /** Escuta mudanças na lista/tema ativo. */
+      onFullscreenThemesChanged: (cb: (data: { reason?: string; activeId?: string; pendingId?: string | null; changedId?: string }) => void) => () => void
     }
   }
 }

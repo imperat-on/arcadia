@@ -15,7 +15,7 @@ export function BootScreen({
   onError: () => void
 }) {
   return (
-    <div className={`fixed inset-0 z-[80] bg-black ${saindo ? "boot-out" : ""}`}>
+    <div className={`retro-boot-screen fixed inset-0 z-[80] bg-black ${saindo ? "boot-out" : ""}`}>
       <video
         src={src}
         autoPlay

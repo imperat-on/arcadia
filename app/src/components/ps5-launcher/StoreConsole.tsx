@@ -314,8 +314,8 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   const l = STEAM_LANG[lang]
   const url = `https://store.steampowered.com/?cc=br${l ? `&l=${l}` : ""}`
 
-  // Analógico direito rola a página da Steam por dentro. Mesma física do
-  // GameOverview: repouso calibrado (permite gatilho analógico separado do
+  // Analógico direito rola a página da Steam por dentro. Repouso calibrado
+  // (permite gatilho analógico separado do
   // stick), deadzone, resposta quadrática e inércia. O scroll acontece no
   // preload — mandamos só o delta de pixels a cada frame. Pausa quando o
   // teclado ou o diálogo de disco estão abertos.

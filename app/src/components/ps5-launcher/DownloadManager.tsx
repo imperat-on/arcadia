@@ -35,7 +35,8 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
     return (
       <div
         ref={ref}
-        className="gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
+        data-theme-slot="downloads.root"
+        className="retro-download-shell gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
       >
         {/* Glow ambiente de acento no topo (assinatura da tela) */}
         <div
@@ -145,7 +146,7 @@ export function DmCard({ item: it }: { item: DmItem }) {
 
   return (
     <div
-      className={`flex items-center gap-5 rounded-2xl border p-4 transition-all ${
+      className={`retro-download-card flex items-center gap-5 rounded-2xl border p-4 transition-all ${
         baixando
           ? "border-[color:var(--accent)]/40 bg-[color:var(--accent)]/[0.04]"
           : "border-white/10 bg-white/[0.03] hover:border-white/20"

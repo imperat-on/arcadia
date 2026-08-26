@@ -24,6 +24,7 @@ export default function ProfileSelect({
   const { t } = useI18n()
   const [focus, setFocus] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [avatarErrors, setAvatarErrors] = useState<Set<number>>(() => new Set())
   const total = profiles.length + 1 // +1 = "add"
   const btnRefs = useRef<Array<HTMLButtonElement | null>>([])
 
@@ -53,23 +54,22 @@ export default function ProfileSelect({
   }
 
   return (
-    <div className="ps5-profile-root relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-[#070a12] text-white">
-      {/* Fundo da seleção: SEMPRE o azul-noite estático + glow quente.
-          O background animado do perfil só aparece dentro do sistema
-          (aba Meu Perfil), nunca aqui na entrada. */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="ps5-glow absolute inset-0" />
+    <div className="retro-profile-root player-select-root relative flex h-screen w-full flex-col items-center overflow-hidden text-white">
+      <div className="player-select-atmosphere pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="player-select-grid absolute inset-x-0 bottom-0" />
+        <div className="player-select-scanlines absolute inset-0" />
+        <div className="player-select-noise absolute inset-0" />
       </div>
 
+      <p className="player-select-kicker relative z-10 uppercase">Player select //</p>
       <h1
-        className="relative z-10 mb-[clamp(3rem,6vh,6rem)] font-semibold tracking-tight text-white"
-        style={{ fontSize: "clamp(2rem, 3.4vw, 4rem)" }}
+        className="retro-profile-title player-select-title relative z-10 font-display font-semibold uppercase"
       >
         {t("profile.quem_esta_jogando")}
       </h1>
 
       <div
-        className="relative z-10 flex w-full items-start justify-center gap-[clamp(1rem,2.5vw,3rem)] px-8"
+        className="player-select-list relative z-10 flex w-full items-start justify-center px-8"
         role="radiogroup"
         aria-label={t("profile.selecionar_perfil")}
       >
@@ -78,7 +78,7 @@ export default function ProfileSelect({
           return (
             <div
               key={i}
-              className="ps5-slot relative flex flex-col items-center"
+              className="retro-profile-slot player-select-slot ps5-slot relative flex flex-col items-center"
               data-focus={isFocus}
             >
               <button
@@ -98,29 +98,30 @@ export default function ProfileSelect({
                     onSelect(i)
                   }
                 }}
-                className="ps5-avatar relative grid place-items-center overflow-hidden rounded-full outline-none transition-all duration-300"
+                className="retro-profile-avatar player-select-card ps5-avatar relative grid place-items-center overflow-hidden outline-none"
               >
-                {p.avatar ? (
+                {p.avatar && !avatarErrors.has(i) ? (
                   <img
                     src={p.avatar}
                     alt=""
                     className="h-full w-full object-cover"
                     draggable={false}
+                    onError={() => setAvatarErrors((current) => {
+                      const next = new Set(current)
+                      next.add(i)
+                      return next
+                    })}
                   />
                 ) : (
                   <span
-                    className="grid h-full w-full place-items-center font-semibold text-white"
-                    style={{
-                      background: "linear-gradient(135deg, var(--color-ps-blue), #003791)",
-                      fontSize: "clamp(2.5rem, 3vw, 4rem)",
-                    }}
+                    className="player-select-initial grid h-full w-full place-items-center font-semibold text-white"
                   >
                     {initialOf(p.name)}
                   </span>
                 )}
               </button>
 
-              <div className="mt-4 flex items-center gap-2">
+              <div className="player-select-name mt-4 flex items-center gap-2">
                 <span
                   className="font-medium text-white/90"
                   style={{ fontSize: "clamp(0.95rem, 1vw, 1.2rem)" }}
@@ -185,7 +186,7 @@ export default function ProfileSelect({
 
         {/* Add card */}
         <div
-          className="ps5-slot relative flex flex-col items-center"
+          className="player-select-slot ps5-slot relative flex flex-col items-center"
           data-focus={focus === profiles.length}
         >
           <button
@@ -203,16 +204,15 @@ export default function ProfileSelect({
                 onAdd()
               }
             }}
-            className="ps5-avatar ps5-avatar--add grid place-items-center rounded-full outline-none transition-all duration-300"
+            className="player-select-card player-select-add ps5-avatar ps5-avatar--add grid place-items-center outline-none"
           >
             <span
-              className="font-thin text-white/70"
-              style={{ fontSize: "clamp(3rem, 4vw, 5rem)" }}
+              className="player-select-plus font-thin"
             >
               +
             </span>
           </button>
-          <div className="mt-4">
+          <div className="player-select-name mt-4">
             <span
               className="font-medium text-white/90"
               style={{ fontSize: "clamp(0.95rem, 1vw, 1.2rem)" }}
@@ -224,13 +224,13 @@ export default function ProfileSelect({
       </div>
 
       <p
-        className="relative z-10 mt-[clamp(2rem,5vh,4rem)] text-white/60 transition-opacity duration-300"
+        className="player-select-prompt relative z-10 uppercase transition-opacity duration-300"
         style={{
           fontSize: "clamp(0.85rem, 0.95vw, 1.05rem)",
           opacity: focus < profiles.length ? 1 : 0,
         }}
       >
-        {t("profile.pressione")} <kbd className="mx-1 rounded bg-white/10 px-2 py-0.5">X</kbd>{" "}
+        {t("profile.pressione")} <kbd className="mx-1 px-2 py-0.5">X</kbd>{" "}
         {t("profile.para_entrar")}
       </p>
     </div>

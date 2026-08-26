@@ -251,7 +251,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   }
 
   return (
-    <div ref={rootRef} className="gp-scope fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black">
+    <div ref={rootRef} className="retro-edit-profile gp-scope fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black">
       {profile.background && (
         <img
           src={profile.background}

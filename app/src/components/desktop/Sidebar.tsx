@@ -111,10 +111,13 @@ export function Sidebar({
   }, [games, buscaJogos])
   return (
     <aside
-      className="flex h-full w-64 shrink-0 flex-col"
+      className="desktop-retro-sidebar flex h-full w-[194px] shrink-0 flex-col pb-10"
       style={{ background: "var(--sidebar-bg)" }}
     >
-      <div className="px-6 pb-5 pt-9">
+      <button onClick={() => onView("inicio")} className="desktop-sidebar-brand flex h-[70px] shrink-0 flex-col items-center justify-center border-b text-center">
+        <strong className="desktop-arcadia-logo">ARCADIA</strong>
+      </button>
+      <div className="desktop-sidebar-profile px-5 pb-3 pt-3">
         <button
           onClick={() => setProfileMenu((v) => !v)}
           className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]"
@@ -133,16 +136,6 @@ export function Sidebar({
             )}
           </div>
           <div className="min-w-0">
-            <div
-              className="wordmark arcadia-blink text-[10px] uppercase text-white/55"
-              aria-label="Arcadia"
-            >
-              {"Arcadia".split("").map((ch, i) => (
-                <span key={i} style={{ animationDelay: `${i * 0.14}s` }}>
-                  {ch}
-                </span>
-              ))}
-            </div>
             <div className="truncate text-[13px] font-medium text-white/80 group-hover:text-white">
               {nome}
             </div>
@@ -189,14 +182,14 @@ export function Sidebar({
       </div>
 
       {/* Itens */}
-      <nav className="flex flex-col gap-1 px-3">
+      <nav className="desktop-sidebar-nav flex flex-col gap-0.5 px-2">
         {ITENS.map((it) => {
           const active = view === it.id
           return (
             <div key={it.id}>
               <button
                 onClick={() => onView(it.id)}
-                className={`relative flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-[15px] transition-colors ${
+                className={`desktop-sidebar-item relative flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-[12px] transition-colors ${
                   active
                     ? "bg-white/[0.07] text-white"
                     : "text-white/50 hover:bg-white/[0.04] hover:text-white/85"
@@ -263,7 +256,7 @@ export function Sidebar({
 
       {/* Lista de jogos estilo Hydra (permanente em todas as abas) */}
       {
-        <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-white/[0.06] pt-2">
+        <div className="desktop-sidebar-games mt-3 flex min-h-0 flex-1 flex-col border-t border-white/[0.06] pt-2">
           <div className="flex items-center gap-1 px-4 pb-1">
             <button
               onClick={onToggleLibrarySidebar}
@@ -374,7 +367,7 @@ export function Sidebar({
       }
 
       {/* Rodapé */}
-      <div className="mt-auto px-6 py-4">
+      <div className="desktop-sidebar-footer mt-auto px-4 py-3">
         <button
           onClick={onBigPicture}
           className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2.5 text-left text-[13px] font-semibold text-white/70 transition-colors hover:border-[color:var(--accent)] hover:text-white"

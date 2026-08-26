@@ -15,9 +15,131 @@
 
 const config = require("./config")
 const sessionStore = require("./session")
+const { fetchRede } = require("../httpfetch")
+const https = require("node:https")
 const WebSocket = require("ws")
 
 let client = null
+const ipv4Cache = new Map()
+
+async function resolveBackendIpv4(hostname) {
+  const cached = ipv4Cache.get(hostname)
+  if (cached?.expires > Date.now() && cached.addresses.length) return cached.addresses
+
+  const endpoint = new URL("https://cloudflare-dns.com/dns-query")
+  endpoint.searchParams.set("name", hostname)
+  endpoint.searchParams.set("type", "A")
+  const response = await fetchRede(endpoint.href, {
+    headers: { Accept: "application/dns-json", "User-Agent": "arcadia" },
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!response.ok) throw new Error(`DNS HTTP ${response.status}`)
+  const payload = await response.json()
+  const addresses = [...new Set((payload?.Answer || [])
+    .filter((answer) => answer?.type === 1 && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(answer.data || "")))
+    .map((answer) => String(answer.data)))]
+  if (!addresses.length) throw new Error("DNS sem IPv4")
+  ipv4Cache.set(hostname, { addresses, expires: Date.now() + 5 * 60 * 1000 })
+  return addresses
+}
+
+async function bodyBuffer(body) {
+  if (body == null) return null
+  if (typeof body === "string" || Buffer.isBuffer(body) || body instanceof Uint8Array) return body
+  if (typeof body.arrayBuffer === "function") return Buffer.from(await body.arrayBuffer())
+  throw new TypeError("corpo HTTP não suportado")
+}
+
+async function fetchBackendIpv4(value, options = {}) {
+  const url = new URL(value)
+  if (url.protocol !== "https:") throw new Error("fallback IPv4 exige HTTPS")
+  const addresses = await resolveBackendIpv4(url.hostname)
+  const body = await bodyBuffer(options.body)
+  let lastError = null
+
+  for (const address of addresses) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const headers = { ...(options.headers || {}), Host: url.host }
+        const request = https.request({
+          protocol: "https:",
+          hostname: address,
+          port: url.port || 443,
+          servername: url.hostname,
+          method: options.method || "GET",
+          path: `${url.pathname}${url.search}`,
+          headers,
+          rejectUnauthorized: true,
+        }, (response) => {
+          const chunks = []
+          response.on("data", (chunk) => chunks.push(chunk))
+          response.on("end", () => {
+            const buffer = Buffer.concat(chunks)
+            const status = Number(response.statusCode || 0)
+            resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              text: async () => buffer.toString("utf8"),
+              json: async () => JSON.parse(buffer.toString("utf8")),
+            })
+          })
+        })
+        request.setTimeout(10_000, () => request.destroy(new Error("connect timeout")))
+        request.on("error", reject)
+        if (options.signal) {
+          if (options.signal.aborted) request.destroy(options.signal.reason)
+          else options.signal.addEventListener("abort", () => request.destroy(options.signal.reason), { once: true })
+        }
+        if (body != null) request.write(body)
+        request.end()
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error("IPv4 indisponível")
+}
+
+// O fetch global do Node/Undici pode ficar preso no IPv6 em redes sem rota
+// funcional. No Electron usamos net.fetch (via fetchRede), que compartilha o
+// resolvedor/Happy Eyeballs do Chromium. Falha de conexão vira uma resposta
+// tratável para nunca rejeitar um handler IPC de conta.
+async function backendFetch(url, options, fetchImpl = fetchRede, fallbackImpl = fetchBackendIpv4) {
+  const hostname = (() => {
+    try { return new URL(url).hostname.toLowerCase() } catch { return "" }
+  })()
+  const freshOptions = () => ({ ...options, signal: AbortSignal.timeout(15_000) })
+
+  // Tailscale Funnel possui A e AAAA públicos, mas alguns resolvedores locais
+  // entregam apenas AAAA. Nessa situação esperar o IPv6 falhar acrescenta 30s
+  // ao boot e mantém o splash preto. Para .ts.net, IPv4 resolvido por DoH é a
+  // rota primária; a pilha normal continua como fallback.
+  if (hostname.endsWith(".ts.net") && fetchImpl === fetchRede) {
+    try {
+      return await fallbackImpl(url, freshOptions())
+    } catch {
+      try { return await fetchImpl(url, freshOptions()) } catch {}
+    }
+  } else {
+    try {
+      return await fetchImpl(url, options)
+    } catch {
+      try { return await fallbackImpl(url, freshOptions()) } catch {}
+    }
+  }
+
+  return {
+    ok: false,
+    status: 0,
+    text: async () => JSON.stringify({ error: "rede_indisponivel" }),
+  }
+}
+
+function backendLookup(hostname, _options, callback) {
+  resolveBackendIpv4(hostname)
+    .then((addresses) => callback(null, addresses[0], 4))
+    .catch((error) => callback(error))
+}
 
 // ---------------------------------------------------------------------------
 // Mini onAuthStateChange: registra listeners e emite eventos
@@ -67,7 +189,7 @@ class AuthClient {
     }
     // Timeout de rede: servidor fora do ar nao pode segurar o handler IPC
     // para sempre (a UI ficava em "carregando" indefinidamente).
-    const res = await fetch(config.url + path, {
+    const res = await backendFetch(config.url + path, {
       method,
       headers,
       body: payload,
@@ -227,7 +349,7 @@ class QueryBuilder {
     if (method === "GET") {
       const qs = params.toString()
       const url = `${config.url}/rest/v1/${this.table}${qs ? "?" + qs : ""}`
-      const res = await fetch(url, {
+      const res = await backendFetch(url, {
         method: "GET",
         headers: this.client._authHeaders(),
       })
@@ -242,7 +364,7 @@ class QueryBuilder {
     // POST/PATCH/DELETE
     const qs = params.toString()
     const url = `${config.url}/rest/v1/${this.table}${qs ? "?" + qs : ""}`
-    const res = await fetch(url, {
+    const res = await backendFetch(url, {
       method,
       headers: { ...this.client._authHeaders(), "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
@@ -288,7 +410,7 @@ class StorageClient {
     const headers = this.client._authHeaders()
     return {
       upload: async (path, file, _opts) => {
-        const res = await fetch(`${config.url}/storage/v1/object/${bucket}/${path}`, {
+        const res = await backendFetch(`${config.url}/storage/v1/object/${bucket}/${path}`, {
           method: "POST",
           headers,
           body: file,
@@ -299,7 +421,7 @@ class StorageClient {
         return { data, error: null }
       },
       remove: async (paths) => {
-        const res = await fetch(`${config.url}/storage/v1/object/${bucket}`, {
+        const res = await backendFetch(`${config.url}/storage/v1/object/${bucket}`, {
           method: "DELETE",
           headers: { ...headers, "content-type": "application/json" },
           body: JSON.stringify({ paths }),
@@ -335,7 +457,7 @@ class ArcadiaClient {
   }
 
   async rpc(fn, args) {
-    const res = await fetch(`${config.url}/rest/v1/rpc/${fn}`, {
+    const res = await backendFetch(`${config.url}/rest/v1/rpc/${fn}`, {
       method: "POST",
       headers: { ...this._authHeaders(), "content-type": "application/json" },
       body: JSON.stringify(args || {}),
@@ -369,7 +491,7 @@ class ArcadiaClient {
     const conn = () => {
       if (ws && ws.readyState === 1) return
       const wsUrl = config.url.replace(/^http/, "ws") + "/realtime/v1/websocket"
-      ws = new WebSocket(wsUrl)
+      ws = new WebSocket(wsUrl, { lookup: backendLookup })
       ws.on("open", () => {
         // handshake do canal friends-<me> + token
         ws.send(
@@ -478,4 +600,4 @@ function attachAuthPersistence() {
   return () => data?.subscription?.unsubscribe()
 }
 
-module.exports = { getClient, restoreSession, attachAuthPersistence }
+module.exports = { getClient, restoreSession, attachAuthPersistence, backendFetch, fetchBackendIpv4, resolveBackendIpv4 }
