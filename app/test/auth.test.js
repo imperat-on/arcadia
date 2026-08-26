@@ -48,8 +48,8 @@ test("signIn: sem senha falha", async () => {
 // ---------- caminhoDeArquivo (file:// com cache-buster do pickImage) ----------
 test("caminhoDeArquivo: file:// com ?t= vira caminho puro", () => {
   assert.equal(
-    auth.caminhoDeArquivo("file:///opt/arcadia/avatar.png?t=1754412345678"),
-    "/opt/arcadia/avatar.png",
+    auth.caminhoDeArquivo("file:///tmp/arcadia/avatar.png?t=1754412345678"),
+    "/tmp/arcadia/avatar.png",
   )
 })
 

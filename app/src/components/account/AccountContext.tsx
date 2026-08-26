@@ -14,8 +14,8 @@ import {
 
 export type AccountStatus = "carregando" | "deslogado" | "logado"
 
-/** Única conta considerada "dona/criadora" do Arcadia — badge de dono. */
-export const OWNER_USERNAME = "account-user"
+/** Identificador opcional da conta proprietária, configurado no build. */
+export const OWNER_USERNAME = ""
 
 export interface PerfilOnline {
   username: string | null
