@@ -145,20 +145,30 @@ export function StoreGamePage({
     return window.launcherAPI?.onPluginsChanged?.(() => carregar())
   }, [])
 
-  // Consulta as fontes JSON conectadas para saber se este jogo tem torrent.
-  // 1 chamada por página aberta — barato o suficiente pra não valer cache.
+  // Consulta as fontes JSON conectadas e confirma que há uma URI baixável.
+  // O índice leve só traz título/ref; validar o jogo completo evita mostrar
+  // "Baixar" para entradas sem magnet ou URL.
   useEffect(() => {
     let vivo = true
-    window.launcherAPI
-      ?.sourcesSearch?.(jogo.title, 1)
-      .then((r) => {
-        if (!vivo) return
-        // sourcesSearch retorna { ok, results: [...] } — não é array direto.
-        setTemTorrent(Boolean(r?.ok && Array.isArray(r.results) && r.results.length > 0))
-      })
-      .catch(() => {
-        if (vivo) setTemTorrent(false)
-      })
+    setTemTorrent(false)
+    ;(async () => {
+      try {
+        const r = await window.launcherAPI?.sourcesSearch?.(jogo.title, 50)
+        const resultados = Array.isArray(r?.results) ? r.results : []
+        const normalizar = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+        const alvo = normalizar(jogo.title)
+        for (const candidato of resultados) {
+          const titulo = normalizar(String(candidato.title || ""))
+          if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
+          const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
+          const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
+          if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri)))) {
+            if (vivo) setTemTorrent(true)
+            return
+          }
+        }
+      } catch {}
+    })()
     return () => {
       vivo = false
     }
@@ -182,7 +192,7 @@ export function StoreGamePage({
     const actions = !naBiblioteca
       ? [
           { label: t("store.adicionar_biblioteca"), onClick: onAdicionar, disabled: ocupado, kind: "outline" as const, icon: "plus" as const },
-          ...((slsAtivo || temTorrent) && temDownload
+          ...(((slsAtivo && temDownload) || temTorrent)
             ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }]
             : []),
         ]
@@ -201,7 +211,7 @@ export function StoreGamePage({
             ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
           ]
         : [
-            ...((slsAtivo || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
+            ...(((slsAtivo && temDownload) || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
             ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
           ]
 

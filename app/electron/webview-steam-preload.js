@@ -3,7 +3,7 @@
 // ipcRenderer.sendToHost / .on — nunca expõe Node para a página da Steam.
 //
 // Única injeção: nas páginas de JOGO (/app/<id>) coloca uma barra discreta com
-// "Baixar (Arcadia)" e "Adicionar à Steam". O clique vira mensagem para o host
+// ações da Arcadia. O clique vira mensagem para o host
 // (StoreConsole.tsx), que dispara o fluxo de download do próprio Arcadia. Fora
 // de página de jogo, nenhuma barra. Sem tema/CSS na página.
 const { ipcRenderer } = require("electron")
@@ -15,9 +15,9 @@ let labels = {
   remover: "Remover",
   restart: "Reiniciar Steam",
 }
-// Quando a integração SLSsteam está desativada, o Arcadia manda disable
-// para a barra de ações não aparecer na loja web.
-let uiDisabled = false
+// O host informa se existe um caminho real de download para a página atual.
+// Mesmo sem Depot/Sources, a ação "Adicionar à biblioteca" continua visível.
+let downloadDisabled = true
 // Estado do jogo atual vindo do host (arcadia:estado).
 let estado = { adicionado: false, ocupado: false }
 
@@ -138,9 +138,11 @@ function botao(rotulo, tipo, { primario = false, perigo = false, off = false } =
 // (Re)desenha os botões conforme o estado atual, sem remexer na posição.
 function montarBotoes(wrap) {
   wrap.innerHTML = ""
-  wrap.appendChild(
-    botao(estado.ocupado ? "…" : labels.baixar, "baixar", { primario: true, off: estado.ocupado }),
-  )
+  if (!downloadDisabled) {
+    wrap.appendChild(
+      botao(estado.ocupado ? "…" : labels.baixar, "baixar", { primario: true, off: estado.ocupado }),
+    )
+  }
   if (estado.adicionado) {
     wrap.appendChild(botao(labels.remover, "remover", { perigo: true, off: estado.ocupado }))
   } else {
@@ -154,10 +156,6 @@ function montarBotoes(wrap) {
 // barra fixa no topo direito como fallback. Remove fora de página de jogo.
 function sync() {
   const existente = document.getElementById(BAR_ID)
-  if (uiDisabled) {
-    if (existente) existente.remove()
-    return
-  }
   const emJogo = Boolean(appidAtual())
   if (!emJogo) {
     if (existente) existente.remove()
@@ -210,16 +208,17 @@ ipcRenderer.on("arcadia:labels", (_e, novo) => {
 })
 
 ipcRenderer.on("arcadia:disable", () => {
-  uiDisabled = true
+  downloadDisabled = true
   const wrap = document.getElementById(BAR_ID)
-  if (wrap) wrap.remove()
+  if (wrap) montarBotoes(wrap)
 })
 
 // Reabilita a barra quando algum método de download vira disponível para a
 // página atual (ex.: fonte JSON tem torrent do jogo, mesmo com SLSsteam OFF).
 ipcRenderer.on("arcadia:enable", () => {
-  uiDisabled = false
-  sync()
+  downloadDisabled = false
+  const wrap = document.getElementById(BAR_ID)
+  if (wrap) montarBotoes(wrap)
 })
 
 ipcRenderer.on("arcadia:estado", (_e, novo) => {
