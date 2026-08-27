@@ -292,9 +292,16 @@ async function search(query, limit = 40) {
   if (!q) return []
   const normalizado = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
   const qNormalizado = normalizado(q)
+  const tokens = q
+    .split(/\s+/)
+    .map(normalizado)
+    .filter((token) => token.length >= 3)
   const out = []
   for (const g of await loadIndex()) {
-    if (g.lower.includes(q) || (qNormalizado && normalizado(g.title).includes(qNormalizado))) {
+    const tituloNormalizado = normalizado(g.title)
+    const tokensCoincidentes = tokens.filter((token) => tituloNormalizado.includes(token)).length
+    const mesmoJogo = tokens.length >= 2 && tokensCoincidentes >= Math.min(2, tokens.length)
+    if (g.lower.includes(q) || (qNormalizado && tituloNormalizado.includes(qNormalizado)) || mesmoJogo) {
       const { lower, ...leve } = g
       out.push(leve)
       if (out.length >= limit) break
