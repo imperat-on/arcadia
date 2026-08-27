@@ -75,7 +75,7 @@ test("pull aplica minutos retrô vindos do servidor no override da conta", async
   client.rpc = async (fn) => {
     if (fn === "pull_library") {
       return {
-        data: [{ appid: ID, title: "Crimson Desert", platform: "emulator", retro: true, cover: COVER, hero: HERO, minutes: 52 }],
+        data: [{ appid: ID, title: "Crimson Desert", platform: "emulator", retro: true, cover: COVER, icon: "https://example.test/legacy-icon.jpg", hero: HERO, minutes: 52 }],
         error: null,
       }
     }
@@ -87,6 +87,8 @@ test("pull aplica minutos retrô vindos do servidor no override da conta", async
   assert.equal(mudou, true)
   const overrides = JSON.parse(fs.readFileSync(arquivo("overrides.json"), "utf8"))
   assert.equal(overrides[ID].playtime_added_minutes, 52, "horas retrô devem ser aplicadas localmente")
+  const custom = JSON.parse(fs.readFileSync(arquivo("custom_games.json"), "utf8"))
+  assert.equal(custom[0].icon, COVER, "a capa canônica deve ser usada como ícone retrô em todas as máquinas")
   const state = JSON.parse(fs.readFileSync(arquivo("sync_state.json"), "utf8"))
   assert.equal(state.playtimePush[ID], 52, "watermark puxado deve ficar salvo na conta")
 })
