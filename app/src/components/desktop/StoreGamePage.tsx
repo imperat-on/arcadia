@@ -49,6 +49,7 @@ export function StoreGamePage({
   embedded,
   bigPicture = false,
   game,
+  slssteamAtivo,
 }: {
   jogo: ItemLoja
   game?: Game
@@ -62,11 +63,12 @@ export function StoreGamePage({
   ocupado: boolean
   embedded?: boolean
   bigPicture?: boolean
+  slssteamAtivo?: boolean
 }) {
   const { t } = useI18n()
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
-  const [slsAtivo, setSlsAtivo] = useState(false)
+  const [slsAtivo, setSlsAtivo] = useState(Boolean(slssteamAtivo))
   // Jogo rodando (tempo real, via game:active do main): o botão JOGAR vira
   // RODANDO + PARAR enquanto o jogo desta página está em execução.
   const [rodando, setRodando] = useState(false)
@@ -103,7 +105,6 @@ export function StoreGamePage({
   // Um jogo pode ter torrent numa fonte JSON conectada mesmo sem SLSsteam ativo.
   // Quando isso for verdade, o botão Baixar aparece com só a opção Torrent.
   const [temTorrent, setTemTorrent] = useState(false)
-  const temDownload = jogo.manifest !== false
 
   useEffect(() => {
     setBusy(true)
@@ -136,9 +137,13 @@ export function StoreGamePage({
   }, [jogo.appid, naBiblioteca, game])
 
   useEffect(() => {
+    if (typeof slssteamAtivo === "boolean") setSlsAtivo(slssteamAtivo)
+  }, [slssteamAtivo])
+
+  useEffect(() => {
     const carregar = () =>
       window.launcherAPI?.storeStatus?.().then((s) => {
-        setSlsAtivo(Boolean(s?.slssteam))
+        if (typeof slssteamAtivo !== "boolean") setSlsAtivo(Boolean(s?.slssteam))
         setFixesAtivo(Boolean(s?.luatools))
       })
     carregar()
@@ -174,6 +179,8 @@ export function StoreGamePage({
     }
   }, [jogo.title])
 
+  const podeBaixar = slsAtivo || temTorrent
+
   const hero =
     jogo.heroi || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
   const header =
@@ -192,7 +199,7 @@ export function StoreGamePage({
     const actions = !naBiblioteca
       ? [
           { label: t("store.adicionar_biblioteca"), onClick: onAdicionar, disabled: ocupado, kind: "outline" as const, icon: "plus" as const },
-          ...(((slsAtivo && temDownload) || temTorrent)
+          ...((slsAtivo || temTorrent)
             ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }]
             : []),
         ]
@@ -211,7 +218,7 @@ export function StoreGamePage({
             ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
           ]
         : [
-            ...(((slsAtivo && temDownload) || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
+            ...((slsAtivo || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
             ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
           ]
 
@@ -352,7 +359,7 @@ export function StoreGamePage({
               {jogo.title}
             </span>
             <span className="flex-1" />
-            {!naBiblioteca && !temDownload && (
+            {!naBiblioteca && !podeBaixar && (
               <span className="hidden text-[12px] text-white/45 sm:inline">
                 {t("store.nenhum_download")}
               </span>
@@ -378,7 +385,7 @@ export function StoreGamePage({
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                   </GhostBtn>
-                  {(slsAtivo || temTorrent) && temDownload && (
+                  {podeBaixar && (
                     <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
                       <svg
                         width="14"

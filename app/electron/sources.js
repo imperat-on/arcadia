@@ -285,9 +285,11 @@ async function search(query, limit = 40) {
     .trim()
     .toLowerCase()
   if (!q) return []
+  const normalizado = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+  const qNormalizado = normalizado(q)
   const out = []
   for (const g of await loadIndex()) {
-    if (g.lower.includes(q)) {
+    if (g.lower.includes(q) || (qNormalizado && normalizado(g.title).includes(qNormalizado))) {
       const { lower, ...leve } = g
       out.push(leve)
       if (out.length >= limit) break
