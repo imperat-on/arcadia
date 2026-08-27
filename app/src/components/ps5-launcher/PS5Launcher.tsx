@@ -652,7 +652,8 @@ export function PS5Launcher() {
   // imediatamente nem deixar o modal aberto por cima do overview.
   const _open_profile_game = useCallback(
     (game: Game) => {
-      const index = games.findIndex((item) => item.id === game.id)
+      const nextViewGames = games.filter((item) => showHidden || !item.hidden)
+      const index = nextViewGames.findIndex((item) => item.id === game.id)
       if (index < 0) return
       setActiveTab(1)
       setLibraryFilter("all")
@@ -661,7 +662,7 @@ export function PS5Launcher() {
       setShowProfile(false)
       window.requestAnimationFrame(() => openOverview(true))
     },
-    [games, openOverview],
+    [games, openOverview, showHidden],
   )
 
   const _launch_selected = useCallback(() => {
