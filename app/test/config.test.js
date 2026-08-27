@@ -33,3 +33,12 @@ test("nomes legados continuam funcionando quando o URL canônico não existe", (
   })
   assert.equal(config.url, "https://legacy.example.test")
 })
+
+test("instalação sem variáveis usa a API oficial publicada", () => {
+  const config = loadConfig({
+    ARCADIA_API_URL: "",
+    ARCADIA_SUPABASE_URL: "",
+    SUPABASE_URL: "",
+  })
+  assert.equal(config.url, "https://zes.tail6e748d.ts.net")
+})
