@@ -163,9 +163,19 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       const norm = (s: string) => limparTitulo(s).toLowerCase().replace(/[^a-z0-9]/g, "")
       const alvo = norm(title)
       if (!alvo) return null
+      const tokensAlvo = limparTitulo(title)
+        .toLowerCase()
+        .split(/\s+/)
+        .map((token) => token.replace(/[^a-z0-9]/g, ""))
+        .filter((token) => token.length >= 3)
       const cands = (r?.results || []).filter((g) => {
         const t = norm(g.title)
-        return t.includes(alvo) || (t.length >= 8 && alvo.includes(t))
+        const tokensCoincidentes = tokensAlvo.filter((token) => t.includes(token)).length
+        return (
+          t.includes(alvo) ||
+          (t.length >= 8 && alvo.includes(t)) ||
+          (tokensAlvo.length >= 2 && tokensCoincidentes >= Math.min(2, tokensAlvo.length))
+        )
       })
       // Junta TODAS as fontes baixáveis: magnet (torrent) ou URL http direta
       // (o backend resolve/recusa hoster HTML). O diálogo lista tudo e quem

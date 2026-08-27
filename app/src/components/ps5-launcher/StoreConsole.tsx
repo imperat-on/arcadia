@@ -24,9 +24,20 @@ async function fonteTemDownload(title: string): Promise<boolean> {
     const tituloBusca = limparTitulo(title)
     const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
     const alvo = tituloBusca.toLowerCase().replace(/[^a-z0-9]/g, "")
+    const tokensAlvo = tituloBusca
+      .toLowerCase()
+      .split(/\s+/)
+      .map((token) => token.replace(/[^a-z0-9]/g, ""))
+      .filter((token) => token.length >= 3)
     for (const candidato of Array.isArray(r?.results) ? r.results : []) {
       const titulo = limparTitulo(String(candidato.title || "")).toLowerCase().replace(/[^a-z0-9]/g, "")
-      if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
+      const tokensCoincidentes = tokensAlvo.filter((token) => titulo.includes(token)).length
+      const compativel =
+        titulo &&
+        (titulo.includes(alvo) ||
+          (titulo.length >= 8 && alvo.includes(titulo)) ||
+          (tokensAlvo.length >= 2 && tokensCoincidentes >= Math.min(2, tokensAlvo.length)))
+      if (!compativel) continue
       const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
       const rawUris = full?.game?.uris
       const uris = Array.isArray(rawUris)
