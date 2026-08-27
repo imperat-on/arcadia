@@ -1,5 +1,5 @@
-// Schema das conquistas locais: achievements.json (o índice completo que o
-// index.py grava) e o store de scrape da loja. Os caminhos são POR CONTA
+// Schema das conquistas locais: achievements.json e o store de scrape da loja.
+// Os caminhos são POR CONTA
 // (contas/<user>/ quando logado, raiz como guest), ver supabase/conta.js.
 
 const fs = require("fs")

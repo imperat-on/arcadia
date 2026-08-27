@@ -54,7 +54,7 @@ export function LibraryView({
     setPagina((p) => (p ? games.find((g) => g.id === p.id) || p : p))
   }, [games])
 
-  // Quando a biblioteca real chega (reindex/refresh), o estado otimista já
+  // Quando a biblioteca sincronizada chega (refresh), o estado otimista já
   // cumpriu seu papel — limpa para não marcar jogo reinstalado como removido.
   useEffect(() => {
     setRecemDesinstalados((prev) => {
@@ -132,7 +132,7 @@ export function LibraryView({
     if (!g) return
     // Otimista: já tira o jogo da lista de instalados na hora.
     setRecemDesinstalados((prev) => new Set(prev).add(g.id))
-    // O main espera o uninstall + reindex antes de responder.
+    // O main espera o uninstall terminar antes de responder.
     window.launcherAPI?.gameUninstall(g, opts).then((r) => {
       if (!r?.ok) {
         setRecemDesinstalados((prev) => {

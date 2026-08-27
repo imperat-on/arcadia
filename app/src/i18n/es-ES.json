@@ -158,7 +158,7 @@
   "editmetadata.titulo": "Título",
   "editmetadata.usar_do_disco": "Usar una imagen de tu ordenador",
   "editmetadata.volta_original": "Vuelve al original al guardar",
-  "editmetadata.voltar_arte_original": "Volver al arte encontrado por el indexador",
+  "editmetadata.voltar_arte_original": "Volver al arte original del catálogo",
   "editprofile.avatar_desc": "Tu foto de perfil. Los GIF animados funcionan.",
   "editprofile.avatar_formatos": "Formatos: PNG, JPG, GIF, WebP",
   "editprofile.avatar_recomendacao": "Recomendado: 256×256px o mayor",

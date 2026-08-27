@@ -23,14 +23,6 @@
         "to": "contracts"
       },
       {
-        "from": "../index.py",
-        "to": "index.py"
-      },
-      {
-        "from": "../indexers",
-        "to": "indexers"
-      },
-      {
         "from": "../boot.mp4",
         "to": "boot.mp4"
       }

@@ -20,7 +20,7 @@ const { getDataDir } = require("../runtime-paths")
 const DATA_DIR = getDataDir()
 const CONTAS_DIR = path.join(DATA_DIR, "contas")
 
-// library.json NÃO entra: é global (o indexador escreve na raiz).
+// library.json NÃO entra: é um snapshot global legado na raiz.
 const ARQS_CONTA = [
   "achievements.json",
   "overrides.json",

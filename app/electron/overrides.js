@@ -2,9 +2,9 @@ const fs = require("fs")
 
 // Edições do usuário (capa, descrição, oculto…) por id de jogo.
 //
-// Mora FORA do library.json de propósito: o index.py reescreve aquele arquivo
-// inteiro a cada scan e levaria as edições junto. Aqui elas sobrevivem, e o
-// readLibrary() as aplica por cima do que o indexador achou.
+// Mora FORA do library.json de propósito: o snapshot pode ser substituído por
+// uma sincronização ou atualização da loja. Aqui as edições sobrevivem, e o
+// readLibrary() as aplica por cima da entrada base.
 
 function readOverrides(file) {
   try {
@@ -16,7 +16,7 @@ function readOverrides(file) {
 }
 
 // Aplica um patch no override de um jogo. Campo com null/undefined desfaz a
-// edição (volta ao valor original do indexador); jogo sem nenhuma edição sai
+// edição (volta ao valor original); jogo sem nenhuma edição sai
 // do arquivo, para não acumular lixo.
 function setOverride(file, id, patch) {
   const all = readOverrides(file)
@@ -44,8 +44,8 @@ function applyOverrides(games, overrides) {
 }
 
 // Decide se a arte anterior de um jogo pode ser apagada ao trocar a imagem.
-// Só apaga o que é NOSSO (vive em art/): as capas do indexador apontam para o
-// cache da Steam/Heroic e apagá-las estragaria a instalação do usuário.
+// Só apaga o que é NOSSO (vive em art/): capas externas não pertencem ao
+// launcher e não devem ser removidas.
 function artToDelete(anterior, artDir, sep = "/") {
   if (typeof anterior !== "string" || !anterior) return null
   const p = anterior.replace(/^file:\/\//, "")

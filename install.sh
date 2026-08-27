@@ -56,7 +56,7 @@ if [ ! -f "$DIR/app/package.json" ]; then
 fi
 
 # --- Instalação MANUAL em pasta diferente de ~/.local/share/arcadia ---------
-# O app (arcadia.sh, index.py, Electron) assume ~/.local/share/arcadia como
+# O app (arcadia.sh, Electron) assume ~/.local/share/arcadia como
 # base. Quem baixou o ZIP/clonou em outra pasta e rodou ./install.sh daqui
 # instalaria numa pasta que o app não acha depois. Copia para o destino padrão
 # e re-executa de lá.
@@ -91,7 +91,7 @@ fi
 echo "==> Instalando o Arcadia a partir de $DIR"
 
 # --- 0/4 Dependências de sistema -------------------------------------------
-# O app precisa de: python3 (indexador), steam (nativa), dotnet (roda o
+# O app precisa de: python3 (torrent/arquivos auxiliares), steam (nativa), dotnet (roda o
 # DepotDownloader), procps (pgrep/pkill p/ vigia de jogos), coreutils (du/df),
 # yt-dlp (baixa os trailers), ffmpeg (junta vídeo+áudio e faz o remux), tar
 # (extrai Proton/Wine e o SLSsteam), findutils, git e node/npm (front-end).

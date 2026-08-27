@@ -10,10 +10,9 @@ Launcher de jogos para Linux com duas UIs: **desktop** (janela) e
 app/
   src/                # React renderer (desktop/ + ps5-launcher/)
   electron/
-    main.js           # bootstrap, biblioteca, IPC e indexador
+    main.js           # bootstrap, biblioteca e IPC
     library-store.js  # compatibilidade de leitura/escrita do formato local
     library-repository.js # repositório: leitura, posse por conta e escrita atômica
-    index-service.js  # job deduplicado/timeout do index.py
     launch-resolver.js # política pura de comando/perfil de execução
     emulator-registry.js # catálogo, perfis, scanner seguro e argv de emuladores Linux
     emulator-status.js   # preflight local de BIOS/firmware sem executar binários

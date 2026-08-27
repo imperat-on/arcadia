@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Arcadia — front-end estilo PS5 (Electron) unificando Steam/Heroic/Lutris.
+# Arcadia — front-end estilo PS5 (Electron) para sua biblioteca sincronizada.
 # Uso:
 #   ./arcadia.sh            -> TELA CHEIA (modo console, padrão)
 #   ./arcadia.sh --window   -> janela (para testar/depurar)
@@ -16,9 +16,7 @@ if [ ! -f "$DIR/app/package.json" ] && [ -f "$HOME/.local/share/arcadia/app/pack
     DIR="$HOME/.local/share/arcadia"
 fi
 
-# A biblioteca é estado do usuário, não parte do checkout. O indexador Python
-# usa o mesmo override, evitando reindexar a cada execução quando o código está
-# em um clone separado de ~/.local/share/arcadia.
+# A biblioteca é estado do usuário, não parte do checkout.
 DATA_DIR="${ARCADIA_DATA_DIR:-$HOME/.local/share/arcadia}"
 if [[ "$DATA_DIR" == "~/"* ]]; then DATA_DIR="$HOME/${DATA_DIR:2}"; fi
 if [[ "$DATA_DIR" != /* ]]; then DATA_DIR="$PWD/$DATA_DIR"; fi
@@ -42,23 +40,14 @@ if [ -z "$ELECTRON" ] || [ ! -x "$ELECTRON" ]; then
     exit 1
 fi
 
-# 1) Biblioteca: só bloqueia na PRIMEIRA execução (sem library.json ainda).
-#    Nas demais, o app abre na hora com o library.json anterior e reindexa em
-#    BACKGROUND (main.js), avisando o renderer quando terminar. Isso tira ~17s
-#    da abertura, que antes esperava o index.py rodar por completo.
-if [ ! -f "$DATA_DIR/library.json" ]; then
-    echo "arcadia: primeira indexação (só desta vez)…"
-    ARCADIA_DATA_DIR="$DATA_DIR" python3 "$DIR/index.py"
-fi
-
-# 2) Reconstrói o front-end se algum fonte mudou desde o último build
+# 1) Reconstrói o front-end se algum fonte mudou desde o último build
 cd "$DIR/app"
 if [ ! -f dist/index.html ] || [ -n "$(find src electron index.html vite.config.* package.json -newer dist/index.html 2>/dev/null)" ]; then
     echo "arcadia: fontes mudaram, reconstruindo o front-end…"
     npm run build
 fi
 
-# 3) Abre o app
+# 2) Abre o app
 if [ "$1" = "--gamescope" ]; then
     export ARCADIA_GAMESCOPE=1 # ativa a detecção de jogo por processo no Electron
     exec gamescope --backend sdl -W 3840 -H 2160 -r 120 -C 1 --force-grab-cursor -f -- \

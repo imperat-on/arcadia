@@ -34,9 +34,7 @@ const fs = require("fs")
 const os = require("os")
 const { getDataDir } = require("./runtime-paths")
 const { normalizeLibrary } = require("../../contracts")
-const { readLibraryFile } = require("./library-store")
 const { createLibraryRepository } = require("./library-repository")
-const { createIndexerService } = require("./index-service")
 const { resolveLaunchRequest } = require("./launch-resolver")
 const { createLaunchLog } = require("./launch-log")
 const { createSnapshotService } = require("./snapshot-service")
@@ -99,21 +97,6 @@ const LIB = path.join(DATA_DIR, "library.json")
 // O repositório concentra leitura/filtro por conta, sem alterar o restante da
 // montagem (custom/pending/overrides) nem o contrato IPC de library:get.
 const libraryRepository = createLibraryRepository({ dataDir: DATA_DIR, libraryPath: LIB })
-// Em uma instalação clonada o indexador fica no checkout, não na pasta de
-// dados. Em uma instalação empacotada a cópia histórica em DATA_DIR continua
-// sendo aceita para não quebrar upgrades existentes.
-const INDEX_DATA = path.join(DATA_DIR, "index.py")
-const INDEX = fs.existsSync(INDEX_DATA)
-  ? INDEX_DATA
-  : path.join(__dirname, "..", "..", "index.py")
-const indexerService = createIndexerService({
-  indexPath: INDEX,
-  pythonPath: process.env.ARCADIA_PYTHON || "python3",
-  cwd: path.join(__dirname, "..", ".."),
-  env: { ...process.env, ARCADIA_DATA_DIR: DATA_DIR },
-  timeoutMs: Number(process.env.ARCADIA_INDEX_TIMEOUT_MS) || undefined,
-  logger: (message) => console.warn(`[arcadia:indexer] ${message}`),
-})
 
 const saveSnapshots = createSnapshotService({ snapshotsDir: path.join(DATA_DIR, "snapshots") })
 
@@ -854,9 +837,8 @@ const GAME_SETTINGS = path.join(DATA_DIR, "game_settings.json")
 const SYSINFO_CACHE = path.join(DATA_DIR, "sysinfo_cache.json")
 // Jogos adicionados manualmente ("Adicionar jogo"): entram na biblioteca.
 const CUSTOM_GAMES = path.join(DATA_DIR, "custom_games.json")
-// Stubs otimistas gravados quando o usuário adiciona um jogo pela loja Steam:
-// aparecem na aba Jogos imediatamente, com arte da CDN. O indexer os substitui
-// pela entrada real de library.json na próxima passada, e o stub é removido.
+// Entradas gravadas quando o usuário adiciona ou baixa um jogo pela loja Steam:
+// aparecem na aba Jogos imediatamente, com arte da CDN.
 const PENDING_GAMES = path.join(DATA_DIR, "pending_games.json")
 
 function readJsonFile(p, fallback) {
@@ -1182,7 +1164,7 @@ function xboxLocale(cfg) {
 // (structured clone), então devolver a referência cacheada é seguro.
 let _libCache = { chave: "", games: [] }
 function _libMtimeKey() {
-  // library.json é global (o indexador escreve na raiz), os demais são por conta.
+  // library.json é um snapshot global legado na raiz; os demais são por conta.
   return [LIB, caminhoConta(CUSTOM_GAMES), caminhoConta(OVERRIDES), caminhoConta(PENDING_GAMES), caminhoConta(GAME_SETTINGS), caminhoConta(OWNED_GAMES)]
     .map((p) => {
       try {
@@ -1273,10 +1255,19 @@ function readLibrary() {
     const globais = libraryRepository.readGlobal()
     const games = libraryRepository.filterByOwnership(globais)
     games.push(...normalizeLibrary(readJsonFile(caminhoConta(CUSTOM_GAMES), [])))
-    // Stubs otimistas: só entram se ainda não foram indexados de verdade.
-    const jaTem = new Set(games.map((g) => g.id))
-    for (const p of normalizeLibrary(readJsonFile(caminhoConta(PENDING_GAMES), []))) {
-      if (!jaTem.has(p.id)) games.push(p)
+    // Entradas adicionadas pela loja vivem em pending_games.json. Um jogo
+    // baixado pode sobrepor um snapshot antigo e marcar-se instalado sem
+    // depender de uma varredura local de providers.
+    const pendentes = normalizeLibrary(readJsonFile(caminhoConta(PENDING_GAMES), []))
+    const porId = new Map(games.map((g, index) => [g.id, index]))
+    for (const p of pendentes) {
+      const index = porId.get(p.id)
+      if (index === undefined) {
+        porId.set(p.id, games.length)
+        games.push(p)
+      } else if (p.installed === true) {
+        games[index] = { ...games[index], ...p }
+      }
     }
     applyOverrides(games, readOverrides(caminhoConta(OVERRIDES)))
     // Enriquece cada jogo Steam com ícone/capa vindos do catálogo do servidor
@@ -1284,8 +1275,7 @@ function readLibrary() {
     // sidebar mostra o ícone desde a primeira montagem, sem depender da cura
     // em background. Prefere o que o usuário já escolheu (overrides/art).
     preencherArte(games)
-    // Tempo de sessão local (jogos NÃO-Steam): o renderer recebe o playtime
-    // já somado. A Steam não entra — o indexer traz o playtime real dela.
+    // Tempo de sessão local: o renderer recebe o playtime já somado.
     for (const g of games) {
       if (g.playtime_added_minutes) {
         g.playtime_minutes = (Number(g.playtime_minutes) || 0) + Number(g.playtime_added_minutes)
@@ -1316,18 +1306,6 @@ function readLibrary() {
   }
 }
 
-function runIndexer() {
-  return indexerService.run()
-}
-
-// Avisa o renderer e, em seguida, reindexa em SEGUNDO PLANO para avisar de
-// novo com a biblioteca já atualizada.
-//
-// O primeiro aviso cobre o que só depende do que já está em disco (o card da
-// loja voltando a oferecer "Add", por exemplo). O segundo é o que faz o jogo
-// recém-adicionado APARECER nas abas Jogos e Biblioteca: quem o descobre é o
-// index.py, lendo o bloco AdditionalApps da SLSsteam. Reindexar leva ~12s, e
-// travar o handler por esse tempo deixaria o botão preso.
 // Procura commit novo no GitHub e avisa o renderer. Nunca aplica nada: quem
 // decide é o usuário, no diálogo. Silencioso quando não há o que dizer — sem
 // internet, com trabalho local em andamento ou já atualizado, ninguém precisa
@@ -1342,18 +1320,8 @@ async function procurarAtualizacao(win) {
   } catch {}
 }
 
-function avisarBiblioteca(win, reindexar = true) {
-  const emitir = () => {
-    if (win && !win.isDestroyed()) win.webContents.send("library:changed")
-  }
-  emitir()
-  if (reindexar)
-    runIndexer().then(() => {
-      try {
-        limparPendentesIndexados()
-      } catch {}
-      emitir()
-    })
+function avisarBiblioteca(win) {
+  if (win && !win.isDestroyed()) win.webContents.send("library:changed")
 }
 
 // Grava um stub em pending_games.json com o mesmo formato de library.json:
@@ -1379,23 +1347,6 @@ function adicionarStubPendente(appid, title, art = {}) {
   fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(atuais, null, 2))
 }
 
-// Após o indexer rodar, qualquer stub cujo id já apareça em library.json é
-// removido — a entrada real substitui o stub sem duplicar.
-function limparPendentesIndexados() {
-  const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
-  if (!atuais.length) return
-  // Lê o library.json BRUTO (só o que o indexador gravou), não readLibrary().
-  // readLibrary já injeta os próprios stubs de pending_games.json, então usá-lo
-  // aqui fazia TODO stub recém-criado parecer "já indexado" e ser removido na
-  // passada pós-indexação → o Add na loja nunca persistia.
-  const reais = readLibraryFile(LIB).games
-  const idsReais = new Set(reais.map((g) => g.id))
-  const restantes = atuais.filter((g) => g && g.id && !idsReais.has(g.id))
-  if (restantes.length !== atuais.length) {
-    fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(restantes, null, 2))
-  }
-}
-
 function removerStubPendente(appid) {
   const id = "steam:" + appid
   const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
@@ -1403,6 +1354,27 @@ function removerStubPendente(appid) {
   if (restantes.length !== atuais.length)
     fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(restantes, null, 2))
   return restantes.length !== atuais.length
+}
+
+function marcarJogoSteamInstalado(appid, title, art = {}) {
+  const id = "steam:" + String(appid || "")
+  if (!/^steam:\d+$/.test(id)) return
+  const atuais = readJsonFile(caminhoConta(PENDING_GAMES), [])
+  const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + String(appid)
+  const atual = atuais.find((g) => g && g.id === id)
+  const entrada = {
+    id,
+    title: String(title || atual?.title || `Steam ${appid}`).trim(),
+    launcher: "steam",
+    launch_cmd: ["steam", `steam://rungameid/${appid}`],
+    installed: true,
+    cover: art.cover || atual?.cover || `${base}/library_600x900.jpg`,
+    hero: art.hero || atual?.hero || `${base}/library_hero.jpg`,
+    logo: atual?.logo || `${base}/logo.png`,
+  }
+  if (atual) Object.assign(atual, entrada)
+  else atuais.push(entrada)
+  fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(atuais, null, 2))
 }
 
 // Conta os AppIds injetados pelo SLSsteam (bloco AdditionalApps).
@@ -1451,8 +1423,7 @@ function heroicConnected() {
 
 let win
 // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
-// marca o item no achievements.json NA HORA — sem isso o painel só
-// atualizava no próximo reindex da biblioteca.
+// marca o item no achievements.json na hora.
 let pararAchievementWatcher = null
 
 // Callback único de desbloqueio: marca o item no achievements.json (o painel
@@ -1653,7 +1624,7 @@ function createWindow() {
   win.on("blur", () => win?.webContents.send("app:focus", false))
   win.on("focus", () => win?.webContents.send("app:focus", true))
   // Vigia de conquistas: toast em tempo real + marca o item no
-  // achievements.json (o painel lê de lá; sem isso só atualizava no reindex).
+  // achievements.json (o painel lê de lá; sem isso só atualizava no refresh).
   if (pararAchievementWatcher) pararAchievementWatcher()
   pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
   iniciarVigia(onUnlockAchievement)
@@ -2226,7 +2197,6 @@ app.whenReady().then(() => {
         c.on("error", res)
         setTimeout(res, 120000)
       })
-      await runIndexer()
       ownedAdd(g.id)
       if (win && !win.isDestroyed()) win.webContents.send("library:changed")
       return { ok: true }
@@ -2351,11 +2321,11 @@ app.whenReady().then(() => {
         const appid = id.replace(/^steam:/, "")
         const ss = require("./steamstore")
         // Download feito pelo Arcadia (acf marcado): remove na hora (pasta +
-        // acf + SLSsteam), sem diálogo da Steam, e reindexa em tempo real.
+        // acf + SLSsteam), sem diálogo da Steam, e atualiza em tempo real.
         if (ss.arcadiaDownloaded().some((a) => a.appid === appid)) {
           ss.removeDownloaded(appid)
           limparAposDesinstalar(id, { removePrefix, removeSettings })
-          await runIndexer()
+          setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
           if (win && !win.isDestroyed()) win.webContents.send("library:changed")
           // Desinstalar também remove da CONTA no servidor.
           ownedRemove(id)
@@ -2369,6 +2339,7 @@ app.whenReady().then(() => {
         // também sai da coleção da conta (desinstalar = não ter mais).
         ownedRemove(id)
         removerStubPendente(appid)
+        setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
         try {
           require("./supabase/biblioteca").agendarPush()
         } catch {}
@@ -2396,8 +2367,7 @@ app.whenReady().then(() => {
         return { ok: true }
       }
       if (launcher === "epic" || /legendary$/.test(legendary)) {
-        // Espera o uninstall terminar e reindexa ANTES de responder — assim o
-        // refresh do renderer já vê o jogo como não instalado.
+        // Espera o uninstall terminar antes de responder.
         await new Promise((res) => {
           const child = spawn(legendary, ["uninstall", "-y", id.replace(/^epic:/, "")], {
             detached: true,
@@ -2412,7 +2382,6 @@ app.whenReady().then(() => {
         try {
           dm.cancel(id)
         } catch {} // some da fila de downloads também
-        await runIndexer()
         // Desinstalar também remove da CONTA no servidor (mesma regra dos
         // outros launchers: desinstalar = não ter mais o jogo na coleção).
         ownedRemove(id)
@@ -2539,12 +2508,10 @@ app.whenReady().then(() => {
     // SEGURANÇA: a resposta NUNCA devolve as chaves em claro (o config:get
     // já é redigido; o set devolvia o config inteiro com hubcap_api_key...).
     if (r?.config) r.config = redigirSegredos(r.config)
-    // Trocou de idioma: as descrições e requisitos já baixados estão na língua
-    // antiga. Reindexar sozinho é o que faz a biblioteca aparecer traduzida
-    // sem o usuário ter de descobrir que existe um botão de atualizar.
+    // Trocou de idioma: avisa as telas para recarregar os dados já cacheados.
     const janela = BrowserWindow.fromWebContents(_e.sender)
     if (cfg?.language && cfg.language !== idiomaAntes) {
-      avisarBiblioteca(janela, true)
+      avisarBiblioteca(janela)
     }
     if (Object.prototype.hasOwnProperty.call(cfg || {}, "slssteam_path")) {
       janela?.webContents.send("plugins:changed")
@@ -2681,8 +2648,8 @@ app.whenReady().then(() => {
   dm.onProgress((items) => {
     if (win && !win.isDestroyed()) win.webContents.send("dm:progress", items)
   })
-  // Download concluído: reindexar e avisar o renderer para recarregar a
-  // biblioteca (o jogo aparece como instalado em tempo real).
+  // Download concluído: registra o jogo como instalado e avisa o renderer
+  // para recarregar a biblioteca em tempo real.
   dm.onDone(async (item) => {
     try {
       // Steam (DepotDownloader): registra o jogo na Steam (acf + SLSsteam).
@@ -2701,8 +2668,11 @@ app.whenReady().then(() => {
         if (win && !win.isDestroyed()) {
           win.webContents.send("store:downloaded", { appid, title: item.title })
         }
+        marcarJogoSteamInstalado(String(item.appid).replace(/^steam:/, ""), item.title, {
+          cover: item.cover,
+          hero: item.hero,
+        })
       }
-      await runIndexer()
       ownedAdd(String(item.appid))
     } catch {}
     if (win && !win.isDestroyed()) win.webContents.send("library:changed")
@@ -2768,6 +2738,7 @@ app.whenReady().then(() => {
       // "possuído" em outro dispositivo.
       ownedRemove("steam:" + String(appid || ""))
       removerStubPendente(String(appid || ""))
+      setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
       try {
         require("./supabase/biblioteca").agendarPush()
       } catch {}
@@ -2786,6 +2757,7 @@ app.whenReady().then(() => {
       // "possuído" e aparecia em outras máquinas logadas na mesma conta.
       ownedRemove("steam:" + String(appid || ""))
       removerStubPendente(String(appid || ""))
+      setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
       try {
         require("./supabase/biblioteca").agendarPush()
       } catch {}
@@ -2813,6 +2785,7 @@ app.whenReady().then(() => {
   ipcMain.handle("store:addToSteam", (_e, { appid, token, dlcs, title } = {}) => {
     if (!plugins.isEnabled("slssteam")) return { ok: false, plugin: "slssteam" }
     try {
+      setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: null })
       const r = steamstore.addToSteam(String(appid || ""))
       if (!r.ok) {
         // Sem .lua o registro na Steam falha, mas o jogo ainda entra na
@@ -3311,18 +3284,16 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("library:refresh", async () => {
-    await runIndexer()
     return curarCapasSteam(readLibrary())
   })
 
-  // Reconstrói TODOS os metadados (limpa cache e reindexar).
+  // Reconstrói os metadados locais (limpa o cache da loja).
   ipcMain.handle("meta:rebuild", async () => {
     try {
       fs.unlinkSync(META_CACHE)
     } catch {
       /* sem cache, tudo bem */
     }
-    await runIndexer()
     return readLibrary()
   })
 
@@ -3452,8 +3423,8 @@ app.whenReady().then(() => {
 
   // Adiciona somente o item retrô à biblioteca. O ROM ainda não está instalado
   // neste momento, portanto não passa pela validação de executável/emulador do
-  // customgame:add. Quando o download terminar, o indexador poderá enriquecer
-  // a entrada sem perder a posse da conta.
+  // customgame:add. Quando o download terminar, a entrada será atualizada sem
+  // perder a posse da conta.
   ipcMain.handle("retro:libraryAdd", (_e, payload = {}) => {
     try {
       const id = typeof payload.id === "string" ? payload.id.trim() : ""
@@ -3853,17 +3824,6 @@ app.whenReady().then(() => {
       return { action: "deny" }
     })
   })
-
-  // Reindexa em BACKGROUND, sem travar a abertura. O app já subiu com o
-  // library.json anterior; quando o índice terminar (Steam/Heroic/Lutris), avisa
-  // o renderer para recarregar. Antes o arcadia.sh rodava o index.py ANTES do
-  // Electron, segurando a tela preta por ~17s a cada boot. O delay deixa a
-  // janela pintar e o carregamento inicial acontecer antes do trabalho pesado.
-  setTimeout(() => {
-    runIndexer().then(() => {
-      if (win && !win.isDestroyed()) win.webContents.send("library:changed")
-    })
-  }, 1500)
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

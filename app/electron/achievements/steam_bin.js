@@ -203,7 +203,7 @@ function startSteamBinWatcher(onUnlock) {
     const prev = snapshots.get(appid) || new Set()
     const curMap = progressMap(file)
     const cur = new Set(Object.keys(curMap))
-    // índice pode ter mudado (reindexação) — recarrega leve
+    // O snapshot de conquistas pode ter mudado — recarrega leve.
     itemIndex = loadItemIndex()
     for (const k of cur) {
       if (prev.has(k)) continue
@@ -223,7 +223,7 @@ function startSteamBinWatcher(onUnlock) {
         // Progresso novo sem entrada no índice: achievements.json ausente ou
         // sem esta conquista. Antes falhava em silêncio (sem toast, sem pista).
         console.warn(
-          `[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto — rode index.py)`,
+          `[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto)`,
         )
       }
     }
@@ -259,7 +259,7 @@ function startSteamBinWatcher(onUnlock) {
 }
 
 // --- Loja: scrape sob demanda da página pública -----------------------------
-// Mesma lógica do _parse_achievements_html do index.py: bloco achieveRow,
+// Mesma lógica do parser da página pública da Steam: bloco achieveRow,
 // primeira img do bloco (sem classe), título h3 e descrição h5. A página não
 // expõe o apiname — o chamador gera sintético.
 function parseAchievementsHtml(page) {
