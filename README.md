@@ -133,9 +133,8 @@ O indexador, Electron e caches locais respeitam o mesmo diretório.
 
 - **`app/`** — Electron launcher (desktop + Big Picture). React renderer in
   `app/src`, Electron main process in `app/electron`.
-- **Backend separado** — o cliente conversa com a API pública do Arcadia por
-  HTTPS. O código do servidor e as migrações ficam no repositório
-  [`arcadia-server`](https://github.com/imperat-on/arcadia-server).
+- **Backend separado** — o cliente conversa com a API gerenciada do Arcadia por
+  HTTPS. O código do servidor e as migrações ficam em um repositório privado.
 
 Per-account sync: the app talks to the backend over HTTPS (Tailscale
 Funnel when self-hosted). `owned_games.json` (per account) decides which
@@ -145,10 +144,9 @@ everything. Sensitive data (debrid/Hubcap API keys, source caches) is
 
 ## Backend
 
-Para hospedar sua própria API, consulte o repositório público
-[`arcadia-server`](https://github.com/imperat-on/arcadia-server). Configure o
-cliente com `ARCADIA_API_URL`; a instalação do launcher não exige PostgreSQL
-local.
+O launcher usa a API gerenciada do Arcadia. Configure o cliente com
+`ARCADIA_API_URL` quando precisar apontar para uma instância autorizada; a
+instalação do launcher não exige PostgreSQL local.
 
 ## Credits
 
