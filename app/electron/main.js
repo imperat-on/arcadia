@@ -151,10 +151,15 @@ function acharYtdlp() {
 }
 const YTDLP = acharYtdlp()
 
-// Padrão que casa o PROCESSO de um jogo rodando (Steam/Proton/Heroic/Lutris).
+// Padrão que casa o PROCESSO de um jogo rodando (Steam/Proton/Heroic/Lutris
+// e os emuladores suportados). O poll só fica ativo enquanto lançamos um jogo.
 // Usado pelo vigia "game:running" e pelo "game:close". pgrep nunca casa
 // consigo mesmo.
-const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners"
+const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners|pcsx2|PCSX2|rpcs3|RPCS3|dolphin-emu|DolphinEmu|ppsspp|PPSSPP|duckstation|DuckStation|retroarch|RetroArch|melonds|melonDS|desmume|DeSmuME"
+// Fallback usado apenas para fechar jogos Steam/Wine detectados fora do grupo
+// lançado pelo Arcadia. Não inclui emuladores para nunca encerrar um emulador
+// independente que o usuário esteja usando em paralelo.
+const PADRAO_FECHAMENTO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners"
 
 // Logs de lançamento ("Habilitar logs detalhados", aba AVANÇADO).
 const LOG_DIR = path.join(DATA_DIR, "logs")
@@ -2142,7 +2147,7 @@ app.whenReady().then(() => {
           execFile("pkill", ["-f", String(alvo)], () => {})
         }
       }
-      execFile("pkill", ["-f", PADRAO_JOGO], () => {})
+      execFile("pkill", ["-f", PADRAO_FECHAMENTO_JOGO], () => {})
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
