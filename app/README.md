@@ -52,10 +52,9 @@ npm run dev       # vite (renderer)
 npm run electron  # electron main process
 ```
 
-O backend precisa estar de pé. Use `ARCADIA_API_URL` para apontar à API do
-repositório [`arcadia-server`](https://github.com/imperat-on/arcadia-server)
-(as variáveis `ARCADIA_SUPABASE_URL`/`SUPABASE_URL` continuam aceitas por
-compatibilidade). O URL é normalizado sem barras finais.
+O backend precisa estar de pé. Use `ARCADIA_API_URL` para apontar à API
+gerenciada do Arcadia (as variáveis `ARCADIA_SUPABASE_URL`/`SUPABASE_URL`
+continuam aceitas por compatibilidade). O URL é normalizado sem barras finais.
 
 ## Testes
 
