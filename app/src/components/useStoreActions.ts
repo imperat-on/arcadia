@@ -152,10 +152,15 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
   // vazio e volta null.
   const acharTorrent = useCallback(async (title: string) => {
     try {
+      const limparTitulo = (s: string) =>
+        String(s || "")
+          .replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "")
+          .trim()
+      const tituloBusca = limparTitulo(title)
       // 50: jogos populares têm MUITAS releases (RDR2 tem 30+ entre as
       // fontes) — o diálogo lista todas as que têm link baixável.
-      const r = await window.launcherAPI?.sourcesSearch?.(title, 50)
-      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+      const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
+      const norm = (s: string) => limparTitulo(s).toLowerCase().replace(/[^a-z0-9]/g, "")
       const alvo = norm(title)
       if (!alvo) return null
       const cands = (r?.results || []).filter((g) => {
