@@ -75,6 +75,10 @@ function erroContaTrocada() {
 
 const retroMetadataCache = new Map()
 
+function isPortableArtwork(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim())
+}
+
 function isRetroGame(gameOrId) {
   const id = typeof gameOrId === "string" ? gameOrId : gameOrId?.id
   return String(id || "").startsWith("retro:") || gameOrId?.retro === true || gameOrId?.launcher === "retro"
@@ -124,9 +128,22 @@ async function carregarMetadataRetro(id) {
   return metadata
 }
 
-function payloadBiblioteca(game) {
+function payloadBiblioteca(game, override = {}) {
   const retro = isRetroGame(game)
-  const metadata = retroMetadataFrom(game)
+  const merged = retro ? { ...game } : game
+  if (retro && override && typeof override === "object") {
+    // Caminhos /home/... e file:// pertencem somente a esta máquina. Só
+    // substitui a arte base por URLs portáteis que o outro PC consegue abrir.
+    for (const key of ["cover", "hero", "icon"]) {
+      if (isPortableArtwork(override[key])) merged[key] = override[key].trim()
+    }
+  }
+  const metadata = retroMetadataFrom(merged)
+  if (retro) {
+    for (const key of ["cover", "hero", "icon"]) {
+      if (metadata[key] && !isPortableArtwork(metadata[key])) delete metadata[key]
+    }
+  }
   return {
     appid: game.id,
     title: game.title || game.id,
@@ -145,6 +162,7 @@ async function push() {
   const st = loadState()
   const enviados = st.libPush || {}
   const wp = st.playtimePush || {}
+  const overrides = readJson(OVERRIDES(), {})
 
   // Jogos custom: diff local vs watermark
   const lib = readJson(CUSTOM(), [])
@@ -152,7 +170,7 @@ async function push() {
   const p_lib = []
   for (const g of lib) {
     const prev = enviados[g.id]
-    const payload = payloadBiblioteca(g)
+    const payload = payloadBiblioteca(g, isRetroGame(g) ? overrides[g.id] : {})
     if (
       !prev ||
       prev.title !== payload.title ||
@@ -208,7 +226,6 @@ async function push() {
   }
 
   // Horas: delta acumulado desde o último push
-  const overrides = readJson(OVERRIDES(), {})
   const p_playtime = []
   for (const [gid, data] of Object.entries(overrides)) {
     const total = Number(data?.playtime_added_minutes) || 0
@@ -315,6 +332,25 @@ async function pull() {
     }),
   )
   if (!contaAindaAtiva(contexto)) return false
+
+  // Overrides de arte local (file:// ou /home/...) não podem ser usados em
+  // outra máquina. Quando existe uma capa remota retrô sincronizada, troca o
+  // override local pela URL portátil para os dois dispositivos renderizarem a
+  // mesma imagem.
+  const overridesRetro = readJson(OVERRIDES(), {})
+  let overridesRetroMudou = false
+  for (const row of retroRows) {
+    const remoteCover = metadataRetro.get(row.appid)?.cover
+    const localOverride = overridesRetro[row.appid]
+    if (isPortableArtwork(remoteCover) && localOverride && localOverride.cover && !isPortableArtwork(localOverride.cover)) {
+      localOverride.cover = remoteCover
+      overridesRetroMudou = true
+    }
+  }
+  if (overridesRetroMudou) {
+    writeJson(OVERRIDES(), overridesRetro)
+    mudou = true
+  }
 
   // Busca capa/hero/icone REAIS antes de criar os stubs pending: sem isto o
   // stub nascia so com URLs de capa "chutadas" (podem nao existir) e sem
@@ -469,6 +505,7 @@ async function pull() {
 
   // Horas: total da conta > local → display local sobe + watermark acompanha
   const overrides = readJson(OVERRIDES(), {})
+  let playtimeNeedsPush = false
   for (const row of data) {
     const total = Number(row.minutes) || 0
     const local = Number(overrides[row.appid]?.playtime_added_minutes) || 0
@@ -476,6 +513,17 @@ async function pull() {
     if (merged > local) {
       overrides[row.appid] = { ...(overrides[row.appid] || {}), playtime_added_minutes: merged }
       wp[row.appid] = merged
+      mudou = true
+    } else if (total < local && Number(wp[row.appid]) > total) {
+      // O servidor pode ter perdido/resetado o total enquanto esta máquina
+      // ainda conserva os minutos locais. Rebaixa o watermark para que o
+      // próximo push reenvie a diferença em vez de considerar tudo confirmado.
+      wp[row.appid] = total
+      playtimeNeedsPush = true
+      mudou = true
+    } else if (total < Number(wp[row.appid] || 0)) {
+      // Corrige watermark obsoleto mesmo quando não há minutos locais novos.
+      wp[row.appid] = total
       mudou = true
     }
   }
@@ -508,6 +556,11 @@ async function pull() {
   st.playtimePush = wp
   if (!contaAindaAtiva(contexto)) return false
   saveState(st)
+  if (playtimeNeedsPush && contaAindaAtiva(contexto)) {
+    // Também cobre pulls disparados pelo realtime, que não passam por
+    // reconcile. O push fica protegido contra troca de conta e é idempotente.
+    try { await push() } catch {}
+  }
   return mudou
 }
 
