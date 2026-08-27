@@ -99,11 +99,26 @@ function normalizeLibrarySyncItem(value) {
   const appid = text(value.appid, MAX_ID_LENGTH)
   if (!appid) return null
   if (value.removed === true) return { appid, removed: true }
-  return {
+  const result = {
     appid,
     title: text(value.title, MAX_TITLE_LENGTH) || appid,
     platform: value.platform === "emulator" ? "emulator" : value.platform === "linux" ? "linux" : "windows",
   }
+  for (const key of ["cover", "hero", "logo", "icon", "description", "systemId", "developer", "publisher"]) {
+    const item = text(value[key], key === "description" ? 10000 : 2000)
+    if (item) result[key] = item
+  }
+  if (value.retro === true) result.retro = true
+  if (Array.isArray(value.genres)) {
+    const genres = value.genres
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 32)
+    if (genres.length) result.genres = genres
+  }
+  if (Number.isInteger(value.releaseYear)) result.releaseYear = value.releaseYear
+  return result
 }
 
 function normalizeLibrarySyncItems(value) {

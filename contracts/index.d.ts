@@ -84,6 +84,17 @@ export interface ArcadiaLibrarySyncItem {
   title?: string
   platform?: "linux" | "windows" | "emulator"
   removed?: boolean
+  cover?: string
+  hero?: string
+  logo?: string
+  icon?: string
+  description?: string
+  systemId?: string
+  developer?: string
+  publisher?: string
+  genres?: string[]
+  releaseYear?: number
+  retro?: boolean
 }
 
 export interface ArcadiaPlaytimeItem {

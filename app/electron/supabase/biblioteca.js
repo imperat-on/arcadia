@@ -19,6 +19,7 @@ const { caminhoArquivoConta, DATA_DIR } = require("./conta")
 const { ownedSet, readOwned } = require("../owned")
 const { conta } = require("./conta")
 const steamstore = require("../steamstore")
+const { catalogGet } = require("../catalog")
 const { readLibraryFile } = require("../library-store")
 const { resolveLibraryConflict, resolvePlaytimeConflict } = require("../../../contracts")
 
@@ -72,6 +73,65 @@ function erroContaTrocada() {
   return { ok: false, error: "conta_trocada", retryable: false }
 }
 
+const retroMetadataCache = new Map()
+
+function isRetroGame(gameOrId) {
+  const id = typeof gameOrId === "string" ? gameOrId : gameOrId?.id
+  return String(id || "").startsWith("retro:") || gameOrId?.retro === true || gameOrId?.launcher === "retro"
+}
+
+function retroMetadataFrom(value) {
+  if (!value || typeof value !== "object") return {}
+  const artwork = value.artwork && typeof value.artwork === "object" ? value.artwork : {}
+  const cover = value.cover || value.capa || value.fallbackCover || artwork.cover || ""
+  const hero = value.hero || value.heroi || artwork.hero || artwork.background || cover || ""
+  const icon = value.icon || value.logo || artwork.icon || cover || ""
+  const genres = Array.isArray(value.genres)
+    ? value.genres.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 32)
+    : undefined
+  return {
+    ...(cover ? { cover: String(cover).slice(0, 2000) } : {}),
+    ...(hero ? { hero: String(hero).slice(0, 2000) } : {}),
+    ...(icon ? { icon: String(icon).slice(0, 2000) } : {}),
+    ...(value.description || value.summary ? { description: String(value.description || value.summary).slice(0, 10000) } : {}),
+    ...(genres?.length ? { genres } : {}),
+    ...(value.systemId ? { systemId: String(value.systemId).slice(0, 120) } : {}),
+    ...(Number.isInteger(value.releaseYear) ? { releaseYear: value.releaseYear } : {}),
+    ...(value.developer ? { developer: Array.isArray(value.developer) ? String(value.developer[0] || "") : String(value.developer) } : {}),
+    ...(value.publisher ? { publisher: Array.isArray(value.publisher) ? String(value.publisher[0] || "") : String(value.publisher) } : {}),
+  }
+}
+
+async function carregarMetadataRetro(id) {
+  const chave = String(id || "")
+  if (!isRetroGame(chave)) return {}
+  if (retroMetadataCache.has(chave)) return retroMetadataCache.get(chave)
+  const emVoo = (async () => {
+    try {
+      const encoded = encodeURIComponent(chave.slice(0, 240))
+      const response = await catalogGet(`/catalog/v1/retro/games/${encoded}`, { timeoutMs: 10000 })
+      return retroMetadataFrom(response?.data?.game)
+    } catch {
+      return {}
+    }
+  })()
+  retroMetadataCache.set(chave, emVoo)
+  const metadata = await emVoo
+  retroMetadataCache.set(chave, metadata)
+  return metadata
+}
+
+function payloadBiblioteca(game) {
+  const retro = isRetroGame(game)
+  const metadata = retroMetadataFrom(game)
+  return {
+    appid: game.id,
+    title: game.title || game.id,
+    platform: retro ? "emulator" : game.platform || "windows",
+    ...(retro ? { retro: true, ...metadata } : {}),
+  }
+}
+
 // ---------- PUSH ----------
 async function push() {
   const contexto = conta()
@@ -89,9 +149,16 @@ async function push() {
   const p_lib = []
   for (const g of lib) {
     const prev = enviados[g.id]
-    const platform = g.platform || "windows"
-    if (!prev || prev.title !== (g.title || "") || prev.platform !== platform) {
-      p_lib.push({ appid: g.id, title: g.title || g.id, platform })
+    const payload = payloadBiblioteca(g)
+    if (
+      !prev ||
+      prev.title !== payload.title ||
+      prev.platform !== payload.platform ||
+      prev.cover !== payload.cover ||
+      prev.hero !== payload.hero ||
+      prev.icon !== payload.icon
+    ) {
+      p_lib.push(payload)
     }
   }
 
@@ -159,7 +226,13 @@ async function push() {
   // Atualiza watermarks
   for (const g of p_lib) {
     if (g.removed) delete enviados[g.appid]
-    else enviados[g.appid] = { title: g.title, platform: g.platform || "windows" }
+    else enviados[g.appid] = {
+      title: g.title,
+      platform: g.platform || "windows",
+      ...(g.cover ? { cover: g.cover } : {}),
+      ...(g.hero ? { hero: g.hero } : {}),
+      ...(g.icon ? { icon: g.icon } : {}),
+    }
   }
   for (const p of p_playtime) wp[p.appid] = (Number(wp[p.appid]) || 0) + p.minutes
   st.libPush = enviados
@@ -202,6 +275,24 @@ async function pull() {
   const pendentesIds = new Set(pendentes.map((p) => p && p.id))
   let pendentesMudou = false
   const idsDoServidor = new Set(data.map((row) => row && row.appid))
+
+  // Retrôs antigos foram sincronizados apenas com id/título. Busca a ficha
+  // canônica para que o notebook recupere capa/hero mesmo quando o servidor
+  // ainda devolve o formato reduzido do RPC legado.
+  const metadataRetro = new Map()
+  const retroRows = data.filter((row) => isRetroGame(row?.appid))
+  const localGamesById = new Map(lib.map((game) => [game.id, game]))
+  await Promise.all(
+    retroRows.map(async (row) => {
+      const local = retroMetadataFrom({ ...localGamesById.get(row.appid), ...row })
+      if (local.cover || local.hero || local.icon) {
+        metadataRetro.set(row.appid, local)
+        return
+      }
+      metadataRetro.set(row.appid, await carregarMetadataRetro(row.appid))
+    }),
+  )
+  if (!contaAindaAtiva(contexto)) return false
 
   // Busca capa/hero/icone REAIS antes de criar os stubs pending: sem isto o
   // stub nascia so com URLs de capa "chutadas" (podem nao existir) e sem
@@ -273,20 +364,25 @@ async function pull() {
         }
       }
     } else if (!ids.has(row.appid)) {
+      const retro = isRetroGame(row.appid)
+      const metadata = retro ? metadataRetro.get(row.appid) || {} : {}
       lib.push({
         id: row.appid,
         title: row.title || row.appid,
-        launcher: "custom",
-        platform: row.platform || "windows",
+        launcher: retro ? "retro" : "custom",
+        platform: retro ? metadata.systemId || row.systemId || "emulator" : row.platform || "windows",
         exe: "",
         installed: false,
+        ...(retro ? { retro: true, ...metadata } : {}),
       })
       mudou = true
     } else {
       const g = lib.find((x) => x.id === row.appid)
+      const retro = isRetroGame(row.appid) || isRetroGame(g)
+      const metadata = retro ? metadataRetro.get(row.appid) || {} : {}
       const merged = resolveLibraryConflict(
         { appid: g.id, title: g.title, platform: g.platform },
-        { appid: row.appid, title: row.title || row.appid, platform: row.platform || "windows" },
+        { appid: row.appid, title: row.title || row.appid, platform: retro ? "emulator" : row.platform || "windows" },
       )
       if (merged && !merged.removed) {
         if (g.title !== merged.title) {
@@ -296,6 +392,20 @@ async function pull() {
         if (merged.platform && g.platform !== merged.platform) {
           g.platform = merged.platform
           mudou = true
+        }
+        if (retro) {
+          const preenchido = {
+            retro: true,
+            launcher: "retro",
+            ...(metadata.systemId ? { systemId: metadata.systemId, platform: metadata.systemId } : {}),
+            ...metadata,
+          }
+          for (const [key, value] of Object.entries(preenchido)) {
+            if (value !== undefined && value !== "" && g[key] !== value) {
+              g[key] = value
+              mudou = true
+            }
+          }
         }
       }
     }
