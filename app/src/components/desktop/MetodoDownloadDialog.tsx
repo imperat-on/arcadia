@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
 import { useI18n } from "../../i18n/I18nContext"
+import { useGamepadNav } from "../ps5-launcher/useGamepadNav"
 
 // Diálogo de download em 3 etapas (jogo da loja que também existe nas fontes):
 //   1. MÉTODO: "Download via Depot" (fluxo Steam de sempre) ou "via Torrent".
@@ -30,10 +31,20 @@ export function MetodoDownloadDialog({
   depotDisponivel?: boolean
 }) {
   const { t } = useI18n()
+  const ref = useRef<HTMLDivElement>(null)
   const [etapa, setEtapa] = useState<Etapa>(depotDisponivel ? "metodo" : "fonte")
   const [escolhida, setEscolhida] = useState<OpcaoTorrent | null>(null)
   const [pasta, setPasta] = useState("")
   const [livre, setLivre] = useState<number | null>(null)
+
+  useGamepadNav(ref, true, onClose)
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [etapa, opcoes.length])
 
   // Pasta padrão ao entrar na etapa 3: config.default_install_path ou
   // ~/Games/Arcadia (mesma regra do InstallDialog).
@@ -67,6 +78,7 @@ export function MetodoDownloadDialog({
 
   return (
     <div
+      ref={ref}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
