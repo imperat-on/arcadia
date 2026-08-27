@@ -166,8 +166,15 @@ export function StoreGamePage({
           const titulo = normalizar(String(candidato.title || ""))
           if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
           const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
-          const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
-          if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri)))) {
+          const rawUris = full?.game?.uris
+          const uris = Array.isArray(rawUris)
+            ? rawUris
+            : typeof rawUris === "string"
+              ? [rawUris]
+              : full?.game?.uri
+                ? [full.game.uri]
+                : []
+          if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri).trim()))) {
             if (vivo) setTemTorrent(true)
             return
           }

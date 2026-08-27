@@ -84,10 +84,17 @@ export function SourcesView({ onOpenDownloads }: { onOpenDownloads?: () => void 
     setBaixando(g.ref)
     setErro("")
     const full = await window.launcherAPI?.sourcesGame(g.ref)
-    const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
+    const rawUris = full?.game?.uris
+    const uris = Array.isArray(rawUris)
+      ? rawUris
+      : typeof rawUris === "string"
+        ? [rawUris]
+        : full?.game?.uri
+          ? [full.game.uri]
+          : []
     const uri =
       uris.find((u) => /^magnet:/i.test(String(u))) ||
-      uris.find((u) => /^https?:\/\//.test(String(u)))
+      uris.find((u) => /^https?:\/\//i.test(String(u)))
     if (!uri) {
       setErro(t("fontes.sem_magnet"))
       setBaixando("")

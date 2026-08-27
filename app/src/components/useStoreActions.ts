@@ -168,9 +168,16 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       const opcoes: OpcaoTorrent[] = []
       for (const cand of cands) {
         const full = await window.launcherAPI?.sourcesGame?.(cand.ref)
-        const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
-        const magnet = uris.find((u) => String(u).startsWith("magnet:"))
-        const http = uris.find((u) => /^https?:\/\//.test(String(u)))
+        const rawUris = full?.game?.uris
+        const uris = Array.isArray(rawUris)
+          ? rawUris
+          : typeof rawUris === "string"
+            ? [rawUris]
+            : full?.game?.uri
+              ? [full.game.uri]
+              : []
+        const magnet = uris.find((u) => /^magnet:/i.test(String(u).trim()))
+        const http = uris.find((u) => /^https?:\/\//i.test(String(u).trim()))
         const uri = magnet || http
         if (uri)
           opcoes.push({
