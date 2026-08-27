@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import type { Game } from "./types"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
@@ -58,38 +58,17 @@ export function GameContextMenu({
     }
   }, [open, onClose])
 
-  // Mantém o popup utilizável sem mouse: o primeiro item recebe foco ao
-  // abrir, as setas percorrem as ações e Enter/Espaço confirma a ação focada.
-  // Quando Ferramentas troca o conteúdo, o foco volta para o primeiro item.
+  // O primeiro item recebe foco ao abrir e sempre que Ferramentas troca o
+  // conteúdo. Isso deixa o popup pronto para teclado e controle sem depender
+  // do foco que estava na biblioteca.
   useEffect(() => {
     if (!open) return
     const frame = window.requestAnimationFrame(() => {
       const first = ref.current?.querySelector<HTMLElement>('[role="menuitem"]')
-      if (first && !ref.current?.contains(document.activeElement)) first.focus()
+      first?.focus({ preventScroll: true })
     })
-    const onKey = (event: KeyboardEvent) => {
-      const root = ref.current
-      if (!root) return
-      const items = Array.from(root.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-      if (!items.length) return
-      const active = document.activeElement as HTMLElement | null
-      const index = Math.max(0, items.indexOf(active as HTMLElement))
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault()
-        const delta = event.key === "ArrowDown" ? 1 : -1
-        items[(index + delta + items.length) % items.length].focus()
-      } else if (event.key === "Home" || event.key === "End") {
-        event.preventDefault()
-        items[event.key === "Home" ? 0 : items.length - 1].focus()
-      } else if ((event.key === "Enter" || event.key === " ") && root.contains(active)) {
-        event.preventDefault()
-        active?.click()
-      }
-    }
-    window.addEventListener("keydown", onKey)
     return () => {
       window.cancelAnimationFrame(frame)
-      window.removeEventListener("keydown", onKey)
     }
   }, [open, ferramentas])
 
@@ -98,6 +77,28 @@ export function GameContextMenu({
   const run = (fn: () => void) => () => {
     onClose()
     fn()
+  }
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const root = ref.current
+    if (!root) return
+    const items = Array.from(root.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+    if (!items.length) return
+    const active = document.activeElement as HTMLElement | null
+    const current = items.indexOf(active as HTMLElement)
+    const index = current >= 0 ? current : 0
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      const delta = event.key === "ArrowDown" ? 1 : -1
+      items[(index + delta + items.length) % items.length].focus({ preventScroll: true })
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault()
+      items[event.key === "Home" ? 0 : items.length - 1].focus({ preventScroll: true })
+    } else if (event.key === "Enter" || event.key === " ") {
+      if (!root.contains(active)) return
+      event.preventDefault()
+      active?.click()
+    }
   }
 
   return (
@@ -117,6 +118,7 @@ export function GameContextMenu({
         }}
         role="menu"
         aria-label={`Opções de ${game.title}`}
+        onKeyDown={onKeyDown}
       >
         {/* Cabeçalho: nome do jogo */}
         <div
@@ -213,6 +215,7 @@ function Item({ icon, label, onClick }: { icon: ReactNode; label: string; onClic
   return (
     <button
       onClick={onClick}
+      type="button"
       role="menuitem"
       className="w-full flex items-center gap-4 px-5 py-3 text-left text-white text-[17px] transition-colors"
       onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(182,255,57,0.10)")}
