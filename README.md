@@ -44,19 +44,17 @@ a different UI on top.
 
 ## Features
 
-- **Unified library** — Steam, Epic (via Legendary), and custom games (`.exe`
-  through Wine) with covers, categories, per-game details.
-- **Steam store** — search, download via **DepotDownloader** into your Steam
-  libraries (multi-drive), or add to Steam via **SLSsteam**. Manifests are
-  fetched from four providers with a mixed-source cascade so downloads keep
-  working when a single source is incomplete.
+- **Unified library** — jogos adicionados pela loja, downloads via fontes e
+  jogos customizados (`.exe` através do Wine), com capas e detalhes por jogo.
+- **Steam store** — pesquisa, download via **DepotDownloader** ou torrent e
+  adição à Steam via **SLSsteam**. Os manifestos vêm do catálogo configurado.
 - **Per-game launch options** — Wine/Proton version, per-game prefix,
   DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom
   wrappers, env vars, game args, pre/post scripts and verbose logs.
 - **Wine manager** — installs and manages GE-Proton and Wine-GE; Steam-shipped
   Protons are detected automatically.
-- **Downloads** — serial queue for Epic (Legendary) and Steam
-  (DepotDownloader), with real progress in MiB, speed and ETA;
+- **Downloads** — fila serial para Steam (DepotDownloader) e fontes torrent,
+  com progresso em MiB, velocidade e ETA;
   pause/resume/cancel with cleanup of partials.
 - **Achievements** — SLScheevo integration with a real-time unlock panel.
 - **Trailers** — YouTube search and download via `yt-dlp`.
@@ -65,7 +63,6 @@ a different UI on top.
 
 - Linux x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed
   locally if missing)
-- For Epic titles: **Legendary** login (the binary is fetched by the app)
 - For the Steam store: a **Hubcap API key** (free, community) and
   **SLSsteam** (installable from Settings → Integrations)
 
@@ -85,8 +82,8 @@ cp config.example.json config.json  # if install.sh didn't create it
 ./arcadia.sh                        # console mode (fullscreen)
 ```
 
-First run indexes your library (`index.py`) and builds the front-end
-(`npm run build`).
+Na primeira execução, o launcher prepara a biblioteca local sincronizada com a
+conta e constrói o front-end (`npm run build`).
 
 ## Uninstall
 
@@ -96,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall
 
 Or, from inside the repo: `./uninstall.sh`. Removes the app, its desktop
 entry/icons and `~/.local/share/arcadia/`. Asks before touching anything that
-isn't a cache/binary — installed Epic games (`games/`), Wine prefixes
+isn't a cache/binary — installed games (`games/`), Wine prefixes
 (`prefixes/`, may hold saves) and SLSsteam (third-party, installed outside
 `~/.local/share/arcadia/`) — and preserves them by default unless you opt in.
 Steam games downloaded through the store stay registered in your Steam
@@ -109,7 +106,7 @@ want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
 
 | Key | Purpose |
 |---|---|
-| `steam_api_key` | Full Steam library (owned games) |
+| `steam_api_key` | Dados opcionais de integração e metadados Steam |
 | `hubcap_api_key` | Manifest search and download for the store |
 
 ## Layout
@@ -117,8 +114,6 @@ want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
 ```
 app/src        # React front-end (desktop/ + console/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
-index.py       # library pipeline (scans sources → versioned library.json)
-indexers/      # parsers/provider transforms e contrato testáveis sem rede
 arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
 install.sh     # setup · uninstall.sh (full removal)
 ```
@@ -126,7 +121,7 @@ install.sh     # setup · uninstall.sh (full removal)
 User data (config, library, downloads, prefixes, artwork) lives under
 `~/.local/share/arcadia/` and is **not** versioned. Para usar um diretório
 isolado (desenvolvimento/testes), defina `ARCADIA_DATA_DIR=/caminho/absoluto`.
-O indexador, Electron e caches locais respeitam o mesmo diretório.
+O Electron e os caches locais respeitam o mesmo diretório.
 
 
 ## Architecture
@@ -136,9 +131,8 @@ O indexador, Electron e caches locais respeitam o mesmo diretório.
 - **Backend separado** — o cliente conversa com a API gerenciada do Arcadia por
   HTTPS. O código do servidor e as migrações ficam em um repositório privado.
 
-Per-account sync: the app talks to the backend over HTTPS (Tailscale
-Funnel when self-hosted). `owned_games.json` (per account) decides which
-games from the global `library.json` each account sees. Guest sees
+Per-account sync: the app talks to the backend over HTTPS. `owned_games.json`
+(per account) decides which games from the local snapshot each account sees. Guest sees
 everything. Sensitive data (debrid/Hubcap API keys, source caches) is
 **never** uploaded.
 

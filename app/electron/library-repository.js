@@ -2,7 +2,7 @@
 
 // Repositório local da biblioteca.
 //
-// O indexador escreve uma biblioteca global (library.json), enquanto a posse
+// O snapshot local da biblioteca fica em library.json, enquanto a posse
 // pertence à conta ativa (owned_games.json). Este módulo concentra as regras
 // que precisam ser iguais em todos os consumidores do processo principal:
 // leitura versionada, filtro por conta, migração preguiçosa da posse e

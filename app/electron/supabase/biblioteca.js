@@ -103,9 +103,8 @@ async function push() {
   const owned = ownedSet()
   const pendentes = readJson(PENDING(), [])
   // Título real do jogo: primeiro o pending (adicionado pela loja), depois o
-  // library.json global (jogos indexados localmente — ex.: Cyberpunk 2077).
-  // Sem o fallback do library, um jogo indexado sem stub pending subia com o
-  // id feio ("steam:1091500") e ficava assim no servidor para sempre.
+  // snapshot global local, quando existir. Sem esse fallback, um jogo antigo
+  // sem stub pending poderia subir com o id feio ("steam:1091500").
   let libGlobal = null
   try {
     libGlobal = readLibraryFile(path.join(DATA_DIR, "library.json")).games
@@ -237,9 +236,8 @@ async function pull() {
     if (ehSteam) {
       // Jogos steam:* do servidor entram na POSSE e ganham um stub PENDING se
       // nao existirem localmente. Sem o stub, o jogo adicionado na loja de
-      // OUTRA maquina nao aparecia na biblioteca aqui (o library.json global
-      // so tem o que a Steam local indexou). O stub sera limpo pelo
-      // limparPendentesIndexados no proximo reindex se o jogo for instalado.
+      // OUTRA maquina nao aparecia na biblioteca aqui sem um stub local.
+      // O stub permanece até o jogo ser instalado ou removido localmente.
       if (!ids.has(row.appid) && !pendentesIds.has(row.appid)) {
         const appid = String(row.appid).replace(/^steam:/, "")
         const base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appid
@@ -305,8 +303,8 @@ async function pull() {
   // Remocao no pull: jogos que sumiram do servidor (removidos em outra
   // maquina) saem da posse local. Sem isto, remover na conta em um dispositivo
   // nunca propagava — o owned_games.json local ficava com o jogo para sempre.
-  // So remove da POSSE (owned): o jogo continua no library.json local se
-  // instalado/indexado pela Steam — ele so deixa de ser "possuido pela conta".
+  // So remove da POSSE (owned): o jogo continua no snapshot local se já
+  // instalado — ele só deixa de ser "possuído pela conta".
   // Stub PENDING nao bloqueia mais a remocao: o stub e criado pelo proprio
   // pull (nao e dado do usuario) — antes o pendentesIds.has(id) impedia a
   // remocao pra sempre, entao um jogo so puxado (nunca instalado) na outra

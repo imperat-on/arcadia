@@ -55,7 +55,7 @@ function arrayText(value) {
 const FACET_NAMES = ["launcher", "genre", "tag", "installed"]
 
 // Facets are deliberately derived from the payload instead of from a fixed
-// provider schema.  SteamSpy uses `genres`, library indexers use `categories`,
+  // provider schema. SteamSpy uses `genres`, catalog entries use `categories`,
 // and older catalog snapshots occasionally have a singular `genre`/`tag`.
 // Keeping this adapter here lets old and new pages participate in the same
 // offline index without changing the public game payload.

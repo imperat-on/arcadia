@@ -98,7 +98,7 @@ async function sgdbArt(sgdbId, kind, chave, opts) {
 // ── Steam ──────────────────────────────────────────────────────────────────
 // Sem chave. Só serve para jogos Steam, e a arte é a oficial da loja.
 
-// Extrai o appid de um id do nosso indexador ("steam:346110").
+// Extrai o appid de um id Steam ("steam:346110").
 function steamAppId(gameId) {
   const m = /^steam:(\d+)$/.exec(String(gameId || ""))
   return m ? m[1] : null

@@ -158,7 +158,7 @@
   "editmetadata.titulo": "Title",
   "editmetadata.usar_do_disco": "Use an image from your computer",
   "editmetadata.volta_original": "Reverts to original on save",
-  "editmetadata.voltar_arte_original": "Revert to indexer artwork",
+  "editmetadata.voltar_arte_original": "Revert to catalog artwork",
   "editprofile.avatar_desc": "Your profile picture. Animated GIFs work.",
   "editprofile.avatar_formatos": "Formats: PNG, JPG, GIF, WebP",
   "editprofile.avatar_recomendacao": "Recommended: 256×256px or larger",

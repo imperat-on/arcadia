@@ -539,7 +539,7 @@ function finish(it, status, error = "") {
   }
   update(it.appid, patch)
   emit(true)
-  // Download concluído: avisa o main (reindex + refresh da biblioteca) e
+  // Download concluído: avisa o main para atualizar a biblioteca e
   // tira o item da fila logo depois — a tela fica só com o que interessa.
   if (status === "done") {
     if (doneFn) {
