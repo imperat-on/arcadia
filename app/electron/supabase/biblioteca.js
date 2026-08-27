@@ -85,7 +85,10 @@ function retroMetadataFrom(value) {
   const artwork = value.artwork && typeof value.artwork === "object" ? value.artwork : {}
   const cover = value.cover || value.capa || value.fallbackCover || artwork.cover || ""
   const hero = value.hero || value.heroi || artwork.hero || artwork.background || cover || ""
-  const icon = value.icon || value.logo || artwork.icon || cover || ""
+  // Retrôs usam a capa como arte portátil principal. Um ícone legado diferente
+  // não pode fazer a sidebar variar entre máquinas; só cai para ele quando não
+  // existe capa disponível.
+  const icon = cover || value.icon || value.logo || artwork.icon || ""
   const genres = Array.isArray(value.genres)
     ? value.genres.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 32)
     : undefined

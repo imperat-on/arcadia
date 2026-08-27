@@ -419,8 +419,10 @@ export function Sidebar({
 }
 
 function GameIcon({ game }: { game: Game }) {
-  // Prefere ícone quadrado (Steam); cai na capa como miniatura; depois letra.
-  const fontes = [game.icon, game.cover].filter(Boolean) as string[]
+  // Retrôs não possuem ícone separado confiável entre máquinas: a capa
+  // sincronizada é a fonte canônica. Steam continua preferindo o ícone quadrado.
+  const retro = game.retro === true || game.launcher === "retro" || String(game.id).startsWith("retro:")
+  const fontes = (retro ? [game.cover, game.icon] : [game.icon, game.cover]).filter(Boolean) as string[]
   const [fase, setFase] = useState(0)
   const src = fontes[fase]
   if (src) {
