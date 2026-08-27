@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import type { AppConfig, IntegrationsStatus } from "../../global"
+import type { AppConfig } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
 
@@ -190,18 +190,10 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 
 export function IntegrationsSection({
   cfg,
-  status,
-  onSaveKey,
-  onToggle,
 }: {
   cfg: AppConfig
-  status: IntegrationsStatus | null
-  onSaveKey: (key: string, id: string) => void
-  onToggle: (name: "steam" | "heroic" | "lutris", val: boolean) => void
 }) {
   const { t } = useI18n()
-  const [apiKey, setApiKey] = useState(cfg.steam_api_key ?? "")
-  const [steamId, setSteamId] = useState(cfg.steam_id64 ?? "")
   // Um estado por debrid (todos seguem o mesmo padrão: input + salvar).
   const [debridTokens, setDebridTokens] = useState({
     realdebrid: cfg.realdebrid_token ?? "",
@@ -213,16 +205,6 @@ export function IntegrationsSection({
   // Expande só o card clicado (com token salvo, também abre por padrão para
   // o usuário conferir/editar). Início: todos fechados — visual limpo.
   const [debridAberto, setDebridAberto] = useState<Record<string, boolean>>({})
-  const [saved, setSaved] = useState(false)
-  const [legendary, setLegendary] = useState<{
-    installed: boolean
-    logged: boolean
-    user?: string
-  } | null>(null)
-  const [legendaryBusy, setLegendaryBusy] = useState(false)
-  const [legendaryErr, setLegendaryErr] = useState("")
-  const src = cfg.sources ?? {}
-  const on = (k: "steam" | "heroic" | "lutris") => src[k] !== false
 
   // Tokens chegam de forma assíncrona (getConfig resolve DEPOIS do mount):
   // sem isto o estado inicial ficava "" e um Salvar rápido sobrescrevia o
@@ -236,55 +218,12 @@ export function IntegrationsSection({
     })
   }, [cfg.realdebrid_token, cfg.torbox_token, cfg.alldebrid_token, cfg.premiumize_token])
 
-  useEffect(() => {
-    setApiKey(cfg.steam_api_key ?? "")
-    setSteamId(cfg.steam_id64 ?? "")
-    window.launcherAPI?.legendaryStatus().then(setLegendary)
-  }, [cfg.steam_api_key, cfg.steam_id64])
-
   return (
     <div className="max-w-3xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">
         {t("settings.integracoes")}
       </h2>
       <p className="text-sm text-[#8a93a6] mb-8">{t("settings.integracoes.desc")}</p>
-
-      {/* Steam */}
-      <IntegrationCard
-        title={t("settings.steam")}
-        connected={status?.steam ?? Boolean(cfg.steam_api_key)}
-        enabled={on("steam")}
-        onToggle={(v) => onToggle("steam", v)}
-      >
-        <p className="text-xs text-[#8a93a6] mb-3">{t("settings.steam.desc")}</p>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={t("settings.steam.api_key_placeholder")}
-          spellCheck={false}
-          className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-2"
-          style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
-        />
-        <input
-          value={steamId}
-          onChange={(e) => setSteamId(e.target.value)}
-          placeholder={t("settings.steam.steamid_placeholder")}
-          spellCheck={false}
-          className="w-full px-4 py-2.5 rounded-xl text-white text-sm outline-none transition-colors focus:border-[color:var(--accent)] mb-3"
-          style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.12)" }}
-        />
-        <button
-          onClick={() => {
-            onSaveKey(apiKey.trim(), steamId.trim())
-            setSaved(true)
-            setTimeout(() => setSaved(false), 1500)
-          }}
-          className="px-5 py-2 rounded-xl bg-white text-sm font-semibold text-black transition-transform hover:scale-[1.03]"
-        >
-          {saved ? t("common.salvo") : t("settings.salvar_sincronizar")}
-        </button>
-      </IntegrationCard>
 
       {/* Debrid services: agrupa os 4 num bloco só, cada um começa colapsado
           (apenas nome + status). Clicar no cabeçalho expande o campo do
@@ -321,80 +260,6 @@ export function IntegrationsSection({
         </div>
       </div>
 
-      {/* Epic (via Legendary) */}
-      <IntegrationCard
-        title={t("settings.epic")}
-        connected={Boolean(legendary?.logged)}
-        enabled={on("heroic")}
-        onToggle={(v) => onToggle("heroic", v)}
-      >
-        <p className="mb-3 text-xs text-[#8a93a6]">
-          {t("settings.epic.desc")}
-          {legendary?.logged && legendary.user ? (
-            <> {t("settings.epic.logado", { user: legendary.user || "" })}</>
-          ) : null}
-        </p>
-        <button
-          onClick={async () => {
-            setLegendaryBusy(true)
-            setLegendaryErr("")
-            const r = await window.launcherAPI?.legendarySetup()
-            setLegendaryBusy(false)
-            if (r?.ok) {
-              window.launcherAPI?.legendaryStatus().then(setLegendary)
-            } else {
-              setLegendaryErr(r?.error || t("settings.epic.falha"))
-            }
-          }}
-          disabled={legendaryBusy}
-          className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03] disabled:opacity-60"
-        >
-          {legendaryBusy
-            ? t("common.preparando")
-            : legendary?.installed
-              ? legendary.logged
-                ? t("settings.epic.refazer_login")
-                : t("settings.epic.fazer_login")
-              : t("settings.epic.baixar_login")}
-        </button>
-        {legendaryErr && <p className="mt-2 text-xs text-[#ff6b81]">{legendaryErr}</p>}
-        <p className="mt-2 text-[11px] text-[#6b7280]">{t("settings.epic.nota")}</p>
-      </IntegrationCard>
-    </div>
-  )
-}
-
-function IntegrationCard({
-  title,
-  connected,
-  enabled,
-  onToggle,
-  children,
-}: {
-  title: string
-  connected: boolean
-  enabled: boolean
-  onToggle: (v: boolean) => void
-  children: React.ReactNode
-}) {
-  const { t } = useI18n()
-  return (
-    <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <div className="flex items-center gap-3">
-          {/* Status como texto: a bolinha da marca e o fundo do badge não
-              carregavam informação nenhuma que a palavra já não desse. */}
-          <span
-            className="text-xs font-medium"
-            style={{ color: connected ? "#4adf9a" : "#8a93a6" }}
-          >
-            {connected ? t("common.conectado") : t("common.nao_conectado")}
-          </span>
-          <Toggle on={enabled} onChange={onToggle} />
-        </div>
-      </div>
-      <div style={{ opacity: enabled ? 1 : 0.45 }}>{children}</div>
     </div>
   )
 }
