@@ -218,7 +218,7 @@ function Item({ icon, label, onClick }: { icon: ReactNode; label: string; onClic
       type="button"
       role="menuitem"
       className="w-full flex items-center gap-4 px-5 py-3 text-left text-white text-[17px] transition-colors"
-      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(182,255,57,0.10)")}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,168,255,0.14)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <svg
