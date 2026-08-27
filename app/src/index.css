@@ -1718,10 +1718,12 @@ select:disabled {
   border-radius: 2px;
 }
 
+.retro-context-menu [role="menuitem"]:focus,
 .retro-context-menu [role="menuitem"]:focus-visible {
   background: rgba(182,255,57,.10) !important;
   border-color: var(--retro-phosphor) !important;
   box-shadow: inset 0 0 18px rgba(182,255,57,.08);
+  outline: none !important;
 }
 
 .retro-news-view {
