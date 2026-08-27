@@ -706,6 +706,16 @@ export function PS5Launcher() {
         openOverview()
         return
       }
+      if (e.key === "Escape") {
+        // Esc abre o mesmo popup de ações do Start quando estamos na
+        // biblioteca; overlays existentes continuam controlando seu próprio
+        // fechamento.
+        if (!modalOpenRef.current && selectedGameRef.current) {
+          e.preventDefault()
+          setCtxGame(selectedGameRef.current)
+        }
+        return
+      }
       if (uiBlockedRef.current) return // painel de config aberto
       // Buttons and links already implement Enter/Space themselves. Ignoring
       // those targets avoids launching the selected game a second time when a
@@ -955,7 +965,7 @@ export function PS5Launcher() {
         selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
       )}
       onLaunch={_launch_selected}
-      onMore={() => selectedGame && openOverview()}
+      onMore={() => selectedGame && setCtxGame(selectedGame)}
       onToggleFavorite={() => selectedGame && _toggle_favorite(selectedGame)}
     />
   )
