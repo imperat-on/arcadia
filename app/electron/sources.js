@@ -49,7 +49,12 @@ function writeRegistry(list) {
 function validar(data) {
   const downloads = Array.isArray(data) ? data : data?.downloads
   if (!Array.isArray(downloads) || !downloads.length) return null
-  const ok = downloads.filter((d) => d && d.title && (d.uris || d.uri))
+  const temUri = (d) => {
+    if (Array.isArray(d?.uris)) return d.uris.some((uri) => String(uri || "").trim())
+    if (typeof d?.uris === "string" && d.uris.trim()) return true
+    return typeof d?.uri === "string" && d.uri.trim().length > 0
+  }
+  const ok = downloads.filter((d) => d && d.title && temUri(d))
   return ok.length ? ok : null
 }
 
