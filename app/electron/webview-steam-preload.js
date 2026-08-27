@@ -99,7 +99,7 @@ function appidAtual() {
 function tituloAtual() {
   const el = document.querySelector(".apphub_AppName")
   const t = (el && el.textContent) || document.title || ""
-  return t.replace(/\s+on Steam\s*$/i, "").trim()
+  return t.replace(/\s+(?:on|na)\s+Steam(?:\s*[-|:].*)?$/i, "").trim()
 }
 
 function acao(tipo) {

@@ -158,10 +158,15 @@ export function StoreGamePage({
     setTemTorrent(false)
     ;(async () => {
       try {
-        const r = await window.launcherAPI?.sourcesSearch?.(jogo.title, 50)
+        const normalizar = (s: string) =>
+          String(s || "")
+            .replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "")
+        const tituloBusca = String(jogo.title || "").replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "").trim()
+        const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
         const resultados = Array.isArray(r?.results) ? r.results : []
-        const normalizar = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
-        const alvo = normalizar(jogo.title)
+        const alvo = normalizar(tituloBusca)
         for (const candidato of resultados) {
           const titulo = normalizar(String(candidato.title || ""))
           if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue

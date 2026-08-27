@@ -17,21 +17,26 @@ const STEAM_LANG: Record<string, string> = {
 
 async function fonteTemDownload(title: string): Promise<boolean> {
   try {
-      const r = await window.launcherAPI?.sourcesSearch?.(title, 50)
-      const alvo = String(title || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-      for (const candidato of Array.isArray(r?.results) ? r.results : []) {
-        const titulo = String(candidato.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-        if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
-        const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
-        const rawUris = full?.game?.uris
-        const uris = Array.isArray(rawUris)
-          ? rawUris
-          : typeof rawUris === "string"
-            ? [rawUris]
-            : full?.game?.uri
-              ? [full.game.uri]
-              : []
-        if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri).trim()))) return true
+    const limparTitulo = (s: string) =>
+      String(s || "")
+        .replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "")
+        .trim()
+    const tituloBusca = limparTitulo(title)
+    const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
+    const alvo = tituloBusca.toLowerCase().replace(/[^a-z0-9]/g, "")
+    for (const candidato of Array.isArray(r?.results) ? r.results : []) {
+      const titulo = limparTitulo(String(candidato.title || "")).toLowerCase().replace(/[^a-z0-9]/g, "")
+      if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
+      const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
+      const rawUris = full?.game?.uris
+      const uris = Array.isArray(rawUris)
+        ? rawUris
+        : typeof rawUris === "string"
+          ? [rawUris]
+          : full?.game?.uri
+            ? [full.game.uri]
+            : []
+      if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri).trim()))) return true
       }
   } catch {}
   return false
