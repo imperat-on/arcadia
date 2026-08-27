@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useRef, useState } from "react"
 import type { Game } from "./types"
 import { ConsoleDestinoDialog } from "./ConsoleDestinoDialog"
 import { StoreKeyboard, type SugestaoLoja } from "./StoreKeyboard"
+import { MetodoDownloadDialog } from "../desktop/MetodoDownloadDialog"
 import { useStoreActions } from "../useStoreActions"
 import { useI18n } from "../../i18n/I18nContext"
 
@@ -12,6 +13,21 @@ const STEAM_LANG: Record<string, string> = {
   "pt-BR": "brazilian",
   "en-US": "english",
   "es-ES": "spanish",
+}
+
+async function fonteTemDownload(title: string): Promise<boolean> {
+  try {
+    const r = await window.launcherAPI?.sourcesSearch?.(title, 50)
+    const alvo = String(title || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+    for (const candidato of Array.isArray(r?.results) ? r.results : []) {
+      const titulo = String(candidato.title || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+      if (!titulo || !(titulo.includes(alvo) || (titulo.length >= 8 && alvo.includes(titulo)))) continue
+      const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
+      const uris = full?.game?.uris || (full?.game?.uri ? [full.game.uri] : [])
+      if (uris.some((uri) => /^(magnet:|https?:\/\/)/i.test(String(uri)))) return true
+    }
+  } catch {}
+  return false
 }
 
 interface StoreConsoleProps {
@@ -106,8 +122,8 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // um deles estiver aberto, o laço de gamepad da loja pausa (o overlay tem o
   // próprio) e o B da loja não sai da aba.
   useEffect(() => {
-    onOverlay?.(Boolean(acoes.escolhendo) || tecladoAberto)
-  }, [acoes.escolhendo, tecladoAberto, onOverlay])
+    onOverlay?.(Boolean(acoes.escolhendo) || Boolean(acoes.metodo) || tecladoAberto)
+  }, [acoes.escolhendo, acoes.metodo, tecladoAberto, onOverlay])
 
   // Registra os atalhos de gamepad: aqui só o B (voltar no histórico) faz
   // sentido — a página é navegada por mouse, não pelo direcional.
@@ -194,16 +210,15 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (e?.channel === "arcadia:pagina") {
         paginaAppidRef.current = String(arg.appid || "")
         enviarEstado(paginaAppidRef.current)
-        // Decide se a barra fica visível: depot (SLSsteam) OU torrent de fonte
-        // JSON conectada. Sem nenhum dos dois, escondemos.
+        // Decide se a ação de download fica visível: Depot (SLSsteam) OU uma
+        // URI real de uma fonte JSON. A ação de adicionar permanece sempre.
         ;(async () => {
           try {
-            const [s, r] = await Promise.all([
+            const [s, torrent] = await Promise.all([
               window.launcherAPI?.storeStatus(),
-              window.launcherAPI?.sourcesSearch?.(String(arg.title || ""), 1),
+              fonteTemDownload(String(arg.title || "")),
             ])
             const depot = Boolean(s?.slssteam)
-            const torrent = Boolean(r?.ok && Array.isArray(r.results) && r.results.length > 0)
             el.send(depot || torrent ? "arcadia:enable" : "arcadia:disable", {})
           } catch {
             el.send("arcadia:disable", {})
@@ -324,7 +339,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     let rest: number[] | null = null
     let vel = 0
     const loop = () => {
-      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo)
+      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
       if (pausado || !document.hasFocus()) {
         vel = 0
         raf = requestAnimationFrame(loop)
@@ -369,7 +384,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
     const loop = (agora: number) => {
       const w = webRef.current
-      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo)
+      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
       // Mesmo em pausa, sincronizamos prevA com o estado real do botão. Sem
       // isso, se o usuário aperta A pra escolher uma sugestão (o que fecha o
       // teclado), no frame seguinte o A ainda pode estar pressionado e o loop
@@ -482,6 +497,25 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
             acoes.confirmarBaixar(acoes.escolhendo.jogo, acoes.escolhendo.info, steamDir)
           }
           onFechar={() => acoes.setEscolhendo(null)}
+        />
+      )}
+
+      {acoes.metodo && (
+        <MetodoDownloadDialog
+          jogo={acoes.metodo.jogo}
+          opcoes={acoes.metodo.opcoes}
+          onDepot={() => {
+            const jogo = acoes.metodo?.jogo
+            if (!jogo) return
+            acoes.setMetodo(null)
+            void acoes.baixarDepot(jogo)
+          }}
+          onTorrent={(magnet, pasta) => {
+            const jogo = acoes.metodo?.jogo
+            if (jogo) void acoes.confirmarTorrent(jogo, magnet, pasta)
+          }}
+          onClose={() => acoes.setMetodo(null)}
+          depotDisponivel={acoes.slsAtivo}
         />
       )}
 
