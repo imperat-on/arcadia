@@ -86,3 +86,28 @@ test("pull nao duplica jogo custom (nao-steam) existente", async () => {
   const custom = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf-8"))
   assert.equal(custom.length, 1, "nao duplica custom existente")
 })
+
+test("pull preserva metadata e identifica retrô vindo da conta", async () => {
+  preparar([
+    {
+      appid: "retro:nes:sha1:abc123",
+      title: "Super Mario Bros.",
+      platform: "emulator",
+      retro: true,
+      systemId: "nes",
+      cover: "https://cdn.example.test/mario-cover.jpg",
+      hero: "https://cdn.example.test/mario-hero.jpg",
+    },
+  ])
+
+  await biblioteca.pull()
+
+  const custom = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf-8"))
+  assert.equal(custom.length, 1)
+  assert.equal(custom[0].launcher, "retro")
+  assert.equal(custom[0].retro, true)
+  assert.equal(custom[0].systemId, "nes")
+  assert.equal(custom[0].platform, "nes")
+  assert.equal(custom[0].cover, "https://cdn.example.test/mario-cover.jpg")
+  assert.equal(custom[0].hero, "https://cdn.example.test/mario-hero.jpg")
+})
