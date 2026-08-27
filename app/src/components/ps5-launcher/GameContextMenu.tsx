@@ -58,6 +58,41 @@ export function GameContextMenu({
     }
   }, [open, onClose])
 
+  // Mantém o popup utilizável sem mouse: o primeiro item recebe foco ao
+  // abrir, as setas percorrem as ações e Enter/Espaço confirma a ação focada.
+  // Quando Ferramentas troca o conteúdo, o foco volta para o primeiro item.
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => {
+      const first = ref.current?.querySelector<HTMLElement>('[role="menuitem"]')
+      if (first && !ref.current?.contains(document.activeElement)) first.focus()
+    })
+    const onKey = (event: KeyboardEvent) => {
+      const root = ref.current
+      if (!root) return
+      const items = Array.from(root.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      if (!items.length) return
+      const active = document.activeElement as HTMLElement | null
+      const index = Math.max(0, items.indexOf(active as HTMLElement))
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault()
+        const delta = event.key === "ArrowDown" ? 1 : -1
+        items[(index + delta + items.length) % items.length].focus()
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault()
+        items[event.key === "Home" ? 0 : items.length - 1].focus()
+      } else if ((event.key === "Enter" || event.key === " ") && root.contains(active)) {
+        event.preventDefault()
+        active?.click()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [open, ferramentas])
+
   if (!game) return null
 
   const run = (fn: () => void) => () => {
@@ -180,7 +215,7 @@ function Item({ icon, label, onClick }: { icon: ReactNode; label: string; onClic
       onClick={onClick}
       role="menuitem"
       className="w-full flex items-center gap-4 px-5 py-3 text-left text-white text-[17px] transition-colors"
-      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.10)")}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(182,255,57,0.10)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <svg
