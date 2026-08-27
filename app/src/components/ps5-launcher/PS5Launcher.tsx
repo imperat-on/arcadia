@@ -150,10 +150,10 @@ export function PS5Launcher() {
   const overviewReopenRef = useRef(false)
   const overviewRef = useRef<HTMLDivElement>(null)
   const overviewCloseTimer = useRef<number | null>(null)
-  const openOverview = useCallback(() => {
+  const openOverview = useCallback((force = false) => {
     // O hub só existe na aba Jogos. A Loja e Notícias têm suas próprias telas
     // e nunca devem receber o Game Overview por cima ao pressionar ↓.
-    if (activeTab !== 1) return
+    if (!force && activeTab !== 1) return
     // Um novo "descer" durante o retorno não pode se perder: guarda a intenção
     // e abre assim que a animação inversa terminar.
     if (overviewClosing) {
@@ -647,6 +647,23 @@ export function PS5Launcher() {
     [abrirJogo, launchCommand],
   )
 
+  // Ao escolher um jogo no perfil, volta para a aba Jogos e abre o mesmo
+  // overview usado pela biblioteca. O perfil não deve iniciar o jogo
+  // imediatamente nem deixar o modal aberto por cima do overview.
+  const _open_profile_game = useCallback(
+    (game: Game) => {
+      const index = games.findIndex((item) => item.id === game.id)
+      if (index < 0) return
+      setActiveTab(1)
+      setLibraryFilter("all")
+      setLibrarySearch("")
+      setSelectedIndex(index)
+      setShowProfile(false)
+      window.requestAnimationFrame(() => openOverview(true))
+    },
+    [games, openOverview],
+  )
+
   const _launch_selected = useCallback(() => {
     _activate(viewGames[selectedIndex])
   }, [viewGames, selectedIndex, _activate])
@@ -1068,7 +1085,7 @@ export function PS5Launcher() {
             games={games}
             onClose={() => setShowProfile(false)}
             onEdit={() => setShowEditProfile(true)}
-            onJogoClick={_activate}
+            onJogoClick={_open_profile_game}
           />
         </div>
       )}

@@ -310,7 +310,13 @@ export function DesktopLauncher() {
                 onJogoClick={(g) => {
                   // Mesma tela de quando clica no jogo na Biblioteca.
                   setView("biblioteca")
-                  setJogoPagina(g)
+                  if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
+                    setRetroPaginaJogo(g)
+                    setJogoPagina(null)
+                  } else {
+                    setJogoPagina(g)
+                    setRetroPaginaJogo(null)
+                  }
                 }}
               />
             )}
