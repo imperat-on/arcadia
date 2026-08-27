@@ -432,6 +432,7 @@ export function StoreView({
           onJogar={game && game.installed !== false && onLaunchGame ? () => onLaunchGame(game) : undefined}
           naBiblioteca={naBiblioteca}
           ocupado={acaoBusy !== ""}
+          slssteamAtivo={slsAtivo}
           bigPicture={bigPicture}
         />
         {metodo && (

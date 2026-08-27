@@ -85,6 +85,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
             }}
             naBiblioteca={bloqueados.has(pagina.appid)}
             ocupado={acaoBusy !== ""}
+            slssteamAtivo={slsAtivo}
           />
         </div>
       ) : (
