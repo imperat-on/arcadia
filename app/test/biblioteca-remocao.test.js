@@ -91,6 +91,72 @@ test("pull nao remove jogo custom local que nao esta no servidor", async () => {
   assert.deepEqual(ownedAtual(), ["epic:x"], "custom local preservado")
 })
 
+test("pull remove retro sincronizado do snapshot local quando some do servidor", async () => {
+  conta.definirConta("u-retro")
+  fs.writeFileSync(
+    conta.caminhoArquivoConta("custom_games.json"),
+    JSON.stringify([
+      {
+        id: "retro:ps2:crimson-desert",
+        title: "Crimson Desert",
+        launcher: "retro",
+        retro: true,
+        platform: "ps2",
+        cover: "https://example.test/crimson.jpg",
+      },
+    ]),
+  )
+  fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify(["retro:ps2:crimson-desert"]))
+  fs.writeFileSync(conta.caminhoArquivoConta("pending_games.json"), JSON.stringify([]))
+  fs.writeFileSync(
+    conta.caminhoArquivoConta("sync_state.json"),
+    JSON.stringify({
+      libPush: {
+        "retro:ps2:crimson-desert": { title: "Crimson Desert", platform: "emulator" },
+      },
+      playtimePush: {},
+    }),
+  )
+
+  const client = getClient()
+  client.auth.getUser = async () => ({ data: { user: { id: "u-retro" } }, error: null })
+  client.rpc = async (fn) => {
+    if (fn === "pull_library") return { data: [], error: null }
+    return { data: null, error: { message: `rpc nao mockada: ${fn}` } }
+  }
+
+  const mudou = await biblioteca.pull()
+
+  assert.equal(mudou, true, "pull deve sinalizar a remoção do retrô")
+  assert.deepEqual(JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf8")), [], "retrô removido sai do snapshot local")
+  assert.deepEqual(ownedAtual(), [], "retrô removido sai da posse local")
+  const estadoFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("sync_state.json"), "utf8"))
+  assert.equal(estadoFinal.libPush["retro:ps2:crimson-desert"], undefined, "watermark antigo é limpo para permitir uma futura adição")
+})
+
+test("pull preserva retro local ainda nao sincronizado", async () => {
+  conta.definirConta("u-retro-local")
+  fs.writeFileSync(
+    conta.caminhoArquivoConta("custom_games.json"),
+    JSON.stringify([{ id: "retro:snes:local", title: "Jogo local", launcher: "retro", retro: true }]),
+  )
+  fs.writeFileSync(conta.caminhoArquivoConta("owned_games.json"), JSON.stringify(["retro:snes:local"]))
+  fs.writeFileSync(conta.caminhoArquivoConta("pending_games.json"), JSON.stringify([]))
+  fs.writeFileSync(conta.caminhoArquivoConta("sync_state.json"), JSON.stringify({ libPush: {}, playtimePush: {} }))
+
+  const client = getClient()
+  client.auth.getUser = async () => ({ data: { user: { id: "u-retro-local" } }, error: null })
+  client.rpc = async (fn) => {
+    if (fn === "pull_library") return { data: [], error: null }
+    return { data: null, error: { message: `rpc nao mockada: ${fn}` } }
+  }
+
+  await biblioteca.pull()
+
+  assert.deepEqual(JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf8")).map((game) => game.id), ["retro:snes:local"], "retrô aguardando push permanece local")
+  assert.deepEqual(ownedAtual(), ["retro:snes:local"])
+})
+
 test("pull remove jogo com stub pending quando some do servidor (nunca instalado)", async () => {
   // Jogo "steam:2622380" foi adicionado em OUTRA maquina e chegou aqui via
   // pull anterior: ganhou owned + stub em pending_games.json (nunca foi

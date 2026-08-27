@@ -257,6 +257,7 @@ async function pull() {
 
   let mudou = false
   const st = loadState()
+  const enviados = st.libPush || {}
   const wp = st.playtimePush || {}
 
   // Posse: owned_games.json ausente (null) significa "possui tudo" (ainda
@@ -275,6 +276,24 @@ async function pull() {
   const pendentesIds = new Set(pendentes.map((p) => p && p.id))
   let pendentesMudou = false
   const idsDoServidor = new Set(data.map((row) => row && row.appid))
+
+  // Retrôs que já foram sincronizados precisam sair também do snapshot local
+  // quando forem removidos em outra máquina. Jogos retrô ainda não enviados
+  // permanecem locais para não perder uma adição que está aguardando o push.
+  const retroRemovidos = lib.filter((game) => isRetroGame(game) && enviados[game.id] && !idsDoServidor.has(game.id))
+  if (retroRemovidos.length) {
+    const removerIds = new Set(retroRemovidos.map((game) => game.id))
+    const restantes = lib.filter((game) => !removerIds.has(game.id))
+    lib.length = 0
+    lib.push(...restantes)
+    mudou = true
+    for (const id of removerIds) {
+      if (owned !== null && owned.delete(id)) ownedMudou = true
+      // O jogo já foi removido no servidor. Limpar o watermark permite que
+      // uma futura adição local do mesmo retrô seja enviada novamente.
+      delete enviados[id]
+    }
+  }
 
   // Retrôs antigos foram sincronizados apenas com id/título. Busca a ficha
   // canônica para que o notebook recupere capa/hero mesmo quando o servidor
@@ -421,7 +440,8 @@ async function pull() {
   // maquina nunca podia ser removido por sync.
   if (owned !== null) {
     for (const id of [...owned]) {
-      if (!idsDoServidor.has(id) && !ids.has(id)) {
+      const customRetroSincronizado = isRetroGame(id) && enviados[id]
+      if (!idsDoServidor.has(id) && (!ids.has(id) || customRetroSincronizado)) {
         owned.delete(id)
         ownedMudou = true
       }
@@ -463,7 +483,6 @@ async function pull() {
   // neste dispositivo nao sobe removed:true (o push so itera watermarks) e o
   // jogo volta no proximo pull. Criar o watermark no pull faz a remocao
   // local propagar para o servidor e para as outras maquinas.
-  const enviados = st.libPush || {}
   let libPushMudou = false
   for (const row of data) {
     const id = row && row.appid
