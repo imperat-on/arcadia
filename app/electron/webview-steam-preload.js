@@ -156,21 +156,33 @@ function montarBotoes(wrap) {
 // barra fixa no topo direito como fallback. Remove fora de página de jogo.
 function sync() {
   const existente = document.getElementById(BAR_ID)
-  const emJogo = Boolean(appidAtual())
+  const appid = appidAtual()
+  const emJogo = Boolean(appid)
   if (!emJogo) {
     if (existente) existente.remove()
     return
   }
   // Já colocado E ainda no DOM (a Steam não recriou o cabeçalho): nada a fazer.
-  if (existente && document.contains(existente)) return
+  if (existente && document.contains(existente)) {
+    // A loja navega entre jogos sem necessariamente recriar o DOM da barra.
+    // Nesse caso, reenvia a página somente quando appid/título mudarem para
+    // que o host reavalie SLSsteam e as fontes, sem spammar IPC a cada mutação.
+    const assinatura = `${appid}|${tituloAtual()}`
+    if (existente.dataset.arcadiaPagina !== assinatura) {
+      existente.dataset.arcadiaPagina = assinatura
+      ipcRenderer.sendToHost("arcadia:pagina", { appid, title: tituloAtual() })
+    }
+    return
+  }
   if (existente) existente.remove()
   if (!document.body) return
 
   const wrap = document.createElement("span")
   wrap.id = BAR_ID
+  wrap.dataset.arcadiaPagina = `${appid}|${tituloAtual()}`
   montarBotoes(wrap)
   // Avisa o host qual jogo está aberto, para ele devolver o estado (adicionado?).
-  ipcRenderer.sendToHost("arcadia:pagina", { appid: appidAtual(), title: tituloAtual() })
+  ipcRenderer.sendToHost("arcadia:pagina", { appid, title: tituloAtual() })
 
   const host = document.querySelector(".apphub_OtherSiteInfo")
   if (host) {

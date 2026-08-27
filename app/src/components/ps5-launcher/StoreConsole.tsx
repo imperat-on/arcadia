@@ -217,6 +217,11 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
       if (e?.channel === "arcadia:pagina") {
         paginaAppidRef.current = String(arg.appid || "")
         enviarEstado(paginaAppidRef.current)
+        // Enquanto a fonte/SLSsteam é reavaliada, nunca mantenha o botão de
+        // download do jogo anterior durante uma navegação interna da Steam.
+        try {
+          el.send("arcadia:disable", {})
+        } catch {}
         // Decide se a ação de download fica visível: Depot (SLSsteam) OU uma
         // URI real de uma fonte JSON. A ação de adicionar permanece sempre.
         ;(async () => {
