@@ -22,7 +22,6 @@ import { useStoreActions } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { useLibraryState } from "../useLibraryState"
 import { fmtMiB } from "../tamanho"
-import { SettingsPanel } from "./SettingsPanel"
 import { ProfilePage } from "./ProfilePage"
 import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
@@ -105,7 +104,6 @@ export function PS5Launcher() {
   )
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [toast, setToast] = useState<LaunchToast>({ title: "", visible: false })
-  const [showSettings, setShowSettings] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
@@ -297,7 +295,6 @@ export function PS5Launcher() {
     boot ||
     perfilGate ||
     showDownloads ||
-    showSettings ||
     showEditProfile ||
     menuOpen ||
     showProfile ||
@@ -403,7 +400,6 @@ export function PS5Launcher() {
     const api = window.launcherAPI
     if (!g || !api || !trailerAutoRef.current) return
     if (
-      showSettings ||
       showEditProfile ||
       menuOpen ||
       showProfile ||
@@ -434,7 +430,6 @@ export function PS5Launcher() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selId,
-    showSettings,
     showEditProfile,
     menuOpen,
     showProfile,
@@ -541,7 +536,6 @@ export function PS5Launcher() {
     overviewOpen &&
     !overviewClosing &&
     appFocused &&
-    !showSettings &&
     !showEditProfile &&
     !menuOpen &&
     !showProfile &&
@@ -922,7 +916,6 @@ export function PS5Launcher() {
       activeTab={activeTab}
       onTab={setActiveTab}
       onRefresh={_refresh_library}
-      onOpenSettings={() => setShowSettings(true)}
       onOpenProfile={() => setShowProfile(true)}
       menuOpen={menuOpen}
       onToggleMenu={() => setMenuOpen((v) => !v)}
@@ -1035,14 +1028,6 @@ export function PS5Launcher() {
       />
 
       {/* Top bar transparente, flutuando sobre o fundo */}
-      {/* Painel de configurações (chave da Steam API etc.) */}
-      <SettingsPanel
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        onSaved={_refresh_library}
-        onUiChange={applyUiPrefs}
-      />
-
       {/* Editar perfil (Geral / Avatar / Plano de fundo) */}
       <EditProfile
         open={showEditProfile}

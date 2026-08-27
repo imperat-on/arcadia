@@ -8,7 +8,6 @@ import { useI18n } from "../../i18n/I18nContext"
 interface UserMenuProps {
   open: boolean
   onClose: () => void
-  onOpenSettings: () => void
   onOpenProfile: () => void
   onRefresh: () => void
   showHidden: boolean
@@ -19,7 +18,6 @@ interface UserMenuProps {
 export function UserMenu({
   open,
   onClose,
-  onOpenSettings,
   onOpenProfile,
   onRefresh,
   showHidden,
@@ -100,7 +98,6 @@ export function UserMenu({
       {item(t("profile.mostrar_ocultos"), onToggleShowHidden, {
         hint: showHidden ? t("common.ligado") : t("common.desligado"),
       })}
-      {item(t("settings.title"), onOpenSettings)}
       {divider}
       {item(t("profile.sair"), () => window.launcherAPI?.quit(), { danger: true })}
     </div>
