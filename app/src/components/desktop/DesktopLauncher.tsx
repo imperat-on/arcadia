@@ -33,6 +33,7 @@ import { useDownloadBadges } from "../useDownloadBadges"
 import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 import { useMode } from "../ModeContext"
 import { useGameActions } from "../useGameActions"
+import { useJogoRodando } from "../useJogoRodando"
 
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
@@ -105,11 +106,47 @@ export function DesktopLauncher() {
   const [contaDispensada, setContaDispensada] = useState(false)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
+  const jogoAtivo = useJogoRodando()
+  const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
+  const [appFocused, setAppFocused] = useState(() => document.hasFocus())
+  const appFocusedRef = useRef(appFocused)
+  const gameRunningRef = useRef(gameRunning)
+  appFocusedRef.current = appFocused
+  gameRunningRef.current = gameRunning
   const gameActions = useGameActions({
     setGames,
     onChooseLaunch: setEscolhendoLaunch,
     onLaunchWarning: (_game, warnings) => console.warn("arcadia:", warnings.join("; ")),
+    canLaunch: () => appFocusedRef.current && !gameRunningRef.current,
   })
+  useEffect(() => {
+    const aoFoco = (focused: boolean) => {
+      appFocusedRef.current = focused
+      setAppFocused(focused)
+    }
+    const off = window.launcherAPI?.onAppFocus?.(aoFoco)
+    const atual = window.launcherAPI?.getAppFocus?.()
+    if (atual) void atual.then(aoFoco).catch(() => {})
+    return () => off?.()
+  }, [])
+  const launchDesktopGame = useCallback(
+    (game: Game, mode?: "steam" | "exe") => {
+      if (!appFocusedRef.current || gameRunning) {
+        return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
+      }
+      return gameActions.launch(game, mode)
+    },
+    [gameActions, gameRunning],
+  )
+  const launchDesktopCommand = useCallback(
+    (command: string[], gameId?: string, mode?: "steam" | "exe") => {
+      if (!appFocusedRef.current || gameRunning) {
+        return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
+      }
+      return gameActions.launchCommand(command, gameId, mode)
+    },
+    [gameActions, gameRunning],
+  )
   const atualizacao = useAtualizacao()
   const retroPaginaSeed = useMemo(
     () => (retroPaginaJogo ? retroGameFromLibrary(retroPaginaJogo) : undefined),
@@ -127,12 +164,12 @@ export function DesktopLauncher() {
   const instalar = useCallback((g: Game) => {
     if (g.launcher === "steam") {
       const appid = String(g.id).replace(/^steam:/, "")
-      void gameActions.launchCommand(["steam", `steam://install/${appid}`])
+      void launchDesktopCommand(["steam", `steam://install/${appid}`])
       return
     }
     // Epic/custom: a página do jogo cobre instalação; abrir a página basta.
     setJogoPagina(g)
-  }, [gameActions.launchCommand])
+  }, [launchDesktopCommand])
 
   // Página aberta segura snapshot; após recarregar a lista, sincroniza pelo id
   // para o botão Jogar refletir installed atualizado (ex.: exePath salvo).
@@ -171,7 +208,21 @@ export function DesktopLauncher() {
         onLogado={() => setAposLogout(false)}
       />
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
-      <div className="arcadia-desktop-retro app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased">
+      <div
+        className="arcadia-desktop-retro app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased"
+        onClickCapture={(event) => {
+          if (!appFocusedRef.current && gameRunningRef.current) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
+        onKeyDownCapture={(event) => {
+          if (!appFocusedRef.current && gameRunningRef.current) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
+      >
       <WindowControls />
       <Sidebar
         view={view}
@@ -242,7 +293,7 @@ export function DesktopLauncher() {
                   jogoPagina.installed !== false
                     ? () => {
                         // Fica na página do jogo ao lançar (não volta pra Library).
-                        void gameActions.launch(jogoPagina)
+                        void launchDesktopGame(jogoPagina)
                       }
                     : undefined
                 }
@@ -257,7 +308,7 @@ export function DesktopLauncher() {
                 onClose={() => setJogoPagina(null)}
                 onJogar={() => {
                   // Fica na página do jogo ao lançar (não volta pra Library).
-                  void gameActions.launch(jogoPagina)
+                  void launchDesktopGame(jogoPagina)
                 }}
                 onInstalar={() => instalar(jogoPagina)}
                 onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
@@ -271,7 +322,7 @@ export function DesktopLauncher() {
                   initialGame={retroPaginaSeed}
                   onExit={() => setRetroPaginaJogo(null)}
                   onOpenDownloads={() => setView("downloads")}
-                  onLaunchGame={(game) => { void gameActions.launch(game) }}
+                  onLaunchGame={(game) => { void launchDesktopGame(game) }}
                 />
               </div>
             )}
@@ -290,8 +341,12 @@ export function DesktopLauncher() {
             {!jogoPagina && view === "lojas" && (
               <StoreView
                 games={games}
+                ativo={appFocused && !gameRunning}
+                appFocused={appFocused}
+                gameRunning={gameRunning}
+                runningGameId={jogoAtivo.jogo?.id}
                 onOpenDownloads={() => setView("downloads")}
-                onLaunchGame={(game) => { void gameActions.launch(game) }}
+                onLaunchGame={(game) => { void launchDesktopGame(game) }}
               />
             )}
             {!jogoPagina && view === "plugins" && <PluginsView />}
@@ -341,7 +396,7 @@ export function DesktopLauncher() {
           onEscolher={(m) => {
             const g = escolhendoLaunch
             setEscolhendoLaunch(null)
-            void gameActions.launch(g, m)
+            void launchDesktopGame(g, m)
           }}
           onClose={() => setEscolhendoLaunch(null)}
         />

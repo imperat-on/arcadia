@@ -15,6 +15,11 @@ export type ItemLoja = {
   capa?: string
   heroi?: string
   manifest?: boolean
+  /** Metadata opcional devolvida por catálogos completos ou provedores. */
+  genres?: string[]
+  generos?: string[]
+  fontes?: string[]
+  fonte?: string
 }
 
 export function StoreImg({
@@ -136,6 +141,63 @@ export function CartaoLoja({
         )}
       </div>
     </div>
+  )
+}
+
+/** Linha compacta da Loja: mantém muitos resultados visíveis e deixa o scroll
+ * vertical ser a navegação principal, como no catálogo Hydra. */
+export function LinhaLoja({
+  jogo,
+  naBiblioteca,
+  adicionado,
+  onOpen,
+  t,
+}: {
+  jogo: ItemLoja
+  naBiblioteca: boolean
+  adicionado: boolean
+  onOpen: () => void
+  t: (k: string, v?: Record<string, string | number>) => string
+}) {
+  const generos = (jogo.genres || jogo.generos || []).filter(Boolean).join(", ")
+  const fonte = jogo.fonte || jogo.fontes?.filter(Boolean)[0] || (jogo.manifest ? t("store.disponivel") : "")
+  const salvo = naBiblioteca || adicionado
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={jogo.title}
+      className="store-catalog-row group flex w-full items-center gap-3 overflow-hidden text-left"
+    >
+      <span className="store-catalog-art block h-16 w-32 shrink-0 overflow-hidden bg-black">
+        <StoreImg
+          appid={jogo.appid}
+          cover={jogo.cover}
+          capa={jogo.capa}
+          heroi={jogo.heroi}
+          title={jogo.title}
+        />
+      </span>
+      <span className="min-w-0 flex-1 py-2">
+        <span className="block truncate text-[13px] font-medium leading-tight text-white/90">
+          {jogo.title}
+        </span>
+        {generos && <span className="mt-1 block truncate text-[10px] leading-tight text-white/50">{generos}</span>}
+        {fonte && (
+          <span className="mt-1 inline-flex max-w-full truncate rounded border border-white/15 bg-white/[.035] px-2 py-0.5 text-[9px] leading-none text-white/65">
+            {fonte}
+          </span>
+        )}
+      </span>
+      <span className="flex w-10 shrink-0 items-center justify-center self-stretch text-white/55">
+        {salvo && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        )}
+        <span className="sr-only">{salvo ? t("store.na_biblioteca") : t("store.ver_detalhes")}</span>
+      </span>
+    </button>
   )
 }
 

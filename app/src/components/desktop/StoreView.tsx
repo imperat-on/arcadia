@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useStoreActions, StoreGamePage, type ItemLoja, CartaoLoja, useI18n } from "./storeShared"
+import { useStoreActions, StoreGamePage, type ItemLoja, LinhaLoja, useI18n } from "./storeShared"
 import { GameSettingsDialog } from "./GameSettingsDialog"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
@@ -25,6 +25,9 @@ export function StoreView({
   games = [],
   bigPicture = false,
   ativo = true,
+  appFocused = true,
+  gameRunning = false,
+  runningGameId,
   onOverlay,
   onAtalhos,
   onOpenDownloads,
@@ -33,6 +36,12 @@ export function StoreView({
   games?: Game[]
   bigPicture?: boolean
   ativo?: boolean
+  /** Focus reported by Electron; document.hasFocus() lies inside gamescope. */
+  appFocused?: boolean
+  /** Prevent the virtual cursor from consuming input while a game is active. */
+  gameRunning?: boolean
+  /** ID da sessão atual; permite que o próprio botão Parar continue ativo. */
+  runningGameId?: string | number
   onOverlay?: (aberto: boolean) => void
   onAtalhos?: (a: StoreAtalhos) => void
   onOpenDownloads?: () => void
@@ -77,26 +86,67 @@ export function StoreView({
   const cursorPosRef = useRef({ x: 0, y: 0 })
   const cursorVisivelRef = useRef(false)
 
-  // Catálogo navegável (sem busca): lista "Em alta" paginada via store:recent.
+  // Catálogo navegável (sem busca): páginas via store:recent, acumuladas durante o scroll.
   const POR_PAGINA = 24
   const [catalogo, setCatalogo] = useState<ItemLoja[]>([])
   const [catTotal, setCatTotal] = useState(0)
-  const [catPag, setCatPag] = useState(0) // 0-based
+  const [catOffset, setCatOffset] = useState(0)
+  const [catHasMore, setCatHasMore] = useState(true)
   const [catCarregando, setCatCarregando] = useState(false)
   const gerCat = useRef(0)
+  const catCarregandoRef = useRef(false)
 
+  // A lista é acumulada por páginas para que o usuário continue rolando, sem
+  // precisar parar no rodapé para clicar em uma paginação numérica.
   useEffect(() => {
     const meu = ++gerCat.current
+    catCarregandoRef.current = true
     setCatCarregando(true)
-    window.launcherAPI?.storeRecent?.("all", POR_PAGINA, catPag * POR_PAGINA).then((r) => {
-      if (meu !== gerCat.current) return
+    const request = window.launcherAPI?.storeRecent?.("all", POR_PAGINA, catOffset)
+    if (!request) {
+      catCarregandoRef.current = false
       setCatCarregando(false)
-      if (r?.ok) {
-        setCatalogo(r.jogos || [])
-        setCatTotal(r.total || 0)
-      }
-    })
-  }, [catPag])
+      setCatHasMore(false)
+      return
+    }
+    request
+      .then((r) => {
+        if (meu !== gerCat.current) return
+        if (r?.ok) {
+          const novos = Array.isArray(r.jogos) ? r.jogos : []
+          setCatalogo((anterior) => {
+            if (catOffset === 0) return novos
+            const ids = new Set(anterior.map((item) => item.appid))
+            return [...anterior, ...novos.filter((item) => !ids.has(item.appid))]
+          })
+          const total = Number(r.total) || 0
+          setCatTotal(total)
+          setCatHasMore(
+            typeof r.has_more === "boolean"
+              ? r.has_more
+              : catOffset + novos.length < total,
+          )
+        } else {
+          setCatHasMore(false)
+          if (catOffset === 0) {
+            setCatalogo([])
+            setCatTotal(0)
+          }
+        }
+      })
+      .catch(() => {
+        if (meu === gerCat.current && catOffset === 0) {
+          setCatalogo([])
+          setCatTotal(0)
+          setCatHasMore(false)
+        }
+      })
+      .finally(() => {
+        if (meu !== gerCat.current) return
+        catCarregandoRef.current = false
+        setCatCarregando(false)
+      })
+  }, [catOffset])
 
   const gerSug = useRef(0)
   const gerBusca = useRef(0)
@@ -113,7 +163,7 @@ export function StoreView({
   )
 
   useEffect(() => {
-    if (!bigPicture || !ativo || gamepadSuspenso) return
+    if (!bigPicture || !ativo || !appFocused || gameRunning || gamepadSuspenso) return
 
     let raf = 0
     let ultimoFrame = 0
@@ -162,7 +212,7 @@ export function StoreView({
     }
 
     const confirmarCursor = (evento: Event) => {
-      if (!cursorVisivelRef.current) return
+      if (!appFocused || gameRunning || !cursorVisivelRef.current) return
       evento.preventDefault()
       const alvo = alvoNoCursor()
       if (!alvo) return
@@ -182,7 +232,9 @@ export function StoreView({
       const gamepad = Array.from(navigator.getGamepads?.() || []).find(
         (controle): controle is Gamepad => Boolean(controle),
       )
-      const pausado = !document.hasFocus()
+      // In gamescope document.hasFocus() remains true while the game is in
+      // front; the main process focus signal is authoritative here.
+      const pausado = !appFocused || gameRunning || !document.hasFocus()
       const deltaTempo = ultimoFrame ? Math.min(0.05, (agora - ultimoFrame) / 1000) : 1 / 60
       ultimoFrame = agora
 
@@ -235,7 +287,7 @@ export function StoreView({
       window.removeEventListener("arcadia:gamepad-confirm", confirmarCursor)
       ocultarCursor()
     }
-  }, [bigPicture, ativo, gamepadSuspenso])
+  }, [bigPicture, ativo, appFocused, gameRunning, gamepadSuspenso])
 
   // Big Picture: avisa o host que um overlay próprio está no ar (página do
   // jogo, teclado, dialog de config/método/escolha), pra ele suspender o laço
@@ -390,6 +442,10 @@ export function StoreView({
   }, [sugestoes])
 
   const aoTeclar = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!appFocused || gameRunning) {
+      e.preventDefault()
+      return
+    }
     if (e.key === "ArrowDown" && sugestoes.length) {
       e.preventDefault()
       setSugSel((i) => (i + 1) % sugestoes.length)
@@ -405,8 +461,25 @@ export function StoreView({
   }
 
   const buscou = resultados !== null
-  const grade = buscou ? resultados : []
+  const resultadosVisiveis = buscou ? resultados : []
   const carregandoGrade = buscando
+  const carregarMaisCatalogo = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (buscou || !catHasMore || catCarregandoRef.current) return
+      const target = event.currentTarget
+      if (target.scrollHeight - target.scrollTop - target.clientHeight > 520) return
+      catCarregandoRef.current = true
+      setCatOffset((offset) => offset + POR_PAGINA)
+    },
+    [buscou, catHasMore],
+  )
+  // O clique do detalhe da loja é um caminho separado do trilho principal.
+  // Revalida aqui para não iniciar outro jogo se um evento atrasado chegar
+  // enquanto a sessão fullscreen já começou.
+  const iniciarJogo = (game: Game) => {
+    if (!appFocused || (gameRunning && String(runningGameId) !== String(game.id))) return
+    onLaunchGame?.(game)
+  }
   const gamePorAppid = useMemo(() => {
     const m = new Map<string, Game>()
     for (const g of games) {
@@ -429,11 +502,10 @@ export function StoreView({
           onAdicionar={() => adicionar(pagina)}
           onRemover={() => remover(pagina)}
           onConfig={game ? () => setConfigGame(game) : undefined}
-          onJogar={game && game.installed !== false && onLaunchGame ? () => onLaunchGame(game) : undefined}
+          onJogar={game && game.installed !== false && onLaunchGame ? () => iniciarJogo(game) : undefined}
           naBiblioteca={naBiblioteca}
           ocupado={acaoBusy !== ""}
           slssteamAtivo={slsAtivo}
-          bigPicture={bigPicture}
         />
         {metodo && (
           <MetodoDownloadDialog
@@ -485,14 +557,19 @@ export function StoreView({
           onDetailChange={setRetroDetailOpen}
           onDownloadDialogChange={setRetroDownloadOpen}
           onOpenDownloads={onOpenDownloads}
-          onLaunchGame={onLaunchGame}
+          onLaunchGame={onLaunchGame ? iniciarJogo : undefined}
         />
       </div>
     )
   }
 
   return (
-    <div ref={containerLojaRef} data-gamepad-scroll className={`h-full overflow-y-auto px-8 py-6 ${bigPicture ? "retro-console-store" : ""}`}>
+    <div
+      ref={containerLojaRef}
+      data-gamepad-scroll
+      onScroll={carregarMaisCatalogo}
+      className={`h-full overflow-y-auto px-8 py-6 ${bigPicture ? "retro-console-store" : ""}`}
+    >
       {bigPicture && (
         <div
           ref={cursorGamepadRef}
@@ -504,7 +581,7 @@ export function StoreView({
       <h1 className="ui-title mb-1">{t("store.titulo")}</h1>
       <p className="ui-subtitle mb-6">{t("store.descricao")}</p>
 
-      <div className="mb-4 flex max-w-[860px] gap-2">
+      <div className="desktop-fluid-search mb-4 flex max-w-[860px] gap-2">
         <div ref={caixaRef} className="relative flex-1">
           <input
             ref={inputRef}
@@ -589,35 +666,23 @@ export function StoreView({
 
       {msg && <p className="mb-4 text-[12px] text-white/55">{msg}</p>}
 
-      {buscou && (
-        <h2 className="mb-3 text-sm font-medium text-white/60">
-          {t("store.resultados_count", { count: grade.length })}
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-medium text-white/65">
+          {t("store.resultados_count", { count: buscou ? resultadosVisiveis.length : catTotal })}
         </h2>
-      )}
+        <span className="text-[10px] text-white/35">{t("store.scroll_hint")}</span>
+      </div>
 
       {(() => {
         const mostraCat = !buscou
-        const itens = mostraCat ? catalogo : grade
+        const itens = mostraCat ? catalogo : resultadosVisiveis
         const carregando = mostraCat ? catCarregando : carregandoGrade
         return (
           <>
-            <div className="retro-store-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 pb-6">
-              {carregando &&
-                esqueletos.map((i) => (
-                  <div
-                    key={`sk${i}`}
-                    className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]"
-                  >
-                    <div className="aspect-[460/215] w-full animate-pulse bg-white/[0.05]" />
-                    <div className="p-3">
-                      <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
-                      <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
-                    </div>
-                  </div>
-                ))}
-              {!carregando &&
+            <div className="store-catalog-list flex flex-col gap-1 pb-6">
+              {(!carregando || (mostraCat && itens.length > 0)) &&
                 itens.map((j) => (
-                  <CartaoLoja
+                  <LinhaLoja
                     key={j.appid}
                     jogo={j}
                     naBiblioteca={bloqueados.has(j.appid)}
@@ -626,17 +691,23 @@ export function StoreView({
                     t={t}
                   />
                 ))}
+              {carregando &&
+                esqueletos.slice(0, mostraCat && itens.length ? 3 : esqueletos.length).map((i) => (
+                  <div key={`sk${i}`} className="store-catalog-row flex h-16 items-center gap-3 overflow-hidden">
+                    <div className="h-16 w-32 shrink-0 animate-pulse bg-white/[.05]" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <div className="h-3 w-2/5 animate-pulse rounded bg-white/[.07]" />
+                      <div className="h-2 w-1/4 animate-pulse rounded bg-white/[.04]" />
+                      <div className="h-3 w-16 animate-pulse rounded bg-white/[.04]" />
+                    </div>
+                  </div>
+                ))}
+              {!carregando && !itens.length && (
+                <p className="rounded border border-white/[.08] px-4 py-8 text-center text-[12px] text-white/40">
+                  {msg || t("store.nada_encontrado")}
+                </p>
+              )}
             </div>
-            {mostraCat && !carregando && catTotal > POR_PAGINA && (
-              <Paginacao
-                pag={catPag}
-                totalPags={Math.ceil(catTotal / POR_PAGINA)}
-                onIr={(p) => {
-                  setCatPag(p)
-                  window.scrollTo?.(0, 0)
-                }}
-              />
-            )}
           </>
         )
       })()}
@@ -753,73 +824,5 @@ function TermoDestacado({ texto, termo }: { texto: string; termo: string }) {
       <span className="font-bold text-white">{texto.slice(idx, idx + t.length)}</span>
       {texto.slice(idx + t.length)}
     </>
-  )
-}
-
-// Paginação numérica (1-based na UI, 0-based no estado). Mostra vizinhas +
-// elipse + primeira/última, no estilo do print.
-function Paginacao({
-  pag,
-  totalPags,
-  onIr,
-}: {
-  pag: number
-  totalPags: number
-  onIr: (p: number) => void
-}) {
-  const atual = pag + 1
-  const nums: (number | "…")[] = []
-  const push = (n: number | "…") => nums.push(n)
-  const janela = new Set<number>([1, totalPags, atual, atual - 1, atual + 1, atual - 2, atual + 2])
-  let ant = 0
-  for (let n = 1; n <= totalPags; n++) {
-    if (!janela.has(n)) continue
-    if (n - ant > 1) push("…")
-    push(n)
-    ant = n
-  }
-  const Btn = ({
-    children,
-    on,
-    ativo,
-    off,
-  }: {
-    children: React.ReactNode
-    on?: () => void
-    ativo?: boolean
-    off?: boolean
-  }) => (
-    <button
-      onClick={on}
-      disabled={off}
-      className={`min-w-9 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors disabled:opacity-30 ${
-        ativo
-          ? "bg-[color:var(--accent)] text-black"
-          : "border border-white/10 text-white/70 hover:border-white/25 hover:text-white"
-      }`}
-    >
-      {children}
-    </button>
-  )
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-2 pb-8 pt-2">
-      <Btn on={() => onIr(pag - 1)} off={atual <= 1}>
-        ‹
-      </Btn>
-      {nums.map((n, i) =>
-        n === "…" ? (
-          <span key={`e${i}`} className="px-1 text-white/30">
-            …
-          </span>
-        ) : (
-          <Btn key={n} on={() => onIr(n - 1)} ativo={n === atual}>
-            {n}
-          </Btn>
-        ),
-      )}
-      <Btn on={() => onIr(pag + 1)} off={atual >= totalPags}>
-        ›
-      </Btn>
-    </div>
   )
 }

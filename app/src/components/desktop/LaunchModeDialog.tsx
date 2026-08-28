@@ -1,6 +1,8 @@
 "use client"
 
+import { useRef } from "react"
 import { useI18n } from "../../i18n/I18nContext"
+import { useGamepadNav } from "../ps5-launcher/useGamepadNav"
 import type { Game } from "../ps5-launcher/types"
 
 // Menu de escolha de como iniciar um jogo que tem as duas formas possíveis
@@ -9,12 +11,17 @@ export function LaunchModeDialog({
   game,
   onEscolher,
   onClose,
+  active = true,
 }: {
   game: Game
   onEscolher: (mode: "steam" | "exe") => void
   onClose: () => void
+  /** Host focus gate; desktop callers keep the normal default. */
+  active?: boolean
 }) {
   const { t } = useI18n()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useGamepadNav(dialogRef, active, onClose)
 
   const Opcao = ({
     mode,
@@ -36,6 +43,7 @@ export function LaunchModeDialog({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >

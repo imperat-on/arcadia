@@ -33,6 +33,8 @@ function LauncherLoading() {
 function Root() {
   const { mode, setMode } = useMode()
   const modeRef = useRef(mode)
+  const appFocusedRef = useRef(document.hasFocus())
+  const gameRunningRef = useRef(false)
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
@@ -42,8 +44,18 @@ function Root() {
   useEffect(() => {
     const offErr = window.launcherAPI?.onLaunchError?.((p) => setErro(p.error))
     const offWarn = window.launcherAPI?.onLaunchWarning?.((p) => setErro(p.warnings.join("\n")))
+    const offFocus = window.launcherAPI?.onAppFocus?.((focused) => {
+      appFocusedRef.current = focused
+    })
+    const offRunning = window.launcherAPI?.onGameRunning?.((running) => {
+      gameRunningRef.current = running
+    })
+    const atual = window.launcherAPI?.getAppFocus?.()
+    if (atual) void atual.then((focused) => { appFocusedRef.current = focused }).catch(() => {})
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "F11") {
+      // Do not let a key delivered through gamescope (where Chromium may still
+      // report focus) toggle the launcher mode over a fullscreen game.
+      if (e.key === "F11" && appFocusedRef.current && !gameRunningRef.current) {
         e.preventDefault()
         const next = modeRef.current === "console" ? "desktop" : "console"
         void setMode(next).catch((error) => setErro(String(error.message || error)))
@@ -53,6 +65,8 @@ function Root() {
     return () => {
       offErr?.()
       offWarn?.()
+      offFocus?.()
+      offRunning?.()
       window.removeEventListener("keydown", onKey)
     }
   }, [setMode])

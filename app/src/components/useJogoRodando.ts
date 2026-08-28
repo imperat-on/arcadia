@@ -22,14 +22,16 @@ export function useJogoRodando() {
   // nesse intervalo não pode nem lançar de novo nem matar o jogo que está
   // subindo.
   const [confirmado, setConfirmado] = useState(false)
-  // O vigia manda transições. Sem esta marca, um "false" chegando antes de o
-  // jogo subir apagaria o jogo recém-lançado.
+  const jogoAtual = useRef<Game | null>(null)
+  // O vigia manda transições. O false do wrapper Steam é retido no main; a
+  // marca também permite distinguir uma sessão confirmada de uma saída rápida.
   const viuRodando = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const limpar = useCallback(() => {
     clearTimeout(timer.current)
     viuRodando.current = false
+    jogoAtual.current = null
     setConfirmado(false)
     setJogo(null)
   }, [])
@@ -38,10 +40,12 @@ export function useJogoRodando() {
   const iniciar = useCallback((g: Game) => {
     clearTimeout(timer.current)
     viuRodando.current = false
+    jogoAtual.current = g
     setConfirmado(false)
     setJogo(g)
     timer.current = setTimeout(() => {
       if (!viuRodando.current) {
+        jogoAtual.current = null
         setJogo(null)
         setConfirmado(false)
       }
@@ -60,7 +64,9 @@ export function useJogoRodando() {
         viuRodando.current = true
         setConfirmado(true)
         clearTimeout(timer.current)
-      } else if (viuRodando.current) {
+      } else if (viuRodando.current || jogoAtual.current) {
+        // Também limpa um launch que terminou antes do primeiro poll. O main
+        // envia false forçado no finalizer para não deixar o pending travado.
         limpar()
       }
     })

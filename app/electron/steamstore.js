@@ -9,6 +9,7 @@ const path = require("path")
 const os = require("os")
 const { spawn, execFile } = require("child_process")
 const { getDataDir } = require("./runtime-paths")
+const { createDepotDownloaderManager } = require("./depotdownloader")
 const {
   createLocalSearchIndex,
   CATALOG_SOURCE,
@@ -90,6 +91,7 @@ const DEPS_DIR = path.join(BIN_DIR, "deps", "depotdownloader")
 const TMP_DIR = path.join(BIN_DIR, "tmp")
 const LOG_DIR = path.join(DATA_DIR, "logs")
 const CONFIG = path.join(DATA_DIR, "config.json")
+const depotDownloader = createDepotDownloaderManager({ depsDir: DEPS_DIR, tmpDir: TMP_DIR })
 
 const STEAM_LANG_MAP = {
   "pt-BR": "portuguese",
@@ -157,13 +159,26 @@ function dotnetBin() {
   return "dotnet" // PATH do sistema
 }
 
+function dotnetRuntimeCompativel(stdout) {
+  const versoes = [...String(stdout || "").matchAll(/^Microsoft\.NETCore\.App\s+(\d+)/gm)]
+  return versoes.some((m) => Number(m[1]) >= 9)
+}
+
 async function ensureDotnet(onProgress) {
+  const local = path.join(BIN_DIR, "dotnet", "dotnet")
+  if (fs.existsSync(local)) return { ok: true, path: local }
   try {
-    execFile("dotnet", ["--version"], (e, stdout) => {})
-    const ok = await new Promise((res) => execFile("dotnet", ["--version"], (e) => res(!e)))
+    // `dotnet --version` exige o SDK e falha em instalações que têm apenas o
+    // runtime (que é tudo que o DepotDownloader precisa). Verifica o runtime
+    // compatível diretamente e aceita .NET 9 ou qualquer versão maior.
+    const ok = await new Promise((res) =>
+      execFile("dotnet", ["--list-runtimes"], (e, stdout) => {
+        res(!e && dotnetRuntimeCompativel(stdout))
+      }),
+    )
     if (ok) return { ok: true, path: "dotnet" }
   } catch {}
-  // Instala .NET 9 localmente via script oficial.
+  // Instala apenas o runtime .NET 9 localmente via script oficial.
   const dir = path.join(BIN_DIR, "dotnet")
   fs.mkdirSync(dir, { recursive: true })
   const script = path.join(TMP_DIR, "dotnet-install.sh")
@@ -174,7 +189,11 @@ async function ensureDotnet(onProgress) {
   fs.chmodSync(script, 0o755)
   onProgress?.("Instalando .NET 9 (pode demorar)…")
   const code = await new Promise((res) => {
-    const c = spawn("bash", [script, "--channel", "9.0", "--install-dir", dir], { stdio: "ignore" })
+    const c = spawn(
+      "bash",
+      [script, "--channel", "9.0", "--runtime", "dotnet", "--install-dir", dir],
+      { stdio: "ignore" },
+    )
     c.on("close", res)
     c.on("error", () => res(1))
   })
@@ -185,7 +204,13 @@ async function ensureDotnet(onProgress) {
 }
 
 function depsOk() {
-  return fs.existsSync(path.join(DEPS_DIR, "DepotDownloader.dll"))
+  return depotDownloader.installed()
+}
+
+// O runtime fica em DATA_DIR (e não dentro do checkout/AppImage). Isso permite
+// atualizar o launcher sem perder o downloader e também funciona em AppImage.
+async function ensureDepotDownloader() {
+  return depotDownloader.ensure()
 }
 
 // ---------- Disponibilidade entre provedores ----------
@@ -1688,7 +1713,14 @@ function sanitizeInstallDir(installdir) {
 
 // Monta o spawn do download de um appid. Retorna { cmd, args, env }.
 async function prepareDownload({ appid, installdir, depots, steamDir }) {
-  if (!depsOk()) return { ok: false, error: "DepotDownloader não encontrado em bin/deps" }
+  if (!depsOk()) {
+    const runtime = await ensureDepotDownloader()
+    if (!runtime.ok) return runtime
+  }
+  // O .NET também pode ser instalado pelo launcher. Sem esta guarda, uma
+  // instalação nova só descobriria a ausência quando o spawn retornasse ENOENT.
+  const dotnet = await ensureDotnet()
+  if (!dotnet.ok) return dotnet
   installdir = sanitizeInstallDir(installdir)
   const keysFile = path.join(TMP_DIR, `keys_${appid}.vdf`)
   const linhas = depots.filter((d) => d.key).map((d) => `${d.depotId};${d.key}`)
@@ -2296,7 +2328,9 @@ function removeFromSteam(appid) {
 
 async function status() {
   const dotnetSys = await new Promise((res) =>
-    execFile("dotnet", ["--version"], (e, stdout) => res(e ? "" : String(stdout).trim())),
+    execFile("dotnet", ["--list-runtimes"], (e, stdout) =>
+      res(!e && dotnetRuntimeCompativel(stdout) ? "dotnet" : ""),
+    ),
   )
   // AppIds já registrados (AdditionalApps do config.yaml + .lua no stplug-in)
   // — cobre apps adicionados por qualquer ferramenta, a qualquer época.
@@ -2332,6 +2366,7 @@ module.exports = {
   getManifest,
   prepareDownload,
   ensureDotnet,
+  ensureDepotDownloader,
   writeAcf,
   sanitizeInstallDir,
   registerSlssteam,

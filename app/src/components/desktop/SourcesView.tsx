@@ -125,7 +125,7 @@ export function SourcesView({ onOpenDownloads }: { onOpenDownloads?: () => void 
         )}
       </div>
 
-      <div className="max-w-[900px]">
+      <div className="desktop-fluid-column max-w-[900px]">
         {/* Adicionar fonte */}
         <div className="flex gap-2">
           <input

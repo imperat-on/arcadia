@@ -63,6 +63,8 @@ a different UI on top.
 
 - Linux x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed
   locally if missing)
+- The compatible DepotDownloader runtime is downloaded automatically on the
+  first Steam depot download (or from Settings → Integrations).
 - For the Steam store: a **Hubcap API key** (free, community) and
   **SLSsteam** (installable from Settings → Integrations)
 

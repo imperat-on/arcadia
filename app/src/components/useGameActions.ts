@@ -18,6 +18,8 @@ export interface GameActionsOptions {
   onChooseLaunch?: (game: Game) => void
   onLaunchWarning?: (game: Game | null, warnings: string[]) => void
   onLaunchError?: (game: Game | null, error: string) => void
+  /** Optional host guard used to reject input while another game owns focus. */
+  canLaunch?: () => boolean
 }
 
 export interface GameActions {
@@ -51,9 +53,14 @@ export function useGameActions({
   onChooseLaunch,
   onLaunchWarning,
   onLaunchError,
+  canLaunch,
 }: GameActionsOptions): GameActions {
   const callbacks = useRef({ onChooseLaunch, onLaunchWarning, onLaunchError })
   callbacks.current = { onChooseLaunch, onLaunchWarning, onLaunchError }
+  const canLaunchRef = useRef(canLaunch)
+  canLaunchRef.current = canLaunch
+  const launchBlocked = () =>
+    canLaunchRef.current ? !canLaunchRef.current() : false
 
   const applyLibrary = useCallback(
     (value: unknown) => {
@@ -139,13 +146,17 @@ export function useGameActions({
   )
 
   const launchCommand = useCallback(
-    (command: string[], gameId?: string, mode?: GameLaunchMode) =>
-      executeLaunch(command, gameId, mode),
+    (command: string[], gameId?: string, mode?: GameLaunchMode) => {
+      if (launchBlocked())
+        return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
+      return executeLaunch(command, gameId, mode)
+    },
     [executeLaunch],
   )
 
   const launch = useCallback(
     async (game: Game, mode?: GameLaunchMode) => {
+      if (launchBlocked()) return { ok: false, error: "O launcher está ocupado com outro jogo." }
       if (mode === undefined && game.launcher === "steam" && game.temExe) {
         callbacks.current.onChooseLaunch?.(game)
         return { ok: false, needsMode: true, warnings: [] }

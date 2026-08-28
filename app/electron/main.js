@@ -48,6 +48,9 @@ const raClient = require("./retroachievements/client")
 const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, execFile } = require("child_process")
+const { restoreWindowFocus } = require("./window-focus")
+const { createFocusSession } = require("./focus-session")
+const { shouldTrackGameSession } = require("./game-session")
 const { fetchRede } = require("./httpfetch")
 const { createSteamNewsImageResolver, extractSteamNewsImage } = require("./steam-news")
 const DiscordRpc = require("./discord-rpc")
@@ -179,44 +182,144 @@ let jogoAtivo = null
 // Snapshot da sessão encerrada: o interval limpa jogoAtivo antes do marcar
 // fechar a sessão, então o registro de playtime local se ancora aqui.
 let ultimoJogoAtivo = null
+// Depois de game:close, mantemos o PID separado até o grupo realmente sumir;
+// zerar jogoAtivo cedo demais faria o gamescope finalizar por um falso negativo.
+let jogoEncerrando = null
 // Interval do poll de jogo. Se a janela for recriada sem matar o processo
 // (comum no macOS ou em reinicializações), evita acumular timers antigos.
 let runningGameInterval = null
 // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
 // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
 let focado = true
+// `win` fica no escopo do módulo porque os callbacks do poll sobrevivem à
+// janela e precisam levantá-la quando o jogo termina.
+let win
+// Uma sessão pode gerar vários sinais "jogo ausente". A restauração deve ser
+// feita uma vez só, no desarme do poll, para não roubar foco repetidamente.
+let focoRestauradoSessao = false
+// O timer é cancelado quando o jogo termina antes dos 2s ou quando o launch
+// falha; sem isso a janela podia ser minimizada depois de um erro.
+let minimizarTimer = null
+// Mutex de lançamento: cobre a janela entre o IPC inicial e o momento em que
+// Steam/um wrapper finalmente cria o processo acompanhado.
+let launchInFlight = false
+
+function emitirFoco(ativo, forcar = false) {
+  const valor = Boolean(ativo)
+  const mudou = valor !== focado
+  focado = valor
+  if ((mudou || forcar) && win && !win.isDestroyed()) {
+    win.webContents.send("app:focus", valor)
+  }
+}
+
+const sessaoDeFoco = createFocusSession({
+  onFocus: (ativo, forcar) => emitirFoco(ativo, forcar),
+})
+
+function iniciarSessaoDeFoco() {
+  focoRestauradoSessao = false
+  return sessaoDeFoco.begin()
+}
+
+function focoNativo(ativo) {
+  return sessaoDeFoco.nativeFocus(ativo)
+}
+
+function restaurarFocoArcadia() {
+  if (focoRestauradoSessao) return false
+  focoRestauradoSessao = true
+  const restaurada = restoreWindowFocus(win, {
+    onFocused: () => sessaoDeFoco.finish(),
+  })
+  // Sem uma BrowserWindow válida não há callback do adaptador, mas a sessão
+  // ainda precisa sair do estado ativo para não bloquear o próximo launch.
+  if (!restaurada) sessaoDeFoco.finish()
+  return restaurada
+}
+
+// O grupo detached é a fonte mais confiável para jogos não-Steam e também
+// cobre wrappers (gamescope/umu) cujo caminho não aparece no pgrep genérico.
+function grupoDoJogoVivo() {
+  const rastreado = jogoAtivo || jogoEncerrando
+  if (!rastreado?.pid) return false
+  try {
+    process.kill(-rastreado.pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Vigia de jogo rodando (todos os modos): avisa o renderer nas transições
 // abriu/fechou. O card "jogando" do modo desktop se ancora nisso.
 let jogoRodando = false
 // O poll SÓ arma quando lançamos um jogo (armarPollJogo) e desarma após 2
-// ciclos sem sinal — idle não paga pgrep a cada 3s. No gamescope o mesmo
-// tick resolve o foco (ARCADIA_GAMESCOPE=1), sem intervalo extra de 2s.
+// ciclos sem sinal confirmado — idle não paga pgrep a cada 3s. No gamescope o
+// mesmo tick resolve o foco (ARCADIA_GAMESCOPE=1), sem intervalo extra de 2s.
 let sinalDeVida = 0
+let processoJogoVisto = false
+let sessaoArmadaEm = 0
+const MAX_INICIO_STEAM_MS = 60_000
 const armarPollJogo = () => {
   if (runningGameInterval) return
+  focoRestauradoSessao = false
   sinalDeVida = 0
+  processoJogoVisto = false
+  sessaoArmadaEm = Date.now()
   runningGameInterval = setInterval(() => {
     const tick = () => {
-      if (jogoAtivo) {
+      const grupo = jogoAtivo || jogoEncerrando
+      if (grupo) {
         try {
-          process.kill(-jogoAtivo.pid, 0)
-          marcar(true)
-          sinalDeVida = 0
-          return
+          process.kill(-grupo.pid, 0)
+          const wrapperSteam = ultimoJogoAtivo?.steamWrapper === true
+          // Para Steam, o grupo pode ser só o wrapper/URI transitório; a
+          // confirmação real vem do processo do jogo no pgrep abaixo. Não
+          // retornamos cedo para também detectar a saída do jogo se o wrapper
+          // permanecer vivo ligado à instância Steam.
+          if (!wrapperSteam) {
+            processoJogoVisto = true
+            marcar(true)
+            sinalDeVida = 0
+            return
+          }
         } catch {
           // Grupo do wrapper (ex: steam://rungameid) morreu. NÃO marca false
           // aqui — o pgrep abaixo confirma se o jogo real ainda vive.
-          // ultimoJogoAtivo é preservado.
-          jogoAtivo = null
+          // ultimoJogoAtivo é preservado para playtime/foco.
+          if (jogoAtivo === grupo) {
+            // Mantém a barreira de sessão durante os dois ciclos de ausência;
+            // sem isso um novo launch poderia ocupar o intervalo antes do
+            // finalizer e sobrescrever o snapshot/playtime anterior.
+            jogoAtivo = null
+            jogoEncerrando = grupo
+          }
         }
       }
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
         const rodando = !err
-        marcar(rodando)
-        if (rodando) {
+        if (rodando) processoJogoVisto = true
+        // Steam pode levar vários segundos entre a morte do wrapper URI e a
+        // criação do executável real. Sem esta janela, dois pgrep vazios
+        // restaurariam o foco enquanto o jogo ainda está abrindo. Para um jogo
+        // não-Steam, o próprio grupo já é uma confirmação imediata.
+        if (
+          !processoJogoVisto &&
+          ultimoJogoAtivo?.steamWrapper === true &&
+          Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS
+        ) {
           sinalDeVida = 0
           return
         }
+        if (rodando) {
+          marcar(true)
+          sinalDeVida = 0
+          return
+        }
+        // O false só é publicado depois da janela de transição; assim o
+        // renderer não apaga o gameId confirmado por um wrapper transitório.
+        marcar(false)
         // Idle (sem jogo nosso e pgrep sem processo): 2 ciclos e desarma.
         if (++sinalDeVida >= 2) {
           clearInterval(runningGameInterval)
@@ -229,14 +332,19 @@ const armarPollJogo = () => {
       })
     }
     if (process.env.ARCADIA_GAMESCOPE === "1") {
-      // Foco do gamescope usa o mesmo tick — evita um pgrep extra por ciclo.
+      // O Chromium dentro do gamescope não recebe blur/focus. O pgrep é
+      // necessário para Steam (o jogo é filho do cliente), mas não encontra
+      // executáveis não-Steam em pastas arbitrárias. O grupo detached que o
+      // Arcadia criou cobre esses jogos e os wrappers de Proton/gamescope.
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
-        const jogoRodando = !err // exit 0 = achou processo
-        const ativo = !jogoRodando
-        if (ativo !== focado) {
-          focado = ativo
-          if (win && !win.isDestroyed()) win.webContents.send("app:focus", ativo)
-        }
+        const jogoPorGrupo = grupoDoJogoVivo()
+        const jogoPorPadrao = !err // Steam/Proton conhecido pelo cmdline
+        const jogoEmCena = jogoPorGrupo || jogoPorPadrao
+        // O primeiro ciclo sem pgrep pode ser só a troca do wrapper Steam
+        // para o processo real. Como o launcher já foi marcado fora de foco na
+        // borda do launch, só emitimos FALSE aqui; TRUE fica para o finalizer,
+        // depois de dois ciclos sem jogo e do restore/show/focus nativo.
+        if (jogoEmCena && focado) focoNativo(false)
         tick()
       })
     } else {
@@ -249,14 +357,28 @@ const armarPollJogo = () => {
 // são filhos do cliente Steam, não nossos).
 // Sessão encerrada DE VERDADE (jogo fechou e o poll desarmou): soma o tempo
 // jogado, roda o script pós-jogo e solta o gameId. SÓ AQUI — o marcar(false)
-// TRANSITÓRIO (wrapper do launch morreu antes do jogo subir, janela de ~6s)
-// não pode finalizar: senão o gameId do Running/Stop se perde e o botão da
-// página nunca associa. O desarme do poll (2 ciclos sem sinal) é o único
-// momento em que dá pra ter certeza que o jogo fechou mesmo.
+// TRANSITÓRIO (wrapper do launch morreu antes do jogo subir) não pode
+// finalizar; Steam ainda recebe uma janela de inicialização para trocar o
+// wrapper pela aplicação real. O desarme (2 ciclos sem sinal após a confirmação)
+// é o único momento em que dá pra ter certeza que o jogo fechou mesmo.
 const finalizarSessao = () => {
+  if (minimizarTimer) {
+    clearTimeout(minimizarTimer)
+    minimizarTimer = null
+  }
+  // Mesmo que nenhum tick tenha publicado TRUE (saída antes dos 3s), o
+  // renderer pode estar em estado pendente desde o launch. O false forçado
+  // limpa esse estado sem alterar a regra de restauração de foco.
+  marcar(false, true)
+  const sessaoConfirmada = processoJogoVisto
   const snap = ultimoJogoAtivo
   ultimoJogoAtivo = null
-  if (snap && snap.gameId && snap.startedAt) {
+  jogoAtivo = null
+  jogoEncerrando = null
+  launchInFlight = false
+  processoJogoVisto = false
+  sessaoArmadaEm = 0
+  if (sessaoConfirmada && snap && snap.gameId && snap.startedAt) {
     try {
       const min = Math.round((Date.now() - snap.startedAt) / 60000)
       if (min >= 1) {
@@ -270,19 +392,24 @@ const finalizarSessao = () => {
       }
     } catch {}
   }
-  // Script pós-jogo configurado (se houver).
-  if (postGameScript) {
-    const script = postGameScript
-    postGameScript = ""
+  // Script pós-jogo configurado (se houver). Se nenhum processo chegou a
+  // ser confirmado, a tentativa falhou antes de virar uma sessão de jogo.
+  const scriptPosJogo = sessaoConfirmada ? postGameScript : ""
+  postGameScript = ""
+  if (scriptPosJogo) {
+    const script = scriptPosJogo
     try {
       const p = spawn(script, [], { detached: true, stdio: "ignore" })
       p.unref()
     } catch {}
   }
+  // Só chega aqui depois de dois ciclos sem jogo. Nunca restaure no primeiro
+  // `marcar(false)`: o wrapper Steam pode morrer antes do jogo real subir.
+  restaurarFocoArcadia()
 }
 
-const marcar = (rodando) => {
-  if (rodando === jogoRodando) return
+const marcar = (rodando, forcar = false) => {
+  if (rodando === jogoRodando && !forcar) return
   jogoRodando = rodando
   if (win && !win.isDestroyed()) {
     win.webContents.send("game:running", rodando)
@@ -1426,7 +1553,6 @@ function heroicConnected() {
   return false
 }
 
-let win
 // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
 // marca o item no achievements.json na hora.
 let pararAchievementWatcher = null
@@ -1626,8 +1752,8 @@ function createWindow() {
   })
   // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
   // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
-  win.on("blur", () => win?.webContents.send("app:focus", false))
-  win.on("focus", () => win?.webContents.send("app:focus", true))
+  win.on("blur", () => focoNativo(false))
+  win.on("focus", () => focoNativo(true))
   // Vigia de conquistas: toast em tempo real + marca o item no
   // achievements.json (o painel lê de lá; sem isso só atualizava no refresh).
   if (pararAchievementWatcher) pararAchievementWatcher()
@@ -1848,6 +1974,16 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle("app:focusState", () => {
+    // O renderer pode montar/recarregar depois que o jogo já começou. Reenvia
+    // o estado de jogo no mesmo replay, sem criar outro canal IPC.
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("game:running", jogoRodando)
+      const id = jogoRodando ? jogoAtivo?.gameId || ultimoJogoAtivo?.gameId || "" : ""
+      win.webContents.send("game:active", { rodando: jogoRodando, gameId: id })
+    }
+    return focado
+  })
   ipcMain.handle("app:diagnostics", () => diagnostics.collect())
   ipcMain.handle("app:diagnosticsExport", async () => {
     const res = await dialog.showOpenDialog(win, {
@@ -1884,64 +2020,83 @@ app.whenReady().then(() => {
       },
     })
     if (!resolved.ok) return resolved
+    if (launchInFlight || jogoRodando || jogoAtivo || jogoEncerrando) {
+      return { ok: false, error: "Já existe um lançamento ou jogo em execução." }
+    }
+    launchInFlight = true
+    // Nunca herda script pós-jogo de uma tentativa anterior que falhou antes
+    // de criar a sessão acompanhada.
+    postGameScript = ""
 
     // DuckStation/PCSX2 frequently exit silently when no valid BIOS exists.
     // Check the local dump before wrapping/spawning; RPCS3 firmware is exposed
     // as status but is not hard-blocked because RPCS3 can install/configure it
     // through its own UI.
-    if (resolved.gameId && resolved.mode !== "steam") {
-      const emulatorSettings = getGameSettings(resolved.gameId)
-      if (emulatorSettings?.emulatorId) {
-        const profile = emulatorRegistry.getProfile(emulatorSettings.emulatorId)
-        const detected = emulatorRegistry.list().find((item) => item.id === emulatorSettings.emulatorId)
-        const preflight = preflightEmulator({
-          emulatorId: emulatorSettings.emulatorId,
-          executablePath: detected?.executable || profile?.executable || "",
-          biosPath: profile?.biosPath || "",
-        })
-        if (!preflight.ok) {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: preflight.error })
+    try {
+      if (resolved.gameId && resolved.mode !== "steam") {
+        const emulatorSettings = getGameSettings(resolved.gameId)
+        if (emulatorSettings?.emulatorId) {
+          const profile = emulatorRegistry.getProfile(emulatorSettings.emulatorId)
+          const detected = emulatorRegistry.list().find((item) => item.id === emulatorSettings.emulatorId)
+          const preflight = preflightEmulator({
+            emulatorId: emulatorSettings.emulatorId,
+            executablePath: detected?.executable || profile?.executable || "",
+            biosPath: profile?.biosPath || "",
+          })
+          if (!preflight.ok) {
+            if (win && !win.isDestroyed()) {
+              win.webContents.send("game:launchError", { gameId: resolved.gameId, error: preflight.error })
+            }
+            launchInFlight = false
+            return preflight
           }
-          return preflight
+          const running = preflightRunningEmulator({
+            emulatorId: emulatorSettings.emulatorId,
+            executablePath: detected?.executable || profile?.executable || "",
+          })
+          if (!running.ok) {
+            if (win && !win.isDestroyed()) {
+              win.webContents.send("game:launchError", { gameId: resolved.gameId, error: running.error })
+            }
+            launchInFlight = false
+            return running
+          }
+          // RetroAchievements: se há credencial salva e o emulador escolhido
+          // tem client RA nativo, garante que a config dele está atualizada
+          // antes de lançar. Melhor esforço — uma falha aqui não deve impedir
+          // o jogo de abrir sem conquistas.
+          try {
+            const raCfg = readConfig()
+            const raUsername = String(raCfg.retroachievements_username || "")
+            const raToken = String(raCfg.retroachievements_token || "")
+            if (raUsername && raToken) {
+              raEmulatorConfig.configureEmulatorCredentials(emulatorSettings.emulatorId, {
+                username: raUsername,
+                token: raToken,
+                home: HOME,
+              })
+            }
+          } catch {}
         }
-        const running = preflightRunningEmulator({
-          emulatorId: emulatorSettings.emulatorId,
-          executablePath: detected?.executable || profile?.executable || "",
-        })
-        if (!running.ok) {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send("game:launchError", { gameId: resolved.gameId, error: running.error })
-          }
-          return running
-        }
-        // RetroAchievements: se há credencial salva e o emulador escolhido
-        // tem client RA nativo, garante que a config dele está atualizada
-        // antes de lançar. Melhor esforço — uma falha aqui não deve impedir
-        // o jogo de abrir sem conquistas.
-        try {
-          const raCfg = readConfig()
-          const raUsername = String(raCfg.retroachievements_username || "")
-          const raToken = String(raCfg.retroachievements_token || "")
-          if (raUsername && raToken) {
-            raEmulatorConfig.configureEmulatorCredentials(emulatorSettings.emulatorId, {
-              username: raUsername,
-              token: raToken,
-              home: HOME,
-            })
-          }
-        } catch {}
       }
+    } catch (e) {
+      launchInFlight = false
+      return { ok: false, error: String(e) }
     }
 
-    let { rawCmd, gameId, envExtra } = resolved
-    // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
-    // em diante o cmd[0] já não é mais o binário da Steam.
-    rawCmd = steamSilencioso(rawCmd)
-    const sls = steamComInjecao(rawCmd)
-    rawCmd = sls.cmd
     let closeLaunchLog = () => {}
+    // `steam://install` é uma ação da loja, não uma sessão de jogo: a Steam
+    // precisa ficar visível para o diálogo de instalação e não deve alimentar o
+    // vigia/foco/minimização do jogo.
+    let acompanhaSessao = true
+    let focoDeLancamentoAplicado = false
     try {
+      let { rawCmd, gameId, envExtra } = resolved
+      // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
+      // em diante o cmd[0] já não é mais o binário da Steam.
+      rawCmd = steamSilencioso(rawCmd)
+      const sls = steamComInjecao(rawCmd)
+      rawCmd = sls.cmd
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
       const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
@@ -1992,30 +2147,68 @@ app.whenReady().then(() => {
         })
       }
       // Script pós-jogo: o vigia de processo roda quando o jogo fechar.
-      postGameScript = s.scriptPost || ""
-
-      // "Minimizar Arcadia ao iniciar um jogo" (Config. Gerais).
-      if (readConfig().minimize_on_game_launch && win && !win.isDestroyed()) {
-        setTimeout(() => win?.minimize(), 2000)
-      }
+      // Instalação via steam://install não cria uma sessão acompanhada.
+      acompanhaSessao = shouldTrackGameSession(cmd)
+      if (acompanhaSessao) postGameScript = s.scriptPost || ""
 
       // Valida binários ANTES de qualquer spawn (steam URI ou direto).
       const binErro = validarBinariosLaunch(cmd, gameId)
       if (binErro) {
         closeLaunchLog()
         discordRpc.clear()
+        if (minimizarTimer) {
+          clearTimeout(minimizarTimer)
+          minimizarTimer = null
+        }
         if (win && !win.isDestroyed()) {
           win.webContents.send("game:launchError", { gameId, error: binErro })
         }
+        launchInFlight = false
         return { ok: false, error: binErro }
       }
 
-      const soltar = (c) => {
+      // "Minimizar Arcadia ao iniciar um jogo" (Config. Gerais). O console já
+      // é fullscreen; minimizar essa janela durante a transição fazia o WM
+      // perder a superfície e deixava teclado/cliques sem dono. Em desktop,
+      // continua valendo a preferência e a restauração ocorre no fim da sessão.
+      // O jogo ainda pode levar alguns frames para criar a janela. Marcar o
+      // launcher como fora de foco já nesta borda evita que a tecla que
+      // disparou o launch (ou um clique repetido) seja processada pelo React
+      // durante essa transição. O foco só volta após falha ou fim confirmado.
+      if (acompanhaSessao) {
+        focoDeLancamentoAplicado = true
+        iniciarSessaoDeFoco()
+      }
+
+      if (acompanhaSessao && readConfig().minimize_on_game_launch && win && !win.isDestroyed() && !win.isFullScreen()) {
+        if (minimizarTimer) clearTimeout(minimizarTimer)
+        const agendarMinimizacao = () => {
+          minimizarTimer = null
+          if (!win || win.isDestroyed() || win.isFullScreen()) return
+          // Não minimize antes de o poll confirmar algum processo: uma saída
+          // rápida ou o wrapper Steam transitório não deve esconder a janela.
+          if (!processoJogoVisto) {
+            minimizarTimer = setTimeout(agendarMinimizacao, 500)
+            return
+          }
+          win.minimize()
+        }
+        minimizarTimer = setTimeout(agendarMinimizacao, 2000)
+      }
+
+      const soltar = (c, acompanhar = acompanhaSessao) => {
         let child
         try {
           child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
         } catch (error) {
+          launchInFlight = false
           closeLaunchLog()
+          if (acompanhar && minimizarTimer) {
+            clearTimeout(minimizarTimer)
+            minimizarTimer = null
+          }
+          // Não existe processo para o poll acompanhar; devolve o foco agora.
+          if (acompanhar) restaurarFocoArcadia()
           if (win && !win.isDestroyed()) {
             win.webContents.send("game:launchError", {
               gameId,
@@ -2026,7 +2219,18 @@ app.whenReady().then(() => {
         }
         child.once("close", closeLaunchLog)
         child.on("error", (err) => {
+          launchInFlight = false
           closeLaunchLog()
+          if (acompanhar && minimizarTimer) {
+            clearTimeout(minimizarTimer)
+            minimizarTimer = null
+          }
+          // Erro de spawn é diferente do close normal do wrapper Steam: aqui
+          // sabemos que nenhum jogo foi criado e podemos devolver o foco.
+          if (acompanhar) {
+            marcar(false, true)
+            restaurarFocoArcadia()
+          }
           console.warn("arcadia: spawn erro:", err.message)
           if (win && !win.isDestroyed()) {
             win.webContents.send("game:launchError", {
@@ -2037,18 +2241,30 @@ app.whenReady().then(() => {
         })
         // unref DEPOIS do listener registrado
         child.unref()
-        // Registra o grupo de processos do jogo (o spawn detached vira líder).
-        // launcher sai da biblioteca (o payload do launch só traz gameId).
-        const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
-        jogoAtivo = {
-          pid: child.pid,
-          alvo: c[c.length - 1],
-          gameId: gameId || "",
-          launcher: lib?.launcher || "",
-          startedAt: Date.now(),
+        if (acompanhar) {
+          // Registra o grupo de processos do jogo (o spawn detached vira líder).
+          // launcher sai da biblioteca (o payload do launch só traz gameId).
+          const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
+          jogoEncerrando = null
+          jogoAtivo = {
+            pid: child.pid,
+            alvo: c[c.length - 1],
+            gameId: gameId || "",
+            launcher:
+              lib?.launcher ||
+              (path.basename(String(c[0])) === "steam" &&
+              /^steam:\/\/(?:run|rungameid)\//i.test(String(c[1] || ""))
+                ? "steam"
+                : ""),
+            steamWrapper:
+              path.basename(String(c[0])) === "steam" &&
+              /^steam:\/\/(?:run|rungameid)\//i.test(String(c[1] || "")),
+            startedAt: Date.now(),
+          }
+          ultimoJogoAtivo = jogoAtivo
+          armarPollJogo()
         }
-        ultimoJogoAtivo = jogoAtivo
-        armarPollJogo()
+        launchInFlight = false
         return true
       }
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
@@ -2060,7 +2276,7 @@ app.whenReady().then(() => {
         typeof cmd[1] === "string" &&
         cmd[1].startsWith("steam://")
       ) {
-        const run = () => soltar(cmd)
+        const run = () => soltar(cmd, acompanhaSessao)
         execFile("pgrep", ["-x", "steam"], (err) => {
           if (!err) {
             // Steam rodando: sai do BPM e lança.
@@ -2102,6 +2318,13 @@ app.whenReady().then(() => {
                 }, 3000) // cliente subiu: espera a UI estabilizar
               } else if (++tentativas > 30) {
                 clearInterval(esperar) // ~60s sem sinal: desiste
+                if (acompanhaSessao && minimizarTimer) {
+                  clearTimeout(minimizarTimer)
+                  minimizarTimer = null
+                }
+                // A Steam nem chegou a criar a sessão que o poll vigia.
+                if (acompanhaSessao) restaurarFocoArcadia()
+                launchInFlight = false
                 if (win && !win.isDestroyed()) {
                   win.webContents.send("game:launchError", {
                     gameId,
@@ -2118,8 +2341,17 @@ app.whenReady().then(() => {
       soltar(cmd)
       return { ok: true, warnings }
     } catch (e) {
+      launchInFlight = false
       closeLaunchLog()
       discordRpc.clear()
+      if (minimizarTimer) {
+        clearTimeout(minimizarTimer)
+        minimizarTimer = null
+      }
+      // Só devolve o foco se esta tentativa realmente o retirou e ainda não
+      // há uma sessão acompanhada. Depois que o poll foi armado, o finalizer é
+      // a única autoridade para restaurar o foco.
+      if (focoDeLancamentoAplicado && !jogoAtivo) restaurarFocoArcadia()
       return { ok: false, error: String(e) }
     }
   })
@@ -2132,7 +2364,10 @@ app.whenReady().then(() => {
     try {
       discordRpc.clear()
       if (jogoAtivo) {
-        const { pid, alvo } = jogoAtivo
+        const encerrando = jogoAtivo
+        const { pid, alvo } = encerrando
+        jogoEncerrando = encerrando
+        processoJogoVisto = true
         jogoAtivo = null
         try {
           process.kill(-pid, "SIGTERM")
@@ -2685,8 +2920,8 @@ app.whenReady().then(() => {
 
   // --- Loja Steam (estilo Acella: Hubcap + DepotDownloader + SLSsteam) -----
   const steamstore = require("./steamstore")
-  ipcMain.handle("store:status", () => ({
-    ...steamstore.status(),
+  ipcMain.handle("store:status", async () => ({
+    ...(await steamstore.status()),
     slssteam: plugins.isEnabled("slssteam"),
     luatools: plugins.isEnabled("luatools-fixes"),
   }))
@@ -2884,6 +3119,13 @@ app.whenReady().then(() => {
   ipcMain.handle("store:ensureDotnet", async () => {
     try {
       return await steamstore.ensureDotnet()
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  ipcMain.handle("store:ensureDepotDownloader", async () => {
+    try {
+      return await steamstore.ensureDepotDownloader()
     } catch (e) {
       return { ok: false, error: String(e) }
     }
@@ -3842,6 +4084,10 @@ app.on("window-all-closed", () => {
 // Ao sair, derruba o download ativo para não deixar o Legendary órfão (os
 // downloads são detached, então não morrem junto do app sozinhos).
 app.on("before-quit", () => {
+  if (minimizarTimer) {
+    clearTimeout(minimizarTimer)
+    minimizarTimer = null
+  }
   discordRpc.close()
   // Marca que o app está saindo — o handler de render-process-gone não
   // tenta recarregar a janela durante o shutdown.
