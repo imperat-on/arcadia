@@ -61,7 +61,7 @@ export function PluginsView() {
           {msg}
         </p>
       )}
-      <div className="grid max-w-4xl gap-3">
+      <div className="desktop-fluid-column grid max-w-4xl gap-3">
         {plugins.map((p) => {
           const temCaminho = p.id in CAMINHO_KEY
           return (

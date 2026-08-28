@@ -64,7 +64,7 @@ export function EmulationSection() {
 
   return (
     <div className="min-h-full bg-[#08080a] px-8 py-7">
-      <div className="mx-auto max-w-6xl pb-10">
+      <div className="desktop-fluid-column mx-auto max-w-6xl pb-10">
         <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">

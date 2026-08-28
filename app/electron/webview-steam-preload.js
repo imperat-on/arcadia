@@ -18,6 +18,18 @@ let labels = {
 // O host informa se existe um caminho real de download para a página atual.
 // Mesmo sem Depot/Sources, a ação "Adicionar à biblioteca" continua visível.
 let downloadDisabled = true
+// O webview pode manter foco próprio enquanto o jogo fullscreen está à frente.
+// O host alterna este porteiro para descartar teclado/cliques atrasados sem
+// deixar a página Steam consumir input destinado ao jogo.
+let inputHabilitado = true
+for (const tipo of ["keydown", "keyup", "keypress", "mousedown", "mouseup", "click", "pointerdown", "pointerup", "wheel", "touchstart", "touchend"]) {
+  document.addEventListener(tipo, (event) => {
+    if (!inputHabilitado) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }, true)
+}
 // Estado do jogo atual vindo do host (arcadia:estado).
 let estado = { adicionado: false, ocupado: false }
 
@@ -212,6 +224,10 @@ function sync() {
     document.body.appendChild(wrap)
   }
 }
+
+ipcRenderer.on("arcadia:input", (_e, { enabled = true } = {}) => {
+  inputHabilitado = Boolean(enabled)
+})
 
 ipcRenderer.on("arcadia:labels", (_e, novo) => {
   labels = { ...labels, ...(novo || {}) }

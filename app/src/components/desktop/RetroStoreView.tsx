@@ -1,12 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { RetroGame, RetroOfferSummary, RetroSource } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import type { JogoLoja, OpcaoTorrent } from "../useStoreActions"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
-import { ArcadiaStoreGameDetail, type ArcadiaStoreGameDetailAction } from "./ArcadiaStoreGameDetail"
+import { StoreGamePage, type RetroStoreDetail } from "./StoreGamePage"
 import type { Game } from "../ps5-launcher/types"
 
 /** Número de itens por página usado pelo catálogo Retro. */
@@ -189,13 +189,22 @@ export function RetroStoreView({
               ? nextOffset + items.length < responseTotal
               : items.length >= RETRO_PAGE_SIZE,
         )
-        if (!response?.ok) setError(response?.error || t("store.retro_load_failed"))
+        if (!response?.ok) {
+          setHasMore(false)
+          if (nextOffset === 0) {
+            setGames([])
+            setSources([])
+          }
+          setError(response?.error || t("store.retro_load_failed"))
+        }
       } catch (cause) {
         if (generation !== listGeneration.current) return
-        setGames([])
-        setSources([])
-        setTotal(0)
-        setTotalOffers(null)
+        if (nextOffset === 0) {
+          setGames([])
+          setSources([])
+          setTotal(0)
+          setTotalOffers(null)
+        }
         setHasMore(false)
         setError(cause instanceof Error ? cause.message : t("store.retro_load_failed"))
       } finally {
@@ -399,8 +408,6 @@ export function RetroStoreView({
     setOffset(0)
   }, [])
 
-  const page = Math.floor(offset / RETRO_PAGE_SIZE) + 1
-  const totalPages = total === null ? null : Math.max(1, Math.ceil(total / RETRO_PAGE_SIZE))
   const visibleSources = useMemo(() => {
     const byId = new Map<string, RetroSource>()
     for (const source of [...sources, ...detailSources]) {
@@ -408,6 +415,8 @@ export function RetroStoreView({
     }
     return [...byId.values()]
   }, [detailSources, sources])
+  const page = Math.floor(offset / RETRO_PAGE_SIZE) + 1
+  const totalPages = total === null ? null : Math.max(1, Math.ceil(total / RETRO_PAGE_SIZE))
 
   if (selectedId) {
     return (
@@ -478,7 +487,7 @@ export function RetroStoreView({
         )}
       </div>
 
-      <form onSubmit={submitSearch} className="mb-5 flex max-w-[1040px] gap-2" role="search">
+      <form onSubmit={submitSearch} className="desktop-fluid-search mb-5 flex max-w-[1040px] gap-2" role="search">
         <select
           value={system}
           onChange={(event) => { setSystem(event.target.value); setOffset(0) }}
@@ -547,7 +556,7 @@ export function RetroStoreView({
         <RetroSkeleton />
       ) : games.length ? (
         <>
-          <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5">
+          <div className="retro-catalog-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5">
             {games.map((game) => (
               <RetroCard key={game.id} game={game} onOpen={() => void openGame(game)} t={t} />
             ))}
@@ -575,7 +584,7 @@ export function RetroStoreView({
                 type="button"
                 onClick={() => setOffset(offset + RETRO_PAGE_SIZE)}
                 disabled={!hasMore || loading}
-                className="min-w-9 rounded-lg border border-white/10 px-3 py-2 text-[13px] text-white/70 transition-colors hover:border-white/25 hover:text-white disabled:opacity-30"
+                className="min-w-9 rounded-lg border border-white/10 px-3 py-2 text-[13px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
               >
                 ›
               </button>
@@ -591,7 +600,7 @@ export function RetroStoreView({
   )
 }
 
-function RetroCard({
+const RetroCard = memo(function RetroCard({
   game,
   onOpen,
   t,
@@ -603,7 +612,7 @@ function RetroCard({
   return (
     <article
       data-testid={`retro-game-card-container-${game.id}`}
-      className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] transition-colors hover:border-white/20"
+      className="retro-catalog-card overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] transition-colors hover:border-white/20"
     >
       <button
         data-testid={`retro-game-card-${game.id}`}
@@ -636,7 +645,7 @@ function RetroCard({
       </div>
     </article>
   )
-}
+}, (previous, next) => previous.game === next.game && previous.t === next.t)
 
 function RetroDetail({
   game,
@@ -725,6 +734,7 @@ function RetroDetail({
       const response = await window.launcherAPI?.retroLibraryRemove?.(game.id)
       if (response?.ok) {
         setConfirmandoRemover(false)
+        setInLibrary(false)
         onRemoved?.()
       } else {
         setLibraryMessage(response?.error || t("store.retro_remover_erro"))
@@ -756,60 +766,33 @@ function RetroDetail({
 
   const jogar = () => onLaunchGame?.(retroGame)
 
-  const actions: ArcadiaStoreGameDetailAction[] = []
-  if (!inLibrary) {
-    actions.push({ label: t("store.adicionar_biblioteca"), onClick: () => void adicionar(), kind: "outline", icon: "plus" })
-  }
-  if (inLibrary && hasEmulator) {
-    actions.push({ label: t("gamepage.jogar"), onClick: jogar, kind: "primary", icon: "play" })
-  }
-  if (availableCount > 0) {
-    actions.push({
-      label: t("store.baixar"),
-      onClick: () => onDownloadUri(""),
-      disabled: Boolean(downloadUri),
-      kind: inLibrary && hasEmulator ? "outline" : "primary",
-      icon: "download",
-    })
-  }
-  if (inLibrary) {
-    actions.push({
-      label: t("common.remover"),
-      onClick: () => setConfirmandoRemover(true),
-      disabled: removendo,
-      kind: "danger",
-      icon: "trash",
-    })
-  }
-
-  const detailInfo = {
-    short_description: game.description,
-    about: game.description,
-    developers: game.developer,
-    publishers: game.publisher,
-    release_date: game.releaseYear ? String(game.releaseYear) : undefined,
-    header: hero,
-    screenshots: media.slice(1).map((image) => ({ thumb: image, full: image })),
-    movies: [],
-  }
-  const links = sources
-    .filter((source) => source?.url)
-    .slice(0, 4)
-    .map((source) => ({ label: source.title || source.id, onClick: () => window.launcherAPI?.openExternal(source.url) }))
+  const links = [
+    ...sources
+      .filter((source) => source?.url)
+      .map((source) => ({ label: source.title || source.id, onClick: () => window.launcherAPI?.openExternal(source.url) })),
+    ...(game.systemId
+      ? [
+          { label: "RetroAchievements", onClick: () => window.launcherAPI?.openExternal("https://retroachievements.org/") },
+          { label: "Configurar conquistas", onClick: () => window.launcherAPI?.openExternal("https://retroachievements.org/controlpanel.php") },
+        ]
+      : []),
+  ].slice(0, 4)
 
   return (
     <>
-      <ArcadiaStoreGameDetail
-        appid={game.id}
-        title={game.title}
-        hero={hero}
-        header={hero}
-        info={detailInfo}
+      <StoreGamePage
+        embedded
+        jogo={{ appid: game.id, title: game.title, cover, capa: cover, heroi: hero, manifest: true }}
         game={retroGame}
-        busy={false}
-        actions={actions}
         onClose={onClose}
+        onBaixar={() => onDownloadUri("")}
+        onAdicionar={() => void adicionar()}
+        onRemover={() => setConfirmandoRemover(true)}
+        onJogar={hasEmulator ? jogar : undefined}
         statusMessage={libraryMessage || downloadMessage}
+        naBiblioteca={inLibrary}
+        ocupado={Boolean(downloadUri || removendo)}
+        slssteamAtivo={availableCount > 0}
         retro={{
           systemId: game.systemId,
           platform: game.platform,
@@ -823,7 +806,9 @@ function RetroDetail({
           fileSize: game.fileSize,
           sourceCount: sources.length,
           links,
-        }}
+
+          screenshots: media.slice(1),
+        } satisfies RetroStoreDetail}
       />
 
       {confirmandoRemover && (
@@ -876,10 +861,13 @@ function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
   const urls = resolvedCovers
   useEffect(() => {
     let alive = true
-    const immediate = getRetroCover(game)
-    setResolvedCovers(immediate ? [immediate] : [])
     void loadRetroCovers(game).then((covers) => {
-      if (alive) setResolvedCovers(covers)
+      if (!alive) return
+      setResolvedCovers((previous) =>
+        previous.length === covers.length && previous.every((cover, index) => cover === covers[index])
+          ? previous
+          : covers,
+      )
     })
     return () => {
       alive = false
@@ -927,16 +915,14 @@ function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
 }
 
 function RetroSkeleton() {
+  return <RetroCardSkeleton count={8} />
+}
+
+function RetroCardSkeleton({ count }: { count: number }) {
   return (
-    <div
-      className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-6"
-      aria-hidden="true"
-    >
-      {Array.from({ length: 8 }, (_, index) => (
-        <div
-          key={index}
-          className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]"
-        >
+    <div className="retro-catalog-grid grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5" aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div key={index} className="retro-catalog-card overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
           <div className="aspect-[2/3] w-full animate-pulse bg-white/[0.05]" />
           <div className="p-3">
             <div className="mb-2 h-3.5 w-3/4 animate-pulse rounded bg-white/[0.07]" />
@@ -950,23 +936,18 @@ function RetroSkeleton() {
 
 function RetroDetailSkeleton() {
   return (
-    <div className="arcadia-game-detail flex h-full min-h-0 flex-col overflow-hidden bg-[#030405] text-white">
-      <div className="flex h-[50px] shrink-0 items-center gap-3 border-b border-white/[.09] bg-[#050608] px-4">
-        <div className="h-8 w-8 animate-pulse rounded bg-white/[0.05]" />
-        <div className="h-3 w-40 animate-pulse rounded bg-white/[0.07]" />
-      </div>
+    <div className="store-game-skeleton flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0b0e] text-white">
+      <div className="h-[50px] shrink-0 border-b border-white/[.08] bg-[#09090c]" />
       <div className="min-h-0 flex-1 overflow-hidden">
-        <div className="detail-layout mx-auto grid h-full max-w-[1500px] grid-cols-[minmax(0,1fr)_292px] gap-4 px-4 py-3">
-          <div className="space-y-3">
-            <div className="h-[330px] animate-pulse rounded-[7px] border border-white/[.1] bg-white/[0.05]" />
-            <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(260px,1fr)] gap-3">
-              <div className="h-40 animate-pulse rounded-[7px] bg-white/[0.04]" />
-              <div className="h-40 animate-pulse rounded-[7px] bg-white/[0.04]" />
-            </div>
+        <div className="store-game-hero h-[46vh] min-h-[280px] animate-pulse bg-white/[.04]" />
+        <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[1fr_360px]">
+          <div className="space-y-5">
+            <div className="h-64 animate-pulse rounded-xl bg-white/[.04]" />
+            <div className="h-40 animate-pulse rounded-xl bg-white/[.04]" />
           </div>
-          <div className="space-y-3">
-            <div className="h-64 animate-pulse rounded-[7px] bg-white/[0.04]" />
-            <div className="h-36 animate-pulse rounded-[7px] bg-white/[0.04]" />
+          <div className="space-y-5">
+            <div className="h-40 animate-pulse rounded-xl bg-white/[.04]" />
+            <div className="h-64 animate-pulse rounded-xl bg-white/[.04]" />
           </div>
         </div>
       </div>

@@ -62,6 +62,10 @@ interface StoreConsoleProps {
    * gamepad precisam parar nesse estado.
    */
   ativo: boolean
+  /** Estado de foco do processo principal (document.hasFocus mente no gamescope). */
+  appFocused?: boolean
+  /** Sessão de jogo pendente ou em execução; bloqueia os laços da webview. */
+  gameRunning?: boolean
   /** A loja abriu/fechou um overlay próprio (só o diálogo de escolha de disco). */
   onOverlay?: (aberto: boolean) => void
   /** Atalhos do laço de gamepad do PS5Launcher (aqui só o B/voltar é útil). */
@@ -80,7 +84,7 @@ interface StoreConsoleProps {
 // (webview-steam-preload.js) injeta um botão discreto "Baixar (Arcadia)" nas
 // páginas de jogo, que dispara o fluxo de download do próprio Arcadia.
 export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(function StoreConsole(
-  { games, ativo, onOverlay, onAtalhos },
+  { games, ativo, appFocused = true, gameRunning = false, onOverlay, onAtalhos },
   ref,
 ) {
   const { t, lang } = useI18n()
@@ -118,8 +122,14 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   const tecladoFechouEmRef = useRef(0)
   const jaAdRef = useRef(acoes.jaAdicionados)
   const busyRef = useRef(acoes.busy)
+  const ativoRef = useRef(ativo)
+  const appFocusedRef = useRef(appFocused)
+  const gameRunningRef = useRef(gameRunning)
   jaAdRef.current = acoes.jaAdicionados
   busyRef.current = acoes.busy
+  ativoRef.current = ativo
+  appFocusedRef.current = appFocused
+  gameRunningRef.current = gameRunning
 
   // Manda para a barra injetada se o jogo aberto já está adicionado + se está
   // ocupado, para ela mostrar Remover/estado certo.
@@ -145,8 +155,8 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
   // um deles estiver aberto, o laço de gamepad da loja pausa (o overlay tem o
   // próprio) e o B da loja não sai da aba.
   useEffect(() => {
-    onOverlay?.(Boolean(acoes.escolhendo) || Boolean(acoes.metodo) || tecladoAberto)
-  }, [acoes.escolhendo, acoes.metodo, tecladoAberto, onOverlay])
+    onOverlay?.(ativo && appFocused && !gameRunning && (Boolean(acoes.escolhendo) || Boolean(acoes.metodo) || tecladoAberto))
+  }, [ativo, appFocused, gameRunning, acoes.escolhendo, acoes.metodo, tecladoAberto, onOverlay])
 
   // Registra os atalhos de gamepad: aqui só o B (voltar no histórico) faz
   // sentido — a página é navegada por mouse, não pelo direcional.
@@ -225,6 +235,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
           getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() ||
           "#00a8ff"
         el.send("arcadia:tema", { accent })
+        el.send("arcadia:input", {
+          enabled: Boolean(ativoRef.current && appFocusedRef.current && !gameRunningRef.current),
+        })
       } catch {}
     }
     const onMsg = (e: any) => {
@@ -280,6 +293,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
         return
       }
       if (e?.channel !== "arcadia:acao") return
+      // A webview pode entregar uma mensagem atrasada depois que o jogo tomou
+      // a tela. Não consuma essa ação no launcher fora de foco.
+      if (!ativoRef.current || !appFocusedRef.current || gameRunningRef.current) return
       const { tipo, appid, title } = arg
       if (tipo === "restart") {
         acoes.reiniciarSteam()
@@ -367,7 +383,9 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     let rest: number[] | null = null
     let vel = 0
     const loop = () => {
-      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
+      const pausado = !ativo || !appFocused || gameRunning || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
+      // document.hasFocus() permanece true no gamescope; appFocused é a fonte
+      // autoritativa, mas o teste local preserva o comportamento fora dele.
       if (pausado || !document.hasFocus()) {
         vel = 0
         raf = requestAnimationFrame(loop)
@@ -394,7 +412,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [ativo, tecladoAberto, acoes.escolhendo])
+  }, [ativo, appFocused, gameRunning, tecladoAberto, acoes.escolhendo, acoes.metodo])
 
   // Cursor virtual: analógico ESQUERDO move a bolinha desenhada pelo preload
   // dentro do webview. Botão A dispara clique no elemento embaixo do cursor.
@@ -412,7 +430,7 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
 
     const loop = (agora: number) => {
       const w = webRef.current
-      const pausado = !ativo || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
+      const pausado = !ativo || !appFocused || gameRunning || tecladoAberto || Boolean(acoes.escolhendo) || Boolean(acoes.metodo)
       // Mesmo em pausa, sincronizamos prevA com o estado real do botão. Sem
       // isso, se o usuário aperta A pra escolher uma sugestão (o que fecha o
       // teclado), no frame seguinte o A ainda pode estar pressionado e o loop
@@ -475,18 +493,19 @@ export const StoreConsole = forwardRef<HTMLDivElement, StoreConsoleProps>(functi
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [ativo, tecladoAberto, acoes.escolhendo])
+  }, [ativo, appFocused, gameRunning, tecladoAberto, acoes.escolhendo, acoes.metodo])
 
   // Esconde o cursor no preload sempre que um overlay do host cobrir a loja
   // (teclado, diálogo de disco). Mostra de novo quando fecha.
   useEffect(() => {
     const w = webRef.current
     if (!w) return
-    const v = !(tecladoAberto || Boolean(acoes.escolhendo))
+    const v = !(tecladoAberto || Boolean(acoes.escolhendo) || !appFocused || gameRunning)
     try {
       w.send("arcadia:cursorVisivel", { v })
+      w.send("arcadia:input", { enabled: Boolean(ativo && appFocused && !gameRunning) })
     } catch {}
-  }, [tecladoAberto, acoes.escolhendo])
+  }, [ativo, tecladoAberto, appFocused, gameRunning, acoes.escolhendo])
 
   return (
     <div ref={ref} className="relative h-full w-full bg-black">

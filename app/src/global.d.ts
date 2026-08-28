@@ -1060,7 +1060,16 @@ declare global {
       storeSearch: (query: string) => Promise<{
         ok: boolean
         error?: string
-        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[]
+        jogos?: {
+          appid: string
+          title: string
+          cover?: string
+          manifest?: boolean
+          genres?: string[]
+          generos?: string[]
+          fontes?: string[]
+          fonte?: string
+        }[]
       }>
       /** Abre a conexão com a Steam antes da primeira busca (evita ~3s de TLS). */
       storeWarm: () => Promise<{ ok: boolean; error?: string }>
@@ -1078,9 +1087,19 @@ declare global {
       ) => Promise<{
         ok: boolean
         error?: string
-        jogos?: { appid: string; title: string; cover?: string; manifest?: boolean }[]
+        jogos?: {
+          appid: string
+          title: string
+          cover?: string
+          manifest?: boolean
+          genres?: string[]
+          generos?: string[]
+          fontes?: string[]
+          fonte?: string
+        }[]
         offset?: number
         total?: number
+        has_more?: boolean
       }>
       /** Loja Steam: manifesto/depots/token de um appid. */
       storeInstallInfo: (appid: string) => Promise<{
@@ -1104,6 +1123,8 @@ declare global {
       }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
       /** Instala o .NET 9 local (necessário ao DepotDownloader). */
       storeEnsureDotnet: () => Promise<{ ok: boolean; error?: string; path?: string }>
+      /** Baixa o runtime compatível do DepotDownloader para o diretório de dados. */
+      storeEnsureDepotDownloader: () => Promise<{ ok: boolean; error?: string; path?: string }>
       /** Adiciona o jogo só à biblioteca do Arcadia. Não toca na Steam. */
       storeAddToLibrary: (payload: {
         appid: string
@@ -1228,6 +1249,7 @@ declare global {
       /** Escolhe o arquivo cookies.txt do YouTube (restrição de idade). */
       trailerPickCookies: () => Promise<{ ok: boolean; path?: string }>
       /** Foco real da janela vindo do processo principal (cobre gamescope). */
+      getAppFocus?: () => Promise<boolean>
       onAppFocus: (cb: (focused: boolean) => void) => () => void
       /** Transições de jogo rodando (true = abriu, false = fechou). */
       onGameRunning: (cb: (running: boolean) => void) => () => void

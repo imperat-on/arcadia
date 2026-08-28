@@ -178,7 +178,7 @@ export function GamePage({
         </svg>
       </button>
 
-      <div className="relative z-[1] mx-auto grid h-full w-full max-w-[1400px] flex-1 grid-cols-2 gap-5 overflow-hidden p-5 pt-16">
+      <div className="desktop-game-page relative z-[1] mx-auto grid h-full w-full max-w-none flex-1 grid-cols-2 gap-5 overflow-hidden p-5 pt-16">
         {/* Coluna esquerda: arte + info */}
         <div className="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90">
           <div className="relative h-[42%] shrink-0 overflow-hidden bg-black">

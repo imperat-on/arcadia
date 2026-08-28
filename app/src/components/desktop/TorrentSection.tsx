@@ -27,7 +27,7 @@ export function TorrentSection() {
   const completos = items.filter((i) => i.completo)
 
   return (
-    <div className="mt-8 flex max-w-[900px] flex-col gap-4">
+    <div className="desktop-fluid-column mt-8 flex max-w-[900px] flex-col gap-4">
       <h2 className="ui-section-title">{t("torrent.secao")}</h2>
       {ativos.map((it) => (
         <TorrentCard key={it.gameId} item={it} />

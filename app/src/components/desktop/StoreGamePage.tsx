@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n/I18nContext"
 import {
   GameMediaGallery,
   GameDescription,
+  Panel,
   ProtonDBPanel,
   ControllerPanel,
   RequirementsPanel,
@@ -22,7 +23,7 @@ import {
 import { AchievementsPanel } from "./AchievementsPanel"
 import { FixesPanel } from "./FixesPanel"
 import { CommunityPanel } from "../CommunityPanel"
-import { ArcadiaStoreGameDetail } from "./ArcadiaStoreGameDetail"
+import { RetroAchievementsGamePanel } from "./RetroAchievementsGamePanel"
 
 type ItemLoja = {
   appid: string
@@ -31,6 +32,22 @@ type ItemLoja = {
   capa?: string
   heroi?: string
   manifest?: boolean
+}
+
+export type RetroStoreDetail = {
+  systemId?: string
+  platform?: string
+  description?: string
+  genres?: string[]
+  releaseYear?: number | null
+  developers?: string[]
+  publishers?: string[]
+  offerCount?: number
+  availableCount?: number
+  fileSize?: string
+  sourceCount?: number
+  links?: { label: string; onClick: () => void }[]
+  screenshots?: string[]
 }
 type Info = NonNullable<
   Awaited<ReturnType<NonNullable<Window["launcherAPI"]>["gameSysinfo"]>>["info"]
@@ -44,12 +61,13 @@ export function StoreGamePage({
   onRemover,
   onConfig,
   onJogar,
+  statusMessage,
   naBiblioteca,
   ocupado,
   embedded,
-  bigPicture = false,
   game,
   slssteamAtivo,
+  retro,
 }: {
   jogo: ItemLoja
   game?: Game
@@ -59,15 +77,17 @@ export function StoreGamePage({
   onRemover?: () => void
   onConfig?: () => void
   onJogar?: () => void
+  statusMessage?: string
   naBiblioteca: boolean
   ocupado: boolean
   embedded?: boolean
-  bigPicture?: boolean
   slssteamAtivo?: boolean
+  retro?: RetroStoreDetail
 }) {
   const { t } = useI18n()
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
+  const isRetro = Boolean(retro)
   const [slsAtivo, setSlsAtivo] = useState(Boolean(slssteamAtivo))
   // Jogo rodando (tempo real, via game:active do main): o botão JOGAR vira
   // RODANDO + PARAR enquanto o jogo desta página está em execução.
@@ -107,6 +127,11 @@ export function StoreGamePage({
   const [temTorrent, setTemTorrent] = useState(false)
 
   useEffect(() => {
+    if (isRetro) {
+      setInfo(null)
+      setBusy(false)
+      return
+    }
     setBusy(true)
     setInfo(null)
     const g = {
@@ -119,10 +144,10 @@ export function StoreGamePage({
       setInfo(r?.info || null)
       setBusy(false)
     })
-  }, [jogo.appid])
+  }, [jogo.appid, isRetro])
 
   useEffect(() => {
-    if (!naBiblioteca) {
+    if (isRetro || !naBiblioteca) {
       setInstallPath("")
       return
     }
@@ -134,7 +159,7 @@ export function StoreGamePage({
     }
     window.launcherAPI?.storeInstallDir(g as never).then((r) => setInstallPath(r?.path || ""))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jogo.appid, naBiblioteca, game])
+  }, [jogo.appid, naBiblioteca, game, isRetro])
 
   useEffect(() => {
     if (typeof slssteamAtivo === "boolean") setSlsAtivo(slssteamAtivo)
@@ -156,6 +181,7 @@ export function StoreGamePage({
   useEffect(() => {
     let vivo = true
     setTemTorrent(false)
+    if (isRetro) return () => { vivo = false }
     ;(async () => {
       try {
         const normalizar = (s: string) =>
@@ -200,9 +226,11 @@ export function StoreGamePage({
     return () => {
       vivo = false
     }
-  }, [jogo.title])
+  }, [jogo.title, isRetro])
 
-  const podeBaixar = slsAtivo || temTorrent
+  const podeBaixar = isRetro
+    ? Boolean(retro?.availableCount || retro?.offerCount || slsAtivo)
+    : slsAtivo || temTorrent
 
   const hero =
     jogo.heroi || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
@@ -214,51 +242,13 @@ export function StoreGamePage({
   // `capa` vier como header (ex.: DesktopLauncher passando cover como capa),
   // caimos na URL retrato padrão.
   const capa = jogo.capa && !jogo.capa.includes("/header.jpg") ? jogo.capa : portraitUrl
-  const dev = info?.developers?.[0]
-  const pub = info?.publishers?.[0]
-  const instalado = game ? game.installed !== false : Boolean(onJogar)
-
-  if (!bigPicture) {
-    const actions = !naBiblioteca
-      ? [
-          { label: t("store.adicionar_biblioteca"), onClick: onAdicionar, disabled: ocupado, kind: "outline" as const, icon: "plus" as const },
-          ...((slsAtivo || temTorrent)
-            ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }]
-            : []),
-        ]
-      : instalado
-        ? [
-            ...(onJogar
-              ? [{
-                  label: rodando ? t("gamepage.parar") : t("gamepage.jogar"),
-                  onClick: rodando ? () => { void window.launcherAPI?.closeGame() } : onJogar,
-                  disabled: ocupado,
-                  kind: rodando ? "danger" as const : "primary" as const,
-                  icon: rodando ? "stop" as const : "play" as const,
-                }]
-              : []),
-            ...(onConfig ? [{ label: t("gamepage.gerenciar"), onClick: onConfig, disabled: ocupado, kind: "outline" as const, icon: "settings" as const }] : []),
-            ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
-          ]
-        : [
-            ...((slsAtivo || temTorrent) ? [{ label: t("store.baixar"), onClick: onBaixar, disabled: ocupado, kind: "primary" as const, icon: "download" as const }] : []),
-            ...(onRemover ? [{ label: t("common.remover"), onClick: onRemover, disabled: ocupado, kind: "danger" as const, icon: "trash" as const }] : []),
-          ]
-
-    return (
-      <ArcadiaStoreGameDetail
-        appid={jogo.appid}
-        title={jogo.title}
-        hero={hero}
-        header={header}
-        info={info}
-        game={game}
-        busy={busy}
-        actions={actions}
-        onClose={onClose}
-      />
-    )
-  }
+  const dev = retro?.developers?.[0] || info?.developers?.[0]
+  const pub = retro?.publishers?.[0] || info?.publishers?.[0]
+  const release = retro?.releaseYear ? String(retro.releaseYear) : info?.release_date || String(game?.year || "—")
+  // Retro library entries may exist before the ROM is downloaded. Only an
+  // emulator-ready launch callback means the game is installed in this view.
+  const instalado = isRetro ? Boolean(onJogar) : game ? game.installed !== false : Boolean(onJogar)
+  const retroScreenshots = (retro?.screenshots || []).map((src) => ({ thumb: src, full: src }))
 
   return (
     <div
@@ -298,7 +288,7 @@ export function StoreGamePage({
         onScroll={(e) => setRolado((e.currentTarget as HTMLDivElement).scrollTop > 40)}
       >
         {/* ─── Hero cinemático ───────────────────────────────────────────── */}
-        <div className="relative h-[62vh] min-h-[420px] w-full overflow-hidden bg-black">
+        <div className="store-game-hero relative h-[46vh] min-h-[280px] w-full overflow-hidden bg-black">
           <img
             src={hero}
             alt=""
@@ -327,7 +317,7 @@ export function StoreGamePage({
 
           {/* Bloco inferior: cover + título + meta */}
           <div className="absolute inset-x-0 bottom-0 z-[5]">
-            <div className="mx-auto flex max-w-[1400px] items-end gap-6 px-8 pb-8">
+            <div className="mx-auto flex max-w-[1400px] items-end gap-6 px-6 pb-6">
               {/* Cover retrato flutuante */}
               <div
                 className="relative hidden shrink-0 overflow-hidden rounded-xl md:block"
@@ -353,7 +343,7 @@ export function StoreGamePage({
                   {jogo.title}
                 </h1>
                 <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-white/70">
-                  {info?.release_date && <Chip>{info.release_date}</Chip>}
+                  {release !== "—" && <Chip>{release}</Chip>}
                   {dev && <Chip>{dev}</Chip>}
                   {pub && pub !== dev && (
                     <Chip subtle>
@@ -375,7 +365,7 @@ export function StoreGamePage({
             WebkitBackdropFilter: rolado ? "blur(20px) saturate(1.3)" : "none",
           }}
         >
-          <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-8 py-3">
+          <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-6 py-3">
             <span
               className={`game-name text-[15px] font-semibold text-white transition-opacity ${rolado ? "opacity-100" : "opacity-0"}`}
             >
@@ -454,6 +444,15 @@ export function StoreGamePage({
                       </svg>
                     </PrimaryBtn>
                   ))}
+                  {isRetro && podeBaixar && (
+                    <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </PrimaryBtn>
+                  )}
                   {fixesAtivo && (
                     <GhostBtn onClick={() => setFixesAberto(true)} disabled={ocupado} label="Fixes">
                       <svg
@@ -496,7 +495,7 @@ export function StoreGamePage({
                 </>
               ) : (
                 <>
-                  {onBaixar && (slsAtivo || temTorrent) && (
+                  {onBaixar && podeBaixar && (
                     <PrimaryBtn onClick={onBaixar} disabled={ocupado} label={t("store.baixar")}>
                       <svg
                         width="14"
@@ -523,26 +522,70 @@ export function StoreGamePage({
           </div>
         </div>
 
+        {statusMessage && (
+          <div className="mx-auto max-w-[1400px] px-6 pt-4">
+            <p role="status" className="rounded-lg border border-amber-200/15 bg-amber-200/[0.04] px-3 py-2 text-[12px] text-amber-100/75">
+              {statusMessage}
+            </p>
+          </div>
+        )}
+
         {/* ─── Corpo: 2 colunas ───────────────────────────────────────────── */}
-        <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 px-8 pb-16 pt-6 lg:grid-cols-[1fr_360px]">
+        <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 px-6 pb-10 pt-6 lg:grid-cols-[1fr_360px]">
           <div className="flex min-w-0 flex-col gap-6">
-            <GameMediaGallery movies={info?.movies} screenshots={info?.screenshots} />
-            <GameDescription html={info?.about} fallback={info?.short_description} />
-            {busy && !info && (
+            {(isRetro || info?.release_date || info?.publishers?.length) && (
+              <div className="ui-card p-5 text-[13px]">
+                {release !== "—" && <p className="text-white/80">{t("gamepage.lancado_em")} {release}</p>}
+                {(dev || pub || retro?.platform) && (
+                  <p className="mt-1 text-white/55">
+                    {retro?.platform || (dev ? `${t("gamepage.publicado_por")} ${dev}` : pub)}
+                  </p>
+                )}
+              </div>
+            )}
+            <GameMediaGallery
+              movies={isRetro ? [] : info?.movies}
+              screenshots={isRetro ? retroScreenshots : info?.screenshots}
+            />
+            <GameDescription
+              html={isRetro ? undefined : info?.about}
+              fallback={isRetro ? retro?.description : info?.short_description}
+            />
+            {busy && !info && !isRetro && (
               <p className="text-[13px] text-white/40">{t("gamepage.carregando")}</p>
             )}
-            <ReviewsPanel appid={jogo.appid} />
-            <CommentsPanel appid={jogo.appid} />
-            <CommunityPanel appid={jogo.appid} title={jogo.title} />
+            {!isRetro && <ReviewsPanel appid={jogo.appid} />}
+            {!isRetro && <CommentsPanel appid={jogo.appid} />}
+            {!isRetro && <CommunityPanel appid={jogo.appid} title={jogo.title} />}
           </div>
 
           <div className="flex flex-col gap-4">
-            <ProtonDBPanel appid={jogo.appid} />
-            <StatsPanel appid={jogo.appid} />
-            <AchievementsPanel appid={jogo.appid} />
-            <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
-            <LanguagesPanel languages={info?.languages} />
-            <ControllerPanel support={info?.controller_support} />
+            {isRetro ? (
+              <>
+                <RetroSummaryPanel detail={retro} />
+                {retro?.systemId && <RetroAchievementsGamePanel title={jogo.title} systemId={retro.systemId} />}
+                {retro?.links?.length ? (
+                  <Panel title="Links rápidos">
+                    <div className="flex flex-col gap-1">
+                      {retro.links.map((link) => (
+                        <button key={link.label} type="button" onClick={link.onClick} className="border-b border-white/[.06] px-1 py-2 text-left text-[12px] text-white/65 last:border-0 hover:text-white">
+                          {link.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Panel>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <ProtonDBPanel appid={jogo.appid} />
+                <StatsPanel appid={jogo.appid} />
+                <AchievementsPanel appid={jogo.appid} />
+                <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
+                <LanguagesPanel languages={info?.languages} />
+                <ControllerPanel support={info?.controller_support} />
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -562,6 +605,28 @@ export function StoreGamePage({
         @keyframes sg-in { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:translateY(0);} }
       `}</style>
     </div>
+  )
+}
+
+function RetroSummaryPanel({ detail }: { detail?: RetroStoreDetail }) {
+  const rows = [
+    ["Sistema", detail?.systemId],
+    ["Plataforma", detail?.platform],
+    ["Gêneros", detail?.genres?.join(", ")],
+    ["Lançamento", detail?.releaseYear ? String(detail.releaseYear) : undefined],
+    ["Desenvolvedora", detail?.developers?.join(", ")],
+    ["Distribuidora", detail?.publishers?.join(", ")],
+    ["Fontes", detail?.sourceCount != null ? String(detail.sourceCount) : undefined],
+    ["Ofertas", detail?.offerCount != null ? String(detail.offerCount) : undefined],
+    ["Tamanho", detail?.fileSize],
+  ].filter((row): row is [string, string] => Boolean(row[1]))
+  return (
+    <Panel title="Informações">
+      <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-3 text-[12px]">
+        {rows.map(([label, value]) => <div key={label} className="contents"><dt className="uppercase tracking-[.06em] text-white/35">{label}</dt><dd className="truncate text-white/70">{value}</dd></div>)}
+      </dl>
+      {detail?.availableCount != null && <p className="mt-4 border-t border-white/[.06] pt-3 text-[11px] text-white/45">{detail.availableCount} opções disponíveis</p>}
+    </Panel>
   )
 }
 

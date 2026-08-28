@@ -64,7 +64,7 @@ if [ "$DIR" != "$DESTINO" ]; then
     echo "==> Instalando em $DESTINO (local padrão do app)"
     mkdir -p "$(dirname "$DESTINO")"
     # Dados do usuário que DEVEM ser preservados ao reinstalar por cima
-    PRESERVAR=(config.json library.json contas games prefixes logs session.json owned_games.json sources.json sources_index.json torrent_state.json art trailers wine bin/plugins.json)
+    PRESERVAR=(config.json library.json contas games prefixes logs session.json owned_games.json sources.json sources_index.json torrent_state.json art trailers wine bin/plugins.json bin/deps bin/dotnet bin/tmp)
     BACKUP=""
     if [ -d "$DESTINO" ]; then
         # Move o destino atual para backup (proteção total) e devolve os dados

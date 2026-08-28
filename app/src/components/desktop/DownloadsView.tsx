@@ -39,7 +39,7 @@ export function DownloadsView() {
       {items.length === 0 ? (
         <div className="ui-empty">{t("downloads.vazio")}</div>
       ) : (
-        <div className="flex max-w-[900px] flex-col gap-4 pb-8">
+        <div className="desktop-fluid-column flex max-w-[900px] flex-col gap-4 pb-8">
           {ativos.map((it) => (
             <DmCard key={it.appid} item={it} />
           ))}

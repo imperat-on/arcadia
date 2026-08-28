@@ -37,6 +37,7 @@ app/
     sources.js        # fontes de download (registro + caches)
     downloadmanager.js# fila de downloads
     download-integrity.js # verificação e recuperação de downloads
+    depotdownloader.js # bootstrap do runtime compatível da Steam
     steamstore.js     # loja Steam
   test/               # node --test (módulos puros e contratos)
   package.json

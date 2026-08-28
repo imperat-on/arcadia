@@ -92,6 +92,49 @@ const MOCK_GAMES: Game[] = [
 
 const TAB_COUNT = TABS.length
 
+// Um jogo fullscreen pode deixar o BrowserWindow sem um elemento ativo quando
+// termina (principalmente depois de um launch por teclado). Não basta marcar o
+// estado como focado: o próximo Enter precisa voltar a um controle real, e não
+// a um botão escondido do overview que está fechando.
+function podeReceberFoco(el: HTMLElement | null): el is HTMLElement {
+  if (!el || !el.isConnected || el === document.body || el === document.documentElement) return false
+  if (el.hasAttribute("disabled")) return false
+  const nativeOrEditable = el.matches(
+    'button:not([disabled]), a[href], area[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable]:not([contenteditable="false"]), [tabindex]',
+  )
+  // tabIndex normalizes every negative tabindex (not only -1); a visible div
+  // or an input[type=hidden] must not win the fallback just because it exists.
+  if (!nativeOrEditable || el.tabIndex < 0) return false
+  const style = window.getComputedStyle(el)
+  if (style.display === "none" || style.visibility === "hidden") return false
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert") || node.getAttribute("aria-hidden") === "true") return false
+    if (node.classList.contains("is-hidden") || node.classList.contains("is-closing")) return false
+  }
+  return true
+}
+
+function focoDeRetorno(preferido: HTMLElement | null): void {
+  const atual = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (podeReceberFoco(atual)) return
+  const candidatos: HTMLElement[] = []
+  if (preferido) candidatos.push(preferido)
+  const overview = document.querySelector<HTMLElement>(
+    '.arcadia-overview:not(.is-hidden) button:not([disabled]), [role="dialog"]:not(.is-hidden) button:not([disabled])',
+  )
+  if (overview) candidatos.push(overview)
+  const selecionado = document.querySelector<HTMLElement>(
+    '[data-roving-item="true"][data-active="true"]',
+  )
+  if (selecionado) candidatos.push(selecionado)
+  const primeiro = document.querySelector<HTMLElement>(
+    'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+  )
+  if (primeiro) candidatos.push(primeiro)
+  const alvo = candidatos.find(podeReceberFoco)
+  alvo?.focus({ preventScroll: true })
+}
+
 interface LaunchToast {
   title: string
   visible: boolean
@@ -133,6 +176,10 @@ export function PS5Launcher() {
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
   const gameRunningRef = useRef(false)
   gameRunningRef.current = gameRunning
+  // Evita dois IPCs quando Enter/Space fica pressionado durante a transição
+  // para a janela fullscreen (o retorno do primeiro IPC é assíncrono).
+  const launchPendingRef = useRef(false)
+  const [launchPending, setLaunchPending] = useState(false)
   const jogoAtivoRef = useRef(jogoAtivo)
   jogoAtivoRef.current = jogoAtivo
 
@@ -450,10 +497,53 @@ export function PS5Launcher() {
   // Foco real da janela (eventos blur/focus do Electron — no gamescope o
   // document.hasFocus() mente). Trava gamepad e silencia trailer.
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
-  const appFocusedRef = useRef(true)
-  appFocusedRef.current = appFocused && document.hasFocus()
+  const appFocusedRef = useRef(appFocused)
+  const ultimoFocoRef = useRef<HTMLElement | null>(null)
+  appFocusedRef.current = appFocused
   useEffect(() => {
-    return window.launcherAPI?.onAppFocus((f) => setAppFocused(f))
+    const lembrarFoco = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && podeReceberFoco(event.target)) {
+        ultimoFocoRef.current = event.target
+      }
+    }
+    const aoFocar = () => {
+      appFocusedRef.current = true
+      setAppFocused(true)
+      // O compositor pode entregar o evento focus antes de o conteúdo voltar a
+      // estar visível. Um frame deixa show()/restore() terminar sem atropelar
+      // um clique que o usuário acabou de fazer.
+      window.requestAnimationFrame(() => focoDeRetorno(ultimoFocoRef.current))
+    }
+    const aoDesfocar = () => {
+      appFocusedRef.current = false
+      setAppFocused(false)
+    }
+    const aoFocoDoMain = (f: boolean) => {
+      appFocusedRef.current = Boolean(f)
+      setAppFocused(Boolean(f))
+      if (f) window.requestAnimationFrame(() => focoDeRetorno(ultimoFocoRef.current))
+    }
+    window.addEventListener("focusin", lembrarFoco)
+    window.addEventListener("focus", aoFocar)
+    window.addEventListener("blur", aoDesfocar)
+    const off = window.launcherAPI?.onAppFocus(aoFocoDoMain)
+    const offLaunchError = window.launcherAPI?.onLaunchError?.(() => {
+      launchPendingRef.current = false
+      setLaunchPending(false)
+      jogoAtivoRef.current.limpar()
+    })
+    // Consulta o estado atual além de ouvir eventos: um launch pode ter
+    // acontecido antes deste componente montar, especialmente após reload do
+    // renderer dentro do gamescope.
+    const estadoAtual = window.launcherAPI?.getAppFocus?.()
+    if (estadoAtual) void estadoAtual.then(aoFocoDoMain).catch(() => {})
+    return () => {
+      window.removeEventListener("focusin", lembrarFoco)
+      window.removeEventListener("focus", aoFocar)
+      window.removeEventListener("blur", aoDesfocar)
+      off?.()
+      offLaunchError?.()
+    }
   }, [])
   useEffect(() => {
     if (!newsMode && !overviewOpen) return
@@ -487,7 +577,7 @@ export function PS5Launcher() {
   // Navegação por controle na aba de notícias (D-pad move o foco, A abre, B nada).
   // Notícias: navegação SÓ por scroll (analógico direito). Sem foco espacial —
   // o anel azul de foco no card destaque poluía a tela.
-  useGamepadNav(newsRef, newsMode, undefined, true)
+  useGamepadNav(newsRef, newsMode && appFocused && !gameRunning, undefined, true)
   // A loja agora é a StoreView nativa (React puro): busca, cards e página do
   // jogo são todos DOM comum, com foco padrão dos <button>. O useGamepadNav
   // move o foco espacial como em qualquer outra tela — sem cursor virtual,
@@ -528,7 +618,13 @@ export function PS5Launcher() {
   useEffect(() => {
     if (storeMode) setLojaMontada(true)
   }, [storeMode])
-  useGamepadNav(storeRef, storeMode && !lojaOverlay, voltarLoja, false, extrasLoja)
+  useGamepadNav(
+    storeRef,
+    storeMode && !lojaOverlay && appFocused && !gameRunning,
+    voltarLoja,
+    false,
+    extrasLoja,
+  )
 
   // Overview do jogo: hub cinematográfico próprio, com navegação espacial e B
   // para voltar à biblioteca.
@@ -546,24 +642,31 @@ export function PS5Launcher() {
 
   // Navegação por controle no perfil (D-pad move o foco, B fecha).
   const profileRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile, () =>
+  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile && !gameRunning, () =>
     setShowProfile(false),
   )
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
-  useGamepadNav(perfilRef, perfilGate && !boot && appFocused)
+  useGamepadNav(perfilRef, perfilGate && !boot && appFocused && !gameRunning)
 
-  // Navegação por controle na tela de downloads. NÃO depende de appFocused:
-  // era a única superfície cuja navegação morria com um blur enquanto seguia
-  // aberta — e como o onBack vive no mesmo hook, o B também parava de fechar,
-  // deixando a tela presa. O laço principal do gamepad já é travado pelo
-  // modalOpenRef, que inclui showDownloads.
-  useGamepadNav(dmRef, showDownloads, () => setShowDownloads(false))
+  // Navegação por controle na tela de downloads. Também respeita o foco
+  // autoritativo e uma sessão de jogo: gamescope mantém document.hasFocus()
+  // verdadeiro, mas nenhum overlay do launcher deve consumir B/D-pad enquanto
+  // o jogo fullscreen está na frente.
+  useGamepadNav(
+    dmRef,
+    showDownloads && appFocused && !gameRunning,
+    () => setShowDownloads(false),
+  )
 
   // Diálogo do jogo sem manifesto: dois botões, então precisa do direcional e
   // do B para fechar como qualquer outro overlay.
   const semManifestoRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(semManifestoRef, Boolean(semManifesto), () => setSemManifesto(null))
+  useGamepadNav(
+    semManifestoRef,
+    Boolean(semManifesto) && appFocused && !gameRunning,
+    () => setSemManifesto(null),
+  )
 
   // Reseta a seleção ao trocar de aba.
   useEffect(() => {
@@ -579,6 +682,7 @@ export function PS5Launcher() {
   useEffect(() => {
     if (!overviewOpen) return
     const handleEscape = (event: KeyboardEvent) => {
+      if (!appFocusedRef.current || gameRunningRef.current) return
       if (event.key === "Escape" || event.key === "ArrowUp") {
         event.preventDefault()
         closeOverview()
@@ -590,9 +694,22 @@ export function PS5Launcher() {
 
   const abrirJogo = useCallback(
     (game: Game, mode?: "steam" | "exe") => {
+      if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
+      launchPendingRef.current = true
+      setLaunchPending(true)
+      // Marca a sessão antes do IPC: o main só confirma game:running(true)
+      // depois do poll, mas o lock local já bloqueia toques durante a abertura.
+      const escolheModo = mode === undefined && game.launcher === "steam" && game.temExe
+      if (!escolheModo) jogoAtivoRef.current.iniciar(game)
       void launchGame(game, mode).then((result) => {
-        if (!result.ok || result.needsMode) return
-        jogoAtivoRef.current.iniciar(game)
+        launchPendingRef.current = false
+        if (!result.ok || result.needsMode) {
+          jogoAtivoRef.current.limpar()
+          setLaunchPending(false)
+          return
+        }
+        if (escolheModo) jogoAtivoRef.current.iniciar(game)
+        setLaunchPending(false)
         setRecent((prev) => {
           const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
           try {
@@ -604,6 +721,12 @@ export function PS5Launcher() {
         })
         setToast({ title: game.title, visible: true })
         setTimeout(() => setToast((current) => ({ ...current, visible: false })), 3000)
+      }).catch(() => {
+        // O bridge normalmente converte a falha em { ok: false }, mas a trava
+        // também precisa ser liberada se um bridge customizado rejeitar.
+        launchPendingRef.current = false
+        jogoAtivoRef.current.limpar()
+        setLaunchPending(false)
       })
     },
     [launchGame],
@@ -613,7 +736,23 @@ export function PS5Launcher() {
   // (não é sessão de jogo) — só abrir seta gameRunning.
   const _activate = useCallback(
     (game?: Game | null) => {
-      if (!game) return
+      if (!game || !appFocusedRef.current || launchPendingRef.current) return
+      // Um jogo fullscreen pode deixar a janela atrás do jogo; mesmo quando um
+      // clique/tecla vaza até aqui, nunca inicie um segundo processo. O mesmo
+      // jogo continua podendo usar o botão Jogar/Parar quando o launcher está
+      // focado de propósito.
+      const sessao = jogoAtivoRef.current
+      // Também cobre reload do renderer ou jogo externo, quando o booleano
+      // rodando foi replayado mas o objeto Game ainda não existe localmente.
+      if (gameRunningRef.current) {
+        if (sessao.jogo?.id === game.id && sessao.rodando) sessao.parar()
+        return
+      }
+      if (
+        sessao.jogo &&
+        sessao.jogo.id !== game.id &&
+        (sessao.rodando || sessao.pendente)
+      ) return
 
       // Não instalado: redireciona para a instalação de cada loja.
       if (game.installed === false) {
@@ -719,6 +858,23 @@ export function PS5Launcher() {
     const step = (d: number) => setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + d)))
 
     const handleKey = (e: KeyboardEvent) => {
+      // Em gamescope o Chromium continua dizendo que está focado e pode até
+      // receber uma tecla enquanto o jogo fullscreen está na frente. Nunca
+      // deixe essa tecla abrir outro jogo, alternar telas ou clicar no launcher.
+      if (!appFocusedRef.current || launchPendingRef.current) return
+      if (gameRunningRef.current) {
+        // Quando a pessoa trouxe o launcher para frente de propósito, mantém o
+        // atalho de Enter/Space para parar o MESMO jogo. Outros jogos ficam
+        // bloqueados pelo _activate para não criar dois processos.
+        if (
+          (e.key === "Enter" || e.key === " ") &&
+          selectedGameRef.current?.id === jogoAtivoRef.current.jogo?.id
+        ) {
+          e.preventDefault()
+          jogoAtivoRef.current.parar()
+        }
+        return
+      }
       if (overviewClosing && e.key === "ArrowDown") {
         e.preventDefault()
         openOverview()
@@ -841,6 +997,13 @@ export function PS5Launcher() {
       // o controle — a Gamepad API entrega input mesmo desfocada.
       if (!appFocusedRef.current) {
         prev = [] // ressincroniza ao voltar (não dispara botão segurado)
+        raf = requestAnimationFrame(loop)
+        return
+      }
+      if (launchPendingRef.current) {
+        // O IPC de launch é assíncrono; ignora o botão ainda pressionado até o
+        // estado pendente/rodando estar refletido no renderer.
+        prev = []
         raf = requestAnimationFrame(loop)
         return
       }
@@ -996,8 +1159,26 @@ export function PS5Launcher() {
   )
 
   return (
-    <div className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${posLogin ? "pos-login home-reveal" : ""} ${overviewOpen ? (overviewClosing ? "overview-returning" : "overview-active") : ""}`}>
+    <div
+      className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${storeMode ? "retro-store-active" : ""} ${posLogin ? "pos-login home-reveal" : ""} ${overviewOpen ? (overviewClosing ? "overview-returning" : "overview-active") : ""}`}
+      onKeyDownCapture={(event) => {
+        if (!appFocusedRef.current && (gameRunningRef.current || launchPendingRef.current)) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      }}
+    >
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
+      {/* Captura cliques entregues ao renderer durante a transição/jogo. O
+          gamescope pode manter a página tecnicamente focada; o estado do main
+          continua sendo a autoridade. */}
+      {!appFocused && (gameRunning || launchPending) && (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 z-[200] cursor-none"
+          style={{ pointerEvents: "auto", background: "transparent" }}
+        />
+      )}
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
         <BootScreen
@@ -1029,7 +1210,7 @@ export function PS5Launcher() {
 
       {/* Escurecimento p/ contraste: forte embaixo (trilho) e à esquerda (texto) */}
       <div
-        className="absolute inset-0 pointer-events-none"
+        className="retro-global-shade-bottom absolute inset-0 pointer-events-none"
         style={{
           background:
             "linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 28%, rgba(0,0,0,0.18) 62%, rgba(0,0,0,0.12) 100%)",
@@ -1039,7 +1220,7 @@ export function PS5Launcher() {
       <div className="retro-crt-overlay pointer-events-none absolute inset-0 z-[19]" />
 
       <div
-        className="absolute inset-0 pointer-events-none"
+        className="retro-global-shade-side absolute inset-0 pointer-events-none"
         style={{
           background:
             "linear-gradient(to right, rgba(0,0,0,0.94) 0%, rgba(0,0,0,0.55) 38%, transparent 68%)",
@@ -1048,7 +1229,7 @@ export function PS5Launcher() {
 
       {/* Gradiente sutil no topo, p/ legibilidade da barra transparente */}
       <div
-        className="absolute top-0 inset-x-0 h-32 z-20 pointer-events-none"
+        className="retro-global-shade-top absolute top-0 inset-x-0 h-32 z-20 pointer-events-none"
         style={{
           background:
             "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.35) 50%, transparent)",
@@ -1058,7 +1239,7 @@ export function PS5Launcher() {
       {/* Top bar transparente, flutuando sobre o fundo */}
       {/* Editar perfil (Geral / Avatar / Plano de fundo) */}
       <EditProfile
-        open={showEditProfile}
+        open={showEditProfile && !gameRunning}
         profile={profile}
         games={games}
         onClose={() => setShowEditProfile(false)}
@@ -1071,7 +1252,7 @@ export function PS5Launcher() {
           <ProfilePage
             open
             embedded={false}
-            navActive={!showEditProfile}
+            navActive={appFocused && !gameRunning && !showEditProfile}
             profile={
               conta?.perfil
                 ? {
@@ -1199,7 +1380,10 @@ export function PS5Launcher() {
           <StoreView
             games={viewGames}
             bigPicture
-            ativo={storeMode}
+            ativo={storeMode && appFocused && !gameRunning}
+            appFocused={appFocused}
+            gameRunning={gameRunning}
+            runningGameId={jogoAtivo.jogo?.id}
             onOverlay={setLojaOverlay}
             onAtalhos={setAtalhosLoja}
             onLaunchGame={(game) => abrirJogo(game)}
@@ -1209,7 +1393,7 @@ export function PS5Launcher() {
 
       {/* Opções do jogo (Start ou botão "...") */}
       <GameContextMenu
-        game={ctxGame}
+        game={appFocused && !gameRunning ? ctxGame : null}
         onClose={() => setCtxGame(null)}
         onLaunch={() => _activate(ctxGame)}
         onEditMeta={() => setEditGame(ctxGame)}
@@ -1300,6 +1484,7 @@ export function PS5Launcher() {
               <button
                 autoFocus
                 onClick={() => {
+                  if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
                   void launchCommand(["steam", `steam://install/${semManifesto.jogo.appid}`])
                   setToast({
                     title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }),
@@ -1360,6 +1545,7 @@ export function PS5Launcher() {
       {escolhendoLaunch && (
         <LaunchModeDialog
           game={escolhendoLaunch}
+          active={appFocused && !gameRunning}
           onEscolher={(mode) => {
             const g = escolhendoLaunch
             setEscolhendoLaunch(null)

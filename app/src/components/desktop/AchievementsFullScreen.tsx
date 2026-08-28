@@ -28,7 +28,7 @@ export function AchievementsFullScreen({
         <button type="button" onClick={onClose} className="detail-achievements-all">Fechar</button>
       </header>
       <div data-gamepad-scroll className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className="mx-auto max-w-[1500px]">
+        <div className="desktop-achievements-layout mx-auto w-full max-w-none">
           <div className="mb-5 h-1 overflow-hidden rounded bg-white/10">
             <span className="block h-full bg-[var(--desktop-green)]" style={{ width: `${progress}%` }} />
           </div>

@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   storeInstallInfo: (appid) => ipcRenderer.invoke("store:installInfo", appid),
   storeInstall: (payload) => ipcRenderer.invoke("store:install", payload),
   storeEnsureDotnet: () => ipcRenderer.invoke("store:ensureDotnet"),
+  storeEnsureDepotDownloader: () => ipcRenderer.invoke("store:ensureDepotDownloader"),
   storeAddToLibrary: (payload) => ipcRenderer.invoke("store:addToLibrary", payload),
   storeAddToSteam: (payload) => ipcRenderer.invoke("store:addToSteam", payload),
   storeInstallDir: (game) => ipcRenderer.invoke("store:installDir", game),
@@ -193,6 +194,8 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("trailer:dlprogress", h)
     return () => ipcRenderer.removeListener("trailer:dlprogress", h)
   },
+  /** Consulta o último estado emitido para cobrir o registro tardio do renderer. */
+  getAppFocus: () => ipcRenderer.invoke("app:focusState"),
   onAppFocus: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("app:focus", h)

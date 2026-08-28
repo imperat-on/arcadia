@@ -468,6 +468,7 @@ function Card({
 
   return (
     <div
+      data-no-drag
       onClick={onOpen}
       onMouseEnter={() => window.launcherAPI?.gameSysinfo(g)} // esquenta o cache da página
       onContextMenu={(e) => {
