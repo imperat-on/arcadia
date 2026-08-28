@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron")
+const { app, BrowserWindow, ipcMain, dialog, shell, session, screen } = require("electron")
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
 
 ignoreBrokenPipe(process.stdout)
@@ -194,6 +194,52 @@ let focado = true
 // `win` fica no escopo do módulo porque os callbacks do poll sobrevivem à
 // janela e precisam levantá-la quando o jogo termina.
 let win
+
+// O layout do Big Picture e do Desktop usa 1920x1080 como referência lógica.
+// Em resoluções maiores, manter o mesmo fator de zoom deixa a interface
+// fisicamente pequena. A escala usa a menor dimensão para não estourar a altura
+// em ultrawide. Janelas Desktop não maximizadas usam o próprio tamanho, então
+// abrir o app pequeno num monitor 4K não transforma os controles em gigantes.
+function responsiveWindowScale(mode) {
+  try {
+    const bounds = win && !win.isDestroyed() ? win.getBounds() : null
+    const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()
+    const displaySize = mode === "console"
+      ? display?.size
+      : win?.isMaximized()
+        ? display?.workAreaSize
+        : bounds
+    const width = Number(displaySize?.width) || 1920
+    const height = Number(displaySize?.height) || 1080
+    const ratio = Math.min(width / 1920, height / 1080)
+    return Math.min(1.55, Math.max(1, ratio))
+  } catch {
+    return 1
+  }
+}
+
+function zoomFactorFor(mode, logical) {
+  const value = Number(logical) || (mode === "console" ? 1.3 : 1)
+  const base = mode === "console" ? value : value * 1.2
+  return Math.min(2, Math.max(mode === "console" ? 0.7 : 0.84, base * responsiveWindowScale(mode)))
+}
+
+let appliedZoomFactor = null
+
+function applyWindowZoom(factor) {
+  if (!win || win.isDestroyed() || !win.webContents) return
+  if (appliedZoomFactor !== null && Math.abs(appliedZoomFactor - factor) < 0.005) return
+  appliedZoomFactor = factor
+  win.webContents.setZoomFactor(factor)
+}
+
+function reapplyWindowZoom() {
+  if (!win || win.isDestroyed() || !win.webContents) return
+  const mode = win.isFullScreen() ? "console" : "desktop"
+  const config = readConfig()
+  const logical = Number(config[mode === "console" ? "console_ui_scale" : "ui_scale"]) || (mode === "console" ? 1.3 : 1)
+  applyWindowZoom(zoomFactorFor(mode, logical))
+}
 // Uma sessão pode gerar vários sinais "jogo ausente". A restauração deve ser
 // feita uma vez só, no desarme do poll, para não roubar foco repetidamente.
 let focoRestauradoSessao = false
@@ -1604,6 +1650,7 @@ function onUnlockAchievement(payload) {
 function createWindow() {
   const cfgIni = readConfig()
   const launcherMode = resolveLauncherMode(process.env, cfgIni)
+  appliedZoomFactor = null
   // O preload só pode expor o modo inicial depois que o main resolveu todas as
   // fontes (env legado + preferência). A mesma variável também mantém a
   // resolução idempotente caso a janela seja recriada.
@@ -1648,6 +1695,25 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
   win.once("ready-to-show", () => win.show())
 
+  // Recalcula o zoom depois que o usuário maximiza, redimensiona a janela ou
+  // a move para outro monitor. O debounce evita chamar setZoomFactor dezenas
+  // de vezes durante um arraste; o applier também elimina chamadas repetidas.
+  let zoomResizeTimer = null
+  const agendarEscalaDaJanela = () => {
+    if (zoomResizeTimer) clearTimeout(zoomResizeTimer)
+    zoomResizeTimer = setTimeout(() => {
+      zoomResizeTimer = null
+      reapplyWindowZoom()
+    }, 120)
+  }
+  win.on("resize", agendarEscalaDaJanela)
+  win.on("move", agendarEscalaDaJanela)
+  win.on("closed", () => {
+    if (zoomResizeTimer) clearTimeout(zoomResizeTimer)
+    zoomResizeTimer = null
+    appliedZoomFactor = null
+  })
+
   // ── ANTIDOTO: alt-tab → tela preta (Wayland/NVIDIA) ──────────────────
   // O compositor perde a superfície da janela quando ela é ocluída; sem
   // repaint na volta o Chromium entrega um frame morto (fundo #000). Três
@@ -1682,7 +1748,6 @@ function createWindow() {
     // Modo ativo decide qual chave vale: fullscreen = console_ui_scale,
     // janela = ui_scale. Antes só aplicava o ui_scale do desktop — um 1.25
     // salvo no console vazava pro desktop no próximo load.
-    const chave = win.isFullScreen() ? "console_ui_scale" : "ui_scale"
     let config = readConfig()
     // Recalibração única: o antigo 120% vira o novo 100%, sem alterar o
     // tamanho que a pessoa já vê. Instalações novas começam diretamente em 100%.
@@ -1705,11 +1770,7 @@ function createWindow() {
       writeConfig({ ui_scale: escalaLegivel, desktop_font_scale_v3: true })
       config = readConfig()
     }
-    const z = Number(config[chave]) || (win.isFullScreen() ? 1.3 : 1)
-    const factor = win.isFullScreen()
-      ? Math.min(2, Math.max(0.7, z))
-      : Math.min(1.4, Math.max(0.84, z * 1.2))
-    win.webContents.setZoomFactor(factor)
+    reapplyWindowZoom()
     // Modo console (tela cheia): cursor OCULTO por padrão, mas aparece ao
     // mexer o mouse e some após ~2s parado (navegação continua por gamepad).
     if (win.isFullScreen()) {
@@ -2712,10 +2773,8 @@ app.whenReady().then(() => {
       process.env.ARCADIA_MODE = mode
       const cfg = readConfig()
       const logical = Number(cfg[mode === "console" ? "console_ui_scale" : "ui_scale"]) || (mode === "console" ? 1.3 : 1)
-      const factor = mode === "console"
-        ? Math.min(2, Math.max(0.7, logical))
-        : Math.min(1.4, Math.max(0.84, logical * 1.2))
-      win.webContents.setZoomFactor(factor)
+      const factor = zoomFactorFor(mode, logical)
+      applyWindowZoom(factor)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e.message || e) }
@@ -3523,10 +3582,8 @@ app.whenReady().then(() => {
       return Number(readConfig()?.[chave]) || 1
     }
     const logical = Number(z) || 1
-    const factor = ativo === "desktop"
-      ? Math.min(1.4, Math.max(0.84, logical * 1.2))
-      : Math.min(2, Math.max(0.7, logical))
-    if (win) win.webContents.setZoomFactor(factor)
+    const factor = zoomFactorFor(ativo, logical)
+    applyWindowZoom(factor)
     return factor
   })
 
@@ -4058,6 +4115,15 @@ app.whenReady().then(() => {
     writeConfig({ youtube_cookies: p })
     return { ok: true, path: p }
   })
+
+  // Se o monitor muda de resolução enquanto o Big Picture está aberto,
+  // reaplica a escala sem alterar a preferência lógica do usuário.
+  const atualizarEscalaDoDisplay = () => {
+    if (win && !win.isDestroyed()) reapplyWindowZoom()
+  }
+  screen.on("display-metrics-changed", atualizarEscalaDoDisplay)
+  screen.on("display-added", atualizarEscalaDoDisplay)
+  screen.on("display-removed", atualizarEscalaDoDisplay)
 
   createWindow()
 
