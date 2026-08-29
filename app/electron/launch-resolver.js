@@ -19,6 +19,7 @@ function resolveLaunchRequest(
   let rawCmd = gameId ? null : Array.isArray(payload) ? payload : payload?.cmd
   const mode = Array.isArray(payload) ? undefined : payload?.mode
   let envExtra = {}
+  let cwd = ""
 
   if (typeof gameId === "string" && gameId) {
     if (gameId.startsWith("custom:")) {
@@ -31,6 +32,7 @@ function resolveLaunchRequest(
         if (!emulated.ok || !Array.isArray(emulated.cmd) || !emulated.cmd.length) return emulated
         rawCmd = emulated.cmd
         envExtra = emulated.env || {}
+        cwd = emulated.cwd || ""
       } else {
         const built = customLaunchCmd(gameId)
         if (!built?.cmd?.length) {
@@ -38,6 +40,7 @@ function resolveLaunchRequest(
         }
         rawCmd = built.cmd
         envExtra = built.env || {}
+        cwd = built.cwd || ""
       }
     } else {
       const game = findGame(gameId)
@@ -52,6 +55,7 @@ function resolveLaunchRequest(
           if (!emulated.ok || !Array.isArray(emulated.cmd) || !emulated.cmd.length) return emulated
           rawCmd = emulated.cmd
           envExtra = emulated.env || {}
+          cwd = emulated.cwd || ""
         }
       }
       if (!rawCmd && mode === "exe" && settings.exePath) {
@@ -61,6 +65,7 @@ function resolveLaunchRequest(
         }
         rawCmd = built.cmd
         envExtra = built.env || {}
+        cwd = built.cwd || ""
       }
 
       // Se não conseguiu comando via emulador/exe, usa launch_cmd da biblioteca
@@ -82,7 +87,7 @@ function resolveLaunchRequest(
   if (!Array.isArray(rawCmd) || rawCmd.length === 0) {
     return { ok: false, error: "Sem comando de lançamento (cmd vazio). Verifique o executável do jogo em Configurações." }
   }
-  return { ok: true, gameId, mode, rawCmd: rawCmd.map((part) => String(part)), envExtra }
+  return { ok: true, gameId, mode, rawCmd: rawCmd.map((part) => String(part)), envExtra, cwd }
 }
 
 module.exports = { resolveLaunchRequest }

@@ -76,6 +76,15 @@ test("gamescope fica disponível no catálogo unificado e é filtrado pelo modo 
   assert.ok(externalGamescopeGate >= 0 && externalGamescopeGate < hdrEnvironmentAssignment)
 })
 
+test("Proton externo usa o runtime UMU gerenciado pelo Arcadia", () => {
+  const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  assert.match(main, /ensureUmuLauncher\(\)/)
+  assert.match(main, /cmd: \[umu, g\.exe\]/)
+  assert.match(main, /PROTONPATH: v\.path/)
+  assert.match(main, /PROTON_VERB: "waitforexitandrun"/)
+  assert.match(main, /cwd: path\.dirname\(executable\)/)
+})
+
 test("Gamescope expõe campos canônicos na UI, tipos e backend", () => {
   const dialog = fs.readFileSync(
     path.join(root, "src", "components", "desktop", "GameSettingsDialog.tsx"),

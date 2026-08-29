@@ -60,6 +60,7 @@ const {
 const { createFocusSession, createLaunchSession } = require("./focus-session")
 const { shouldTrackGameSession } = require("./game-session")
 const { fetchRede } = require("./httpfetch")
+const { findUmuLauncher, ensureUmuLauncher } = require("./umu-runtime")
 const { createSteamNewsImageResolver, extractSteamNewsImage } = require("./steam-news")
 const DiscordRpc = require("./discord-rpc")
 const { catalogGet } = require("./catalog")
@@ -167,6 +168,32 @@ const YTDLP = acharYtdlp()
 // Usado somente pelo vigia read-only de "game:running".  Stop nunca usa
 // um padrão global para decidir qual processo deve encerrar.
 const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners|pcsx2|PCSX2|rpcs3|RPCS3|dolphin-emu|DolphinEmu|ppsspp|PPSSPP|duckstation|DuckStation|retroarch|RetroArch|melonds|melonDS|desmume|DeSmuME"
+// Alguns launchers Windows (por exemplo, o Plutonium) fecham o executável
+// inicial depois de criar o jogo real e o servidor. Nesse caso o grupo Unix
+// que o Arcadia criou deixa de existir, mas a sessão ainda está viva. O
+// rastreador abaixo usa o prefixo Wine da própria sessão e os executáveis
+// observados nela; nunca faz uma busca global por nome nem interfere em outra
+// conta/prefixo.
+const HANDOFF_INFRA_EXES = new Set([
+  "explorer.exe",
+  "services.exe",
+  "svchost.exe",
+  "winedevice.exe",
+  "plugplay.exe",
+  "rpcss.exe",
+  "conhost.exe",
+  "start.exe",
+  "wineboot.exe",
+  "winecfg.exe",
+  "xalia.exe",
+])
+const HANDOFF_GAME_EXES = new Set([
+  "t6mp.exe",
+  "t6zm.exe",
+  "t6sp.exe",
+  "iw5mp.exe",
+  "iw5sp.exe",
+])
 // Logs de lançamento ("Habilitar logs detalhados", aba AVANÇADO).
 const LOG_DIR = path.join(DATA_DIR, "logs")
 const launchLog = createLaunchLog({ logDir: LOG_DIR })
@@ -419,6 +446,127 @@ function readProcessIdentity(pid) {
   } catch {
     return null
   }
+}
+
+function processCommandLine(pid) {
+  if (process.platform !== "linux" || !Number.isInteger(pid) || pid <= 1) return ""
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\u0000/g, " ").trim()
+  } catch {
+    return ""
+  }
+}
+
+function processEnvironment(pid) {
+  if (process.platform !== "linux" || !Number.isInteger(pid) || pid <= 1) return {}
+  try {
+    const out = {}
+    for (const entry of fs.readFileSync(`/proc/${pid}/environ`, "utf8").split("\u0000")) {
+      const at = entry.indexOf("=")
+      if (at > 0) out[entry.slice(0, at)] = entry.slice(at + 1)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function executableNames(command) {
+  return Array.from(new Set(
+    (command || [])
+      .map((value) => path.basename(String(value || "")).toLowerCase())
+      .filter((value) => value.endsWith(".exe")),
+  ))
+}
+
+function createHandoffSpec(command, env, startedAt = Date.now()) {
+  if (process.platform !== "linux") return null
+  const prefixes = Array.from(new Set(
+    [env?.WINEPREFIX, env?.STEAM_COMPAT_DATA_PATH]
+      .map((value) => String(value || "").trim())
+      .filter((value) => value.startsWith("/") && value.length > 1),
+  ))
+  const names = executableNames(command)
+  if (!prefixes.length || !names.length) return null
+  return {
+    prefixes,
+    names,
+    seen: new Map(),
+    // A launcher may disappear a few seconds before its child window exists.
+    // Keep that handoff window bounded so a genuinely failed launch still
+    // returns focus instead of leaving the session stuck forever.
+    graceUntil: Number(startedAt) + 30_000,
+  }
+}
+
+function processBelongsToHandoff(pid, spec, record) {
+  const cmdline = processCommandLine(pid)
+  if (!cmdline) return null
+  const env = processEnvironment(pid)
+  const identity = readProcessIdentity(pid)
+  if (!identity || /[ZX]/.test(String(identity.state || ""))) return null
+  const prefix = spec.prefixes.find((value) =>
+    env.WINEPREFIX === value || env.STEAM_COMPAT_DATA_PATH === value,
+  )
+  // Alguns processos Windows criados pelo wineserver não expõem mais o
+  // ambiente Linux original. Se ainda estão no grupo líder que o Arcadia
+  // abriu, a identidade do grupo é prova suficiente para registrá-los.
+  const tokens = cmdline.split(/\s+/)
+  const name = tokens
+    .map((token) => path.basename(token).toLowerCase())
+    // Depois do handoff o jogo pode ter outro nome (t6mp.exe/t6zm.exe).
+    // Qualquer executável Windows dentro do prefixo exclusivo da sessão é
+    // elegível, exceto os helpers permanentes do Wine.
+    .find((token) => token.endsWith(".exe") && !HANDOFF_INFRA_EXES.has(token))
+  if (!name) return null
+  // Alguns builds do Wine limpam WINEPREFIX ao reparentar o processo e também
+  // trocam o grupo Unix. Para os executáveis conhecidos do Plutonium, o nome e
+  // um starttime posterior ao líder ainda formam uma identificação segura o
+  // bastante para manter a sessão sem restaurar o foco por engano.
+  const knownHandoffGame = HANDOFF_GAME_EXES.has(name)
+  const leaderStart = Number(record?.processIdentity?.starttime)
+  const childStartedAfterLeader = Number.isFinite(leaderStart)
+    ? Number(identity.starttime) >= leaderStart
+    : false
+  if (!prefix && Number(identity.pgrp) !== Number(record?.pid) && !(knownHandoffGame && childStartedAfterLeader)) return null
+  return { pid, name, identity }
+}
+
+function observeHandoff(record) {
+  const spec = record?.handoff
+  if (!spec || process.platform !== "linux") return { alive: false, waiting: false }
+
+  // Primeiro revalida PIDs já vistos. Isso cobre o caso em que o launcher
+  // entregou o jogo a um processo reparentado e ele não aparece mais no grupo
+  // original.
+  for (const [pid, saved] of spec.seen) {
+    const current = readProcessIdentity(pid)
+    if (
+      current &&
+      current.starttime === saved.starttime &&
+      !/[ZX]/.test(String(current.state || ""))
+    ) {
+      return { alive: true, waiting: false }
+    }
+    spec.seen.delete(pid)
+  }
+
+  // Descobre novos processos do mesmo prefixo (t6mp.exe, t6zm.exe,
+  // plutonium.exe etc.). O filtro por WINEPREFIX evita casar outro jogo com
+  // nome semelhante executado por fora do Arcadia.
+  let entries = []
+  try {
+    entries = fs.readdirSync("/proc")
+  } catch {}
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue
+    const found = processBelongsToHandoff(Number(entry), spec, record)
+    if (!found) continue
+    spec.seen.set(found.pid, found.identity)
+    return { alive: true, waiting: false }
+  }
+
+  return { alive: false, waiting: Date.now() < Number(spec.graceUntil || 0) }
 }
 
 function processStartTimeKnown(identity) {
@@ -745,8 +893,11 @@ const armarPollJogo = () => {
       const grupo = jogoAtivo || jogoEncerrando
       if (grupo) {
         const vivo = grupoDoJogoVivo(grupo)
+        // Observa enquanto o grupo ainda está vivo para registrar o launcher
+        // e qualquer processo Windows que ele crie antes de ser reparentado.
+        const handoff = observeHandoff(grupo)
         const wrapperSteam = ultimoJogoAtivo?.steamWrapper === true
-        if (vivo) {
+        if (vivo || handoff.alive) {
           // A sessão systemd pode estar viva enquanto ainda cria o processo
           // real (ou durante o handoff do updater). Só confirmar o jogo após
           // o cgroup mostrar pelo menos um processo; Gamescope/reaper sozinhos
@@ -759,6 +910,12 @@ const armarPollJogo = () => {
             sinalDeVida = 0
             return
           }
+        } else if (handoff.waiting) {
+          // O launcher pode sair antes de o processo Windows final criar sua
+          // janela. Durante essa pequena janela não restauramos o foco nem
+          // publicamos o jogo como encerrado.
+          sinalDeVida = 0
+          return
         } else if (jogoAtivo === grupo) {
           // Mantém a barreira de sessão durante os dois ciclos de ausência;
           // sem isso um novo launch poderia ocupar o intervalo antes do
@@ -1344,10 +1501,6 @@ function startSysinfoPrefetch() {
   }, 8000)
 }
 
-// UMU (vem com o Heroic): jeito certo de rodar builds Proton fora da Steam —
-// o wine direto do Proton quebra (libs do runtime não resolvem).
-const UMU = path.join(os.homedir(), ".config", "heroic", "tools", "runtimes", "umu", "umu_run.py")
-
 // Monta o comando de um jogo adicionado manualmente ("custom:<slug>").
 // Windows: wine/Proton escolhido + exe. Linux: [exe].
 // Retorna { cmd, env } — env traz PROTONPATH/STEAM_COMPAT_* quando é Proton.
@@ -1363,12 +1516,13 @@ function customLaunchCmd(id) {
 // Linux roda direto; .exe passa pelo Wine/Proton no prefixo do jogo.
 function exeLaunchCmd(id, exe, linux) {
   if (!exe) return null
-  if (linux === undefined) linux = !/\.exe$/i.test(String(exe))
-  if (linux) return { cmd: [exe], env: {} }
+  const executable = path.resolve(String(exe))
+  if (linux === undefined) linux = !/\.exe$/i.test(executable)
+  if (linux) return { cmd: [executable], env: {}, cwd: path.dirname(executable) }
   const wm = require("./winemanager")
   const s = getGameSettings(id)
   const prefixo = s.prefixPath || defaultPrefix(id)
-  const g = { exe }
+  const g = { exe: executable }
   let v = null
   if (s.wineVersion) {
     v = wm.steamProtons().find((w) => w.id === s.wineVersion)
@@ -1395,18 +1549,11 @@ function exeLaunchCmd(id, exe, linux) {
         console.warn("arcadia: falha migrando prefixo:", e.message)
       }
     }
-    // UMU (Heroic): normaliza runtime + prefixo + overrides. É como Heroic
-    // lança tudo — funciona pra Steam Proton e GE-Proton igual.
-    const umuRun = path.join(
-      os.homedir(),
-      ".config",
-      "heroic",
-      "tools",
-      "runtimes",
-      "umu",
-      "umu-run",
-    )
-    if (fs.existsSync(umuRun)) {
+    // Lutris também converte Proton para UMU. Executar `proton run` diretamente
+    // fora da Steam deixa diferenças no runtime e no gerenciamento das janelas
+    // Wine — launchers multi-janela como Plutonium expõem isso no foco do mouse.
+    const umu = findUmuLauncher()
+    if (umu) {
       try {
         wm.installGraphicsLibs(path.join(prefixo, "pfx"), v.wine, {
           dxvk: s.autoDXVK !== false,
@@ -1415,12 +1562,15 @@ function exeLaunchCmd(id, exe, linux) {
         })
       } catch {}
       return {
-        cmd: [umuRun, g.exe],
+        cmd: [umu, g.exe],
+        cwd: path.dirname(executable),
         env: {
           WINEPREFIX: prefixo,
-          GAMEID: "arcadia",
+          GAMEID: "umu-default",
           PROTONPATH: v.path,
           STORE: "none",
+          WINEARCH: "win64",
+          PROTON_VERB: "waitforexitandrun",
         },
       }
     }
@@ -1434,6 +1584,7 @@ function exeLaunchCmd(id, exe, linux) {
     // Fallback: script proton direto.
     return {
       cmd: [path.join(v.path, "proton"), "run", g.exe],
+      cwd: path.dirname(executable),
       env: {
         STEAM_COMPAT_DATA_PATH: prefixo,
         STEAM_COMPAT_CLIENT_INSTALL_PATH: path.join(os.homedir(), ".steam", "steam"),
@@ -2402,6 +2553,9 @@ app.whenReady().then(() => {
   // ligada.
   process.env.ARCADIA_MODE = resolveLauncherMode(process.env, readConfig())
   configurarLojaSteam()
+  // Instala o launcher UMU em segundo plano. O primeiro jogo Proton também
+  // aguarda esta mesma operação caso seja aberto antes de ela terminar.
+  ensureUmuLauncher().catch(() => {})
   startSysinfoPrefetch()
   // Conta online (backend proprio): registra IPC de auth e espelha eventos pro renderer.
   try {
@@ -2592,7 +2746,7 @@ app.whenReady().then(() => {
   ipcMain.handle("saves:delete", (_e, payload = {}) => saveSnapshots.remove(payload))
 
   ipcMain.handle("game:launch", async (_e, payload) => {
-    const resolved = resolveLaunchRequest(payload, {
+    const resolverOptions = {
       findGame: (id) => readLibrary().find((game) => game.id === id),
       customLaunchCmd,
       getGameSettings,
@@ -2611,7 +2765,20 @@ app.whenReady().then(() => {
           launchMode: "hydra",
         })
       },
-    })
+    }
+    let resolved = resolveLaunchRequest(payload, resolverOptions)
+    // Sem UMU, exeLaunchCmd produz temporariamente o fallback `proton run`.
+    // Prepara o runtime gerenciado e resolve outra vez antes de criar qualquer
+    // processo, garantindo o mesmo caminho de execução em toda instalação.
+    if (
+      resolved.ok &&
+      path.basename(String(resolved.rawCmd?.[0] || "")) === "proton" &&
+      resolved.envExtra?.STEAM_COMPAT_DATA_PATH
+    ) {
+      const umu = await ensureUmuLauncher()
+      if (!umu.ok) return umu
+      resolved = resolveLaunchRequest(payload, resolverOptions)
+    }
     if (!resolved.ok) return resolved
     const acompanhaSolicitada = shouldTrackGameSession(resolved.rawCmd)
     if (launchInFlight || launchLifecycle.isBusy() || jogoRodando || jogoAtivo || jogoEncerrando) {
@@ -2641,6 +2808,8 @@ app.whenReady().then(() => {
       steamWrapper: false,
       steamCommand: null,
       steamEnv: null,
+      handoffSpec: null,
+      cwd: "",
       groupKillTimer: null,
       closeLog: null,
       focusApplied: false,
@@ -2718,7 +2887,7 @@ app.whenReady().then(() => {
     let acompanhaSessao = true
     let focoDeLancamentoAplicado = false
     try {
-      let { rawCmd, gameId, envExtra } = resolved
+      let { rawCmd, gameId, envExtra, cwd: launchCwd } = resolved
       // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
       // em diante o cmd[0] já não é mais o binário da Steam.
       rawCmd = steamSilencioso(rawCmd)
@@ -2741,10 +2910,16 @@ app.whenReady().then(() => {
         [...Object.keys(envExtra || {}), ...Object.keys(sls.env || {})],
       )
       launch.processSession = processSession
+      launch.cwd = launchCwd || ""
       // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a
       // partir do process.env e apagaria o LD_AUDIT.
       const env = { ...envBase, ...envExtra, ...sls.env }
       launch.steamEnv = env
+      // O executável fora da Steam pode ser um launcher que entrega o jogo a
+      // outro processo (Plutonium é um exemplo). Guarda o prefixo e os nomes
+      // Windows antes dos wrappers para que o vigia continue a sessão após o
+      // processo inicial desaparecer.
+      launch.handoffSpec = createHandoffSpec(rawCmd, env)
       // Quando o alvo é a Steam (puro OU wrapper do slsteam-moon), tira as
       // libs herdadas do Electron do caminho — Chromium arrasta LD_LIBRARY_PATH
       // apontando pras suas próprias libstdc++/libcurl, e a Steam linka nelas
@@ -2885,7 +3060,15 @@ app.whenReady().then(() => {
         }
         let child
         try {
-          child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
+          child = spawn(c[0], c.slice(1), {
+            detached: true,
+            stdio,
+            env,
+            // Wine launchers depend on their executable directory for sibling
+            // DLLs/configuration. Lutris starts Plutonium from that directory;
+            // matching it also prevents a second window from stealing focus.
+            cwd: launch.cwd || undefined,
+          })
         } catch (error) {
           launch.childExited = true
           launch.spawnError = `spawn falhou: ${error.message}`
@@ -2961,6 +3144,7 @@ app.whenReady().then(() => {
             processSession: launch.processSession
               ? { ...launch.processSession }
               : null,
+            handoff: launch.handoffSpec,
             startedAt: Date.now(),
             launchSession: launch,
           }
