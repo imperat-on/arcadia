@@ -57,8 +57,10 @@ test("gamescope usa somente opções suportadas antes do comando externo", () =>
 })
 
 
-test("configuração do gamescope fica restrita a jogos externos", () => {
+test("gamescope fica disponível no catálogo unificado e é filtrado pelo modo real", () => {
   const dialog = fs.readFileSync(path.join(root, "src", "components", "desktop", "GameSettingsDialog.tsx"), "utf8")
-  assert.match(dialog, /const isSteamGame = String\(game\.id\)\.startsWith\("steam:"\)/)
-  assert.ok((dialog.match(/disabled=\{isSteamGame\}/g) || []).length >= 4)
+  const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  assert.match(dialog, /k="gamescope"/)
+  assert.doesNotMatch(dialog, /isSteamGame|disabled=\{isSteamGame\}/)
+  assert.match(main, /s\.gamescope && path\.basename\(String\(cmd\[0\]\)\) !== "steam"/)
 })

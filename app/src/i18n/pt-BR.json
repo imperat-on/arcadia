@@ -312,7 +312,7 @@
   "gamesettings.desempenho": "Desempenho",
   "gamesettings.gamescope_altura": "Altura",
   "gamesettings.gamescope_fps": "FPS (0 = livre)",
-  "gamesettings.gamescope_hint": "Embrulha o comando de lançamento com o gamescope (não se aplica a jogos Steam).",
+  "gamesettings.gamescope_hint": "Embrulha o executável externo com o gamescope. Se iniciar pela Steam, use as opções de inicialização da Steam.",
   "gamesettings.gamescope_label": "Rodar o jogo dentro do gamescope",
   "gamesettings.gamescope_largura": "Largura",
   "gamesettings.gerenciado_steam": "Gerenciado pela Steam",

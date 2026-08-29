@@ -312,7 +312,7 @@
   "gamesettings.desempenho": "Performance",
   "gamesettings.gamescope_altura": "Height",
   "gamesettings.gamescope_fps": "FPS (0 = unlocked)",
-  "gamesettings.gamescope_hint": "Wraps the launch command with gamescope (does not apply to Steam games).",
+  "gamesettings.gamescope_hint": "Wraps the external executable with gamescope. When launching through Steam, use Steam launch options.",
   "gamesettings.gamescope_label": "Run game inside gamescope",
   "gamesettings.gamescope_largura": "Width",
   "gamesettings.gerenciado_steam": "Managed by Steam",
