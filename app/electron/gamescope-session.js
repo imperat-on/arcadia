@@ -101,9 +101,11 @@ function buildExternalGamescopeCommand(
   const mode = validWindowMode(windowMode)
   if (mode === "fullscreen") args.push("-f")
   else if (mode === "borderless") args.push("-b")
-  // Fullscreen and borderless nested surfaces must retain pointer ownership.
-  // Windowed mode intentionally leaves Gamescope's normal cursor behavior.
-  if (mode === "fullscreen" || mode === "borderless") args.push("--force-grab-cursor")
+  // Do not force a persistent pointer lock here.  Gamescope 3.16.25's
+  // Wayland backend can lose that lock when the host compositor changes focus
+  // and does not re-arm it when focus returns.  That leaves external games
+  // with a visible cursor but no usable mouse/keyboard input.  The normal
+  // nested-mode pointer handling still follows the game and avoids that bug.
   if (keepAlive === true) args.push("--keep-alive")
 
   let primary = command.map((value) => String(value))

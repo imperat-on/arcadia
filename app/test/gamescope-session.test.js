@@ -151,7 +151,6 @@ test("monta HDR, limitador e modo de janela antes do separador do comando", () =
     "45",
     "--hdr-enabled",
     "-f",
-    "--force-grab-cursor",
     "--keep-alive",
     "--",
     "proton",
@@ -174,14 +173,14 @@ test("modo de janela usa exatamente um flag e windowed não adiciona flag", () =
   }
 })
 
-test("fullscreen e borderless capturam o cursor, mas windowed não", () => {
+test("fullscreen e borderless não forçam pointer lock, e windowed não adiciona flag", () => {
   assert.deepEqual(
     buildExternalGamescopeCommand(["game"], { windowMode: "fullscreen" }).cmd,
-    ["gamescope", "-W", "1920", "-H", "1080", "-f", "--force-grab-cursor", "--", "game"],
+    ["gamescope", "-W", "1920", "-H", "1080", "-f", "--", "game"],
   )
   assert.deepEqual(
     buildExternalGamescopeCommand(["game"], { windowMode: "borderless" }).cmd,
-    ["gamescope", "-W", "1920", "-H", "1080", "-b", "--force-grab-cursor", "--", "game"],
+    ["gamescope", "-W", "1920", "-H", "1080", "-b", "--", "game"],
   )
   assert.deepEqual(
     buildExternalGamescopeCommand(["game"], { windowMode: "windowed" }).cmd,
