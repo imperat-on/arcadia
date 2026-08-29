@@ -25,6 +25,23 @@ const AVATAR_EXT = {
   ".gif": "image/gif",
 }
 
+// O cadastro pode chamar myProfile para descobrir um username corrigido ao
+// mesmo tempo em que o renderer recebe SIGNED_IN e pede o perfil. O cache e o
+// single-flight são somente em memória do main process e ficam indexados pela
+// sessão, para não cruzar respostas entre contas.
+const PROFILE_CACHE_TTL_MS = 60_000
+const profileCache = new Map()
+const profileInFlight = new Map()
+
+function invalidarPerfil(userId = null) {
+  for (const key of profileCache.keys()) {
+    if (!userId || key.startsWith(`${userId}:`)) profileCache.delete(key)
+  }
+  for (const key of profileInFlight.keys()) {
+    if (!userId || key.startsWith(`${userId}:`)) profileInFlight.delete(key)
+  }
+}
+
 /**
  * Lê as dimensões do cabeçalho da imagem (PNG/GIF/JPEG/WebP) SEM lib —
  * ~40 linhas puras; roda em Node puro (testável sem Electron).
@@ -207,6 +224,7 @@ async function usernameAvailable(username) {
 /** Encerra a sessão (session.js é limpo pelo attachAuthPersistence). */
 async function signOut() {
   const { error } = await getClient().auth.signOut()
+  invalidarPerfil()
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
@@ -217,21 +235,34 @@ async function status() {
   return { session: data.session, error: null }
 }
 
-/** Perfil online do usuário logado (username + avatar + campos do perfil). */
-async function myProfile() {
-  const { data: ud, error: ue } = await getClient().auth.getUser()
-  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
-  const me = ud.user.id
+function actualSessionUserId(client) {
+  return String(client.auth._session?.user?.id || "")
+}
 
-  const { data, error } = await getClient()
-    .from("profiles")
-    .select("username, avatar_url, display_name, summary, country, city, showcase, background_url, banner_url")
-    .eq("id", me)
-    .maybeSingle()
-  if (error) return { ok: false, error: error.message }
-  return {
-    ok: true,
-    profile: {
+/** Perfil online do usuário logado (username + avatar + campos do servidor). */
+async function myProfile() {
+  const client = getClient()
+  const { data: ud, error: ue } = await client.auth.getUser()
+  if (ue || !ud?.user) return { ok: false, error: "nao_logado" }
+  const me = String(ud.user.id)
+  const { data: sessionData } = await client.auth.getSession()
+  const token = String(sessionData?.session?.access_token || "")
+  const key = `${me}:${token}`
+  const cached = profileCache.get(key)
+  if (cached && cached.expires > Date.now()) {
+    return { ok: true, profile: cached.profile }
+  }
+  const ongoing = profileInFlight.get(key)
+  if (ongoing) return ongoing
+
+  const promise = (async () => {
+    const { data, error } = await client
+      .from("profiles")
+      .select("username, avatar_url, display_name, summary, country, city, showcase, background_url, banner_url")
+      .eq("id", me)
+      .maybeSingle()
+    if (error) return { ok: false, error: error.message }
+    const profile = {
       username: data?.username ?? null,
       avatar_url: data?.avatar_url ?? null,
       display_name: data?.display_name ?? null,
@@ -241,7 +272,19 @@ async function myProfile() {
       showcase: Array.isArray(data?.showcase) ? data.showcase : [],
       background_url: data?.background_url ?? null,
       banner_url: data?.banner_url ?? null,
-    },
+    }
+    // A resposta antiga nunca pode aquecer o cache da conta nova.
+    const atual = await client.auth.getSession()
+    if (actualSessionUserId(client) === me && atual?.data?.session?.access_token === token) {
+      profileCache.set(key, { profile, expires: Date.now() + PROFILE_CACHE_TTL_MS })
+    }
+    return { ok: true, profile }
+  })()
+  profileInFlight.set(key, promise)
+  try {
+    return await promise
+  } finally {
+    if (profileInFlight.get(key) === promise) profileInFlight.delete(key)
   }
 }
 
@@ -265,6 +308,7 @@ async function updateProfile(campos) {
     .update(alvo)
     .eq("id", me)
   if (error) return { ok: false, error: error.message }
+  invalidarPerfil(me)
   return { ok: true }
 }
 
@@ -379,6 +423,7 @@ async function uploadAvatarBytes(me, buf, mime, extFinal) {
     }
   }
 
+  invalidarPerfil(me)
   return { ok: true, avatar_url: avatarUrl }
 }
 
@@ -462,6 +507,7 @@ async function uploadBackgroundBytes(me, buf, mime, extFinal, kind = "background
     }
   }
 
+  invalidarPerfil(me)
   return { ok: true, background_url: bgUrl }
 }
 
