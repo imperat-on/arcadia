@@ -69,4 +69,49 @@ test("gamescope fica disponível no catálogo unificado e é filtrado pelo modo 
   assert.match(dialog, /k="gamescope"/)
   assert.doesNotMatch(dialog, /isSteamGame|disabled=\{isSteamGame\}/)
   assert.match(main, /s\.gamescope && path\.basename\(String\(cmd\[0\]\)\) !== "steam"/)
+  const externalGamescopeGate = main.indexOf(
+    's.gamescope && path.basename(String(cmd[0])) !== "steam"',
+  )
+  const hdrEnvironmentAssignment = main.indexOf("env.ENABLE_GAMESCOPE_WSI")
+  assert.ok(externalGamescopeGate >= 0 && externalGamescopeGate < hdrEnvironmentAssignment)
+})
+
+test("Gamescope expõe campos canônicos na UI, tipos e backend", () => {
+  const dialog = fs.readFileSync(
+    path.join(root, "src", "components", "desktop", "GameSettingsDialog.tsx"),
+    "utf8",
+  )
+  const types = fs.readFileSync(path.join(root, "src", "global.d.ts"), "utf8")
+  const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  const session = fs.readFileSync(path.join(root, "electron", "gamescope-session.js"), "utf8")
+
+  for (const field of ["gsHdr", "gsWindowMode", "gsFramerateLimit"]) {
+    assert.match(dialog, new RegExp(field), `UI: ${field}`)
+    assert.match(types, new RegExp(field), `types: ${field}`)
+    assert.match(main, new RegExp(field), `backend: ${field}`)
+  }
+  assert.match(dialog, /2560x1600/)
+  assert.match(dialog, /1920x1080/)
+  for (const mode of ["fullscreen", "borderless", "windowed"])
+    assert.match(dialog, new RegExp(`['"]${mode}['"]`), `mode: ${mode}`)
+
+  assert.match(session, /--framerate-limit/)
+  assert.match(session, /--hdr-enabled/)
+  assert.match(session, /windowMode/)
+  assert.match(main, /ENABLE_GAMESCOPE_WSI/)
+  assert.match(main, /windowMode: s\.gsWindowMode \?\? "fullscreen"/)
+  assert.match(main, /framerateLimit: s\.gsFramerateLimit/)
+})
+
+test("todas as mensagens Gamescope usadas pelo diálogo existem nas três línguas", () => {
+  const dialog = fs.readFileSync(
+    path.join(root, "src", "components", "desktop", "GameSettingsDialog.tsx"),
+    "utf8",
+  )
+  const keys = [...dialog.matchAll(/t\(["'](gamesettings\.[^"']+)["']/g)].map((match) => match[1])
+  assert.ok(keys.length > 0)
+  for (const lang of ["pt-BR", "en-US", "es-ES"]) {
+    const messages = JSON.parse(fs.readFileSync(path.join(root, `src/i18n/${lang}.json`), "utf8"))
+    for (const key of new Set(keys)) assert.equal(typeof messages[key], "string", `${lang}: ${key}`)
+  }
 })

@@ -78,3 +78,43 @@ test("game settings escreve com permissão restrita e não segue symlink", () =>
     fs.rmSync(f.root, { recursive: true, force: true })
   }
 })
+
+test("Gamescope settings novas sobrevivem ao reload e preservam legado", () => {
+  const f = fixture()
+  const id = "custom:gamescope"
+  const legacy = {
+    gamescope: true,
+    gsWidth: 2560,
+    gsHeight: 1600,
+    gsFps: 60,
+    dxvkHud: "fps",
+  }
+  try {
+    fs.writeFileSync(f.file, JSON.stringify({ [id]: legacy }), "utf8")
+    const service = createGameSettingsService({ getPath: () => f.file })
+    assert.deepEqual(service.get(id), legacy)
+
+    const updated = service.set(id, {
+      gsHdr: true,
+      gsWindowMode: "borderless",
+      gsFramerateLimit: 45,
+    })
+    assert.deepEqual(updated, {
+      ...legacy,
+      gsHdr: true,
+      gsWindowMode: "borderless",
+      gsFramerateLimit: 45,
+    })
+
+    // A fresh service proves these fields are on disk, not only in the cache.
+    const reloaded = createGameSettingsService({ getPath: () => f.file })
+    assert.deepEqual(reloaded.get(id), updated)
+
+    // Disabling the wrapper must not silently discard its saved options.
+    const disabled = reloaded.set(id, { gamescope: false })
+    assert.deepEqual(disabled, { ...updated, gamescope: false })
+    assert.deepEqual(createGameSettingsService({ getPath: () => f.file }).get(id), disabled)
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true })
+  }
+})
