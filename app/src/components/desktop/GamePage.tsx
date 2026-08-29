@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useJogoRodando } from "../useJogoRodando"
 import type { Game } from "../ps5-launcher/types"
 import { fmtBytes, fmtMiB } from "../tamanho"
 import { userLocale } from "../../i18n/locale"
@@ -48,6 +49,10 @@ export function GamePage({
   onImportar,
   onConfig,
   embedded,
+  rodando: rodandoExterno,
+  abrindo: abrindoExterno,
+  onStop,
+  onCancel,
 }: {
   game: Game
   onClose: () => void
@@ -56,6 +61,11 @@ export function GamePage({
   onImportar: () => void
   onConfig: () => void
   embedded?: boolean
+  /** Estado/ações do launcher pai, quando a página está embutida. */
+  rodando?: boolean
+  abrindo?: boolean
+  onStop?: () => void
+  onCancel?: () => void
 }) {
   const { t } = useI18n()
 
@@ -81,16 +91,14 @@ export function GamePage({
   const [sysBusy, setSysBusy] = useState(true)
   const [installPath, setInstallPath] = useState("")
   const [fixesAtivo, setFixesAtivo] = useState(false)
-  // Jogo rodando (tempo real, via game:active do main): o botão Jogar vira
-  // Running + Stop enquanto o jogo desta página está em execução.
-  const [rodando, setRodando] = useState(false)
-
-  useEffect(() => {
-    const off = window.launcherAPI?.onGameActive((info) => {
-      setRodando(info.rodando && info.gameId === g.id)
-    })
-    return () => off?.()
-  }, [g.id])
+  // O estado é compartilhado com o launcher e replayado ao montar. Assim a
+  // página continua mostrando PARAR mesmo depois de um reload do renderer.
+  const jogoAtivo = useJogoRodando([g])
+  const mesmaSessao = jogoAtivo.jogo?.id === g.id
+  const rodandoLocal = mesmaSessao && jogoAtivo.rodando
+  const abrindoLocal = mesmaSessao && jogoAtivo.pendente
+  const rodando = rodandoExterno ?? rodandoLocal
+  const abrindo = abrindoExterno ?? abrindoLocal
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
   useEffect(() => {
@@ -257,6 +265,7 @@ export function GamePage({
                 {rodando ? (
                   <>
                     <button
+                      type="button"
                       disabled
                       className="flex cursor-default items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black"
                       style={{ background: "#22c55e" }}
@@ -268,7 +277,9 @@ export function GamePage({
                       {t("gamepage.rodando")}
                     </button>
                     <button
-                      onClick={() => window.launcherAPI?.closeGame()}
+                      type="button"
+                      data-game-action="stop"
+                      onClick={onStop || (() => jogoAtivo.parar())}
                       className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-white transition-transform hover:scale-[1.03]"
                       style={{ background: "rgba(239,68,68,0.9)" }}
                     >
@@ -278,6 +289,17 @@ export function GamePage({
                       {t("gamepage.parar")}
                     </button>
                   </>
+                ) : abrindo ? (
+                  <button
+                    type="button"
+                    data-game-action="cancel"
+                    onClick={onCancel || (() => jogoAtivo.cancelar())}
+                    className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-[13px] font-bold tracking-wide text-black transition-transform hover:scale-[1.03]"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    <span className="text-base leading-none">×</span>
+                    {t("common.cancelar")}
+                  </button>
                 ) : (
                   <>
                     {/* Botão Jogar - jogos retro só quando emulador+ROM configurados */}

@@ -6,6 +6,7 @@
 // conteúdo com painéis reagrupados. Preto OLED em toda superfície.
 
 import { useEffect, useRef, useState } from "react"
+import { useJogoRodando } from "../useJogoRodando"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
@@ -68,6 +69,10 @@ export function StoreGamePage({
   game,
   slssteamAtivo,
   retro,
+  rodando: rodandoExterno,
+  abrindo: abrindoExterno,
+  onStop,
+  onCancel,
 }: {
   jogo: ItemLoja
   game?: Game
@@ -83,22 +88,26 @@ export function StoreGamePage({
   embedded?: boolean
   slssteamAtivo?: boolean
   retro?: RetroStoreDetail
+  /** Estado/ações do launcher pai, quando a página está embutida. */
+  rodando?: boolean
+  abrindo?: boolean
+  onStop?: () => void
+  onCancel?: () => void
 }) {
   const { t } = useI18n()
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(true)
   const isRetro = Boolean(retro)
   const [slsAtivo, setSlsAtivo] = useState(Boolean(slssteamAtivo))
-  // Jogo rodando (tempo real, via game:active do main): o botão JOGAR vira
-  // RODANDO + PARAR enquanto o jogo desta página está em execução.
-  const [rodando, setRodando] = useState(false)
-
-  useEffect(() => {
-    const off = window.launcherAPI?.onGameActive((info2) => {
-      setRodando(Boolean(info2.rodando && info2.gameId && info2.gameId === game?.id))
-    })
-    return () => off?.()
-  }, [game?.id])
+  // O mesmo estado vale para a biblioteca, a loja e o modo console. O hook
+  // também pede o replay do estado atual ao montar, então a página não perde
+  // o botão PARAR quando é aberta depois que o jogo já iniciou.
+  const jogoAtivo = useJogoRodando(game ? [game] : [])
+  const mesmaSessao = Boolean(game && jogoAtivo.jogo?.id === game.id)
+  const rodandoLocal = mesmaSessao && jogoAtivo.rodando
+  const abrindoLocal = mesmaSessao && jogoAtivo.pendente
+  const rodando = rodandoExterno ?? rodandoLocal
+  const abrindo = abrindoExterno ?? abrindoLocal
   const [fixesAtivo, setFixesAtivo] = useState(false)
   const voltarRef = useRef<HTMLButtonElement>(null)
 
@@ -428,7 +437,9 @@ export function StoreGamePage({
                         </svg>
                       </PrimaryBtn>
                       <button
-                        onClick={() => window.launcherAPI?.closeGame()}
+                        type="button"
+                        data-game-action="stop"
+                        onClick={onStop || (() => jogoAtivo.parar())}
                         className="flex items-center gap-2 rounded-full bg-[#ef4444] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -437,6 +448,14 @@ export function StoreGamePage({
                         {t("gamepage.parar")}
                       </button>
                     </>
+                  ) : abrindo ? (
+                    <PrimaryBtn
+                      onClick={onCancel || (() => jogoAtivo.cancelar())}
+                      action="cancel"
+                      label={t("common.cancelar")}
+                    >
+                      <span className="text-base leading-none">×</span>
+                    </PrimaryBtn>
                   ) : (
                     <PrimaryBtn onClick={onJogar} disabled={ocupado} label={t("gamepage.jogar")}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -649,16 +668,20 @@ function PrimaryBtn({
   onClick,
   disabled,
   label,
+  action,
 }: {
   children: React.ReactNode
   onClick: () => void
   disabled?: boolean
   label: string
+  action?: "stop" | "cancel"
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
+      data-game-action={action}
       className="flex items-center gap-2 rounded-full bg-white px-5 py-2 text-[12.5px] font-bold text-black transition-transform enabled:hover:scale-[1.03] disabled:opacity-50"
     >
       {children}

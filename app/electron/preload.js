@@ -211,6 +211,11 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("game:active", h)
     return () => ipcRenderer.removeListener("game:active", h)
   },
+  onGameLaunchState: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("game:launchState", h)
+    return () => ipcRenderer.removeListener("game:launchState", h)
+  },
   onAchievementUnlocked: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("achievement:unlocked", h)

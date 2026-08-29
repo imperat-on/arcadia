@@ -169,7 +169,7 @@ export function PS5Launcher() {
   // Jogo em execução, segundo o vigia de processo do main — e não mais um
   // palpite pelo foco da janela. Guarda QUAL jogo é, para o botão do herói
   // virar "Parar" só naquele.
-  const jogoAtivo = useJogoRodando()
+  const jogoAtivo = useJogoRodando(games)
   const atualizacao = useAtualizacao()
   // Para pausar trailer de fundo e vídeo da loja, "abrindo" já conta como
   // jogo em cena.
@@ -179,7 +179,6 @@ export function PS5Launcher() {
   // Evita dois IPCs quando Enter/Space fica pressionado durante a transição
   // para a janela fullscreen (o retorno do primeiro IPC é assíncrono).
   const launchPendingRef = useRef(false)
-  const [launchPending, setLaunchPending] = useState(false)
   const jogoAtivoRef = useRef(jogoAtivo)
   jogoAtivoRef.current = jogoAtivo
 
@@ -529,7 +528,6 @@ export function PS5Launcher() {
     const off = window.launcherAPI?.onAppFocus(aoFocoDoMain)
     const offLaunchError = window.launcherAPI?.onLaunchError?.(() => {
       launchPendingRef.current = false
-      setLaunchPending(false)
       jogoAtivoRef.current.limpar()
     })
     // Consulta o estado atual além de ouvir eventos: um launch pode ter
@@ -696,38 +694,36 @@ export function PS5Launcher() {
     (game: Game, mode?: "steam" | "exe") => {
       if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
       launchPendingRef.current = true
-      setLaunchPending(true)
       // Marca a sessão antes do IPC: o main só confirma game:running(true)
       // depois do poll, mas o lock local já bloqueia toques durante a abertura.
       const escolheModo = mode === undefined && game.launcher === "steam" && game.temExe
       if (!escolheModo) jogoAtivoRef.current.iniciar(game)
-      void launchGame(game, mode).then((result) => {
-        launchPendingRef.current = false
-        if (!result.ok || result.needsMode) {
-          jogoAtivoRef.current.limpar()
-          setLaunchPending(false)
-          return
-        }
-        if (escolheModo) jogoAtivoRef.current.iniciar(game)
-        setLaunchPending(false)
-        setRecent((prev) => {
-          const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
-          try {
-            localStorage.setItem("gs_recent", JSON.stringify(next))
-          } catch {
-            /* ignore */
+      void launchGame(game, mode)
+        .then((result) => {
+          launchPendingRef.current = false
+          if (!result.ok || result.needsMode) {
+            jogoAtivoRef.current.limpar()
+            return
           }
-          return next
+          if (escolheModo) jogoAtivoRef.current.iniciar(game)
+          setRecent((prev) => {
+            const next = [game.id, ...prev.filter((id) => id !== game.id)].slice(0, 30)
+            try {
+              localStorage.setItem("gs_recent", JSON.stringify(next))
+            } catch {
+              /* ignore */
+            }
+            return next
+          })
+          setToast({ title: game.title, visible: true })
+          setTimeout(() => setToast((current) => ({ ...current, visible: false })), 3000)
         })
-        setToast({ title: game.title, visible: true })
-        setTimeout(() => setToast((current) => ({ ...current, visible: false })), 3000)
-      }).catch(() => {
-        // O bridge normalmente converte a falha em { ok: false }, mas a trava
-        // também precisa ser liberada se um bridge customizado rejeitar.
-        launchPendingRef.current = false
-        jogoAtivoRef.current.limpar()
-        setLaunchPending(false)
-      })
+        .catch(() => {
+          // O bridge normalmente converte a falha em { ok: false }, mas a trava
+          // também precisa ser liberada se um bridge customizado rejeitar.
+          launchPendingRef.current = false
+          jogoAtivoRef.current.limpar()
+        })
     },
     [launchGame],
   )
@@ -736,18 +732,26 @@ export function PS5Launcher() {
   // (não é sessão de jogo) — só abrir seta gameRunning.
   const _activate = useCallback(
     (game?: Game | null) => {
-      if (!game || !appFocusedRef.current || launchPendingRef.current) return
+      if (!game) return
       // Um jogo fullscreen pode deixar a janela atrás do jogo; mesmo quando um
       // clique/tecla vaza até aqui, nunca inicie um segundo processo. O mesmo
-      // jogo continua podendo usar o botão Jogar/Parar quando o launcher está
-      // focado de propósito.
+      // jogo continua podendo usar o botão Jogar/Parar/Cancelar quando o
+      // launcher está focado de propósito. A ação de parar não depende do
+      // evento de foco chegar antes do clique.
       const sessao = jogoAtivoRef.current
       // Também cobre reload do renderer ou jogo externo, quando o booleano
       // rodando foi replayado mas o objeto Game ainda não existe localmente.
-      if (gameRunningRef.current) {
-        if (sessao.jogo?.id === game.id && sessao.rodando) sessao.parar()
+      if (launchPendingRef.current || gameRunningRef.current) {
+        if (sessao.jogo?.id === game.id) {
+          if (sessao.rodando) sessao.parar()
+          else if (sessao.pendente) {
+            sessao.cancelar()
+            launchPendingRef.current = false
+          }
+        }
         return
       }
+      if (!appFocusedRef.current) return
       if (
         sessao.jogo &&
         sessao.jogo.id !== game.id &&
@@ -774,10 +778,14 @@ export function PS5Launcher() {
       }
 
       // Este jogo já foi lançado? Rodando de fato, o botão é "Parar"; ainda
-      // abrindo, ignora — um segundo toque não pode lançar duas vezes nem matar
-      // o processo que está subindo.
+      // abrindo, o botão é "Cancelar" — um segundo toque não pode lançar duas
+      // vezes nem matar o processo que está subindo sem uma ação explícita.
       if (jogoAtivoRef.current.jogo?.id === game.id) {
         if (jogoAtivoRef.current.rodando) jogoAtivoRef.current.parar()
+        else if (jogoAtivoRef.current.pendente) {
+          jogoAtivoRef.current.cancelar()
+          launchPendingRef.current = false
+        }
         return
       }
 
@@ -861,20 +869,25 @@ export function PS5Launcher() {
       // Em gamescope o Chromium continua dizendo que está focado e pode até
       // receber uma tecla enquanto o jogo fullscreen está na frente. Nunca
       // deixe essa tecla abrir outro jogo, alternar telas ou clicar no launcher.
-      if (!appFocusedRef.current || launchPendingRef.current) return
-      if (gameRunningRef.current) {
-        // Quando a pessoa trouxe o launcher para frente de propósito, mantém o
-        // atalho de Enter/Space para parar o MESMO jogo. Outros jogos ficam
-        // bloqueados pelo _activate para não criar dois processos.
+      const acaoExplicita = e.key === "Enter" || e.key === " "
+      // Stop/Cancel is an explicit user command. It remains available even if
+      // the native focus flag says the game owns the surface; other navigation
+      // keys stay blocked in that state.
+      if (gameRunningRef.current || launchPendingRef.current) {
         if (
-          (e.key === "Enter" || e.key === " ") &&
+          acaoExplicita &&
           selectedGameRef.current?.id === jogoAtivoRef.current.jogo?.id
         ) {
           e.preventDefault()
-          jogoAtivoRef.current.parar()
+          if (jogoAtivoRef.current.rodando) jogoAtivoRef.current.parar()
+          else if (jogoAtivoRef.current.pendente) {
+            jogoAtivoRef.current.cancelar()
+            launchPendingRef.current = false
+          }
         }
-        return
+        if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
       }
+      if (!appFocusedRef.current) return
       if (overviewClosing && e.key === "ArrowDown") {
         e.preventDefault()
         openOverview()
@@ -1162,23 +1175,21 @@ export function PS5Launcher() {
     <div
       className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${storeMode ? "retro-store-active" : ""} ${posLogin ? "pos-login home-reveal" : ""} ${overviewOpen ? (overviewClosing ? "overview-returning" : "overview-active") : ""}`}
       onKeyDownCapture={(event) => {
-        if (!appFocusedRef.current && (gameRunningRef.current || launchPendingRef.current)) {
+        const action =
+          event.target instanceof HTMLElement
+            ? event.target.closest('[data-game-action="stop"], [data-game-action="cancel"]')
+            : null
+        if (
+          !action &&
+          !appFocusedRef.current &&
+          (gameRunningRef.current || launchPendingRef.current)
+        ) {
           event.preventDefault()
           event.stopPropagation()
         }
       }}
     >
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
-      {/* Captura cliques entregues ao renderer durante a transição/jogo. O
-          gamescope pode manter a página tecnicamente focada; o estado do main
-          continua sendo a autoridade. */}
-      {!appFocused && (gameRunning || launchPending) && (
-        <div
-          aria-hidden="true"
-          className="fixed inset-0 z-[200] cursor-none"
-          style={{ pointerEvents: "auto", background: "transparent" }}
-        />
-      )}
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
         <BootScreen
