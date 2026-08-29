@@ -47,8 +47,16 @@ const { getRunningEmulatorStatus, preflightRunningEmulator } = require("./emulat
 const raClient = require("./retroachievements/client")
 const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
-const { spawn, execFile } = require("child_process")
+const { spawn, spawnSync, execFile, execFileSync } = require("child_process")
 const { restoreWindowFocus } = require("./window-focus")
+const {
+  buildExternalGamescopeCommand,
+  canUseSystemdSession,
+  createSystemdUnitName,
+  parseSystemdShow,
+  readCgroupPids,
+  systemdStopArgs,
+} = require("./gamescope-session")
 const { createFocusSession, createLaunchSession } = require("./focus-session")
 const { shouldTrackGameSession } = require("./game-session")
 const { fetchRede } = require("./httpfetch")
@@ -382,6 +390,7 @@ function releaseLaunch(record) {
     clearTimeout(gameRecord.groupKillTimer)
     gameRecord.groupKillTimer = null
   }
+  clearProcessSessionWatch(gameRecord)
   try {
     record.closeLog?.()
   } catch {}
@@ -483,6 +492,116 @@ function sinalizarGrupoDoJogo(record, signal) {
   }
 }
 
+// A systemd-backed Gamescope session owns the launcher handoff in a cgroup,
+// while Gamescope + gamescopereaper remain the visible process group. The
+// cgroup path comes only from `systemctl show` and is validated by
+// readCgroupPids; it is never selected by a global process-name search.
+const PROCESS_SESSION_POLL_MS = 1000
+const PROCESS_SESSION_EMPTY_CONFIRMATIONS = 3
+const PROCESS_SESSION_START_TIMEOUT_MS = 20_000
+
+function processSessionReady(record) {
+  const session = record?.processSession
+  return !session || session.type !== "systemd" || session.ready === true
+}
+
+function clearProcessSessionWatch(record) {
+  const session = record?.processSession
+  if (!session?.pollTimer) return
+  clearInterval(session.pollTimer)
+  session.pollTimer = null
+}
+
+function pararSessaoSystemd(record) {
+  const session = record?.processSession
+  if (session?.type !== "systemd" || session.stopRequested) return false
+  const args = systemdStopArgs(session.unit)
+  if (!args) return false
+  session.stopRequested = true
+  try {
+    const helper = spawn("systemctl", args, {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    })
+    helper.on?.("error", (error) => {
+      console.warn("arcadia: não foi possível parar a sessão systemd:", error.message || error)
+    })
+    helper.unref?.()
+    return true
+  } catch (error) {
+    console.warn("arcadia: não foi possível parar a sessão systemd:", error.message || error)
+    return false
+  }
+}
+
+function encerrarGamescopeDaSessao(record) {
+  // Stop the exact cgroup first. The group signal then removes Gamescope and
+  // its reaper, without touching another game launched outside this session.
+  pararSessaoSystemd(record)
+  return sinalizarGrupoDoJogo(record, "SIGTERM")
+}
+
+function armarVigiaProcessSession(record) {
+  const session = record?.processSession
+  if (session?.type !== "systemd" || session.pollTimer) return
+  session.startedAt = Date.now()
+  session.ready = false
+  session.emptyTicks = 0
+  session.queryInFlight = false
+
+  const verificar = () => {
+    if (session.queryInFlight || session.stopRequested || record.stopRequested) return
+    session.queryInFlight = true
+    execFile(
+      "systemctl",
+      [
+        "--user",
+        "show",
+        session.unit,
+        "--property=ActiveState",
+        "--property=SubState",
+        "--property=ControlGroup",
+      ],
+      { env: process.env, timeout: 1500 },
+      (error, stdout) => {
+        session.queryInFlight = false
+        if (session.stopRequested || record.stopRequested) return
+
+        const properties = parseSystemdShow(stdout)
+        const pids = error
+          ? null
+          : readCgroupPids(properties.ControlGroup, { cgroupRoot: session.cgroupRoot })
+        if (Array.isArray(pids) && pids.length > 0) {
+          session.cgroupPath = properties.ControlGroup
+          session.ready = true
+          session.emptyTicks = 0
+          return
+        }
+
+        // A missing cgroup is not proof that the game ended. Keep the launch
+        // barrier during startup and fail closed if systemd never creates it.
+        if (!Array.isArray(pids)) {
+          if (Date.now() - session.startedAt < PROCESS_SESSION_START_TIMEOUT_MS) return
+          session.failed = true
+        } else if (!session.ready) {
+          if (Date.now() - session.startedAt < PROCESS_SESSION_START_TIMEOUT_MS) return
+          session.failed = true
+        }
+
+        session.emptyTicks += 1
+        if (session.emptyTicks < PROCESS_SESSION_EMPTY_CONFIRMATIONS) return
+        session.ended = true
+        clearProcessSessionWatch(record)
+        encerrarGamescopeDaSessao(record)
+      },
+    )
+  }
+
+  session.pollTimer = setInterval(verificar, PROCESS_SESSION_POLL_MS)
+  verificar()
+}
+
 function steamAppId(record) {
   const m = /^steam:(\d+)$/.exec(String(record?.gameId || ""))
   return m ? m[1] : ""
@@ -561,6 +680,9 @@ function pararJogo(record) {
   record.stopRequested = true
   if (record.launchSession) launchLifecycle.requestStop(record.launchSession.token)
   if (record.steamWrapper) pararJogoSteam(record)
+  const sessionStopped = record.processSession?.type === "systemd"
+    ? pararSessaoSystemd(record)
+    : false
   const signaled = sinalizarGrupoDoJogo(record, "SIGTERM")
   if (signaled && !record.groupKillTimer) {
     record.groupKillTimer = setTimeout(() => {
@@ -570,7 +692,7 @@ function pararJogo(record) {
           sinalizarGrupoDoJogo(record, "SIGKILL")) return
     }, 4000)
   }
-  return signaled || Boolean(record.steamWrapper)
+  return signaled || sessionStopped || Boolean(record.steamWrapper)
 }
 
 // Vigia de jogo rodando (todos os modos): avisa o renderer nas transições
@@ -625,13 +747,15 @@ const armarPollJogo = () => {
         const vivo = grupoDoJogoVivo(grupo)
         const wrapperSteam = ultimoJogoAtivo?.steamWrapper === true
         if (vivo) {
-          // Para Steam, o grupo pode ser só o wrapper/URI transitório; a
-          // confirmação real vem do processo do jogo no pgrep abaixo. Não
-          // retornamos cedo para também detectar a saída do jogo se o wrapper
-          // permanecer vivo ligado à instância Steam.
+          // A sessão systemd pode estar viva enquanto ainda cria o processo
+          // real (ou durante o handoff do updater). Só confirmar o jogo após
+          // o cgroup mostrar pelo menos um processo; Gamescope/reaper sozinhos
+          // não contam como jogo confirmado.
           if (!wrapperSteam) {
-            processoJogoVisto = true
-            marcar(true)
+            if (processSessionReady(grupo)) {
+              processoJogoVisto = true
+              marcar(true)
+            }
             sinalDeVida = 0
             return
           }
@@ -1425,6 +1549,59 @@ function binExists(cmd) {
     .some((dir) => fs.existsSync(path.join(dir, cmd)))
 }
 
+// Gamescope's keep-alive flag is optional across distro versions. Probe once
+// instead of making an old Gamescope reject every external launch. The
+// systemd handoff remains useful even when the flag is unavailable.
+let gamescopeKeepAliveSupport = null
+function gamescopeSupportsKeepAlive() {
+  if (gamescopeKeepAliveSupport !== null) return gamescopeKeepAliveSupport
+  try {
+    const result = spawnSync("gamescope", ["--help"], {
+      encoding: "utf8",
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    const help = `${result.stdout || ""}\n${result.stderr || ""}`
+    gamescopeKeepAliveSupport = result.status === 0 && /(?:^|\s)--keep-alive(?:\s|$)/m.test(help)
+  } catch {
+    gamescopeKeepAliveSupport = false
+  }
+  return gamescopeKeepAliveSupport
+}
+
+function systemdUserManagerReady() {
+  try {
+    // `show-environment` is a cheap, read-only probe of the current user's
+    // manager. No unit is created during capability detection.
+    execFileSync("systemctl", ["--user", "show-environment"], {
+      env: process.env,
+      stdio: "ignore",
+      timeout: 1500,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function createExternalProcessSession(tokenId) {
+  if (!canUseSystemdSession({
+    platform: process.platform,
+    binExists,
+    env: process.env,
+    fsImpl: fs,
+  })) return null
+  if (!systemdUserManagerReady()) return null
+  const unit = createSystemdUnitName({ pid: process.pid, tokenId })
+  if (!unit) return null
+  return {
+    type: "systemd",
+    unit,
+    keepAlive: gamescopeSupportsKeepAlive(),
+    cgroupRoot: "/sys/fs/cgroup",
+  }
+}
+
 // Valida binários do comando de launch ANTES do spawn. Retorna mensagem de
 // erro ou null se OK. Wrappers (gamescope/gamemoderun/mangohud) já são
 // validados em applyGameSettings.
@@ -1504,7 +1681,7 @@ function steamComInjecao(cmd) {
   return { cmd: novo, env: steam.env, avisos }
 }
 
-function applyGameSettings(cmd, s, gameId) {
+function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKeys = []) {
   const warnings = []
   const env = { ...process.env }
   if (s.esync) env.WINEESYNC = "1"
@@ -1562,21 +1739,50 @@ function applyGameSettings(cmd, s, gameId) {
   // Argumentos do jogo: entram depois do comando (não se aplica a Steam).
   if (s.gameArgs && path.basename(String(cmd[0])) !== "steam")
     finalCmd = [...finalCmd, ...splitArgs(s.gameArgs)]
+  let processSession = null
   // Gamescope embrulha o comando (não se aplica a jogos Steam — a Steam tem
-  // sua própria integração com gamescope). Não passe --disable-gamemode:
-  // essa opção não existe no gamescope upstream e faz versões atuais abortarem
-  // antes de iniciar o executável. Quem quer GameMode usa o checkbox
-  // (gamemoderun), que continua funcionando fora do gamescope.
+  // sua própria integração com gamescope). Em Linux, colocamos o comando
+  // primário num serviço transitório do systemd. Isso é importante para
+  // launchers que fecham o updater depois de criar outro processo: o
+  // gamescopereaper vê o `systemd-run --wait` vivo, e o cgroup mantém o novo
+  // processo dentro da sessão. `--keep-alive` cobre a janela de handoff no
+  // compositor; o vigia encerra a superfície quando o cgroup esvazia.
   if (s.gamescope && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("gamescope")) {
-      const args = [
-        "-W",
-        String(s.gsWidth || 1920),
-        "-H",
-        String(s.gsHeight || 1080),
-      ]
-      if (s.gsFps) args.push("-r", String(s.gsFps))
-      finalCmd = ["gamescope", ...args, "--", ...finalCmd]
+      processSession = createExternalProcessSession(launchTokenId)
+      if (!processSession && process.platform === "linux") {
+        warnings.push(
+          "systemd do usuário indisponível — handoff de launchers pode não ser acompanhado pelo Gamescope",
+        )
+      }
+      const wrapped = buildExternalGamescopeCommand(finalCmd, {
+        width: s.gsWidth || 1920,
+        height: s.gsHeight || 1080,
+        fps: s.gsFps || 0,
+        keepAlive: Boolean(processSession?.keepAlive),
+        systemdUnit: processSession?.unit || "",
+        // Gamescope rewrites DISPLAY/Wayland variables only after it starts.
+        // `--setenv=NAME` makes systemd-run copy those runtime values from its
+        // own environment instead of the user's stale systemd environment.
+        environmentKeys: [
+          ...Object.keys(env),
+          ...extraEnvironmentKeys,
+          "WINEPREFIX",
+          "DISPLAY",
+          "WAYLAND_DISPLAY",
+          "GAMESCOPE_WAYLAND_DISPLAY",
+          "ENABLE_GAMESCOPE_WSI",
+          "XDG_SESSION_TYPE",
+          "XDG_CURRENT_DESKTOP",
+          "STEAM_GAME_DISPLAY_0",
+        ],
+      })
+      finalCmd = wrapped.cmd
+      // Keep this metadata separate from argv: Stop uses the exact transient
+      // unit instead of a process-name pattern.
+      processSession = wrapped.processSession
+        ? { ...processSession, ...wrapped.processSession }
+        : null
     } else {
       warnings.push("gamescope não está instalado — iniciando sem ele")
     }
@@ -1609,7 +1815,7 @@ function applyGameSettings(cmd, s, gameId) {
       }
     }
   }
-  return { cmd: finalCmd, env, warnings }
+  return { cmd: finalCmd, env, warnings, processSession }
 }
 
 // Merge raso (preserva chaves não enviadas; perfil é mesclado à parte).
@@ -2428,6 +2634,7 @@ app.whenReady().then(() => {
       focusApplied: false,
       stopRequested: false,
       spawnError: null,
+      processSession: null,
     }
     lancamentoAtual = launch
     launchInFlight = true
@@ -2514,7 +2721,14 @@ app.whenReady().then(() => {
       const s = getGameSettings(gameId)
       const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
       discordRpc.setGame(lib?.title || gameId, lib?.launcher)
-      const { cmd, env: envBase, warnings } = applyGameSettings(rawCmd, s, gameId)
+      const { cmd, env: envBase, warnings, processSession } = applyGameSettings(
+        rawCmd,
+        s,
+        gameId,
+        launch.token.id,
+        [...Object.keys(envExtra || {}), ...Object.keys(sls.env || {})],
+      )
+      launch.processSession = processSession
       // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a
       // partir do process.env e apagaria o LD_AUDIT.
       const env = { ...envBase, ...envExtra, ...sls.env }
@@ -2732,6 +2946,9 @@ app.whenReady().then(() => {
             steamWrapper: Boolean(launch.steamWrapper),
             steamCommand: launch.steamCommand || c[0],
             steamEnv: launch.steamEnv || env,
+            processSession: launch.processSession
+              ? { ...launch.processSession }
+              : null,
             startedAt: Date.now(),
             launchSession: launch,
           }
@@ -2740,6 +2957,7 @@ app.whenReady().then(() => {
           jogoAtivo = gameRecord
           ultimoJogoAtivo = gameRecord
           launchLifecycle.markRunning(launch.token)
+          armarVigiaProcessSession(gameRecord)
           armarPollJogo()
         } else {
           // `steam://install` has no tracked game session.
