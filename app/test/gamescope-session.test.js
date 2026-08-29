@@ -128,3 +128,71 @@ test("lê propriedades e PIDs somente dentro do cgroup informado", () => {
   )
   assert.equal(readCgroupPids("/user.slice/../other", { fsImpl }), null)
 })
+
+test("monta HDR, limitador e modo de janela antes do separador do comando", () => {
+  const result = buildExternalGamescopeCommand(["proton", "run", "/tmp/game.exe"], {
+    width: 2560,
+    height: 1600,
+    fps: 60,
+    framerateLimit: 45,
+    hdr: true,
+    windowMode: "fullscreen",
+    keepAlive: true,
+  })
+  assert.deepEqual(result.cmd, [
+    "gamescope",
+    "-W",
+    "2560",
+    "-H",
+    "1600",
+    "-r",
+    "60",
+    "--framerate-limit",
+    "45",
+    "--hdr-enabled",
+    "-f",
+    "--keep-alive",
+    "--",
+    "proton",
+    "run",
+    "/tmp/game.exe",
+  ])
+})
+
+test("modo de janela usa exatamente um flag e windowed não adiciona flag", () => {
+  for (const [windowMode, expected] of [
+    ["fullscreen", "-f"],
+    ["borderless", "-b"],
+    ["windowed", null],
+    ["valor-invalido", null],
+  ]) {
+    const cmd = buildExternalGamescopeCommand(["game"], { windowMode }).cmd
+    const modeFlags = cmd.filter((value) => value === "-f" || value === "-b")
+    assert.equal(modeFlags.length, expected ? 1 : 0, windowMode)
+    if (expected) assert.equal(modeFlags[0], expected)
+  }
+})
+
+test("opções novas são opcionais e não alteram o contrato legado", () => {
+  const result = buildExternalGamescopeCommand(["game"], {
+    width: 1280,
+    height: 720,
+    fps: 30,
+    hdr: false,
+    framerateLimit: 0,
+    windowMode: "windowed",
+  })
+  assert.deepEqual(result.cmd, ["gamescope", "-W", "1280", "-H", "720", "-r", "30", "--", "game"])
+})
+
+test("valores inválidos não viram argumentos Gamescope", () => {
+  const result = buildExternalGamescopeCommand(["game"], {
+    width: "2560 --hdr-enabled",
+    height: -1,
+    fps: "60;evil",
+    framerateLimit: "45 --keep-alive",
+    hdr: "true",
+    windowMode: "--evil",
+  })
+  assert.deepEqual(result.cmd, ["gamescope", "-W", "1920", "-H", "1080", "--", "game"])
+})

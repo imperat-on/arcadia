@@ -18,6 +18,22 @@ const ABAS = [
 ] as const
 type Aba = (typeof ABAS)[number]
 
+const GAMESCOPE_RESOLUTIONS = [
+  "1280x720",
+  "1280x800",
+  "1366x768",
+  "1600x900",
+  "1920x1080",
+  "1920x1200",
+  "2560x1080",
+  "2560x1440",
+  "2560x1600",
+  "3440x1440",
+  "3840x2160",
+] as const
+const GAMESCOPE_WINDOW_MODES = ["fullscreen", "borderless", "windowed"] as const
+type GamescopeWindowMode = (typeof GAMESCOPE_WINDOW_MODES)[number]
+
 const PADRAO: GameSettings = {
   autoDXVK: true,
   autoNVAPI: true,
@@ -28,9 +44,12 @@ const PADRAO: GameSettings = {
   wow64: false,
   fsrHack: false,
   gamescope: false,
+  gsHdr: false,
   gsWidth: 1920,
   gsHeight: 1080,
   gsFps: 0,
+  gsWindowMode: "fullscreen",
+  gsFramerateLimit: 0,
   dxvkHud: "",
   mangohud: false,
   gamemode: false,
@@ -82,6 +101,15 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
 
   const prefixoEfetivo = s.prefixPath || defaultPrefix
   const ferramentaOpts = { wine: wineEscolhido, prefix: s.prefixPath || undefined }
+  const gamescopeResolution = `${s.gsWidth || 1920}x${s.gsHeight || 1080}`
+  const gamescopeHasPresetResolution = GAMESCOPE_RESOLUTIONS.includes(
+    gamescopeResolution as (typeof GAMESCOPE_RESOLUTIONS)[number],
+  )
+  const gamescopeWindowMode: GamescopeWindowMode = GAMESCOPE_WINDOW_MODES.includes(
+    s.gsWindowMode as GamescopeWindowMode,
+  )
+    ? (s.gsWindowMode as GamescopeWindowMode)
+    : "fullscreen"
 
   const ferramenta = (tool: "winecfg" | "winetricks" | "wineboot") =>
     window.launcherAPI?.prefixTool(game.id, tool, ferramentaOpts)
@@ -107,16 +135,42 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
     </div>
   )
 
+  const Reset = ({ onReset }: { onReset: () => void }) => (
+    <button
+      type="button"
+      onClick={onReset}
+      title={t("gamesettings.gamescope_reset")}
+      aria-label={t("gamesettings.gamescope_reset")}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+    >
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 12a9 9 0 1 0 3-6.7" />
+        <polyline points="3 4 3 9 8 9" />
+      </svg>
+    </button>
+  )
+
   const Check = ({
     k,
     label,
     hint,
     disabled,
+    onReset,
   }: {
     k: keyof GameSettings
     label: string
     hint?: string
     disabled?: boolean
+    onReset?: () => void
   }) => (
     <div className={`mb-3.5 flex items-center justify-between ${disabled ? "opacity-40" : ""}`}>
       <label className="flex cursor-pointer items-center gap-3">
@@ -141,17 +195,20 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
         />
         <span className="text-[13px] text-white/85">{label}</span>
       </label>
-      {hint && (
-        <span
-          className="group/tip relative flex h-[15px] w-[15px] shrink-0 cursor-help items-center justify-center rounded-full text-[10px] font-bold text-black"
-          style={{ background: "var(--accent)" }}
-        >
-          i
-          <span className="pointer-events-none absolute right-0 top-5 z-50 w-56 rounded-lg border border-white/10 bg-[#1a1a20] px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-white/80 opacity-0 shadow-xl transition-opacity duration-100 group-hover/tip:opacity-100">
-            {hint}
+      <div className="flex items-center gap-3">
+        {hint && (
+          <span
+            className="group/tip relative flex h-[15px] w-[15px] shrink-0 cursor-help items-center justify-center rounded-full text-[10px] font-bold text-black"
+            style={{ background: "var(--accent)" }}
+          >
+            i
+            <span className="pointer-events-none absolute right-0 top-5 z-50 w-56 rounded-lg border border-white/10 bg-[#1a1a20] px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-white/80 opacity-0 shadow-xl transition-opacity duration-100 group-hover/tip:opacity-100">
+              {hint}
+            </span>
           </span>
-        </span>
-      )}
+        )}
+        {onReset && <Reset onReset={onReset} />}
+      </div>
     </div>
   )
 
@@ -790,45 +847,103 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
 
             {aba === "DESEMPENHO" && (
               <>
+                <h3 className="mb-3 text-[17px] font-semibold text-white">
+                  {t("gamesettings.gamescope")}
+                </h3>
                 <Check
                   k="gamescope"
                   label={t("gamesettings.gamescope_label")}
                   hint={t("gamesettings.gamescope_hint")}
+                  onReset={() => set({ gamescope: false })}
                 />
-                <div className="mt-2 grid grid-cols-3 gap-3">
-                  <div>
+                <Check
+                  k="gsHdr"
+                  label={t("gamesettings.gamescope_hdr")}
+                  hint={t("gamesettings.gamescope_hdr_hint")}
+                  onReset={() => set({ gsHdr: false })}
+                />
+
+                <div className="mb-3.5 flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
                     <label className="mb-1.5 block text-[12px] text-white/60">
-                      {t("gamesettings.gamescope_largura")}
+                      {t("gamesettings.gamescope_resolution")}
+                    </label>
+                    <select
+                      value={gamescopeResolution}
+                      onChange={(e) => {
+                        const match = e.target.value.match(/^(\d+)x(\d+)$/)
+                        if (!match) return
+                        const width = Number(match[1])
+                        const height = Number(match[2])
+                        if (width > 0 && height > 0) set({ gsWidth: width, gsHeight: height })
+                      }}
+                      className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
+                    >
+                      {!gamescopeHasPresetResolution && (
+                        <option value={gamescopeResolution} className="bg-[#16161a]">
+                          {gamescopeResolution} ({t("gamesettings.gamescope_custom")})
+                        </option>
+                      )}
+                      {GAMESCOPE_RESOLUTIONS.map((resolution) => (
+                        <option key={resolution} value={resolution} className="bg-[#16161a]">
+                          {resolution}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Reset onReset={() => set({ gsWidth: 1920, gsHeight: 1080 })} />
+                </div>
+
+                <div className="mb-3.5 flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-1.5 block text-[12px] text-white/60">
+                      {t("gamesettings.gamescope_window_mode")}
+                    </label>
+                    <select
+                      value={gamescopeWindowMode}
+                      onChange={(e) => {
+                        const mode = e.target.value as GamescopeWindowMode
+                        if (GAMESCOPE_WINDOW_MODES.includes(mode)) set({ gsWindowMode: mode })
+                      }}
+                      className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
+                    >
+                      <option value="fullscreen" className="bg-[#16161a]">
+                        {t("gamesettings.gamescope_window_fullscreen")}
+                      </option>
+                      <option value="borderless" className="bg-[#16161a]">
+                        {t("gamesettings.gamescope_window_borderless")}
+                      </option>
+                      <option value="windowed" className="bg-[#16161a]">
+                        {t("gamesettings.gamescope_window_windowed")}
+                      </option>
+                    </select>
+                  </div>
+                  <Reset onReset={() => set({ gsWindowMode: "fullscreen" })} />
+                </div>
+
+                <div className="mb-3.5 flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-1.5 block text-[12px] text-white/60">
+                      {t("gamesettings.gamescope_framerate_limit")}
                     </label>
                     <input
                       type="number"
-                      value={s.gsWidth || 1920}
-                      onChange={(e) => set({ gsWidth: Number(e.target.value) || 1920 })}
-                      className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
+                      min="0"
+                      inputMode="numeric"
+                      value={s.gsFramerateLimit ? s.gsFramerateLimit : ""}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim()
+                        if (!raw) {
+                          set({ gsFramerateLimit: 0 })
+                          return
+                        }
+                        const value = Number(raw)
+                        if (Number.isInteger(value) && value >= 0) set({ gsFramerateLimit: value })
+                      }}
+                      className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none placeholder:text-white/25 focus:border-[color:var(--accent)]"
                     />
                   </div>
-                  <div>
-                    <label className="mb-1.5 block text-[12px] text-white/60">
-                      {t("gamesettings.gamescope_altura")}
-                    </label>
-                    <input
-                      type="number"
-                      value={s.gsHeight || 1080}
-                      onChange={(e) => set({ gsHeight: Number(e.target.value) || 1080 })}
-                      className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-[12px] text-white/60">
-                      {t("gamesettings.gamescope_fps")}
-                    </label>
-                    <input
-                      type="number"
-                      value={s.gsFps || 0}
-                      onChange={(e) => set({ gsFps: Number(e.target.value) || 0 })}
-                      className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
-                    />
-                  </div>
+                  <Reset onReset={() => set({ gsFramerateLimit: 0 })} />
                 </div>
               </>
             )}

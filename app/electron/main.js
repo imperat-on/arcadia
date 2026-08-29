@@ -1749,6 +1749,10 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
   // compositor; o vigia encerra a superfície quando o cgroup esvazia.
   if (s.gamescope && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("gamescope")) {
+      // HDR clients need the Gamescope WSI layer.  Set this only for an
+      // external Gamescope launch; Steam owns its own Gamescope integration
+      // and must not receive this environment change from Arcadia.
+      if (s.gsHdr === true) env.ENABLE_GAMESCOPE_WSI = "1"
       processSession = createExternalProcessSession(launchTokenId)
       if (!processSession && process.platform === "linux") {
         warnings.push(
@@ -1756,9 +1760,17 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
         )
       }
       const wrapped = buildExternalGamescopeCommand(finalCmd, {
-        width: s.gsWidth || 1920,
-        height: s.gsHeight || 1080,
-        fps: s.gsFps || 0,
+        // Keep the existing gsWidth/gsHeight/gsFps contract.  gsFps is the
+        // nested refresh (`-r`), not the independent FPS limiter.
+        width: s.gsWidth,
+        height: s.gsHeight,
+        fps: s.gsFps,
+        hdr: s.gsHdr === true,
+        // Existing gamescope settings had no window mode; keep the UI's
+        // fullscreen behavior for those records without changing the generic
+        // builder's legacy default (windowed).
+        windowMode: s.gsWindowMode ?? "fullscreen",
+        framerateLimit: s.gsFramerateLimit,
         keepAlive: Boolean(processSession?.keepAlive),
         systemdUnit: processSession?.unit || "",
         // Gamescope rewrites DISPLAY/Wayland variables only after it starts.

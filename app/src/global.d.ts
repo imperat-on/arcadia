@@ -625,9 +625,17 @@ export interface GameSettings {
   fsrHack?: boolean
   /** Rodar o jogo dentro do gamescope (não se aplica a jogos Steam). */
   gamescope?: boolean
+  /** Emitir a saída HDR do Gamescope (experimental). */
+  gsHdr?: boolean
+  /** Resolução de saída do Gamescope. */
   gsWidth?: number
   gsHeight?: number
+  /** Refresh rate interno legado do Gamescope (compatibilidade). */
   gsFps?: number
+  /** Modo da janela aninhada do Gamescope. */
+  gsWindowMode?: "fullscreen" | "borderless" | "windowed"
+  /** Limite simples de FPS do Gamescope; 0 = desligado. */
+  gsFramerateLimit?: number
   /** DXVK_HUD ("" desligado; ex.: "fps", "full"). */
   dxvkHud?: string
   mangohud?: boolean
