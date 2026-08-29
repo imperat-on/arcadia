@@ -51,6 +51,10 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
   const [ajuda, setAjuda] = useState<string>("")
   const [novoWrap, setNovoWrap] = useState({ cmd: "", args: "" })
   const [novaVar, setNovaVar] = useState({ name: "", value: "" })
+  // A Steam já aplica o gamescope nas próprias opções de inicialização. O
+  // checkbox permanece visível para explicar a regra, mas não pode gravar uma
+  // opção que o main deliberadamente ignora para steam://.
+  const isSteamGame = String(game.id).startsWith("steam:") || game.launcher === "steam"
 
   const ABA_LABEL: Record<Aba, string> = {
     GERAL: t("gamesettings.geral"),
@@ -794,6 +798,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                   k="gamescope"
                   label={t("gamesettings.gamescope_label")}
                   hint={t("gamesettings.gamescope_hint")}
+                  disabled={isSteamGame}
                 />
                 <div className="mt-2 grid grid-cols-3 gap-3">
                   <div>
@@ -803,6 +808,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                     <input
                       type="number"
                       value={s.gsWidth || 1920}
+                      disabled={isSteamGame}
                       onChange={(e) => set({ gsWidth: Number(e.target.value) || 1920 })}
                       className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                     />
@@ -814,6 +820,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                     <input
                       type="number"
                       value={s.gsHeight || 1080}
+                      disabled={isSteamGame}
                       onChange={(e) => set({ gsHeight: Number(e.target.value) || 1080 })}
                       className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                     />
@@ -825,6 +832,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                     <input
                       type="number"
                       value={s.gsFps || 0}
+                      disabled={isSteamGame}
                       onChange={(e) => set({ gsFps: Number(e.target.value) || 0 })}
                       className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                     />

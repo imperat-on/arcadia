@@ -55,3 +55,10 @@ test("gamescope usa somente opções suportadas antes do comando externo", () =>
   assert.doesNotMatch(main, /["']--disable-gamemode["']/)
   assert.match(main, /finalCmd = \["gamescope", \.\.\.args, "--", \.\.\.finalCmd\]/)
 })
+
+
+test("configuração do gamescope fica restrita a jogos externos", () => {
+  const dialog = fs.readFileSync(path.join(root, "src", "components", "desktop", "GameSettingsDialog.tsx"), "utf8")
+  assert.match(dialog, /const isSteamGame = String\(game\.id\)\.startsWith\("steam:"\)/)
+  assert.ok((dialog.match(/disabled=\{isSteamGame\}/g) || []).length >= 4)
+})
