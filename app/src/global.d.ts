@@ -1254,6 +1254,12 @@ declare global {
       /** Transições de jogo rodando (true = abriu, false = fechou). */
       onGameRunning: (cb: (running: boolean) => void) => () => void
       onGameActive: (cb: (info: { rodando: boolean; gameId: string }) => void) => () => void
+      /** Estado replayável da tentativa de lançamento (starting/running/stopping/idle). */
+      onGameLaunchState?: (cb: (info: {
+        state: "starting" | "running" | "stopping" | "idle"
+        gameId?: string
+        token?: number | null
+      }) => void) => () => void
       /** Biblioteca mudou no disco (download concluído, desinstalação). */
       onLibraryChanged: (cb: () => void) => () => void
       /** Falha no lançamento do jogo (main process → renderer). */

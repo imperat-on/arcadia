@@ -28,8 +28,29 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
           )}
           <p className="ps5-hero-tagline">{game.genre || game.developer || "Pronto para jogar."}</p>
           <div className="ps5-hero-actions">
-            <button onClick={onLaunch} className={`retro-play-button ${rodando ? "is-running" : ""}`}>
-              {rodando ? "■" : "▶"} {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("hero.jogar")}
+            <button
+              type="button"
+              onClick={onLaunch}
+              data-game-action={rodando ? "stop" : abrindo ? "cancel" : undefined}
+              aria-label={
+                rodando
+                  ? t("hero.parar")
+                  : abrindo
+                    ? t("common.cancelar")
+                    : game.installed === false
+                      ? t("hero.instalar")
+                      : t("hero.jogar")
+              }
+              className={`retro-play-button ${rodando ? "is-running" : ""} ${abrindo ? "is-opening" : ""}`}
+            >
+              {rodando ? "■" : abrindo ? "×" : "▶"}{" "}
+              {rodando
+                ? t("hero.parar")
+                : abrindo
+                  ? t("common.cancelar")
+                  : game.installed === false
+                    ? t("hero.instalar")
+                    : t("hero.jogar")}
             </button>
             <button onClick={onMore} className="ps5-hero-more" aria-label={t("gameoverview.detalhes")}>•••</button>
           </div>

@@ -323,7 +323,30 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           {game.logo ? <img src={game.logo} alt={game.title} className="ps5-overview-logo" /> : <h1>{game.title}</h1>}
           <p>{game.playtime_minutes ? `Continue de onde parou · ${formatPlaytime(game.playtime_minutes)}` : description}</p>
           <div className="ps5-overview-actions">
-            <button type="button" onClick={() => onLaunch(game)} className="ps5-overview-play">{rodando ? "■" : "▶"} {rodando ? t("hero.parar") : abrindo ? t("hero.abrindo") : game.installed === false ? t("hero.instalar") : t("gameoverview.jogar_agora")}</button>
+            <button
+              type="button"
+              onClick={() => onLaunch(game)}
+              data-game-action={rodando ? "stop" : abrindo ? "cancel" : undefined}
+              aria-label={
+                rodando
+                  ? t("hero.parar")
+                  : abrindo
+                    ? t("common.cancelar")
+                    : game.installed === false
+                      ? t("hero.instalar")
+                      : t("gameoverview.jogar_agora")
+              }
+              className={`ps5-overview-play ${abrindo ? "is-opening" : ""}`}
+            >
+              {rodando ? "■" : abrindo ? "×" : "▶"}{" "}
+              {rodando
+                ? t("hero.parar")
+                : abrindo
+                  ? t("common.cancelar")
+                  : game.installed === false
+                    ? t("hero.instalar")
+                    : t("gameoverview.jogar_agora")}
+            </button>
             <button type="button" onClick={() => trailer ? setMedia("trailer") : onLaunch(game)} className="ps5-overview-more" aria-label="Mais opções">•••</button>
             {trailer && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
           </div>

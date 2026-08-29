@@ -32,7 +32,7 @@ import { useLibraryState } from "../useLibraryState"
 import { useDownloadBadges } from "../useDownloadBadges"
 import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 import { useMode } from "../ModeContext"
-import { useGameActions } from "../useGameActions"
+import { useGameActions, type GameActions, type GameLaunchResult } from "../useGameActions"
 import { useJogoRodando } from "../useJogoRodando"
 
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
@@ -106,18 +106,32 @@ export function DesktopLauncher() {
   const [contaDispensada, setContaDispensada] = useState(false)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
   const [adicionando, setAdicionando] = useState(false)
-  const jogoAtivo = useJogoRodando()
+  const jogoAtivo = useJogoRodando(games)
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
   const appFocusedRef = useRef(appFocused)
   const gameRunningRef = useRef(gameRunning)
+  const launchPendingRef = useRef(false)
+  const jogoAtivoRef = useRef(jogoAtivo)
   appFocusedRef.current = appFocused
   gameRunningRef.current = gameRunning
-  const gameActions = useGameActions({
+  jogoAtivoRef.current = jogoAtivo
+  const limparLaunch = useCallback((gameId?: string) => {
+    const atual = jogoAtivoRef.current.jogo?.id
+    if (gameId && atual && String(atual) !== String(gameId)) return
+    launchPendingRef.current = false
+    jogoAtivoRef.current.limpar()
+  }, [])
+  const baseGameActions = useGameActions({
     setGames,
     onChooseLaunch: setEscolhendoLaunch,
     onLaunchWarning: (_game, warnings) => console.warn("arcadia:", warnings.join("; ")),
-    canLaunch: () => appFocusedRef.current && !gameRunningRef.current,
+    onLaunchError: (game, error) => {
+      limparLaunch(game?.id)
+      console.warn("arcadia:", error)
+    },
+    canLaunch: () =>
+      appFocusedRef.current && !gameRunningRef.current && !launchPendingRef.current,
   })
   useEffect(() => {
     const aoFoco = (focused: boolean) => {
@@ -125,27 +139,70 @@ export function DesktopLauncher() {
       setAppFocused(focused)
     }
     const off = window.launcherAPI?.onAppFocus?.(aoFoco)
+    const offLaunchError = window.launcherAPI?.onLaunchError?.((payload) => {
+      limparLaunch(payload?.gameId)
+    })
     const atual = window.launcherAPI?.getAppFocus?.()
     if (atual) void atual.then(aoFoco).catch(() => {})
-    return () => off?.()
-  }, [])
+    return () => {
+      off?.()
+      offLaunchError?.()
+    }
+  }, [limparLaunch])
   const launchDesktopGame = useCallback(
-    (game: Game, mode?: "steam" | "exe") => {
-      if (!appFocusedRef.current || gameRunning) {
+    (game: Game, mode?: "steam" | "exe"): Promise<GameLaunchResult> => {
+      if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) {
         return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
       }
-      return gameActions.launch(game, mode)
+      // `launch` resolves immediately after spawning the wrapper. Mark the
+      // local session before waiting for the 3s process poll so every desktop
+      // entry point is locked during that gap as well.
+      const escolheModo = mode === undefined && game.launcher === "steam" && game.temExe
+      const pedido = baseGameActions.launch(game, mode)
+      if (!escolheModo) {
+        launchPendingRef.current = true
+        jogoAtivoRef.current.iniciar(game)
+      }
+      return pedido.then((result) => {
+        if (!result.ok || result.needsMode) {
+          limparLaunch(game.id)
+        } else {
+          // The process watcher owns the transition to `rodando`; the local
+          // pending marker remains in the hook until that happens.
+          launchPendingRef.current = false
+        }
+        return result
+      }).catch((error) => {
+        limparLaunch(game.id)
+        throw error
+      })
     },
-    [gameActions, gameRunning],
+    [baseGameActions, limparLaunch],
   )
   const launchDesktopCommand = useCallback(
     (command: string[], gameId?: string, mode?: "steam" | "exe") => {
-      if (!appFocusedRef.current || gameRunning) {
+      if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) {
         return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
       }
-      return gameActions.launchCommand(command, gameId, mode)
+      launchPendingRef.current = true
+      return baseGameActions.launchCommand(command, gameId, mode)
+        .then((result) => {
+          launchPendingRef.current = false
+          return result
+        })
+        .catch((error) => {
+          launchPendingRef.current = false
+          throw error
+        })
     },
-    [gameActions, gameRunning],
+    [baseGameActions],
+  )
+  // Todas as entradas da Biblioteca usam o mesmo wrapper que as páginas e a
+  // loja. Sem isso, um clique no card poderia abrir um segundo processo antes
+  // do primeiro `game:active` chegar.
+  const gameActions = useMemo<GameActions>(
+    () => ({ ...baseGameActions, launch: launchDesktopGame, launchCommand: launchDesktopCommand }),
+    [baseGameActions, launchDesktopGame, launchDesktopCommand],
   )
   const atualizacao = useAtualizacao()
   const retroPaginaSeed = useMemo(
@@ -210,14 +267,12 @@ export function DesktopLauncher() {
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       <div
         className="arcadia-desktop-retro app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased"
-        onClickCapture={(event) => {
-          if (!appFocusedRef.current && gameRunningRef.current) {
-            event.preventDefault()
-            event.stopPropagation()
-          }
-        }}
         onKeyDownCapture={(event) => {
-          if (!appFocusedRef.current && gameRunningRef.current) {
+          const action =
+            event.target instanceof HTMLElement
+              ? event.target.closest('[data-game-action="stop"], [data-game-action="cancel"]')
+              : null
+          if (!action && !appFocusedRef.current && gameRunningRef.current) {
             event.preventDefault()
             event.stopPropagation()
           }
@@ -297,8 +352,12 @@ export function DesktopLauncher() {
                       }
                     : undefined
                 }
+                rodando={jogoAtivo.rodando && jogoAtivo.jogo?.id === jogoPagina.id}
+                abrindo={jogoAtivo.pendente && jogoAtivo.jogo?.id === jogoPagina.id}
+                onStop={() => jogoAtivo.parar()}
+                onCancel={() => jogoAtivo.cancelar()}
                 naBiblioteca
-                ocupado={false}
+                ocupado={gameRunning}
               />
             )}
             {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
@@ -313,6 +372,10 @@ export function DesktopLauncher() {
                 onInstalar={() => instalar(jogoPagina)}
                 onImportar={() => window.launcherAPI?.gameImport(jogoPagina)}
                 onConfig={() => setJogoConfig(jogoPagina)}
+                rodando={jogoAtivo.rodando && jogoAtivo.jogo?.id === jogoPagina.id}
+                abrindo={jogoAtivo.pendente && jogoAtivo.jogo?.id === jogoPagina.id}
+                onStop={() => jogoAtivo.parar()}
+                onCancel={() => jogoAtivo.cancelar()}
               />
             )}
             {retroPaginaJogo && view === "biblioteca" && !jogoPagina && (

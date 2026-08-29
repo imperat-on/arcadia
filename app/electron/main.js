@@ -49,7 +49,7 @@ const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, execFile } = require("child_process")
 const { restoreWindowFocus } = require("./window-focus")
-const { createFocusSession } = require("./focus-session")
+const { createFocusSession, createLaunchSession } = require("./focus-session")
 const { shouldTrackGameSession } = require("./game-session")
 const { fetchRede } = require("./httpfetch")
 const { createSteamNewsImageResolver, extractSteamNewsImage } = require("./steam-news")
@@ -156,14 +156,9 @@ const YTDLP = acharYtdlp()
 
 // Padrão que casa o PROCESSO de um jogo rodando (Steam/Proton/Heroic/Lutris
 // e os emuladores suportados). O poll só fica ativo enquanto lançamos um jogo.
-// Usado pelo vigia "game:running" e pelo "game:close". pgrep nunca casa
-// consigo mesmo.
+// Usado somente pelo vigia read-only de "game:running".  Stop nunca usa
+// um padrão global para decidir qual processo deve encerrar.
 const PADRAO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners|pcsx2|PCSX2|rpcs3|RPCS3|dolphin-emu|DolphinEmu|ppsspp|PPSSPP|duckstation|DuckStation|retroarch|RetroArch|melonds|melonDS|desmume|DeSmuME"
-// Fallback usado apenas para fechar jogos Steam/Wine detectados fora do grupo
-// lançado pelo Arcadia. Não inclui emuladores para nunca encerrar um emulador
-// independente que o usuário esteja usando em paralelo.
-const PADRAO_FECHAMENTO_JOGO = "steamapps/common/|steamapps/compatdata/|Heroic/Prefixes|lutris/runners"
-
 // Logs de lançamento ("Habilitar logs detalhados", aba AVANÇADO).
 const LOG_DIR = path.join(DATA_DIR, "logs")
 const launchLog = createLaunchLog({ logDir: LOG_DIR })
@@ -246,9 +241,38 @@ let focoRestauradoSessao = false
 // O timer é cancelado quando o jogo termina antes dos 2s ou quando o launch
 // falha; sem isso a janela podia ser minimizada depois de um erro.
 let minimizarTimer = null
-// Mutex de lançamento: cobre a janela entre o IPC inicial e o momento em que
-// Steam/um wrapper finalmente cria o processo acompanhado.
+// Estado de lançamento: cobre a janela entre o IPC inicial e o momento em que
+// Steam/um wrapper finalmente cria o processo acompanhado.  O token permanece
+// ocupado durante `stopping`, até a saída ser confirmada, para que callbacks
+// atrasados nunca iniciem um jogo depois de Stop.
 let launchInFlight = false
+let lancamentoAtual = null
+
+function estadoLancamento() {
+  const snapshot = launchLifecycle.getSnapshot()
+  const state = snapshot.state
+  const gameId = state === "idle"
+    ? ""
+    : lancamentoAtual?.gameId || snapshot.meta?.gameId || jogoAtivo?.gameId || jogoEncerrando?.gameId || ultimoJogoAtivo?.gameId || ""
+  return { state, gameId, token: snapshot.token?.id || null }
+}
+
+function emitirEstadoLancamento(state, token, meta = {}) {
+  if (!win || win.isDestroyed()) return
+  const record = lancamentoAtual && lancamentoAtual.token === token ? lancamentoAtual : null
+  const gameId = state === "idle"
+    ? ""
+    : record?.gameId || meta?.gameId || jogoAtivo?.gameId || jogoEncerrando?.gameId || ""
+  win.webContents.send("game:launchState", {
+    state,
+    gameId,
+    token: token?.id || null,
+  })
+}
+
+const launchLifecycle = createLaunchSession({
+  onState: (state, token, meta) => emitirEstadoLancamento(state, token, meta),
+})
 
 function emitirFoco(ativo, forcar = false) {
   const valor = Boolean(ativo)
@@ -272,29 +296,281 @@ function focoNativo(ativo) {
   return sessaoDeFoco.nativeFocus(ativo)
 }
 
-function restaurarFocoArcadia() {
+function restaurarFocoArcadia(canRestore) {
   if (focoRestauradoSessao) return false
-  focoRestauradoSessao = true
   const restaurada = restoreWindowFocus(win, {
+    canRestore,
     onFocused: () => sessaoDeFoco.finish(),
   })
+  if (restaurada) focoRestauradoSessao = true
   // Sem uma BrowserWindow válida não há callback do adaptador, mas a sessão
   // ainda precisa sair do estado ativo para não bloquear o próximo launch.
-  if (!restaurada) sessaoDeFoco.finish()
+  // Não marque como restaurada quando `canRestore` recusou: uma sessão nova
+  // pode confirmar a saída e tentar novamente.
+  let janelaIndisponivel = !win
+  try {
+    janelaIndisponivel = janelaIndisponivel || Boolean(win?.isDestroyed?.())
+  } catch {
+    janelaIndisponivel = true
+  }
+  if (!restaurada && janelaIndisponivel) {
+    focoRestauradoSessao = true
+    sessaoDeFoco.finish()
+  }
   return restaurada
 }
 
-// O grupo detached é a fonte mais confiável para jogos não-Steam e também
-// cobre wrappers (gamescope/umu) cujo caminho não aparece no pgrep genérico.
-function grupoDoJogoVivo() {
-  const rastreado = jogoAtivo || jogoEncerrando
-  if (!rastreado?.pid) return false
+function launchIsCurrent(record) {
+  return Boolean(record && lancamentoAtual === record && launchLifecycle.owns(record.token))
+}
+
+function clearLaunchTimers(record) {
+  if (!record) return
+  for (const key of ["preScriptTimer", "steamPollTimer", "steamRunTimer", "steamWaitTimer"]) {
+    const timer = record[key]
+    if (!timer) continue
+    if (key === "steamPollTimer") clearInterval(timer)
+    else clearTimeout(timer)
+    record[key] = null
+  }
+  if (minimizarTimer && record.minimizeTimer === minimizarTimer) {
+    clearTimeout(minimizarTimer)
+    minimizarTimer = null
+    record.minimizeTimer = null
+  }
+}
+
+function launchChildExited(child) {
+  return Boolean(child && (child.__arcadiaExited || child.exitCode != null || child.signalCode != null))
+}
+
+function stopLaunchChild(record, child, timerKey = "childKillTimer") {
+  if (!child || launchChildExited(child)) return false
   try {
-    process.kill(-rastreado.pid, 0)
+    child.kill?.("SIGTERM")
+  } catch {}
+  if (record && !record[timerKey]) {
+    record[timerKey] = setTimeout(() => {
+      record[timerKey] = null
+      if (!launchChildExited(child)) {
+        try {
+          child.kill?.("SIGKILL")
+        } catch {}
+      }
+    }, 2000)
+  }
+  return true
+}
+
+function releaseLaunch(record) {
+  if (!launchIsCurrent(record)) return false
+  clearLaunchTimers(record)
+  if (record.preScriptKillTimer) {
+    clearTimeout(record.preScriptKillTimer)
+    record.preScriptKillTimer = null
+  }
+  if (record.childKillTimer) {
+    clearTimeout(record.childKillTimer)
+    record.childKillTimer = null
+  }
+  if (record.steamStarterKillTimer) {
+    clearTimeout(record.steamStarterKillTimer)
+    record.steamStarterKillTimer = null
+  }
+  const gameRecord = record.gameRecord
+  if (gameRecord?.groupKillTimer) {
+    clearTimeout(gameRecord.groupKillTimer)
+    gameRecord.groupKillTimer = null
+  }
+  try {
+    record.closeLog?.()
+  } catch {}
+  record.closeLog = null
+  launchLifecycle.finish(record.token)
+  lancamentoAtual = null
+  launchInFlight = false
+  return true
+}
+
+// A detached group is the reliable source for games launched by Arcadia.  The
+// group is only ours while its leader is still the exact ChildProcess that we
+// spawned.  In particular, never signal a recycled PID after the child exited.
+function readProcessIdentity(pid) {
+  if (process.platform !== "linux" || !Number.isInteger(pid) || pid <= 1) return null
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8")
+    const close = stat.lastIndexOf(")")
+    if (close < 0) return null
+    const fields = stat.slice(close + 2).trim().split(/\s+/)
+    // fields starts at /proc stat field 3: state. pgrp=field 5, starttime=22.
+    const pgrp = Number(fields[2])
+    const starttime = fields[19]
+    if (!fields[0] || !Number.isFinite(pgrp) || !/^\d+$/.test(String(starttime || ""))) return null
+    return { pid, state: fields[0], pgrp, starttime }
+  } catch {
+    return null
+  }
+}
+
+function processStartTimeKnown(identity) {
+  return Boolean(
+    identity &&
+    Number(identity.pid) > 1 &&
+    Number.isFinite(Number(identity.pgrp)) &&
+    Number(identity.pgrp) === Number(identity.pid) &&
+    /^\d+$/.test(String(identity.starttime)) &&
+    Number(identity.starttime) > 0 &&
+    !/[ZX]/.test(String(identity.state || "")),
+  )
+}
+
+function refreshProcessIdentity(record) {
+  if (!record?.pid || processStartTimeKnown(record.processIdentity)) return record?.processIdentity || null
+  const identity = readProcessIdentity(Number(record.pid))
+  if (processStartTimeKnown(identity)) record.processIdentity = identity
+  return record.processIdentity || null
+}
+
+function processIdentityMatches(record) {
+  const pid = Number(record?.pid)
+  if (!Number.isInteger(pid) || pid <= 1 || record.childExited) return false
+  if (record.child && Number(record.child.pid) !== pid) return false
+  // A missing/unknown start time is not an ownership proof. Refresh once the
+  // detached child has entered /proc, but still fail closed if it is gone.
+  const owned = refreshProcessIdentity(record)
+  if (!processStartTimeKnown(owned)) return false
+  const current = readProcessIdentity(pid)
+  if (!processStartTimeKnown(current)) return false
+  return current.pgrp === owned.pgrp &&
+    current.starttime === owned.starttime &&
+    current.pgrp === pid
+}
+
+function grupoDoJogoVivo(rastreado = jogoAtivo || jogoEncerrando) {
+  const pid = Number(rastreado?.pid)
+  if (!Number.isInteger(pid) || pid <= 1 || rastreado.childExited) return false
+  // Observation is deliberately conservative when /proc is unavailable: a
+  // live ChildProcess is treated as alive, but processIdentityMatches() still
+  // fails closed for every signal sent by Stop.
+  const ownershipKnown = processStartTimeKnown(refreshProcessIdentity(rastreado))
+  if (ownershipKnown && !processIdentityMatches(rastreado)) {
+    // The leader may have exited while handing off to a child, or its PID may
+    // have been recycled. We cannot signal either case, but an existing group
+    // must keep the session alive rather than restoring focus over a game.
+    try {
+      process.kill(-pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (!ownershipKnown && (!rastreado.child || launchChildExited(rastreado.child))) return false
+  try {
+    process.kill(-pid, 0)
     return true
   } catch {
     return false
   }
+}
+
+function sinalizarGrupoDoJogo(record, signal) {
+  if (!processIdentityMatches(record)) return false
+  try {
+    process.kill(-record.pid, signal)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function steamAppId(record) {
+  const m = /^steam:(\d+)$/.exec(String(record?.gameId || ""))
+  return m ? m[1] : ""
+}
+
+// Steam owns games launched through its URI, so there is no Arcadia process
+// group to signal after the URI helper exits.  Ask Steam to stop this exact
+// app only; do not fall back to a pattern-wide process kill.
+function pararJogoSteam(record) {
+  const appid = steamAppId(record)
+  if (!appid || record?.steamStopRequested) return false
+  record.steamStopRequested = true
+  const command = record.steamCommand || "steam"
+  try {
+    const child = spawn(command, [`steam://stopgameid/${appid}`], {
+      detached: true,
+      stdio: "ignore",
+      env: record.steamEnv || process.env,
+    })
+    // Spawn errors are expected when Steam was closed between poll ticks.  An
+    // error listener is mandatory because this helper is intentionally detached.
+    child.on?.("error", (error) => {
+      console.warn("arcadia: não foi possível pedir parada à Steam:", error.message || error)
+    })
+    child.unref?.()
+    return true
+  } catch (error) {
+    console.warn("arcadia: não foi possível pedir parada à Steam:", error.message || error)
+    return false
+  }
+}
+
+function launchStillHasPreScript(record) {
+  return Boolean(record?.preScriptChild && !launchChildExited(record.preScriptChild))
+}
+
+function launchStillHasSteamStarter(record) {
+  return Boolean(record?.steamStarterChild && !launchChildExited(record.steamStarterChild))
+}
+
+function finishCancelledLaunch(record) {
+  if (!launchIsCurrent(record) || !record.stopRequested) return false
+  // A stop request does not release the generation until every child that can
+  // still lead to a game has exited.  This is the key race guard for Steam's
+  // delayed URI callback and for pre-launch scripts.
+  if (launchStillHasPreScript(record) || launchStillHasSteamStarter(record) || record.gameRecord || jogoAtivo || jogoEncerrando) return false
+  releaseLaunch(record)
+  if (record.focusApplied) {
+    restaurarFocoArcadia(() => !lancamentoAtual && !jogoAtivo && !jogoEncerrando)
+  }
+  return true
+}
+
+function cancelarLancamento(record) {
+  if (!launchIsCurrent(record)) return false
+  const result = launchLifecycle.requestStop(record.token)
+  if (!result.ok) return false
+  record.stopRequested = true
+  clearLaunchTimers(record)
+  if (record.preScriptChild) {
+    stopLaunchChild(record, record.preScriptChild, "preScriptKillTimer")
+  }
+  if (record.steamStarterChild) {
+    stopLaunchChild(record, record.steamStarterChild, "steamStarterKillTimer")
+  }
+  // A direct child can be created just before the IPC Stop callback runs.  It
+  // is handled through the same verified group path as an already-running game.
+  if (record.gameRecord) pararJogo(record.gameRecord)
+  finishCancelledLaunch(record)
+  return true
+}
+
+function pararJogo(record) {
+  if (!record) return false
+  if (record.stopRequested) return false
+  record.stopRequested = true
+  if (record.launchSession) launchLifecycle.requestStop(record.launchSession.token)
+  if (record.steamWrapper) pararJogoSteam(record)
+  const signaled = sinalizarGrupoDoJogo(record, "SIGTERM")
+  if (signaled && !record.groupKillTimer) {
+    record.groupKillTimer = setTimeout(() => {
+      record.groupKillTimer = null
+      // Revalidate both launch generation and process identity before SIGKILL.
+      if ((jogoAtivo === record || jogoEncerrando === record) &&
+          sinalizarGrupoDoJogo(record, "SIGKILL")) return
+    }, 4000)
+  }
+  return signaled || Boolean(record.steamWrapper)
 }
 
 // Vigia de jogo rodando (todos os modos): avisa o renderer nas transições
@@ -306,20 +582,49 @@ let jogoRodando = false
 let sinalDeVida = 0
 let processoJogoVisto = false
 let sessaoArmadaEm = 0
+let runningGameGeneration = 0
 const MAX_INICIO_STEAM_MS = 60_000
 const armarPollJogo = () => {
   if (runningGameInterval) return
+  const generation = ++runningGameGeneration
   focoRestauradoSessao = false
   sinalDeVida = 0
   processoJogoVisto = false
   sessaoArmadaEm = Date.now()
   runningGameInterval = setInterval(() => {
+    if (runningGameGeneration !== generation || !runningGameInterval) return
     const tick = () => {
+      if (runningGameGeneration !== generation || !runningGameInterval) return
+      const finalizarSeAusente = () => {
+        // Never publish a transient false while the asynchronous launch is
+        // still starting. This keeps a late wrapper callback from clearing the
+        // pending game state in the renderer.
+        if (lancamentoAtual && launchLifecycle.isStarting(lancamentoAtual.token)) {
+          sinalDeVida = 0
+          return
+        }
+        // Keep the session barrier for two empty observations. A single empty
+        // read can race a child handoff or a Steam URI transition.
+        if (++sinalDeVida < 2) return
+        // Recheck the owned group immediately before declaring termination. A
+        // signal/exec callback can otherwise race with a new process.
+        if (grupoDoJogoVivo(jogoAtivo || jogoEncerrando)) {
+          sinalDeVida = 0
+          return
+        }
+        clearInterval(runningGameInterval)
+        runningGameInterval = null
+        runningGameGeneration++
+        // Jogo fechou de verdade: encerra a sessão (playtime, pós-jogo,
+        // gameId). O FALSE só sai em `finalizarSessao`.
+        finalizarSessao()
+      }
+
       const grupo = jogoAtivo || jogoEncerrando
       if (grupo) {
-        try {
-          process.kill(-grupo.pid, 0)
-          const wrapperSteam = ultimoJogoAtivo?.steamWrapper === true
+        const vivo = grupoDoJogoVivo(grupo)
+        const wrapperSteam = ultimoJogoAtivo?.steamWrapper === true
+        if (vivo) {
           // Para Steam, o grupo pode ser só o wrapper/URI transitório; a
           // confirmação real vem do processo do jogo no pgrep abaixo. Não
           // retornamos cedo para também detectar a saída do jogo se o wrapper
@@ -330,29 +635,33 @@ const armarPollJogo = () => {
             sinalDeVida = 0
             return
           }
-        } catch {
-          // Grupo do wrapper (ex: steam://rungameid) morreu. NÃO marca false
-          // aqui — o pgrep abaixo confirma se o jogo real ainda vive.
-          // ultimoJogoAtivo é preservado para playtime/foco.
-          if (jogoAtivo === grupo) {
-            // Mantém a barreira de sessão durante os dois ciclos de ausência;
-            // sem isso um novo launch poderia ocupar o intervalo antes do
-            // finalizer e sobrescrever o snapshot/playtime anterior.
-            jogoAtivo = null
-            jogoEncerrando = grupo
-          }
+        } else if (jogoAtivo === grupo) {
+          // Mantém a barreira de sessão durante os dois ciclos de ausência;
+          // sem isso um novo launch poderia ocupar o intervalo antes do
+          // finalizer e sobrescrever o snapshot/playtime anterior.
+          jogoAtivo = null
+          jogoEncerrando = grupo
         }
       }
+
+      // An executable launched directly by Arcadia is owned by its detached
+      // process group; a global name match must not keep it alive or make an
+      // unrelated game look like this session. pgrep is only an activity hint
+      // for Steam, whose game is owned by the Steam client.
+      if (ultimoJogoAtivo?.steamWrapper !== true) {
+        finalizarSeAusente()
+        return
+      }
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+        if (runningGameGeneration !== generation || !runningGameInterval) return
         const rodando = !err
         if (rodando) processoJogoVisto = true
         // Steam pode levar vários segundos entre a morte do wrapper URI e a
         // criação do executável real. Sem esta janela, dois pgrep vazios
-        // restaurariam o foco enquanto o jogo ainda está abrindo. Para um jogo
-        // não-Steam, o próprio grupo já é uma confirmação imediata.
+        // restaurariam o foco enquanto o jogo ainda está abrindo.
         if (
           !processoJogoVisto &&
-          ultimoJogoAtivo?.steamWrapper === true &&
+          !ultimoJogoAtivo?.stopRequested &&
           Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS
         ) {
           sinalDeVida = 0
@@ -363,33 +672,23 @@ const armarPollJogo = () => {
           sinalDeVida = 0
           return
         }
-        // O false só é publicado depois da janela de transição; assim o
-        // renderer não apaga o gameId confirmado por um wrapper transitório.
-        marcar(false)
-        // Idle (sem jogo nosso e pgrep sem processo): 2 ciclos e desarma.
-        if (++sinalDeVida >= 2) {
-          clearInterval(runningGameInterval)
-          runningGameInterval = null
-          // Jogo fechou de verdade: encerra a sessão (playtime, pós-jogo,
-          // gameId). O marcar(false) transitório nunca chega aqui — ver
-          // finalizarSessao.
-          finalizarSessao()
-        }
+        finalizarSeAusente()
       })
     }
+
     if (process.env.ARCADIA_GAMESCOPE === "1") {
       // O Chromium dentro do gamescope não recebe blur/focus. O pgrep é
       // necessário para Steam (o jogo é filho do cliente), mas não encontra
       // executáveis não-Steam em pastas arbitrárias. O grupo detached que o
       // Arcadia criou cobre esses jogos e os wrappers de Proton/gamescope.
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+        if (runningGameGeneration !== generation || !runningGameInterval) return
         const jogoPorGrupo = grupoDoJogoVivo()
         const jogoPorPadrao = !err // Steam/Proton conhecido pelo cmdline
         const jogoEmCena = jogoPorGrupo || jogoPorPadrao
         // O primeiro ciclo sem pgrep pode ser só a troca do wrapper Steam
-        // para o processo real. Como o launcher já foi marcado fora de foco na
-        // borda do launch, só emitimos FALSE aqui; TRUE fica para o finalizer,
-        // depois de dois ciclos sem jogo e do restore/show/focus nativo.
+        // para o processo real. O launcher já foi marcado fora de foco na
+        // borda do launch; nenhuma transição FALSE é emitida aqui.
         if (jogoEmCena && focado) focoNativo(false)
         tick()
       })
@@ -408,6 +707,12 @@ const armarPollJogo = () => {
 // wrapper pela aplicação real. O desarme (2 ciclos sem sinal após a confirmação)
 // é o único momento em que dá pra ter certeza que o jogo fechou mesmo.
 const finalizarSessao = () => {
+  const snap = ultimoJogoAtivo
+  const launch = snap?.launchSession || lancamentoAtual
+  // This function is called only after two empty polls.  Recheck the exact
+  // detached group before touching focus/state, so a late child cannot be
+  // hidden by a false termination transition.
+  if (grupoDoJogoVivo(snap || jogoAtivo || jogoEncerrando)) return false
   if (minimizarTimer) {
     clearTimeout(minimizarTimer)
     minimizarTimer = null
@@ -417,11 +722,9 @@ const finalizarSessao = () => {
   // limpa esse estado sem alterar a regra de restauração de foco.
   marcar(false, true)
   const sessaoConfirmada = processoJogoVisto
-  const snap = ultimoJogoAtivo
   ultimoJogoAtivo = null
   jogoAtivo = null
   jogoEncerrando = null
-  launchInFlight = false
   processoJogoVisto = false
   sessaoArmadaEm = 0
   if (sessaoConfirmada && snap && snap.gameId && snap.startedAt) {
@@ -446,12 +749,22 @@ const finalizarSessao = () => {
     const script = scriptPosJogo
     try {
       const p = spawn(script, [], { detached: true, stdio: "ignore" })
-      p.unref()
-    } catch {}
+      p.on?.("error", (error) => {
+        console.warn("arcadia: script pós-jogo falhou:", error.message || error)
+      })
+      p.unref?.()
+    } catch (error) {
+      console.warn("arcadia: script pós-jogo falhou:", error.message || error)
+    }
   }
+  // Release the token only after process termination is confirmed. This emits
+  // `idle` and lets a following launch start without stale callbacks.
+  if (launch) releaseLaunch(launch)
+  else launchInFlight = false
   // Só chega aqui depois de dois ciclos sem jogo. Nunca restaure no primeiro
   // `marcar(false)`: o wrapper Steam pode morrer antes do jogo real subir.
-  restaurarFocoArcadia()
+  restaurarFocoArcadia(() => !jogoAtivo && !jogoEncerrando && !lancamentoAtual)
+  return true
 }
 
 const marcar = (rodando, forcar = false) => {
@@ -2042,6 +2355,7 @@ app.whenReady().then(() => {
       win.webContents.send("game:running", jogoRodando)
       const id = jogoRodando ? jogoAtivo?.gameId || ultimoJogoAtivo?.gameId || "" : ""
       win.webContents.send("game:active", { rodando: jogoRodando, gameId: id })
+      win.webContents.send("game:launchState", estadoLancamento())
     }
     return focado
   })
@@ -2081,9 +2395,41 @@ app.whenReady().then(() => {
       },
     })
     if (!resolved.ok) return resolved
-    if (launchInFlight || jogoRodando || jogoAtivo || jogoEncerrando) {
+    const acompanhaSolicitada = shouldTrackGameSession(resolved.rawCmd)
+    if (launchInFlight || launchLifecycle.isBusy() || jogoRodando || jogoAtivo || jogoEncerrando) {
       return { ok: false, error: "Já existe um lançamento ou jogo em execução." }
     }
+    // Installation URIs are not game sessions. They still use the launch
+    // mutex while Steam opens the dialog, but must not make every game page
+    // display a pending/cancel button.
+    const launchGameId = acompanhaSolicitada ? resolved.gameId || "" : ""
+    const launchToken = launchLifecycle.begin({ gameId: launchGameId })
+    if (!launchToken) {
+      return { ok: false, error: "Já existe um lançamento ou jogo em execução." }
+    }
+    const launch = {
+      token: launchToken,
+      gameId: launchGameId,
+      child: null,
+      gameRecord: null,
+      preScriptChild: null,
+      preScriptTimer: null,
+      preScriptKillTimer: null,
+      steamPollTimer: null,
+      steamRunTimer: null,
+      steamWaitTimer: null,
+      steamStarterChild: null,
+      steamStarterKillTimer: null,
+      steamWrapper: false,
+      steamCommand: null,
+      steamEnv: null,
+      groupKillTimer: null,
+      closeLog: null,
+      focusApplied: false,
+      stopRequested: false,
+      spawnError: null,
+    }
+    lancamentoAtual = launch
     launchInFlight = true
     // Nunca herda script pós-jogo de uma tentativa anterior que falhou antes
     // de criar a sessão acompanhada.
@@ -2108,7 +2454,7 @@ app.whenReady().then(() => {
             if (win && !win.isDestroyed()) {
               win.webContents.send("game:launchError", { gameId: resolved.gameId, error: preflight.error })
             }
-            launchInFlight = false
+            releaseLaunch(launch)
             return preflight
           }
           const running = preflightRunningEmulator({
@@ -2119,7 +2465,7 @@ app.whenReady().then(() => {
             if (win && !win.isDestroyed()) {
               win.webContents.send("game:launchError", { gameId: resolved.gameId, error: running.error })
             }
-            launchInFlight = false
+            releaseLaunch(launch)
             return running
           }
           // RetroAchievements: se há credencial salva e o emulador escolhido
@@ -2141,11 +2487,12 @@ app.whenReady().then(() => {
         }
       }
     } catch (e) {
-      launchInFlight = false
+      releaseLaunch(launch)
       return { ok: false, error: String(e) }
     }
 
     let closeLaunchLog = () => {}
+    launch.closeLog = closeLaunchLog
     // `steam://install` é uma ação da loja, não uma sessão de jogo: a Steam
     // precisa ficar visível para o diálogo de instalação e não deve alimentar o
     // vigia/foco/minimização do jogo.
@@ -2156,8 +2503,13 @@ app.whenReady().then(() => {
       // Antes do applyGameSettings, que pode embrulhar tudo no gamescope — daí
       // em diante o cmd[0] já não é mais o binário da Steam.
       rawCmd = steamSilencioso(rawCmd)
+      const steamLaunchUri =
+        path.basename(String(rawCmd?.[0])) === "steam" &&
+        rawCmd.some((arg) => /^steam:\/\/(?:run|rungameid)\//i.test(String(arg)))
       const sls = steamComInjecao(rawCmd)
       rawCmd = sls.cmd
+      launch.steamWrapper = steamLaunchUri
+      launch.steamCommand = rawCmd?.[0] || null
       // Aplica as configurações do jogo (env vars, prefixo, gamescope).
       const s = getGameSettings(gameId)
       const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
@@ -2166,6 +2518,7 @@ app.whenReady().then(() => {
       // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a
       // partir do process.env e apagaria o LD_AUDIT.
       const env = { ...envBase, ...envExtra, ...sls.env }
+      launch.steamEnv = env
       // Quando o alvo é a Steam (puro OU wrapper do slsteam-moon), tira as
       // libs herdadas do Electron do caminho — Chromium arrasta LD_LIBRARY_PATH
       // apontando pras suas próprias libstdc++/libcurl, e a Steam linka nelas
@@ -2193,19 +2546,60 @@ app.whenReady().then(() => {
       // de log não bloqueia o launch.
       const openedLog = launchLog.open(gameId, cmd)
       closeLaunchLog = openedLog.close
+      launch.closeLog = closeLaunchLog
       const stdio = openedLog.stdio
       if (openedLog.error) {
         console.warn("arcadia: log fd falhou:", openedLog.error.message)
       }
 
       // Script pré-jogo (aba AVANÇADO): espera terminar (máx. 60s) antes de lançar.
+      // Keep the child on the launch record so Stop can cancel the wait instead
+      // of allowing its callback to launch a game later.
       if (s.scriptPre) {
         await new Promise((res) => {
-          const p = spawn(s.scriptPre, [], { stdio: "ignore" })
-          p.on("close", res)
-          p.on("error", res)
-          setTimeout(res, 60000)
+          let settled = false
+          const done = () => {
+            if (settled) return
+            settled = true
+            if (launch.preScriptTimer) {
+              clearTimeout(launch.preScriptTimer)
+              launch.preScriptTimer = null
+            }
+            launch.preScriptChild = null
+            if (launch.stopRequested) finishCancelledLaunch(launch)
+            res()
+          }
+          let child
+          try {
+            child = spawn(s.scriptPre, [], { stdio: "ignore" })
+          } catch {
+            done()
+            return
+          }
+          launch.preScriptChild = child
+          child.once?.("close", done)
+          child.once?.("error", done)
+          launch.preScriptTimer = setTimeout(() => {
+            launch.preScriptTimer = null
+            // Do not drop the child reference on timeout: Stop must still be
+            // able to cancel it, and launching while the script is alive would
+            // create an unowned process.  The owned child is terminated before
+            // the pre-script promise is released.
+            if (!launchChildExited(child)) {
+              stopLaunchChild(launch, child, "preScriptKillTimer")
+            } else {
+              done()
+            }
+          }, 60000)
+          if (launch.stopRequested) stopLaunchChild(launch, child, "preScriptKillTimer")
         })
+      }
+      if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+        if (launchIsCurrent(launch)) {
+          finishCancelledLaunch(launch)
+          return { ok: false, canceled: true, error: "Lançamento cancelado." }
+        }
+        return { ok: false, canceled: true, error: "Lançamento cancelado." }
       }
       // Script pós-jogo: o vigia de processo roda quando o jogo fechar.
       // Instalação via steam://install não cria uma sessão acompanhada.
@@ -2217,14 +2611,11 @@ app.whenReady().then(() => {
       if (binErro) {
         closeLaunchLog()
         discordRpc.clear()
-        if (minimizarTimer) {
-          clearTimeout(minimizarTimer)
-          minimizarTimer = null
-        }
+        clearLaunchTimers(launch)
+        releaseLaunch(launch)
         if (win && !win.isDestroyed()) {
           win.webContents.send("game:launchError", { gameId, error: binErro })
         }
-        launchInFlight = false
         return { ok: false, error: binErro }
       }
 
@@ -2238,6 +2629,7 @@ app.whenReady().then(() => {
       // durante essa transição. O foco só volta após falha ou fim confirmado.
       if (acompanhaSessao) {
         focoDeLancamentoAplicado = true
+        launch.focusApplied = true
         iniciarSessaoDeFoco()
       }
 
@@ -2245,31 +2637,38 @@ app.whenReady().then(() => {
         if (minimizarTimer) clearTimeout(minimizarTimer)
         const agendarMinimizacao = () => {
           minimizarTimer = null
-          if (!win || win.isDestroyed() || win.isFullScreen()) return
+          launch.minimizeTimer = null
+          if (!launchIsCurrent(launch) || launch.stopRequested || !win || win.isDestroyed() || win.isFullScreen()) return
           // Não minimize antes de o poll confirmar algum processo: uma saída
           // rápida ou o wrapper Steam transitório não deve esconder a janela.
           if (!processoJogoVisto) {
-            minimizarTimer = setTimeout(agendarMinimizacao, 500)
+            launch.minimizeTimer = setTimeout(agendarMinimizacao, 500)
+            minimizarTimer = launch.minimizeTimer
             return
           }
           win.minimize()
         }
-        minimizarTimer = setTimeout(agendarMinimizacao, 2000)
+        launch.minimizeTimer = setTimeout(agendarMinimizacao, 2000)
+        minimizarTimer = launch.minimizeTimer
       }
 
       const soltar = (c, acompanhar = acompanhaSessao) => {
+        if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+          finishCancelledLaunch(launch)
+          return false
+        }
         let child
         try {
           child = spawn(c[0], c.slice(1), { detached: true, stdio, env })
         } catch (error) {
-          launchInFlight = false
+          launch.childExited = true
+          launch.spawnError = `spawn falhou: ${error.message}`
+          clearLaunchTimers(launch)
           closeLaunchLog()
-          if (acompanhar && minimizarTimer) {
-            clearTimeout(minimizarTimer)
-            minimizarTimer = null
-          }
-          // Não existe processo para o poll acompanhar; devolve o foco agora.
-          if (acompanhar) restaurarFocoArcadia()
+          releaseLaunch(launch)
+          // No child was created, so this is a confirmed failed launch. Only
+          // now may focus return to Arcadia.
+          if (acompanhar) restaurarFocoArcadia(() => !lancamentoAtual && !jogoAtivo && !jogoEncerrando)
           if (win && !win.isDestroyed()) {
             win.webContents.send("game:launchError", {
               gameId,
@@ -2278,19 +2677,28 @@ app.whenReady().then(() => {
           }
           return false
         }
-        child.once("close", closeLaunchLog)
-        child.on("error", (err) => {
-          launchInFlight = false
+        launch.child = child
+        child.once?.("close", () => {
+          child.__arcadiaExited = true
           closeLaunchLog()
-          if (acompanhar && minimizarTimer) {
-            clearTimeout(minimizarTimer)
-            minimizarTimer = null
-          }
-          // Erro de spawn é diferente do close normal do wrapper Steam: aqui
-          // sabemos que nenhum jogo foi criado e podemos devolver o foco.
-          if (acompanhar) {
-            marcar(false, true)
-            restaurarFocoArcadia()
+          if (launch.stopRequested && !launch.gameRecord) finishCancelledLaunch(launch)
+        })
+        child.on?.("error", (err) => {
+          child.__arcadiaExited = true
+          launch.childExited = true
+          clearLaunchTimers(launch)
+          closeLaunchLog()
+          if (!acompanhar) {
+            releaseLaunch(launch)
+          } else if (launchIsCurrent(launch)) {
+            // Treat an asynchronous spawn error as a stopped, empty session;
+            // let the poll's confirmed absence perform focus restoration.
+            launchLifecycle.requestStop(launch.token)
+            launch.stopRequested = true
+            if (jogoAtivo?.launchSession === launch) {
+              jogoEncerrando = jogoAtivo
+              jogoAtivo = null
+            }
           }
           console.warn("arcadia: spawn erro:", err.message)
           if (win && !win.isDestroyed()) {
@@ -2301,14 +2709,15 @@ app.whenReady().then(() => {
           }
         })
         // unref DEPOIS do listener registrado
-        child.unref()
+        child.unref?.()
         if (acompanhar) {
           // Registra o grupo de processos do jogo (o spawn detached vira líder).
           // launcher sai da biblioteca (o payload do launch só traz gameId).
           const lib = gameId ? readLibrary().find((x) => x.id === gameId) : null
-          jogoEncerrando = null
-          jogoAtivo = {
+          const gameRecord = {
             pid: child.pid,
+            child,
+            processIdentity: readProcessIdentity(Number(child.pid)),
             alvo: c[c.length - 1],
             gameId: gameId || "",
             launcher:
@@ -2317,17 +2726,29 @@ app.whenReady().then(() => {
               /^steam:\/\/(?:run|rungameid)\//i.test(String(c[1] || ""))
                 ? "steam"
                 : ""),
-            steamWrapper:
-              path.basename(String(c[0])) === "steam" &&
-              /^steam:\/\/(?:run|rungameid)\//i.test(String(c[1] || "")),
+            // Preserve the URI classification before gamescope can wrap the
+            // command; otherwise Stop would miss Steam games running through
+            // a gamescope command line.
+            steamWrapper: Boolean(launch.steamWrapper),
+            steamCommand: launch.steamCommand || c[0],
+            steamEnv: launch.steamEnv || env,
             startedAt: Date.now(),
+            launchSession: launch,
           }
-          ultimoJogoAtivo = jogoAtivo
+          launch.gameRecord = gameRecord
+          jogoEncerrando = null
+          jogoAtivo = gameRecord
+          ultimoJogoAtivo = gameRecord
+          launchLifecycle.markRunning(launch.token)
           armarPollJogo()
+        } else {
+          // `steam://install` has no tracked game session.
+          releaseLaunch(launch)
         }
         launchInFlight = false
         return true
       }
+
       // Steam: se estiver em Big Picture, sai dele ANTES de abrir o jogo —
       // senão o steam://rungameid herda o modo BPM em vez da Steam normal.
       // MAS só manda o exitbigpicture se a Steam JÁ estiver rodando: com ela
@@ -2337,19 +2758,49 @@ app.whenReady().then(() => {
         typeof cmd[1] === "string" &&
         cmd[1].startsWith("steam://")
       ) {
-        const run = () => soltar(cmd, acompanhaSessao)
+        const spawnSteamHelper = (args) => {
+          try {
+            const helper = spawn(cmd[0], args, {
+              detached: true,
+              stdio: "ignore",
+              env,
+            })
+            helper.on?.("error", (error) => {
+              console.warn("arcadia: auxiliar Steam falhou:", error.message || error)
+            })
+            helper.once?.("close", () => {
+              helper.__arcadiaExited = true
+              if (launch.steamStarterChild === helper) {
+                launch.steamStarterChild = null
+                finishCancelledLaunch(launch)
+              }
+            })
+            helper.unref?.()
+            return helper
+          } catch (error) {
+            console.warn("arcadia: auxiliar Steam falhou:", error.message || error)
+            return null
+          }
+        }
+        const run = () => {
+          if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+            finishCancelledLaunch(launch)
+            return false
+          }
+          return soltar(cmd, acompanhaSessao)
+        }
         execFile("pgrep", ["-x", "steam"], (err) => {
+          if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+            finishCancelledLaunch(launch)
+            return
+          }
           if (!err) {
             // Steam rodando: sai do BPM e lança.
-            try {
-              const bp = spawn(cmd[0], ["steam://exitbigpicture"], {
-                detached: true,
-                stdio: "ignore",
-                env,
-              })
-              bp.unref()
-            } catch {}
-            setTimeout(run, 900)
+            spawnSteamHelper(["steam://exitbigpicture"])
+            launch.steamRunTimer = setTimeout(() => {
+              launch.steamRunTimer = null
+              run()
+            }, 900)
             return
           }
           // Steam FECHADA: abre o cliente (mesmo binário/env de `cmd`/`env` —
@@ -2357,94 +2808,109 @@ app.whenReady().then(() => {
           // aqui reintroduziria a Steam pura, ver comentário de steamComInjecao),
           // espera subir, garante saída do BPM (ela pode restaurar a sessão
           // anterior em BPM — principalmente no gamescope) e só então lança o jogo.
-          try {
-            const st = spawn(cmd[0], [], { detached: true, stdio: "ignore", env })
-            st.unref()
-          } catch {}
+          const starter = spawnSteamHelper([])
+          launch.steamStarterChild = starter
           let tentativas = 0
-          const esperar = setInterval(() => {
+          launch.steamPollTimer = setInterval(() => {
+            if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+              clearLaunchTimers(launch)
+              finishCancelledLaunch(launch)
+              return
+            }
             execFile("pgrep", ["-x", "steam"], (e2) => {
+              if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+                finishCancelledLaunch(launch)
+                return
+              }
               if (!e2) {
-                clearInterval(esperar)
-                setTimeout(() => {
-                  try {
-                    const bp = spawn(cmd[0], ["steam://exitbigpicture"], {
-                      detached: true,
-                      stdio: "ignore",
-                      env,
-                    })
-                    bp.unref()
-                  } catch {}
-                  setTimeout(run, 1200)
+                if (launch.steamPollTimer) {
+                  clearInterval(launch.steamPollTimer)
+                  launch.steamPollTimer = null
+                }
+                launch.steamWaitTimer = setTimeout(() => {
+                  launch.steamWaitTimer = null
+                  if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
+                    finishCancelledLaunch(launch)
+                    return
+                  }
+                  spawnSteamHelper(["steam://exitbigpicture"])
+                  launch.steamRunTimer = setTimeout(() => {
+                    launch.steamRunTimer = null
+                    run()
+                  }, 1200)
                 }, 3000) // cliente subiu: espera a UI estabilizar
               } else if (++tentativas > 30) {
-                clearInterval(esperar) // ~60s sem sinal: desiste
-                if (acompanhaSessao && minimizarTimer) {
-                  clearTimeout(minimizarTimer)
-                  minimizarTimer = null
+                if (launch.steamPollTimer) {
+                  clearInterval(launch.steamPollTimer)
+                  launch.steamPollTimer = null
                 }
                 // A Steam nem chegou a criar a sessão que o poll vigia.
-                if (acompanhaSessao) restaurarFocoArcadia()
-                launchInFlight = false
+                clearLaunchTimers(launch)
+                releaseLaunch(launch)
+                if (acompanhaSessao) {
+                  restaurarFocoArcadia(() => !lancamentoAtual && !jogoAtivo && !jogoEncerrando)
+                }
                 if (win && !win.isDestroyed()) {
                   win.webContents.send("game:launchError", {
                     gameId,
                     error: "Steam não iniciou em 60s.",
                   })
                 }
-                return
               }
             })
           }, 2000)
         })
         return { ok: true, warnings }
       }
-      soltar(cmd)
+      const started = soltar(cmd)
+      if (!started) {
+        return launch.stopRequested
+          ? { ok: false, canceled: true, error: "Lançamento cancelado." }
+          : { ok: false, error: launch.spawnError || "Não foi possível iniciar o jogo." }
+      }
       return { ok: true, warnings }
     } catch (e) {
-      launchInFlight = false
+      const canceled = launch.stopRequested || launchLifecycle.isStopping(launch.token)
+      clearLaunchTimers(launch)
       closeLaunchLog()
       discordRpc.clear()
-      if (minimizarTimer) {
-        clearTimeout(minimizarTimer)
-        minimizarTimer = null
+      // Once a tracked child exists, only the poll/finalizer may release focus.
+      // For a pre-spawn failure there is no process to wait for, so release and
+      // restore immediately after that fact is known.
+      if (launchIsCurrent(launch) && !launch.gameRecord) {
+        releaseLaunch(launch)
+        if (focoDeLancamentoAplicado) {
+          restaurarFocoArcadia(() => !lancamentoAtual && !jogoAtivo && !jogoEncerrando)
+        }
       }
-      // Só devolve o foco se esta tentativa realmente o retirou e ainda não
-      // há uma sessão acompanhada. Depois que o poll foi armado, o finalizer é
-      // a única autoridade para restaurar o foco.
-      if (focoDeLancamentoAplicado && !jogoAtivo) restaurarFocoArcadia()
-      return { ok: false, error: String(e) }
+      return canceled
+        ? { ok: false, canceled: true, error: "Lançamento cancelado." }
+        : { ok: false, error: String(e) }
     }
   })
 
-  // Fecha o jogo em execução (botão X do card "jogando").
-  // Universal: mata o grupo de processos do jogo que lançamos (jogoAtivo) —
-  // cobre custom/umu/legendary/lutris. Steam: pkill no padrão clássico (o
-  // jogo é filho do cliente Steam, não nosso).
+  // Fecha o jogo em execução (botão X do card "jogando").  Stop only signals
+  // an owned detached group or the exact Steam app id.  It never uses a global
+  // process-name pattern, which could terminate another user's game.
   ipcMain.handle("game:close", () => {
     try {
       discordRpc.clear()
-      if (jogoAtivo) {
-        const encerrando = jogoAtivo
-        const { pid, alvo } = encerrando
-        jogoEncerrando = encerrando
-        processoJogoVisto = true
-        jogoAtivo = null
-        try {
-          process.kill(-pid, "SIGTERM")
-        } catch {}
-        setTimeout(() => {
-          try {
-            process.kill(-pid, "SIGKILL")
-          } catch {}
-        }, 4000)
-        // Reforço: qualquer processo com o executável do jogo na cmdline.
-        if (alvo && !String(alvo).includes("://")) {
-          execFile("pkill", ["-f", String(alvo)], () => {})
+      const tracked = jogoAtivo || jogoEncerrando
+      if (tracked) {
+        if (jogoAtivo === tracked) {
+          jogoEncerrando = tracked
+          processoJogoVisto = true
+          jogoAtivo = null
         }
+        pararJogo(tracked)
+        return { ok: true, state: "stopping" }
       }
-      execFile("pkill", ["-f", PADRAO_FECHAMENTO_JOGO], () => {})
-      return { ok: true }
+      if (lancamentoAtual && launchLifecycle.isBusy()) {
+        cancelarLancamento(lancamentoAtual)
+        return { ok: true, state: "stopping", starting: true }
+      }
+      // Preserve the historical idempotent API: a repeated Stop is harmless.
+      return { ok: true, state: "idle" }
     } catch (e) {
       return { ok: false, error: String(e) }
     }

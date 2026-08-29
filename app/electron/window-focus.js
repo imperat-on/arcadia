@@ -11,7 +11,14 @@
  * (and is intentionally called even when a compositor declines the focus
  * request; the next native focus event will correct it).
  */
-function restoreWindowFocus(window, { onFocused } = {}) {
+function restoreWindowFocus(window, { onFocused, canRestore } = {}) {
+  // The caller may be waiting for a child process to die.  Keep the guard
+  // synchronous so a stale termination callback cannot focus a newer session.
+  try {
+    if (typeof canRestore === "function" && !canRestore()) return false
+  } catch {
+    return false
+  }
   if (!window) return false
   try {
     if (typeof window.isDestroyed === "function" && window.isDestroyed()) return false
@@ -48,6 +55,9 @@ function restoreWindowFocus(window, { onFocused } = {}) {
   } catch {}
 
   try {
+    // Check again after native calls: a close/launch race may have changed the
+    // owner while the compositor was processing focus().
+    if (typeof canRestore === "function" && !canRestore()) return false
     onFocused?.()
   } catch {}
   return true

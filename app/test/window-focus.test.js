@@ -46,3 +46,13 @@ test("restoreWindowFocus também funciona quando a janela só perdeu foco", () =
   assert.equal(restoreWindowFocus(value), true)
   assert.deepEqual(calls, [["focus", { steal: true }], "webContents.focus"])
 })
+
+test("restoreWindowFocus respeita um guard de término confirmado", () => {
+  const { value, calls } = fakeWindow()
+  let confirmado = false
+  assert.equal(restoreWindowFocus(value, { canRestore: () => confirmado }), false)
+  assert.deepEqual(calls, [])
+  confirmado = true
+  assert.equal(restoreWindowFocus(value, { canRestore: () => confirmado }), true)
+  assert.deepEqual(calls, [["focus", { steal: true }], "webContents.focus"])
+})
