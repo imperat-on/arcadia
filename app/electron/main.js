@@ -1250,13 +1250,13 @@ function applyGameSettings(cmd, s, gameId) {
   if (s.gameArgs && path.basename(String(cmd[0])) !== "steam")
     finalCmd = [...finalCmd, ...splitArgs(s.gameArgs)]
   // Gamescope embrulha o comando (não se aplica a jogos Steam — a Steam tem
-  // sua própria integração com gamescope). --disable-gamemode evita o abort
-  // do gamescopereaper no gamemode_request_end (bug libgamemodeauto/dbus);
-  // quem quer GameMode usa o checkbox (gamemoderun), que funciona.
+  // sua própria integração com gamescope). Não passe --disable-gamemode:
+  // essa opção não existe no gamescope upstream e faz versões atuais abortarem
+  // antes de iniciar o executável. Quem quer GameMode usa o checkbox
+  // (gamemoderun), que continua funcionando fora do gamescope.
   if (s.gamescope && path.basename(String(cmd[0])) !== "steam") {
     if (binExists("gamescope")) {
       const args = [
-        "--disable-gamemode",
         "-W",
         String(s.gsWidth || 1920),
         "-H",
