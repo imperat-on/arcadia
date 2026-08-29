@@ -16,31 +16,117 @@
 const config = require("./config")
 const sessionStore = require("./session")
 const { fetchRede } = require("../httpfetch")
+const dns = require("node:dns").promises
 const https = require("node:https")
 const WebSocket = require("ws")
 
 let client = null
 const ipv4Cache = new Map()
+const ipv4InFlight = new Map()
+const ipv4Preferred = new Map()
+const ipv4Agents = new Map()
+const USER_CACHE_TTL_MS = 60_000
+const SYSTEM_DNS_TIMEOUT_MS = 500
 
-async function resolveBackendIpv4(hostname) {
+// O fallback IPv4 é usado no backend .ts.net. Sem um Agent persistente, cada
+// RPC fazia um novo handshake TLS; o login tem pelo menos dois RPCs seguidos.
+// Reaproveitar a conexão reduz bastante a latência sem alterar a segurança TLS.
+function ipv4Agent(url) {
+  const key = `${url.hostname}:${url.port || 443}`
+  let agent = ipv4Agents.get(key)
+  if (!agent) {
+    agent = new https.Agent({
+      keepAlive: true,
+      maxSockets: 6,
+      maxFreeSockets: 2,
+      scheduling: "lifo",
+    })
+    ipv4Agents.set(key, agent)
+  }
+  return agent
+}
+
+function orderedIpv4Addresses(hostname, addresses) {
+  const preferred = ipv4Preferred.get(hostname)
+  if (!preferred || !addresses.includes(preferred)) return addresses
+  return [preferred, ...addresses.filter((address) => address !== preferred)]
+}
+
+async function lookupSystemIpv4(hostname) {
+  // O resolvedor do sistema é normalmente mais rápido que DoH. O limite curto
+  // mantém o fallback DoH para redes com DNS local quebrado.
+  let timer = null
+  try {
+    const localLookup = dns.lookup(hostname, { all: true, family: 4, verbatim: true })
+    const localTimeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("DNS local timeout")), SYSTEM_DNS_TIMEOUT_MS)
+    })
+    const result = await Promise.race([localLookup, localTimeout])
+    const addresses = [...new Set((result || [])
+      .map((item) => String(item?.address || ""))
+      .filter((address) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)))]
+    if (addresses.length) return addresses
+  } catch {
+    /* DoH abaixo cobre resolvedores locais indisponíveis. */
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+  return null
+}
+
+function waitWithAbort(promise, signal) {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(signal.reason || new Error("aborted"))
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason || new Error("aborted"))
+    signal.addEventListener("abort", abort, { once: true })
+    promise.then(
+      (value) => { signal.removeEventListener("abort", abort); resolve(value) },
+      (error) => { signal.removeEventListener("abort", abort); reject(error) },
+    )
+  })
+}
+
+async function resolveBackendIpv4(hostname, signal) {
   const cached = ipv4Cache.get(hostname)
   if (cached?.expires > Date.now() && cached.addresses.length) return cached.addresses
 
-  const endpoint = new URL("https://cloudflare-dns.com/dns-query")
-  endpoint.searchParams.set("name", hostname)
-  endpoint.searchParams.set("type", "A")
-  const response = await fetchRede(endpoint.href, {
-    headers: { Accept: "application/dns-json", "User-Agent": "arcadia" },
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!response.ok) throw new Error(`DNS HTTP ${response.status}`)
-  const payload = await response.json()
-  const addresses = [...new Set((payload?.Answer || [])
-    .filter((answer) => answer?.type === 1 && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(answer.data || "")))
-    .map((answer) => String(answer.data)))]
-  if (!addresses.length) throw new Error("DNS sem IPv4")
-  ipv4Cache.set(hostname, { addresses, expires: Date.now() + 5 * 60 * 1000 })
-  return addresses
+  // O pre-warm do backend pode estar rodando ao mesmo tempo que o primeiro
+  // clique em Entrar. Compartilhar o DNS evita duas consultas DoH concorrentes.
+  const ongoing = ipv4InFlight.get(hostname)
+  if (ongoing) return waitWithAbort(ongoing, signal)
+
+  const request = (async () => {
+    const localAddresses = await lookupSystemIpv4(hostname)
+    if (localAddresses?.length) {
+      ipv4Cache.set(hostname, { addresses: localAddresses, expires: Date.now() + 5 * 60 * 1000 })
+      return localAddresses
+    }
+
+    const endpoint = new URL("https://cloudflare-dns.com/dns-query")
+    endpoint.searchParams.set("name", hostname)
+    endpoint.searchParams.set("type", "A")
+    const response = await fetchRede(endpoint.href, {
+      headers: { Accept: "application/dns-json", "User-Agent": "arcadia" },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw new Error(`DNS HTTP ${response.status}`)
+    const payload = await response.json()
+    const addresses = [...new Set((payload?.Answer || [])
+      .filter((answer) => answer?.type === 1 && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(answer.data || "")))
+      .map((answer) => String(answer.data)))]
+    if (!addresses.length) throw new Error("DNS sem IPv4")
+    ipv4Cache.set(hostname, { addresses, expires: Date.now() + 5 * 60 * 1000 })
+    return addresses
+  })()
+  ipv4InFlight.set(hostname, request)
+  // A entrada só sai quando a consulta real acaba. Um waiter pode abortar a
+  // própria espera sem abrir uma segunda consulta enquanto o DNS continua.
+  const limpar = () => {
+    if (ipv4InFlight.get(hostname) === request) ipv4InFlight.delete(hostname)
+  }
+  request.then(limpar, limpar)
+  return waitWithAbort(request, signal)
 }
 
 async function bodyBuffer(body) {
@@ -53,13 +139,13 @@ async function bodyBuffer(body) {
 async function fetchBackendIpv4(value, options = {}) {
   const url = new URL(value)
   if (url.protocol !== "https:") throw new Error("fallback IPv4 exige HTTPS")
-  const addresses = await resolveBackendIpv4(url.hostname)
+  const addresses = orderedIpv4Addresses(url.hostname, await resolveBackendIpv4(url.hostname, options.signal))
   const body = await bodyBuffer(options.body)
   let lastError = null
 
   for (const address of addresses) {
     try {
-      return await new Promise((resolve, reject) => {
+      const response = await new Promise((resolve, reject) => {
         const headers = { ...(options.headers || {}), Host: url.host }
         const request = https.request({
           protocol: "https:",
@@ -69,6 +155,7 @@ async function fetchBackendIpv4(value, options = {}) {
           method: options.method || "GET",
           path: `${url.pathname}${url.search}`,
           headers,
+          agent: ipv4Agent(url),
           rejectUnauthorized: true,
         }, (response) => {
           const chunks = []
@@ -93,8 +180,11 @@ async function fetchBackendIpv4(value, options = {}) {
         if (body != null) request.write(body)
         request.end()
       })
+      ipv4Preferred.set(url.hostname, address)
+      return response
     } catch (error) {
       lastError = error
+      if (ipv4Preferred.get(url.hostname) === address) ipv4Preferred.delete(url.hostname)
     }
   }
   throw lastError || new Error("IPv4 indisponível")
@@ -104,27 +194,51 @@ async function fetchBackendIpv4(value, options = {}) {
 // funcional. No Electron usamos net.fetch (via fetchRede), que compartilha o
 // resolvedor/Happy Eyeballs do Chromium. Falha de conexão vira uma resposta
 // tratável para nunca rejeitar um handler IPC de conta.
+function boundedSignal(signal, timeoutMs) {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  if (!signal) return timeout
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout])
+  // Electron/Node atuais têm AbortSignal.any; este fallback mantém
+  // compatibilidade com runtimes antigos usados em instalações legadas.
+  const controller = new AbortController()
+  const abort = (event) => controller.abort(event?.target?.reason)
+  if (signal.aborted) controller.abort(signal.reason)
+  else signal.addEventListener("abort", abort, { once: true })
+  timeout.addEventListener("abort", abort, { once: true })
+  return controller.signal
+}
+
 async function backendFetch(url, options, fetchImpl = fetchRede, fallbackImpl = fetchBackendIpv4) {
   const hostname = (() => {
     try { return new URL(url).hostname.toLowerCase() } catch { return "" }
   })()
-  const freshOptions = () => ({ ...options, signal: AbortSignal.timeout(15_000) })
+  // Uma única deadline evita somar 15s do fallback + 15s da pilha normal
+  // quando o servidor está fora. Cada tentativa recebe um sinal derivado novo:
+  // se a primeira falhar cedo, a segunda ainda usa o tempo que restou.
+  const caminhoTs = hostname.endsWith(".ts.net") && fetchImpl === fetchRede
+  const totalTimeout = caminhoTs ? 15_000 : 30_000
+  const iniciouEm = Date.now()
+  const deadlineSignal = boundedSignal(options?.signal, totalTimeout)
+  const requestOptions = () => {
+    const restante = Math.max(1, totalTimeout - (Date.now() - iniciouEm))
+    return { ...options, signal: boundedSignal(deadlineSignal, restante) }
+  }
 
   // Tailscale Funnel possui A e AAAA públicos, mas alguns resolvedores locais
   // entregam apenas AAAA. Nessa situação esperar o IPv6 falhar acrescenta 30s
   // ao boot e mantém o splash preto. Para .ts.net, IPv4 resolvido por DoH é a
   // rota primária; a pilha normal continua como fallback.
-  if (hostname.endsWith(".ts.net") && fetchImpl === fetchRede) {
+  if (caminhoTs) {
     try {
-      return await fallbackImpl(url, freshOptions())
+      return await fallbackImpl(url, requestOptions())
     } catch {
-      try { return await fetchImpl(url, freshOptions()) } catch {}
+      try { return await fetchImpl(url, requestOptions()) } catch {}
     }
   } else {
     try {
-      return await fetchImpl(url, options)
+      return await fetchImpl(url, requestOptions())
     } catch {
-      try { return await fallbackImpl(url, freshOptions()) } catch {}
+      try { return await fallbackImpl(url, requestOptions()) } catch {}
     }
   }
 
@@ -135,9 +249,24 @@ async function backendFetch(url, options, fetchImpl = fetchRede, fallbackImpl = 
   }
 }
 
+let backendWarmup = null
+
+// Abre DNS/TLS enquanto o launcher pinta a tela. O resultado não é requisito
+// para o boot; a única finalidade é deixar a conexão reutilizável para o
+// primeiro login. Mesmo uma resposta 404 aquece o socket corretamente.
+function warmBackend() {
+  if (backendWarmup) return backendWarmup
+  backendWarmup = backendFetch(`${config.url}/auth/v1/health`, {
+    method: "GET",
+    headers: { apikey: config.anonKey },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => null)
+  return backendWarmup
+}
+
 function backendLookup(hostname, _options, callback) {
   resolveBackendIpv4(hostname)
-    .then((addresses) => callback(null, addresses[0], 4))
+    .then((addresses) => callback(null, orderedIpv4Addresses(hostname, addresses)[0], 4))
     .catch((error) => callback(error))
 }
 
@@ -170,6 +299,16 @@ class AuthClient {
   constructor() {
     this.emitter = new AuthEmitter()
     this._session = null
+    // Após emitir um token, o usuário já foi autenticado pelo backend. Os
+    // módulos de sync/profile chamavam /auth/v1/user repetidamente no mesmo
+    // instante do login; uma janela curta de cache evita essas viagens extras.
+    this._userValidatedAt = 0
+    this._userInFlight = null
+  }
+
+  _resetUserCache() {
+    this._userValidatedAt = 0
+    this._userInFlight = null
   }
 
   onAuthStateChange(cb) {
@@ -213,6 +352,7 @@ class AuthClient {
   async _sessionResponse(data) {
     // data ja tem o shape GoTrue {access_token, refresh_token, user, ...}
     this._session = data
+    this._resetUserCache()
     return { data: { session: data }, error: null }
   }
 
@@ -223,6 +363,7 @@ class AuthClient {
   async setSession(sessaoSalva, { emitSignedIn = false } = {}) {
     // Valida o access_token e devolve o usuario. Se expirou, faz refresh.
     this._session = sessaoSalva
+    this._resetUserCache()
     const { error } = await this._request("GET", "/auth/v1/user", null, {
       json: true,
     })
@@ -235,6 +376,8 @@ class AuthClient {
         })
         if (!r.error) {
           this._session = r.data
+          this._resetUserCache()
+          this._userValidatedAt = Date.now()
           this.emitter.emit("TOKEN_REFRESHED", r.data)
           return { data: { session: r.data }, error: null }
         }
@@ -242,6 +385,7 @@ class AuthClient {
       this._session = null
       return { data: { session: null }, error: { message: "sessao invalida" } }
     }
+    this._userValidatedAt = Date.now()
     if (emitSignedIn) this.emitter.emit("SIGNED_IN", this._session)
     return { data: { session: this._session }, error: null }
   }
@@ -254,6 +398,8 @@ class AuthClient {
     })
     if (error) return { data: null, error }
     this._session = data.session
+    this._resetUserCache()
+    this._userValidatedAt = Date.now()
     this.emitter.emit("SIGNED_IN", data.session)
     return { data: { user: data.user, session: data.session }, error: null }
   }
@@ -266,6 +412,8 @@ class AuthClient {
     )
     if (error) return { data: null, error }
     this._session = data
+    this._resetUserCache()
+    this._userValidatedAt = Date.now()
     this.emitter.emit("SIGNED_IN", data)
     return { data: { user: data.user, session: data }, error: null }
   }
@@ -282,6 +430,7 @@ class AuthClient {
       error = { message: String(e?.message || e) }
     } finally {
       this._session = null
+      this._resetUserCache()
       sessionStore.clearSession()
       this.emitter.emit("SIGNED_OUT", null)
     }
@@ -289,11 +438,34 @@ class AuthClient {
   }
 
   async getUser() {
-    const { data, error } = await this._request("GET", "/auth/v1/user", null, {
-      json: true,
-    })
-    if (error) return { data: { user: null }, error }
-    return { data: { user: data.user }, error: null }
+    const localUser = this._session?.user
+    const token = this._session?.access_token
+    if (
+      localUser?.id &&
+      Date.now() - this._userValidatedAt < USER_CACHE_TTL_MS
+    ) {
+      return { data: { user: localUser }, error: null }
+    }
+    if (token && this._userInFlight?.token === token) {
+      return this._userInFlight.promise
+    }
+
+    const promise = (async () => {
+      const { data, error } = await this._request("GET", "/auth/v1/user", null, {
+        json: true,
+      })
+      if (error) return { data: { user: null }, error }
+      // Não deixe uma resposta de uma sessão antiga validar a sessão nova.
+      if (this._session?.access_token === token) this._userValidatedAt = Date.now()
+      return { data: { user: data.user }, error: null }
+    })()
+    const entry = token ? { token, promise } : null
+    if (entry) this._userInFlight = entry
+    try {
+      return await promise
+    } finally {
+      if (entry && this._userInFlight === entry) this._userInFlight = null
+    }
   }
 }
 
@@ -600,4 +772,4 @@ function attachAuthPersistence() {
   return () => data?.subscription?.unsubscribe()
 }
 
-module.exports = { getClient, restoreSession, attachAuthPersistence, backendFetch, fetchBackendIpv4, resolveBackendIpv4 }
+module.exports = { getClient, restoreSession, attachAuthPersistence, backendFetch, fetchBackendIpv4, resolveBackendIpv4, warmBackend }

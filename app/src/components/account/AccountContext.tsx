@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -87,37 +88,89 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AccountSession | null>(null)
   const [perfil, setPerfil] = useState<PerfilOnline | null>(null)
 
-  const carregarPerfil = useCallback(async () => {
-    try {
-      const r = await withTimeout(window.launcherAPI?.accountProfile(), 10_000)
-      if (r?.ok && r.profile) {
-        setPerfil(r.profile)
-        return
-      }
-    } catch {
-      /* rede falhou — fallback mínimo abaixo */
+  // A sessão já traz o username seguro. Mostramos essa identidade imediatamente
+  // e buscamos display_name/avatar em segundo plano; bloquear toda a interface
+  // por mais uma ida ao backend fazia o login parecer muito mais lento.
+  const perfilInicial = (sessao: AccountSession | null): PerfilOnline => ({
+    username: sessao?.user?.username ?? null,
+    avatar_url: null,
+  })
+  const perfilRequestRef = useRef(0)
+  const perfilInFlightRef = useRef<{ userId: string; promise: Promise<void> } | null>(null)
+
+  const carregarPerfil = useCallback(async (sessao: AccountSession | null, forcar = false) => {
+    const userId = sessao?.user?.id ?? ""
+    const ongoing = perfilInFlightRef.current
+    if (!forcar && userId && ongoing?.userId === userId) {
+      await ongoing.promise
+      return
     }
-    // Fallback com o username da sessão (evita splash eterno se a rede falhar)
-    setPerfil({ username: session?.user?.username ?? null, avatar_url: null })
-  }, [session?.user?.username])
+
+    const requestId = ++perfilRequestRef.current
+    const base = perfilInicial(sessao)
+    const promise = (async () => {
+      try {
+        const r = await withTimeout(window.launcherAPI?.accountProfile(), 10_000)
+        // Uma troca rápida de conta não pode deixar o perfil antigo sobrescrever
+        // a identidade da sessão nova.
+        if (requestId !== perfilRequestRef.current) return
+        if (r?.ok && r.profile) {
+          setPerfil(r.profile)
+          return
+        }
+      } catch {
+        /* rede falhou — mantém o perfil mínimo já pintado */
+      }
+      if (requestId === perfilRequestRef.current) {
+        setPerfil((atual) => atual ?? base)
+      }
+    })()
+    const entrada = userId ? { userId, promise } : null
+    if (entrada) perfilInFlightRef.current = entrada
+    try {
+      await promise
+    } finally {
+      if (entrada && perfilInFlightRef.current === entrada) {
+        perfilInFlightRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let vivo = true
-    withTimeout(window.launcherAPI?.accountStatus(), 12_000).then(async (r) => {
+    withTimeout(window.launcherAPI?.accountStatus(), 12_000).then((r) => {
       if (!vivo) return
-      setSession(r?.session ?? null)
+      const sessao = r?.session ?? null
+      setSession(sessao)
       setStatus(r?.session ? "logado" : "deslogado")
-      if (r?.session) await carregarPerfil()
+      if (sessao) {
+        // Libera a UI agora. O perfil completo não é requisito para autenticar.
+        setPerfil(perfilInicial(sessao))
+        void carregarPerfil(sessao)
+      } else {
+        perfilRequestRef.current++
+        perfilInFlightRef.current = null
+        setPerfil(null)
+      }
     })
     const off = window.launcherAPI?.onAuthChanged((data) => {
       if (!vivo) return
-      setSession(data.session)
-      setStatus(data.session ? "logado" : "deslogado")
-      if (data.session) carregarPerfil()
-      else setPerfil(null)
+      const sessao = data.session ?? null
+      setSession(sessao)
+      setStatus(sessao ? "logado" : "deslogado")
+      if (sessao) {
+        setPerfil(perfilInicial(sessao))
+        void carregarPerfil(sessao)
+      } else {
+        perfilRequestRef.current++
+        perfilInFlightRef.current = null
+        setPerfil(null)
+      }
     })
     return () => {
       vivo = false
+      perfilRequestRef.current++
+      perfilInFlightRef.current = null
       off?.()
     }
   }, [carregarPerfil])
@@ -154,6 +207,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     } finally {
       // O evento IPC e a fonte normal, mas o estado local nao deve ficar preso
       // caso a janela perca o evento ou o backend esteja momentaneamente fora.
+      perfilRequestRef.current++
+      perfilInFlightRef.current = null
       setSession(null)
       setStatus("deslogado")
       setPerfil(null)
@@ -213,8 +268,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [session?.user?.username])
 
   const reloadPerfil = useCallback(async () => {
-    await carregarPerfil()
-  }, [carregarPerfil])
+    await carregarPerfil(session, true)
+  }, [carregarPerfil, session])
 
   return (
     <Ctx.Provider value={{ status, session, perfil, signUp, signIn, signOut, setAvatar, setAvatarBytes, setBackground, updatePerfil, reloadPerfil }}>

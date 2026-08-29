@@ -9,7 +9,7 @@ const sync = require("./sync")
 const biblioteca = require("./biblioteca")
 const sourcesSync = require("./sources")
 const community = require("./community")
-const { getClient, attachAuthPersistence, restoreSession } = require("./client")
+const { getClient, attachAuthPersistence, restoreSession, warmBackend } = require("./client")
 const {
   safeAuthResult,
   safeAccountStatus,
@@ -28,6 +28,10 @@ function garantirSessao() {
 }
 
 function registerAccountIpc(broadcast, onConta) {
+  // Pré-aquece DNS/TLS em paralelo ao primeiro paint. Não bloqueia o registro
+  // dos IPCs nem transforma backend fora do ar em erro de boot.
+  warmBackend().catch(() => {})
+
   // Persistência da sessão em session.json (SIGNED_IN/TOKEN_REFRESHED → salva;
   // SIGNED_OUT/USER_DELETED → limpa).
   attachAuthPersistence()
@@ -52,6 +56,9 @@ function registerAccountIpc(broadcast, onConta) {
   biblioteca.onChanged((channel) => broadcast(channel, { source: "biblioteca" }))
 
   // Eventos de auth → renderer (só dados seguros, nunca tokens) + realtime + sync.
+  // A geração cancela trabalho agendado se o usuário sair antes do próximo
+  // tick (evita reabrir canais da conta anterior após um login muito rápido).
+  let authWorkGeneration = 0
   getClient().auth.onAuthStateChange((event, session) => {
     const username = session?.user?.user_metadata?.username || null
     broadcast("account:changed", safeAccountEvent(event, session))
@@ -59,14 +66,21 @@ function registerAccountIpc(broadcast, onConta) {
       // O escopo precisa mudar ANTES de qualquer reconcile/realtime: esses
       // módulos leem arquivos por conta e não podem iniciar como guest.
       onConta?.(username)
-      realtime.start()
-      bibliotecaRealtime.start()
-      syncRealtime.start()
-      sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
-      biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
-      sourcesSync.reconcile().catch(() => {})
+      const generation = ++authWorkGeneration
+      // Não faça reconciliações no mesmo tick do login: elas podem emitir
+      // eventos IPC e competir com a primeira pintura da conta.
+      setImmediate(() => {
+        if (generation !== authWorkGeneration) return
+        realtime.start()
+        bibliotecaRealtime.start()
+        syncRealtime.start()
+        sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
+        biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
+        sourcesSync.reconcile().catch(() => {})
+      })
     }
     if (event === "SIGNED_OUT" || event === "USER_DELETED") {
+      ++authWorkGeneration
       realtime.stop()
       bibliotecaRealtime.stop()
       syncRealtime.stop()
