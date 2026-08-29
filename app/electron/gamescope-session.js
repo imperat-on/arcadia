@@ -101,6 +101,9 @@ function buildExternalGamescopeCommand(
   const mode = validWindowMode(windowMode)
   if (mode === "fullscreen") args.push("-f")
   else if (mode === "borderless") args.push("-b")
+  // Fullscreen and borderless nested surfaces must retain pointer ownership.
+  // Windowed mode intentionally leaves Gamescope's normal cursor behavior.
+  if (mode === "fullscreen" || mode === "borderless") args.push("--force-grab-cursor")
   if (keepAlive === true) args.push("--keep-alive")
 
   let primary = command.map((value) => String(value))

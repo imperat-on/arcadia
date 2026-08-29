@@ -110,6 +110,9 @@ export function DesktopLauncher() {
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
   const appFocusedRef = useRef(appFocused)
+  // A leitura inicial é assíncrona; um evento IPC mais novo invalida o valor
+  // que estava em trânsito.
+  const focoSequenciaRef = useRef(0)
   const gameRunningRef = useRef(gameRunning)
   const launchPendingRef = useRef(false)
   const jogoAtivoRef = useRef(jogoAtivo)
@@ -134,21 +137,34 @@ export function DesktopLauncher() {
       appFocusedRef.current && !gameRunningRef.current && !launchPendingRef.current,
   })
   useEffect(() => {
+    let efeitoAtivo = true
     const aoFoco = (focused: boolean) => {
+      focoSequenciaRef.current += 1
       appFocusedRef.current = focused
       setAppFocused(focused)
     }
-    const off = window.launcherAPI?.onAppFocus?.(aoFoco)
-    const offLaunchError = window.launcherAPI?.onLaunchError?.((payload) => {
+    const api = window.launcherAPI
+    const off = api?.onAppFocus?.(aoFoco)
+    const offLaunchError = api?.onLaunchError?.((payload) => {
       limparLaunch(payload?.gameId)
     })
-    const atual = window.launcherAPI?.getAppFocus?.()
-    if (atual) void atual.then(aoFoco).catch(() => {})
+    const sequenciaDaConsulta = focoSequenciaRef.current
+    const atual = api?.getAppFocus?.()
+    if (atual) {
+      void atual
+        .then((focused) => {
+          if (!efeitoAtivo || focoSequenciaRef.current !== sequenciaDaConsulta) return
+          aoFoco(focused)
+        })
+        .catch(() => {})
+    }
     return () => {
+      efeitoAtivo = false
       off?.()
       offLaunchError?.()
     }
   }, [limparLaunch])
+
   const launchDesktopGame = useCallback(
     (game: Game, mode?: "steam" | "exe"): Promise<GameLaunchResult> => {
       if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) {

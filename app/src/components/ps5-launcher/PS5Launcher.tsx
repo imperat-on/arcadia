@@ -493,56 +493,101 @@ export function PS5Launcher() {
   const SLOT_5 = 5 * 60 * 1000
   const [newsSlot, setNewsSlot] = useState(() => Math.floor(Date.now() / SLOT_5))
 
-  // Foco real da janela (eventos blur/focus do Electron — no gamescope o
-  // document.hasFocus() mente). Trava gamepad e silencia trailer.
+  // No Electron, o processo principal é a autoridade do foco. Em Wayland /
+  // Gamescope, document.hasFocus() e os eventos DOM podem refletir a janela do
+  // compositor, não a BrowserWindow que o main está controlando.
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
   const appFocusedRef = useRef(appFocused)
   const ultimoFocoRef = useRef<HTMLElement | null>(null)
+  // A resposta de getAppFocus() é assíncrona. Um evento IPC mais novo precisa
+  // vencer uma leitura iniciada antes de o jogo tomar a superfície.
+  const focoSequenciaRef = useRef(0)
   appFocusedRef.current = appFocused
   useEffect(() => {
+    const api = window.launcherAPI
+    let efeitoAtivo = true
+    // No Electron, app:focus (do processo principal) é a fonte de verdade.
+    // Um jogo/WebContents/Gamescope pode disparar blur/focus no DOM do renderer
+    // sem alterar o foco nativo da BrowserWindow.
+    const focoNativoDisponivel = typeof api?.onAppFocus === "function"
     const lembrarFoco = (event: FocusEvent) => {
       if (event.target instanceof HTMLElement && podeReceberFoco(event.target)) {
         ultimoFocoRef.current = event.target
       }
     }
+    const agendarFocoDeRetorno = (sequencia: number) => {
+      window.requestAnimationFrame(() => {
+        // Não refoque depois de uma transição de foco mais nova (por exemplo,
+        // quando o jogo já voltou a ocupar a superfície) nem depois do unmount.
+        if (!efeitoAtivo || sequencia !== focoSequenciaRef.current || !appFocusedRef.current) return
+        focoDeRetorno(ultimoFocoRef.current)
+      })
+    }
     const aoFocar = () => {
+      // No Electron, inclusive em Gamescope, não deixe o DOM reabrir a UI.
+      if (focoNativoDisponivel) return
+      const sequencia = ++focoSequenciaRef.current
       appFocusedRef.current = true
       setAppFocused(true)
       // O compositor pode entregar o evento focus antes de o conteúdo voltar a
       // estar visível. Um frame deixa show()/restore() terminar sem atropelar
       // um clique que o usuário acabou de fazer.
-      window.requestAnimationFrame(() => focoDeRetorno(ultimoFocoRef.current))
+      agendarFocoDeRetorno(sequencia)
     }
     const aoDesfocar = () => {
+      // Um clique numa superfície de jogo pode ser apenas um blur DOM; o main
+      // continua sendo a autoridade enquanto a BrowserWindow está em Electron.
+      if (focoNativoDisponivel) return
+      ++focoSequenciaRef.current
       appFocusedRef.current = false
       setAppFocused(false)
     }
     const aoFocoDoMain = (f: boolean) => {
-      appFocusedRef.current = Boolean(f)
-      setAppFocused(Boolean(f))
-      if (f) window.requestAnimationFrame(() => focoDeRetorno(ultimoFocoRef.current))
+      if (!efeitoAtivo) return
+      const sequencia = ++focoSequenciaRef.current
+      const focado = Boolean(f)
+      appFocusedRef.current = focado
+      setAppFocused(focado)
+      if (focado) agendarFocoDeRetorno(sequencia)
     }
     window.addEventListener("focusin", lembrarFoco)
-    window.addEventListener("focus", aoFocar)
-    window.addEventListener("blur", aoDesfocar)
-    const off = window.launcherAPI?.onAppFocus(aoFocoDoMain)
-    const offLaunchError = window.launcherAPI?.onLaunchError?.(() => {
+    // O fallback DOM só é necessário no preview fora do Electron. Dentro dele,
+    // esses eventos são ruído do compositor e não devem sequer ser observados.
+    if (!focoNativoDisponivel) {
+      window.addEventListener("focus", aoFocar)
+      window.addEventListener("blur", aoDesfocar)
+    }
+    const off = focoNativoDisponivel ? api?.onAppFocus?.(aoFocoDoMain) : undefined
+    const offLaunchError = api?.onLaunchError?.(() => {
       launchPendingRef.current = false
       jogoAtivoRef.current.limpar()
     })
     // Consulta o estado atual além de ouvir eventos: um launch pode ter
     // acontecido antes deste componente montar, especialmente após reload do
-    // renderer dentro do gamescope.
-    const estadoAtual = window.launcherAPI?.getAppFocus?.()
-    if (estadoAtual) void estadoAtual.then(aoFocoDoMain).catch(() => {})
+    // renderer dentro do gamescope. A resposta não pode sobrescrever um IPC
+    // recebido depois que a consulta começou.
+    const sequenciaDaConsulta = focoSequenciaRef.current
+    const estadoAtual = focoNativoDisponivel ? api?.getAppFocus?.() : undefined
+    if (estadoAtual) {
+      void estadoAtual
+        .then((focado) => {
+          if (!efeitoAtivo || focoSequenciaRef.current !== sequenciaDaConsulta) return
+          aoFocoDoMain(focado)
+        })
+        .catch(() => {})
+    }
     return () => {
+      efeitoAtivo = false
       window.removeEventListener("focusin", lembrarFoco)
-      window.removeEventListener("focus", aoFocar)
-      window.removeEventListener("blur", aoDesfocar)
+      if (!focoNativoDisponivel) {
+        window.removeEventListener("focus", aoFocar)
+        window.removeEventListener("blur", aoDesfocar)
+      }
       off?.()
       offLaunchError?.()
     }
   }, [])
+
   useEffect(() => {
     if (!newsMode && !overviewOpen) return
     const api = window.launcherAPI
