@@ -72,3 +72,21 @@ test("launch session ignora callbacks de uma geração antiga", () => {
   assert.equal(lifecycle.isRunning(second), false)
   assert.equal(lifecycle.finish(second), true)
 })
+
+test("cliques repetidos no jogo não reabrem o foco durante a sessão", () => {
+  const events = []
+  const gate = createFocusSession({ onFocus: (focused, forced) => events.push({ focused, forced }) })
+
+  assert.equal(gate.begin(), true)
+  for (let click = 0; click < 3; click += 1) {
+    assert.equal(gate.nativeFocus(true), false)
+  }
+  assert.equal(gate.isActive(), true)
+  assert.deepEqual(events, [{ focused: false, forced: true }])
+
+  assert.equal(gate.finish(), true)
+  assert.deepEqual(events, [
+    { focused: false, forced: true },
+    { focused: true, forced: true },
+  ])
+})

@@ -151,6 +151,7 @@ test("monta HDR, limitador e modo de janela antes do separador do comando", () =
     "45",
     "--hdr-enabled",
     "-f",
+    "--force-grab-cursor",
     "--keep-alive",
     "--",
     "proton",
@@ -171,6 +172,21 @@ test("modo de janela usa exatamente um flag e windowed não adiciona flag", () =
     assert.equal(modeFlags.length, expected ? 1 : 0, windowMode)
     if (expected) assert.equal(modeFlags[0], expected)
   }
+})
+
+test("fullscreen e borderless capturam o cursor, mas windowed não", () => {
+  assert.deepEqual(
+    buildExternalGamescopeCommand(["game"], { windowMode: "fullscreen" }).cmd,
+    ["gamescope", "-W", "1920", "-H", "1080", "-f", "--force-grab-cursor", "--", "game"],
+  )
+  assert.deepEqual(
+    buildExternalGamescopeCommand(["game"], { windowMode: "borderless" }).cmd,
+    ["gamescope", "-W", "1920", "-H", "1080", "-b", "--force-grab-cursor", "--", "game"],
+  )
+  assert.deepEqual(
+    buildExternalGamescopeCommand(["game"], { windowMode: "windowed" }).cmd,
+    ["gamescope", "-W", "1920", "-H", "1080", "--", "game"],
+  )
 })
 
 test("opções novas são opcionais e não alteram o contrato legado", () => {
