@@ -48,3 +48,10 @@ test("main resolve a preferência antes de criar a janela e mantém o shell troc
   assert.match(main, /frame: false/)
   assert.match(main, /ipcMain\.handle\("app:setMode"/)
 })
+
+
+test("gamescope usa somente opções suportadas antes do comando externo", () => {
+  const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  assert.doesNotMatch(main, /["']--disable-gamemode["']/)
+  assert.match(main, /finalCmd = \["gamescope", \.\.\.args, "--", \.\.\.finalCmd\]/)
+})
