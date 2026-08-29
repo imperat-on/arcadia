@@ -50,10 +50,16 @@ test("main resolve a preferência antes de criar a janela e mantém o shell troc
 })
 
 
-test("gamescope usa somente opções suportadas antes do comando externo", () => {
+test("gamescope usa opções suportadas e preserva handoff externo", () => {
   const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  const session = fs.readFileSync(path.join(root, "electron", "gamescope-session.js"), "utf8")
   assert.doesNotMatch(main, /["']--disable-gamemode["']/)
-  assert.match(main, /finalCmd = \["gamescope", \.\.\.args, "--", \.\.\.finalCmd\]/)
+  assert.match(session, /--keep-alive/)
+  assert.match(session, /RemainAfterExit=yes/)
+  assert.match(session, /TimeoutStopSec=5s/)
+  assert.match(session, /--setenv=\$\{key\}/)
+  assert.match(session, /--wait/)
+  assert.match(main, /buildExternalGamescopeCommand\(finalCmd/)
 })
 
 
