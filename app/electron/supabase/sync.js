@@ -361,12 +361,42 @@ function watchChanges() {
   return { start, stop }
 }
 
+/** Full sync: ignores lastPullAt and pulls ALL achievements from server. */
+async function fullSync(context = null) {
+  const ctx = context || await requireSyncContext()
+  if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  // Push local queue first
+  const push = await pushDelta(context)
+  if (!push.ok) {
+    if (push.retryable) scheduleRetry()
+    if (contextStillActive(ctx)) saveState({ lastError: push.error })
+    emit()
+    return push
+  }
+
+  // Pull ALL achievements (ignore lastPullAt)
+  const { data, error } = await getClient().rpc("pull_achievements", { p_since: null })
+  if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  const rows = Array.isArray(data) ? data : []
+  if (rows.length) applyPulled(rows, ctx)
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  saveState({ lastPullAt: Math.floor(Date.now() / 1000), lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
+  emit()
+  return { ok: true, pushed: push.pushed || 0, pulled: rows.length, full: true }
+}
+
 module.exports = {
   normalizeTs,
   enqueue,
   queueLength,
   getState,
   syncNow,
+  fullSync,
   scheduleNow,
   scheduleRetry,
   reconcile,
