@@ -797,6 +797,7 @@ declare global {
       onFriendsChanged: (cb: (data: FriendsListData) => void) => () => void
       /** Sync de conquistas (backend proprio). */
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
+      syncFull: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string; full?: boolean }>
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
       /** Reviews/listas da comunidade; GET usa cache local quando offline. */
