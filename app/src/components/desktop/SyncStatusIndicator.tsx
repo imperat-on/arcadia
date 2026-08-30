@@ -32,13 +32,23 @@ export function SyncStatusIndicator() {
   const sincronizar = async () => {
     setSincronizando(true)
     try {
+      // First, push all local achievements (catch-up)
+      const allResult = await window.launcherAPI?.syncAll()
+      console.log("[sync] syncAll result:", allResult)
+
+      // Then do normal sync (pull from server)
       const result = await window.launcherAPI?.syncNow()
+      console.log("[sync] syncNow result:", result)
+
       if (result && !result.ok) {
         setSt((current) =>
           current ? { ...current, lastError: result.error || "falha_no_sync" } : current,
         )
+      } else {
+        setSt((current) => current ? { ...current, lastError: null } : current)
       }
     } catch (error) {
+      console.error("[sync] sync error:", error)
       setSt((current) =>
         current
           ? { ...current, lastError: String(error?.message || error || "falha_no_sync") }

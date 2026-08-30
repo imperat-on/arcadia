@@ -340,7 +340,8 @@ async function syncAllLocal(context = null) {
 
   if (!items.length) return { ok: true, pushed: 0, synced: 0 }
 
-  console.log(`[sync] Syncing ${items.length} local achievements to server...`)
+  console.log(`[sync] syncAllLocal: Found ${items.length} achievements to sync`)
+  console.log(`[sync] syncAllLocal: Sample items:`, JSON.stringify(items.slice(0, 3)))
 
   // Push all items
   const p_items = items.map((i) => ({
@@ -352,11 +353,18 @@ async function syncAllLocal(context = null) {
     percent: i.percent ?? null,
   }))
 
-  const { error } = await getClient().rpc("sync_achievements", { p_items })
-  if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  console.log(`[sync] syncAllLocal: Calling sync_achievements RPC with ${p_items.length} items`)
+  const { data, error } = await getClient().rpc("sync_achievements", { p_items })
+
+  if (error) {
+    console.error(`[sync] syncAllLocal: RPC error:`, error)
+    return { ok: false, error: error.message, retryable: isRetryable(error) }
+  }
+
   if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
-  console.log(`[sync] Successfully synced ${items.length} achievements`)
+  console.log(`[sync] syncAllLocal: RPC response:`, JSON.stringify(data))
+  console.log(`[sync] syncAllLocal: Successfully synced ${items.length} achievements`)
   saveState({ lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
   emit()
   return { ok: true, pushed: items.length, synced: items.length }
