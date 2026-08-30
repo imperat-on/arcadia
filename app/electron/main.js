@@ -2328,8 +2328,19 @@ function onUnlockAchievement(payload) {
   // Só dispara toast e IPC se a conquista era realmente nova — evita flood
   // em sincronização inicial e duplicatas entre os dois watchers.
   if (novo) {
+    // Check if all achievements for this game are now unlocked
+    let isPlatinum = false
+    try {
+      const arq2 = caminhoConta(path.join(DATA_DIR, "achievements.json"))
+      const store2 = JSON.parse(fs.readFileSync(arq2, "utf-8"))
+      const gameItems = store2?.[payload.appid]?.items || []
+      if (gameItems.length > 0 && gameItems.every((item) => item.achieved)) {
+        isPlatinum = true
+      }
+    } catch {}
+
     if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", payload)
-    showAchievementToast(payload)
+    showAchievementToast(payload, { platinum: isPlatinum })
   }
 }
 

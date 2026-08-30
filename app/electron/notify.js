@@ -38,7 +38,7 @@ const MARGIN = 16
 let toastWin = null
 const fila = []
 
-function showAchievementToast(payload) {
+function showAchievementToast(payload, { platinum = false } = {}) {
   // Limite de segurança: rajada de conquistas com o toast travado (loadFile
   // falhou, 'closed' nunca dispara) faria a fila crescer sem limite.
   if (fila.length >= 30) fila.shift()
@@ -95,6 +95,7 @@ function processarFila() {
       desc: String(payload.desc || ""),
       icon: String(payload.icon || ""),
       heading: headingTraduzido(),
+      sound: platinum ? "platinum" : "unlock",
     },
   })
 }
