@@ -74,7 +74,11 @@ function registerAccountIpc(broadcast, onConta) {
         realtime.start()
         bibliotecaRealtime.start()
         syncRealtime.start()
-        sync.reconcile().catch(() => {}) // sobe a fila + baixa delta (conquistas)
+        sync.reconcile().then((r) => {
+          console.log("[sync] reconcile result:", JSON.stringify(r))
+        }).catch((e) => {
+          console.error("[sync] reconcile failed:", e?.message || e)
+        })
         biblioteca.reconcile().catch(() => {}) // sobe jogos/horas + baixa coleção
         sourcesSync.reconcile().catch(() => {})
       })
