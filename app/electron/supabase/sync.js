@@ -308,7 +308,9 @@ function scheduleNow(delayMs = 0) {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     debounceTimer = null
-    syncNow()
+    syncNow().catch((e) => {
+      console.error("[sync] scheduleNow failed:", e?.message || e)
+    })
   }, delayMs)
 }
 
