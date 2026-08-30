@@ -68,25 +68,13 @@
     gap: 16px;
     width: 420px;
     padding: 20px;
-    background: linear-gradient(135deg, #1a1225 0%, #0d0818 100%);
-    border: 2px solid transparent;
-    background-clip: padding-box;
+    background: rgba(28, 28, 34, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     position: relative;
     overflow: visible;
-    box-shadow: 
-      0 0 40px rgba(147, 51, 234, 0.35),
-      0 12px 40px rgba(0, 0, 0, 0.6),
-      inset 0 1px 0 rgba(147, 51, 234, 0.3);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
     animation: slide-in 400ms ease-out forwards;
-  }
-  .toast-platinum::before {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    background: linear-gradient(135deg, #9333ea, #c084fc, #9333ea, #7c3aed);
-    border-radius: 18px;
-    z-index: -1;
   }
   .toast-platinum.saindo { animation: fade-out-plat 500ms ease-in forwards; }
   @keyframes fade-out-plat {
@@ -105,7 +93,7 @@
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     font-size: 40px;
-    filter: drop-shadow(0 0 15px rgba(192, 132, 252, 0.9));
+    filter: drop-shadow(0 0 15px rgba(245, 166, 35, 0.9));
     animation: trophy-spin-rise 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
   }
   @keyframes trophy-spin-rise {
@@ -123,7 +111,7 @@
     animation: explode 0.6s ease-out 1.4s forwards;
   }
   @keyframes explode {
-    0% { transform: scale(0); opacity: 0; background: radial-gradient(circle, rgba(192, 132, 252, 0.8) 0%, transparent 70%); }
+    0% { transform: scale(0); opacity: 0; background: radial-gradient(circle, rgba(245, 166, 35, 0.8) 0%, transparent 70%); }
     30% { transform: scale(1.5); opacity: 1; }
     100% { transform: scale(2.5); opacity: 0; }
   }
@@ -133,12 +121,12 @@
     position: absolute; width: 6px; height: 6px;
     border-radius: 50%; opacity: 0;
   }
-  .particle:nth-child(1) { background: #c084fc; animation: p-fly 0.8s ease-out 1.4s forwards; --tx: -40px; --ty: -30px; }
-  .particle:nth-child(2) { background: #9333ea; animation: p-fly 0.8s ease-out 1.45s forwards; --tx: 40px; --ty: -25px; }
-  .particle:nth-child(3) { background: #e9d5ff; animation: p-fly 0.8s ease-out 1.5s forwards; --tx: -35px; --ty: 25px; }
-  .particle:nth-child(4) { background: #a855f7; animation: p-fly 0.8s ease-out 1.55s forwards; --tx: 45px; --ty: 30px; }
-  .particle:nth-child(5) { background: #c084fc; animation: p-fly 0.8s ease-out 1.42s forwards; --tx: 0px; --ty: -45px; }
-  .particle:nth-child(6) { background: #7c3aed; animation: p-fly 0.8s ease-out 1.48s forwards; --tx: 0px; --ty: 45px; }
+  .particle:nth-child(1) { background: #f5a623; animation: p-fly 0.8s ease-out 1.4s forwards; --tx: -40px; --ty: -30px; }
+  .particle:nth-child(2) { background: #f5a623; animation: p-fly 0.8s ease-out 1.45s forwards; --tx: 40px; --ty: -25px; }
+  .particle:nth-child(3) { background: #f5a623; animation: p-fly 0.8s ease-out 1.5s forwards; --tx: -35px; --ty: 25px; }
+  .particle:nth-child(4) { background: #f5a623; animation: p-fly 0.8s ease-out 1.55s forwards; --tx: 45px; --ty: 30px; }
+  .particle:nth-child(5) { background: #f5a623; animation: p-fly 0.8s ease-out 1.42s forwards; --tx: 0px; --ty: -45px; }
+  .particle:nth-child(6) { background: #f5a623; animation: p-fly 0.8s ease-out 1.48s forwards; --tx: 0px; --ty: 45px; }
   @keyframes p-fly {
     0% { transform: translate(0, 0) scale(0); opacity: 0; }
     20% { opacity: 1; transform: translate(calc(var(--tx) * 0.3), calc(var(--ty) * 0.3)) scale(1); }
@@ -148,7 +136,7 @@
   /* Glow e anel */
   .trophy-glow {
     position: absolute; inset: -15px;
-    background: radial-gradient(circle, rgba(147, 51, 234, 0.5) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(245, 166, 35, 0.5) 0%, transparent 70%);
     border-radius: 50%; opacity: 0;
     animation: glow-in 0.5s ease-out 1.4s forwards, pulse-glow 2s ease-in-out 1.9s infinite;
   }
@@ -158,7 +146,7 @@
   .trophy-ring {
     position: absolute; inset: -5px;
     border: 2px solid transparent;
-    border-top-color: #c084fc; border-left-color: #9333ea;
+    border-top-color: #f5a623; border-left-color: #d4a017;
     border-radius: 50%; opacity: 0;
     animation: ring-in 0.3s ease-out 1.4s forwards;
   }
@@ -168,10 +156,10 @@
   .plat-texts { display: flex; flex-direction: column; gap: 4px; }
   .plat-name {
     font-size: 18px; font-weight: 700;
-    background: linear-gradient(90deg, #c084fc, #e9d5ff, #c084fc);
+    background: linear-gradient(90deg, #f5a623, #f4d03f, #f5a623);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     overflow: hidden; white-space: nowrap;
-    border-right: 2px solid #c084fc; width: 0;
+    border-right: 2px solid #f5a623; width: 0;
     animation: type-name 1s steps(25) 1.8s forwards, blink 0.5s step-end 1.8s 4;
   }
   @keyframes type-name { from { width: 0; } to { width: 100%; } }
@@ -189,22 +177,22 @@
   /* Progresso */
   .plat-progress {
     margin-top: 16px; padding-top: 16px;
-    border-top: 1px solid rgba(147, 51, 234, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
     animation: fade-in 0.4s ease-out 4s both;
   }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-  .plat-label { font-size: 11px; color: rgba(192, 132, 252, 0.6); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
+  .plat-label { font-size: 11px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
   .plat-bar-wrap { display: flex; align-items: center; gap: 12px; }
   .plat-game-icon { width: 32px; height: 32px; border-radius: 4px; background: #1a1a24; display: flex; align-items: center; justify-content: center; font-size: 16px; }
   .plat-bar-info { flex: 1; }
-  .plat-bar { height: 6px; background: rgba(147, 51, 234, 0.2); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
-  .plat-fill { height: 100%; background: linear-gradient(90deg, #9333ea, #c084fc); border-radius: 3px; animation: fill 1s ease-out 4.2s forwards; width: 0%; }
+  .plat-bar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+  .plat-fill { height: 100%; background: linear-gradient(90deg, #f5a623, #f4d03f); border-radius: 3px; animation: fill 1s ease-out 4.2s forwards; width: 0%; }
   @keyframes fill { to { width: 100%; } }
   .plat-bar-text { font-size: 12px; color: rgba(255, 255, 255, 0.5); }
   .plat-percent {
     font-size: 28px; font-weight: 800;
-    background: linear-gradient(90deg, #c084fc, #e9d5ff);
+    background: linear-gradient(90deg, #f5a623, #f4d03f);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     animation: pop 0.5s ease-out 4.2s both;
   }
@@ -254,11 +242,11 @@
       <span id="plat-name" class="plat-name">🏆 Platina Desbloqueada!</span>
       <div id="plat-desc" class="plat-desc">Todas as conquistas desbloqueadas com sucesso</div>
     </div>
-    <div class="confetti" style="left:10%;background:#9333ea;"></div>
-    <div class="confetti" style="left:25%;background:#c084fc;"></div>
-    <div class="confetti" style="left:45%;background:#7c3aed;"></div>
-    <div class="confetti" style="left:65%;background:#a855f7;"></div>
-    <div class="confetti" style="left:80%;background:#9333ea;"></div>
+    <div class="confetti" style="left:10%;background:#f5a623;"></div>
+    <div class="confetti" style="left:25%;background:#f4d03f;"></div>
+    <div class="confetti" style="left:45%;background:#d4a017;"></div>
+    <div class="confetti" style="left:65%;background:#f5a623;"></div>
+    <div class="confetti" style="left:80%;background:#f5a623;"></div>
   </div>
 
   <!-- SOUNDS -->
