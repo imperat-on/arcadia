@@ -3335,6 +3335,8 @@ app.whenReady().then(() => {
           processoJogoVisto = true
           jogoAtivo = null
         }
+        // Immediately mark as not running so the UI updates right away
+        marcar(false, true)
         pararJogo(tracked)
         return { ok: true, state: "stopping" }
       }
