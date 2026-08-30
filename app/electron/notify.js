@@ -42,7 +42,7 @@ function showAchievementToast(payload, { platinum = false } = {}) {
   // Limite de segurança: rajada de conquistas com o toast travado (loadFile
   // falhou, 'closed' nunca dispara) faria a fila crescer sem limite.
   if (fila.length >= 30) fila.shift()
-  fila.push(payload || {})
+  fila.push({ ...(payload || {}), _platinum: platinum })
   processarFila()
 }
 
@@ -93,13 +93,14 @@ function processarFila() {
   const done = payload.done || 0
   const total = payload.total || 0
 
+  const isPlatinum = payload._platinum === true
   toastWin.loadFile(NOTIFY_HTML, {
     query: {
       title: String(payload.title || ""),
       desc: String(payload.desc || ""),
       icon: String(payload.icon || ""),
       heading: headingTraduzido(),
-      sound: platinum ? "platinum" : "unlock",
+      sound: isPlatinum ? "platinum" : "unlock",
       done: String(done),
       total: String(total),
     },
