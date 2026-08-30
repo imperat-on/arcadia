@@ -318,6 +318,18 @@ async function syncAllLocal(context = null) {
   if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
   if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
+  // Ensure we have a valid token before proceeding
+  const client = getClient()
+  const { data: userData, error: userError } = await client.auth.getUser()
+  if (userError || !userData?.user) {
+    console.error("[sync] syncAllLocal: Token invalid, trying refresh...")
+    const refreshed = await client.auth.refreshSession()
+    if (refreshed.error) {
+      console.error("[sync] syncAllLocal: Refresh failed:", refreshed.error)
+      return { ok: false, error: "token_invalido", retryable: false }
+    }
+  }
+
   const store = readJson(ACH_PATH(), {})
   const items = []
 
@@ -450,6 +462,18 @@ async function fullSync(context = null) {
   const ctx = context || await requireSyncContext()
   if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
   if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  // Ensure we have a valid token before proceeding
+  const client = getClient()
+  const { data: userData, error: userError } = await client.auth.getUser()
+  if (userError || !userData?.user) {
+    console.error("[sync] fullSync: Token invalid, trying refresh...")
+    const refreshed = await client.auth.refreshSession()
+    if (refreshed.error) {
+      console.error("[sync] fullSync: Refresh failed:", refreshed.error)
+      return { ok: false, error: "token_invalido", retryable: false }
+    }
+  }
 
   // Push local queue first
   const push = await pushDelta(context)
