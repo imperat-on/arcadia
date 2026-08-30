@@ -314,6 +314,24 @@ function scheduleNow(delayMs = 0) {
 
 /** Reconcile completo (login/boot): push da fila + pull do delta. */
 async function reconcile() {
+  // Check if this is a fresh install or first login (no achievements locally)
+  const store = readJson(ACH_PATH(), {})
+  const hasLocalAchievements = Object.keys(store).length > 0
+  const state = loadState()
+  const hasSyncedBefore = !!state.lastPullAt
+
+  if (!hasLocalAchievements) {
+    // First login or fresh install: do full sync to get everything from server
+    console.log("[sync] Fresh install detected, doing full sync...")
+    return fullSync()
+  }
+
+  if (hasSyncedBefore && !hasLocalAchievements) {
+    // Synced before but no achievements - might be device switch
+    console.log("[sync] Synced before but no achievements, doing full sync...")
+    return fullSync()
+  }
+
   return syncNow()
 }
 
@@ -385,6 +403,7 @@ async function fullSync(context = null) {
   if (rows.length) applyPulled(rows, ctx)
   if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
+  console.log(`[sync] Full sync complete: ${rows.length} achievements pulled`)
   saveState({ lastPullAt: Math.floor(Date.now() / 1000), lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
   emit()
   return { ok: true, pushed: push.pushed || 0, pulled: rows.length, full: true }
