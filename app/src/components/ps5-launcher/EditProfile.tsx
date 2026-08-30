@@ -139,6 +139,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   const subirBackground = async (path: string, kind: "background" | "banner") => {
     const r = conta?.setBackground ? await conta.setBackground(path, kind) : await window.launcherAPI?.accountSetBackground(path, kind)
     if (r?.ok && r.background_url) {
+      // setBackground already updated perfil, no need to reload
       await window.launcherAPI?.setConfig({ profile: { [kind]: r.background_url } })
       onChange((atual) => ({ ...atual, [kind]: r.background_url }))
     } else if (r?.error) {
@@ -163,9 +164,9 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
         : await conta.setAvatarBytes(pathOuBytes, mime || "image/png", ext || ".png")
     if (up.ok && up.avatar_url) {
       setAvatarBroken(false)
+      // setAvatar already updated perfil with the new URL, no need to reload
       onChange((atual) => ({ ...atual, avatar: up.avatar_url }))
       await window.launcherAPI?.setConfig({ profile: { avatar: up.avatar_url } })
-      await conta.reloadPerfil()
       return true
     }
     const msgs: Record<string, string> = {
