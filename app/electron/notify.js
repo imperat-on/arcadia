@@ -89,6 +89,10 @@ function processarFila() {
     toastWin = null
     processarFila()
   })
+  // Calculate done/total from payload if available
+  const done = payload.done || 0
+  const total = payload.total || 0
+
   toastWin.loadFile(NOTIFY_HTML, {
     query: {
       title: String(payload.title || ""),
@@ -96,6 +100,8 @@ function processarFila() {
       icon: String(payload.icon || ""),
       heading: headingTraduzido(),
       sound: platinum ? "platinum" : "unlock",
+      done: String(done),
+      total: String(total),
     },
   })
 }

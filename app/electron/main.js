@@ -2339,8 +2339,20 @@ function onUnlockAchievement(payload) {
       }
     } catch {}
 
-    if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", payload)
-    showAchievementToast(payload, { platinum: isPlatinum })
+    // Calculate done/total for progress bar
+    let done = 0
+    let total = 0
+    try {
+      const arq3 = caminhoConta(path.join(DATA_DIR, "achievements.json"))
+      const store3 = JSON.parse(fs.readFileSync(arq3, "utf-8"))
+      const gameItems = store3?.[payload.appid]?.items || []
+      total = gameItems.length
+      done = gameItems.filter((item) => item.achieved).length
+    } catch {}
+
+    const toastPayload = { ...payload, done, total }
+    if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", toastPayload)
+    showAchievementToast(toastPayload, { platinum: isPlatinum })
   }
 }
 
