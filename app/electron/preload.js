@@ -296,6 +296,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   syncNow: () => ipcRenderer.invoke("sync:now"),
   syncFull: () => ipcRenderer.invoke("sync:full"),
   syncAll: () => ipcRenderer.invoke("sync:all"),
+  syncDeleteAchievement: (appid, apiname) => ipcRenderer.invoke("sync:deleteAchievement", { appid, apiname }),
   syncState: () => ipcRenderer.invoke("sync:state"),
   // Comunidade: o renderer recebe envelopes seguros do main (reviews/listas).
   communityReviews: (appid, options) =>

@@ -499,6 +499,24 @@ async function fullSync(context = null) {
   return { ok: true, pushed: push.pushed || 0, pulled: rows.length, full: true }
 }
 
+/** Delete a specific achievement from server (by setting unlocked_at to null). */
+async function deleteAchievement(appid, apiname, context = null) {
+  const ctx = context || await requireSyncContext()
+  if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  // Send with unlocked_at = null to delete
+  const { error } = await getClient().rpc("sync_achievements", { 
+    p_items: [{ appid, apiname, unlocked_at: null }] 
+  })
+
+  if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  console.log(`[sync] Deleted achievement: ${appid}/${apiname}`)
+  return { ok: true }
+}
+
 module.exports = {
   normalizeTs,
   enqueue,
@@ -507,6 +525,7 @@ module.exports = {
   syncNow,
   syncAllLocal,
   fullSync,
+  deleteAchievement,
   scheduleNow,
   scheduleRetry,
   reconcile,
