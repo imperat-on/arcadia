@@ -68,6 +68,7 @@
     </div>
   </div>
   <audio id="som" src="sounds/unlock.wav" autoplay></audio>
+  <audio id="som-platinum" src="sounds/platinum.wav"></audio>
   <script>
     const q = new URLSearchParams(location.search)
     document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
@@ -81,6 +82,14 @@
         img.style.display = "block"
         document.getElementById("icon-fallback").style.display = "none"
       }
+    }
+    // Play correct sound based on query parameter
+    const soundType = q.get("sound") || "unlock"
+    if (soundType === "platinum") {
+      document.getElementById("som").remove()
+      const plat = document.getElementById("som-platinum")
+      plat.autoplay = true
+      plat.play().catch(() => {})
     }
     setTimeout(() => {
       document.getElementById("toast").classList.add("saindo")
