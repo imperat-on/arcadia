@@ -798,6 +798,7 @@ declare global {
       /** Sync de conquistas (backend proprio). */
       syncNow: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string }>
       syncFull: () => Promise<{ ok: boolean; pushed?: number; pulled?: number; error?: string; full?: boolean }>
+      syncAll: () => Promise<{ ok: boolean; pushed?: number; synced?: number; error?: string }>
       syncState: () => Promise<SyncState>
       onSyncState: (cb: (st: SyncState) => void) => () => void
       /** Reviews/listas da comunidade; GET usa cache local quando offline. */

@@ -312,6 +312,56 @@ function scheduleNow(delayMs = 0) {
   }, delayMs)
 }
 
+/** Sync ALL local achievements to server (catch-up for old unlocks). */
+async function syncAllLocal(context = null) {
+  const ctx = context || await requireSyncContext()
+  if (!ctx) return { ok: false, error: "nao_logado", retryable: false }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  const store = readJson(ACH_PATH(), {})
+  const items = []
+
+  // Collect all achieved items from all games
+  for (const [appid, data] of Object.entries(store)) {
+    if (!data?.items) continue
+    for (const item of data.items) {
+      if (item.achieved && item.apiname && item.unlock) {
+        items.push({
+          appid,
+          apiname: item.apiname,
+          unlocked_at: normalizeTs(item.unlock),
+          title: item.title,
+          icon: item.icon,
+          percent: item.percent,
+        })
+      }
+    }
+  }
+
+  if (!items.length) return { ok: true, pushed: 0, synced: 0 }
+
+  console.log(`[sync] Syncing ${items.length} local achievements to server...`)
+
+  // Push all items
+  const p_items = items.map((i) => ({
+    appid: i.appid,
+    apiname: i.apiname,
+    unlocked_at: i.unlocked_at,
+    title: i.title ?? null,
+    icon: i.icon ?? null,
+    percent: i.percent ?? null,
+  }))
+
+  const { error } = await getClient().rpc("sync_achievements", { p_items })
+  if (error) return { ok: false, error: error.message, retryable: isRetryable(error) }
+  if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
+
+  console.log(`[sync] Successfully synced ${items.length} achievements`)
+  saveState({ lastSyncAt: Math.floor(Date.now() / 1000), lastError: null })
+  emit()
+  return { ok: true, pushed: items.length, synced: items.length }
+}
+
 /** Reconcile completo (login/boot): push da fila + pull do delta. */
 async function reconcile() {
   // Check if this is a fresh install or first login (no achievements locally)
@@ -330,6 +380,14 @@ async function reconcile() {
     // Synced before but no achievements - might be device switch
     console.log("[sync] Synced before but no achievements, doing full sync...")
     return fullSync()
+  }
+
+  // Has local achievements: sync them to server (catch-up for old unlocks)
+  if (hasLocalAchievements) {
+    console.log("[sync] Local achievements found, syncing to server...")
+    const result = await syncAllLocal()
+    // Also pull any new achievements from server
+    return syncNow()
   }
 
   return syncNow()

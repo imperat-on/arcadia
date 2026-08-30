@@ -175,6 +175,11 @@ function registerAccountIpc(broadcast, onConta) {
     return sync.fullSync()
   })
 
+  ipcMain.handle("sync:all", async () => {
+    await garantirSessao()
+    return sync.syncAllLocal()
+  })
+
   // Comunidade (reviews/listas): requests e cache ficam no main, nunca no renderer.
   ipcMain.handle("community:reviews", async (_e, appid, options) => {
     await garantirSessao()
