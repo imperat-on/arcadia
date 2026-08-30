@@ -137,8 +137,6 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
   achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
-  achievementsForceUnlock: (appid, apiname) =>
-    ipcRenderer.invoke("achievements:force:unlock", { appid, apiname }),
   achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
   appDiagnostico: () => ipcRenderer.invoke("app:diagnostico"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),

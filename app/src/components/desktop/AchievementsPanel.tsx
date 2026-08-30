@@ -1,9 +1,7 @@
 "use client"
 
-// Painel de conquistas estilo Steam: banner de aviso offline, lista com ícone
-// 64px (colorido se desbloqueada, cinza se não), contador done/total no título.
-// Atualiza em tempo real via onAchievementUnlocked (watcher do main process).
-// Botão de cadeado força o desbloqueio escrevendo no .bin do Steam.
+// Painel de conquistas: lista com ícone 64px (colorido se desbloqueada,
+// cinza se não), contador done/total no título e atualização em tempo real.
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { Panel } from "./GameDetailPanels"
@@ -94,22 +92,6 @@ export function AchievementsPanel({ appid }: { appid: string }) {
   const done = items ? items.filter((x) => x.achieved).length : 0
   const total = items ? items.length : 0
 
-  // Força desbloqueio escrevendo no .bin do Steam (sem cliente Steam rodando).
-  const forcarDesbloqueio = async (it: ItemConquista) => {
-    if (!window.confirm(t("conquistas.desbloquear_confirmar", { titulo: it.title }))) return
-    const r = await window.launcherAPI?.achievementsForceUnlock(appid, it.apiname!)
-    if (r?.ok) {
-      setItems((prev) =>
-        prev?.map((x) => (x === it ? { ...x, achieved: true, unlock: r.epoch } : x)),
-      )
-      window.alert(t("conquistas.desbloquear_ok"))
-    } else {
-      // Erro do main pode ser chave i18n (ex.: bin nunca criado) — traduz se for.
-      const msg = r?.error && r.error.startsWith("conquistas.") ? t(r.error) : r?.error || ""
-      window.alert(msg)
-    }
-  }
-
   return (
     <Panel
       title={t("conquistas.titulo")}
@@ -135,20 +117,6 @@ export function AchievementsPanel({ appid }: { appid: string }) {
         </span>
       }
     >
-      {/* Aviso estilo Steam: conquistas offline não sincronizam */}
-      <div className="mb-3 flex items-center gap-2 rounded-md border border-[#f5a623]/40 bg-[#f5a623]/15 px-3 py-2">
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          className="h-3.5 w-3.5 shrink-0 text-[#f5a623]"
-        >
-          <polyline points="12 2 22 22 2 22" />
-        </svg>
-        <span className="text-[12px] text-[#f5a623]">{t("conquistas.aviso_offline")}</span>
-      </div>
-
       {items === null && total === 0 && (
         <div className="flex flex-col gap-2">
           {[0, 1, 2, 3].map((i) => (
@@ -190,29 +158,6 @@ export function AchievementsPanel({ appid }: { appid: string }) {
               >
                 {it.title}
               </div>
-              {!it.achieved && it.apiname && (
-                <button
-                  title={t("conquistas.desbloquear")}
-                  onClick={() => forcarDesbloqueio(it)}
-                  className="ml-auto shrink-0 rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                >
-                  {/* cadeado aberto */}
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-3 w-3"
-                  >
-                    <rect x="3" y="11" width="18" height="11" rx="2" />
-                    <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                  </svg>
-                </button>
-              )}
             </div>
           ))}
         </div>

@@ -304,6 +304,7 @@ class AuthClient {
     // instante do login; uma janela curta de cache evita essas viagens extras.
     this._userValidatedAt = 0
     this._userInFlight = null
+    this._refreshInFlight = null
   }
 
   _resetUserCache() {
@@ -344,7 +345,14 @@ class AuthClient {
       data = text
     }
     if (!res.ok) {
-      return { data: null, error: { message: data?.error || data?.msg || `HTTP ${res.status}` } }
+      return {
+        data: null,
+        error: {
+          message: data?.error || data?.msg || `HTTP ${res.status}`,
+          status: Number(res.status) || 0,
+          code: data?.code,
+        },
+      }
     }
     return { data, error: null }
   }
@@ -360,6 +368,56 @@ class AuthClient {
     return { data: { session: this._session }, error: null }
   }
 
+  // Access tokens expiram enquanto o app permanece aberto. O client anterior
+  // só renovava a sessão durante o boot; depois disso qualquer sync devolvia
+  // 401 e a fila ficava presa sem feedback. Compartilhe um único refresh para
+  // chamadas concorrentes e emita TOKEN_REFRESHED para persistir a sessão.
+  async refreshSession() {
+    const refreshToken = this._session?.refresh_token
+    if (!refreshToken) {
+      return {
+        data: { session: null },
+        error: { message: "sessao sem refresh_token", status: 401 },
+      }
+    }
+    if (this._refreshInFlight?.refreshToken === refreshToken) {
+      return this._refreshInFlight.promise
+    }
+
+    const promise = (async () => {
+      const result = await this._request("POST", "/auth/v1/token?grant_type=refresh_token", {
+        refresh_token: refreshToken,
+      })
+      if (result.error || !result.data?.access_token) {
+        return {
+          data: { session: null },
+          error: result.error || { message: "resposta de refresh invalida", status: 401 },
+        }
+      }
+      // Uma resposta antiga não pode substituir uma sessão que mudou durante
+      // o refresh (logout/login rápido ou troca de conta).
+      if (this._session?.refresh_token !== refreshToken) {
+        return { data: { session: null }, error: { message: "sessao_trocada", status: 409 } }
+      }
+      const session = {
+        ...result.data,
+        refresh_token: result.data.refresh_token || refreshToken,
+        user: result.data.user || this._session.user,
+      }
+      this._session = session
+      this._resetUserCache()
+      this._userValidatedAt = Date.now()
+      this.emitter.emit("TOKEN_REFRESHED", session)
+      return { data: { session }, error: null }
+    })()
+    this._refreshInFlight = { refreshToken, promise }
+    try {
+      return await promise
+    } finally {
+      if (this._refreshInFlight?.promise === promise) this._refreshInFlight = null
+    }
+  }
+
   async setSession(sessaoSalva, { emitSignedIn = false } = {}) {
     // Valida o access_token e devolve o usuario. Se expirou, faz refresh.
     this._session = sessaoSalva
@@ -368,22 +426,10 @@ class AuthClient {
       json: true,
     })
     if (error) {
-      // tenta refresh
-      const rt = sessaoSalva?.refresh_token
-      if (rt) {
-        const r = await this._request("POST", "/auth/v1/token?grant_type=refresh_token", {
-          refresh_token: rt,
-        })
-        if (!r.error) {
-          this._session = r.data
-          this._resetUserCache()
-          this._userValidatedAt = Date.now()
-          this.emitter.emit("TOKEN_REFRESHED", r.data)
-          return { data: { session: r.data }, error: null }
-        }
-      }
+      const refreshed = await this.refreshSession()
+      if (!refreshed.error) return refreshed
       this._session = null
-      return { data: { session: null }, error: { message: "sessao invalida" } }
+      return { data: { session: null }, error: { message: "sessao invalida", status: 401 } }
     }
     this._userValidatedAt = Date.now()
     if (emitSignedIn) this.emitter.emit("SIGNED_IN", this._session)
@@ -454,7 +500,17 @@ class AuthClient {
       const { data, error } = await this._request("GET", "/auth/v1/user", null, {
         json: true,
       })
-      if (error) return { data: { user: null }, error }
+      if (error) {
+        // Sessão salva pode expirar enquanto o launcher continua aberto. Tenta
+        // renovar somente para 401; falha de rede não deve invalidar a conta.
+        if (error.status === 401 && this._session?.refresh_token) {
+          const refreshed = await this.refreshSession()
+          if (!refreshed.error && refreshed.data?.session?.user) {
+            return { data: { user: refreshed.data.session.user }, error: null }
+          }
+        }
+        return { data: { user: null }, error }
+      }
       // Não deixe uma resposta de uma sessão antiga validar a sessão nova.
       if (this._session?.access_token === token) this._userValidatedAt = Date.now()
       return { data: { user: data.user }, error: null }
@@ -629,12 +685,25 @@ class ArcadiaClient {
   }
 
   async rpc(fn, args) {
-    const res = await backendFetch(`${config.url}/rest/v1/rpc/${fn}`, {
-      method: "POST",
-      headers: { ...this._authHeaders(), "content-type": "application/json" },
-      body: JSON.stringify(args || {}),
-      signal: AbortSignal.timeout(30_000),
-    })
+    const request = () =>
+      backendFetch(`${config.url}/rest/v1/rpc/${fn}`, {
+        method: "POST",
+        headers: { ...this._authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify(args || {}),
+        signal: AbortSignal.timeout(30_000),
+      })
+    const tokenAtRequest = this.auth._session?.access_token
+    let res = await request()
+    // O token pode expirar entre getUser() e o RPC. Renova uma vez e repete a
+    // chamada original, mantendo a fila intacta quando a renovação falhar.
+    if (res.status === 401 && this.auth._session?.refresh_token) {
+      if (tokenAtRequest !== this.auth._session.access_token) {
+        res = await request()
+      } else {
+        const refreshed = await this.auth.refreshSession()
+        if (!refreshed.error) res = await request()
+      }
+    }
     const text = await res.text()
     // Nunca lancar em resposta nao-JSON (404 HTML de rota ausente virava
     // excecao aqui e o perfil do amigo ficava "carregando" para sempre).
@@ -644,7 +713,16 @@ class ArcadiaClient {
     } catch {
       data = null
     }
-    if (!res.ok) return { data: null, error: { message: data?.error || `HTTP ${res.status}` } }
+    if (!res.ok) {
+      return {
+        data: null,
+        error: {
+          message: data?.error || `HTTP ${res.status}`,
+          status: Number(res.status) || 0,
+          code: data?.code,
+        },
+      }
+    }
     return { data, error: null }
   }
 

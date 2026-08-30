@@ -2,6 +2,7 @@
 // Polling a cada 15s nos arquivos de conquista dos crackers dentro do
 // prefixo Wine de cada jogo. Formatos suportados:
 //   Goldberg  → JSON  (earned / earned_time)
+//   UPC/voices38 → JSON  (numeric id / earned / earned_time)
 //   CODEX     → INI   (Achieved / UnlockTime)
 //   RUNE      → INI   (mesmo do CODEX)
 //   Skidrow   → INI   (Achievements/<name>=1@...@timestamp)
@@ -21,11 +22,17 @@
 
 const fs = require("fs")
 const path = require("path")
-const os = require("os")
 const { loadAchievements, saveAchievements } = require("./schema")
-const { caminhoArquivoConta } = require("./../supabase/conta")
+const { caminhoArquivoConta, conta } = require("./../supabase/conta")
 const { dataPath } = require("./../runtime-paths")
 const { readLibraryFile } = require("../library-store")
+const {
+  parseUPC,
+  resolveUplayId,
+  numericAchievementId,
+  uplayRuntimePath,
+  uplaySaveRoot,
+} = require("./uplay")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
@@ -210,14 +217,53 @@ function parseCreamAPI(conteudo) {
 
 const USUARIO_WINE = "steamuser" // Proton sempre usa steamuser
 
-function caminhosPrefixados(prefixo, appid) {
+function readSettings(entry, appid) {
+  try {
+    const settingsFile = caminhoArquivoConta("game_settings.json")
+    if (!fs.existsSync(settingsFile)) return {}
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
+    const key = entry && entry.id ? entry.id : `steam:${appid}`
+    return settings[key] || settings[String(appid)] || {}
+  } catch {
+    return {}
+  }
+}
+
+function numericUplayDirs(prefixo) {
+  const root = uplaySaveRoot(prefixo)
+  if (!root) return []
+  try {
+    return fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d{1,18}$/.test(entry.name))
+      .map((entry) => entry.name.replace(/^0+(?=\d)/, ""))
+  } catch {
+    return []
+  }
+}
+
+function caminhosPrefixados(prefixo, appid, entry) {
   const u = path.join(prefixo, "drive_c", "users", USUARIO_WINE)
   const a = path.join(u, "AppData", "Roaming")
   const pub = path.join(prefixo, "drive_c", "users", "Public", "Documents")
   const prog = path.join(prefixo, "drive_c", "ProgramData")
   const docs = path.join(u, "Documents")
+  const settings = readSettings(entry, appid)
+  const uplayIds = new Set()
+  const configuredUplayId = resolveUplayId(appid, settings, entry)
+  if (configuredUplayId) uplayIds.add(configuredUplayId)
+  for (const id of numericUplayDirs(prefixo)) uplayIds.add(id)
+
+  const upcRecords = [...uplayIds].map((uplayId) => ({
+    name: "upc",
+    uplayId,
+    file: uplayRuntimePath(prefixo, uplayId),
+    parse: parseUPC,
+  }))
 
   return [
+    // UPC/voices38 (schema na raiz do jogo; runtime no prefixo Wine).
+    ...upcRecords,
     // Goldberg (2 variantes)
     {
       name: "goldberg",
@@ -330,26 +376,93 @@ function caminhosPrefixados(prefixo, appid) {
 // --- Resolvedor de prefixo ---
 
 function resolvePrefixo(appid, entry) {
-  // 1. Prefixo customizado do game_settings.json
+  const settings = readSettings(entry, appid)
+  // `prefixPath` é o nome usado pelo diálogo atual. `winePrefixPath` fica
+  // aceito apenas para instalações antigas.
+  if (settings.prefixPath || settings.winePrefixPath) {
+    return settings.prefixPath || settings.winePrefixPath
+  }
+  // O Arcadia usa prefixos próprios por gameId. É importante passar o ID
+  // completo (steam:3751950), pois winemanager transforma ':' em '_'.
   try {
-    const settingsFile = caminhoArquivoConta("game_settings.json")
-    if (fs.existsSync(settingsFile)) {
-      const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
-      const key = entry && entry.id ? entry.id : `steam:${appid}`
-      const cfg = settings[key] || settings[String(appid)]
-      if (cfg && cfg.winePrefixPath) {
-        return cfg.winePrefixPath
+    const { prefixOf } = require("../winemanager")
+    const prefix = prefixOf(entry && entry.id ? entry.id : `steam:${appid}`)
+    if (prefix) return prefix
+  } catch {}
+  // Fallback legado para instalações que ainda usam compatdata da Steam.
+  return path.join(COMPATDATA, String(appid), "pfx")
+}
+
+// Resolve um registro do UPC para o item do Arcadia. O loader atual grava
+// somente a chave decimal ("40"), enquanto o catálogo Steam usa, neste jogo,
+// ACObsidian_Ach_40. Nunca usamos a posição do array quando há um ID explícito.
+function itemParaDesbloqueio(items, desbloqueio, registro) {
+  const byName = new Map()
+  for (const item of items) {
+    if (item && item.apiname) byName.set(String(item.apiname).toLowerCase(), item)
+  }
+  if (registro?.name === "upc") {
+    const id = numericAchievementId(desbloqueio.id)
+    if (id !== null) {
+      for (const item of items) {
+        const itemId = [item?.uplayId, item?.upcId, item?.apiname, item?.name]
+          .map((value) => numericAchievementId(value))
+          .find((value) => value !== null)
+        if (itemId === id) return item
       }
     }
-  } catch {}
-  // 2. Proton: ~/.local/share/Steam/steamapps/compatdata/<appid>/pfx/
-  return path.join(COMPATDATA, String(appid), "pfx")
+  }
+  const names = [desbloqueio.name, desbloqueio.apiname, desbloqueio.id]
+  for (const name of names) {
+    const item = byName.get(String(name ?? "").toLowerCase())
+    if (item) return item
+  }
+  return null
+}
+
+function payloadParaDesbloqueio(appid, item, desbloqueio, registro) {
+  return {
+    appid,
+    key:
+      item.block != null && item.bit != null
+        ? `${item.block}|${item.bit}`
+        : String(item.apiname || desbloqueio.id || ""),
+    apiname: item.apiname,
+    provider: registro?.name || "cracked",
+    title: item.title,
+    desc: item.desc,
+    icon: item.icon,
+    percent: item.percent || 0,
+    unlock: Math.floor((desbloqueio.unlockTime || 0) / 1000) || Math.floor(Date.now() / 1000),
+  }
 }
 
 // --- Lógica principal ---
 
 function lerLibrary() {
-  return readLibraryFile(dataPath("library.json")).games
+  const raw = readLibraryFile(dataPath("library.json"))
+  const games = Array.isArray(raw?.games) ? raw.games.slice() : []
+  const byId = new Map(games.filter((game) => game && game.id).map((game) => [String(game.id), game]))
+  // Um jogo pode estar configurado e ainda não aparecer no snapshot global da
+  // biblioteca (por exemplo, enquanto o pull da Steam está pendente). As
+  // configurações por conta são uma fonte segura adicional para o watcher:
+  // sem exePath/runtime não há arquivo para ler, então não há falso unlock.
+  try {
+    const settingsFile = caminhoArquivoConta("game_settings.json")
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
+    for (const [id, cfg] of Object.entries(settings || {})) {
+      if (!/^steam:\d+$/.test(id) || !cfg || (!cfg.exePath && !cfg.prefixPath && !cfg.uplayId && !cfg.upcId)) continue
+      const old = byId.get(id)
+      if (old) {
+        old.installed = true
+      } else {
+        const game = { id, installed: true, exe: cfg.exePath }
+        games.push(game)
+        byId.set(id, game)
+      }
+    }
+  } catch {}
+  return games
 }
 
 function extrairAppid(entry) {
@@ -360,23 +473,15 @@ function extrairAppid(entry) {
 }
 
 function resolveExeDir(entry, appid) {
-  // Lê game_settings.json pra achar o caminho do executável.
-  // Devolve o diretório-pai do .exe (onde SteamData/ e 3DMGAME/ costumam ficar).
-  try {
-    const f = caminhoArquivoConta("game_settings.json")
-    if (!fs.existsSync(f)) return null
-    const settings = JSON.parse(fs.readFileSync(f, "utf-8"))
-    const key = entry && entry.id ? entry.id : `steam:${appid}`
-    const cfg = settings[key] || settings[String(appid)]
-    if (!cfg || !cfg.exePath) return null
-    return path.dirname(cfg.exePath)
-  } catch {
-    return null
-  }
+  // Diretório do executável (onde SteamData/ e 3DMGAME/ costumam ficar).
+  const cfg = readSettings(entry, appid)
+  const exePath = cfg && cfg.exePath ? String(cfg.exePath) : entry && entry.exe
+  return exePath ? path.dirname(exePath) : null
 }
 
 function iniciarVigia(onUnlock) {
-  const cacheMtime = new Map() // filePath → mtimeMs
+  const cacheMtime = new Map() // account + filePath → mtimeMs
+  const cacheKey = (filePath) => `${conta() || "__guest__"}\0${filePath}`
 
   const scan = () => {
     const library = lerLibrary()
@@ -395,7 +500,7 @@ function iniciarVigia(onUnlock) {
       const items = store[appid] && store[appid].items ? store[appid].items : []
       if (!items.length) continue // sem schema, sem o que detectar
 
-      const registros = caminhosPrefixados(prefixo, appid)
+      const registros = caminhosPrefixados(prefixo, appid, entry)
 
       for (const reg of registros) {
         if (!reg.file) continue
@@ -408,9 +513,9 @@ function iniciarVigia(onUnlock) {
           continue
         }
 
-        const ultima = cacheMtime.get(reg.file)
+        const ultima = cacheMtime.get(cacheKey(reg.file))
         if (ultima === mtime) continue // sem mudanca
-        cacheMtime.set(reg.file, mtime)
+        cacheMtime.set(cacheKey(reg.file), mtime)
 
         // Parseia o arquivo
         let conteudo
@@ -423,34 +528,19 @@ function iniciarVigia(onUnlock) {
         const desbloqueadas = reg.parse(conteudo)
         if (!desbloqueadas || !desbloqueadas.length) continue
 
-        // Mapeia apiname → item do achievements.json
-        const indexPorApiname = new Map()
-        for (const it of items) {
-          if (it.apiname) indexPorApiname.set(it.apiname.toLowerCase(), it)
-        }
-
         let atualizou = false
         for (const d of desbloqueadas) {
-          const it = indexPorApiname.get(String(d.name).toLowerCase())
+          const it = itemParaDesbloqueio(items, d, reg)
           if (!it) continue
           if (it.achieved) continue // ja estava marcado
 
+          const payload = payloadParaDesbloqueio(appid, it, d, reg)
           it.achieved = true
-          it.unlock = Math.floor(d.unlockTime / 1000) || Math.floor(Date.now() / 1000)
+          it.unlock = payload.unlock
           atualizou = true
 
           // Dispara o toast
-          if (onUnlock) {
-            onUnlock({
-              appid,
-              key: `${it.block}|${it.bit}`,
-              title: it.title,
-              desc: it.desc,
-              icon: it.icon,
-              percent: it.percent || 0,
-              unlock: it.unlock,
-            })
-          }
+          if (onUnlock) onUnlock(payload)
         }
 
         if (atualizou) {
@@ -479,9 +569,9 @@ function iniciarVigia(onUnlock) {
         }
 
         // FLT tracking via contagem de arquivos (mtime da pasta muda ao criar)
-        const ultimaFlt = cacheMtime.get(fltDir)
+        const ultimaFlt = cacheMtime.get(cacheKey(fltDir))
         if (ultimaFlt === mtime) continue
-        cacheMtime.set(fltDir, mtime)
+        cacheMtime.set(cacheKey(fltDir), mtime)
 
         const desbloqueadas = parseFLT(fltDir)
         if (!desbloqueadas.length) continue
@@ -542,9 +632,9 @@ function iniciarVigia(onUnlock) {
           } catch {
             continue
           }
-          const ultima = cacheMtime.get(ef.file)
+          const ultima = cacheMtime.get(cacheKey(ef.file))
           if (ultima === mtime) continue
-          cacheMtime.set(ef.file, mtime)
+          cacheMtime.set(cacheKey(ef.file), mtime)
           const desbloqueadas = ef.parse(fs.readFileSync(ef.file, "utf-8"))
           if (!desbloqueadas || !desbloqueadas.length) continue
           const idx = new Map()
@@ -589,4 +679,26 @@ function iniciarVigia(onUnlock) {
   return () => clearInterval(interval)
 }
 
-module.exports = { iniciarVigia }
+module.exports = {
+  iniciarVigia,
+  parseINI,
+  parseGoldbergJSON,
+  parseGoldberg,
+  parseUPC,
+  parseRazor1911,
+  parseFLT,
+  parseCODEX,
+  parseSkidrow,
+  parseUserStats,
+  parseOnlineFix,
+  parseRLD,
+  parseCreamAPI,
+  caminhosPrefixados,
+  resolvePrefixo,
+  resolveExeDir,
+  lerLibrary,
+  extrairAppid,
+  itemParaDesbloqueio,
+  payloadParaDesbloqueio,
+  INTERVALO_POLL,
+}

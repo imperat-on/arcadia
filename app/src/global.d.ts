@@ -615,6 +615,10 @@ export interface GameSettings {
   wineVersion?: string
   /** Prefixo customizado (vazio = padrão ~/.local/share/arcadia/prefixes/<id>). */
   prefixPath?: string
+  /** ID numérico do catálogo UPC/Uplay usado pelo Goldberg UplayEmu. */
+  uplayId?: string
+  /** Alias legado para o ID UPC/Uplay. */
+  upcId?: string
   autoDXVK?: boolean
   autoNVAPI?: boolean
   autoVKD3D?: boolean
@@ -1594,11 +1598,6 @@ declare global {
           unlock?: number
         }) => void,
       ) => () => void
-      /** Força desbloqueio de uma conquista escrevendo no .bin do Steam (sem cliente Steam). */
-      achievementsForceUnlock: (
-        appid: string,
-        apiname: string,
-      ) => Promise<{ ok: boolean; error?: string; epoch?: number }>
       /** Recarrega apiname/título/desc/ícones dos itens a partir dos UserGameStatsSchema_*.bin da Steam. */
       achievementsSchemasLoad: () => Promise<{
         ok: boolean

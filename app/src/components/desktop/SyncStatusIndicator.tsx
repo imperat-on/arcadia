@@ -31,8 +31,22 @@ export function SyncStatusIndicator() {
 
   const sincronizar = async () => {
     setSincronizando(true)
-    await window.launcherAPI?.syncNow()
-    setSincronizando(false)
+    try {
+      const result = await window.launcherAPI?.syncNow()
+      if (result && !result.ok) {
+        setSt((current) =>
+          current ? { ...current, lastError: result.error || "falha_no_sync" } : current,
+        )
+      }
+    } catch (error) {
+      setSt((current) =>
+        current
+          ? { ...current, lastError: String(error?.message || error || "falha_no_sync") }
+          : current,
+      )
+    } finally {
+      setSincronizando(false)
+    }
   }
 
   const temErro = !!st.lastError

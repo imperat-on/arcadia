@@ -259,7 +259,10 @@ async function syncNow() {
     const context = await requireSyncContext()
     if (!context) {
       const result = { ok: false, error: "nao_logado", retryable: false }
-      if (context && contextStillActive(context)) saveState({ lastError: result.error })
+      // O estado visual continua disponível mesmo quando a sessão expirou ou
+      // foi invalidada antes de o RPC começar. Antes esse ramo não persistia o
+      // erro porque context era null, então o botão parecia não fazer nada.
+      if (contaAtual()) saveState({ lastError: result.error })
       emit()
       return result
     }
