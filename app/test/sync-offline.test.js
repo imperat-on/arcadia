@@ -10,6 +10,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-sync-offline-"))
 process.env.ARCADIA_DATA_DIR = DIR
 const sync = require("../electron/supabase/sync.js")
 const { getClient } = require("../electron/supabase/client.js")
+const conta = require("../electron/supabase/conta.js")
 
 test.after(() => fs.rmSync(DIR, { recursive: true, force: true }))
 
@@ -35,4 +36,26 @@ test("fila persiste quando o RPC falha e drena somente após sucesso", async () 
   assert.equal(sync.queueLength(), 0)
   assert.equal(calls, 2)
   assert.ok(fs.existsSync(path.join(DIR, "sync_queue.json")))
+})
+
+
+test("syncNow registra erro quando a sessão não pode ser obtida", async () => {
+  const client = getClient()
+  const originalGetUser = client.auth.getUser
+  conta.definirConta("sessao-expirada")
+  client.auth.getUser = async () => ({
+    data: { user: null },
+    error: { message: "token invalido", status: 401 },
+  })
+  try {
+    const result = await sync.syncNow()
+    assert.deepEqual(result, { ok: false, error: "nao_logado", retryable: false })
+    const state = JSON.parse(
+      fs.readFileSync(path.join(DIR, "contas", "sessao-expirada", "sync_state.json"), "utf8"),
+    )
+    assert.equal(state.lastError, "nao_logado")
+  } finally {
+    client.auth.getUser = originalGetUser
+    conta.definirConta(null)
+  }
 })

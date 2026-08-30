@@ -123,6 +123,60 @@ test("getUser compartilha validação concorrente do mesmo token", async () => {
 })
 
 
+test("getUser renova token expirado usando refresh_token", async () => {
+  const auth = getClient().auth
+  const originalRequest = auth._request
+  const originalSession = auth._session
+  const originalRefresh = auth._refreshInFlight
+  const chamadas = []
+  const eventos = []
+  auth._session = {
+    access_token: "token-expirado",
+    refresh_token: "refresh-valido",
+    user: { id: "u-refresh", user_metadata: { username: "refresh_user" } },
+  }
+  auth._userValidatedAt = 0
+  auth._userInFlight = null
+  auth._refreshInFlight = null
+  auth._request = async (method, requestPath) => {
+    chamadas.push([method, requestPath])
+    if (requestPath === "/auth/v1/user") {
+      return { data: null, error: { message: "token invalido", status: 401 } }
+    }
+    assert.equal(requestPath, "/auth/v1/token?grant_type=refresh_token")
+    return {
+      data: {
+        access_token: "token-novo",
+        refresh_token: "refresh-novo",
+        user: { id: "u-refresh", user_metadata: { username: "refresh_user" } },
+      },
+      error: null,
+    }
+  }
+  const subscription = auth.onAuthStateChange((event) => eventos.push(event))
+  try {
+    const result = await auth.getUser()
+    assert.deepEqual(result.data.user, {
+      id: "u-refresh",
+      user_metadata: { username: "refresh_user" },
+    })
+    assert.equal(result.error, null)
+    assert.equal(auth._session.access_token, "token-novo")
+    assert.equal(auth._session.refresh_token, "refresh-novo")
+    assert.deepEqual(chamadas, [
+      ["GET", "/auth/v1/user"],
+      ["POST", "/auth/v1/token?grant_type=refresh_token"],
+    ])
+    assert.deepEqual(eventos, ["TOKEN_REFRESHED"])
+  } finally {
+    subscription.data.subscription.unsubscribe()
+    auth._request = originalRequest
+    auth._session = originalSession
+    auth._refreshInFlight = originalRefresh
+    auth._resetUserCache()
+  }
+})
+
 test("myProfile compartilha SELECT concorrente e reaproveita cache curto", async () => {
   const client = getClient()
   const auth = client.auth

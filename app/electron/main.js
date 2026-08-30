@@ -25,6 +25,7 @@ if (!lockUnico) {
 
 const { startAchievementWatcher, fetchAchievementsForApp } = require("./achievements")
 const { iniciarVigia } = require("./achievements/cracked_watcher")
+const { prepareUplayInstallation } = require("./achievements/uplay")
 const { getNews } = require("./news")
 const plugins = require("./plugins")
 const updater = require("./updater")
@@ -2293,7 +2294,10 @@ function onUnlockAchievement(payload) {
     const arq = caminhoConta(path.join(DATA_DIR, "achievements.json"))
     const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
     const it = (store?.[payload.appid]?.items || []).find(
-      (x) => `${x.block}|${x.bit}` === payload.key,
+      (x) =>
+        `${x.block}|${x.bit}` === payload.key ||
+        (payload.apiname &&
+          String(x.apiname || "").toLowerCase() === String(payload.apiname).toLowerCase()),
     )
     if (it && !it.achieved) {
       it.achieved = true
@@ -2670,39 +2674,8 @@ app.whenReady().then(() => {
     }
   })
 
-  // Força desbloqueio de UMA conquista escrevendo direto no .bin do Steam
-  // (sem cliente Steam rodando). Acha o accountId no nome do .bin existente e
-  // o block|bit no schema; se o .bin nunca foi criado (jogo nunca rodou),
-  // devolve erro amigável — não dá pra criar do zero sem saber o accountId.
-  ipcMain.handle("achievements:force:unlock", async (_e, { appid, apiname } = {}) => {
-    try {
-      const steamBin = require("./achievements/steam_bin")
-      let accountId = null
-      for (const f of fs.readdirSync(steamBin.STATS_DIR)) {
-        const m = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
-        if (m && m[2] === String(appid)) {
-          accountId = m[1]
-          break
-        }
-      }
-      if (!accountId) {
-        return { ok: false, error: "conquistas.desbloquear_erro_sem_bin" }
-      }
-      const schema = require("./achievements/schema")
-      const items = schema.loadAchievements()?.[String(appid)]?.items || []
-      const item = items.find((i) => i.apiname === apiname)
-      if (!item || item.block == null || item.bit == null) {
-        return { ok: false, error: "apiname sem block|bit no schema" }
-      }
-      const file = path.join(steamBin.STATS_DIR, `UserGameStats_${accountId}_${appid}.bin`)
-      return steamBin.writeAchievementUnlock(file, item.block, item.bit)
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-
   // Recarrega apiname/título/desc/ícones dos itens do achievements.json a partir
-  // dos UserGameStatsSchema_*.bin da Steam (ponte pro cadeado de "Desbloquear").
+  // dos UserGameStatsSchema_*.bin da Steam.
   ipcMain.handle("achievements:schemas:load", async () => {
     try {
       const { loadAllSchemas } = require("./achievements/loader")
@@ -2909,6 +2882,29 @@ app.whenReady().then(() => {
         launch.token.id,
         [...Object.keys(envExtra || {}), ...Object.keys(sls.env || {})],
       )
+      // UPC/voices38 precisa do schema ao lado do executável. Para jogos
+      // conhecidos, a preparação é idempotente, validada e reversível; para
+      // outros loaders ou catálogos ambíguos ela apenas emite um aviso e não
+      // inventa IDs. Nunca toca DLL, EXE ou save do jogo.
+      try {
+        const appidMatch = /^steam:(\d+)$/.exec(String(gameId || ""))
+        const uplayExe = s.exePath || lib?.exe || ""
+        if (appidMatch && uplayExe) {
+          const prepared = prepareUplayInstallation({
+            gameDir: path.dirname(String(uplayExe)),
+            appid: appidMatch[1],
+            settings: s,
+            entry: lib || { id: gameId, exe: uplayExe },
+          })
+          if (!prepared.ok) {
+            warnings.push(`UPC/voices38: ${prepared.error}`)
+          } else if (prepared.skipped && prepared.reason !== "loader-upc-nao-detectado") {
+            warnings.push(`UPC/voices38: ${prepared.reason}`)
+          }
+        }
+      } catch (e) {
+        warnings.push(`UPC/voices38: ${String(e.message || e)}`)
+      }
       launch.processSession = processSession
       launch.cwd = launchCwd || ""
       // O env da SLSsteam entra DEPOIS: applyGameSettings monta o ambiente a

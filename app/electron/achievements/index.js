@@ -1,14 +1,10 @@
-// Reexporta os módulos de conquistas do Arcadia. O main process importa tudo
-// daqui (require("./achievements")) — os nomes públicos de antes são
-// preservados por compatibilidade.
+// Reexporta os módulos de leitura e monitoramento de conquistas do Arcadia.
+// O main process importa tudo daqui (require("./achievements")).
 
-const {
-  startSteamBinWatcher,
-  fetchAchievementsForApp,
-  writeAchievementUnlock,
-} = require("./steam_bin")
+const { startSteamBinWatcher, fetchAchievementsForApp } = require("./steam_bin")
 const { loadAchievements, saveAchievements, loadItemIndex } = require("./schema")
 const { hasSteamBinFor } = require("./manager")
+const uplay = require("./uplay")
 
 module.exports = {
   // Nomes públicos históricos (antes em electron/achievements.js).
@@ -17,8 +13,9 @@ module.exports = {
   loadAchievements,
   saveAchievements,
   loadItemIndex,
-  // Vigia por bin da Steam + desbloqueio forçado no .bin.
+  // Vigia somente o progresso produzido pelo jogo/Steam.
   startSteamBinWatcher,
-  writeAchievementUnlock,
   hasSteamBinFor,
+  // Provider UPC/voices38 (runtime JSON + preparação segura do schema).
+  ...uplay,
 }
