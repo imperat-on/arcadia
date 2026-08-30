@@ -92,6 +92,18 @@ export function AchievementsPanel({ appid }: { appid: string }) {
   const done = items ? items.filter((x) => x.achieved).length : 0
   const total = items ? items.length : 0
 
+  const deleteAchievement = async (apiname: string) => {
+    if (!window.confirm(`Remover "${apiname}" do servidor?`)) return
+    try {
+      await window.launcherAPI?.syncDeleteAchievement(appid, apiname)
+      // Remove from local
+      setItems((prev) => prev?.filter((x) => x.apiname !== apiname) || [])
+      window.alert("Conquista removida do servidor!")
+    } catch (e) {
+      window.alert("Erro ao remover: " + String(e))
+    }
+  }
+
   return (
     <Panel
       title={t("conquistas.titulo")}
@@ -154,10 +166,20 @@ export function AchievementsPanel({ appid }: { appid: string }) {
                 <div className="h-12 w-12 shrink-0 rounded-md bg-white/5 ring-1 ring-white/10" />
               )}
               <div
-                className={`min-w-0 truncate text-[13px] ${it.achieved ? "font-semibold text-white" : "text-white/40"}`}
+                className={`min-w-0 flex-1 truncate text-[13px] ${it.achieved ? "font-semibold text-white" : "text-white/40"}`}
               >
                 {it.title}
               </div>
+              <button
+                onClick={() => deleteAchievement(it.apiname!)}
+                className="shrink-0 rounded p-1 text-white/30 transition-colors hover:bg-red-500/20 hover:text-red-400"
+                title="Remover do servidor"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
             </div>
           ))}
         </div>
