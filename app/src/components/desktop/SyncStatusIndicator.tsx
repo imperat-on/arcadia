@@ -92,11 +92,17 @@ export function SyncStatusIndicator() {
         ? t("sync.fila", { n: String(st.queueLen) })
         : t("sync.ok")
 
+  const forcarLogout = async () => {
+    if (window.confirm("Fazer logout e login novamente? Isso pode resolver problemas de sessão.")) {
+      await window.launcherAPI?.accountSignOut()
+    }
+  }
+
   return (
     <button
       onClick={sincronizar}
-      onContextMenu={(e) => { e.preventDefault(); fullSync() }}
-      title={st.lastError || "Clique direito = full sync"}
+      onContextMenu={(e) => { e.preventDefault(); forcarLogout() }}
+      title={st.lastError || "Clique direito = logout"}
       className="desktop-sync-status fixed bottom-[56px] right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[#16161c]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[#1d1d24]"
     >
       <span
