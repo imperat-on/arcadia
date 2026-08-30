@@ -505,6 +505,7 @@ module.exports = {
   queueLength,
   getState,
   syncNow,
+  syncAllLocal,
   fullSync,
   scheduleNow,
   scheduleRetry,
