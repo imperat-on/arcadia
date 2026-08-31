@@ -56,16 +56,28 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
   }
 
   .icon {
     width: 80px;
     height: 80px;
     object-fit: cover;
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 
   .icon-fallback {
     font-size: 40px;
+    position: relative;
+    z-index: 1;
+    transition: opacity 0.2s ease;
+  }
+
+  .icon {
+    opacity: 0;
+    transition: opacity 0.2s ease;
   }
 
   .texts {
@@ -414,8 +426,12 @@
         const img = document.getElementById("normal-icon")
         img.src = icon
         img.onload = () => {
-          img.style.display = "block"
-          document.getElementById("icon-fallback").style.display = "none"
+          img.style.opacity = "1"
+          document.getElementById("icon-fallback").style.opacity = "0"
+        }
+        img.onerror = () => {
+          // Keep fallback visible
+          img.style.display = "none"
         }
       }
 
