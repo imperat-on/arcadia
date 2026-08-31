@@ -76,7 +76,9 @@ function readIniValue(file, sectionName, keyName, root, fsImpl) {
         continue
       }
       if (section !== sectionName.toLowerCase()) continue
-      const value = new RegExp(`^\\s*${keyName}\\s*=(.*)$`, "i").exec(line)?.[1]?.trim()
+      // Escape special regex characters in keyName to prevent ReDoS
+      const escaped = keyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const value = new RegExp(`^\\s*${escaped}\\s*=(.*)$`, "i").exec(line)?.[1]?.trim()
       if (!value) continue
       const absolute = normalizeAbsolute(value)
       return absolute || path.normalize(path.join(root, value))

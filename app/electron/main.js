@@ -1096,13 +1096,6 @@ function logTrailer(msg) {
 let _cfgCache = { mtimeMs: -1, data: {} }
 function readConfig() {
   try {
-    // AUDITORIA (vazamento): o config.json guarda a hubcap_api_key em claro —
-    // permissão 644 deixaria QUALQUER usuário do sistema lê-la. 600 = só o
-    // dono. Aplicado a cada leitura (idempotente; o writeConfig recria o
-    // arquivo com ummask padrão, então o chmod volta a rodar na próxima leitura).
-    try {
-      fs.chmodSync(CONFIG, 0o600)
-    } catch {}
     const m = fs.statSync(CONFIG).mtimeMs
     if (m !== _cfgCache.mtimeMs) {
       _cfgCache = { mtimeMs: m, data: JSON.parse(fs.readFileSync(CONFIG, "utf-8")) }
@@ -2000,6 +1993,9 @@ function writeConfig(partial) {
     const tmp = `${CONFIG}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf-8")
     fs.renameSync(tmp, CONFIG)
+    // Permissão 600: só o dono lê as chaves de API armazenadas em claro.
+    // Aplicado após o rename para não depender de ummask do processo.
+    try { fs.chmodSync(CONFIG, 0o600) } catch {}
     return { ok: true, config: next }
   } catch (e) {
     return { ok: false, error: String(e) }
@@ -2081,7 +2077,12 @@ async function curarCapasSteam(games) {
         mudou = true
       }
     }
-    if (mudou) fs.writeFileSync(caminhoConta(PENDING_GAMES), JSON.stringify(pendentes, null, 2))
+    if (mudou) {
+      const pendingPath = caminhoConta(PENDING_GAMES)
+      const tmp = `${pendingPath}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(pendentes, null, 2))
+      fs.renameSync(tmp, pendingPath)
+    }
   } catch {}
   return games
 }
