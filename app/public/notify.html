@@ -5,20 +5,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { 
-  background: transparent; 
-  overflow: hidden; 
-  width: 100%; 
-  height: 100%; 
-  margin: 0; 
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  html, body { background: transparent; overflow: hidden; }
   body {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -28,17 +18,15 @@
   /* ==================== TOAST NORMAL ==================== */
   .toast-normal {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    width: calc(100% - 32px);
-    height: calc(100% - 24px);
-    padding: 16px 20px;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    padding: 20px;
     background: rgba(28, 28, 34, 0.97);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
     animation: slide-in 300ms ease-out;
-    box-sizing: border-box;
   }
   .toast-normal.saindo { animation: fade-out 300ms ease-in forwards; }
 
@@ -51,296 +39,194 @@
     to { opacity: 0; transform: translateX(30px); }
   }
 
-  .normal-icon-wrap {
-    width: 64px; height: 64px; flex-shrink: 0;
-    border-radius: 10px; overflow: hidden;
-    background: rgba(255, 255, 255, 0.08);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 32px;
-  }
-  .normal-icon { width: 64px; height: 64px; object-fit: cover; display: none; }
-  .normal-texts { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
-  .normal-heading {
-    font-size: 18px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.18em; color: #f5a623;
-  }
-  .normal-title {
-    font-size: 18px; font-weight: 600; color: #fff;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .normal-desc {
-    font-size: 20px; color: rgba(255, 255, 255, 0.55);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .normal-progress {
-    margin-top: 12px; padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .normal-progress-label {
-    font-size: 18px; color: rgba(255, 255, 255, 0.4);
-    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;
-  }
-  .normal-bar-wrap { display: flex; align-items: center; gap: 8px; }
-  .normal-game-icon { width: 24px; height: 24px; border-radius: 3px; background: #1a1a24; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-  .normal-bar-info { flex: 1; }
-  .normal-bar { height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; margin-bottom: 2px; }
-  .normal-fill { height: 100%; background: linear-gradient(90deg, #f5a623, #f4d03f); border-radius: 2px; }
-  .normal-bar-text { font-size: 18px; color: rgba(255, 255, 255, 0.45); }
-  .normal-percent { font-size: 18px; font-weight: 700; color: #f5a623; }
-
-  /* ==================== TOAST PLATINUM ==================== */
-  .toast-platinum {
+  .header {
     display: flex;
     align-items: center;
     gap: 16px;
-    width: 420px;
-    padding: 20px;
-    background: rgba(28, 28, 34, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    position: relative;
-    overflow: visible;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-    animation: slide-in 400ms ease-out forwards;
-  }
-  .toast-platinum.saindo { animation: fade-out-plat 500ms ease-in forwards; }
-  @keyframes fade-out-plat {
-    from { opacity: 1; transform: translateY(0); }
-    to { opacity: 0; transform: translateY(30px); }
+    flex: 1;
   }
 
-  /* Trophy container */
-  .trophy-container {
-    width: 64px; height: 64px;
-    position: relative; flex-shrink: 0;
+  .icon-wrap {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  /* Trophy sobe devagar girando */
-  .trophy-emoji {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 32px;
-    filter: drop-shadow(0 0 15px rgba(245, 166, 35, 0.9));
-    animation: trophy-spin-rise 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  }
-  @keyframes trophy-spin-rise {
-    0% { opacity: 0; transform: translateY(80px) rotate(-180deg) scale(0.3); }
-    50% { opacity: 1; transform: translateY(10px) rotate(15deg) scale(1.1); }
-    70% { transform: translateY(-5px) rotate(-8deg) scale(1.05); }
-    85% { transform: translateY(2px) rotate(3deg) scale(0.98); }
-    100% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+  .icon {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
   }
 
-  /* Explosão */
-  .explosion {
-    position: absolute; inset: -20px;
-    border-radius: 50%; opacity: 0;
-    animation: explode 0.6s ease-out 1.4s forwards;
-  }
-  @keyframes explode {
-    0% { transform: scale(0); opacity: 0; background: radial-gradient(circle, rgba(245, 166, 35, 0.8) 0%, transparent 70%); }
-    30% { transform: scale(1.5); opacity: 1; }
-    100% { transform: scale(2.5); opacity: 0; }
+  .icon-fallback {
+    font-size: 40px;
   }
 
-  /* Partículas */
-  .particle {
-    position: absolute; width: 6px; height: 6px;
-    border-radius: 50%; opacity: 0;
-  }
-  .particle:nth-child(1) { background: #f5a623; animation: p-fly 0.8s ease-out 1.4s forwards; --tx: -40px; --ty: -30px; }
-  .particle:nth-child(2) { background: #f5a623; animation: p-fly 0.8s ease-out 1.45s forwards; --tx: 40px; --ty: -25px; }
-  .particle:nth-child(3) { background: #f5a623; animation: p-fly 0.8s ease-out 1.5s forwards; --tx: -35px; --ty: 25px; }
-  .particle:nth-child(4) { background: #f5a623; animation: p-fly 0.8s ease-out 1.55s forwards; --tx: 45px; --ty: 30px; }
-  .particle:nth-child(5) { background: #f5a623; animation: p-fly 0.8s ease-out 1.42s forwards; --tx: 0px; --ty: -45px; }
-  .particle:nth-child(6) { background: #f5a623; animation: p-fly 0.8s ease-out 1.48s forwards; --tx: 0px; --ty: 45px; }
-  @keyframes p-fly {
-    0% { transform: translate(0, 0) scale(0); opacity: 0; }
-    20% { opacity: 1; transform: translate(calc(var(--tx) * 0.3), calc(var(--ty) * 0.3)) scale(1); }
-    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.3); }
+  .texts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
   }
 
-  /* Glow e anel */
-  .trophy-glow {
-    position: absolute; inset: -15px;
-    background: radial-gradient(circle, rgba(245, 166, 35, 0.5) 0%, transparent 70%);
-    border-radius: 50%; opacity: 0;
-    animation: glow-in 0.5s ease-out 1.4s forwards, pulse-glow 2s ease-in-out 1.9s infinite;
+  .heading {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #f5a623;
   }
-  @keyframes glow-in { from { opacity: 0; } to { opacity: 0.8; } }
-  @keyframes pulse-glow { 0%,100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(1.15); opacity: 0.9; } }
 
-  .trophy-ring {
-    position: absolute; inset: -5px;
-    border: 2px solid transparent;
-    border-top-color: #f5a623; border-left-color: #d4a017;
-    border-radius: 50%; opacity: 0;
-    animation: ring-in 0.3s ease-out 1.4s forwards;
+  .title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  @keyframes ring-in { from { opacity: 0; transform: scale(0.5) rotate(0deg); } to { opacity: 1; transform: scale(1) rotate(360deg); } }
 
-  /* Texto letra por letra */
-  .plat-texts { display: flex; flex-direction: column; gap: 4px; }
-  .plat-name {
-    font-size: 20px; font-weight: 700;
-    background: linear-gradient(90deg, #f5a623, #f4d03f, #f5a623);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    overflow: hidden; white-space: nowrap;
-    border-right: 2px solid #f5a623; width: 0;
-    animation: type-name 1s steps(25) 1.8s forwards, blink 0.5s step-end 1.8s 4;
+  .desc {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  @keyframes type-name { from { width: 0; } to { width: 100%; } }
-  @keyframes blink { 50% { border-color: transparent; } }
 
-  .plat-desc {
-    font-size: 17px; color: rgba(255, 255, 255, 0.6);
-    overflow: hidden; white-space: nowrap;
-    border-right: 2px solid rgba(255,255,255,0.4); width: 0;
-    animation: type-desc 1.2s steps(40) 2.8s forwards, blink2 0.5s step-end 2.8s 4;
-  }
-  @keyframes type-desc { from { width: 0; } to { width: 100%; } }
-  @keyframes blink2 { 50% { border-color: transparent; } }
-
-  /* Progresso */
-  .plat-progress {
-    margin-top: 16px; padding-top: 16px;
+  .progress-section {
+    margin-top: 12px;
+    padding-top: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    animation: fade-in 0.4s ease-out 4s both;
   }
-  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-  .plat-label { font-size: 15px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
-  .plat-bar-wrap { display: flex; align-items: center; gap: 12px; }
-  .plat-game-icon { width: 32px; height: 32px; border-radius: 4px; background: #1a1a24; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-  .plat-bar-info { flex: 1; }
-  .plat-bar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
-  .plat-fill { height: 100%; background: linear-gradient(90deg, #f5a623, #f4d03f); border-radius: 3px; animation: fill 1s ease-out 4.2s forwards; width: 0%; }
-  @keyframes fill { to { width: 100%; } }
-  .plat-bar-text { font-size: 20px; color: rgba(255, 255, 255, 0.5); }
-  .plat-percent {
-    font-size: 32px; font-weight: 800;
+  .progress-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+
+  .progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .game-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: #1a1a24;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .bar-info {
+    flex: 1;
+  }
+
+  .bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+
+  .fill {
+    height: 100%;
     background: linear-gradient(90deg, #f5a623, #f4d03f);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    animation: pop 0.5s ease-out 4.2s both;
+    border-radius: 3px;
   }
-  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
 
-  /* Confetti */
-  .confetti {
-    position: absolute; width: 6px; height: 6px; border-radius: 50%;
-    animation: conf-fall 2.5s ease-out 1.4s forwards; opacity: 0;
+  .bar-text {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
   }
-  @keyframes conf-fall {
-    0% { transform: translateY(-30px) rotate(0deg) scale(0); opacity: 0; }
-    10% { opacity: 1; transform: translateY(-20px) rotate(36deg) scale(1); }
-    100% { transform: translateY(150px) rotate(540deg) scale(0.5); opacity: 0; }
+
+  .percent {
+    font-size: 20px;
+    font-weight: 800;
+    color: #f5a623;
+    flex-shrink: 0;
   }
 </style>
 </head>
 <body>
-  <!-- NORMAL TOAST (hidden by default) -->
-  <div id="toast-normal" class="toast-normal" style="display:none; flex-direction: column;">
-    <div style="display: flex; align-items: center; gap: 12px;">
-      <div class="normal-icon-wrap">
-        <span id="icon-fallback">🏆</span>
-        <img id="normal-icon" class="normal-icon" alt="" />
+  <div id="toast-normal" class="toast-normal">
+    <div class="header">
+      <div class="icon-wrap">
+        <span id="icon-fallback" class="icon-fallback">🏆</span>
+        <img id="normal-icon" class="icon" alt="" />
       </div>
-      <div class="normal-texts">
-        <div id="normal-heading" class="normal-heading"></div>
-        <div id="normal-title" class="normal-title"></div>
-        <div id="normal-desc" class="normal-desc"></div>
+      <div class="texts">
+        <div id="normal-heading" class="heading"></div>
+        <div id="normal-title" class="title"></div>
+        <div id="normal-desc" class="desc"></div>
       </div>
     </div>
-    <div id="normal-progress" class="normal-progress" style="display:none;">
-      <div class="normal-progress-label">Progresso total de troféus</div>
-      <div class="normal-bar-wrap">
-        <div id="normal-game-icon" class="normal-game-icon">🏴‍☠️</div>
-        <div class="normal-bar-info">
-          <div class="normal-bar"><div id="normal-fill" class="normal-fill" style="width: 0%;"></div></div>
-          <div id="normal-bar-text" class="normal-bar-text">0/49 conquistas</div>
+    <div id="normal-progress" class="progress-section" style="display:none;">
+      <div class="progress-label">Progresso total de troféus</div>
+      <div class="progress-wrap">
+        <div id="normal-game-icon" class="game-icon">🏴‍☠️</div>
+        <div class="bar-info">
+          <div class="bar"><div id="normal-fill" class="fill" style="width: 0%;"></div></div>
+          <div id="normal-bar-text" class="bar-text">0/49 conquistas</div>
         </div>
-        <div id="normal-percent" class="normal-percent">0%</div>
+        <div id="normal-percent" class="percent">0%</div>
       </div>
     </div>
   </div>
 
-  <!-- PLATINUM TOAST (hidden by default) -->
-  <div id="toast-platinum" class="toast-platinum" style="display:none;">
-    <div class="trophy-container">
-      <div class="explosion"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="trophy-glow"></div>
-      <div class="trophy-ring"></div>
-      <div class="trophy-emoji">🏆</div>
-    </div>
-    <div class="plat-texts">
-      <span id="plat-name" class="plat-name">🏆 Platina Desbloqueada!</span>
-      <div id="plat-desc" class="plat-desc">Todas as conquistas desbloqueadas com sucesso</div>
-    </div>
-    <div class="confetti" style="left:10%;background:#f5a623;"></div>
-    <div class="confetti" style="left:25%;background:#f4d03f;"></div>
-    <div class="confetti" style="left:45%;background:#d4a017;"></div>
-    <div class="confetti" style="left:65%;background:#f5a623;"></div>
-    <div class="confetti" style="left:80%;background:#f5a623;"></div>
-  </div>
-
-  <!-- SOUNDS -->
   <audio id="som" src="sounds/unlock.wav" autoplay></audio>
-  <audio id="som-platinum" src="sounds/platinum.wav"></audio>
 
   <script>
     const q = new URLSearchParams(location.search)
-    const isPlatinum = q.get("sound") === "platinum"
 
-    if (isPlatinum) {
-      // Show platinum toast
-      document.getElementById("toast-normal").style.display = "none"
-      document.getElementById("toast-platinum").style.display = "flex"
-      document.getElementById("som").remove()
-      const plat = document.getElementById("som-platinum")
-      plat.autoplay = true
-      plat.play().catch(() => {})
-      setTimeout(() => window.close(), 8000)
-    } else {
-      // Show normal toast
-      document.getElementById("toast-normal").style.display = "flex"
-      document.getElementById("toast-platinum").style.display = "none"
-      document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
-      document.getElementById("normal-title").textContent = q.get("title") || ""
-      document.getElementById("normal-desc").textContent = q.get("desc") || " "
+    // Show normal toast
+    document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
+    document.getElementById("normal-title").textContent = q.get("title") || ""
+    document.getElementById("normal-desc").textContent = q.get("desc") || " "
 
-      // Icon
-      const icon = q.get("icon")
-      if (icon) {
-        const img = document.getElementById("normal-icon")
-        img.src = icon
-        img.onload = () => {
-          img.style.display = "block"
-          document.getElementById("icon-fallback").style.display = "none"
-        }
+    // Icon
+    const icon = q.get("icon")
+    if (icon) {
+      const img = document.getElementById("normal-icon")
+      img.src = icon
+      img.onload = () => {
+        img.style.display = "block"
+        document.getElementById("icon-fallback").style.display = "none"
       }
-
-      // Progress bar
-      const done = parseInt(q.get("done") || "0")
-      const total = parseInt(q.get("total") || "0")
-      if (total > 0) {
-        const pct = Math.round((done / total) * 100)
-        document.getElementById("normal-progress").style.display = "block"
-        document.getElementById("normal-fill").style.width = pct + "%"
-        document.getElementById("normal-bar-text").textContent = done + "/" + total + " conquistas"
-        document.getElementById("normal-percent").textContent = pct + "%"
-      }
-
-      setTimeout(() => {
-        document.getElementById("toast-normal").classList.add("saindo")
-        setTimeout(() => window.close(), 300)
-      }, 5000)
     }
+
+    // Progress bar
+    const done = parseInt(q.get("done") || "0")
+    const total = parseInt(q.get("total") || "0")
+    if (total > 0) {
+      const pct = Math.round((done / total) * 100)
+      document.getElementById("normal-progress").style.display = "block"
+      document.getElementById("normal-fill").style.width = pct + "%"
+      document.getElementById("normal-bar-text").textContent = done + "/" + total + " conquistas"
+      document.getElementById("normal-percent").textContent = pct + "%"
+    }
+
+    // Close after 5 seconds
+    setTimeout(() => {
+      document.getElementById("toast-normal").classList.add("saindo")
+      setTimeout(() => window.close(), 300)
+    }, 5000)
   </script>
 </body>
 </html>
