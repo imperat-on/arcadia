@@ -111,6 +111,7 @@ function processarFila() {
       sound: isPlatinum ? "platinum" : "unlock",
       done: String(done),
       total: String(total),
+      scale: String(scaleFactor),
     },
   })
 }
