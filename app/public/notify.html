@@ -162,10 +162,166 @@
     color: #f5a623;
     flex-shrink: 0;
   }
+
+  /* ==================== TOAST PLATINUM ==================== */
+  .toast-platinum {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+    background: rgba(28, 28, 34, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    animation: slide-in 400ms ease-out;
+    overflow: visible;
+  }
+  .toast-platinum.saindo { animation: fade-out 500ms ease-in forwards; }
+
+  .plat-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+  }
+
+  .trophy-container {
+    width: 80px;
+    height: 80px;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .trophy-emoji {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    animation: trophy-rise 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    filter: drop-shadow(0 0 15px rgba(245, 166, 35, 0.8));
+  }
+  @keyframes trophy-rise {
+    0% { opacity: 0; transform: translateY(80px) rotate(-180deg) scale(0.3); }
+    50% { opacity: 1; transform: translateY(10px) rotate(15deg) scale(1.1); }
+    70% { transform: translateY(-5px) rotate(-8deg) scale(1.05); }
+    85% { transform: translateY(2px) rotate(3deg) scale(0.98); }
+    100% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+  }
+
+  .trophy-glow {
+    position: absolute;
+    inset: -15px;
+    background: radial-gradient(circle, rgba(245, 166, 35, 0.5) 0%, transparent 70%);
+    border-radius: 50%;
+    animation: glow-appear 0.5s ease-out 1.4s forwards;
+  }
+  @keyframes glow-appear {
+    from { opacity: 0; transform: scale(0.5); }
+    to { opacity: 0.8; transform: scale(1); }
+  }
+
+  .explosion {
+    position: absolute;
+    inset: -20px;
+    border-radius: 50%;
+    opacity: 0;
+    animation: explode 0.6s ease-out 1.4s forwards;
+  }
+  @keyframes explode {
+    0% { transform: scale(0); opacity: 0; background: radial-gradient(circle, rgba(245, 166, 35, 0.8) 0%, transparent 70%); }
+    30% { transform: scale(1.5); opacity: 1; }
+    100% { transform: scale(2.5); opacity: 0; }
+  }
+
+  .particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f5a623;
+    opacity: 0;
+  }
+  .particle:nth-child(1) { animation: p-fly 0.8s ease-out 1.4s forwards; --tx: -40px; --ty: -30px; }
+  .particle:nth-child(2) { animation: p-fly 0.8s ease-out 1.45s forwards; --tx: 40px; --ty: -25px; }
+  .particle:nth-child(3) { animation: p-fly 0.8s ease-out 1.5s forwards; --tx: -35px; --ty: 25px; }
+  .particle:nth-child(4) { animation: p-fly 0.8s ease-out 1.55s forwards; --tx: 45px; --ty: 30px; }
+  @keyframes p-fly {
+    0% { transform: translate(0, 0) scale(0); opacity: 0; }
+    20% { opacity: 1; transform: translate(calc(var(--tx) * 0.3), calc(var(--ty) * 0.3)) scale(1); }
+    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.3); }
+  }
+
+  .plat-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+  }
+
+  .plat-heading {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #f5a623;
+    animation: fade-in 0.4s ease-out 1.8s both;
+  }
+
+  .plat-name {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid #f5a623;
+    width: 0;
+    animation: type-name 1s steps(25) 1.8s forwards, blink 0.5s step-end 1.8s 4;
+  }
+  @keyframes type-name { from { width: 0; } to { width: 100%; } }
+  @keyframes blink { 50% { border-color: transparent; } }
+
+  .plat-desc {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid rgba(255,255,255,0.4);
+    width: 0;
+    animation: type-desc 1.2s steps(40) 2.8s forwards, blink2 0.5s step-end 2.8s 4;
+  }
+  @keyframes type-desc { from { width: 0; } to { width: 100%; } }
+  @keyframes blink2 { 50% { border-color: transparent; } }
+
+  .plat-progress {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    animation: fade-in 0.4s ease-out 4s both;
+  }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  .confetti {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f5a623;
+    animation: conf-fall 2.5s ease-out 1.4s forwards;
+    opacity: 0;
+  }
+  @keyframes conf-fall {
+    0% { transform: translateY(-30px) rotate(0deg) scale(0); opacity: 0; }
+    10% { opacity: 1; transform: translateY(-20px) rotate(36deg) scale(1); }
+    100% { transform: translateY(150px) rotate(540deg) scale(0.5); opacity: 0; }
+  }
 </style>
 </head>
 <body>
-  <div id="toast-normal" class="toast-normal">
+  <!-- NORMAL TOAST -->
+  <div id="toast-normal" class="toast-normal" style="display:none;">
     <div class="header">
       <div class="icon-wrap">
         <span id="icon-fallback" class="icon-fallback">🏆</span>
@@ -190,43 +346,96 @@
     </div>
   </div>
 
+  <!-- PLATINUM TOAST -->
+  <div id="toast-platinum" class="toast-platinum" style="display:none;">
+    <div class="plat-header">
+      <div class="trophy-container">
+        <div class="explosion"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="trophy-glow"></div>
+        <div class="trophy-emoji">🏆</div>
+      </div>
+      <div class="plat-texts">
+        <div id="plat-heading" class="plat-heading">🏆 Platina Desbloqueada!</div>
+        <div id="plat-name" class="plat-name">Todas as conquistas desbloqueadas com sucesso</div>
+        <div id="plat-desc" class="plat-desc">Parabéns! Você completou todas as conquistas!</div>
+      </div>
+    </div>
+    <div class="plat-progress">
+      <div class="progress-label">Progresso total de troféus</div>
+      <div class="progress-wrap">
+        <div id="plat-game-icon" class="game-icon">🏴‍☠️</div>
+        <div class="bar-info">
+          <div class="bar"><div id="plat-fill" class="fill" style="width: 100%;"></div></div>
+          <div id="plat-bar-text" class="bar-text">49/49 conquistas</div>
+        </div>
+        <div id="plat-percent" class="percent">100%</div>
+      </div>
+    </div>
+    <div class="confetti" style="left: 10%;"></div>
+    <div class="confetti" style="left: 25%;"></div>
+    <div class="confetti" style="left: 45%;"></div>
+    <div class="confetti" style="left: 65%;"></div>
+    <div class="confetti" style="left: 80%;"></div>
+  </div>
+
+  <!-- SOUNDS -->
   <audio id="som" src="sounds/unlock.wav" autoplay></audio>
+  <audio id="som-platinum" src="sounds/platinum.wav"></audio>
 
   <script>
     const q = new URLSearchParams(location.search)
-    // Window size is already scaled by main process, just fill it
-    // Show normal toast
-    document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
-    document.getElementById("normal-title").textContent = q.get("title") || ""
-    document.getElementById("normal-desc").textContent = q.get("desc") || " "
+    const isPlatinum = q.get("sound") === "platinum"
 
-    // Icon
-    const icon = q.get("icon")
-    if (icon) {
-      const img = document.getElementById("normal-icon")
-      img.src = icon
-      img.onload = () => {
-        img.style.display = "block"
-        document.getElementById("icon-fallback").style.display = "none"
+    if (isPlatinum) {
+      // Show platinum toast
+      document.getElementById("toast-normal").style.display = "none"
+      document.getElementById("toast-platinum").style.display = "flex"
+      document.getElementById("som").remove()
+      const plat = document.getElementById("som-platinum")
+      plat.autoplay = true
+      plat.play().catch(() => {})
+      // Close after 8 seconds (platinum stays longer)
+      setTimeout(() => window.close(), 8000)
+    } else {
+      // Show normal toast
+      document.getElementById("toast-normal").style.display = "flex"
+      document.getElementById("toast-platinum").style.display = "none"
+      document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
+      document.getElementById("normal-title").textContent = q.get("title") || ""
+      document.getElementById("normal-desc").textContent = q.get("desc") || " "
+
+      // Icon
+      const icon = q.get("icon")
+      if (icon) {
+        const img = document.getElementById("normal-icon")
+        img.src = icon
+        img.onload = () => {
+          img.style.display = "block"
+          document.getElementById("icon-fallback").style.display = "none"
+        }
       }
-    }
 
-    // Progress bar
-    const done = parseInt(q.get("done") || "0")
-    const total = parseInt(q.get("total") || "0")
-    if (total > 0) {
-      const pct = Math.round((done / total) * 100)
-      document.getElementById("normal-progress").style.display = "block"
-      document.getElementById("normal-fill").style.width = pct + "%"
-      document.getElementById("normal-bar-text").textContent = done + "/" + total + " conquistas"
-      document.getElementById("normal-percent").textContent = pct + "%"
-    }
+      // Progress bar
+      const done = parseInt(q.get("done") || "0")
+      const total = parseInt(q.get("total") || "0")
+      if (total > 0) {
+        const pct = Math.round((done / total) * 100)
+        document.getElementById("normal-progress").style.display = "block"
+        document.getElementById("normal-fill").style.width = pct + "%"
+        document.getElementById("normal-bar-text").textContent = done + "/" + total + " conquistas"
+        document.getElementById("normal-percent").textContent = pct + "%"
+      }
 
-    // Close after 5 seconds
-    setTimeout(() => {
-      document.getElementById("toast-normal").classList.add("saindo")
-      setTimeout(() => window.close(), 300)
-    }, 5000)
+      // Close after 5 seconds
+      setTimeout(() => {
+        document.getElementById("toast-normal").classList.add("saindo")
+        setTimeout(() => window.close(), 300)
+      }, 5000)
+    }
   </script>
 </body>
 </html>
