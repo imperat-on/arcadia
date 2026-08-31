@@ -260,6 +260,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   },
   // Conta online (backend proprio) — cadastro email+username+senha; login username+senha.
   accountStatus: () => ipcRenderer.invoke("account:status"),
+  testToast: (platinum = false) => ipcRenderer.invoke("test:toast", { platinum }),
   accountProfile: () => ipcRenderer.invoke("account:profile"),
   accountUpdateProfile: (campos) => ipcRenderer.invoke("account:updateProfile", campos),
   accountSetAvatar: (filePath) => ipcRenderer.invoke("account:setAvatar", filePath),

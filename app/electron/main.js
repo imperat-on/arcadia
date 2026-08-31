@@ -2716,6 +2716,26 @@ app.whenReady().then(() => {
     }
   })
 
+  // Test toast for debugging
+  ipcMain.handle("test:toast", async (_e, { platinum = false } = {}) => {
+    try {
+      const { showAchievementToast } = require("./notify")
+      const testPayload = {
+        appid: "test",
+        key: "test|1",
+        title: platinum ? "Todas as conquistas!" : "Conquista de teste",
+        desc: platinum ? "Platina desbloqueada com sucesso" : "Esta é uma conquista de teste",
+        icon: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/3751950/34a75e8dee0de8b524c57006fe21487ade9fd248.jpg",
+        percent: 50,
+        unlock: Math.floor(Date.now() / 1000),
+      }
+      showAchievementToast(testPayload, { platinum })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
   ipcMain.handle("app:focusState", () => {
     // O renderer pode montar/recarregar depois que o jogo já começou. Reenvia
     // o estado de jogo no mesmo replay, sem criar outro canal IPC.
