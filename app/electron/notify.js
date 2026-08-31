@@ -53,20 +53,18 @@ function processarFila() {
   const payload = fila.shift()
   if (!payload) return
 
-  // Calculate toast size based on screen resolution (scales for 4K)
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
-  const scaleFactor = Math.max(1, Math.min(screenWidth / 1920, screenHeight / 1080))
-  const TOAST_W = Math.round(DEFAULT_TOAST_W * scaleFactor)
-  const TOAST_H = Math.round(DEFAULT_TOAST_H * scaleFactor)
-  const MARGIN = Math.round(DEFAULT_MARGIN * scaleFactor)
+  // Fixed size toast - no scaling with system zoom
+  const TOAST_W = DEFAULT_TOAST_W
+  const TOAST_H = DEFAULT_TOAST_H
+  const MARGIN = DEFAULT_MARGIN
 
-  // Canto inferior direito da área de trabalho do monitor primário.
+  // Top-right corner with margin
   const { workArea } = screen.getPrimaryDisplay()
   toastWin = new BrowserWindow({
     width: TOAST_W,
     height: TOAST_H,
     x: workArea.x + workArea.width - TOAST_W - MARGIN,
-    y: workArea.y + workArea.height - TOAST_H - MARGIN,
+    y: workArea.y + MARGIN,
     frame: false,
     transparent: true,
     resizable: false,
@@ -111,7 +109,6 @@ function processarFila() {
       sound: isPlatinum ? "platinum" : "unlock",
       done: String(done),
       total: String(total),
-      scale: String(scaleFactor),
     },
   })
 }

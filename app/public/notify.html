@@ -7,55 +7,57 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { background: transparent; overflow: hidden; }
   body {
-    width: 100%;
-    height: 100%;
+    width: 360px;
+    height: 96px;
     font-family: "Inter", "Segoe UI", system-ui, sans-serif;
   }
 
-  /* ==================== TOAST NORMAL ==================== */
-  .toast-normal {
+  /* ==================== TOAST BASE (shared) ==================== */
+  .toast {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     width: 100%;
     height: 100%;
-    padding: 16px 20px;
+    padding: 12px 16px;
     background: rgba(28, 28, 34, 0.97);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-    animation: slide-in 300ms ease-out;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
-  .toast-normal.saindo { animation: fade-out 300ms ease-in forwards; }
+
+  .toast.saindo { animation: fade-out 300ms ease-in forwards; }
 
   @keyframes slide-in {
-    from { opacity: 0; transform: translateX(60px); }
+    from { opacity: 0; transform: translateX(40px); }
     to { opacity: 1; transform: translateX(0); }
   }
   @keyframes fade-out {
-    from { opacity: 1; transform: translateX(0); }
-    to { opacity: 0; transform: translateX(30px); }
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 
+  /* Icon container */
   .icon-wrap {
-    width: 72px;
-    height: 72px;
+    width: 64px;
+    height: 64px;
     flex-shrink: 0;
-    border-radius: 12px;
+    border-radius: 10px;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
   .icon {
-    width: 72px;
-    height: 72px;
+    width: 64px;
+    height: 64px;
     object-fit: cover;
     display: block;
   }
 
+  /* Text container */
   .texts {
     display: flex;
     flex-direction: column;
@@ -65,15 +67,15 @@
   }
 
   .heading {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     color: #f5a623;
   }
 
   .title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     color: #fff;
     white-space: nowrap;
@@ -82,174 +84,48 @@
   }
 
   .desc {
-    font-size: 13px;
+    font-size: 12px;
     color: rgba(255, 255, 255, 0.5);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  /* ==================== TOAST PLATINUM ==================== */
+  /* Trophy for platinum */
+  .trophy {
+    font-size: 36px;
+    line-height: 1;
+  }
+
+  /* Platinum animations */
   .toast-platinum {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    width: 100%;
-    height: 100%;
-    padding: 16px 20px;
-    background: rgba(28, 28, 34, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
     animation: slide-in 400ms ease-out;
-    overflow: visible;
-    position: relative;
-  }
-  .toast-platinum.saindo { animation: fade-out 500ms ease-in forwards; }
-
-  .trophy-wrap {
-    width: 72px;
-    height: 72px;
-    flex-shrink: 0;
-    position: relative;
   }
 
-  .trophy-emoji {
-    font-size: 48px;
-    animation: trophy-rise 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    filter: drop-shadow(0 0 12px rgba(245, 166, 35, 0.8));
+  .trophy-animate {
+    animation: trophy-rise 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
   }
   @keyframes trophy-rise {
-    0% { opacity: 0; transform: translateY(60px) rotate(-180deg) scale(0.3); }
-    50% { opacity: 1; transform: translateY(8px) rotate(15deg) scale(1.1); }
-    70% { transform: translateY(-4px) rotate(-8deg) scale(1.05); }
-    85% { transform: translateY(2px) rotate(3deg) scale(0.98); }
+    0% { opacity: 0; transform: translateY(40px) rotate(-90deg) scale(0.5); }
+    60% { opacity: 1; transform: translateY(-5px) rotate(10deg) scale(1.1); }
+    80% { transform: translateY(2px) rotate(-5deg) scale(0.95); }
     100% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
-  }
-
-  .explosion {
-    position: absolute;
-    inset: -20px;
-    border-radius: 50%;
-    opacity: 0;
-    animation: explode 0.6s ease-out 1.4s forwards;
-  }
-  @keyframes explode {
-    0% { transform: scale(0); opacity: 0; background: radial-gradient(circle, rgba(245, 166, 35, 0.8) 0%, transparent 70%); }
-    30% { transform: scale(1.5); opacity: 1; }
-    100% { transform: scale(2.5); opacity: 0; }
-  }
-
-  .particle {
-    position: absolute;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: #f5a623;
-    opacity: 0;
-  }
-  .particle:nth-child(1) { animation: p-fly 0.8s ease-out 1.4s forwards; --tx: -30px; --ty: -25px; }
-  .particle:nth-child(2) { animation: p-fly 0.8s ease-out 1.45s forwards; --tx: 30px; --ty: -20px; }
-  .particle:nth-child(3) { animation: p-fly 0.8s ease-out 1.5s forwards; --tx: -25px; --ty: 20px; }
-  .particle:nth-child(4) { animation: p-fly 0.8s ease-out 1.55s forwards; --tx: 35px; --ty: 25px; }
-  @keyframes p-fly {
-    0% { transform: translate(0, 0) scale(0); opacity: 0; }
-    20% { opacity: 1; transform: translate(calc(var(--tx) * 0.3), calc(var(--ty) * 0.3)) scale(1); }
-    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.3); }
-  }
-
-  .plat-texts {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .plat-heading {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: #f5a623;
-  }
-
-  .plat-name {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-    overflow: hidden;
-    white-space: nowrap;
-    border-right: 2px solid #f5a623;
-    width: 0;
-    animation: type-name 1s steps(25) 1.8s forwards, blink 0.5s step-end 1.8s 4;
-  }
-  @keyframes type-name { from { width: 0; } to { width: 100%; } }
-  @keyframes blink { 50% { border-color: transparent; } }
-
-  .plat-desc {
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
-    overflow: hidden;
-    white-space: nowrap;
-    border-right: 2px solid rgba(255,255,255,0.3);
-    width: 0;
-    animation: type-desc 1.2s steps(40) 2.8s forwards, blink2 0.5s step-end 2.8s 4;
-  }
-  @keyframes type-desc { from { width: 0; } to { width: 100%; } }
-  @keyframes blink2 { 50% { border-color: transparent; } }
-
-  .confetti {
-    position: absolute;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: #f5a623;
-    animation: conf-fall 2s ease-out 1.4s forwards;
-    opacity: 0;
-  }
-  @keyframes conf-fall {
-    0% { transform: translateY(-20px) rotate(0deg) scale(0); opacity: 0; }
-    10% { opacity: 1; transform: translateY(-15px) rotate(36deg) scale(1); }
-    100% { transform: translateY(100px) rotate(540deg) scale(0.5); opacity: 0; }
   }
 </style>
 </head>
 <body>
-  <!-- NORMAL TOAST -->
-  <div id="toast-normal" class="toast-normal" style="display:none;">
-    <div class="icon-wrap">
-      <img id="normal-icon" class="icon" src="" alt="" />
+  <div id="toast" class="toast">
+    <div id="icon-wrap" class="icon-wrap">
+      <img id="icon" class="icon" src="" alt="" />
+      <span id="trophy" class="trophy" style="display:none;">🏆</span>
     </div>
     <div class="texts">
-      <div id="normal-heading" class="heading"></div>
-      <div id="normal-title" class="title"></div>
-      <div id="normal-desc" class="desc"></div>
+      <div id="heading" class="heading"></div>
+      <div id="title" class="title"></div>
+      <div id="desc" class="desc"></div>
     </div>
   </div>
 
-  <!-- PLATINUM TOAST -->
-  <div id="toast-platinum" class="toast-platinum" style="display:none;">
-    <div class="trophy-wrap">
-      <div class="explosion"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="particle"></div>
-      <div class="trophy-emoji">🏆</div>
-    </div>
-    <div class="plat-texts">
-      <div id="plat-heading" class="plat-heading">🏆 Platina Desbloqueada!</div>
-      <div id="plat-name" class="plat-name">Todas as conquistas desbloqueadas com sucesso</div>
-      <div id="plat-desc" class="plat-desc">Parabéns! Você completou todas as conquistas!</div>
-    </div>
-    <div class="confetti" style="left: 15%;"></div>
-    <div class="confetti" style="left: 35%;"></div>
-    <div class="confetti" style="left: 55%;"></div>
-    <div class="confetti" style="left: 75%;"></div>
-  </div>
-
-  <!-- SOUNDS -->
   <audio id="som" src="sounds/unlock.wav" autoplay></audio>
   <audio id="som-platinum" src="sounds/platinum.wav"></audio>
 
@@ -257,29 +133,29 @@
     const q = new URLSearchParams(location.search)
     const isPlatinum = q.get("sound") === "platinum"
 
+    // Set content
+    document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
+    document.getElementById("title").textContent = q.get("title") || ""
+    document.getElementById("desc").textContent = q.get("desc") || " "
+
     if (isPlatinum) {
-      document.getElementById("toast-normal").style.display = "none"
-      document.getElementById("toast-platinum").style.display = "flex"
+      // Platinum: show trophy, hide image icon
+      document.getElementById("icon-wrap").style.display = "none"
+      document.getElementById("trophy").style.display = "flex"
+      document.getElementById("trophy").className = "trophy trophy-animate"
       document.getElementById("som").remove()
       const plat = document.getElementById("som-platinum")
       plat.autoplay = true
       plat.play().catch(() => {})
       setTimeout(() => window.close(), 8000)
     } else {
-      document.getElementById("toast-normal").style.display = "flex"
-      document.getElementById("toast-platinum").style.display = "none"
-      document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
-      document.getElementById("normal-title").textContent = q.get("title") || ""
-      document.getElementById("normal-desc").textContent = q.get("desc") || " "
-
+      // Normal: show icon image
       const icon = q.get("icon")
       if (icon) {
-        const img = document.getElementById("normal-icon")
-        img.src = icon
+        document.getElementById("icon").src = icon
       }
-
       setTimeout(() => {
-        document.getElementById("toast-normal").classList.add("saindo")
+        document.getElementById("toast").classList.add("saindo")
         setTimeout(() => window.close(), 300)
       }, 5000)
     }
