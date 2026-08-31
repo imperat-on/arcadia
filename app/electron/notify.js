@@ -31,9 +31,12 @@ function headingTraduzido() {
 // public/ para dist/), então não há bifurcação dev/produção de caminho.
 const NOTIFY_HTML = path.join(__dirname, "..", "dist", "notify.html")
 
-const TOAST_W = 360
-const TOAST_H = 96
-const MARGIN = 16
+// Calculate toast size based on screen resolution (scales for 4K)
+const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+const scaleFactor = Math.max(1, Math.min(screenWidth / 1920, screenHeight / 1080))
+const TOAST_W = Math.round(360 * scaleFactor)
+const TOAST_H = Math.round(96 * scaleFactor)
+const MARGIN = Math.round(16 * scaleFactor)
 
 let toastWin = null
 const fila = []
