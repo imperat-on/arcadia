@@ -405,7 +405,7 @@ function nomeArquivoHttp(url, cd) {
       nome = decodeURIComponent(new URL(url).pathname.split("/").pop() || "")
     } catch {}
   }
-  nome = nome.replace(/[\\/:*?"<>|]/g, "_").trim()
+  nome = nome.replace(/[\\/:*?"<>|]/g, "_").replace(/\.\./g, "_").replace(/^\./, "_").trim()
   return nome || "download.bin"
 }
 

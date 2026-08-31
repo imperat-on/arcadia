@@ -281,11 +281,13 @@ async function pull() {
   const wp = st.playtimePush || {}
 
   // Posse: owned_games.json ausente (null) significa "possui tudo" (ainda
-  // nao migrou, ver constraint 7). Nesse caso o pull nao mexe na posse, so
-  // quando ja existe arquivo real e que o appid novo entra.
+  // nao migrou, ver constraint 7). Nesse caso o pull cria o arquivo com os
+  // IDs do servidor para que a posse seja preservada desde o primeiro boot.
+  // Sem isso, um formate/reinstall perdia os jogos Steam porque o
+  // readLibrary() materializava um owned vazio antes do pull rodar.
   const rawOwned = readOwned()
-  const owned = rawOwned === null ? null : new Set(rawOwned)
-  let ownedMudou = false
+  const owned = rawOwned === null ? new Set() : new Set(rawOwned)
+  let ownedMudou = rawOwned === null
 
   // Jogos que faltam localmente entram como custom (exe vazio — usuário
   // configura na máquina nova; título/plataforma vêm do servidor)

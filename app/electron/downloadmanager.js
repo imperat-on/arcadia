@@ -146,7 +146,9 @@ function load() {
       }
       return it.status !== "done"
     })
-    persist()
+    // Não persiste no load: a fila já está no disco e a normalização acima
+    // é idempotente. Gravar aqui criaria um write desnecessário no boot e
+    // poderia conflitar com outro processo lendo o mesmo arquivo.
   } catch {
     queue = []
   }

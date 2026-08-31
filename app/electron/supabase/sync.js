@@ -62,9 +62,11 @@ function enqueue(items) {
   // interpretadas aqui, mas também não são descartadas ao atualizar conquistas.
   for (const it of [...loadQueue(), ...items]) {
     if (it?.kind && it.kind !== "achievement") continue
-    if (!it || !it.appid || !it.apiname || normalizeTs(it.unlocked_at) == null) continue
+    if (!it || !it.appid || !it.apiname) continue
+    if (it.achieved !== true && normalizeTs(it.unlocked_at) == null) continue
     const key = `${it.appid}|${it.apiname}`
-    map.set(key, resolveAchievementConflict(map.get(key), it))
+    const enhanced = { ...it, achieved: it.achieved === true || normalizeTs(it.unlocked_at) != null }
+    map.set(key, resolveAchievementConflict(map.get(key), enhanced))
   }
   const achievements = [...map.values()].sort((a, b) =>
     `${a.appid}|${a.apiname}`.localeCompare(`${b.appid}|${b.apiname}`),
@@ -130,14 +132,16 @@ async function pushDelta(context = null) {
 
   const q = loadQueue().filter((item) =>
     (!item?.kind || item.kind === "achievement") &&
-    item?.appid && item?.apiname && normalizeTs(item.unlocked_at) != null,
+    item?.appid && item?.apiname &&
+    (item.achieved === true || normalizeTs(item.unlocked_at) != null),
   )
   if (!q.length) return { ok: true, pushed: 0 }
 
   const p_items = q.map((i) => ({
     appid: i.appid,
     apiname: i.apiname,
-    unlocked_at: normalizeTs(i.unlocked_at),
+    unlocked_at: normalizeTs(i.unlocked_at) || 0,
+    achieved: i.achieved === true || (normalizeTs(i.unlocked_at) != null && normalizeTs(i.unlocked_at) > 0),
     title: i.title ?? null,
     icon: i.icon ?? null,
     percent: i.percent ?? null,
@@ -189,24 +193,29 @@ function applyPulled(rows, context = null) {
   for (const r of rows) {
     if (!contextStillActive(context)) return false
     const remote = resolveAchievementConflict(null, r)
-    if (!remote || remote.unlocked_at == null) continue
+    if (!remote) continue
     const appid = remote.appid
     const app = store[appid] || (store[appid] = { at: Date.now(), items: [] })
     if (!Array.isArray(app.items)) app.items = []
     const item = app.items.find((i) => i && i.apiname === remote.apiname)
-    const local = item
-      ? { appid, apiname: item.apiname, achieved: item.achieved === true, unlocked_at: item.unlock }
-      : null
-    const merged = resolveAchievementConflict(local, remote)
-    if (!merged || merged.unlocked_at == null) continue
+    const remoteAchieved = remote.achieved === true || (remote.unlocked_at != null && remote.unlocked_at > 0)
     if (item) {
-      const nextUnlock = merged.unlocked_at
-      if (item.achieved !== true || normalizeTs(item.unlock) !== nextUnlock) {
-        item.achieved = true
-        item.unlock = nextUnlock
+      // Merge: achieved é monotônico (OR) — se qualquer lado desbloqueou, fica desbloqueado.
+      // Timestamp usa earliest-wins (menor vence).
+      const localAchieved = item.achieved === true
+      const localUnlock = normalizeTs(item.unlock)
+      const remoteUnlock = remote.unlocked_at
+      const newAchieved = localAchieved || remoteAchieved
+      let newUnlock = localUnlock
+      if (remoteUnlock != null && (newUnlock == null || remoteUnlock < newUnlock)) {
+        newUnlock = remoteUnlock
+      }
+      if (item.achieved !== newAchieved || normalizeTs(item.unlock) !== newUnlock) {
+        item.achieved = newAchieved
+        item.unlock = newUnlock
         mudou = true
       }
-    } else {
+    } else if (remoteAchieved || remoteUnlock != null) {
       // apiname desconhecido localmente (schema ainda não carregado): cria o
       // item mínimo — o reloader de schema preenche título/ícone depois.
       app.items.push({
@@ -215,8 +224,8 @@ function applyPulled(rows, context = null) {
         desc: "",
         icon: remote.icon || "",
         icongray: "",
-        achieved: true,
-        unlock: merged.unlocked_at,
+        achieved: remoteAchieved,
+        unlock: remote.unlocked_at || 0,
         percent: remote.percent ?? 100,
       })
       mudou = true
@@ -362,6 +371,7 @@ async function syncAllLocal(context = null) {
     appid: i.appid,
     apiname: i.apiname,
     unlocked_at: i.unlocked_at,
+    achieved: true,
     title: i.title ?? null,
     icon: i.icon ?? null,
     percent: i.percent ?? null,

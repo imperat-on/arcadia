@@ -70,8 +70,12 @@ function achievementValue(value) {
   const appid = text(value.appid)
   const apiname = text(value.apiname)
   if (!appid || !apiname) return null
-  const unlockedAt = normalizeSyncTimestamp(value.unlocked_at ?? value.unlock)
-  const achieved = value.achieved === true || unlockedAt != null || value.unlocked === true
+  // unlocked_at=0 é válido para conquistas bloqueadas (synced mas não desbloqueadas).
+  // normalizeSyncTimestamp retorna null para 0, então tratamos 0 separadamente.
+  const rawTs = value.unlocked_at ?? value.unlock
+  const unlockedAt = rawTs === 0 ? 0 : normalizeSyncTimestamp(rawTs)
+  // achieved pode vir como boolean explícito ou ser derivado de unlocked_at
+  const achieved = value.achieved === true || (unlockedAt != null && unlockedAt > 0) || value.unlocked === true
   return {
     ...value,
     appid,
@@ -105,15 +109,25 @@ function resolveAchievementConflict(local, remote) {
   let winner
   if (leftTs == null && rightTs != null) winner = right
   else if (rightTs == null && leftTs != null) winner = left
-  else if (leftTs != null && rightTs != null && leftTs !== rightTs) winner = leftTs < rightTs ? left : right
-  else winner = metadataWinner(left, right)
+  else if (leftTs != null && rightTs != null && leftTs !== rightTs) {
+    // Para conquistas desbloqueadas (ts > 0), menor vence.
+    // Para bloqueadas (ts = 0), qualquer valor não-zero vence.
+    if (leftTs > 0 && rightTs > 0) winner = leftTs < rightTs ? left : right
+    else if (leftTs > 0) winner = left
+    else if (rightTs > 0) winner = right
+    else winner = metadataWinner(left, right)
+  } else winner = metadataWinner(left, right)
 
-  const timestamp = leftTs == null ? rightTs : rightTs == null ? leftTs : Math.min(leftTs, rightTs)
+  // Merge timestamps:ignorar 0 (locked) ao calcular menor timestamp
+  const nonZero = [leftTs, rightTs].filter((t) => t != null && t > 0)
+  const timestamp = nonZero.length ? Math.min(...nonZero) : (leftTs ?? rightTs ?? null)
+  // achieved é monotônico: se qualquer lado desbloqueou, fica desbloqueado.
+  // Timestamp usa earliest-wins para desbloqueios (menor > 0 vence).
   return {
     ...winner,
     appid: left.appid,
     apiname: left.apiname,
-    achieved: left.achieved || right.achieved || timestamp != null,
+    achieved: left.achieved || right.achieved || (timestamp != null && timestamp > 0),
     unlocked_at: timestamp,
   }
 }

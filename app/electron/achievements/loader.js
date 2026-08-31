@@ -210,13 +210,17 @@ async function loadAllSchemas() {
       if (icon && (!prev || prev.icon !== icon)) iconsCopied++
       const achieved = binTs > 0 ? true : prev ? Boolean(prev.achieved) : false
       const unlock = binTs > 0 ? binTs : prev && prev.unlock ? prev.unlock : 0
-      // Desbloqueio no bin que a gente não tinha marcado antes: enfileira pro
-      // sync (conquistas antigas, de antes do Arcadia ou de outra máquina).
-      if (achieved && sch.apiname && (!prev || !prev.achieved)) {
+      // Enfileira TODAS as conquistas pro sync (desbloqueadas E bloqueadas).
+      // Conquistas desbloqueadas sobem com unlocked_at real; bloqueadas sobem
+      // com unlocked_at=0 para que outro dispositivo saiba que existem.
+      // O merge no servidor usa "achieved OR" — se qualquer máquina desbloqueou,
+      // fica desbloqueado em todas.
+      if (sch.apiname && (!prev || prev.achieved !== achieved || normalizeTs(prev.unlock) !== unlock)) {
         p_sync.push({
           appid,
           apiname: sch.apiname,
-          unlocked_at: unlock,
+          unlocked_at: unlock || 0,
+          achieved,
           title: sch.name,
           icon,
           percent: prev && prev.percent ? prev.percent : 0,
