@@ -12,7 +12,6 @@
     font-family: "Inter", "Segoe UI", system-ui, sans-serif;
   }
 
-  /* ==================== TOAST BASE (shared) ==================== */
   .toast {
     display: flex;
     align-items: center;
@@ -25,19 +24,9 @@
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
-
   .toast.saindo { animation: fade-out 300ms ease-in forwards; }
+  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
 
-  @keyframes slide-in {
-    from { opacity: 0; transform: translateX(40px); }
-    to { opacity: 1; transform: translateX(0); }
-  }
-  @keyframes fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
-
-  /* Icon container */
   .icon-wrap {
     width: 64px;
     height: 64px;
@@ -48,16 +37,28 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
   }
 
   .icon {
     width: 64px;
     height: 64px;
     object-fit: cover;
-    display: block;
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 
-  /* Text container */
+  .icon.loaded { display: block; }
+
+  .icon-fallback {
+    font-size: 36px;
+    transition: opacity 0.2s;
+  }
+
+  .icon.loaded + .icon-fallback { opacity: 0; position: absolute; }
+
   .texts {
     display: flex;
     flex-direction: column;
@@ -65,46 +66,12 @@
     min-width: 0;
     flex: 1;
   }
+  .heading { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #f5a623; }
+  .title { font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desc { font-size: 12px; color: rgba(255, 255, 255, 0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .heading {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #f5a623;
-  }
-
-  .title {
-    font-size: 15px;
-    font-weight: 700;
-    color: #fff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .desc {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Trophy for platinum */
-  .trophy {
-    font-size: 36px;
-    line-height: 1;
-  }
-
-  /* Platinum animations */
-  .toast-platinum {
-    animation: slide-in 400ms ease-out;
-  }
-
-  .trophy-animate {
-    animation: trophy-rise 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  }
+  .trophy { font-size: 36px; }
+  .trophy-animate { animation: trophy-rise 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
   @keyframes trophy-rise {
     0% { opacity: 0; transform: translateY(40px) rotate(-90deg) scale(0.5); }
     60% { opacity: 1; transform: translateY(-5px) rotate(10deg) scale(1.1); }
@@ -115,11 +82,9 @@
 </head>
 <body>
   <div id="toast" class="toast">
-    <div id="icon-wrap" class="icon-wrap">
+    <div class="icon-wrap">
+      <span id="fallback" class="icon-fallback">🏆</span>
       <img id="icon" class="icon" src="" alt="" />
-    </div>
-    <div id="trophy-wrap" class="icon-wrap" style="display:none;">
-      <span id="trophy" class="trophy trophy-animate">🏆</span>
     </div>
     <div class="texts">
       <div id="heading" class="heading"></div>
@@ -127,38 +92,27 @@
       <div id="desc" class="desc"></div>
     </div>
   </div>
-
   <audio id="som" src="sounds/unlock.wav" autoplay></audio>
   <audio id="som-platinum" src="sounds/platinum.wav"></audio>
-
   <script>
     const q = new URLSearchParams(location.search)
     const isPlatinum = q.get("sound") === "platinum"
-
-    // Set content
     document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
     document.getElementById("title").textContent = q.get("title") || ""
     document.getElementById("desc").textContent = q.get("desc") || " "
-
     if (isPlatinum) {
-      // Platinum: show trophy, hide image icon
-      document.getElementById("icon-wrap").style.display = "none"
-      document.getElementById("trophy-wrap").style.display = "flex"
+      document.getElementById("fallback").className = "trophy trophy-animate"
       document.getElementById("som").remove()
-      const plat = document.getElementById("som-platinum")
-      plat.autoplay = true
-      plat.play().catch(() => {})
+      const p = document.getElementById("som-platinum"); p.autoplay = true; p.play().catch(()=>{})
       setTimeout(() => window.close(), 8000)
     } else {
-      // Normal: show icon image
       const icon = q.get("icon")
       if (icon) {
-        document.getElementById("icon").src = icon
+        const img = document.getElementById("icon")
+        img.onload = () => img.classList.add("loaded")
+        img.src = icon
       }
-      setTimeout(() => {
-        document.getElementById("toast").classList.add("saindo")
-        setTimeout(() => window.close(), 300)
-      }, 5000)
+      setTimeout(() => { document.getElementById("toast").classList.add("saindo"); setTimeout(() => window.close(), 300) }, 5000)
     }
   </script>
 </body>
