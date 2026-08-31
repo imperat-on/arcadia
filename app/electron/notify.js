@@ -31,12 +31,10 @@ function headingTraduzido() {
 // public/ para dist/), então não há bifurcação dev/produção de caminho.
 const NOTIFY_HTML = path.join(__dirname, "..", "dist", "notify.html")
 
-// Calculate toast size based on screen resolution (scales for 4K)
-const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
-const scaleFactor = Math.max(1, Math.min(screenWidth / 1920, screenHeight / 1080))
-const TOAST_W = Math.round(360 * scaleFactor)
-const TOAST_H = Math.round(96 * scaleFactor)
-const MARGIN = Math.round(16 * scaleFactor)
+// Default toast size (will be scaled based on screen resolution)
+const DEFAULT_TOAST_W = 360
+const DEFAULT_TOAST_H = 96
+const DEFAULT_MARGIN = 16
 
 let toastWin = null
 const fila = []
@@ -54,6 +52,13 @@ function processarFila() {
   if (toastWin && !toastWin.isDestroyed()) return
   const payload = fila.shift()
   if (!payload) return
+
+  // Calculate toast size based on screen resolution (scales for 4K)
+  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+  const scaleFactor = Math.max(1, Math.min(screenWidth / 1920, screenHeight / 1080))
+  const TOAST_W = Math.round(DEFAULT_TOAST_W * scaleFactor)
+  const TOAST_H = Math.round(DEFAULT_TOAST_H * scaleFactor)
+  const MARGIN = Math.round(DEFAULT_MARGIN * scaleFactor)
 
   // Canto inferior direito da área de trabalho do monitor primário.
   const { workArea } = screen.getPrimaryDisplay()
