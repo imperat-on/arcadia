@@ -58,13 +58,13 @@ function processarFila() {
   const TOAST_H = DEFAULT_TOAST_H
   const MARGIN = DEFAULT_MARGIN
 
-  // Top-right corner with margin
-  const { workArea } = screen.getPrimaryDisplay()
+  // Top-right corner with margin - use bounds (not workArea) to avoid scaling issues
+  const { bounds } = screen.getPrimaryDisplay()
   toastWin = new BrowserWindow({
     width: TOAST_W,
     height: TOAST_H,
-    x: workArea.x + workArea.width - TOAST_W - MARGIN,
-    y: workArea.y + MARGIN,
+    x: bounds.x + bounds.width - TOAST_W - MARGIN,
+    y: bounds.y + MARGIN,
     frame: false,
     transparent: true,
     resizable: false,
