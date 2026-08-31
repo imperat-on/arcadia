@@ -194,6 +194,11 @@
 
   <script>
     const q = new URLSearchParams(location.search)
+    const scale = parseFloat(q.get("scale") || "1")
+
+    // Apply scale factor to body
+    document.body.style.transform = `scale(${scale})`
+    document.body.style.transformOrigin = "top left"
 
     // Show normal toast
     document.getElementById("normal-heading").textContent = q.get("heading") || "Conquista desbloqueada!"
