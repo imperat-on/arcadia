@@ -60,18 +60,34 @@ function ToastItem({
   onFechar: () => void
 }) {
   const [saindo, setSaindo] = useState(false)
+  const [visivel, setVisivel] = useState(!item.icon)
 
-  // Auto-hide ~5s: marca saindo (anima 200ms), depois remove da fila.
+  // Pré-carrega o ícone — só mostra o toast depois que a imagem estiver pronta.
   useEffect(() => {
+    if (!item.icon) return
+    const img = new Image()
+    img.onload = () => setVisivel(true)
+    img.onerror = () => setVisivel(true) // mostra sem ícone em vez de travar
+    img.src = item.icon
+    // Fallback: se a imagem demorar mais que 2s, mostra de qualquer jeito.
+    const timeout = setTimeout(() => setVisivel(true), 2000)
+    return () => clearTimeout(timeout)
+  }, [item.icon])
+
+  // Auto-hide ~5s: começa a contar depois que o toast ficou visível.
+  useEffect(() => {
+    if (!visivel) return
     const t = setTimeout(() => setSaindo(true), 5000)
     return () => clearTimeout(t)
-  }, [])
+  }, [visivel])
 
   useEffect(() => {
     if (!saindo) return
     const t = setTimeout(onFechar, 200)
     return () => clearTimeout(t)
   }, [saindo, onFechar])
+
+  if (!visivel) return null
 
   return (
     <div
