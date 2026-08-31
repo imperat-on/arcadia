@@ -117,7 +117,9 @@
   <div id="toast" class="toast">
     <div id="icon-wrap" class="icon-wrap">
       <img id="icon" class="icon" src="" alt="" />
-      <span id="trophy" class="trophy" style="display:none;">🏆</span>
+    </div>
+    <div id="trophy-wrap" class="icon-wrap" style="display:none;">
+      <span id="trophy" class="trophy trophy-animate">🏆</span>
     </div>
     <div class="texts">
       <div id="heading" class="heading"></div>
@@ -141,8 +143,7 @@
     if (isPlatinum) {
       // Platinum: show trophy, hide image icon
       document.getElementById("icon-wrap").style.display = "none"
-      document.getElementById("trophy").style.display = "flex"
-      document.getElementById("trophy").className = "trophy trophy-animate"
+      document.getElementById("trophy-wrap").style.display = "flex"
       document.getElementById("som").remove()
       const plat = document.getElementById("som-platinum")
       plat.autoplay = true
