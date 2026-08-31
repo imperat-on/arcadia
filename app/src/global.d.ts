@@ -1588,6 +1588,8 @@ declare global {
           percent?: number
         }>
       >
+      /** Test toast (for debugging) */
+      testToast: (platinum?: boolean) => Promise<{ ok: boolean; error?: string }>
       /** Conquista desbloqueada em tempo real (watcher do processo principal). */
       onAchievementUnlocked: (
         cb: (payload: {
