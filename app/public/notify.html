@@ -81,7 +81,7 @@
 </style>
 </head>
 <body>
-  <div id="toast" class="toast">
+  <div id="toast" class="toast" style="visibility:hidden">
     <div class="icon-wrap">
       <span id="fallback" class="icon-fallback">🏆</span>
       <img id="icon" class="icon" src="" alt="" />
@@ -100,19 +100,27 @@
     document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
     document.getElementById("title").textContent = q.get("title") || ""
     document.getElementById("desc").textContent = q.get("desc") || " "
+    const toast = document.getElementById("toast")
     if (isPlatinum) {
+      toast.style.visibility = "visible"
       document.getElementById("fallback").className = "trophy trophy-animate"
       document.getElementById("som").remove()
       const p = document.getElementById("som-platinum"); p.autoplay = true; p.play().catch(()=>{})
       setTimeout(() => window.close(), 8000)
     } else {
       const icon = q.get("icon")
+      const show = () => { toast.style.visibility = "visible" }
       if (icon) {
         const img = document.getElementById("icon")
-        img.onload = () => img.classList.add("loaded")
+        img.onload = () => { img.classList.add("loaded"); show() }
+        img.onerror = show
         img.src = icon
+        // Fallback: se a imagem demorar mais que 2s, mostra de qualquer jeito.
+        setTimeout(show, 2000)
+      } else {
+        show()
       }
-      setTimeout(() => { document.getElementById("toast").classList.add("saindo"); setTimeout(() => window.close(), 300) }, 5000)
+      setTimeout(() => { toast.classList.add("saindo"); setTimeout(() => window.close(), 300) }, 5000)
     }
   </script>
 </body>
