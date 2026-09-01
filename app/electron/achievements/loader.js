@@ -215,7 +215,7 @@ async function loadAllSchemas() {
       // com unlocked_at=0 para que outro dispositivo saiba que existem.
       // O merge no servidor usa "achieved OR" — se qualquer máquina desbloqueou,
       // fica desbloqueado em todas.
-      if (sch.apiname && (!prev || prev.achieved !== achieved || normalizeTs(prev.unlock) !== unlock)) {
+      if (sch.apiname && (!prev || prev.achieved !== achieved || prev.unlock !== unlock)) {
         p_sync.push({
           appid,
           apiname: sch.apiname,
