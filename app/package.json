@@ -1,6 +1,8 @@
 {
   "name": "arcadia",
   "version": "1.1.0",
+  "description": "A game launcher for Linux and Windows with desktop and Big Picture UIs",
+  "author": "Davi Kolansinsky <imperat-on@users.noreply.github.com>",
   "desktopName": "arcadia.desktop",
   "private": true,
   "main": "electron/main.js",
