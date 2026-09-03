@@ -82,6 +82,39 @@ function parseUPC(conteudo) {
   return out
 }
 
+// Lê o runtime UPC COMPLETO (todos os itens, inclusive earned=0) e devolve um
+// mapa por displayName normalizado → { earned, unlockTime }. É a fonte da verdade
+// do que o jogo realmente desbloqueou. Usado na reconciliação para reverter
+// desbloqueios fantasmas que entraram no servidor via bug de mapeamento
+// (ex.: "Amigo dos Bichos" marcado quando o runtime diz earned=0).
+function upcRuntimeMap(conteudo) {
+  let root
+  try {
+    root = JSON.parse(conteudo)
+  } catch {
+    return null
+  }
+  if (!plainObject(root)) return null
+
+  const map = new Map()
+  for (const [rawId, value] of Object.entries(root)) {
+    if (!plainObject(value)) continue
+    const id = normalizeNumericId(rawId) || String(rawId).trim()
+    if (!id) continue
+    const nome = String(
+      value.displayName || value.name || value.apiname || value.description || value.title || ""
+    )
+      .trim()
+      .toLowerCase()
+    map.set(nome, {
+      id,
+      earned: earnedValue(value.earned),
+      unlockTime: epochMilliseconds(value.earned_time),
+    })
+  }
+  return map
+}
+
 // Converte os nomes internos Steam usados no catálogo do Arcadia para o ID
 // decimal que o loader UPC atual espera. Ex.: ACObsidian_Ach_40 -> "40".
 function numericAchievementId(value) {
@@ -439,6 +472,7 @@ module.exports = {
   earnedValue,
   epochMilliseconds,
   parseUPC,
+  upcRuntimeMap,
   numericAchievementId,
   itemUplayId,
   buildUplaySchema,
