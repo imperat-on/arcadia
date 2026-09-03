@@ -3,10 +3,17 @@ const { contextBridge, ipcRenderer } = require("electron")
 // Modo da UI: "console" (PS5, tela cheia) ou "desktop" (estilo Heroic, janela).
 contextBridge.exposeInMainWorld("launcherMode", process.env.ARCADIA_MODE || "desktop")
 
+// Platform info for conditional UI rendering
+contextBridge.exposeInMainWorld("launcherPlatform", process.platform)
+
 // Caminhos dinâmicos da máquina (NUNCA hardcodar /home/<usuário> no código).
 // Sem require("os"/"path"): o preload sandboxed não tem esses módulos.
-const HOME = process.env.HOME || ""
-const DATA_DIR = process.env.ARCADIA_DATA_DIR || `${HOME}/.local/share/arcadia`
+const HOME = process.env.HOME || process.env.USERPROFILE || ""
+const isWin = process.platform === "win32"
+const DATA_DIR = process.env.ARCADIA_DATA_DIR
+  || (isWin
+    ? `${process.env.LOCALAPPDATA || `${HOME}\\AppData\\Local`}\\arcadia`
+    : `${HOME}/.local/share/arcadia`)
 contextBridge.exposeInMainWorld("launcherPaths", {
   home: HOME,
   dataDir: DATA_DIR,

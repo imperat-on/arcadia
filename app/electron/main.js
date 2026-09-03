@@ -50,6 +50,8 @@ const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, spawnSync, execFile, execFileSync } = require("child_process")
 const { restoreWindowFocus } = require("./window-focus")
+const { isProcessAlive, killProcessTree, isProcessRunning, isSteamRunning } = require("./process-tools")
+const { findSteamExe } = require("./steam-path")
 const {
   buildExternalGamescopeCommand,
   canUseSystemdSession,
@@ -142,21 +144,18 @@ const BIN_DIR = path.join(DATA_DIR, "bin")
 // fs.existsSync(YTDLP) antes de agir, e um nome solto ("yt-dlp") nunca existe
 // como arquivo relativo ao cwd — todo trailer virava "yt-dlp ausente".
 function acharYtdlp() {
-  const local = path.join(BIN_DIR, "yt-dlp")
+  const ext = process.platform === "win32" ? ".exe" : ""
+  const local = path.join(BIN_DIR, `yt-dlp${ext}`)
   if (fs.existsSync(local)) return local
-  // O PATH do processo pode estar enxuto (gamescope/sessão sem shell de login),
-  // então varremos também os diretórios usuais além do que o PATH informar.
+  const sep = process.platform === "win32" ? ";" : ":"
   const dirs = [
-    ...(process.env.PATH || "").split(":").filter(Boolean),
-    "/usr/bin",
-    "/usr/local/bin",
-    "/bin",
-    path.join(os.homedir(), ".local", "bin"),
+    ...(process.env.PATH || "").split(sep).filter(Boolean),
+    ...(process.platform !== "win32" ? ["/usr/bin", "/usr/local/bin", "/bin", path.join(os.homedir(), ".local", "bin")] : []),
   ]
   for (const d of dirs) {
-    const p = path.join(d, "yt-dlp")
+    const p = path.join(d, `yt-dlp${ext}`)
     try {
-      fs.accessSync(p, fs.constants.X_OK)
+      fs.accessSync(p, fs.constants.F_OK)
       return p
     } catch {}
   }
@@ -607,9 +606,11 @@ function processIdentityMatches(record) {
 function grupoDoJogoVivo(rastreado = jogoAtivo || jogoEncerrando) {
   const pid = Number(rastreado?.pid)
   if (!Number.isInteger(pid) || pid <= 1 || rastreado.childExited) return false
-  // Observation is deliberately conservative when /proc is unavailable: a
-  // live ChildProcess is treated as alive, but processIdentityMatches() still
-  // fails closed for every signal sent by Stop.
+  if (process.platform === "win32") {
+    // On Windows, check if the child process is still alive
+    if (rastreado.child && !launchChildExited(rastreado.child)) return true
+    return isProcessAlive(pid)
+  }
   const ownershipKnown = processStartTimeKnown(refreshProcessIdentity(rastreado))
   if (ownershipKnown && !processIdentityMatches(rastreado)) {
     // The leader may have exited while handing off to a child, or its PID may
@@ -632,6 +633,12 @@ function grupoDoJogoVivo(rastreado = jogoAtivo || jogoEncerrando) {
 }
 
 function sinalizarGrupoDoJogo(record, signal) {
+  if (process.platform === "win32") {
+    // Windows: taskkill sem /F apenas manda WM_CLOSE — jogos em tela cheia
+    // ignoram ou demoram. Força a morte já na primeira chamada; o grupo
+    // killTimer de SIGKILL continua como rede de segurança.
+    return killProcessTree(record.pid, signal === "SIGTERM" ? "SIGKILL" : signal)
+  }
   if (!processIdentityMatches(record)) return false
   try {
     process.kill(-record.pid, signal)
@@ -662,6 +669,7 @@ function clearProcessSessionWatch(record) {
 }
 
 function pararSessaoSystemd(record) {
+  if (process.platform !== "linux") return false
   const session = record?.processSession
   if (session?.type !== "systemd" || session.stopRequested) return false
   const args = systemdStopArgs(session.unit)
@@ -763,15 +771,24 @@ function pararJogoSteam(record) {
   const appid = steamAppId(record)
   if (!appid || record?.steamStopRequested) return false
   record.steamStopRequested = true
-  const command = record.steamCommand || "steam"
+  const uri = `steam://stopgameid/${appid}`
   try {
-    const child = spawn(command, [`steam://stopgameid/${appid}`], {
+    if (process.platform === "win32") {
+      // On Windows, spawn() does not resolve protocol handlers.
+      // Use `start` via cmd so the OS dispatches the steam:// URI to the
+      // already-running Steam client, which then stops the game.
+      const { exec } = require("child_process")
+      exec(`start "" "${uri}"`, { windowsHide: true }, (error) => {
+        if (error) console.warn("arcadia: não foi possível pedir parada à Steam:", error.message)
+      })
+      return true
+    }
+    const command = record.steamCommand || findSteamExe()
+    const child = spawn(command, [uri], {
       detached: true,
       stdio: "ignore",
       env: record.steamEnv || process.env,
     })
-    // Spawn errors are expected when Steam was closed between poll ticks.  An
-    // error listener is mandatory because this helper is intentionally detached.
     child.on?.("error", (error) => {
       console.warn("arcadia: não foi possível pedir parada à Steam:", error.message || error)
     })
@@ -833,12 +850,15 @@ function pararJogo(record) {
     ? pararSessaoSystemd(record)
     : false
   const signaled = sinalizarGrupoDoJogo(record, "SIGTERM")
-  if (signaled && !record.groupKillTimer) {
+  // Schedule SIGKILL as a safety net. On Windows, taskkill may fail if the
+  // process already exited or access is denied — still schedule the fallback
+  // so the poll doesn't keep the RUNNING state alive forever.
+  if (!record.groupKillTimer) {
     record.groupKillTimer = setTimeout(() => {
       record.groupKillTimer = null
-      // Revalidate both launch generation and process identity before SIGKILL.
-      if ((jogoAtivo === record || jogoEncerrando === record) &&
-          sinalizarGrupoDoJogo(record, "SIGKILL")) return
+      if ((jogoAtivo === record || jogoEncerrando === record)) {
+        sinalizarGrupoDoJogo(record, "SIGKILL")
+      }
     }, 4000)
   }
   return signaled || sessionStopped || Boolean(record.steamWrapper)
@@ -904,7 +924,7 @@ const armarPollJogo = () => {
           // o cgroup mostrar pelo menos um processo; Gamescope/reaper sozinhos
           // não contam como jogo confirmado.
           if (!wrapperSteam) {
-            if (processSessionReady(grupo)) {
+            if (processSessionReady(grupo) && !grupo.stopRequested) {
               processoJogoVisto = true
               marcar(true)
             }
@@ -934,43 +954,46 @@ const armarPollJogo = () => {
         finalizarSeAusente()
         return
       }
-      execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
-        if (runningGameGeneration !== generation || !runningGameInterval) return
-        const rodando = !err
-        if (rodando) processoJogoVisto = true
-        // Steam pode levar vários segundos entre a morte do wrapper URI e a
-        // criação do executável real. Sem esta janela, dois pgrep vazios
-        // restaurariam o foco enquanto o jogo ainda está abrindo.
-        if (
-          !processoJogoVisto &&
-          !ultimoJogoAtivo?.stopRequested &&
-          Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS
-        ) {
+      if (process.platform === "win32") {
+        // On Windows, check if steam.exe is running
+        const steamRunning = isSteamRunning()
+        if (steamRunning) processoJogoVisto = true
+        if (!processoJogoVisto && !ultimoJogoAtivo?.stopRequested
+            && Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS) {
           sinalDeVida = 0
           return
         }
-        if (rodando) {
-          marcar(true)
-          sinalDeVida = 0
-          return
-        }
+        if (steamRunning && !ultimoJogoAtivo?.stopRequested) { marcar(true); sinalDeVida = 0; return }
         finalizarSeAusente()
-      })
+      } else {
+        execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+          if (runningGameGeneration !== generation || !runningGameInterval) return
+          const rodando = !err
+          if (rodando) processoJogoVisto = true
+          if (
+            !processoJogoVisto &&
+            !ultimoJogoAtivo?.stopRequested &&
+            Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS
+          ) {
+            sinalDeVida = 0
+            return
+          }
+          if (rodando) {
+            marcar(true)
+            sinalDeVida = 0
+            return
+          }
+          finalizarSeAusente()
+        })
+      }
     }
 
-    if (process.env.ARCADIA_GAMESCOPE === "1") {
-      // O Chromium dentro do gamescope não recebe blur/focus. O pgrep é
-      // necessário para Steam (o jogo é filho do cliente), mas não encontra
-      // executáveis não-Steam em pastas arbitrárias. O grupo detached que o
-      // Arcadia criou cobre esses jogos e os wrappers de Proton/gamescope.
+    if (process.platform !== "win32" && process.env.ARCADIA_GAMESCOPE === "1") {
       execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
         if (runningGameGeneration !== generation || !runningGameInterval) return
         const jogoPorGrupo = grupoDoJogoVivo()
-        const jogoPorPadrao = !err // Steam/Proton conhecido pelo cmdline
+        const jogoPorPadrao = !err
         const jogoEmCena = jogoPorGrupo || jogoPorPadrao
-        // O primeiro ciclo sem pgrep pode ser só a troca do wrapper Steam
-        // para o processo real. O launcher já foi marcado fora de foco na
-        // borda do launch; nenhuma transição FALSE é emitida aqui.
         if (jogoEmCena && focado) focoNativo(false)
         tick()
       })
@@ -1068,17 +1091,19 @@ const marcar = (rodando, forcar = false) => {
 // em vídeos com restrição de idade). Aceitamos tanto a cópia em bin/ quanto a do
 // sistema, e garantimos os diretórios padrão: no gamescope o PATH herdado pode
 // vir enxuto, sem nem /usr/bin — foi o que já quebrou a busca de trailers.
-const YTDLP_ENV = {
-  ...process.env,
-  PATH: [BIN_DIR, process.env.PATH || "", "/usr/bin", "/usr/local/bin", "/bin"]
-    .filter(Boolean)
-    .join(":"),
-}
-// Pasta do ffmpeg (necessário p/ juntar vídeo+áudio dos vídeos só-DASH). Passamos
-// explícito porque o PATH do app pode não incluir /usr/bin (ex.: no gamescope).
-const FFMPEG_DIR =
-  ["/usr/bin", "/usr/local/bin", "/bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg"))) || ""
-const SLS_CONFIG = path.join(HOME, ".config/SLSsteam/config.yaml")
+const YTDLP_ENV = (() => {
+  const sep = process.platform === "win32" ? ";" : ":"
+  return {
+    ...process.env,
+    PATH: [BIN_DIR, process.env.PATH || "",
+      ...(process.platform !== "win32" ? ["/usr/bin", "/usr/local/bin", "/bin"] : []),
+    ].filter(Boolean).join(sep),
+  }
+})()
+const FFMPEG_DIR = process.platform === "win32"
+  ? (["C:\\ffmpeg\\bin", "C:\\Program Files\\ffmpeg\\bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg.exe"))) || "")
+  : ["/usr/bin", "/usr/local/bin", "/bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg"))) || ""
+const SLS_CONFIG = process.platform !== "win32" ? path.join(HOME, ".config/SLSsteam/config.yaml") : ""
 
 // Diário do subsistema de trailers. O serviço recebe o logger para continuar
 // diagnosticando falhas sem depender do Electron.
@@ -1511,6 +1536,10 @@ function customLaunchCmd(id) {
 function exeLaunchCmd(id, exe, linux) {
   if (!exe) return null
   const executable = path.resolve(String(exe))
+  // Windows: .exe runs natively, no Wine/Proton needed
+  if (process.platform === "win32") {
+    return { cmd: [executable], env: {}, cwd: path.dirname(executable) }
+  }
   if (linux === undefined) linux = !/\.exe$/i.test(executable)
   if (linux) return { cmd: [executable], env: {}, cwd: path.dirname(executable) }
   const wm = require("./winemanager")
@@ -1688,9 +1717,10 @@ function splitArgs(str) {
 // quando o wrapper configurado (gamescope/gamemoderun/etc) não está instalado.
 function binExists(cmd) {
   if (!cmd) return false
-  if (cmd.includes("/")) return fs.existsSync(cmd)
+  if (cmd.includes("/") || cmd.includes("\\")) return fs.existsSync(cmd)
+  const sep = process.platform === "win32" ? ";" : ":"
   return String(process.env.PATH || "")
-    .split(":")
+    .split(sep)
     .some((dir) => fs.existsSync(path.join(dir, cmd)))
 }
 
@@ -1730,6 +1760,7 @@ function systemdUserManagerReady() {
 }
 
 function createExternalProcessSession(tokenId) {
+  if (process.platform !== "linux") return null
   if (!canUseSystemdSession({
     platform: process.platform,
     binExists,
@@ -1783,8 +1814,8 @@ function validarBinariosLaunch(cmd, gameId) {
  */
 function steamSilencioso(cmd) {
   if (!Array.isArray(cmd) || cmd.length < 2) return cmd
-  // O binário pode ser o wrapper do slsteam-moon, que repassa os argumentos.
-  if (path.basename(String(cmd[0])) !== "steam") return cmd
+  const base = path.basename(String(cmd[0])).toLowerCase().replace(/\.exe$/, "")
+  if (base !== "steam") return cmd
   if (cmd.includes("-silent")) return cmd
   const abreJogo = cmd.some((a) => /^steam:\/\/(rungameid|run)\//.test(String(a)))
   if (!abreJogo) return cmd
@@ -1805,8 +1836,9 @@ function steamSilencioso(cmd) {
  * deixar o jogo falhar em silêncio.
  */
 function steamComInjecao(cmd) {
+  if (process.platform === "win32") return { cmd, env: {}, avisos: [] }
   const avisos = []
-  if (!Array.isArray(cmd) || path.basename(String(cmd[0])) !== "steam")
+  if (!Array.isArray(cmd) || path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam")
     return { cmd, env: {}, avisos }
   const url = cmd.find((a) => /^steam:\/\/(rungameid|run)\//.test(String(a)))
   if (!url) return { cmd, env: {}, avisos }
@@ -1829,30 +1861,29 @@ function steamComInjecao(cmd) {
 function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKeys = []) {
   const warnings = []
   const env = { ...process.env }
-  if (s.esync) env.WINEESYNC = "1"
-  if (s.fsync) env.WINEFSYNC = "1"
-  if (s.wineWayland) env.PROTON_ENABLE_WAYLAND = "1"
-  if (s.wow64) env.PROTON_USE_WOW64 = "1"
-  if (s.fsrHack) env.WINE_FULLSCREEN_FSR = "1"
-  if (s.autoNVAPI) env.DXVK_ENABLE_NVAPI = "1"
-  if (s.dxvkHud) env.DXVK_HUD = s.dxvkHud
-  if (s.verboseLogs) {
-    env.WINEDEBUG = env.WINEDEBUG || "+timestamp,+pid,+tid,+seh,+warn"
-    if (!s.dxvkHud) env.DXVK_HUD = "full"
+  // Wine/Proton env vars — Linux only
+  if (process.platform !== "win32") {
+    if (s.esync) env.WINEESYNC = "1"
+    if (s.fsync) env.WINEFSYNC = "1"
+    if (s.wineWayland) env.PROTON_ENABLE_WAYLAND = "1"
+    if (s.wow64) env.PROTON_USE_WOW64 = "1"
+    if (s.fsrHack) env.WINE_FULLSCREEN_FSR = "1"
+    if (s.autoNVAPI) env.DXVK_ENABLE_NVAPI = "1"
+    if (s.dxvkHud) env.DXVK_HUD = s.dxvkHud
+    if (s.verboseLogs) {
+      env.WINEDEBUG = env.WINEDEBUG || "+timestamp,+pid,+tid,+seh,+warn"
+      if (!s.dxvkHud) env.DXVK_HUD = "full"
+    }
+    if (s.mangohud && !binExists("mangohud")) env.MANGOHUD = "1"
+    if (s.prefixPath) env.WINEPREFIX = s.prefixPath
   }
-  // MANGOHUD=1 só quando o binário não existe (fallback); com o wrapper o
-  // mangohud já se ativa sozinho e a var vira redundância.
-  if (s.mangohud && !binExists("mangohud")) env.MANGOHUD = "1"
-  if (s.prefixPath) env.WINEPREFIX = s.prefixPath
   // Variáveis de ambiente extras (aba AVANÇADO).
   for (const v of s.envVars || []) {
     if (v && /^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name || "")) env[v.name] = v.value ?? ""
   }
   let finalCmd = cmd
-  // Legendary (Epic): a versão do Wine escolhida vira --wine e o prefixo
-  // customizado vira --wine-prefix — sem isso o jogo sempre usava o wine do
-  // sistema, ignorando a escolha do diálogo.
-  if (/legendary$/.test(cmd[0]) && cmd[1] === "launch") {
+  // Legendary (Epic): Wine prefix — Linux only (on Windows, games run natively)
+  if (process.platform !== "win32" && /legendary$/.test(cmd[0]) && cmd[1] === "launch") {
     // Prefixo POR JOGO (padrão: pasta configurada/epic_<id>) — sem isso todos
     // os jogos Epic dividiam o ~/.wine do sistema.
     const prefixo = s.prefixPath || (gameId ? defaultPrefix(gameId) : "")
@@ -1882,17 +1913,11 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
     }
   }
   // Argumentos do jogo: entram depois do comando (não se aplica a Steam).
-  if (s.gameArgs && path.basename(String(cmd[0])) !== "steam")
+  if (s.gameArgs && path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam")
     finalCmd = [...finalCmd, ...splitArgs(s.gameArgs)]
   let processSession = null
-  // Gamescope embrulha o comando (não se aplica a jogos Steam — a Steam tem
-  // sua própria integração com gamescope). Em Linux, colocamos o comando
-  // primário num serviço transitório do systemd. Isso é importante para
-  // launchers que fecham o updater depois de criar outro processo: o
-  // gamescopereaper vê o `systemd-run --wait` vivo, e o cgroup mantém o novo
-  // processo dentro da sessão. `--keep-alive` cobre a janela de handoff no
-  // compositor; o vigia encerra a superfície quando o cgroup esvazia.
-  if (s.gamescope && path.basename(String(cmd[0])) !== "steam") {
+  // Gamescope — Linux only (on Windows, use fullscreen/borderless)
+  if (process.platform !== "win32" && s.gamescope && path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam") {
     if (binExists("gamescope")) {
       // HDR clients need the Gamescope WSI layer.  Set this only for an
       // external Gamescope launch; Steam owns its own Gamescope integration
@@ -1944,17 +1969,16 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
       warnings.push("gamescope não está instalado — iniciando sem ele")
     }
   }
-  // GameMode (Feral): embrulha tudo com gamemoderun (a Steam tem o dela).
-  if (s.gamemode && path.basename(String(cmd[0])) !== "steam") {
+  // GameMode — Linux only
+  if (process.platform !== "win32" && s.gamemode && path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam") {
     if (binExists("gamemoderun")) {
       finalCmd = ["gamemoderun", ...finalCmd]
     } else {
       warnings.push("gamemoderun não está instalado — iniciando sem ele")
     }
   }
-  // MangoHud: embrulha com o binário `mangohud` (LD_PRELOAD correto p/ GL e
-  // Vulkan). Só MANGOHUD=1 não basta em jogos OpenGL (ex.: Godot).
-  if (s.mangohud && path.basename(String(cmd[0])) !== "steam") {
+  // MangoHud — Linux only
+  if (process.platform !== "win32" && s.mangohud && path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam") {
     if (binExists("mangohud")) {
       finalCmd = ["mangohud", ...finalCmd]
     } else {
@@ -1962,7 +1986,7 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
     }
   }
   // Wrappers customizados (aba AVANÇADO): os mais externos por último.
-  if (path.basename(String(cmd[0])) !== "steam") {
+  if (path.basename(String(cmd[0])).replace(/\.exe$/, "") !== "steam") {
     for (const w of s.wrappers || []) {
       if (!w || !w.cmd) continue
       if (binExists(w.cmd)) {
@@ -2266,11 +2290,14 @@ function slssteamCount() {
 }
 
 function heroicConnected() {
+  const heroDir = process.platform === "win32"
+    ? path.join(HOME, "AppData", "Local", "heroic", "store_cache")
+    : path.join(HOME, ".config", "heroic", "store_cache")
   for (const f of ["gog", "legendary", "nile"]) {
     try {
       const j = JSON.parse(
         fs.readFileSync(
-          path.join(HOME, ".config/heroic/store_cache", `${f}_library.json`),
+          path.join(heroDir, `${f}_library.json`),
           "utf-8",
         ),
       )
@@ -3098,6 +3125,12 @@ app.whenReady().then(() => {
           finishCancelledLaunch(launch)
           return false
         }
+        // On Windows, bare "steam" may not be on PATH. Resolve the full path
+        // before spawning so Steam games actually launch.
+        if (process.platform === "win32" && path.basename(String(c[0])).replace(/\.exe$/, "").toLowerCase() === "steam") {
+          const resolved = findSteamExe()
+          if (resolved) c = [resolved, ...c.slice(1)]
+        }
         let child
         try {
           child = spawn(c[0], c.slice(1), {
@@ -3208,13 +3241,14 @@ app.whenReady().then(() => {
       // MAS só manda o exitbigpicture se a Steam JÁ estiver rodando: com ela
       // fechada, esse URI inicia a Steam EM Big Picture (efeito colateral).
       if (
-        path.basename(String(cmd[0])) === "steam" &&
+        (path.basename(String(cmd[0])).replace(/\.exe$/, "") === "steam") &&
         typeof cmd[1] === "string" &&
         cmd[1].startsWith("steam://")
       ) {
         const spawnSteamHelper = (args) => {
           try {
-            const helper = spawn(cmd[0], args, {
+            const steamBin = findSteamExe()
+            const helper = spawn(steamBin, args, {
               detached: true,
               stdio: "ignore",
               env,
@@ -3243,13 +3277,19 @@ app.whenReady().then(() => {
           }
           return soltar(cmd, acompanhaSessao)
         }
-        execFile("pgrep", ["-x", "steam"], (err) => {
+        const checkSteamAndLaunch = (callback) => {
+          if (process.platform === "win32") {
+            callback(isSteamRunning() ? null : new Error("steam not running"))
+          } else {
+            execFile("pgrep", ["-x", "steam"], callback)
+          }
+        }
+        checkSteamAndLaunch((err) => {
           if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
             finishCancelledLaunch(launch)
             return
           }
           if (!err) {
-            // Steam rodando: sai do BPM e lança.
             spawnSteamHelper(["steam://exitbigpicture"])
             launch.steamRunTimer = setTimeout(() => {
               launch.steamRunTimer = null
@@ -3257,11 +3297,6 @@ app.whenReady().then(() => {
             }, 900)
             return
           }
-          // Steam FECHADA: abre o cliente (mesmo binário/env de `cmd`/`env` —
-          // com injeção SLSsteam quando aplicável; usar o "steam" do PATH
-          // aqui reintroduziria a Steam pura, ver comentário de steamComInjecao),
-          // espera subir, garante saída do BPM (ela pode restaurar a sessão
-          // anterior em BPM — principalmente no gamescope) e só então lança o jogo.
           const starter = spawnSteamHelper([])
           launch.steamStarterChild = starter
           let tentativas = 0
@@ -3271,7 +3306,7 @@ app.whenReady().then(() => {
               finishCancelledLaunch(launch)
               return
             }
-            execFile("pgrep", ["-x", "steam"], (e2) => {
+            checkSteamAndLaunch((e2) => {
               if (!launchIsCurrent(launch) || launch.stopRequested || launchLifecycle.isStopping(launch.token)) {
                 finishCancelledLaunch(launch)
                 return
@@ -3566,7 +3601,7 @@ app.whenReady().then(() => {
         try {
           require("./supabase/biblioteca").agendarPush()
         } catch {}
-        const child = spawn("steam", [`steam://uninstall/${appid}`], {
+        const child = spawn(findSteamExe(), [`steam://uninstall/${appid}`], {
           detached: true,
           stdio: "ignore",
         })

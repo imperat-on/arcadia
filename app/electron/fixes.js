@@ -275,8 +275,17 @@ function cleanupTmp(appid) {
 }
 
 function find7z() {
+  if (process.platform === "win32") {
+    const candidates = [
+      path.join(__dirname, "..", "bin", "7z.exe"),
+      "C:\\Program Files\\7-Zip\\7z.exe",
+      "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+    ]
+    for (const c of candidates) if (fs.existsSync(c)) return c
+    return null
+  }
   const candidates = [
-    path.join(__dirname, "..", "bin", "7zz"), // caso usuário coloque
+    path.join(__dirname, "..", "bin", "7zz"),
     "/usr/bin/7zz",
     "/usr/bin/7z",
     "/usr/local/bin/7zz",
@@ -310,6 +319,11 @@ async function applyFix({ appid, url, type, installPath }) {
   }
 
   writeState(a, { status: "downloading", bytesRead: 0, totalBytes: 0 })
+
+  // Windows: no bash script, return error (fixes not supported on Windows yet)
+  if (process.platform === "win32") {
+    return { ok: false, error: "Game fixes are not yet supported on Windows" }
+  }
 
   // Spawna o downloader em bg e devolve imediatamente; UI faz poll em status.
   const sevenz = find7z()

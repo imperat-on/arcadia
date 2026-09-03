@@ -3,9 +3,10 @@
 
 const fs = require("fs")
 const path = require("path")
-const { spawn } = require("child_process")
+const { spawn, execFile } = require("child_process")
 const { RUNNERS_DIR, ensureLegendary } = require("./runners/download")
 const { getDataDir } = require("./runtime-paths")
+const { killProcessTree } = require("./process-tools")
 const { nextQueued, normalizePriority } = require("./download-queue-policy")
 const {
   DEFAULT_MAX_RECOVERY_ATTEMPTS,
@@ -19,7 +20,7 @@ const {
 const DATA_DIR = getDataDir()
 const QUEUE_FILE = path.join(DATA_DIR, "downloads.json")
 const GAMES_DIR = path.join(DATA_DIR, "games")
-const BIN = path.join(RUNNERS_DIR, "legendary")
+const BIN = path.join(RUNNERS_DIR, process.platform === "win32" ? "legendary.exe" : "legendary")
 
 // Linhas típicas do Legendary (0.20.34):
 //   [DLManager] INFO: = Progress: 15.13% (1500/761), Running for 00:05:32, ETA: 00:02:11
@@ -47,6 +48,17 @@ let recoveryTimer = null
 // process.kill(-pid) atinge o grupo inteiro. Fallback: sinaliza só o filho.
 function signalGroup(child, sig) {
   if (!child || !child.pid) return
+  if (process.platform === "win32") {
+    try {
+      const force = sig === "SIGKILL" || sig === 9
+      execFile("taskkill", ["/PID", String(child.pid), "/T", force ? "/F" : ""].filter(Boolean), {
+        stdio: "ignore", timeout: 5000
+      })
+    } catch {
+      try { child.kill(sig) } catch {}
+    }
+    return
+  }
   try {
     process.kill(-child.pid, sig) // -pid = grupo inteiro
   } catch {
@@ -512,7 +524,16 @@ function scheduleRecovery(it, decision) {
 // e a versão síncrona travava o processo principal do Electron (IPC, janela,
 // vigia de jogo) a cada 3s durante o download inteiro.
 function dirSizeMiB(dir, cb) {
-  const { execFile } = require("child_process")
+  if (process.platform === "win32") {
+    execFile("powershell", [
+      "-NoProfile", "-Command",
+      `(Get-ChildItem -Recurse -File "${dir}" | Measure-Object -Property Length -Sum).Sum / 1MB`
+    ], { encoding: "utf-8", timeout: 10000 }, (err, out) => {
+      if (err) return cb(0)
+      cb(Math.round(parseFloat(out) || 0))
+    })
+    return
+  }
   execFile("du", ["-sm", dir], { encoding: "utf-8", timeout: 10000 }, (err, out) => {
     if (err) return cb(0)
     cb(parseInt(String(out).split("\t")[0], 10) || 0)
@@ -686,6 +707,12 @@ function pause(appid) {
   const it = queue.find((q) => q.appid === appid)
   if (!it) return
   if (it.status === "downloading" && activeChild) {
+    if (process.platform === "win32") {
+      // SIGSTOP/SIGCONT not available on Windows — kill and re-queue
+      signalGroup(activeChild, "SIGKILL")
+      update(appid, { status: "paused", speed: 0 })
+      return
+    }
     signalGroup(activeChild, "SIGSTOP") // para o grupo inteiro, não só o pai
     update(appid, { status: "paused", speed: 0 })
   } else if (it.status === "queued") {

@@ -713,6 +713,8 @@ declare global {
   interface Window {
     /** Modo da UI: console (PS5) ou desktop (estilo Heroic). */
     launcherMode?: "console" | "desktop"
+    /** Platform: "win32" for Windows, "linux" for Linux. */
+    launcherPlatform?: string
     /** Caminhos dinâmicos da máquina do usuário. */
     launcherPaths?: { home: string; dataDir: string }
     launcherAPI?: {

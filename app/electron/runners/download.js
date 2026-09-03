@@ -5,7 +5,14 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 
-const RUNNERS_DIR = path.join(os.homedir(), ".config", "arcadia", "runners")
+function getDefaultRunnersDir() {
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "arcadia", "runners")
+  }
+  return path.join(os.homedir(), ".config", "arcadia", "runners")
+}
+
+const RUNNERS_DIR = getDefaultRunnersDir()
 
 // Repo do Legendary mudou de dono — a API antiga (derrod) redireciona; usar o
 // id numérico que segue o redirect automaticamente.
@@ -18,16 +25,19 @@ async function downloadLegendary() {
   }).then((r) => r.json())
   const asset = (rel.assets || []).find((a) => a.name === "legendary")
   if (!asset) throw new Error("asset 'legendary' não encontrado na release")
-  const dest = path.join(RUNNERS_DIR, "legendary")
+  const dest = path.join(RUNNERS_DIR, process.platform === "win32" ? "legendary.exe" : "legendary")
   const buf = Buffer.from(await fetch(asset.browser_download_url).then((r) => r.arrayBuffer()))
   fs.writeFileSync(dest, buf)
-  fs.chmodSync(dest, 0o755)
+  if (process.platform !== "win32") {
+    try { fs.chmodSync(dest, 0o755) } catch {}
+  }
   return dest
 }
 
 // Garante o binário; devolve o caminho. Baixa só se não existir.
 async function ensureLegendary() {
-  const dest = path.join(RUNNERS_DIR, "legendary")
+  const ext = process.platform === "win32" ? ".exe" : ""
+  const dest = path.join(RUNNERS_DIR, `legendary${ext}`)
   if (fs.existsSync(dest)) return dest
   return downloadLegendary()
 }

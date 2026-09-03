@@ -22,6 +22,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const os = require("os")
 const { loadAchievements, saveAchievements } = require("./schema")
 const { caminhoArquivoConta, conta } = require("./../supabase/conta")
 const { dataPath } = require("./../runtime-paths")
@@ -243,11 +244,15 @@ function numericUplayDirs(prefixo) {
 }
 
 function caminhosPrefixados(prefixo, appid, entry) {
-  const u = path.join(prefixo, "drive_c", "users", USUARIO_WINE)
-  const a = path.join(u, "AppData", "Roaming")
-  const pub = path.join(prefixo, "drive_c", "users", "Public", "Documents")
-  const prog = path.join(prefixo, "drive_c", "ProgramData")
-  const docs = path.join(u, "Documents")
+  // Raízes por plataforma: no Linux são derivadas do prefixo Wine; no Windows
+  // nativo, das pastas reais do usuário (%APPDATA%, %PUBLIC%, etc.).
+  const raizes = raizesCrack(prefixo)
+  const u = raizes.user
+  const a = raizes.appdata
+  const pub = raizes.publicDocs
+  const prog = raizes.programData
+  const docs = raizes.userDocs
+  const local = raizes.localAppData
   const settings = readSettings(entry, appid)
   const uplayIds = new Set()
   const configuredUplayId = resolveUplayId(appid, settings, entry)
@@ -262,7 +267,7 @@ function caminhosPrefixados(prefixo, appid, entry) {
   }))
 
   return [
-    // UPC/voices38 (schema na raiz do jogo; runtime no prefixo Wine).
+    // UPC/voices38 (schema na raiz do jogo; runtime na pasta de saves).
     ...upcRecords,
     // Goldberg (2 variantes)
     {
@@ -305,7 +310,7 @@ function caminhosPrefixados(prefixo, appid, entry) {
     },
     {
       name: "skidrow",
-      file: path.join(a, "..", "Local", "SKIDROW", appid, "SteamEmu", "UserStats", "achiev.ini"),
+      file: path.join(local, "SKIDROW", appid, "SteamEmu", "UserStats", "achiev.ini"),
       parse: parseSkidrow,
     },
     // EMPRESS
@@ -371,6 +376,56 @@ function caminhosPrefixados(prefixo, appid, entry) {
       parse: null,
     },
   ]
+}
+
+// Raízes das pastas de save dos crackers, por plataforma. No Linux entram
+// dentro do prefixo Wine (drive_c/users/steamuser ou Public); no Windows são
+// as pastas reais do usuário. Mesma árvore, base diferente.
+function raizesCrack(prefixo) {
+  if (process.platform === "win32") {
+    const home = os.homedir()
+    const appdata = process.env.APPDATA || path.join(home, "AppData", "Roaming")
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+    const publicDocs = process.env.PUBLIC
+      ? path.join(process.env.PUBLIC, "Documents")
+      : path.join("C:", "Users", "Public", "Documents")
+    const programData = process.env.PROGRAMDATA || path.join("C:", "ProgramData")
+    return {
+      user: appdata, // base do UPC — em Windows, também vive em %APPDATA%
+      appdata,
+      localAppData,
+      publicDocs,
+      programData,
+      // OneDrive move a pasta Documents real — resolve por existência, com
+      // fallback para o path clássico quando nada existe ainda.
+      userDocs: pastaDocumentosWindows(home),
+    }
+  }
+  const u = path.join(prefixo, "drive_c", "users", USUARIO_WINE)
+  return {
+    user: u,
+    appdata: path.join(u, "AppData", "Roaming"),
+    localAppData: path.join(u, "AppData", "Local"),
+    publicDocs: path.join(prefixo, "drive_c", "users", "Public", "Documents"),
+    programData: path.join(prefixo, "drive_c", "ProgramData"),
+    userDocs: path.join(u, "Documents"),
+  }
+}
+
+// Documents pode estar redirecionado (OneDrive/empresa). Devolve a pasta que
+// existe; senão, o path clássico como fallback determinístico.
+function pastaDocumentosWindows(home) {
+  const candidatos = [
+    path.join(home, "Documents"),
+    path.join(home, "OneDrive", "Documents"),
+    path.join(home, "OneDrive - Personal", "Documents"),
+  ]
+  for (const c of candidatos) {
+    try {
+      if (fs.statSync(c).isDirectory()) return c
+    } catch {}
+  }
+  return candidatos[0]
 }
 
 // --- Resolvedor de prefixo ---
@@ -493,7 +548,10 @@ function iniciarVigia(onUnlock) {
       if (!appid) continue
 
       const prefixo = resolvePrefixo(appid, entry)
-      if (!fs.existsSync(prefixo)) continue
+      // No Windows nativo não há prefixo Wine — as raízes reais (APPDATA,
+      // PUBLIC, PROGRAMDATA...) são resolvidas dentro de raizesCrack. O gate
+      // de existência do prefixo vale só para o Linux.
+      if (process.platform !== "win32" && !fs.existsSync(prefixo)) continue
 
       // Carrega o índice de conquistas pra mapear apiname → item
       const store = loadAchievements()
@@ -550,16 +608,8 @@ function iniciarVigia(onUnlock) {
       }
 
       // FLT: pasta com 1 arquivo por conquista
-      const fltDir = path.join(
-        prefixo,
-        "drive_c",
-        "users",
-        USUARIO_WINE,
-        "AppData",
-        "Roaming",
-        "FLT",
-        appid,
-      )
+      const raizes = raizesCrack(prefixo)
+      const fltDir = path.join(raizes.appdata, "FLT", appid)
       if (fs.existsSync(fltDir)) {
         let mtime
         try {
@@ -694,6 +744,7 @@ module.exports = {
   parseRLD,
   parseCreamAPI,
   caminhosPrefixados,
+  raizesCrack,
   resolvePrefixo,
   resolveExeDir,
   lerLibrary,

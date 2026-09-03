@@ -99,7 +99,11 @@ export function useJogoRodando(games: readonly Game[] = JOGOS_VAZIOS) {
     const minhaGeracao = generation.current
     encerrando.current = true
     const pedido = window.launcherAPI?.closeGame?.()
-    if (pedido) void pedido.catch(() => {})
+    if (pedido) {
+      void pedido.then(() => {
+        if (generation.current === minhaGeracao) limpar()
+      }).catch(() => {})
+    }
     clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       if (generation.current === minhaGeracao) limpar()
@@ -116,16 +120,17 @@ export function useJogoRodando(games: readonly Game[] = JOGOS_VAZIOS) {
         viuRodando.current = true
         setConfirmado(true)
         clearTimeout(timer.current)
-      } else if (viuRodando.current || jogoAtual.current) {
-        // Também limpa um launch que terminou antes do primeiro poll. O main
-        // envia false forçado no finalizer para não deixar o pending travado.
-        limpar()
       } else {
-        // Sincroniza um renderer que montou já em estado ocioso.
+        // Do NOT call limpar() here. The main process still holds
+        // jogoEncerrando/jogoAtivo until finalizarSessao releases the token
+        // and emits game:launchState("idle"). Clearing too early lets the
+        // renderer show "Play" while the main rejects the launch.
+        // The full clear comes from aoLancamento("idle") or encerrar's .then.
+        viuRodando.current = false
         setConfirmado(false)
       }
     },
-    [limpar],
+    [],
   )
 
   const aoAtivo = useCallback(
@@ -173,7 +178,7 @@ export function useJogoRodando(games: readonly Game[] = JOGOS_VAZIOS) {
           // token's idle event is still in flight. Do not clear that newer
           // local generation before its `starting` token arrives.
           if (atualToken !== null && token !== atualToken) return
-          if (atualToken === null && token === latestLaunchToken.current && jogoAtual.current) return
+          if (atualToken === null && token === latestLaunchToken.current && jogoAtual.current && confirmado) return
           latestLaunchToken.current = Math.max(latestLaunchToken.current, token)
         }
         limpar()
@@ -197,15 +202,20 @@ export function useJogoRodando(games: readonly Game[] = JOGOS_VAZIOS) {
         clearTimeout(timer.current)
         encerrando.current = state === "stopping"
         viuRodando.current = false
-        jogoAtual.current = resolvido
-        setJogo(resolvido)
-        setConfirmado(false)
-        if (state === "starting" || state === "running") {
-          armarTimeoutDeAbertura(minhaGeracao)
-        } else if (state === "stopping") {
+        if (state === "stopping") {
+          // The session was already cleared (Stop/Cancel ran or the game
+          // closed before confirmation). A late "stopping" notification must
+          // not resurrect the pending state — the game is closing, not
+          // opening. Only keep the release barrier until the main confirms.
+          jogoAtual.current = null
           timer.current = setTimeout(() => {
             if (generation.current === minhaGeracao) limpar()
           }, FECHANDO_MS)
+        } else {
+          jogoAtual.current = resolvido
+          setJogo(resolvido)
+          setConfirmado(false)
+          armarTimeoutDeAbertura(minhaGeracao)
         }
       } else if (state === "stopping") {
         encerrando.current = true

@@ -7,8 +7,10 @@ const os = require("os")
 const { spawn, execFileSync } = require("child_process")
 const { RUNNERS_DIR, ensureLegendary } = require("./download")
 
-const BIN = path.join(RUNNERS_DIR, "legendary")
-const LEGENDARY_CFG = path.join(os.homedir(), ".config", "legendary")
+const BIN = path.join(RUNNERS_DIR, process.platform === "win32" ? "legendary.exe" : "legendary")
+const LEGENDARY_CFG = process.platform === "win32"
+  ? path.join(os.homedir(), "AppData", "Local", "legendary")
+  : path.join(os.homedir(), ".config", "legendary")
 
 // Spawn com stream: chama onOutput(chunk, "stdout"|"stderr") ao vivo e resolve
 // com { code, stdout, stderr } no fim. Base para downloads/instalações depois.
@@ -58,6 +60,16 @@ function status() {
 // Login interativo: o `legendary auth` precisa de TTY (abre URL, usuário cola
 // o código). Abre num terminal.
 function login() {
+  if (process.platform === "win32") {
+    const child = spawn("cmd.exe", ["/c", "start", "cmd", "/k", `"${BIN}"`, "auth"], {
+      cwd: RUNNERS_DIR,
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    })
+    child.unref()
+    return { ok: true }
+  }
   const terms = ["kitty", "kgx", "gnome-terminal", "konsole", "alacritty", "xterm"]
   const term = terms.find((t) => {
     try {

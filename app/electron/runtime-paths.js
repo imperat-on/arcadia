@@ -10,7 +10,15 @@ const os = require("node:os")
 const path = require("node:path")
 
 const DATA_DIR_ENV = "ARCADIA_DATA_DIR"
-const DEFAULT_DATA_DIR = path.join(os.homedir(), ".local", "share", "arcadia")
+
+function getDefaultDataDir() {
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "arcadia")
+  }
+  return path.join(os.homedir(), ".local", "share", "arcadia")
+}
+
+const DEFAULT_DATA_DIR = getDefaultDataDir()
 
 function resolveDataDir(value = process.env[DATA_DIR_ENV]) {
   const raw = typeof value === "string" ? value.trim() : ""

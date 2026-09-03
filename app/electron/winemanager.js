@@ -16,6 +16,28 @@ const PREFIX_DIR = path.join(DATA_DIR, "prefixes")
 // ProtonUp-Qt ou manual). Além dos locais padrão, inclui libraries.vdf de
 // bibliotecas Steam extras (steamstore.steamLibraries()).
 function steamCommonDirs() {
+  if (process.platform === "win32") {
+    const programFiles = [
+      process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+      process.env["ProgramFiles"] || "C:\\Program Files",
+    ]
+    const base = []
+    for (const pf of programFiles) {
+      const steam = path.join(pf, "Steam")
+      base.push(path.join(steam, "steamapps", "common"))
+      base.push(path.join(steam, "compatibilitytools.d"))
+    }
+    try {
+      const { steamLibraries } = require("./steamstore")
+      for (const lib of steamLibraries() || []) {
+        const common = path.join(lib.path, "common")
+        if (!base.includes(common)) base.push(common)
+        const compat = path.join(path.dirname(lib.path), "compatibilitytools.d")
+        if (!base.includes(compat)) base.push(compat)
+      }
+    } catch {}
+    return base
+  }
   const base = [
     path.join(os.homedir(), ".steam", "steam", "steamapps", "common"),
     path.join(os.homedir(), ".local", "share", "Steam", "steamapps", "common"),
@@ -121,6 +143,7 @@ function prefixOf(appid) {
 // Bootstrap do prefixo (wineboot) se ainda não existe drive_c.
 // opts: { wine: binário obrigatório, prefix: prefixo customizado }.
 async function verifyWinePrefix(appid, opts = {}) {
+  if (process.platform === "win32") return { ok: true, prefix: "" }
   if (!opts.wine) return { ok: false, error: "wine binary não fornecido" }
   const prefix = opts.prefix || prefixOf(appid)
   if (fs.existsSync(path.join(prefix, "drive_c"))) return { ok: true, prefix }
@@ -144,6 +167,7 @@ async function verifyWinePrefix(appid, opts = {}) {
 // Ferramentas do prefixo: winecfg / regedit / explorer / winetricks / wineboot.
 // opts: { wine: binário escolhido, prefix: prefixo customizado }.
 async function prefixTool(appid, tool, opts = {}) {
+  if (process.platform === "win32") return { ok: false, error: "Wine tools not needed on Windows" }
   const { prefix } = await verifyWinePrefix(appid, opts)
   const wine = opts.wine
   const env = { ...process.env, WINEPREFIX: prefix }
@@ -172,6 +196,19 @@ async function prefixTool(appid, tool, opts = {}) {
 
 // Executa um .exe/.msi/.bat dentro do prefixo do jogo.
 async function runExe(appid, exePath, opts = {}) {
+  if (process.platform === "win32") {
+    // Windows: run exe directly without Wine
+    try {
+      const child = spawn(exePath, [], {
+        detached: true,
+        stdio: "ignore",
+      })
+      child.unref()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }
   const { prefix } = await verifyWinePrefix(appid, opts)
   const wine = opts.wine
   try {

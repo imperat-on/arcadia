@@ -59,6 +59,7 @@ function externalCandidates(home = os.homedir(), envPath = process.env.PATH || "
 }
 
 function findUmuLauncher(options = {}) {
+  if (process.platform === "win32") return ""
   const managed = managedUmuPath(options.dataDir)
   if (isManagedUmuValid(managed)) return managed
   for (const candidate of externalCandidates(options.home, options.envPath)) {
@@ -125,6 +126,7 @@ async function installManagedUmu({ dataDir = getDataDir(), fetchImpl = fetchRede
 }
 
 async function ensureUmuLauncher(options = {}) {
+  if (process.platform === "win32") return { ok: false, error: "UMU is not available on Windows" }
   const managed = managedUmuPath(options.dataDir)
   if (isManagedUmuValid(managed)) return { ok: true, path: managed, managed: true }
   if (!installPromise) {

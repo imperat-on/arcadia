@@ -27,6 +27,25 @@
         "to": "boot.mp4"
       }
     ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/logo-512.png",
+      "artifactName": "Arcadia-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/logo-512.png"
+    },
     "linux": {
       "executableName": "arcadia",
       "syncDesktopName": true,
@@ -45,6 +64,8 @@
     "dev": "vite",
     "build": "vite build",
     "dist:appimage": "vite build && electron-builder --linux AppImage --x64",
+    "dist:nsis": "vite build && electron-builder --win nsis --x64",
+    "dist:portable": "vite build && electron-builder --win portable --x64",
     "test": "NODE_ENV=test node --test",
     "electron": "electron .",
     "start": "vite build && electron ."
