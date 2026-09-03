@@ -1,8 +1,8 @@
 # Arcadia
 
-A game launcher for Linux with two UIs: a **desktop** mode (windowed
-library, store and downloads) and a **console** mode (fullscreen, gamepad,
-TV-friendly).
+A game launcher for **Linux and Windows** with two UIs: a **desktop** mode
+(windowed library, store and downloads) and a **console** mode (fullscreen,
+gamepad, TV-friendly).
 
 ### Big Picture — boot
 
@@ -44,31 +44,37 @@ a different UI on top.
 
 ## Features
 
-- **Unified library** — jogos adicionados pela loja, downloads via fontes e
-  jogos customizados (`.exe` através do Wine), com capas e detalhes por jogo.
+- **Unified library** — jogos adicionados pela loja, downloads via fontes
+  e jogos customizados, com capas e detalhes por jogo.
 - **Steam store** — pesquisa, download via **DepotDownloader** ou torrent e
-  adição à Steam via **SLSsteam**. Os manifestos vêm do catálogo configurado.
+  adição à biblioteca Steam. Os manifestos vêm do catálogo configurado.
 - **Per-game launch options** — Wine/Proton version, per-game prefix,
   DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom
-  wrappers, env vars, game args, pre/post scripts and verbose logs.
+  wrappers, env vars, game args, pre/post scripts and verbose logs
+  (Linux only; Windows games run natively).
 - **Wine manager** — installs and manages GE-Proton and Wine-GE; Steam-shipped
-  Protons are detected automatically.
-- **Downloads** — fila serial para Steam (DepotDownloader) e fontes torrent,
+  Protons are detected automatically (Linux only).
+- **Downloads** — fila serial (DepotDownloader) e fontes torrent,
   com progresso em MiB, velocidade e ETA;
   pause/resume/cancel with cleanup of partials.
-- **Achievements** — SLScheevo integration with a real-time unlock panel.
+- **Achievements** — real-time achievement unlock tracking with toast notifications.
 - **Trailers** — YouTube search and download via `yt-dlp`.
 
 ## Requirements
 
-- Linux x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed
-  locally if missing)
+### Linux
+- x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed locally if missing)
 - The compatible DepotDownloader runtime is downloaded automatically on the
   first Steam depot download (or from Settings → Integrations).
-- For the Steam store: a **Hubcap API key** (free, community) and
-  **SLSsteam** (installable from Settings → Integrations)
+- For the Steam store: a **Hubcap API key** (free, community).
+
+### Windows
+- Windows 10/11 x64, native **Steam**, **.NET 9+** (auto-installed if missing)
+- For the Steam store: a **Hubcap API key** (free, community).
 
 ## Install
+
+### Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
@@ -84,10 +90,20 @@ cp config.example.json config.json  # if install.sh didn't create it
 ./arcadia.sh                        # console mode (fullscreen)
 ```
 
-Na primeira execução, o launcher prepara a biblioteca local sincronizada com a
-conta e constrói o front-end (`npm run build`).
+### Windows
+
+Download the latest release from the [Releases page](https://github.com/imperat-on/arcadia/releases):
+
+- `Arcadia-Setup-1.1.0-x64.exe` — NSIS installer
+- `Arcadia-1.1.0-x64.exe` — Portable (no install)
+
+On first run, the launcher prepares the local library, syncs with the account
+and builds the front-end (`npm run build` is handled automatically by the
+packaged app).
 
 ## Uninstall
+
+### Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall.sh | bash
@@ -96,11 +112,15 @@ curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall
 Or, from inside the repo: `./uninstall.sh`. Removes the app, its desktop
 entry/icons and `~/.local/share/arcadia/`. Asks before touching anything that
 isn't a cache/binary — installed games (`games/`), Wine prefixes
-(`prefixes/`, may hold saves) and SLSsteam (third-party, installed outside
-`~/.local/share/arcadia/`) — and preserves them by default unless you opt in.
+(`prefixes/`, may hold saves) — and preserves them by default unless you opt in.
 Steam games downloaded through the store stay registered in your Steam
 installation; remove them from the store's "Remove" button first if you don't
 want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
+
+### Windows
+
+Use **Add/Remove Programs** (installed version) or delete the extracted
+folder (portable version).
 
 ## Config
 
@@ -116,13 +136,14 @@ want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
 ```
 app/src        # React front-end (desktop/ + console/)
 app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
-arcadia.sh     # console entry · arcadia-desktop.sh (desktop entry)
-install.sh     # setup · uninstall.sh (full removal)
+arcadia.sh     # Linux console entry · arcadia-desktop.sh (Linux desktop entry)
+install.sh     # Linux setup · uninstall.sh (Linux full removal)
 ```
 
 User data (config, library, downloads, prefixes, artwork) lives under
-`~/.local/share/arcadia/` and is **not** versioned. Para usar um diretório
-isolado (desenvolvimento/testes), defina `ARCADIA_DATA_DIR=/caminho/absoluto`.
+`~/.local/share/arcadia/` on Linux or `%LOCALAPPDATA%\arcadia` on Windows and
+is **not** versioned. Para usar um diretório isolado (desenvolvimento/testes),
+defina `ARCADIA_DATA_DIR=/caminho/absoluto`.
 O Electron e os caches locais respeitam o mesmo diretório.
 
 
@@ -143,21 +164,6 @@ everything. Sensitive data (debrid/Hubcap API keys, source caches) is
 O launcher usa a API gerenciada do Arcadia. Configure o cliente com
 `ARCADIA_API_URL` quando precisar apontar para uma instância autorizada; a
 instalação do launcher não exige PostgreSQL local.
-
-## Credits
-
-Arcadia leans on the work of these projects:
-
-- [SLSsteam](https://github.com/AceSLS/SLSsteam) — the Steam plugin loader
-  that makes injected apps appear as owned in the Steam client. Powers the
-  "Add to Steam" flow and the launch pipeline for injected games.
-- [luatools-moon](https://github.com/swwayps/luatools-moon/tree/millennium) —
-  the Millennium-less LuaTools bridge (Lumen sidecar and wrapper) that
-  Arcadia's SLSsteam setup ships alongside.
-- [SLScheevo](https://github.com/xamionex/SLScheevo) — the achievement
-  unlocker that Arcadia pairs with for achievement tracking.
-
-Huge thanks to their authors and contributors.
 
 ## License
 
