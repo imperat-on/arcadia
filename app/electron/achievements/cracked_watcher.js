@@ -260,11 +260,12 @@ function caminhosPrefixados(prefixo, appid, entry) {
   // No Windows não há prefixo Wine: todos os jogos compartilham a mesma pasta
   // de saves (%APPDATA%\Goldberg UplayEmu Saves), então enumerar os diretórios
   // numéricos vazaria o uplayId de UM jogo para TODOS os outros (ex.: um
-  // cruzamento do runtime do Black Flag no Cyberpunk). Só enumeramos quando o
-  // jogo é UPC confirmado — aí o ID da pasta é dele. Para jogos sem relação
-  // UPC confirmada, o próprio configuredUplayId (via KNOWN_UPC_IDS/settings)
-  // já resolve o runtime correto.
-  if (configuredUplayId) {
+  // cruzamento do runtime do Black Flag no Cyberpunk). Nesse caso só enumeramos
+  // quando o jogo é UPC confirmado. No Linux o prefixo Wine é ISOLADO por jogo,
+  // então a enumeração é segura — e é o único jeito de descobrir o uplayId de
+  // jogos que não estão em KNOWN_UPC_IDS (auto-detect). A restrição é só Windows.
+  const deveEnumerarDirs = process.platform === "win32" ? Boolean(configuredUplayId) : true
+  if (deveEnumerarDirs) {
     for (const id of numericUplayDirs(prefixo)) uplayIds.add(id)
   }
 
