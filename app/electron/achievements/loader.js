@@ -14,6 +14,8 @@ const os = require("os")
 const { loadKvBin, progressMap, fetchAchievementsForApp } = require("./steam_bin")
 const { loadAchievements, saveAchievements } = require("./schema")
 const { log } = require("./../debug")
+const { caminhoArquivoConta } = require("./../supabase/conta")
+const { readLibraryFile } = require("./../library-store")
 
 const { findSteamDir } = require("./../steam-path")
 const { dataPath } = require("./../runtime-paths")
@@ -149,6 +151,11 @@ async function loadAllSchemas() {
   const store = loaded && typeof loaded === "object" ? loaded : {}
 
   // Appids = união do que já está no achievements.json + todo schema .bin da Steam
+  // + appids dos jogos da biblioteca configurados (mesmo sem bin — repacks e
+  // voices38/crackeados nativos NÃO têm UserGameStatsSchema_*.bin, mas o schema
+  // precisa ser criado via API pública, senão o prepareUplayInstallation falha
+  // com "catálogo UPC vazio"). No Linux o bin é gerado pelo Proton; no Windows
+  // nativo não existe, então o appid nunca entrava no loop.
   const appids = new Set(Object.keys(store))
   try {
     for (const f of fs.readdirSync(STATS_DIR)) {
@@ -157,6 +164,22 @@ async function loadAllSchemas() {
     }
   } catch (e) {
     log("achievements/listar-bins", e)
+  }
+  // Jogos configurados na biblioteca/contas: garantem que o fallback da API
+  // rode para appids sem bin (crackeados/voices38 que rodam nativos).
+  try {
+    const lib = readLibraryFile(dataPath("library.json"))
+    for (const g of lib?.games || []) {
+      const m = /^steam:(\d+)$/.exec(String(g?.id || ""))
+      if (m) appids.add(m[1])
+    }
+    const settings = JSON.parse(fs.readFileSync(caminhoArquivoConta("game_settings.json"), "utf-8"))
+    for (const key of Object.keys(settings || {})) {
+      const m = /^steam:(\d+)$/.exec(String(key))
+      if (m) appids.add(m[1])
+    }
+  } catch (e) {
+    log("achievements/listar-appids-biblioteca", e)
   }
 
   let updated = 0

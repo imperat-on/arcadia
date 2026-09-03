@@ -116,7 +116,11 @@ function buildUplaySchema(items, { allowPositional = false } = {}) {
     seen.add(id)
     schema[id] = {
       displayName: String(item.title || item.displayName || item.name || ""),
-      description: String(item.desc || item.description || ""),
+      // Algumas conquistas vêm da API pública sem descrição (o parser HTML do
+      // fallback nem sempre pega a <h5>). O voices38 exige o campo preenchido
+      // pra criar o schema; usar o title como fallback evita bloquear o
+      // achievements_schema.json inteiro (e o jogo roda sem conquistas).
+      description: String(item.desc || item.description || "") || String(item.title || item.name || ""),
       earned: 0,
     }
   })
