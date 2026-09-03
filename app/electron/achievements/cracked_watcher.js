@@ -29,6 +29,7 @@ const { dataPath } = require("./../runtime-paths")
 const { readLibraryFile } = require("../library-store")
 const {
   parseUPC,
+  upcRuntimeMap,
   resolveUplayId,
   numericAchievementId,
   uplayRuntimePath,
@@ -558,7 +559,7 @@ function resolveExeDir(entry, appid) {
   return exePath ? path.dirname(exePath) : null
 }
 
-function iniciarVigia(onUnlock) {
+function iniciarVigia(onUnlock, onRevoke = null) {
   const cacheMtime = new Map() // account + filePath → mtimeMs
   const cacheKey = (filePath) => `${conta() || "__guest__"}\0${filePath}`
 
@@ -596,7 +597,10 @@ function iniciarVigia(onUnlock) {
         }
 
         const ultima = cacheMtime.get(cacheKey(reg.file))
-        if (ultima === mtime) continue // sem mudanca
+        // Reconciliar sempre na "primeira" leitura por arquivo (cache vazio),
+        // para corrigir no boot desbloqueios fantasmas já gravados.
+        const primeiraLeitura = ultima === undefined
+        if (!primeiraLeitura && ultima === mtime) continue // sem mudanca
         cacheMtime.set(cacheKey(reg.file), mtime)
 
         // Parseia o arquivo
@@ -607,10 +611,41 @@ function iniciarVigia(onUnlock) {
           continue
         }
 
-        const desbloqueadas = reg.parse(conteudo)
-        if (!desbloqueadas || !desbloqueadas.length) continue
-
+        // ---- UPC: reconcilia desbloqueios fantasmas (servidor != runtime) ----
+        // O runtime Goldberg/UPC é a fonte da verdade. Se o runtime diz
+        // earned=0 para um item que o servidor/store tem como achieved=true,
+        // desmarca localmente e emite onRevoke para o servidor (deleteAchievement).
+        // Isso repara o bug de mapeamento que gravou "Amigo dos Bichos" quando o
+        // runtime real era "Cacifo do Davy Jones" — e vale para qualquer cliente.
         let atualizou = false
+        if (reg.name === "upc") {
+          const runtimeMap = upcRuntimeMap(conteudo)
+          if (runtimeMap) {
+            for (const it of items) {
+              if (!it || !it.achieved) continue
+              const titulo = String(it.title || it.name || "").trim().toLowerCase()
+              if (!titulo) continue
+              const rt = runtimeMap.get(titulo)
+              if (rt && rt.earned === false) {
+                // runtime diz que NÓS NÃO desbloqueou → reverter
+                it.achieved = false
+                it.unlock = 0
+                it.revoked = true
+                atualizou = true
+                if (onRevoke && it.apiname) {
+                  try { onRevoke({ appid, apiname: it.apiname }) } catch { /* ignore */ }
+                }
+              }
+            }
+          }
+        }
+
+        const desbloqueadas = reg.parse(conteudo)
+        if (!desbloqueadas || !desbloqueadas.length) {
+          if (atualizou) { store[appid] = { ...(store[appid] || {}), items }; saveAchievements(store) }
+          continue
+        }
+
         for (const d of desbloqueadas) {
           const it = itemParaDesbloqueio(items, d, reg)
           if (!it) continue

@@ -2384,6 +2384,25 @@ function onUnlockAchievement(payload) {
   }
 }
 
+// Callback de revogo: o runtime Goldberg/UPC (fonte da verdade) diz que um item
+// NÃO foi desbloqueado (earned=0), mas o servidor/store o tem como achieved=true
+// (bug de mapeamento). Remove do servidor via deleteAchievement (unlocked_at:null)
+// para o merge OR do pull não re-importar o desbloqueio fantasma.
+async function onRevokeAchievement(payload) {
+  if (!payload?.appid || !payload?.apiname) return
+  try {
+    const syncMod = require("./supabase/sync")
+    const r = await syncMod.deleteAchievement(String(payload.appid), String(payload.apiname))
+    if (!r?.ok) {
+      console.warn(`[revoke] nao conseguiu remover ${payload.appid}/${payload.apiname}:`, r?.error)
+    } else {
+      console.log(`[revoke] removido do servidor: ${payload.appid}/${payload.apiname}`)
+    }
+  } catch (e) {
+    console.warn(`[revoke] erro:`, e?.message)
+  }
+}
+
 function createWindow() {
   const cfgIni = readConfig()
   const launcherMode = resolveLauncherMode(process.env, cfgIni)
@@ -2556,7 +2575,7 @@ function createWindow() {
   // achievements.json (o painel lê de lá; sem isso só atualizava no refresh).
   if (pararAchievementWatcher) pararAchievementWatcher()
   pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
-  iniciarVigia(onUnlockAchievement)
+  iniciarVigia(onUnlockAchievement, onRevokeAchievement)
 
   // Modo gamescope: o Electron roda no X aninhado e NÃO recebe blur/focus
   // quando o jogo abre no desktop. O foco é resolvido dentro do poll de jogo
