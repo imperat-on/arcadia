@@ -1,6 +1,6 @@
 {
   "name": "arcadia",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "desktopName": "arcadia.desktop",
   "private": true,
   "main": "electron/main.js",
@@ -38,13 +38,14 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "public/logo-512.png",
+      "icon": "public/logo-512.ico",
       "artifactName": "Arcadia-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/logo-512.png"
+      "installerIcon": "public/logo-512.ico",
+      "artifactName": "Arcadia-Setup-${version}-${arch}.${ext}"
     },
     "linux": {
       "executableName": "arcadia",
