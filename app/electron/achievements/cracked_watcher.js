@@ -466,6 +466,20 @@ function itemParaDesbloqueio(items, desbloqueio, registro) {
     if (item && item.apiname) byName.set(String(item.apiname).toLowerCase(), item)
   }
   if (registro?.name === "upc") {
+    // O Goldberg/vozes38 numera o runtime numa ordem PRÓPRIA que não corresponde
+    // ao número do apiname (permutações: id 44 = "Amigo dos Bichos", id 46 =
+    // "Cacifo do Davy Jones"). O único vínculo estável entre runtime e store é o
+    // displayName — casamos por título EXATO (case-insensitive) primeiro, e só
+    // caímos no id numérico como fallback (compatível com o bin do Steam/Proton,
+    // cuja ordem id↔apiname era a mesma). Sem isso, desbloquear uma conquista
+    // marca a errada e corrompe a contagem de platina.
+    const nome = String(desbloqueio?.name || desbloqueio?.title || "").trim()
+    if (nome) {
+      const byTitle = items.find(
+        (item) => String(item?.title || "").trim().toLowerCase() === nome.toLowerCase(),
+      )
+      if (byTitle) return byTitle
+    }
     const id = numericAchievementId(desbloqueio.id)
     if (id !== null) {
       for (const item of items) {
