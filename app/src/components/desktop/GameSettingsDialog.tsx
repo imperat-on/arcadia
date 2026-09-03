@@ -7,7 +7,9 @@ import { useI18n } from "../../i18n/I18nContext"
 import { SaveSnapshotsPanel } from "./SaveSnapshotsPanel"
 import { EmulatorProfilesPanel } from "./EmulatorProfilesPanel"
 
-const ABAS = [
+const isWindows = (window as any).launcherPlatform === "win32"
+
+const ALL_ABAS = [
   "GERAL",
   "LOCALIZAÇÕES",
   "SALVAMENTOS",
@@ -16,6 +18,12 @@ const ABAS = [
   "DESEMPENHO",
   "AVANÇADO",
 ] as const
+
+// Remove Linux-only tabs on Windows
+const ABAS = isWindows
+  ? ALL_ABAS.filter((a) => a !== "COMPATIBILIDADE" && a !== "DESEMPENHO" && a !== "AVANÇADO")
+  : ALL_ABAS
+
 type Aba = (typeof ABAS)[number]
 
 const GAMESCOPE_RESOLUTIONS = [

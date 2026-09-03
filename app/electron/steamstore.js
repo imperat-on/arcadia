@@ -154,9 +154,10 @@ async function gh(url, opts = {}) {
 // ---------- .NET / DepotDownloader ----------
 
 function dotnetBin() {
-  const local = path.join(BIN_DIR, "dotnet", "dotnet")
+  const ext = process.platform === "win32" ? ".exe" : ""
+  const local = path.join(BIN_DIR, "dotnet", `dotnet${ext}`)
   if (fs.existsSync(local)) return local
-  return "dotnet" // PATH do sistema
+  return `dotnet${ext}` // PATH do sistema
 }
 
 function dotnetRuntimeCompativel(stdout) {
@@ -165,20 +166,22 @@ function dotnetRuntimeCompativel(stdout) {
 }
 
 async function ensureDotnet(onProgress) {
-  const local = path.join(BIN_DIR, "dotnet", "dotnet")
+  const ext = process.platform === "win32" ? ".exe" : ""
+  const local = path.join(BIN_DIR, "dotnet", `dotnet${ext}`)
   if (fs.existsSync(local)) return { ok: true, path: local }
   try {
-    // `dotnet --version` exige o SDK e falha em instalações que têm apenas o
-    // runtime (que é tudo que o DepotDownloader precisa). Verifica o runtime
-    // compatível diretamente e aceita .NET 9 ou qualquer versão maior.
     const ok = await new Promise((res) =>
-      execFile("dotnet", ["--list-runtimes"], (e, stdout) => {
+      execFile(`dotnet${ext}`, ["--list-runtimes"], (e, stdout) => {
         res(!e && dotnetRuntimeCompativel(stdout))
       }),
     )
-    if (ok) return { ok: true, path: "dotnet" }
+    if (ok) return { ok: true, path: `dotnet${ext}` }
   } catch {}
-  // Instala apenas o runtime .NET 9 localmente via script oficial.
+  // Windows: guide user to install .NET manually
+  if (process.platform === "win32") {
+    return { ok: false, error: ".NET 9+ runtime não encontrado. Instale em https://dotnet.microsoft.com/download" }
+  }
+  // Linux: install via dotnet-install.sh
   const dir = path.join(BIN_DIR, "dotnet")
   fs.mkdirSync(dir, { recursive: true })
   const script = path.join(TMP_DIR, "dotnet-install.sh")
@@ -1294,12 +1297,25 @@ async function buscarSteamSpyCompleta(url) {
 // Pasta de instalação do jogo.
 function steamAppsDirs() {
   const home = os.homedir()
+  const dirs = new Set()
+  if (process.platform === "win32") {
+    const { findSteamDir } = require("./steam-path")
+    const base = findSteamDir()
+    const main = path.join(base, "steamapps")
+    dirs.add(main)
+    try {
+      const vdf = fs.readFileSync(path.join(main, "libraryfolders.vdf"), "utf-8")
+      for (const m of vdf.matchAll(/"path"\s+"([^"]+)"/g)) {
+        dirs.add(path.join(m[1].replace(/\\\\/g, "/").replace(/\//g, "\\"), "steamapps"))
+      }
+    } catch {}
+    return [...dirs]
+  }
   const bases = [
     path.join(home, ".steam", "steam"),
     path.join(home, ".local", "share", "Steam"),
     path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
   ]
-  const dirs = new Set()
   for (const base of bases) {
     const main = path.join(base, "steamapps")
     dirs.add(main)
@@ -1326,9 +1342,12 @@ function gameInstallDir(g) {
     }
   }
   if (g?.launcher === "epic") {
+    const legendaryCfg = process.platform === "win32"
+      ? path.join(home, "AppData", "Local", "legendary")
+      : path.join(home, ".config", "legendary")
     try {
       const inst = JSON.parse(
-        fs.readFileSync(path.join(home, ".config", "legendary", "installed.json"), "utf-8"),
+        fs.readFileSync(path.join(legendaryCfg, "installed.json"), "utf-8"),
       )
       const app = String(g.id).replace(/^epic:/, "")
       if (inst[app]?.install_path) return inst[app].install_path
@@ -1373,7 +1392,22 @@ async function extrairProvedor(p, appid, cfg, outDir) {
     fs.writeFileSync(zipPath, buf)
     fs.rmSync(outDir, { recursive: true, force: true })
     fs.mkdirSync(outDir, { recursive: true })
-    await new Promise((res) => execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], res))
+    await new Promise((resolve, reject) => {
+      if (process.platform === "win32") {
+        execFile("powershell", [
+          "-NoProfile", "-Command",
+          `Expand-Archive -Path "${zipPath}" -DestinationPath "${outDir}" -Force`
+        ], (error) => {
+          if (!error) return resolve()
+          reject(new Error(String(error?.message || error)))
+        })
+      } else {
+        execFile("python3", ["-m", "zipfile", "-e", zipPath, outDir], (error) => {
+          if (!error) return resolve()
+          reject(new Error(String(error?.message || error)))
+        })
+      }
+    })
     try {
       fs.rmSync(zipPath, { force: true })
     } catch {}
@@ -2062,6 +2096,7 @@ function appidsInjetados() {
  * injeção aparecem aqui.
  */
 function steamInjetada() {
+  if (process.platform === "win32") return null
   let pids = []
   try {
     pids = String(
@@ -2087,6 +2122,7 @@ function steamInjetada() {
 // Prefere o wrapper do slsteam-moon (~/.local/share/SLSsteam/path/steam),
 // que injeta LD_AUDIT do jeito certo; fallback: steam puro + LD_AUDIT.
 function launchSteamWithSls(cfg = readConfig()) {
+  if (process.platform === "win32") return { ok: false, error: "SLSsteam is not available on Windows" }
   const steam = comandoSteam(cfg)
   if (!steam.injeta) {
     return { ok: false, error: "SLSsteam não instalada (rode o setup em Configurações)" }

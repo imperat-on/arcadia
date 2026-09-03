@@ -9,6 +9,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const os = require("os")
 const { loadAchievements } = require("./schema")
 
 const USUARIO_WINE = "steamuser"
@@ -167,7 +168,12 @@ function resolveUplayId(appid, settings = {}, entry = {}) {
 
 function uplayRuntimePath(prefixo, uplayId) {
   const id = normalizeNumericId(uplayId)
-  if (id === null || !prefixo) return null
+  if (id === null) return null
+  if (process.platform === "win32") {
+    const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming")
+    return path.join(appdata, UPLAY_SAVE_DIR, id, "achievements.json")
+  }
+  if (!prefixo) return null
   return path.join(
     prefixo,
     "drive_c",
@@ -182,6 +188,10 @@ function uplayRuntimePath(prefixo, uplayId) {
 }
 
 function uplaySaveRoot(prefixo) {
+  if (process.platform === "win32") {
+    const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming")
+    return path.join(appdata, UPLAY_SAVE_DIR)
+  }
   if (!prefixo) return null
   return path.join(prefixo, "drive_c", "users", USUARIO_WINE, "AppData", "Roaming", UPLAY_SAVE_DIR)
 }

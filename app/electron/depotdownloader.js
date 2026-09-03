@@ -56,11 +56,22 @@ function arquivoRegular(fsImpl, file) {
 
 function executarExtracao(execFileImpl, archive, target) {
   return new Promise((resolve, reject) => {
-    execFileImpl("python3", ["-m", "zipfile", "-e", archive, target], (error, _stdout, stderr) => {
-      if (!error) return resolve()
-      const detalhe = String(stderr || "").trim()
-      reject(new Error(detalhe || erroTexto(error)))
-    })
+    if (process.platform === "win32") {
+      execFileImpl("powershell", [
+        "-NoProfile", "-Command",
+        `Expand-Archive -Path "${archive}" -DestinationPath "${target}" -Force`
+      ], (error, _stdout, stderr) => {
+        if (!error) return resolve()
+        const detalhe = String(stderr || "").trim()
+        reject(new Error(detalhe || erroTexto(error)))
+      })
+    } else {
+      execFileImpl("python3", ["-m", "zipfile", "-e", archive, target], (error, _stdout, stderr) => {
+        if (!error) return resolve()
+        const detalhe = String(stderr || "").trim()
+        reject(new Error(detalhe || erroTexto(error)))
+      })
+    }
   })
 }
 
