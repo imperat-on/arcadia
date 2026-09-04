@@ -3,6 +3,7 @@
 const fsDefault = require("node:fs")
 const path = require("node:path")
 const crypto = require("node:crypto")
+const os = require("node:os")
 
 const SNAPSHOT_VERSION = 1
 const MAX_LABEL_LENGTH = 120
@@ -116,7 +117,13 @@ function createSnapshotService({ snapshotsDir, fsImpl = fsDefault, now = () => n
     const directory = path.join(gameDir(gameId), id)
     const data = path.join(directory, "data")
     const manifest = readManifest(path.join(directory, "manifest.json"))
-    if (!target || !id || !inside(root, directory) || !manifest || manifest.gameId !== String(gameId)) {
+    // SEGURANCA: o renderer nunca e fonte de verdade para targetDir.
+    // targetDir absoluto arbitrario (ex: /etc, C:\Windows) permitiria
+    // sobrescrever arquivos do sistema com dados de save. So restaurar
+    // para diretorios sob o home do usuario.
+    const home = os.homedir()
+    const dentroDoHome = target && (target === home || target.startsWith(home + path.sep))
+    if (!target || !dentroDoHome || !id || !inside(root, directory) || !manifest || manifest.gameId !== String(gameId)) {
       return { ok: false, error: "snapshot_invalido" }
     }
     if (!fsImpl.existsSync(data) || !fsImpl.statSync(data).isDirectory()) {

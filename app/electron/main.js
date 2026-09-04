@@ -50,7 +50,7 @@ const raEmulatorConfig = require("./retroachievements/emulator-config")
 const { getRetroachievementsConsoleId, getSystem } = require("./retro-systems")
 const { spawn, spawnSync, execFile, execFileSync } = require("child_process")
 const { restoreWindowFocus } = require("./window-focus")
-const { isProcessAlive, killProcessTree, isProcessRunning, isSteamRunning } = require("./process-tools")
+const { isProcessAlive, killProcessTree, isProcessRunning, isSteamRunning, isSteamGameRunning } = require("./process-tools")
 const { findSteamExe } = require("./steam-path")
 const {
   buildExternalGamescopeCommand,
@@ -955,18 +955,24 @@ const armarPollJogo = () => {
         return
       }
       if (process.platform === "win32") {
-        // On Windows, check if steam.exe is running
-        const steamRunning = isSteamRunning()
-        if (steamRunning) processoJogoVisto = true
-        if (!processoJogoVisto && !ultimoJogoAtivo?.stopRequested
-            && Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS) {
-          sinalDeVida = 0
-          return
-        }
-        if (steamRunning && !ultimoJogoAtivo?.stopRequested) { marcar(true); sinalDeVida = 0; return }
-        finalizarSeAusente()
-      } else {
-        execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
+        // On Windows, check if the game process is actually running (under
+                // steamapps/common). isSteamRunning() only checks the Steam client,
+                // which stays in the tray after the game closes — a sessao nunca
+                // finalizava e o playtime nao era creditado.
+                const steamRunning = isSteamRunning()
+                const gameRunning = isSteamGameRunning()
+                if (gameRunning) {
+                  processoJogoVisto = true
+                } else if (steamRunning && !ultimoJogoAtivo?.stopRequested
+                    && Date.now() - sessaoArmadaEm < MAX_INICIO_STEAM_MS) {
+                  // Startup grace: Steam client running, game may still be starting
+                  sinalDeVida = 0
+                  return
+                }
+                if (gameRunning && !ultimoJogoAtivo?.stopRequested) { marcar(true); sinalDeVida = 0; return }
+                finalizarSeAusente()
+              } else {
+                execFile("pgrep", ["-f", PADRAO_JOGO], (err) => {
           if (runningGameGeneration !== generation || !runningGameInterval) return
           const rodando = !err
           if (rodando) processoJogoVisto = true
@@ -1152,6 +1158,10 @@ const SEGREDOS = [
   "hubcap_api_key",
   "retroachievements_token",
   "retroachievements_web_api_key",
+  "realdebrid_token",
+  "torbox_token",
+  "alldebrid_token",
+  "premiumize_token",
 ]
 
 function redigirSegredos(cfg) {
@@ -1686,7 +1696,11 @@ function limparAposDesinstalar(id, { removePrefix, removeSettings } = {}) {
       // Segurança: só apaga o prefixo padrão DESTE jogo (seja qual for a base
       // configurada), algo sob o PREFIX_DIR legado, ou o prefixo customizado
       // salvo para este jogo.
-      const dentro = p === padrao || p.startsWith(wm.PREFIX_DIR + path.sep) || p === s.prefixPath
+      // SEGURANCA F3: mesmo que s.prefixPath venha das configs do jogo, o
+      // renderer pode te-lo definido via gamesettings:set. So permitir rmSync
+      // se o path estiver contido no PREFIX_DIR ou no home do usuario —
+      // nunca um path absoluto arbitrario como /etc ou C:\Windows.
+      const dentro = p === padrao || p.startsWith(wm.PREFIX_DIR + path.sep) || (p === s.prefixPath && s.prefixPath && (s.prefixPath.startsWith(wm.PREFIX_DIR + path.sep) || s.prefixPath.startsWith(os.homedir() + path.sep)))
       if (dentro && fs.existsSync(p)) {
         try {
           fs.rmSync(p, { recursive: true, force: true })
@@ -3563,9 +3577,16 @@ app.whenReady().then(() => {
   })
 
   // "Executar instalador antes": roda um instalador .exe no prefixo escolhido.
-  ipcMain.handle("customgame:runInstaller", async (_e, { appid, wine, prefix } = {}) => {
-    try {
-      const r = await dialog.showOpenDialog(win, {
+    ipcMain.handle("customgame:runInstaller", async (_e, { appid, wine, prefix } = {}) => {
+      try {
+        // SEGURANCA F3: renderer nao e fonte de verdade para binarios.
+        if (wine && typeof wine === "string") {
+          const emSteam = require("./winemanager")
+            .steamProtons()
+            .some((p) => p.wine === wine || p.path === path.dirname(wine))
+          if (!emSteam) return { ok: false, error: "wine path rejeitado: nao reconhecido como Proton" }
+        }
+        const r = await dialog.showOpenDialog(win, {
         title: "Selecionar instalador",
         properties: ["openFile"],
         filters: [{ name: "Executáveis", extensions: ["exe", "msi", "bat"] }],
@@ -3758,22 +3779,49 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle("config:set", (_e, cfg) => {
-    // SEGURANÇA (auditoria A-06): o renderer recebe as chaves MASCARADAS no
-    // config:get; se ele devolver a máscara de volta (form inalterado), mantém
-    // o valor real no disco.
-    const atual = readConfig()
-    for (const k of [
-      "steam_api_key",
-      "steamgriddb_api_key",
-      "hubcap_api_key",
-      "retroachievements_token",
-      "retroachievements_web_api_key",
-    ]) {
-      if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
-        cfg[k] = atual[k] // preserva a chave real
+      // SEGURANCA (auditoria A-06): o renderer recebe as chaves MASCARADAS no
+      // config:get; se ele devolver a máscara de volta (form inalterado), mantém
+      // o valor real no disco.
+      const atual = readConfig()
+      for (const k of [
+        "steam_api_key",
+        "steamgriddb_api_key",
+        "hubcap_api_key",
+        "retroachievements_token",
+        "retroachievements_web_api_key",
+      ]) {
+        if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
+          cfg[k] = atual[k] // preserva a chave real
+        }
       }
-    }
-    // Pasta de prefixos mudou? Cria de verdade (ela não existia antes).
+      // SEGURANCA F3: allowlist de chaves que o renderer pode definir.
+      // Sem esta guarda, o renderer poderia injetar chaves como
+      // "default_wine_prefix_path"=/tmp/evil para fazer o mkdirSync em
+      // qualquer lugar, ou "wine_arch"=x32 para quebrar prefixos, etc.
+      const ALLOWED_CONFIG = new Set([
+        "language", "ui_scale", "console_ui_scale", "default_wine_prefix_path",
+        "steam_api_key", "steamgriddb_api_key", "hubcap_api_key",
+        "retroachievements_username", "retroachievements_token",
+        "retroachievements_web_api_key", "slssteam_path", "profile",
+        "steam_path", "theme", "console_wallpaper", "desktop_wallpaper",
+        "accent_color", "bg_color", "font_size", "show_fps", "title",
+        "bio", "avatar", "background", "hubcap_enabled", "hubcap_auto_connect",
+        "region", "download_limit", "max_concurrent_downloads",
+        "minimize_to_tray", "close_to_tray", "start_minimized",
+        "launch_in_console_mode", "show_console_on_startup",
+        "enable_controller_navigation", "controller_deadzone",
+        "music_enabled", "music_volume", "music_auto_play",
+        "system_theme", "notifications_enabled", "notification_volume",
+        "compatibility", "wine_arch", "wine_version",
+        "steamcmd_path", "steam_auto_login", "steam_auto_launch",
+        "epic_auto_login", "gog_auto_login",
+      ])
+      if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+        for (const k of Object.keys(cfg)) {
+          if (!ALLOWED_CONFIG.has(k)) delete cfg[k]
+        }
+      }
+      // Pasta de prefixos mudou? Cria de verdade (ela não existia antes).
     if (cfg?.default_wine_prefix_path) {
       try {
         fs.mkdirSync(cfg.default_wine_prefix_path, { recursive: true })
@@ -4187,19 +4235,48 @@ app.whenReady().then(() => {
     available: [],
   }))
   ipcMain.handle("wine:prefixTool", async (_e, { appid, tool, wine, prefix } = {}) => {
-    try {
-      return await wm.prefixTool(appid, tool, { wine, prefix })
-    } catch (e) {
-      return { ok: false, error: String(e.message || e) }
-    }
-  })
+      try {
+        // SEGURANCA F3: renderer nao e fonte de verdade para binarios.
+        // wine path deve vir de um diretorio Steam conhecido (Proton instalado).
+        // Sem esta guarda, o renderer poderia invocar prefixTool com wine=/bin/sh
+        // e tool=winecfg para executar comandos arbitrarios.
+        if (wine && typeof wine === "string") {
+          const emSteam = require("./winemanager")
+            .steamProtons()
+            .some((p) => p.wine === wine || p.path === path.dirname(wine))
+          if (!emSteam) return { ok: false, error: "wine path rejeitado: nao reconhecido como Proton" }
+        }
+        return await wm.prefixTool(appid, tool, { wine, prefix })
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) }
+      }
+    })
 
   // Configurações por jogo (diálogo estilo Heroic). Salvas automaticamente.
   ipcMain.handle("gamesettings:get", (_e, id) => ({
     settings: getGameSettings(id),
     defaultPrefix: id ? defaultPrefix(id) : "",
   }))
-  ipcMain.handle("gamesettings:set", (_e, { id, patch } = {}) => setGameSettings(id, patch))
+  ipcMain.handle("gamesettings:set", (_e, { id, patch } = {}) => {
+    // SEGURANCA F3: renderer nao e fonte de verdade para chaves de config.
+    // So permite chaves conhecidas do GameSettings. Sem allowlist, o renderer
+    // poderia injetar prefixPath=/etc e o rmSync em limparAposDesinstalar o
+    // usaria para deletar diretorios do sistema.
+    const ALLOWED = new Set([
+      "wineVersion", "prefixPath", "uplayId", "upcId", "autoDXVK", "autoNVAPI",
+      "autoVKD3D", "esync", "fsync", "wineWayland", "wow64", "fsrHack",
+      "gamescope", "gsHdr", "gsWidth", "gsHeight", "gsFps", "gsWindowMode",
+      "gsFramerateLimit", "dxvkHud", "mangohud", "gamemode", "verboseLogs",
+      "gameArgs", "exePath", "scriptPre", "scriptPost", "wrappers", "envVars",
+      "emulatorId", "romPath", "emulatorArgs", "emulatorCorePath",
+    ])
+    if (patch && typeof patch === "object" && !Array.isArray(patch)) {
+      for (const k of Object.keys(patch)) {
+        if (!ALLOWED.has(k)) delete patch[k]
+      }
+    }
+    return setGameSettings(id, patch)
+  })
 
   // Emuladores: só catálogo/detecção e montagem de argv; nenhum handler executa
   // binário ou passa comando por shell. A execução ocorre pelo fluxo game:launch.
@@ -4296,9 +4373,17 @@ app.whenReady().then(() => {
   })
 
   // Executa um .exe dentro do prefixo do jogo (diálogo de configurações).
-  ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {
-    try {
-      const r = await dialog.showOpenDialog(win, {
+    ipcMain.handle("wine:runExe", async (_e, { appid, wine, prefix } = {}) => {
+      try {
+        // SEGURANCA F3: renderer nao e fonte de verdade para binarios.
+        // wine path deve vir de um diretorio Steam conhecido (Proton instalado).
+        if (wine && typeof wine === "string") {
+          const emSteam = require("./winemanager")
+            .steamProtons()
+            .some((p) => p.wine === wine || p.path === path.dirname(wine))
+          if (!emSteam) return { ok: false, error: "wine path rejeitado: nao reconhecido como Proton" }
+        }
+        const r = await dialog.showOpenDialog(win, {
         title: "Executar EXE no prefixo",
         properties: ["openFile"],
         filters: [{ name: "Executáveis", extensions: ["exe", "msi", "bat"] }],
@@ -4346,29 +4431,59 @@ app.whenReady().then(() => {
   })
 
   // Espaço em disco de um path (para o diálogo de instalação).
-  ipcMain.handle("app:diskSpace", async (_e, p) => {
-    try {
-      const { execFile } = require("child_process")
-      const target = p && typeof p === "string" ? p : os.homedir()
-      // Sobe até a primeira pasta que existe (o path pode ainda não ter sido criado).
-      let probe = target
-      while (!fs.existsSync(probe)) {
-        const parent = path.dirname(probe)
-        if (parent === probe) break
-        probe = parent
+    ipcMain.handle("app:diskSpace", async (_e, p) => {
+      try {
+        const target = p && typeof p === "string" ? p : os.homedir()
+        // Sobe até a primeira pasta que existe (o path pode ainda não ter sido criado).
+        let probe = target
+        while (!fs.existsSync(probe)) {
+          const parent = path.dirname(probe)
+          if (parent === probe) break
+          probe = parent
+        }
+
+        if (process.platform === "win32") {
+          // Windows: usa wmic logicaldisk (disponível em todas as versões).
+          // Ex.: wmic logicaldisk where "DeviceID='C:'" get Size,FreeSpace /format:csv
+          const { execFile } = require("child_process")
+          const drive = path.parse(probe).root || "C:\\"
+          const out = await new Promise((res, rej) =>
+            execFile(
+              "wmic",
+              [
+                "logicaldisk",
+                "where",
+                `DeviceID='${drive.replace(/\\/g, "").toUpperCase()}'`,
+                "get",
+                "Size,FreeSpace",
+                "/format:csv",
+              ],
+              (e, stdout) => (e ? rej(e) : res(stdout)),
+            ),
+          )
+          const lines = String(out).trim().split("\n")
+                    const dataLine = lines.find((l) => /^\w+,/.test(l))
+                              if (!dataLine) throw new Error("wmic: linha de dados não encontrada")
+                              const cols = dataLine.split(",")
+          const totalBytes = Number(cols[2])
+          const freeBytes = Number(cols[1])
+          if (!totalBytes || !freeBytes) throw new Error("wmic: valores inválidos")
+          return { ok: true, total: totalBytes / 1024 / 1024 / 1024, free: freeBytes / 1024 / 1024 / 1024 } // GiB
+        }
+
+        const { execFile } = require("child_process")
+        const out = await new Promise((res, rej) =>
+          execFile("df", ["-k", probe], (e, stdout) => (e ? rej(e) : res(stdout))),
+        )
+        const linha = String(out).trim().split("\n").pop().trim().split(/\s+/)
+        // df -k: Filesystem 1K-blocks Used Available Use% Mounted on
+        const totalKb = Number(linha[1])
+        const availKb = Number(linha[3])
+        return { ok: true, total: totalKb / 1024 / 1024, free: availKb / 1024 / 1024 } // GiB
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) }
       }
-      const out = await new Promise((res, rej) =>
-        execFile("df", ["-k", probe], (e, stdout) => (e ? rej(e) : res(stdout))),
-      )
-      const linha = String(out).trim().split("\n").pop().trim().split(/\s+/)
-      // df -k: Filesystem 1K-blocks Used Available Use% Mounted on
-      const totalKb = Number(linha[1])
-      const availKb = Number(linha[3])
-      return { ok: true, total: totalKb / 1024 / 1024, free: availKb / 1024 / 1024 } // GiB
-    } catch (e) {
-      return { ok: false, error: String(e.message || e) }
-    }
-  })
+    })
 
   // Abre um link (notícia) no navegador padrão do sistema.
   ipcMain.handle("app:openExternal", (_e, url) => {
@@ -4494,36 +4609,55 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle("fixes:apply", async (_e, { appid, url, type, installPath }) => {
-    const a = String(appid || "").replace(/^steam:/, "")
-    if (!a || !url || !installPath) return { ok: false, error: "missing_args" }
-    return fixes.applyFix({ appid: a, url, type, installPath })
-  })
+      const a = String(appid || "").replace(/^steam:/, "")
+      if (!a || !url || !installPath) return { ok: false, error: "missing_args" }
+      // SEGURANCA F3: renderer nao e fonte de verdade para URLs ou paths.
+      // url so pode vir de fontes conhecidas (luatools.work ou ryuu.lol).
+      const FIX_BASES = [
+        "https://files.luatools.work/GameBypasses/",
+        "https://files.luatools.work/OnlineFix1/",
+        "https://generator.ryuu.lol/fixes/",
+      ]
+      const urlOk = FIX_BASES.some((b) => String(url).startsWith(b))
+      if (!urlOk) return { ok: false, error: "url rejeitada: fonte desconhecida" }
+      // installPath deve ser absoluto e sem path traversal.
+      if (!path.isAbsolute(installPath) || installPath.includes("..")) {
+        return { ok: false, error: "installPath rejeitado" }
+      }
+      return fixes.applyFix({ appid: a, url, type, installPath })
+    })
 
-  ipcMain.handle("fixes:status", (_e, appid) => {
-    const a = String(appid || "").replace(/^steam:/, "")
-    return fixes.getStatus(a)
-  })
+    ipcMain.handle("fixes:status", (_e, appid) => {
+      const a = String(appid || "").replace(/^steam:/, "")
+      return fixes.getStatus(a)
+    })
 
-  ipcMain.handle("fixes:cancel", (_e, appid) => {
-    const a = String(appid || "").replace(/^steam:/, "")
-    return fixes.cancelApply(a)
-  })
+    ipcMain.handle("fixes:cancel", (_e, appid) => {
+      const a = String(appid || "").replace(/^steam:/, "")
+      return fixes.cancelApply(a)
+    })
 
-  ipcMain.handle("fixes:installed", (_e, { appid, installPath }) => {
-    if (!installPath) return { ok: true, installed: false }
-    return { ok: true, installed: fixes.isFixed(installPath) }
-  })
+    ipcMain.handle("fixes:installed", (_e, { appid, installPath }) => {
+      if (!installPath) return { ok: true, installed: false }
+      // SEGURANCA F3: installPath do renderer deve ser absoluto e sem traversal.
+      if (!path.isAbsolute(installPath) || installPath.includes("..")) return { ok: false, error: "installPath rejeitado" }
+      return { ok: true, installed: fixes.isFixed(installPath) }
+    })
 
-  ipcMain.handle("fixes:unfix", (_e, { appid, installPath }) => {
-    return fixes.unfix(installPath)
-  })
+    ipcMain.handle("fixes:unfix", (_e, { appid, installPath }) => {
+      // SEGURANCA F3: installPath do renderer deve ser absoluto e sem traversal.
+      if (!installPath || !path.isAbsolute(installPath) || installPath.includes("..")) return { ok: false, error: "installPath rejeitado" }
+      return fixes.unfix(installPath)
+    })
 
-  ipcMain.handle("fixes:launcherRedirect", (_e, { installPath }) => {
-    const r = fixes.buildLauncherRedirect(installPath)
-    return { ok: true, redirect: r }
-  })
+    ipcMain.handle("fixes:launcherRedirect", (_e, { installPath }) => {
+      // SEGURANCA F3: installPath do renderer deve ser absoluto e sem traversal.
+      if (!installPath || !path.isAbsolute(installPath) || installPath.includes("..")) return { ok: false, error: "installPath rejeitado" }
+      const r = fixes.buildLauncherRedirect(installPath)
+      return { ok: true, redirect: r }
+    })
 
-  ipcMain.handle("fixes:setRyuuAuth", (_e, key) => fixes.setRyuuAuth(key))
+    ipcMain.handle("fixes:setRyuuAuth", (_e, key) => fixes.setRyuuAuth(key))
   ipcMain.handle("fixes:ryuuAuthStatus", () => fixes.getRyuuAuthStatus())
   ipcMain.handle("fixes:clearRyuuAuth", () => fixes.clearRyuuAuth())
 
@@ -4960,26 +5094,30 @@ app.whenReady().then(() => {
   })
 
   // Baixa uma arte escolhida e guarda em art/. Mesmo destino do "Escolher".
-  ipcMain.handle("art:download", async (_e, { id, kind, url } = {}) => {
-    if (!id || !SGDB_ENDPOINT[kind] || !url) return { ok: false }
-    const safeId = String(id).replace(/[^a-z0-9._-]/gi, "_")
-    const base = path.join(ART_DIR, `${safeId}-${kind}-${Date.now()}`)
-    try {
-      fs.mkdirSync(ART_DIR, { recursive: true })
-      const { path: dest } = await downloadTo(url, base, fs)
-      const velha = artToDelete(readOverrides(caminhoConta(OVERRIDES))[id]?.[kind], ART_DIR, path.sep)
-      if (velha) {
-        try {
-          fs.unlinkSync(velha)
-        } catch {
-          /* já não existe */
+    ipcMain.handle("art:download", async (_e, { id, kind, url } = {}) => {
+      if (!id || !SGDB_ENDPOINT[kind] || !url) return { ok: false }
+      // SEGURANCA F3: renderer nao e fonte de verdade para URLs. url arbitraria
+      // permitiria download de qualquer conteudo (ex: file:///etc/passwd) para
+      // dentro de ART_DIR, ou pior, explorar o downloadTo para escrever fora.
+      if (typeof url !== "string" || !url.startsWith("https://")) return { ok: false, error: "url rejeitada" }
+      const safeId = String(id).replace(/[^a-z0-9._-]/gi, "_")
+      const base = path.join(ART_DIR, `${safeId}-${kind}-${Date.now()}`)
+      try {
+        fs.mkdirSync(ART_DIR, { recursive: true })
+        const { path: dest } = await downloadTo(url, base, fs)
+        const velha = artToDelete(readOverrides(caminhoConta(OVERRIDES))[id]?.[kind], ART_DIR, path.sep)
+        if (velha) {
+          try {
+            fs.unlinkSync(velha)
+          } catch {
+            /* já não existe */
+          }
         }
+        return { ok: true, path: dest }
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) }
       }
-      return { ok: true, path: dest }
-    } catch (e) {
-      return { ok: false, error: String(e.message || e) }
-    }
-  })
+    })
 
   // Escolhe uma arte para UM jogo e copia para art/. Diferente do avatar, o
   // nome do arquivo leva um timestamp: sem isso, trocar a capa reusaria o

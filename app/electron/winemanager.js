@@ -140,6 +140,17 @@ function prefixOf(appid) {
   return path.join(prefixBase(appid), safeId(appid))
 }
 
+// SEGURANCA F3: verifica se um wine path informado pelo renderer corresponde
+// a um Proton instalado pela Steam (via steamProtons()). O renderer nunca pode
+// escolher binarios arbitrarios para execucao.
+function isKnownWine(winePath) {
+  if (typeof winePath !== "string" || !winePath) return false
+  const protons = steamProtons()
+  // Verifica se o path exato de wine (p.wine) ou o diretorio do Proton (p.path)
+  // corresponde ao winePath informado.
+  return protons.some((p) => p.wine === winePath || p.path === path.dirname(winePath))
+}
+
 // Bootstrap do prefixo (wineboot) se ainda não existe drive_c.
 // opts: { wine: binário obrigatório, prefix: prefixo customizado }.
 async function verifyWinePrefix(appid, opts = {}) {
@@ -168,6 +179,11 @@ async function verifyWinePrefix(appid, opts = {}) {
 // opts: { wine: binário escolhido, prefix: prefixo customizado }.
 async function prefixTool(appid, tool, opts = {}) {
   if (process.platform === "win32") return { ok: false, error: "Wine tools not needed on Windows" }
+  // SEGURANCA F3: defense-in-depth — o renderer nunca e fonte de verdade para
+  // binarios. O wine path deve ser de um Proton conhecido pela Steam.
+  if (opts.wine && !isKnownWine(opts.wine)) {
+    return { ok: false, error: "wine path rejeitado: nao reconhecido como Proton" }
+  }
   const { prefix } = await verifyWinePrefix(appid, opts)
   const wine = opts.wine
   const env = { ...process.env, WINEPREFIX: prefix }
@@ -208,6 +224,11 @@ async function runExe(appid, exePath, opts = {}) {
     } catch (e) {
       return { ok: false, error: String(e) }
     }
+  }
+  // SEGURANCA F3: defense-in-depth — o renderer nunca e fonte de verdade para
+  // binarios. O wine path deve ser de um Proton conhecido pela Steam.
+  if (opts.wine && !isKnownWine(opts.wine)) {
+    return { ok: false, error: "wine path rejeitado: nao reconhecido como Proton" }
   }
   const { prefix } = await verifyWinePrefix(appid, opts)
   const wine = opts.wine
@@ -267,5 +288,6 @@ module.exports = {
   installGraphicsLibs,
   prefixOf,
   steamProtons,
+  isKnownWine,
   PREFIX_DIR,
 }

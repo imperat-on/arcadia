@@ -97,21 +97,26 @@ function upcRuntimeMap(conteudo) {
   if (!plainObject(root)) return null
 
   const map = new Map()
-  for (const [rawId, value] of Object.entries(root)) {
-    if (!plainObject(value)) continue
-    const id = normalizeNumericId(rawId) || String(rawId).trim()
-    if (!id) continue
-    const nome = String(
-      value.displayName || value.name || value.apiname || value.description || value.title || ""
-    )
-      .trim()
-      .toLowerCase()
-    map.set(nome, {
-      id,
-      earned: earnedValue(value.earned),
-      unlockTime: epochMilliseconds(value.earned_time),
-    })
-  }
+    for (const [rawId, value] of Object.entries(root)) {
+      if (!plainObject(value)) continue
+      const id = normalizeNumericId(rawId) || String(rawId).trim()
+      if (!id) continue
+      // Mesma ordem de keying do parseUPC: apiname primeiro, depois name,
+      // displayName por último. Antes usava displayName primeiro, o que
+      // causava assimetria entre os dois parsers e quebrava a reconciliação
+      // de desbloqueios (um item era "Amigo dos Bichos" no parseUPC e
+      // "ACObsidian_Ach_40" no upcRuntimeMap).
+      const nome = String(
+        value.apiname || value.name || value.displayName || value.description || value.title || ""
+      )
+        .trim()
+        .toLowerCase()
+      map.set(nome, {
+        id,
+        earned: earnedValue(value.earned),
+        unlockTime: epochMilliseconds(value.earned_time),
+      })
+    }
   return map
 }
 
@@ -198,7 +203,20 @@ function resolveUplayId(appid, settings = {}, entry = {}) {
   ]
   for (const candidate of candidates) {
     const id = normalizeNumericId(candidate)
-    if (id !== null) return id
+    if (id !== null) {
+      // Quando existe um mapeamento conhecido para este appid, valida que
+      // o ID escolhido corresponde. Isso impede que um settings.uplayId
+      // configurado pelo usuário (ou lixo de entrada) aponte para o runtime
+      // UPC de outro jogo. Se o candidato veio de KNOWN_UPC_IDS (último
+      // da lista), a correspondência é auto-validada.
+      const known = KNOWN_UPC_IDS[String(appid)]
+      if (known !== undefined && known !== id) {
+        // Candidato não corresponde ao KNOWN_UPC_IDS — continua procurando
+        // (o próprio KNOWN_UPC_IDS está no final da lista e será tentado).
+        continue
+      }
+      return id
+    }
   }
   return null
 }
