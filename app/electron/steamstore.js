@@ -1740,7 +1740,10 @@ function lerLuas(outDir, appid) {
 function sanitizeInstallDir(installdir) {
   return (
     String(installdir || "")
+      // SEGURANCA: o regex abaixo deixa '.' passar = '..' sobrevive e faz
+      // path traversal para fora de steamapps/common. Remove '..' explicitamente.
       .replace(/[^A-Za-z0-9._ -]/g, "")
+      .replace(/\.\./g, "")
       .trim() || "jogo"
   )
 }

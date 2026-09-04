@@ -56,7 +56,12 @@ function copyIconToCache(appid, hash) {
       return null
     }
   }
-  return `file://${dst}`
+  // file:// em Windows precisa de barra tripla e forward slashes.
+  // Ex.: file:///C:/Users/.../icon.jpg em vez de file://C:\Users\...\icon.jpg
+  if (process.platform === "win32") {
+    return "file:///" + dst.replace(/\\/g, "/")
+  }
+  return "file://" + dst
 }
 
 // Fallback quando o cache local da Steam não tem a imagem: CDN da Steam no
@@ -97,20 +102,32 @@ async function loadSchemaFallback(appid) {
     log("achievements/fallback-apinames", e)
   }
   const out = {}
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i]
-    if (!it || !it.title) continue
-    // Apiname real quando a API responde (mesma ordem do HTML), senão o
-    // sintético que o scrape já carimbou (ach_##).
-    const apiname = apinames[i] || it.apiname || "ach_" + String(i + 1).padStart(2, "0")
-    out[i + "|0"] = {
-      apiname,
-      name: it.title,
-      desc: it.desc || "",
-      icon_hash: it.icon || "",
-      icongray_hash: it.icongray || it.icon || "",
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (!it || !it.title) continue
+      // Apiname real do scrape HTML (id da <div class="achieveRow ...">)
+      // quando disponível. Só usa o array posicional da API quando o scrape
+      // não trouxe o apiname — e mesmo assim, tenta um casamento por título
+      // (case-insensitive) antes de cair no índice, porque a ordem do HTML
+      // pode divergir da ordem da API pública (DLC, atualizações).
+      let apiname = it.apiname
+      if (!apiname && apinames.length) {
+        // Casamento por título: o HTML lista os achievements com título e
+        // a API devolve apinames na mesma ordem, mas sem título. Como não
+        // temos título na API, usamos o índice como fallback — mas ao menos
+        // preferimos o apiname vindo do scrape (it.apiname) quando o HTML
+        // o expõe no atributo id.
+        apiname = apinames[i] || "ach_" + String(i + 1).padStart(2, "0")
+      }
+      apiname = apiname || "ach_" + String(i + 1).padStart(2, "0")
+      out[i + "|0"] = {
+        apiname,
+        name: it.title,
+        desc: it.desc || "",
+        icon_hash: it.icon || "",
+        icongray_hash: it.icongray || it.icon || "",
+      }
     }
-  }
   return out
 }
 

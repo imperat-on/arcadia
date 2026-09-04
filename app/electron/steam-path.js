@@ -23,17 +23,12 @@ function findSteamDirWindows() {
     const steam = path.join(pf, "Steam")
     if (fs.existsSync(path.join(steam, "steamapps"))) return steam
   }
-  // Check libraryfolders.vdf for alternate install locations
-  for (const pf of programFiles) {
-    const vdf = path.join(pf, "Steam", "steamapps", "libraryfolders.vdf")
-    try {
-      const content = fs.readFileSync(vdf, "utf-8")
-      for (const m of content.matchAll(/"path"\s+"([^"]+)"/g)) {
-        const libPath = m[1].replace(/\\\\/g, "/").replace(/\//g, "\\")
-        if (fs.existsSync(path.join(libPath, "steamapps"))) return path.dirname(path.join(libPath, "steamapps"))
-      }
-    } catch {}
-  }
+  // Library folders via libraryfolders.vdf NÃO são o root da Steam.
+  // A função findSteamDir retorna APENAS o diretório de instalação da
+  // Steam (onde steam.exe vive). Library folders (bibliotecas alternativas
+  // em D:\, E:\, etc.) são resolvidas separadamente onde forem necessárias
+  // (ex. compatdata, appcache/stats sempre ficam no root da Steam).
+  // Se nada foi encontrado, fallback no caminho mais comum.
   return path.join(programFiles[0], "Steam")
 }
 

@@ -299,6 +299,19 @@ function find7z() {
 // instalado, fazemos o fluxo em Node (fetch → extract via 7zz/unzip).
 async function applyFix({ appid, url, type, installPath }) {
   const a = String(appid)
+  // SEGURANCA F3: defense-in-depth — url e installPath sao validados no IPC
+  // handler mas este modulo pode ser chamado de outros contextos.
+  const FIX_BASES = [
+    "https://files.luatools.work/GameBypasses/",
+    "https://files.luatools.work/OnlineFix1/",
+    "https://generator.ryuu.lol/fixes/",
+  ]
+  if (typeof url !== "string" || !FIX_BASES.some((b) => url.startsWith(b))) {
+    return { ok: false, error: "url rejeitada: fonte desconhecida" }
+  }
+  if (typeof installPath !== "string" || !path.isAbsolute(installPath) || installPath.includes("..")) {
+    return { ok: false, error: "installPath rejeitado" }
+  }
   const dest = tmpZip(a)
   ensureDirs()
 

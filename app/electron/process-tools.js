@@ -83,4 +83,21 @@ function isSteamRunning() {
   }
 }
 
-module.exports = { isProcessAlive, killProcessTree, isProcessRunning, isSteamRunning }
+// No Windows, verifica se algum processo do jogo Steam ainda está rodando
+// sob steamapps\common. A Steam client fica na bandeja e isSteamRunning
+// retorna true mesmo depois do jogo fechar — o que impedia o playtime de
+// ser creditado (a sessão nunca finalizava). Este check é mais específico.
+function isSteamGameRunning() {
+  if (process.platform !== "win32") return false
+  try {
+    const out = String(execFileSync("powershell", [
+      "-NoProfile", "-NonInteractive", "-Command",
+      "& { (Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '*steamapps\\common*' }).Count }"
+    ], { timeout: 3000, encoding: "utf8" })).trim()
+    return Number(out) > 0
+  } catch {
+    return false
+  }
+}
+
+module.exports = { isProcessAlive, killProcessTree, isProcessRunning, isSteamRunning, isSteamGameRunning }

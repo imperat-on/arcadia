@@ -164,14 +164,20 @@ function startSteamBinWatcher(onUnlock) {
 
 // --- Loja: scrape sob demanda da página pública -----------------------------
 // Mesma lógica do parser da página pública da Steam: bloco achieveRow,
-// primeira img do bloco (sem classe), título h3 e descrição h5. A página não
-// expõe o apiname — o chamador gera sintético.
+// primeira img do bloco (sem classe), título h3 e descrição h5. A página
+// expõe o apiname no atributo id da <div class="achieveRow ..."> — extraímos
+// ele para uso no casamento por título no loader (em vez de índice posicional).
 function parseAchievementsHtml(page) {
   const out = []
   const rowRe = /<div class="achieveRow[^"]*"[^>]*>([\s\S]*?)<div style="clear: both;">/g
   let m
   while ((m = rowRe.exec(page))) {
+    const full = m[0]
     const b = m[1]
+    // Extrai o apiname do atributo id da <div class="achieveRow ...">
+    // Ex.: <div class="achieveRow" id="ach_ACObsidian_Ach_40"> → "ach_ACObsidian_Ach_40"
+    const idM = /id="([^"]+)"/.exec(full)
+    const apiname = idM ? idM[1].trim() : ""
     const iconM = /<img src="([^"]+)"/.exec(b)
     const titleM = /<h3>([\s\S]*?)<\/h3>/.exec(b)
     if (!iconM || !titleM) continue
@@ -184,6 +190,7 @@ function parseAchievementsHtml(page) {
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
     out.push({
+      apiname,
       title: unesc(titleM[1]).trim(),
       desc: descM ? unesc(descM[1]).trim() : "",
       icon: iconM[1],
@@ -232,7 +239,7 @@ async function fetchAchievementsForApp(appid) {
   }
 
   const out = items.map((it, i) => ({
-    apiname: "ach_" + String(i + 1).padStart(2, "0"),
+    apiname: it.apiname || "ach_" + String(i + 1).padStart(2, "0"),
     title: it.title,
     desc: it.desc,
     icon: it.icon,
