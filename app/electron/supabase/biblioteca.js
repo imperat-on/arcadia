@@ -162,7 +162,9 @@ async function push() {
   const st = loadState()
   const enviados = st.libPush || {}
   const wp = st.playtimePush || {}
-  const overrides = readJson(OVERRIDES(), {})
+  const rawOwned = readOwned()
+    // Constraint 7: owned ausente = "possui tudo". NAO materializar: gravar
+    const overrides = readJson(OVERRIDES(), {})
 
   // Jogos custom: diff local vs watermark
   const lib = readJson(CUSTOM(), [])
@@ -208,12 +210,19 @@ async function push() {
     }
     return p?.title || id
   }
-  for (const id of owned) {
-    if (ids.has(id)) continue
-    const prev = enviados[id]
-    const titulo = tituloDe(id)
-    if (!prev || prev.title !== titulo) {
-      p_lib.push({ appid: id, title: titulo, platform: "windows" })
+  // owned === null significa posse ilegível (ausente/corrompido). Nesse caso
+  // pulamos o diff de posse: não reenviamos títulos de owned (sem perda —
+  // o próximo push com posse legível cuida) e não emitimos removals.
+  // A alternativa (devolver Set vazio) fazia o push marcar removed:true
+  // para TODOS os jogos no watermark — apagando a biblioteca do servidor.
+  if (owned) {
+    for (const id of owned) {
+      if (ids.has(id)) continue
+      const prev = enviados[id]
+      const titulo = tituloDe(id)
+      if (!prev || prev.title !== titulo) {
+        p_lib.push({ appid: id, title: titulo, platform: "windows" })
+      }
     }
   }
 
@@ -221,10 +230,15 @@ async function push() {
   // Cobre custom (fora do custom_games.json) E steam (fora do owned_games):
   // sem isto, remover um jogo steam numa maquina nao sumia na outra — o
   // watermark ficava e o push nunca marcava removed.
-  for (const id of Object.keys(enviados)) {
-    if (!ids.has(id) && !owned.has(id)) p_lib.push({ appid: id, removed: true })
+  // Só roda quando a posse é CONHECIDA (owned !== null) — se owned está
+  // ilegível, não podemos distinguir remoção real de falha de leitura.
+  if (owned) {
+    for (const id of Object.keys(enviados)) {
+      if (!ids.has(id) && !owned.has(id)) p_lib.push({ appid: id, removed: true })
+    }
+  } else {
+    console.warn("[biblioteca] posse desconhecida (owned null): pulando diff de remoção")
   }
-
   // Horas: delta acumulado desde o último push
   const p_playtime = []
   for (const [gid, data] of Object.entries(overrides)) {
@@ -279,15 +293,38 @@ async function pull() {
   const st = loadState()
   const enviados = st.libPush || {}
   const wp = st.playtimePush || {}
-
   // Posse: owned_games.json ausente (null) significa "possui tudo" (ainda
-  // nao migrou, ver constraint 7). Nesse caso o pull cria o arquivo com os
-  // IDs do servidor para que a posse seja preservada desde o primeiro boot.
-  // Sem isso, um formate/reinstall perdia os jogos Steam porque o
-  // readLibrary() materializava um owned vazio antes do pull rodar.
-  const rawOwned = readOwned()
-  const owned = rawOwned === null ? new Set() : new Set(rawOwned)
-  let ownedMudou = rawOwned === null
+    // nao migrou, ver constraint 7). Nesse caso o pull cria o arquivo com os
+    // IDs do servidor para que a posse seja preservada desde o primeiro boot.
+    // Sem isso, um formate/reinstall perdia os jogos Steam porque o
+    // readLibrary() materializava um owned vazio antes do pull rodar.
+    const rawOwned = readOwned()
+  // Constraint 7: owned ausente = "possui tudo". NAO materializar: gravar
+  // so os ids do servidor trocaria silenciosamente "possui tudo" por
+  // "possui o que o servidor lista", escondendo jogos locais.
+  const owned = rawOwned === null ? null : new Set(rawOwned)
+  let ownedMudou = false
+  const posseExiste = rawOwned !== null
+
+
+  // Pull vazio com posse local cheia: servidor pode ter saido do ar ou
+  // o RPC pode ter bugs; nao confiamos em [] sem confirmação.
+  // Exigimos duas observações consecutivas antes de remover jogos.
+  const idsDoServidor = new Set(data.map((row) => row && row.appid))
+  const servidorVazio = data.length === 0
+  const estadoLocalCheio = Object.keys(enviados).length > 0 || (posseExiste ? owned.size > 0 : false)
+  let podeRemover = true
+  if (servidorVazio && estadoLocalCheio) {
+    const streak = (Number(st.emptyPullStreak) || 0) + 1
+    podeRemover = streak >= 2
+    st.emptyPullStreak = streak
+    if (!podeRemover) {
+      console.warn(`[biblioteca] pull vazio com owned cheio (tentativa ${streak}/2): ignorando remoções`)
+    }
+  } else {
+    st.emptyPullStreak = 0
+  }
+
 
   // Jogos que faltam localmente entram como custom (exe vazio — usuário
   // configura na máquina nova; título/plataforma vêm do servidor)
@@ -297,13 +334,13 @@ async function pull() {
   const pendentes = readJson(PENDING(), [])
   const pendentesIds = new Set(pendentes.map((p) => p && p.id))
   let pendentesMudou = false
-  const idsDoServidor = new Set(data.map((row) => row && row.appid))
+
 
   // Retrôs que já foram sincronizados precisam sair também do snapshot local
   // quando forem removidos em outra máquina. Jogos retrô ainda não enviados
   // permanecem locais para não perder uma adição que está aguardando o push.
   const retroRemovidos = lib.filter((game) => isRetroGame(game) && enviados[game.id] && !idsDoServidor.has(game.id))
-  if (retroRemovidos.length) {
+    if (retroRemovidos.length && podeRemover) {
     const removerIds = new Set(retroRemovidos.map((game) => game.id))
     const restantes = lib.filter((game) => !removerIds.has(game.id))
     lib.length = 0
@@ -379,7 +416,7 @@ async function pull() {
   }
 
   for (const row of data) {
-    if (owned !== null && !owned.has(row.appid)) {
+    if (posseExiste && !owned.has(row.appid)) {
       owned.add(row.appid)
       ownedMudou = true
     }
@@ -479,7 +516,7 @@ async function pull() {
   // pull (nao e dado do usuario) — antes o pendentesIds.has(id) impedia a
   // remocao pra sempre, entao um jogo so puxado (nunca instalado) na outra
   // maquina nunca podia ser removido por sync.
-  if (owned !== null) {
+  if (posseExiste && podeRemover) {
     for (const id of [...owned]) {
       const customRetroSincronizado = isRetroGame(id) && enviados[id]
       if (!idsDoServidor.has(id) && (!ids.has(id) || customRetroSincronizado)) {
@@ -491,7 +528,9 @@ async function pull() {
   // Stubs pendentes cujo jogo sumiu do servidor tambem saem — senao a entrada
   // fantasma (instalado:false) fica pra sempre em pending_games.json mesmo
   // apos o owned ja ter sido limpo acima.
-  const pendentesRestantes = pendentes.filter((p) => !p || idsDoServidor.has(p.id))
+  const pendentesRestantes = podeRemover
+    ? pendentes.filter((p) => !p || idsDoServidor.has(p.id))
+    : pendentes
   if (pendentesRestantes.length !== pendentes.length) {
     pendentes.length = 0
     pendentes.push(...pendentesRestantes)
@@ -500,7 +539,7 @@ async function pull() {
   if (!contaAindaAtiva(contexto)) return false
   if (pendentesMudou) writeJson(PENDING(), pendentes)
   if (mudou) writeJson(CUSTOM(), lib)
-  if (ownedMudou) {
+  if (ownedMudou && posseExiste) {
     writeJson(OWNED(), [...owned])
     mudou = true
   }

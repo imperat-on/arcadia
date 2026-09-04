@@ -44,16 +44,22 @@ function filtrarPorPosse(globais) {
 
 // Set dos ids possuídos pela conta ativa. Guest não tem posse (a UI dele
 // já vê tudo via filtrarPorPosse), então devolve conjunto vazio.
+// Retorna NULL quando o arquivo está ausente ou corrompido — o chamador
+// (push) DEVE tratar null como "posse desconhecida; não remova nada".
+// Devolver Set() vazio aqui fazia o push marcar TODOS os jogos como
+// removed — apagando a biblioteca do servidor e propagando o wipe.
 function ownedSet() {
   if (!conta()) return new Set()
-  return new Set(readOwned() || [])
+  const raw = readOwned()
+  return raw === null ? null : new Set(raw)
 }
 
 // Grava atômico (tmp+rename): uma queda no meio não pode deixar o
 // owned_games.json truncado, senão a conta perde acesso a jogos que já tinha.
+// O nome tmp único (pid+ts) evita colisão entre processos concorrentes.
 function gravarOwned(ids) {
   const alvo = caminhoConta(OWNED_GAMES)
-  const tmp = `${alvo}.tmp`
+  const tmp = `${alvo}.tmp-${process.pid}-${Date.now()}`
   fs.writeFileSync(tmp, JSON.stringify(ids))
   fs.renameSync(tmp, alvo)
 }

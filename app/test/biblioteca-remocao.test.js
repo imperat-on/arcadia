@@ -61,10 +61,12 @@ test("pull mantem jogos que continuam no servidor", async () => {
 
 test("pull com servidor vazio remove tudo do owned", async () => {
   preparar({ owned: ["steam:a", "steam:b"], rows: [] })
-
+  // 1o pull vazio: quorum protege contra wipe acidental
   await biblioteca.pull()
-
-  assert.deepEqual(ownedAtual(), [], "servidor vazio = owned vazio")
+  assert.deepEqual(ownedAtual().sort(), ["steam:a", "steam:b"], "1o pull vazio: quorum protege, owned preservado")
+  // 2o pull vazio: confirma a intenção, executa remoção
+  await biblioteca.pull()
+  assert.deepEqual(ownedAtual(), [], "2o pull vazio: owned limpo")
 })
 
 test("pull nao remove jogo custom local que nao esta no servidor", async () => {
@@ -126,13 +128,16 @@ test("pull remove retro sincronizado do snapshot local quando some do servidor",
   }
 
   const mudou = await biblioteca.pull()
+    // 1o pull vazio: quorum protege, sem remoção
+    const mudou2 = await biblioteca.pull()  // 2o: confirma remoção
 
-  assert.equal(mudou, true, "pull deve sinalizar a remoção do retrô")
-  assert.deepEqual(JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf8")), [], "retrô removido sai do snapshot local")
-  assert.deepEqual(ownedAtual(), [], "retrô removido sai da posse local")
-  const estadoFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("sync_state.json"), "utf8"))
-  assert.equal(estadoFinal.libPush["retro:ps2:crimson-desert"], undefined, "watermark antigo é limpo para permitir uma futura adição")
-})
+    assert.equal(mudou, false, "1o pull vazio: quorum protege, sem mudanca")
+    assert.equal(mudou2, true, "2o pull vazio: executa remoção do retrô")
+    assert.deepEqual(JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("custom_games.json"), "utf8")), [], "retrô removido sai do snapshot local")
+    assert.deepEqual(ownedAtual(), [], "retrô removido sai da posse local")
+    const estadoFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("sync_state.json"), "utf8"))
+    assert.equal(estadoFinal.libPush["retro:ps2:crimson-desert"], undefined, "watermark antigo é limpo para permitir uma futura adição")
+  })
 
 test("pull preserva retro local ainda nao sincronizado", async () => {
   conta.definirConta("u-retro-local")
@@ -180,12 +185,15 @@ test("pull remove jogo com stub pending quando some do servidor (nunca instalado
   }
 
   const mudou = await biblioteca.pull()
+    // 1o pull vazio: quorum protege, sem remoção
+    const mudou2 = await biblioteca.pull()  // 2o: confirma remoção
 
-  assert.equal(mudou, true, "pull deve sinalizar mudanca")
-  assert.deepEqual(ownedAtual(), [], "jogo removido no servidor sai do owned mesmo com stub pending")
-  const pendentesFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("pending_games.json"), "utf-8"))
-  assert.deepEqual(pendentesFinal, [], "stub pending orfao (jogo sumiu do servidor) e limpo")
-})
+    assert.equal(mudou, false, "1o pull vazio: quorum protege")
+    assert.equal(mudou2, true, "2o pull vazio: executa remoção")
+    assert.deepEqual(ownedAtual(), [], "jogo removido no servidor sai do owned mesmo com stub pending")
+    const pendentesFinal = JSON.parse(fs.readFileSync(conta.caminhoArquivoConta("pending_games.json"), "utf-8"))
+    assert.deepEqual(pendentesFinal, [], "stub pending orfao (jogo sumiu do servidor) e limpo")
+  })
 
 test("pull cria watermark para jogos vindos do servidor (remocao local propaga)", async () => {
   conta.definirConta("u2")
