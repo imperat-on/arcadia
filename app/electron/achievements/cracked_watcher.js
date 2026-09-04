@@ -612,33 +612,52 @@ function iniciarVigia(onUnlock, onRevoke = null) {
         }
 
         // ---- UPC: reconcilia desbloqueios fantasmas (servidor != runtime) ----
-        // O runtime Goldberg/UPC é a fonte da verdade. Se o runtime diz
-        // earned=0 para um item que o servidor/store tem como achieved=true,
-        // desmarca localmente e emite onRevoke para o servidor (deleteAchievement).
-        // Isso repara o bug de mapeamento que gravou "Amigo dos Bichos" quando o
-        // runtime real era "Cacifo do Davy Jones" — e vale para qualquer cliente.
-        let atualizou = false
-        if (reg.name === "upc") {
-          const runtimeMap = upcRuntimeMap(conteudo)
-          if (runtimeMap) {
-            for (const it of items) {
-              if (!it || !it.achieved) continue
-              const titulo = String(it.title || it.name || "").trim().toLowerCase()
-              if (!titulo) continue
-              const rt = runtimeMap.get(titulo)
-              if (rt && rt.earned === false) {
-                // runtime diz que NÓS NÃO desbloqueou → reverter
-                it.achieved = false
-                it.unlock = 0
-                it.revoked = true
-                atualizou = true
-                if (onRevoke && it.apiname) {
-                  try { onRevoke({ appid, apiname: it.apiname }) } catch { /* ignore */ }
+                // O runtime Goldberg/UPC é a fonte da verdade para desbloqueios que
+                // ESTA máquina gravou (localUnlock=true). Só revogamos itens que:
+                //   1. Foram desbloqueados localmente (localUnlock=true) — conquistas
+                //      que vieram de outra máquina (pull) não são revogadas, evitando
+                //      o ping-pong revoke/re-push entre dispositivos.
+                //   2. O runtime tem pelo menos 1 entrada com earned=1 (está ativo);
+                //      um runtime zeroado (jogo nunca jogado) não é autoritativo.
+                //   3. O sync de conquistas já completou ao menos um pull desde a
+                //      instalação — senão revogaríamos antes de saber o que o servidor
+                //      tem.
+                let atualizou = false
+                if (reg.name === "upc") {
+                  const runtimeMap = upcRuntimeMap(conteudo)
+                  if (runtimeMap && runtimeMap.size >= items.length) {
+                    // Runtime completo: tem pelo menos um item por schema. Se o
+                    // runtime está ativo (algum earned=1), confiamos que earned=0
+                    // é intencional. Se o runtime é todo zero (jogo nunca jogado),
+                    // não revogamos.
+                    const runtimeAtivo = [...runtimeMap.values()].some((v) => v.earned === true)
+                    if (!runtimeAtivo) continue
+                    // Só revoga depois do primeiro pull da sessão (evita corrida)
+                    let podeRevogar = false
+                    try {
+                      podeRevogar = !!require("../supabase/sync").getState().lastPullAt
+                    } catch {}
+                    if (!podeRevogar) continue
+                    for (const it of items) {
+                      if (!it || !it.achieved) continue
+                      // Só revoga desbloqueios que esta máquina originou
+                      if (it.localUnlock !== true) continue
+                      const titulo = String(it.title || it.name || "").trim().toLowerCase()
+                      if (!titulo) continue
+                      const rt = runtimeMap.get(titulo)
+                      if (rt && rt.earned === false) {
+                        // runtime diz que NÓS NÃO desbloqueou → reverter
+                        it.achieved = false
+                        it.unlock = 0
+                        it.revoked = true
+                        atualizou = true
+                        if (onRevoke && it.apiname) {
+                          try { onRevoke({ appid, apiname: it.apiname }) } catch { /* ignore */ }
+                        }
+                      }
+                    }
+                  }
                 }
-              }
-            }
-          }
-        }
 
         const desbloqueadas = reg.parse(conteudo)
         if (!desbloqueadas || !desbloqueadas.length) {

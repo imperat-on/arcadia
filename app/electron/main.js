@@ -2328,8 +2328,9 @@ function onUnlockAchievement(payload) {
           String(x.apiname || "").toLowerCase() === String(payload.apiname).toLowerCase()),
     )
     if (it && !it.achieved) {
-      it.achieved = true
-      it.unlock = payload.unlock
+          it.achieved = true
+          it.unlock = payload.unlock
+          it.localUnlock = true  // origem: runtime local (este processo)
       fs.writeFileSync(arq, JSON.stringify(store))
       novo = true
       // Conta online: enfileira o desbloqueio pro sync (só se o item tem
