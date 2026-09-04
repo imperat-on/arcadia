@@ -526,8 +526,24 @@ async function deleteAchievement(appid, apiname, context = null) {
   if (!contextStillActive(ctx)) return { ok: false, error: "conta_trocada", retryable: false }
 
   console.log(`[sync] Deleted achievement: ${appid}/${apiname}`)
-  return { ok: true }
-}
+    // Purge local queue: remove qualquer entrada pendente para este
+    // (appid,apiname) que ainda nao foi enviada. Sem isso, um desbloqueio
+    // enfileirado antes do revoke seria reenviado no proximo syncAllLocal,
+    // ressuscitando a conquista fantasma no servidor.
+    try {
+      purgeQueue(appid, apiname)
+    } catch {}
+    return { ok: true }
+  }
+
+  function purgeQueue(appid, apiname) {
+    const q = loadQueue()
+    const rest = q.filter((it) => !(it && String(it.appid) === String(appid) && String(it.apiname) === String(apiname)))
+    if (rest.length !== q.length) {
+      console.log(`[sync] Removed ${q.length - rest.length} queue entries for ${appid}/${apiname}`)
+      saveQueue(rest)
+    }
+  }
 
 module.exports = {
   normalizeTs,
