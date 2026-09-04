@@ -4462,9 +4462,9 @@ app.whenReady().then(() => {
             ),
           )
           const lines = String(out).trim().split("\n")
-                    const dataLine = lines.find((l) => /^\w+,/.test(l))
-                              if (!dataLine) throw new Error("wmic: linha de dados não encontrada")
-                              const cols = dataLine.split(",")
+          const dataLine = lines.find((l) => /^\w+,/.test(l))
+          if (!dataLine) throw new Error("wmic: linha de dados não encontrada")
+          const cols = dataLine.split(",")
           const totalBytes = Number(cols[2])
           const freeBytes = Number(cols[1])
           if (!totalBytes || !freeBytes) throw new Error("wmic: valores inválidos")
