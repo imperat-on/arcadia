@@ -30,7 +30,7 @@ function tarWithUmu(executable) {
   ])
 }
 
-test("runtime UMU rejeita cópia gerenciada adulterada e mantém fallback externo", () => {
+test("runtime UMU rejeita cópia gerenciada adulterada e mantém fallback externo", { skip: process.platform === "win32" && "UMU e Linux-only (umu-runtime retorna vazio no Windows)" }, () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-umu-valid-"))
   const target = managedUmuPath(dataDir)
   const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-umu-external-"))
@@ -43,7 +43,7 @@ test("runtime UMU rejeita cópia gerenciada adulterada e mantém fallback extern
   assert.equal(findUmuLauncher({ dataDir, home: "/nonexistent", envPath: externalDir }), external)
 })
 
-test("runtime UMU rejeita download com digest diferente", async () => {
+test("runtime UMU rejeita download com digest diferente", { skip: process.platform === "win32" && "UMU e Linux-only (ensureUmuLauncher recusa antes do download)" }, async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-umu-invalid-"))
   const archive = tarWithUmu(Buffer.from("#!/bin/sh\n"))
   assert.notEqual(sha256(archive), UMU_ARCHIVE_SHA256)

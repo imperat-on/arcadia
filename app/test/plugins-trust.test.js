@@ -107,7 +107,8 @@ test("trust store é atômico, 0600 e nunca retorna paths", () => {
     assert.equal(keys[0].keyId, "vendor-key")
     assert.equal(Object.hasOwn(keys[0], "path"), false)
     const file = path.join(dataDir, "plugins", "trusted-keys.json")
-    assert.equal((fs.statSync(file).mode & 0o777), 0o600)
+    // NTFS nao tem bit POSIX; chmod 0600 e no-op no Windows.
+    if (process.platform !== "win32") assert.equal((fs.statSync(file).mode & 0o777), 0o600)
     assert.equal(store.remove("vendor-key").ok, true)
     assert.deepEqual(store.list(), [])
   } finally {

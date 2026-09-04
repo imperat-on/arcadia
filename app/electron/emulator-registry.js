@@ -299,7 +299,10 @@ function normalizeAbsoluteFile(value, field = "path") {
   const raw = value.trim()
   // ROM/core selectors return absolute paths. Refuse relative paths so a
   // renderer cannot make resolution depend on Electron's current directory.
-  if (!path.isAbsolute(raw) || raw.split(path.sep).includes("..")) {
+  // Checa os dois separadores: no Windows path.sep e backslash, mas um
+  // caminho misto com barra e ".." passaria pelo crivo so-com-sep e o
+  // normalize resolveria para fora da raiz: bypass de validacao.
+  if (!path.isAbsolute(raw) || raw.split(/[\\/]/).includes("..")) {
     return { ok: false, error: `${field}_invalido` }
   }
   const file = path.normalize(raw)
@@ -433,7 +436,13 @@ function resolveHydraBootPath(emulatorId, romPath, fsImpl, executablePath, homeD
 function isExecutable(file, fsImpl) {
   try {
     const stat = fsImpl.statSync(file)
-    return stat.isFile() && (stat.mode & 0o111) !== 0
+    if (!stat.isFile()) return false
+    // No Windows o bit de execução POSIX não existe no NTFS: chmodSync é no-op
+    // e arquivos criados pelo usuário nascem com mode 0o666. Exigir 0o111 ali
+    // quebrava toda detecção/resolução de emuladores no Windows. Arquivo
+    // regular é tratável como executável; a permissão real é a ACL do NTFS.
+    if (process.platform === "win32") return true
+    return (stat.mode & 0o111) !== 0
   } catch {
     return false
   }

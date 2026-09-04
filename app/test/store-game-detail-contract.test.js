@@ -6,7 +6,11 @@ const fs = require("node:fs")
 const path = require("node:path")
 
 const root = path.resolve(__dirname, "..")
-const read = (...parts) => fs.readFileSync(path.join(root, ...parts), "utf8")
+// Os fontes sao CRLF no checkout Windows; os contratos multi-linha buscam com
+// \n. Normalizar na leitura preserva o offset dos indexOf/regex.
+const CRLF = String.fromCharCode(13, 10)
+const read = (...parts) =>
+  fs.readFileSync(path.join(root, ...parts), "utf8").split(CRLF).join(String.fromCharCode(10))
 
 test("detalhe substitui o catálogo da loja em vez de renderizar depois dele", () => {
   const store = read("src", "components", "desktop", "StoreView.tsx")

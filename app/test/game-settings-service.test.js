@@ -66,7 +66,8 @@ test("game settings escreve com permissão restrita e não segue symlink", () =>
   try {
     const service = createGameSettingsService({ getPath: () => f.file })
     service.set("steam:20", { fsync: true })
-    assert.equal(fs.statSync(f.file).mode & 0o777, 0o600)
+    // NTFS nao tem bit POSIX; chmod 0600 e no-op no Windows.
+    if (process.platform !== "win32") assert.equal(fs.statSync(f.file).mode & 0o777, 0o600)
     assert.deepEqual(fs.readdirSync(f.root).filter((name) => name.includes(".tmp-")), [])
 
     fs.rmSync(f.file)
