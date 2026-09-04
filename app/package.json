@@ -1,6 +1,6 @@
 {
   "name": "arcadia",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A game launcher for Linux and Windows with desktop and Big Picture UIs",
   "author": "Davi Kolansinsky <imperat-on@users.noreply.github.com>",
   "desktopName": "arcadia.desktop",
@@ -33,11 +33,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/logo-512.ico",
