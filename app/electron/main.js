@@ -2970,7 +2970,7 @@ app.whenReady().then(() => {
       // em diante o cmd[0] já não é mais o binário da Steam.
       rawCmd = steamSilencioso(rawCmd)
       const steamLaunchUri =
-        path.basename(String(rawCmd?.[0])) === "steam" &&
+        path.basename(String(rawCmd?.[0])).toLowerCase().replace(/\.exe$/, "") === "steam" &&
         rawCmd.some((arg) => /^steam:\/\/(?:run|rungameid)\//i.test(String(arg)))
       const sls = steamComInjecao(rawCmd)
       rawCmd = sls.cmd
