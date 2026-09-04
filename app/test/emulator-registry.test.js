@@ -83,7 +83,9 @@ test("setProfile persiste atomicamente e detect lista disponibilidade", () => {
       args: ["--fullscreen"],
     })
     assert.equal(saved.ok, true)
-    assert.equal(fs.statSync(path.join(f.root, "emulators.json")).mode & 0o777, 0o600)
+    // NTFS não tem bit POSIX; chmod 0600 é no-op no Windows (mode vem 0o666).
+    if (process.platform !== "win32")
+      assert.equal(fs.statSync(path.join(f.root, "emulators.json")).mode & 0o777, 0o600)
     assert.deepEqual(
       fs.readdirSync(f.root).filter((name) => name.includes(".tmp-")),
       [],
@@ -254,7 +256,11 @@ test("scanRoms usa allowlist, recursão segura e agrupa sidecars", () => {
     const registry = createEmulatorRegistry({ dataDir: f.root, envPath: f.bin })
     const result = registry.scanRoms({ emulatorId: "pcsx2", directory: romDir })
     assert.equal(result.ok, true)
-    assert.deepEqual(result.roms.map((item) => item.relativePath), ["Game.cue", "nested/Other.ISO"])
+    // path.relative devolve "\" no Windows; o contrato é a posição relativa.
+    assert.deepEqual(
+      result.roms.map((item) => item.relativePath.split(/[\\/]/).join("/")),
+      ["Game.cue", "nested/Other.ISO"],
+    )
     assert.deepEqual(result.roms[0].sidecars, [bin])
     assert.equal(result.roms[0].sizeBytes, 6)
     assert.deepEqual(result.romExtensions, [
@@ -468,7 +474,7 @@ test("detecção Linux encontra instalação padrão fora do PATH", () => {
   }
 })
 
-test("detecção Linux reconhece PCSX2 em symlink e nome uppercase", () => {
+test("detecção Linux reconhece PCSX2 em symlink e nome uppercase", { skip: process.platform === "win32" && "case-insensitive no NTFS" }, () => {
   const f = fixture()
   const target = path.join(f.bin, "PCSX2.real")
   const link = path.join(f.bin, "PCSX2")
@@ -581,7 +587,7 @@ test("detecção Flatpak lê app exportado e resolve argv fixo sem executar wrap
   }
 })
 
-test("detecção encontra AppImage em ~/appimages (lowercase) sem configuração manual", () => {
+test("detecção encontra AppImage em ~/appimages (lowercase) sem configuração manual", { skip: process.platform === "win32" && "case-insensitive no NTFS" }, () => {
   const f = fixture()
   const appimagesDir = path.join(f.root, "home", "appimages")
   const appImage = path.join(appimagesDir, "pcsx2.appimage")

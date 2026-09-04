@@ -40,6 +40,8 @@ test("arquivo gravado com permissão 0600", (t) => {
 
   store.saveSession(SESSION)
   const mode = fs.statSync(store.sessionPath()).mode & 0o777
+  // NTFS nao tem bit POSIX: chmod 0600 e no-op no Windows (mode vem 0o666).
+  if (process.platform === "win32") return t.skip("mode POSIX nao existe no NTFS")
   assert.equal(mode, 0o600, `esperado 0600, veio ${mode.toString(8)}`)
 })
 

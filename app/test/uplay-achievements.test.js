@@ -86,6 +86,17 @@ test("caminhosPrefixados inclui runtime UPC no prefixo informado", () => {
   const records = watcher.caminhosPrefixados(prefix, "3751950", { id: "steam:3751950" })
   const upc = records.find((record) => record.name === "upc" && record.uplayId === "66088")
   assert.ok(upc)
+  if (process.platform === "win32") {
+    // No Windows nativo nao ha prefixo Wine: o runtime UPC vive em
+    // %APPDATA%\Goldberg UplayEmu Saves\<id>, e o prefixo e ignorado por
+    // design (uplay.js:uplayRuntimePath). O teste entao valida a raiz real.
+    const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming")
+    assert.equal(
+      upc.file,
+      path.join(appdata, "Goldberg UplayEmu Saves", "66088", "achievements.json"),
+    )
+    return
+  }
   assert.equal(
     upc.file,
     path.join(

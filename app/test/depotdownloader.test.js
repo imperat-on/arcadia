@@ -36,6 +36,14 @@ function extractedArchive(target, names = REQUIRED_FILES) {
   for (const name of names) fs.writeFileSync(path.join(target, name), name)
 }
 
+// No Windows a extração é um -Command do PowerShell: o destino está dentro da
+// string "-DestinationPath \"...\"", não em args.at(-1) como no python3.
+function destinoExtracao(args) {
+  const ultimo = String(args.at(-1))
+  const m = /-DestinationPath "([^"]+)"/.exec(ultimo)
+  return m ? m[1] : ultimo
+}
+
 test("ensure baixa a variante compatível, renomeia o projeto e instala o framework completo", async () => {
   const f = fixture()
   const archive = Buffer.from("PK\x03\x04 fake archive")
@@ -45,7 +53,7 @@ test("ensure baixa a variante compatível, renomeia o projeto e instala o framew
     return response(archive)
   }
   const execFileImpl = (_cmd, args, callback) => {
-    extractedArchive(args.at(-1), [
+    extractedArchive(destinoExtracao(args), [
       "DepotDownloaderMod.dll",
       "DepotDownloaderMod.deps.json",
       "DepotDownloaderMod.runtimeconfig.json",
@@ -88,7 +96,7 @@ test("ensure compartilha uma instalação concorrente e não baixa duas vezes", 
     return response(archive)
   }
   const execFileImpl = (_cmd, args, callback) => {
-    extraction = args.at(-1)
+    extraction = destinoExtracao(args)
     extractedArchive(extraction)
     callback(null, "", "")
   }

@@ -68,9 +68,11 @@ test("gamescope fica disponível no catálogo unificado e é filtrado pelo modo 
   const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
   assert.match(dialog, /k="gamescope"/)
   assert.doesNotMatch(dialog, /isSteamGame|disabled=\{isSteamGame\}/)
-  assert.match(main, /s\.gamescope && path\.basename\(String\(cmd\[0\]\)\) !== "steam"/)
+  // O gate ganhou o guard win32 e o strip de ".exe" no port para Windows
+  // (steam.exe nao e wrapper gamescope; no Windows gamescope nao existe).
+  // A checagem exata e feita pelo indexOf abaixo (string literal, sem regex).
   const externalGamescopeGate = main.indexOf(
-    's.gamescope && path.basename(String(cmd[0])) !== "steam"',
+    'process.platform !== "win32" && s.gamescope && path.basename(String(cmd[0])).replace(/\\.exe$/, "") !== "steam"',
   )
   const hdrEnvironmentAssignment = main.indexOf("env.ENABLE_GAMESCOPE_WSI")
   assert.ok(externalGamescopeGate >= 0 && externalGamescopeGate < hdrEnvironmentAssignment)

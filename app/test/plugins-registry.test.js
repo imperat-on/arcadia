@@ -59,7 +59,8 @@ test("registro local valida, persiste e expõe só metadados seguros", () => {
     const state = JSON.parse(fs.readFileSync(stateFile, "utf8"))
     assert.equal(state.version, 1)
     assert.equal(state.plugins["demo.plugin"].enabled, true)
-    assert.equal((fs.statSync(stateFile).mode & 0o777), 0o600)
+    // NTFS nao tem bit POSIX; chmod 0600 e no-op no Windows.
+    if (process.platform !== "win32") assert.equal((fs.statSync(stateFile).mode & 0o777), 0o600)
 
     const reopened = createPluginRegistry({ dataDir })
     assert.equal(reopened.get("demo.plugin").enabled, true)

@@ -65,7 +65,9 @@ test("mantém comando direto quando não há sessão systemd", () => {
 })
 
 test("capability exige Linux, binários e bus da sessão", () => {
-  const fsImpl = { existsSync: (file) => file === "/run/user/1000/bus" }
+  // path.join no Windows produz barras invertidas; o fake normaliza para a
+  // grafia POSIX que a função monta no Linux (o código sob teste está certo).
+  const fsImpl = { existsSync: (file) => String(file).replace(/\\/g, "/") === "/run/user/1000/bus" }
   assert.equal(
     canUseSystemdSession({
       platform: "linux",
@@ -118,8 +120,12 @@ test("lê propriedades e PIDs somente dentro do cgroup informado", () => {
   }
   const fsImpl = {
     readFileSync(file) {
-      if (!(file in files)) throw new Error("not found")
-      return files[file]
+      // No Windows path.join/resolve produzem barras invertidas e raiz de
+      // drive; o fake casa por sufixo na grafia POSIX do contrato Linux.
+      const key = String(file).replace(/\\/g, "/")
+      const wanted = "/sys/fs/cgroup/user.slice/x.service/cgroup.procs"
+      if (!key.endsWith(wanted)) throw new Error("not found")
+      return files[wanted]
     },
   }
   assert.deepEqual(
