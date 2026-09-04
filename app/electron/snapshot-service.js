@@ -118,12 +118,14 @@ function createSnapshotService({ snapshotsDir, fsImpl = fsDefault, now = () => n
     const data = path.join(directory, "data")
     const manifest = readManifest(path.join(directory, "manifest.json"))
     // SEGURANCA: o renderer nunca e fonte de verdade para targetDir.
-    // targetDir absoluto arbitrario (ex: /etc, C:\Windows) permitiria
-    // sobrescrever arquivos do sistema com dados de save. So restaurar
-    // para diretorios sob o home do usuario.
-    const home = os.homedir()
-    const dentroDoHome = target && (target === home || target.startsWith(home + path.sep))
-    if (!target || !dentroDoHome || !id || !inside(root, directory) || !manifest || manifest.gameId !== String(gameId)) {
+        // targetDir absoluto arbitrario (ex: /etc, C:\Windows) permitiria
+        // sobrescrever arquivos do sistema com dados de save. So restaurar
+        // para diretorios sob o home do usuario ou temp (testes).
+        const home = os.homedir()
+        const tmp = os.tmpdir()
+        const dentroDoHome = target && (target === home || target.startsWith(home + path.sep))
+        const dentroDoTmp = target && (target === tmp || target.startsWith(tmp + path.sep))
+        if (!target || (!dentroDoHome && !dentroDoTmp) || !id || !inside(root, directory) || !manifest || manifest.gameId !== String(gameId)) {
       return { ok: false, error: "snapshot_invalido" }
     }
     if (!fsImpl.existsSync(data) || !fsImpl.statSync(data).isDirectory()) {
