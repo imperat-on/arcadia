@@ -670,7 +670,9 @@ export function StoreView({
         <h2 className="text-sm font-medium text-white/65">
           {t("store.resultados_count", { count: buscou ? resultadosVisiveis.length : catTotal })}
         </h2>
-        <span className="text-[10px] text-white/35">{t("store.scroll_hint")}</span>
+        {(buscou ? resultadosVisiveis.length : catTotal) > 0 && (
+          <span className="text-[10px] text-white/35">{t("store.scroll_hint")}</span>
+        )}
       </div>
 
       {(() => {
