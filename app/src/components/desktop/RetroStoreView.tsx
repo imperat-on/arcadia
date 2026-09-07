@@ -681,7 +681,7 @@ function RetroDetail({
   const availableCount = uris.length || offers.reduce((sum, offer) => sum + offer.uriCount, 0)
   const cover = getRetroCover(game)
   const media = [...new Set([game.hero, cover, ...(game.screenshots || []), ...(game.titleScreens || [])].filter((value): value is string => Boolean(value)))]
-  const hero = media[0] || cover || "/placeholder.jpg"
+  const hero = media[0] || cover || "./placeholder.jpg"
 
   useEffect(() => {
     let ativo = true

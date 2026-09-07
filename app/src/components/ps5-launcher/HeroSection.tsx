@@ -13,7 +13,7 @@ interface HeroSectionProps {
   onToggleFavorite?: () => void
 }
 
-export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSectionProps) {
+export function HeroSection({ game, rodando, abrindo, onLaunch, onMore, onToggleFavorite }: HeroSectionProps) {
   const { t } = useI18n()
   if (!game) return <div className="retro-hero-section flex-1" />
 
@@ -53,6 +53,14 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore }: HeroSe
                     : t("hero.jogar")}
             </button>
             <button onClick={onMore} className="ps5-hero-more" aria-label={t("gameoverview.detalhes")}>•••</button>
+            <button
+              type="button"
+              onClick={onToggleFavorite}
+              className={`ps5-hero-more ${game.favorite ? "is-fav" : ""}`}
+              aria-label={game.favorite ? t("library.remover_favoritos") : t("library.adicionar_favoritos")}
+            >
+              {game.favorite ? "♥" : "♡"}
+            </button>
           </div>
         </article>
       </div>

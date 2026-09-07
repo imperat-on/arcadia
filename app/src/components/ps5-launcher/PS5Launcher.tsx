@@ -15,6 +15,7 @@ import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { GameContextMenu } from "./GameContextMenu"
 import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
+import { SettingsPanel } from "./SettingsPanel"
 import { TopBar, TABS, type LibraryFilter } from "./TopBar"
 import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
@@ -38,37 +39,37 @@ const MOCK_GAMES: Game[] = [
     title: "Neon Horizon",
     launcher: "steam",
     launch_cmd: ["steam", "steam://rungameid/1001"],
-    cover: "/cover1.png",
-    hero: "/hero-bg.png",
+    cover: "./cover1.png",
+    hero: "./hero-bg.png",
   },
   {
     id: "2",
     title: "Wasteland Chronicles",
     launcher: "heroic",
     launch_cmd: ["heroic", "--launch", "1002"],
-    cover: "/cover2.png",
-    hero: "/hero-bg.png",
+    cover: "./cover2.png",
+    hero: "./hero-bg.png",
   },
   {
     id: "3",
     title: "Dragon's Throne",
     launcher: "lutris",
     launch_cmd: ["lutris", "lutris:rungameid/1003"],
-    cover: "/cover3.png",
+    cover: "./cover3.png",
   },
   {
     id: "4",
     title: "Abyssal Depths",
     launcher: "steam",
     launch_cmd: ["steam", "steam://rungameid/1004"],
-    cover: "/cover4.png",
+    cover: "./cover4.png",
   },
   {
     id: "5",
     title: "Blade of Edo",
     launcher: "heroic",
     launch_cmd: ["heroic", "--launch", "1005"],
-    cover: "/cover5.png",
+    cover: "./cover5.png",
   },
   {
     id: "6",
@@ -164,6 +165,7 @@ export function PS5Launcher() {
   const [ctxGame, setCtxGame] = useState<Game | null>(null)
   const [trailerPickGame, setTrailerPickGame] = useState<Game | null>(null)
   const [editGame, setEditGame] = useState<Game | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
 
   // Jogo em execução, segundo o vigia de processo do main — e não mais um
@@ -310,9 +312,11 @@ export function PS5Launcher() {
       const api = window.launcherAPI
       const cfg = await api?.getConfig()
       const home = window.launcherPaths?.home || "~"
+      const win = window.launcherPlatform === "win32"
+      const sep = win ? "\\" : "/"
       const bases = [
         {
-          caminho: cfg?.default_install_path || `${home}/Games/Arcadia`,
+          caminho: cfg?.default_install_path || `${home}${sep}Games${sep}Arcadia`,
           rotulo: t("ps5.destino.pasta_padrao"),
         },
         ...((await api?.storeLibraries()) || []).map((l) => ({
@@ -347,6 +351,7 @@ export function PS5Launcher() {
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
+    Boolean(settingsOpen) ||
     Boolean(trailerPickGame) ||
     Boolean(instalarGame) ||
     Boolean(semManifesto) ||
@@ -1165,6 +1170,7 @@ export function PS5Launcher() {
       activeTab={activeTab}
       onTab={setActiveTab}
       onRefresh={_refresh_library}
+      onOpenSettings={() => setSettingsOpen(true)}
       onOpenProfile={() => setShowProfile(true)}
       menuOpen={menuOpen}
       onToggleMenu={() => setMenuOpen((v) => !v)}
@@ -1331,6 +1337,7 @@ export function PS5Launcher() {
       {overviewMounted && selectedGame && (
         <GameOverview
           ref={overviewRef}
+          onMore={() => selectedGame && setCtxGame(selectedGame)}
           game={selectedGame}
           news={news}
           appFocused={appFocused}
@@ -1587,6 +1594,13 @@ export function PS5Launcher() {
       />
 
       {/* Editar metadados (capa, fundo, logo, título, descrição) */}
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={_refresh_library}
+        onUiChange={applyUiPrefs}
+      />
+
       <EditMetadata
         game={editGame}
         onClose={() => setEditGame(null)}

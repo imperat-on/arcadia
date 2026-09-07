@@ -12,6 +12,7 @@ interface UserMenuProps {
   onRefresh: () => void
   showHidden: boolean
   onToggleShowHidden: () => void
+  onOpenSettings?: () => void
   profile?: Profile
 }
 
@@ -22,6 +23,7 @@ export function UserMenu({
   onRefresh,
   showHidden,
   onToggleShowHidden,
+  onOpenSettings,
   profile,
 }: UserMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
@@ -98,6 +100,7 @@ export function UserMenu({
       {item(t("profile.mostrar_ocultos"), onToggleShowHidden, {
         hint: showHidden ? t("common.ligado") : t("common.desligado"),
       })}
+      {onOpenSettings && item(t("settings.title"), onOpenSettings)}
       {divider}
       {item(t("profile.sair"), () => window.launcherAPI?.quit(), { danger: true })}
     </div>
