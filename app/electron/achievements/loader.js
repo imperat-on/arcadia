@@ -158,6 +158,27 @@ function loadSchemaForAppid(appid) {
   return out
 }
 
+// Reconstrói o índice (block|bit → schema) a partir dos itens JÁ SALVOS no
+// achievements.json — espelho do que o fallback da API resolveu em um boot
+// anterior. Evita refazer 2 fetches sequenciais por appid em todo boot.
+function itensSalvosComoIndice(entry) {
+  const out = {}
+  for (const it of entry?.items || []) {
+    const blk = Number(it.block)
+    const bit = Number(it.bit)
+    if (!it.apiname || !Number.isInteger(blk) || !Number.isInteger(bit)) continue
+    out[`${blk}|${bit}`] = {
+      apiname: it.apiname,
+      name: it.title,
+      desc: it.desc || "",
+      // Vazio: o merge usa o item anterior (prev) como dono real do ícone.
+      icon_hash: "",
+      icongray_hash: "",
+    }
+  }
+  return out
+}
+
 // Reconstrói o achievements.json a partir dos UserGameStatsSchema_*.bin da Steam:
 // cria itens com block/bit/apiname/title/desc/ícones e SINCRONIZA o achieved/unlock
 // com o progresso real do bin (UserGameStats_*.bin) — conquistas já ganhas na Steam
@@ -203,7 +224,13 @@ async function loadAllSchemas() {
   let iconsCopied = 0
   for (const appid of appids) {
     let idx = loadSchemaForAppid(appid)
-    // Sem bin do Steam (crackeado/repack): busca o schema na API pública.
+    // Sem bin do Steam (crackeado/repack): o índice pode já estar SALVO no
+    // achievements.json de um boot anterior. O fallback da API pública custa
+    // 2 fetches sequenciais por appid e era refeito em TODO boot, segurando a
+    // cadeia de inicialização (library:get espera por ela) em jogos UPC.
+    if (!idx || !Object.keys(idx).length) {
+      idx = itensSalvosComoIndice(store[appid])
+    }
     if (!idx || !Object.keys(idx).length) {
       idx = await loadSchemaFallback(appid)
     }

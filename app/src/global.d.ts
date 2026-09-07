@@ -237,7 +237,7 @@ export interface AppConfig {
   youtube_cookies?: string
   profile?: Profile
   // Acessibilidade (modo desktop)
-  theme_name?: string // id do tema em src/themes.ts (midnight, dracula, nord, gruvbox…)
+  theme_name?: string // id do tema em src/themes.ts (apenas "midnight" — seleção reduzida a 1)
   content_font?: string
   actions_font?: string
   custom_css_path?: string // pasta com .css injetados ao abrir
