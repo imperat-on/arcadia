@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
 import type { EmulatorInfo, EmulatorRomEntry, EmulatorRomFolder, EmulatorStatus, GameSettings } from "../../global"
 
 /**
@@ -19,6 +20,7 @@ export function EmulatorProfilesPanel({
   /** Global executable/BIOS/core editing belongs in Settings > Emulação. */
   showProfileConfig?: boolean
 }) {
+  const { t } = useI18n()
   const [items, setItems] = useState<EmulatorInfo[]>([])
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState("")
@@ -44,7 +46,7 @@ export function EmulatorProfilesPanel({
       const api = window.launcherAPI
       const result = detect ? await api?.emulatorsDetect() : await api?.emulatorsList()
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível detectar emuladores.")
+        setError(result?.error || t("emulador.erro_detectar"))
         return
       }
       setItems(result.emulators || [])
@@ -62,7 +64,7 @@ export function EmulatorProfilesPanel({
       }
     } catch (cause) {
       setError(
-        String(cause instanceof Error ? cause.message : cause || "Falha ao carregar emuladores."),
+        String(cause instanceof Error ? cause.message : cause || t("emulador.erro_carregar")),
       )
     } finally {
       setBusy(false)
@@ -115,7 +117,7 @@ export function EmulatorProfilesPanel({
         maxResults: 256,
       })
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível pesquisar ROMs.")
+        setError(result?.error || t("emulador.erro_pesquisar"))
         setScanResults([])
         return
       }
@@ -128,9 +130,9 @@ export function EmulatorProfilesPanel({
             : [...current, { path: folder.path, recursive: true }],
         )
       }
-      if (!result.roms?.length) setError("Nenhuma ROM compatível encontrada nessa pasta.")
+      if (!result.roms?.length) setError(t("emulador.nenhuma_rom_pasta"))
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulador.erro_pesquisar")))
     } finally {
       setScanBusy(false)
     }
@@ -138,7 +140,7 @@ export function EmulatorProfilesPanel({
 
   const scanConfiguredFolders = async () => {
     if (!selected || !romFolders.length) {
-      setError("Salve ao menos uma pasta de ROM no perfil.")
+      setError(t("emulador.salve_pasta"))
       return
     }
     setScanBusy(true)
@@ -150,15 +152,15 @@ export function EmulatorProfilesPanel({
         maxResults: 256,
       })
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível pesquisar as pastas configuradas.")
+        setError(result?.error || t("emulador.erro_pesquisar_pastas"))
         return
       }
       setScanResults(result.roms || [])
       setScanTruncated(Boolean(result.truncated))
       setRomFolders(result.folders || romFolders)
-      if (!result.roms?.length) setError("Nenhuma ROM compatível encontrada nas pastas configuradas.")
+      if (!result.roms?.length) setError(t("emulacao.nenhuma_rom_pastas"))
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulador.erro_pesquisar")))
     } finally {
       setScanBusy(false)
     }
@@ -186,7 +188,7 @@ export function EmulatorProfilesPanel({
       launchMode: "hydra",
     })
     if (!check?.ok) {
-      setError(check?.error || "ROM inválida para o modo Hydra.")
+      setError(check?.error || t("emulador.rom_invalida_hydra"))
       return
     }
     const result = await window.launcherAPI?.customGameAdd({
@@ -199,7 +201,7 @@ export function EmulatorProfilesPanel({
       emulatorCorePath: settings.emulatorCorePath || undefined,
     })
     if (!result?.ok) {
-      setError(result?.error || "Não foi possível importar a ROM.")
+      setError(result?.error || t("emulador.erro_importar"))
       return
     }
     await window.launcherAPI?.gameSettingsSet(`custom:${slug}`, {
@@ -208,7 +210,7 @@ export function EmulatorProfilesPanel({
       emulatorArgs: settings.emulatorArgs || [],
       emulatorCorePath: settings.emulatorCorePath || undefined,
     })
-    setNotice(`ROM importada como “${title}”.`)
+    setNotice(t("emulador.rom_importada", { title }))
   }
 
   const pickCore = async () => {
@@ -226,7 +228,7 @@ export function EmulatorProfilesPanel({
 
   const saveProfile = async () => {
     if (!selected || !executable.trim()) {
-      setError("Informe o executável do emulador.")
+      setError(t("emulador.informe_executavel"))
       return
     }
     setProfileBusy(true)
@@ -241,12 +243,12 @@ export function EmulatorProfilesPanel({
         args: selected.profile?.args || [],
       })
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível salvar o perfil.")
+        setError(result?.error || t("emulador.erro_salvar_perfil"))
         return
       }
       await load()
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao salvar perfil."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulador.falha_salvar_perfil")))
     } finally {
       setProfileBusy(false)
     }
@@ -261,13 +263,12 @@ export function EmulatorProfilesPanel({
   }
 
   return (
-    <section className="flex flex-col gap-4" aria-label="Emuladores">
+    <section className="flex flex-col gap-4" aria-label={t("emulador.aria")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white/85">Emulador e ROM</h3>
+          <h3 className="text-sm font-semibold text-white/85">{t("emulador.titulo")}</h3>
           <p className="mt-1 text-xs leading-relaxed text-white/45">
-            PCSX2, RPCS3, Dolphin, PPSSPP, DuckStation, RetroArch e outros. O main monta o comando
-            sem shell.
+            {t("emulador.desc")}
           </p>
         </div>
         <button
@@ -276,7 +277,7 @@ export function EmulatorProfilesPanel({
           disabled={busy}
           className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/65 hover:bg-white/10 disabled:opacity-40"
         >
-          {busy ? "Detectando…" : "Detectar"}
+          {busy ? t("common.detectando") : t("emulador.detectar")}
         </button>
       </div>
 
@@ -301,11 +302,11 @@ export function EmulatorProfilesPanel({
           className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none [color-scheme:dark] focus:border-[color:var(--accent)]"
           style={{ colorScheme: "dark" }}
         >
-          <option value="" className="bg-[#151515] text-white">Usar comando padrão do jogo</option>
+          <option value="" className="bg-[#151515] text-white">{t("emulador.usar_comando_padrao")}</option>
           {items.map((item) => (
             <option key={item.id} value={item.id} className="bg-[#151515] text-white">
               {item.name} · {item.systems.join(" / ")}
-              {item.available ? "" : " (não detectado)"}
+              {item.available ? "" : t("emulador.nao_detectado_sufixo")}
             </option>
           ))}
         </select>
@@ -316,11 +317,11 @@ export function EmulatorProfilesPanel({
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="font-medium text-white/80">{selected.name}</span>
             <span className={selected.available ? "text-emerald-200/80" : "text-amber-200/80"}>
-              {selected.available ? "detectado" : "não detectado"}
+              {selected.available ? t("emulador.detectado") : t("emulador.nao_detectado")}
             </span>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-white/40">
-            Executável, BIOS, core e pastas de ROM são configurados em <strong className="font-medium text-white/60">Configurações › Emulação</strong>.
+            {t("emulador.configurados_em")}
           </p>
         </div>
       )}
@@ -330,11 +331,11 @@ export function EmulatorProfilesPanel({
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
             <span className="font-medium text-white/80">{selected.name}</span>
             <span className={selected.available ? "text-emerald-200/80" : "text-amber-200/80"}>
-              {selected.available ? "disponível" : "não detectado"}
+              {selected.available ? t("emulador.disponivel") : t("emulador.nao_detectado")}
             </span>
           </div>
           <label className="text-xs text-white/50">
-            Executável (nome no PATH ou caminho absoluto)
+            {t("emulador.executavel_label")}
             <input
               value={executable}
               onChange={(event) => setExecutable(event.target.value)}
@@ -344,7 +345,7 @@ export function EmulatorProfilesPanel({
           </label>
           {selected.id === "retroarch" && (
             <label className="mt-2 block text-xs text-white/50">
-              Core libretro (.so)
+              {t("emulador.core_libretro_so")}
               <div className="mt-1 flex gap-2">
                 <input
                   value={corePath}
@@ -356,19 +357,19 @@ export function EmulatorProfilesPanel({
                   onClick={() => void pickCore()}
                   className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10"
                 >
-                  Escolher
+                  {t("emulador.escolher")}
                 </button>
               </div>
             </label>
           )}
           {(selected.id === "duckstation" || selected.id === "pcsx2") && (
             <label className="mt-2 block text-xs text-white/50">
-              Pasta do BIOS (opcional; detecção automática)
+              {t("emulador.pasta_bios_opcional")}
               <div className="mt-1 flex gap-2">
                 <input
                   value={biosPath}
                   readOnly
-                  placeholder="Pasta bios do emulador"
+                  placeholder={t("emulador.pasta_bios_placeholder")}
                   className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 font-mono text-xs text-white/70"
                 />
                 <button
@@ -376,26 +377,26 @@ export function EmulatorProfilesPanel({
                   onClick={() => void pickBios()}
                   className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10"
                 >
-                  Escolher
+                  {t("emulador.escolher")}
                 </button>
               </div>
               <span className={status?.installed ? "mt-1 block text-emerald-200/70" : "mt-1 block text-amber-200/70"}>
-                {status?.installed ? "BIOS detectado" : "BIOS não detectado; o lançamento será bloqueado"}
+                {status?.installed ? t("emulador.bios_detectado") : t("emulador.bios_nao_detectado")}
               </span>
             </label>
           )}
           {selected.id === "rpcs3" && status && (
             <p className={status.installed ? "mt-2 text-xs text-emerald-200/70" : "mt-2 text-xs text-amber-200/70"}>
-              {status.installed ? "Firmware RPCS3 detectado" : "Firmware RPCS3 não detectado (configure no RPCS3)"}
+              {status.installed ? t("emulador.firmware_detectado") : t("emulador.firmware_nao_detectado")}
             </p>
           )}
           {status?.running && (
             <p className="mt-2 text-xs text-red-200/80">
-              Este emulador já está em execução{status.runningPid ? ` (PID ${status.runningPid})` : ""}; o lançamento será bloqueado.
+              {t("emulador.rodando_bloqueado", { pid: status.runningPid ? ` (PID ${status.runningPid})` : "" })}
             </p>
           )}
           <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2">
-            <p className="text-[11px] text-white/45">Pastas de ROM do perfil (salve para persistir)</p>
+            <p className="text-[11px] text-white/45">{t("emulador.pastas_rom_perfil")}</p>
             {romFolders.length > 0 && (
               <div className="mt-1 space-y-1">
                 {romFolders.map((folder) => (
@@ -405,9 +406,9 @@ export function EmulatorProfilesPanel({
                       type="button"
                       onClick={() => removeRomFolder(folder.path)}
                       className="shrink-0 text-red-100/60 hover:text-red-100"
-                      aria-label={`Remover pasta ${folder.path}`}
+                      aria-label={t("emulador.remover_pasta_aria", { pasta: folder.path })}
                     >
-                      Remover
+                      {t("common.remover")}
                     </button>
                   </div>
                 ))}
@@ -420,7 +421,7 @@ export function EmulatorProfilesPanel({
                 disabled={scanBusy}
                 className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/65 hover:bg-white/10 disabled:opacity-40"
               >
-                Adicionar pasta
+                {t("emulador.adicionar_pasta")}
               </button>
               <button
                 type="button"
@@ -428,7 +429,7 @@ export function EmulatorProfilesPanel({
                 disabled={scanBusy || !romFolders.length}
                 className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/65 hover:bg-white/10 disabled:opacity-40"
               >
-                {scanBusy ? "Pesquisando…" : "Pesquisar configuradas"}
+                {scanBusy ? t("common.pesquisando") : t("emulador.pesquisar_configuradas")}
               </button>
             </div>
           </div>
@@ -439,14 +440,14 @@ export function EmulatorProfilesPanel({
               disabled={profileBusy}
               className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
             >
-              {profileBusy ? "Salvando…" : "Salvar perfil"}
+              {profileBusy ? t("common.salvando") : t("emulador.salvar_perfil")}
             </button>
             {selected.profile && (
               <button
                 type="button"
                 onClick={async () => {
                   const result = await window.launcherAPI?.emulatorProfileRemove(selected.id)
-                  if (!result?.ok) setError(result?.error || "Não foi possível remover o perfil.")
+                  if (!result?.ok) setError(result?.error || t("emulador.erro_remover_perfil"))
                   else {
                     setExecutable(selected.executable || "")
                     await load()
@@ -455,7 +456,7 @@ export function EmulatorProfilesPanel({
                 disabled={profileBusy}
                 className="rounded-lg border border-red-300/20 px-3 py-1.5 text-xs text-red-100/75 hover:bg-red-400/10 disabled:opacity-50"
               >
-                Remover perfil
+                {t("emulador.remover_perfil")}
               </button>
             )}
           </div>
@@ -465,12 +466,12 @@ export function EmulatorProfilesPanel({
       {settings.emulatorId && (
         <>
           <label className="text-xs text-white/50">
-            Arquivo da ROM/ISO
+            {t("emulador.arquivo_rom")}
             <div className="mt-1 flex gap-2">
               <input
                 value={settings.romPath || ""}
                 readOnly
-                placeholder="Selecione um arquivo"
+                placeholder={t("emulador.selecione_arquivo")}
                 className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 font-mono text-xs text-white/70"
               />
               <button
@@ -478,7 +479,7 @@ export function EmulatorProfilesPanel({
                 onClick={() => void pickRom()}
                 className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10"
               >
-                Escolher
+                {t("emulador.escolher")}
               </button>
               <button
                 type="button"
@@ -486,14 +487,14 @@ export function EmulatorProfilesPanel({
                 disabled={scanBusy}
                 className="rounded-lg border border-white/10 px-2.5 text-xs text-white/65 hover:bg-white/10 disabled:opacity-40"
               >
-                {scanBusy ? "Pesquisando…" : "Pesquisar pasta"}
+                {scanBusy ? t("common.pesquisando") : t("emulador.pesquisar_pasta")}
               </button>
             </div>
           </label>
           {scanResults.length > 0 && (
-            <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2" aria-label="ROMs encontradas">
+            <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2" aria-label={t("emulacao.roms_encontradas")}>
               <p className="mb-1 text-[11px] text-white/45">
-                ROMs encontradas — clique para selecionar{scanTruncated ? " (limite atingido)" : ""}
+                {t("emulador.roms_clique")}{scanTruncated ? t("emulador.limite_atingido") : ""}
               </p>
               <div className="max-h-36 space-y-1 overflow-y-auto">
                 {scanResults.map((rom) => (
@@ -513,7 +514,7 @@ export function EmulatorProfilesPanel({
                       onClick={() => void importRom(rom)}
                       className="shrink-0 rounded border border-white/10 px-1.5 py-1 text-[10px] text-white/55 hover:text-white"
                     >
-                      Importar
+                      {t("emulador.importar")}
                     </button>
                   </div>
                 ))}
@@ -521,7 +522,7 @@ export function EmulatorProfilesPanel({
             </div>
           )}
           <label className="text-xs text-white/50">
-            Argumentos adicionais (sem interpretação de shell)
+            {t("emulador.argumentos")}
             <input
               value={argsText}
               onChange={(event) => setArgs(event.target.value)}
@@ -531,8 +532,7 @@ export function EmulatorProfilesPanel({
             />
           </label>
           <p className="text-[11px] text-white/35">
-            O jogo só será iniciado quando o emulador e a ROM existirem; caminhos não são enviados
-            ao backend.
+            {t("emulador.aviso_inicio")}
           </p>
         </>
       )}

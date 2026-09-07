@@ -38,7 +38,7 @@ export function EmulationSection() {
         api?.emulatorsRomIndex?.(),
       ])
       if (!catalog?.ok) {
-        setError(catalog?.error || "Não foi possível carregar os emuladores.")
+        setError(catalog?.error || t("emulacao.erro_carregar"))
         return
       }
       setItems(catalog.emulators || [])
@@ -46,7 +46,7 @@ export function EmulationSection() {
       setRomIndex(index?.emulators || {})
     } catch (cause) {
       setError(
-        String(cause instanceof Error ? cause.message : cause || "Falha ao carregar emuladores."),
+        String(cause instanceof Error ? cause.message : cause || t("emulacao.falha_carregar")),
       )
     } finally {
       setBusy(false)
@@ -83,7 +83,7 @@ export function EmulationSection() {
             disabled={busy}
             className="rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white/65 transition-colors hover:border-white/20 hover:text-white disabled:opacity-40"
           >
-            {busy ? "Atualizando…" : "Detectar novamente"}
+            {busy ? t("common.atualizando") : t("emulacao.detectar_novamente")}
           </button>
         </div>
 
@@ -154,6 +154,7 @@ function EmulatorCard({
   roms?: EmulatorRomIndexEntry
   onConfigure: () => void
 }) {
+  const { t } = useI18n()
   const art = artFor(item.id)
   const biosMissing = Boolean(status?.required && !status.installed)
   const coreMissing = Boolean(item.requiresCore && !item.profile?.corePath)
@@ -173,16 +174,16 @@ function EmulatorCard({
           : "configured"
 
   const statusText = status?.running
-    ? "Emulação em execução"
+    ? t("emulacao.em_execucao")
     : !item.available
-      ? "Configuração necessária"
+      ? t("emulacao.config_necessaria")
       : biosMissing
-        ? "BIOS necessária"
+        ? t("emulacao.bios_necessaria")
         : coreMissing
-          ? "Core necessário"
+          ? t("emulacao.core_necessario")
           : !item.profile
-            ? "Emulador detectado"
-            : "Configurado"
+            ? t("emulacao.emulador_detectado")
+            : t("emulacao.configurado")
 
   // Visual styling based on card state
   const getBadgeStyle = () => {
@@ -205,15 +206,15 @@ function EmulatorCard({
   const getBadgeLabel = () => {
     switch (cardState) {
       case "running":
-        return "Em uso"
+        return t("emulacao.em_uso")
       case "not-available":
-        return "Ação"
+        return t("emulacao.acao")
       case "missing-deps":
-        return "Ação"
+        return t("emulacao.acao")
       case "detected":
-        return "Detectado"
+        return t("emulacao.detectado")
       case "configured":
-        return "OK"
+        return t("emulacao.ok")
       default:
         return "—"
     }
@@ -277,16 +278,16 @@ function EmulatorCard({
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-white/40">
             {status?.running
-              ? "Feche a sessão atual antes de iniciar outro jogo."
+              ? t("emulacao.fechar_sessao")
               : biosMissing
-                ? "Configure um BIOS válido para liberar os jogos deste sistema."
+                ? t("emulacao.config_bios")
                 : coreMissing
-                  ? "Selecione um core libretro válido para liberar este sistema."
+                  ? t("emulacao.config_core")
                   : !item.available
-                    ? `Aponte o Arcadia para o executável do ${item.name}.`
+                    ? t("emulacao.apontar_exe", { name: item.name })
                     : !item.profile
-                      ? "Detectado automaticamente; clique em Configurar para concluir o perfil global."
-                      : `${item.profile?.romFolders?.length || 0} pasta(s) de ROM configurada(s).`}
+                      ? t("emulacao.detectado_auto")
+                      : t("emulacao.pastas_rom_cnt", { count: item.profile?.romFolders?.length || 0 })}
           </p>
         </div>
         <div className="mt-4 flex items-center justify-between gap-2">
@@ -299,7 +300,7 @@ function EmulatorCard({
             className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
           >
             <GearIcon />
-            Configurar
+            {t("emulacao.configurar")}
             <span aria-hidden="true">›</span>
           </button>
         </div>
@@ -321,6 +322,7 @@ function EmulatorConfigDialog({
   onClose: () => void
   onSaved: (detect?: boolean) => Promise<void>
 }) {
+  const { t } = useI18n()
   const initialProfile = item.profile
   const [executable, setExecutable] = useState(initialProfile?.executable || item.executable || "")
   const [biosPath, setBiosPath] = useState(initialProfile?.biosPath || "")
@@ -402,7 +404,7 @@ function EmulatorConfigDialog({
           maxResults: 256,
         })
         if (!result?.ok) {
-          setError(result?.error || "Não foi possível pesquisar esta pasta.")
+          setError(result?.error || t("emulacao.erro_pesquisar_pasta"))
           continue
         }
         truncated = truncated || Boolean(result.truncated)
@@ -410,9 +412,9 @@ function EmulatorConfigDialog({
       }
       setScanResults([...merged.values()].sort((a, b) => a.path.localeCompare(b.path)))
       setScanTruncated(truncated)
-      if (!merged.size) setError("Nenhuma ROM compatível encontrada nas pastas configuradas.")
+      if (!merged.size) setError(t("emulacao.nenhuma_rom_pastas"))
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao pesquisar ROMs."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulacao.falha_pesquisar_roms")))
     } finally {
       setScanBusy(false)
     }
@@ -421,11 +423,11 @@ function EmulatorConfigDialog({
   const continuar = () => {
     setError("")
     if (step === 0 && !hasExecutable) {
-      setError("Aponte o Arcadia para o executável do emulador.")
+      setError(t("emulacao.apontar_exe_emulador"))
       return
     }
     if (step === 1 && item.requiresCore && !corePath.trim()) {
-      setError("Selecione um core libretro para este emulador.")
+      setError(t("emulacao.selecione_core"))
       return
     }
     setStep((current) => Math.min(3, current + 1))
@@ -443,13 +445,13 @@ function EmulatorConfigDialog({
     try {
       const result = await window.launcherAPI?.emulatorProfileRemove(item.id)
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível remover a configuração.")
+        setError(result?.error || t("emulacao.erro_remover_config"))
         return
       }
       await onSaved()
       onClose()
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao remover."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulacao.falha_remover")))
     } finally {
       setBusy(false)
     }
@@ -457,11 +459,11 @@ function EmulatorConfigDialog({
 
   const salvar = async () => {
     if (!executable.trim()) {
-      setError("Aponte o Arcadia para o executável do emulador.")
+      setError(t("emulacao.apontar_exe_emulador"))
       return
     }
     if (item.requiresCore && !corePath.trim()) {
-      setError("Selecione um core libretro para este emulador.")
+      setError(t("emulacao.selecione_core"))
       return
     }
     setBusy(true)
@@ -476,13 +478,13 @@ function EmulatorConfigDialog({
         args: parseArgs(),
       })
       if (!result?.ok) {
-        setError(result?.error || "Não foi possível salvar a configuração.")
+        setError(result?.error || t("emulacao.erro_salvar_config"))
         return
       }
       await onSaved()
       onClose()
     } catch (cause) {
-      setError(String(cause instanceof Error ? cause.message : cause || "Falha ao salvar."))
+      setError(String(cause instanceof Error ? cause.message : cause || t("emulacao.falha_salvar")))
     } finally {
       setBusy(false)
     }
@@ -516,10 +518,10 @@ function EmulatorConfigDialog({
         <div className="flex items-start justify-between border-b border-white/[0.07] px-6 py-5">
           <div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
-              Configuração
+              {t("emulacao.configuracao")}
             </p>
             <h2 id="emulator-config-title" className="text-xl font-semibold text-white">
-              Configuração do {artFor(item.id).system}
+              {t("emulacao.configuracao_do", { system: artFor(item.id).system })}
             </h2>
             <p className="mt-1 text-xs text-white/45">
               {item.name} · {item.description}
@@ -529,7 +531,7 @@ function EmulatorConfigDialog({
             type="button"
             onClick={onClose}
             className="rounded-lg p-1.5 text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white"
-            aria-label="Fechar"
+            aria-label={t("common.fechar")}
           >
             <CloseIcon />
           </button>
@@ -548,11 +550,10 @@ function EmulatorConfigDialog({
             <div className="space-y-5">
               <div>
                 <h3 className="text-2xl font-semibold tracking-tight text-white">
-                  Encontrar {item.name} no seu computador
+                  {t("emulacao.encontrar", { name: item.name })}
                 </h3>
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/50">
-                  O Arcadia precisa saber onde {item.name} está instalado para iniciar seus jogos.
-                  Tentamos detectá-lo automaticamente em locais padrão e no PATH.
+                  {t("emulacao.desc_sistema", { name: item.name })}
                 </p>
               </div>
               <div
@@ -568,20 +569,20 @@ function EmulatorConfigDialog({
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white/85">
                       {item.available
-                        ? `${item.name} detectado`
+                        ? t("emulacao.detectado_txt", { name: item.name })
                         : hasExecutable
-                          ? "Executável selecionado manualmente"
-                          : `${item.name} não detectado`}
+                          ? t("emulacao.executavel_manual")
+                          : t("emulacao.nao_detectado_txt", { name: item.name })}
                     </p>
                     <p
                       className="mt-0.5 truncate text-xs text-white/45"
                       title={executable || undefined}
                     >
                       {item.available
-                        ? executable || "Pronto para configurar"
+                        ? executable || t("emulacao.pronto_configurar")
                         : hasExecutable
                           ? executable
-                          : "Clique em Explorar manualmente para apontar o Arcadia para o executável."}
+                          : t("emulacao.clique_explorar")}
                     </p>
                   </div>
                 </div>
@@ -592,21 +593,19 @@ function EmulatorConfigDialog({
                   onClick={() => void escolherExecutavel()}
                   className="font-medium text-white/65 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white hover:decoration-white/60"
                 >
-                  Não é o correto? <span className="text-white">Explorar manualmente</span>
+                  {t("emulacao.nao_correto")} <span className="text-white">{t("emulacao.explorar_manual")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setInstallOpen(true)}
                   className="font-semibold text-white/75 transition-colors hover:text-white"
                 >
-                  Não tenho o {item.name}?
+                  {t("emulacao.nao_tenho", { name: item.name })}
                 </button>
               </div>
               <p className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-[11px] leading-relaxed text-white/40">
-                No Linux, selecione um binário ou AppImage com permissão de execução. Para Flatpak,
-                informe <code className="text-white/65">flatpak</code> como executável e use{" "}
-                <code className="text-white/65">run</code> e o ID do aplicativo como argumentos na
-                etapa final.
+                {t("emulacao.linux_intro")} {t("emulacao.linux_informe")} <code className="text-white/65">flatpak</code> {t("emulacao.linux_como_exe")}{" "}
+                <code className="text-white/65">run</code> {t("emulacao.linux_final")}
               </p>
             </div>
           ) : (
@@ -614,33 +613,32 @@ function EmulatorConfigDialog({
               <div className="flex items-center gap-2 text-sm font-medium text-white/85">
                 <span aria-hidden="true">{status?.running ? "△" : item.available ? "✓" : "⌁"}</span>
                 {status?.running
-                  ? "Emulador já está em execução"
+                  ? t("emulacao.em_execucao_aviso")
                   : item.available
-                    ? "Emulador detectado"
-                    : "Executável selecionado manualmente"}
+                    ? t("emulacao.emulador_detectado")
+                    : t("emulacao.executavel_manual")}
               </div>
               <p className="mt-1 truncate text-xs leading-relaxed text-white/45" title={executable}>
-                {executable || "Nenhum executável selecionado"}
+                {executable || t("emulacao.nenhum_executavel")}
               </p>
             </div>
           )}
 
           {step === 1 && (
-            <StepHeading title="Ajustes do sistema">
-              Configure BIOS, firmware ou core quando o emulador exigir. Estes arquivos permanecem
-              somente neste computador.
+            <StepHeading title={t("emulacao.ajustes_sistema")}>
+              {t("emulacao.desc_ajustes")}
             </StepHeading>
           )}
           {step === 1 && requiredBios && (
             <FieldLabel
-              label="Pasta do BIOS"
-              hint="O BIOS é detectado localmente e nunca é baixado pelo Arcadia."
+              label={t("emulacao.pasta_bios")}
+              hint={t("emulacao.pasta_bios_hint")}
             >
               <div className="flex gap-2">
                 <input
                   value={biosPath}
                   readOnly
-                  placeholder="Detecção automática ou escolha uma pasta"
+                  placeholder={t("emulacao.bios_placeholder")}
                   className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 font-mono text-xs text-white/70"
                 />
                 <button
@@ -648,39 +646,40 @@ function EmulatorConfigDialog({
                   onClick={() => void escolherBios()}
                   className="shrink-0 rounded-lg border border-white/10 px-3 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  Escolher pasta
+                  {t("common.escolher_pasta")}
                 </button>
               </div>
               <p
                 className={`mt-1.5 text-[11px] ${status?.installed ? "text-emerald-200/70" : "text-amber-200/70"}`}
               >
                 {status?.installed
-                  ? `BIOS detectado${status.detectedPath ? ` em ${status.detectedPath}` : ""}.`
-                  : "Nenhum BIOS plausível detectado; o lançamento será bloqueado."}
+                  ? status.detectedPath
+                    ? t("emulacao.bios_detectado_em", { path: status.detectedPath })
+                    : t("emulacao.bios_detectado")
+                  : t("emulacao.bios_nao_detectado")}
               </p>
             </FieldLabel>
           )}
 
           {step === 1 && item.id === "rpcs3" && (
             <p className="mb-4 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-[11px] leading-relaxed text-white/45">
-              O firmware do RPCS3 é opcional neste painel. PKG só será encaminhado quando houver um
-              EBOOT instalado.
+              {t("emulacao.firmware_rpcs3")}
               {status?.installed
-                ? " Firmware detectado."
-                : " Configure o firmware pela interface do RPCS3."}
+                ? t("emulacao.firmware_detectado")
+                : t("emulacao.firmware_config")}
             </p>
           )}
 
           {step === 1 && item.id === "retroarch" && (
             <FieldLabel
-              label="Core libretro"
-              hint="Informe um arquivo .so/.dll regular; nenhum comando é executado nesta tela."
+              label={t("emulacao.core_libretro")}
+              hint={t("emulacao.core_libretro_hint")}
             >
               <div className="flex gap-2">
                 <input
                   value={corePath}
                   readOnly
-                  placeholder="Selecione o core libretro"
+                  placeholder={t("emulacao.core_placeholder")}
                   className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 font-mono text-xs text-white/70"
                 />
                 <button
@@ -691,22 +690,21 @@ function EmulatorConfigDialog({
                   }}
                   className="shrink-0 rounded-lg border border-white/10 px-3 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  Escolher core
+                  {t("emulacao.escolher_core")}
                 </button>
               </div>
             </FieldLabel>
           )}
 
           {step === 2 && (
-            <StepHeading title="Sua biblioteca de ROMs">
-              Adicione pastas locais para pesquisar jogos compatíveis. O Arcadia não envia ROMs para
-              a nuvem.
+            <StepHeading title={t("emulacao.sua_biblioteca_roms")}>
+              {t("emulacao.desc_roms")}
             </StepHeading>
           )}
           {step === 2 && (
             <FieldLabel
-              label="Pastas de ROM"
-              hint="As pastas são persistidas localmente e pesquisadas com allowlist e proteção contra symlink."
+              label={t("emulacao.pastas_rom_label")}
+              hint={t("emulacao.pastas_rom_hint")}
             >
               <div className="space-y-1.5">
                 {romFolders.length ? (
@@ -727,13 +725,13 @@ function EmulatorConfigDialog({
                         }
                         className="text-red-100/60 hover:text-red-100"
                       >
-                        Remover
+                        {t("common.remover")}
                       </button>
                     </div>
                   ))
                 ) : (
                   <p className="rounded-lg border border-dashed border-white/10 px-3 py-2 text-xs text-white/35">
-                    Nenhuma pasta configurada.
+                    {t("emulacao.nenhuma_pasta")}
                   </p>
                 )}
                 <button
@@ -741,7 +739,7 @@ function EmulatorConfigDialog({
                   onClick={() => void adicionarPasta()}
                   className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  + Adicionar pasta
+                  {t("emulacao.adicionar_pasta")}
                 </button>
                 <button
                   type="button"
@@ -749,7 +747,7 @@ function EmulatorConfigDialog({
                   disabled={scanBusy || !romFolders.length}
                   className="ml-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
                 >
-                  {scanBusy ? "Pesquisando…" : "Pesquisar ROMs"}
+                  {scanBusy ? t("common.pesquisando") : t("emulacao.pesquisar_roms")}
                 </button>
               </div>
             </FieldLabel>
@@ -758,7 +756,7 @@ function EmulatorConfigDialog({
           {step === 2 && scanResults.length > 0 && (
             <div className="mb-4 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-white/75">ROMs encontradas</p>
+                <p className="text-xs font-medium text-white/75">{t("emulacao.roms_encontradas")}</p>
                 <span className="text-[10px] text-white/35">
                   {scanResults.length}
                   {scanTruncated ? "+" : ""}
@@ -775,15 +773,14 @@ function EmulatorConfigDialog({
           )}
 
           {step === 3 && (
-            <StepHeading title="Preferências de inicialização">
-              Defina argumentos-base opcionais. Argumentos específicos de um jogo continuam no
-              diálogo do jogo.
+            <StepHeading title={t("emulacao.preferencias_inicializacao")}>
+              {t("emulacao.desc_inicializacao")}
             </StepHeading>
           )}
           {step === 3 && (
             <FieldLabel
-              label="Argumentos adicionais"
-              hint="Um argumento por linha; enviados como argv sem interpretação de shell."
+              label={t("emulacao.argumentos_adicionais")}
+              hint={t("emulacao.argumentos_hint")}
             >
               <textarea
                 value={argsText}
@@ -799,7 +796,7 @@ function EmulatorConfigDialog({
         </div>
 
         <div className="flex items-center justify-between border-t border-white/[0.07] px-6 py-4">
-          <div className="flex items-center gap-1" aria-label={`Etapa ${step + 1} de 4`}>
+          <div className="flex items-center gap-1" aria-label={t("emulacao.etapa_aria", { n: step + 1, total: 4 })}>
             {[0, 1, 2, 3].map((currentStep) => (
               <span
                 key={currentStep}
@@ -815,7 +812,7 @@ function EmulatorConfigDialog({
                 disabled={busy}
                 className="rounded-lg px-3 py-2 text-xs font-medium text-red-100/65 transition-colors hover:bg-red-400/10 hover:text-red-100 disabled:opacity-35"
               >
-                Remover configuração
+                {t("emulacao.remover_configuracao")}
               </button>
             )}
             {step > 0 ? (
@@ -825,7 +822,7 @@ function EmulatorConfigDialog({
                 disabled={busy}
                 className="rounded-lg px-4 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-35"
               >
-                Voltar
+                {t("common.voltar")}
               </button>
             ) : (
               <button
@@ -833,7 +830,7 @@ function EmulatorConfigDialog({
                 onClick={onClose}
                 className="rounded-lg px-4 py-2 text-xs font-medium text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white"
               >
-                Cancelar
+                {t("common.cancelar")}
               </button>
             )}
             {step < 3 ? (
@@ -843,7 +840,7 @@ function EmulatorConfigDialog({
                 disabled={busy || (step === 0 && !hasExecutable) || (step === 1 && coreMissing)}
                 className="rounded-lg bg-white px-5 py-2 text-xs font-semibold text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
               >
-                Continuar
+                {t("emulacao.continuar")}
               </button>
             ) : (
               <button
@@ -852,7 +849,7 @@ function EmulatorConfigDialog({
                 disabled={busy || !hasExecutable || coreMissing}
                 className="rounded-lg bg-white px-5 py-2 text-xs font-semibold text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
               >
-                {busy ? "Salvando…" : "Salvar configuração"}
+                {busy ? t("common.salvando") : t("emulacao.salvar_configuracao")}
               </button>
             )}
           </div>
