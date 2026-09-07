@@ -2431,7 +2431,7 @@ function createWindow() {
     height: 900,
     backgroundColor: "#000000",
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "..", "public", "logo-512.png"),
+    icon: path.join(__dirname, "..", "public", process.platform === "win32" ? "logo-512.ico" : "logo-512.png"),
     fullscreen: launcherMode === "console",
     // Não mostra até o primeiro paint estar pronto: sem isto a janela abre
     // branca/vazia e só depois o React pinta. Com ready-to-show o usuário vê
@@ -4445,31 +4445,19 @@ app.whenReady().then(() => {
         }
 
         if (process.platform === "win32") {
-          // Windows: usa wmic logicaldisk (disponível em todas as versões).
-          // Ex.: wmic logicaldisk where "DeviceID='C:'" get Size,FreeSpace /format:csv
+          // Windows: Get-CimInstance (wmic foi REMOVIDO no Windows 11 24H2+).
           const { execFile } = require("child_process")
-          const drive = path.parse(probe).root || "C:\\"
+          const drive = path.parse(probe).root.replace(/\\/g, "") || "C:"
           const out = await new Promise((res, rej) =>
             execFile(
-              "wmic",
-              [
-                "logicaldisk",
-                "where",
-                `DeviceID='${drive.replace(/\\/g, "").toUpperCase()}'`,
-                "get",
-                "Size,FreeSpace",
-                "/format:csv",
-              ],
+              "powershell",
+              ["-NoProfile", "-NonInteractive", "-Command",
+               `$d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='${drive}'"; $d.Size; $d.FreeSpace`],
               (e, stdout) => (e ? rej(e) : res(stdout)),
             ),
           )
-          const lines = String(out).trim().split("\n")
-          const dataLine = lines.find((l) => /^\w+,/.test(l))
-          if (!dataLine) throw new Error("wmic: linha de dados não encontrada")
-          const cols = dataLine.split(",")
-          const totalBytes = Number(cols[2])
-          const freeBytes = Number(cols[1])
-          if (!totalBytes || !freeBytes) throw new Error("wmic: valores inválidos")
+          const [totalBytes, freeBytes] = String(out).trim().split(/\s+/).map(Number)
+          if (!totalBytes || !freeBytes) throw new Error("diskSpace: valores inválidos")
           return { ok: true, total: totalBytes / 1024 / 1024 / 1024, free: freeBytes / 1024 / 1024 / 1024 } // GiB
         }
 

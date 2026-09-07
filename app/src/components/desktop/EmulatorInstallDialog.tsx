@@ -171,6 +171,7 @@ export function EmulatorInstallDialog({
   onRefresh,
   onManualBrowse,
 }: EmulatorInstallDialogProps) {
+  const win = window.launcherPlatform === "win32"
   const metadata = getEmulatorInstallMetadata(item)
   const [copied, setCopied] = useState("")
   const [refreshing, setRefreshing] = useState(false)
@@ -337,7 +338,7 @@ export function EmulatorInstallDialog({
                 />
               </div>
 
-              <section className="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
+              {!win && (<section className="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-medium text-white/85">AppImage</h3>
@@ -373,8 +374,9 @@ export function EmulatorInstallDialog({
                   <li>3. Em “Explorar manualmente”, selecione o arquivo AppImage já executável.</li>
                 </ol>
               </section>
+              )}
 
-              {metadata.flatpakId && (
+              {!win && metadata.flatpakId && (
                 <section className="mb-5 rounded-xl border border-violet-300/15 bg-violet-400/[0.045] p-4">
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>

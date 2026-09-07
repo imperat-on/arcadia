@@ -26,6 +26,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // chaves cruas ("store.buscar") antes do efeito rodar.
   const [msgs, setMsgs] = useState<Messages>(() => ALL_MSGS[userLocale()] || ALL_MSGS["en-US"])
 
+  // Mantém o atributo lang do <html> no idioma ativo (acessibilidade/ortografia).
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
   const setLang = (l: string) => {
     setLangState(l)
     setMsgs(ALL_MSGS[l] || ALL_MSGS["en-US"])

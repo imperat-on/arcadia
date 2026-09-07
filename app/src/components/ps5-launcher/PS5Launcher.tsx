@@ -1252,7 +1252,7 @@ export function PS5Launcher() {
       {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
       {boot && (
         <BootScreen
-          src={`file://${window.launcherPaths?.dataDir}/boot.mp4`}
+          src={`file://${String(window.launcherPaths?.dataDir || "").replace(/\\/g, "/")}/boot.mp4`}
           saindo={bootSaindo}
           onEnded={() => {
             bootVideoFim.current = true
