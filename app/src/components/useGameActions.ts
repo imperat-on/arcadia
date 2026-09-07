@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react"
+import { useI18n } from "../i18n/I18nContext"
 import type { Game } from "./ps5-launcher/types"
 
 export type GameLaunchMode = "steam" | "exe"
@@ -55,6 +56,7 @@ export function useGameActions({
   onLaunchError,
   canLaunch,
 }: GameActionsOptions): GameActions {
+  const { t } = useI18n()
   const callbacks = useRef({ onChooseLaunch, onLaunchWarning, onLaunchError })
   callbacks.current = { onChooseLaunch, onLaunchWarning, onLaunchError }
   const canLaunchRef = useRef(canLaunch)
@@ -148,7 +150,7 @@ export function useGameActions({
   const launchCommand = useCallback(
     (command: string[], gameId?: string, mode?: GameLaunchMode) => {
       if (launchBlocked())
-        return Promise.resolve({ ok: false, error: "O launcher está ocupado com outro jogo." })
+        return Promise.resolve({ ok: false, error: t("launch.ocupado") })
       return executeLaunch(command, gameId, mode)
     },
     [executeLaunch],

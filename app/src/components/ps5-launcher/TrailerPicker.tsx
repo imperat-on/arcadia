@@ -64,7 +64,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
         // Antes fazíamos só `r?.results ?? []`, o que transformava QUALQUER
         // falha em "Nenhum vídeo encontrado" — a tela mentia sobre a causa.
         setResults(r?.results ?? [])
-        if (r && !r.ok) setSearchErr(r.error || "erro desconhecido")
+        if (r && !r.ok) setSearchErr(r.error || t("trailer.erro_desconhecido"))
       })
       .finally(() => setLoading(false))
   }, [game])

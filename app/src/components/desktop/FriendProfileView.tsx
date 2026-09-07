@@ -128,7 +128,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
   const aceito = amigo.status === "accepted"
 
   if (!perfil && !erro) {
-    return <div className="flex h-full items-center justify-center text-sm text-white/45">Carregando perfil...</div>
+    return <div className="flex h-full items-center justify-center text-sm text-white/45">{t("profile.carregando")}</div>
   }
 
   if (perfil) {
