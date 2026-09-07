@@ -5,11 +5,6 @@ import { useI18n } from "../../i18n/I18nContext"
 import type { AppConfig } from "../../global"
 import { temaPorId } from "../../themes"
 
-// 100% corresponde ao antigo 120%; o desktop promove o padrão para 110% lógico
-// para manter os rótulos legíveis. A faixa abaixo continua permitindo reduzir
-// ou ampliar a interface.
-const ZOONS = [70, 80, 90, 100, 110]
-
 // Nomes de fonte não se traduzem; só as duas entradas com texto descritivo
 // passam pelo dicionário.
 const FONTES: { id: string; label?: string; labelKey?: string }[] = [
@@ -88,18 +83,6 @@ export function AccessibilityView() {
     aplicarA11y(next)
   }
 
-  const zoom = Math.round((cfg.ui_scale ?? 1) * 100)
-  // Slider de zoom: aplica só ao SOLTAR (aplicar a cada mousemove dava aquela
-  // "tremida" — a janela re-renderizava com a escala nova no meio do arrasto).
-  const [zoomDraft, setZoomDraft] = useState<number | null>(null)
-  const zoomTela = zoomDraft ?? zoom
-  const aplicarZoom = (v: number) => {
-    const z = ZOONS[Math.max(0, Math.min(ZOONS.length - 1, v))] / 100
-    salvar({ ui_scale: z })
-    window.launcherAPI?.setZoom(z, "desktop")
-    setZoomDraft(null)
-  }
-
   return (
     <div>
       <h1 className="mb-8 text-2xl font-light tracking-wide text-white">
@@ -107,34 +90,6 @@ export function AccessibilityView() {
       </h1>
 
       <div className="max-w-2xl space-y-8 pb-10">
-        {/* Zoom */}
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#a8b3cc]">{t("accessibility.zoom")}</h2>
-            <span className="text-sm font-bold tabular-nums text-white">{zoomTela}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={ZOONS.length - 1}
-            step={1}
-            value={Math.max(0, ZOONS.indexOf(zoomTela))}
-            onChange={(e) => setZoomDraft(ZOONS[Number(e.target.value)])}
-            onMouseUp={(e) => aplicarZoom(Number((e.target as HTMLInputElement).value))}
-            onTouchEnd={(e) => aplicarZoom(Number((e.target as HTMLInputElement).value))}
-            onKeyUp={(e) => aplicarZoom(Number((e.target as HTMLInputElement).value))}
-            className="w-full"
-            style={{ accentColor: "var(--accent)" }}
-          />
-          <div className="mt-1 flex justify-between text-[10px] text-white/35">
-            {ZOONS.map((z) => (
-              <span key={z} className={z === zoomTela ? "font-bold text-white" : ""}>
-                {z}
-              </span>
-            ))}
-          </div>
-        </section>
-
         {/* Fontes */}
         <section>
           <h2 className="mb-3 text-sm font-semibold text-[#a8b3cc]">{t("accessibility.fontes")}</h2>
