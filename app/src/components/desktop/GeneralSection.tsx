@@ -17,6 +17,23 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
   const { t, lang, setLang } = useI18n()
   const [cfg, setCfg] = useState<AppConfig>({})
   const home = window.launcherPaths?.home || "~"
+  const win = window.launcherPlatform === "win32"
+  const sep = win ? "\\" : "/"
+  const defaultInstall = `${home}${sep}Games${sep}Arcadia`
+  const defaultPrefixes = `${home}${sep}Games${sep}Arcadia${sep}Prefixes`
+  // No Windows o caminho padrão da Steam não é ~/.steam/steam: usa o
+  // diretório detectado (storeLibraries) quando disponível.
+  const [steamDetectado, setSteamDetectado] = useState<string | null>(null)
+  useEffect(() => {
+    window.launcherAPI
+      ?.storeLibraries?.()
+      .then((libs: { steamDir?: string }[]) => {
+        const dir = libs?.find((l) => l.steamDir)?.steamDir
+        if (dir) setSteamDetectado(dir)
+      })
+      .catch(() => {})
+  }, [])
+  const defaultSteam = win ? steamDetectado || `${home}${sep}Steam` : `${home}/.steam/steam`
 
   useEffect(() => {
     window.launcherAPI?.getConfig().then((c) => setCfg(c || {}))
@@ -79,19 +96,19 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
         <Path
           label={t("settings.install_path.label")}
           desc={t("settings.install_path.desc")}
-          value={cfg.default_install_path ?? `${home}/Games/Arcadia`}
+          value={cfg.default_install_path ?? defaultInstall}
           onPick={() => pickFolder("default_install_path")}
         />
         <Path
           label={t("settings.wine_prefix.label")}
           desc={t("settings.wine_prefix.desc")}
-          value={cfg.default_wine_prefix_path ?? `${home}/Games/Arcadia/Prefixes`}
+          value={cfg.default_wine_prefix_path ?? defaultPrefixes}
           onPick={() => pickFolder("default_wine_prefix_path")}
         />
         <Path
           label={t("settings.steam_path.label")}
           desc={t("settings.steam_path.desc")}
-          value={cfg.steam_path ?? `${home}/.steam/steam`}
+          value={cfg.steam_path ?? defaultSteam}
           onPick={() => pickFolder("steam_path")}
         />
       </Group>

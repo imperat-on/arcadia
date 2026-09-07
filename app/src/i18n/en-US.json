@@ -1019,6 +1019,7 @@
   "amigos.pedido_enviado": "Request sent!",
   "amigos.aceito": "You're friends now!",
   "amigos.recusado": "Request removed.",
+  "amigos.recusar": "Decline",
   "amigos.pedidos_recebidos": "Incoming requests",
   "amigos.pedidos_enviados": "Sent requests",
   "amigos.lista": "Friends",

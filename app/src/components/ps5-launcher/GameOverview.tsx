@@ -45,6 +45,7 @@ interface GameOverviewProps {
   onClose: () => void
   onLaunch: (game: Game) => void
   onOpenNews: (url: string) => void
+  onMore?: () => void
 }
 
 type OverviewGame = Game & {
@@ -95,7 +96,7 @@ function timeSince(date: string): string {
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
-  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews },
+  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews, onMore },
   ref,
 ) {
   const { t } = useI18n()
@@ -347,7 +348,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     ? t("hero.instalar")
                     : t("gameoverview.jogar_agora")}
             </button>
-            <button type="button" onClick={() => trailer ? setMedia("trailer") : onLaunch(game)} className="ps5-overview-more" aria-label="Mais opções">•••</button>
+            <button type="button" onClick={() => trailer ? setMedia("trailer") : onMore?.()} className="ps5-overview-more" aria-label="Mais opções">•••</button>
             {trailer && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
           </div>
         </section>

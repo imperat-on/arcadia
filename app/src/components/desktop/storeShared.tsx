@@ -135,9 +135,13 @@ export function CartaoLoja({
             {t("store.na_biblioteca")}
           </div>
         ) : (
-          <p className="rounded-lg border border-white/10 py-2 text-center text-[13px] text-white/45">
+          <button
+            type="button"
+            onClick={onOpen}
+            className="block w-full cursor-pointer rounded-lg border border-white/10 py-2 text-center text-[13px] text-white/45 transition-colors hover:text-white/75"
+          >
             {t("store.ver_detalhes")}
-          </p>
+          </button>
         )}
       </div>
     </div>
