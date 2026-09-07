@@ -1,5 +1,7 @@
 "use client"
 
+import { userLocale } from "../../i18n/locale"
+
 // Helper de avatar: cor estável derivada do username (hash → HSL) e inicial.
 // Sem imagem de avatar ainda no servidor — letra colorida estilo Discord.
 
@@ -13,12 +15,12 @@ export function inicialDe(nome: string): string {
   return (String(nome || "")[0] || "?").toUpperCase()
 }
 
-/** Data ISO → "DD/MM/AAAA" (pt-BR) sem lib. */
+/** Data ISO → data localizada (idioma ativo). */
 export function formatarData(iso?: string | null): string {
   if (!iso) return "—"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+  return d.toLocaleDateString(userLocale(), { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
 /** Timestamp epoch (s ou ms) → "DD/MM/AAAA". */
