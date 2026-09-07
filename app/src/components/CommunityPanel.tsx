@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { userLocale } from "../i18n/locale"
 
 /**
  * The community bridge is intentionally typed locally.  The main process may
@@ -143,7 +144,7 @@ function errorMessage(error: unknown) {
 function formatDate(value?: string | null) {
   if (!value) return ""
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString()
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(userLocale())
 }
 
 function authorName(review: CommunityReview) {

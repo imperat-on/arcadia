@@ -1461,11 +1461,14 @@ async function getGameStats(appid) {
       reviewPositivePct = comments.length
         ? Math.round((comments.filter((c) => c.positive).length / comments.length) * 100)
         : null
-      reviewDesc = reviewPositivePct >= 70 ? "Muito positivas" : "Positivas"
+      const _lang = readConfig()?.language || "en-US"
+      const _pos = { "pt-BR": "Muito positivas", "en-US": "Very positive", "es-ES": "Muy positivas" }
+      const _pos2 = { "pt-BR": "Positivas", "en-US": "Positive", "es-ES": "Positivas" }
+      reviewDesc = reviewPositivePct >= 70 ? (_pos[_lang] || _pos["en-US"]) : (_pos2[_lang] || _pos2["en-US"])
     } else {
       // 2. fallback: reviews da Steam (appreviews) — só quando não há da comunidade
       const rev = await fetchJson(
-        `https://store.steampowered.com/appreviews/${appid}?json=1&language=english&purchase_type=all&filter=all&num_per_page=50`,
+        `https://store.steampowered.com/appreviews/${appid}?json=1&language=${steamLang()}&purchase_type=all&filter=all&num_per_page=50`,
       ).catch(() => null)
       const q = rev?.query_summary || {}
       const pos = Number(q.total_positive) || 0
@@ -5114,10 +5117,12 @@ app.whenReady().then(() => {
   // mesmo caminho e o <img> continuaria mostrando a imagem antiga do cache.
   ipcMain.handle("art:pick", async (_e, { id, kind } = {}) => {
     if (!id || !["cover", "hero", "logo"].includes(kind)) return { ok: false }
+    const _d = readConfig()?.language || "en-US"
+    const _tr = (pt: string, en: string, es: string) => (_d === "pt-BR" ? pt : _d === "es-ES" ? es : en)
     const titulos = {
-      cover: "Escolher capa",
-      hero: "Escolher plano de fundo",
-      logo: "Escolher logo",
+      cover: _tr("Escolher capa", "Choose cover", "Elegir portada"),
+      hero: _tr("Escolher plano de fundo", "Choose background", "Elegir fondo"),
+      logo: _tr("Escolher logo", "Choose logo", "Elegir logo"),
     }
     const res = await dialog.showOpenDialog(win, {
       title: titulos[kind],
@@ -5127,13 +5132,13 @@ app.whenReady().then(() => {
           ? [
               // Fundo aceita live wallpaper: imagem/GIF ou vídeo.
               {
-                name: "Imagens e vídeos",
+                name: _tr("Imagens e vídeos", "Images and videos", "Imágenes y vídeos"),
                 extensions: ["png", "jpg", "jpeg", "gif", "webp", "webm", "mp4", "m4v", "mov"],
               },
-              { name: "Vídeos (fundo animado)", extensions: ["webm", "mp4", "m4v", "mov"] },
+              { name: _tr("Vídeos (fundo animado)", "Videos (animated background)", "Vídeos (fondo animado)"), extensions: ["webm", "mp4", "m4v", "mov"] },
               { name: "Imagens", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
             ]
-          : [{ name: "Imagens", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
+          : [{ name: _tr("Imagens", "Images", "Imágenes"), extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
     })
     if (res.canceled || !res.filePaths[0]) return { ok: false }
     const src = res.filePaths[0]
