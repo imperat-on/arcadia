@@ -160,11 +160,11 @@ export function AddGameDialog({
     if (custom && platform !== "emulator" && !exe) return setErro(t("addgame.erro_exe"))
     const args = emulatorArgs.trim() ? emulatorArgs.trim().split(/\s+/).slice(0, 32) : []
     if (custom && platform === "emulator") {
-      if (!emulatorId) return setErro("Selecione um emulador.")
-      if (!romPath) return setErro("Selecione a ROM/ISO do jogo.")
+      if (!emulatorId) return setErro(t("addgame.erro_emulador"))
+      if (!romPath) return setErro(t("addgame.erro_rom"))
       const selectedEmulator = emulators.find((item) => item.id === emulatorId)
-      if (!selectedEmulator?.profile && !selectedEmulator?.available) return setErro("Configure o emulador em Configurações › Emulação antes de adicionar jogos.")
-      if (selectedEmulator?.requiresCore && !selectedEmulator.profile?.corePath) return setErro("Selecione um core do RetroArch em Configurações › Emulação.")
+      if (!selectedEmulator?.profile && !selectedEmulator?.available) return setErro(t("addgame.erro_emulador_config"))
+      if (selectedEmulator?.requiresCore && !selectedEmulator.profile?.corePath) return setErro(t("addgame.erro_core"))
     }
     setBusy(true)
     if (editando && !custom) {
@@ -189,7 +189,7 @@ export function AddGameDialog({
       })
       if (!check?.ok) {
         setBusy(false)
-        return setErro(check?.error || "ROM ou emulador inválido.")
+        return setErro(check?.error || t("addgame.erro_rom_invalida"))
       }
     }
 
@@ -360,7 +360,7 @@ export function AddGameDialog({
                   {t("addgame.linux_nativo")}
                 </option>
                 <option value="emulator" className="bg-[#16161a]">
-                  Emulador (ROM/ISO)
+                  {t("addgame.emulador_rom")}
                 </option>
               </select>
 
@@ -441,8 +441,8 @@ export function AddGameDialog({
 
               {platform === "emulator" && (
                 <div className="mb-3 rounded-xl border border-white/[0.08] bg-black/20 p-3">
-                  <p className="mb-2 text-xs font-medium text-white/75">Configuração do emulador</p>
-                  <label className="mb-1.5 block text-[12px] text-white/60">Emulador</label>
+                  <p className="mb-2 text-xs font-medium text-white/75">{t("addgame.configuracao_emulador")}</p>
+                  <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.emulador")}</label>
                   <select
                     value={emulatorId}
                     onChange={(e) => {
@@ -451,22 +451,22 @@ export function AddGameDialog({
                     }}
                     className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                   >
-                    <option value="" className="bg-[#16161a]">Selecione…</option>
+                    <option value="" className="bg-[#16161a]">{t("addgame.selecione")}</option>
                     {emulators.map((item) => (
                       <option key={item.id} value={item.id} className="bg-[#16161a]">
-                        {item.name} · {item.systems.join(" / ")}{item.available ? "" : " (não detectado)"}
+                        {item.name} · {item.systems.join(" / ")}{item.available ? "" : t("emulador.nao_detectado_sufixo")}
                       </option>
                     ))}
                   </select>
                   <p className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-[11px] leading-relaxed text-white/45">
-                    O executável, BIOS e core são configurados em <strong className="font-medium text-white/65">Configurações › Emulação</strong>.
+                    {t("addgame.executavel_config")}
                   </p>
-                  <label className="mb-1.5 block text-[12px] text-white/60">ROM/ISO</label>
+                  <label className="mb-1.5 block text-[12px] text-white/60">{t("addgame.rom_iso")}</label>
                   <div className="mb-3 flex gap-2">
-                    <input value={romPath} readOnly placeholder="Selecione um arquivo" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white/70" />
-                    <button type="button" onClick={pickRom} className="rounded-lg border border-white/10 px-3 text-xs text-white/70 hover:bg-white/10">Escolher</button>
+                    <input value={romPath} readOnly placeholder={t("emulador.selecione_arquivo")} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white/70" />
+                    <button type="button" onClick={pickRom} className="rounded-lg border border-white/10 px-3 text-xs text-white/70 hover:bg-white/10">{t("emulador.escolher")}</button>
                   </div>
-                  <label className="block text-[12px] text-white/60">Argumentos adicionais (argv)</label>
+                  <label className="block text-[12px] text-white/60">{t("addgame.argumentos_argv")}</label>
                   <input
                     value={emulatorArgs}
                     onChange={(e) => setEmulatorArgs(e.target.value)}
@@ -474,7 +474,7 @@ export function AddGameDialog({
                     maxLength={4096}
                     className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-[12px] text-white outline-none focus:border-[color:var(--accent)]"
                   />
-                  <p className="mt-2 text-[11px] text-white/35">Nenhum comando é interpretado por shell; os argumentos são enviados como array.</p>
+                  <p className="mt-2 text-[11px] text-white/35">{t("addgame.sem_shell")}</p>
                 </div>
               )}
 

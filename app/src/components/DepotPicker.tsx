@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useI18n } from "../i18n/I18nContext"
 import type { DepotInfo, EscolhaDisco } from "./useStoreActions"
 import { fmtGiB } from "./tamanho"
 
@@ -10,9 +11,9 @@ import { fmtGiB } from "./tamanho"
 
 type Grupo = { titulo: string; depots: DepotInfo[] }
 
-function agrupar(depots: DepotInfo[]): Grupo[] {
+function agrupar(depots: DepotInfo[], t: (key: string, vars?: Record<string, string | number>) => string): Grupo[] {
   const semMeta = depots.every((d) => !d.os && !d.language && !d.dlcAppid)
-  if (semMeta) return [{ titulo: "Depots (sem metadata — restart do app pode ajudar)", depots }]
+  if (semMeta) return [{ titulo: t("depot.sem_metadata"), depots }]
 
   // Só o que pertence ao jogo: base + DLC + idioma. Ignora shared/runtimes
   // (sharedinstall=1 tipo Steamworks Redistributables), depots sem classificação
@@ -26,21 +27,21 @@ function agrupar(depots: DepotInfo[]): Grupo[] {
     if (!buckets.has(k)) buckets.set(k, [])
     buckets.get(k)!.push(d)
   }
-  const rotuloOs = (os: string) => (os ? os.toUpperCase() : "SEM OS")
+  const rotuloOs = (os: string) => (os ? os.toUpperCase() : t("depot.sem_os"))
 
   for (const d of relevantes) {
     const os = rotuloOs(d.os || "")
-    if (d.dlcAppid) push(`DLC · ${d.name || d.dlcAppid} · ${os}`, d)
-    else if (d.language) push(`Idioma: ${d.language} · ${os}`, d)
-    else push(`Base · ${os}`, d)
+    if (d.dlcAppid) push(t("depot.dlc", { name: d.name || d.dlcAppid, os }), d)
+    else if (d.language) push(t("depot.idioma", { language: d.language, os }), d)
+    else push(t("depot.base", { os }), d)
   }
   return [...buckets.entries()].map(([titulo, ds]) => ({ titulo, depots: ds }))
 }
 
-function labelDepot(d: DepotInfo): string {
+function labelDepot(d: DepotInfo, t: (key: string, vars?: Record<string, string | number>) => string): string {
   const partes: string[] = [`${d.depotId} —`]
   if (d.os) partes.push(`[${d.os.toUpperCase()}]`)
-  partes.push(d.name || `depot ${d.depotId}`)
+  partes.push(d.name || t("depot.depot", { id: d.depotId }))
   if (d.language) partes.push(`(${d.language})`)
   return partes.join(" ")
 }
@@ -76,8 +77,9 @@ export function DepotPicker({
   onCancel: () => void
   extras?: React.ReactNode
 }) {
+  const { t } = useI18n()
   const [sel, setSel] = useState<Set<string>>(() => padrao(depots))
-  const grupos = useMemo(() => agrupar(depots), [depots])
+  const grupos = useMemo(() => agrupar(depots, t), [depots, t])
   const total = useMemo(() => sizeGiB(depots.filter((d) => sel.has(d.depotId))), [depots, sel])
 
   const toggleDepot = (id: string) => {
@@ -105,7 +107,7 @@ export function DepotPicker({
   return (
     <div className="max-h-[60vh] overflow-y-auto pr-1">
       <div className="mb-3 flex items-center justify-between text-[12px] text-white/60">
-        <span>Total selecionado</span>
+        <span>{t("depot.total_selecionado")}</span>
         <span className="font-semibold text-white">{fmtGiB(total)}</span>
       </div>
       <div className="mb-4 flex flex-col gap-2">
@@ -136,7 +138,7 @@ export function DepotPicker({
                     >
                       <span>
                         <span className="mr-2">{sel.has(d.depotId) ? "☑" : "☐"}</span>
-                        {labelDepot(d)}
+                        {labelDepot(d, t)}
                       </span>
                       <span className="text-white/35">
                         {fmtGiB((Number(d.size) || 0) / 1024 ** 3)}
@@ -155,7 +157,7 @@ export function DepotPicker({
           onClick={onCancel}
           className="rounded-lg border border-white/15 px-4 py-1.5 text-[12px] text-white/70 hover:bg-white/[0.06] hover:text-white"
         >
-          Cancelar
+          {t("common.cancelar")}
         </button>
         <button
           disabled={!escolhidos.length}
@@ -163,7 +165,7 @@ export function DepotPicker({
           className="rounded-lg px-4 py-1.5 text-[12px] font-semibold text-black disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
-          Baixar {fmtGiB(total)}
+          {t("depot.baixar", { total: fmtGiB(total) })}
         </button>
       </div>
     </div>
@@ -183,6 +185,7 @@ export function EscolhaDownloadDialog({
   onConfirm: (steamDir: string, sel: DepotInfo[]) => void
   titulo: string
 }) {
+  const { t } = useI18n()
   const [lib, setLib] = useState<string>(escolhendo.libs[0]?.steamDir || "")
   return (
     <div
@@ -202,7 +205,7 @@ export function EscolhaDownloadDialog({
               className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-[12px] ${lib === l.steamDir ? "border-[color:var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]" : "border-white/10 hover:border-white/25"}`}
             >
               <span className="text-white/90">{l.steamDir.replace(/^\/home\/[^/]+/, "~")}</span>
-              <span className="text-[11px] text-white/50">{l.free.toFixed(2)} GiB livres</span>
+              <span className="text-[11px] text-white/50">{t("store.gib_livres", { free: l.free.toFixed(2) })}</span>
             </button>
           ))}
         </div>

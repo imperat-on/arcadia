@@ -30,14 +30,15 @@ test("painel de emuladores lista, detecta e persiste perfil/ROM via bridge", () 
     "gameSettingsSet",
   ])
     assert.match(panel + dialog, new RegExp(method), method)
-  assert.match(panel, /sem shell/i)
+  // A nota "sem shell" agora é i18n (emulador.desc = "... monta o comando sem shell.")
+  assert.match(panel, /emulador\.desc/)
   assert.match(panel, /emulatorArgs/)
   assert.match(dialog, /EmulatorProfilesPanel/)
   const addGame = fs.readFileSync(
     path.join(root, "src", "components", "desktop", "AddGameDialog.tsx"),
     "utf8",
   )
-  assert.match(addGame, /Emulador \(ROM\/ISO\)/)
+  assert.match(addGame, /addgame\.emulador_rom/)
   assert.doesNotMatch(addGame, /emulatorProfileSet/)
   assert.match(addGame, /emulatorsResolve/)
   assert.match(dialog, /showProfileConfig=\{false\}/)

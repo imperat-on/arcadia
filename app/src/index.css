@@ -58,7 +58,6 @@
   --input: rgba(255, 255, 255, 0.1);
   --ring: #0072ce;
   --radius: 0.75rem;
-  --accent: #00a8ff; /* cor de destaque (Temas) */
 
   /* Movimento. As animações estavam espalhadas entre 0,18s e 0,9s com quatro
      curvas diferentes, então nada parecia da mesma peça. Três durações e uma
@@ -4118,7 +4117,7 @@ select:disabled {
 .retro-library-card[data-active="true"] strong,.retro-library-card:focus-visible strong { opacity:1; }
 .retro-library-card[data-active="true"] .retro-library-cover,.retro-library-card:focus-visible .retro-library-cover { height:213px!important;outline:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.72),0 0 24px rgba(105,177,255,.2),0 16px 38px rgba(0,0,0,.62)!important; }
 .retro-library-card[data-active="true"] .retro-library-cover .ps5-cover-art,.retro-library-card:focus-visible .retro-library-cover .ps5-cover-art { object-fit:cover;object-position:center;transform:none; }
-.retro-rail-arrow { display:none!important; }
+.retro-rail-arrow { display:inline-flex; align-items:center; justify-content:center; }
 
 .retro-hero-section { position:absolute!important;inset:0!important;z-index:5;padding:405px 5vw 48px!important;border:0!important;background:transparent!important; }
 .retro-game-dashboard { display:block!important; }

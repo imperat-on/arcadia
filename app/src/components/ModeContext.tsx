@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import { useI18n } from "../i18n/I18nContext"
 
 export type LauncherMode = "console" | "desktop"
 
@@ -17,6 +18,7 @@ function initialMode(): LauncherMode {
 }
 
 export function ModeProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const [mode, setModeState] = useState<LauncherMode>(initialMode)
   const modeRef = useRef(mode)
 
@@ -27,10 +29,10 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const setMode = useCallback(async (next: LauncherMode) => {
     if (next === modeRef.current) return
     const result = await window.launcherAPI?.setLauncherMode(next)
-    if (result?.ok === false) throw new Error(result.error || "Falha ao trocar o modo")
+    if (result?.ok === false) throw new Error(result.error || t("mode.falha_trocar"))
     modeRef.current = next
     setModeState(next)
-  }, [])
+  }, [t])
 
   return <ModeContext.Provider value={{ mode, isConsole: mode === "console", setMode }}>{children}</ModeContext.Provider>
 }

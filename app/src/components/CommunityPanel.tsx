@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { userLocale } from "../i18n/locale"
+import { useI18n } from "../i18n/I18nContext"
 
 /**
  * The community bridge is intentionally typed locally.  The main process may
@@ -137,8 +138,8 @@ function isOffline(result: CommunityResult<unknown> | null | undefined) {
   )
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error || "Erro inesperado")
+function errorMessage(error: unknown, t: (k: string) => string) {
+  return error instanceof Error ? error.message : String(error || t("community.erro_inesperado"))
 }
 
 function formatDate(value?: string | null) {
@@ -147,24 +148,24 @@ function formatDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(userLocale())
 }
 
-function authorName(review: CommunityReview) {
+function authorName(review: CommunityReview, t: (k: string) => string) {
   return (
     review.display_name ||
     review.author?.display_name ||
     review.username ||
     review.author?.username ||
-    "Membro da comunidade"
+    t("community.membro")
   )
 }
 
-function collectionOwner(collection: CommunityCollection) {
-  return collection.display_name || collection.username || "Membro da comunidade"
+function collectionOwner(collection: CommunityCollection, t: (k: string) => string) {
+  return collection.display_name || collection.username || t("community.membro")
 }
 
-function statusLabel(status: LoadStatus) {
-  if (status === "loading") return "Carregando comunidade…"
-  if (status === "offline") return "Comunidade offline."
-  if (status === "error") return "Não foi possível carregar a comunidade."
+function statusLabel(status: LoadStatus, t: (k: string) => string) {
+  if (status === "loading") return t("community.carregando")
+  if (status === "offline") return t("community.offline")
+  if (status === "error") return t("community.erro_carregar")
   return ""
 }
 
@@ -175,6 +176,7 @@ export interface CommunityPanelProps {
 
 /** Reviews e coleções públicas do jogo, com cache/offline e paginação local. */
 export function CommunityPanel({ appid, title }: CommunityPanelProps) {
+  const { t } = useI18n()
   const [view, setView] = useState<View>("reviews")
   const [reviews, setReviews] = useState<CommunityReview[]>([])
   const [collections, setCollections] = useState<CommunityCollection[]>([])
@@ -208,7 +210,7 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
       setReviews([])
       setReviewsMore(false)
       setReviewStatus("offline")
-      setReviewError("Este launcher ainda não expõe a API da comunidade.")
+      setReviewError(t("community.api_indisponivel"))
       return
     }
     try {
@@ -218,13 +220,13 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
       setReviews(next)
       setReviewsMore(hasMore(result))
       setReviewStatus(result?.ok === false ? (isOffline(result) ? "offline" : "error") : result?.offline ? "offline" : "ready")
-      if (result?.ok === false) setReviewError(resultMessage(result, "Não foi possível carregar as avaliações."))
+      if (result?.ok === false) setReviewError(resultMessage(result, t("community.erro_carregar_avaliacoes")))
     } catch (error) {
       if (request !== reviewRequest.current) return
       setReviews([])
       setReviewsMore(false)
       setReviewStatus("offline")
-      setReviewError(errorMessage(error))
+      setReviewError(errorMessage(error, t))
     }
   }, [appid])
 
@@ -238,7 +240,7 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
       setCollections([])
       setCollectionsMore(false)
       setCollectionStatus("offline")
-      setCollectionError("Este launcher ainda não expõe a API da comunidade.")
+      setCollectionError(t("community.api_indisponivel"))
       return
     }
     try {
@@ -248,13 +250,13 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
       setCollections(next)
       setCollectionsMore(hasMore(result))
       setCollectionStatus(result?.ok === false ? (isOffline(result) ? "offline" : "error") : result?.offline ? "offline" : "ready")
-      if (result?.ok === false) setCollectionError(resultMessage(result, "Não foi possível carregar as coleções."))
+      if (result?.ok === false) setCollectionError(resultMessage(result, t("community.erro_carregar_colecoes")))
     } catch (error) {
       if (request !== collectionRequest.current) return
       setCollections([])
       setCollectionsMore(false)
       setCollectionStatus("offline")
-      setCollectionError(errorMessage(error))
+      setCollectionError(errorMessage(error, t))
     }
   }, [mineOnly])
 
@@ -288,12 +290,12 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
     event.preventDefault()
     const text = reviewDraft.text.trim()
     if (!text) {
-      setMutationError("Escreva o texto da avaliação.")
+      setMutationError(t("community.erro_texto_avaliacao"))
       return
     }
     const api = apiFromWindow()
     if (!api) {
-      setMutationError("Comunidade offline: API indisponível.")
+      setMutationError(t("community.api_offline"))
       return
     }
     setMutationBusy(true)
@@ -311,32 +313,32 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
         ? await api.communityReviewUpdate?.(editingReview.id, payload)
         : await api.communityReviewCreate?.(payload)
       if (!result || result.ok === false) {
-        setMutationError(resultMessage(result, "Não foi possível salvar a avaliação."))
+        setMutationError(resultMessage(result, t("community.erro_salvar")))
         return
       }
       setReviewFormOpen(false)
       setEditingReview(null)
       await loadReviews(reviewOffset)
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
   }
 
   const removeReview = async (review: CommunityReview) => {
-    if (!apiFromWindow()?.communityReviewRemove || !window.confirm("Remover esta avaliação?")) return
+    if (!apiFromWindow()?.communityReviewRemove || !window.confirm(t("community.confirmar_remover_avaliacao"))) return
     setMutationBusy(true)
     setMutationError("")
     try {
       const result = await apiFromWindow()!.communityReviewRemove!(review.id)
       if (!result || result.ok === false) {
-        setMutationError(resultMessage(result, "Não foi possível remover a avaliação."))
+        setMutationError(resultMessage(result, t("community.erro_remover")))
         return
       }
       await loadReviews(reviewOffset)
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
@@ -345,15 +347,15 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
   const reportReview = async (review: CommunityReview) => {
     const api = apiFromWindow()
     if (!api?.communityReviewReport) return
-    const reason = window.prompt("Por que esta avaliação deve ser analisada?", "conteúdo inadequado")?.trim()
+    const reason = window.prompt(t("community.prompt_denunciar"), t("community.conteudo_inadequado"))?.trim()
     if (!reason) return
     setMutationBusy(true)
     setMutationError("")
     try {
       const result = await api.communityReviewReport(review.id, { reason })
-      if (!result || result.ok === false) setMutationError(resultMessage(result, "Não foi possível enviar a denúncia."))
+      if (!result || result.ok === false) setMutationError(resultMessage(result, t("community.erro_denuncia")))
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
@@ -381,12 +383,12 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
     event.preventDefault()
     const collectionTitle = collectionDraft.title.trim()
     if (!collectionTitle) {
-      setMutationError("Informe um título para a coleção.")
+      setMutationError(t("community.erro_titulo_colecao"))
       return
     }
     const api = apiFromWindow()
     if (!api) {
-      setMutationError("Comunidade offline: API indisponível.")
+      setMutationError(t("community.api_offline"))
       return
     }
     setMutationBusy(true)
@@ -402,32 +404,32 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
         ? await api.communityCollectionUpdate?.(editingCollection.id, payload)
         : await api.communityCollectionCreate?.(payload)
       if (!result || result.ok === false) {
-        setMutationError(resultMessage(result, "Não foi possível salvar a coleção."))
+        setMutationError(resultMessage(result, t("community.erro_salvar_colecao")))
         return
       }
       setCollectionFormOpen(false)
       setEditingCollection(null)
       await loadCollections(collectionOffset, mineOnly)
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
   }
 
   const removeCollection = async (collection: CommunityCollection) => {
-    if (!apiFromWindow()?.communityCollectionRemove || !window.confirm("Remover esta coleção?")) return
+    if (!apiFromWindow()?.communityCollectionRemove || !window.confirm(t("community.confirmar_remover_colecao"))) return
     setMutationBusy(true)
     setMutationError("")
     try {
       const result = await apiFromWindow()!.communityCollectionRemove!(collection.id)
       if (!result || result.ok === false) {
-        setMutationError(resultMessage(result, "Não foi possível remover a coleção."))
+        setMutationError(resultMessage(result, t("community.erro_remover_colecao")))
         return
       }
       await loadCollections(collectionOffset, mineOnly)
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
@@ -436,15 +438,15 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
   const reportCollection = async (collection: CommunityCollection) => {
     const api = apiFromWindow()
     if (!api?.communityCollectionReport) return
-    const reason = window.prompt("Por que esta coleção deve ser analisada?", "conteúdo inadequado")?.trim()
+    const reason = window.prompt(t("community.prompt_denunciar_colecao"), t("community.conteudo_inadequado"))?.trim()
     if (!reason) return
     setMutationBusy(true)
     setMutationError("")
     try {
       const result = await api.communityCollectionReport(collection.id, { reason })
-      if (!result || result.ok === false) setMutationError(resultMessage(result, "Não foi possível enviar a denúncia."))
+      if (!result || result.ok === false) setMutationError(resultMessage(result, t("community.erro_denuncia")))
     } catch (error) {
-      setMutationError(errorMessage(error))
+      setMutationError(errorMessage(error, t))
     } finally {
       setMutationBusy(false)
     }
@@ -454,13 +456,13 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
   const currentError = view === "reviews" ? reviewError : collectionError
 
   return (
-    <section className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4 text-white/85" aria-label="Comunidade">
+    <section className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4 text-white/85" aria-label={t("community.titulo")}>
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-white/80">Comunidade</h2>
-          <p className="mt-1 text-xs text-white/45">Avaliações e coleções para {title || `o jogo ${appid}`}</p>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-white/80">{t("community.titulo")}</h2>
+          <p className="mt-1 text-xs text-white/45">{t("community.subtitulo", { title: title || t("community.para_jogo", { appid }) })}</p>
         </div>
-        <div className="flex rounded-lg border border-white/10 bg-black/20 p-0.5" role="tablist" aria-label="Conteúdo da comunidade">
+        <div className="flex rounded-lg border border-white/10 bg-black/20 p-0.5" role="tablist" aria-label={t("community.conteudo_aria")}>
           <button
             type="button"
             role="tab"
@@ -468,7 +470,7 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
             onClick={() => setView("reviews")}
             className={`rounded-md px-3 py-1.5 text-xs transition-colors ${view === "reviews" ? "bg-white/15 text-white" : "text-white/50 hover:text-white"}`}
           >
-            Avaliações
+            {t("community.avaliacoes")}
           </button>
           <button
             type="button"
@@ -477,26 +479,26 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
             onClick={() => setView("collections")}
             className={`rounded-md px-3 py-1.5 text-xs transition-colors ${view === "collections" ? "bg-white/15 text-white" : "text-white/50 hover:text-white"}`}
           >
-            Coleções
+            {t("community.colecoes")}
           </button>
         </div>
       </header>
 
-      {status === "loading" && <p className="mb-3 text-xs text-white/45">{statusLabel(status)}</p>}
+      {status === "loading" && <p className="mb-3 text-xs text-white/45">{statusLabel(status, t)}</p>}
       {status === "offline" && (
         <p className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.07] px-3 py-2 text-xs text-amber-100/80" role="status">
-          {statusLabel(status)} {currentError || "Os dados podem estar indisponíveis até a conexão voltar."}
+          {statusLabel(status, t)} {currentError || t("community.dados_indisponiveis")}
         </p>
       )}
       {status === "error" && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-400/20 bg-red-400/[0.07] px-3 py-2 text-xs text-red-100/85" role="alert">
-          <span>{currentError || statusLabel(status)}</span>
+          <span>{currentError || statusLabel(status, t)}</span>
           <button
             type="button"
             className="rounded border border-white/15 px-2 py-1 text-white/75 hover:bg-white/10"
             onClick={() => (view === "reviews" ? void loadReviews(reviewOffset) : void loadCollections(collectionOffset, mineOnly))}
           >
-            Tentar novamente
+            {t("community.tentar_novamente")}
           </button>
         </div>
       )}
@@ -507,11 +509,11 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
       )}
 
       {view === "reviews" ? (
-        <div role="tabpanel" aria-label="Avaliações da comunidade">
+        <div role="tabpanel" aria-label={t("community.avaliacoes_aria")}>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="text-xs text-white/45">{reviews.length ? `${reviews.length} nesta página` : "Ainda não há avaliações."}</span>
+            <span className="text-xs text-white/45">{reviews.length ? t("community.nesta_pagina", { count: reviews.length }) : t("community.vazio_avaliacoes")}</span>
             <button type="button" onClick={openReviewCreate} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-85">
-              Escrever avaliação
+              {t("community.escrever_avaliacao")}
             </button>
           </div>
           {reviewFormOpen && (
@@ -530,8 +532,8 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2 text-xs">
-                      <strong className="text-white/80">{authorName(review)}</strong>
-                      <span className="text-amber-300" aria-label={`${review.rating || (review.positive ? 5 : 1)} de 5 estrelas`}>
+                      <strong className="text-white/80">{authorName(review, t)}</strong>
+                      <span className="text-amber-300" aria-label={t("community.estrelas", { n: review.rating || (review.positive ? 5 : 1) })}>
                         {"★".repeat(Math.max(1, Math.min(5, Number(review.rating) || (review.positive ? 5 : 1))))}
                       </span>
                     </div>
@@ -539,30 +541,30 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
                   </div>
                   <span className="text-[11px] text-white/35">{formatDate(review.created_at)}</span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-white/65">{review.text || "(sem texto)"}</p>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-white/65">{review.text || t("community.sem_texto")}</p>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/35">
-                  <span>{review.hours ? `${review.hours}h jogadas` : ""}</span>
+                  <span>{review.hours ? t("community.horas_jogadas", { h: review.hours }) : ""}</span>
                   <span className="flex gap-2">
-                    <button type="button" onClick={() => openReviewEdit(review)} className="hover:text-white/80">Editar</button>
-                    <button type="button" disabled={mutationBusy} onClick={() => void removeReview(review)} className="hover:text-red-200 disabled:opacity-40">Remover</button>
-                    <button type="button" disabled={mutationBusy} onClick={() => void reportReview(review)} className="hover:text-amber-200 disabled:opacity-40">Denunciar</button>
+                    <button type="button" onClick={() => openReviewEdit(review)} className="hover:text-white/80">{t("community.editar")}</button>
+                    <button type="button" disabled={mutationBusy} onClick={() => void removeReview(review)} className="hover:text-red-200 disabled:opacity-40">{t("community.remover")}</button>
+                    <button type="button" disabled={mutationBusy} onClick={() => void reportReview(review)} className="hover:text-amber-200 disabled:opacity-40">{t("community.denunciar")}</button>
                   </span>
                 </div>
               </article>
             ))}
           </div>
-          {reviews.length === 0 && reviewStatus === "ready" && <p className="py-4 text-center text-xs text-white/35">Seja o primeiro a avaliar este jogo.</p>}
+          {reviews.length === 0 && reviewStatus === "ready" && <p className="py-4 text-center text-xs text-white/35">{t("community.seja_primeiro")}</p>}
           <Pager offset={reviewOffset} hasMore={reviewsMore} busy={reviewStatus === "loading"} onPrevious={() => void loadReviews(Math.max(0, reviewOffset - PAGE_SIZE))} onNext={() => void loadReviews(reviewOffset + PAGE_SIZE)} />
         </div>
       ) : (
-        <div role="tabpanel" aria-label="Coleções da comunidade">
+        <div role="tabpanel" aria-label={t("community.colecoes_aria")}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-xs text-white/50">
               <input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} />
-              Minhas coleções
+              {t("community.minhas_colecoes")}
             </label>
             <button type="button" onClick={openCollectionCreate} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-85">
-              Criar coleção
+              {t("community.criar_colecao")}
             </button>
           </div>
           {collectionFormOpen && (
@@ -583,20 +585,20 @@ export function CommunityPanel({ appid, title }: CommunityPanelProps) {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-medium text-white/90">{collection.title}</h3>
-                    <p className="mt-1 text-[11px] text-white/40">por {collectionOwner(collection)} · {collection.item_count || collection.items?.length || 0} jogos</p>
+                    <p className="mt-1 text-[11px] text-white/40">{t("community.por_jogos", { owner: collectionOwner(collection, t), count: collection.item_count || collection.items?.length || 0 })}</p>
                   </div>
                   <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase text-white/40">{collection.visibility || "public"}</span>
                 </div>
                 {collection.description && <p className="mt-2 text-xs text-white/60">{collection.description}</p>}
                 <div className="mt-2 flex justify-end gap-2 text-[11px] text-white/35">
-                  <button type="button" onClick={() => openCollectionEdit(collection)} className="hover:text-white/80">Editar</button>
-                  <button type="button" disabled={mutationBusy} onClick={() => void removeCollection(collection)} className="hover:text-red-200 disabled:opacity-40">Remover</button>
-                  <button type="button" disabled={mutationBusy} onClick={() => void reportCollection(collection)} className="hover:text-amber-200 disabled:opacity-40">Denunciar</button>
+                  <button type="button" onClick={() => openCollectionEdit(collection)} className="hover:text-white/80">{t("community.editar")}</button>
+                  <button type="button" disabled={mutationBusy} onClick={() => void removeCollection(collection)} className="hover:text-red-200 disabled:opacity-40">{t("community.remover")}</button>
+                  <button type="button" disabled={mutationBusy} onClick={() => void reportCollection(collection)} className="hover:text-amber-200 disabled:opacity-40">{t("community.denunciar")}</button>
                 </div>
               </article>
             ))}
           </div>
-          {collections.length === 0 && collectionStatus === "ready" && <p className="py-4 text-center text-xs text-white/35">Nenhuma coleção encontrada.</p>}
+          {collections.length === 0 && collectionStatus === "ready" && <p className="py-4 text-center text-xs text-white/35">{t("community.vazio_colecoes")}</p>}
           <Pager offset={collectionOffset} hasMore={collectionsMore} busy={collectionStatus === "loading"} onPrevious={() => void loadCollections(Math.max(0, collectionOffset - PAGE_SIZE), mineOnly)} onNext={() => void loadCollections(collectionOffset + PAGE_SIZE, mineOnly)} />
         </div>
       )}
@@ -619,15 +621,16 @@ function ReviewForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
 }) {
+  const { t } = useI18n()
   return (
     <form onSubmit={onSubmit} className="mb-3 rounded-xl border border-white/10 bg-black/25 p-3">
       <div className="grid gap-2 sm:grid-cols-[1fr_100px_100px]">
-        <label className="text-xs text-white/55">Título (opcional)<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={120} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
-        <label className="text-xs text-white/55">Nota<select value={draft.rating} onChange={(event) => setDraft({ ...draft, rating: event.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none"><option value="5">5 / 5</option><option value="4">4 / 5</option><option value="3">3 / 5</option><option value="2">2 / 5</option><option value="1">1 / 5</option></select></label>
-        <label className="text-xs text-white/55">Horas<input type="number" min="0" step="0.1" value={draft.hours} onChange={(event) => setDraft({ ...draft, hours: event.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
+        <label className="text-xs text-white/55">{t("community.titulo_opcional")}<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={120} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
+        <label className="text-xs text-white/55">{t("community.nota")}<select value={draft.rating} onChange={(event) => setDraft({ ...draft, rating: event.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none"><option value="5">5 / 5</option><option value="4">4 / 5</option><option value="3">3 / 5</option><option value="2">2 / 5</option><option value="1">1 / 5</option></select></label>
+        <label className="text-xs text-white/55">{t("community.horas")}<input type="number" min="0" step="0.1" value={draft.hours} onChange={(event) => setDraft({ ...draft, hours: event.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
       </div>
-      <label className="mt-2 block text-xs text-white/55">Avaliação<textarea required value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} maxLength={4000} rows={4} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs leading-relaxed text-white outline-none focus:border-[color:var(--accent)]" /></label>
-      <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">Cancelar</button><button type="submit" disabled={busy} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50">{busy ? "Salvando…" : editing ? "Salvar alterações" : "Publicar"}</button></div>
+      <label className="mt-2 block text-xs text-white/55">{t("community.avaliacao")}<textarea required value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} maxLength={4000} rows={4} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs leading-relaxed text-white outline-none focus:border-[color:var(--accent)]" /></label>
+      <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">{t("common.cancelar")}</button><button type="submit" disabled={busy} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50">{busy ? t("common.salvando") : editing ? t("community.salvar_alteracoes") : t("community.publicar")}</button></div>
     </form>
   )
 }
@@ -651,15 +654,16 @@ function CollectionForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
 }) {
+  const { t } = useI18n()
   return (
     <form onSubmit={onSubmit} className="mb-3 rounded-xl border border-white/10 bg-black/25 p-3">
       <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
-        <label className="text-xs text-white/55">Título<input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={120} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
-        <label className="text-xs text-white/55">Visibilidade<select value={draft.visibility} onChange={(event) => setDraft({ ...draft, visibility: event.target.value as CollectionDraft["visibility"] })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none"><option value="public">Pública</option><option value="unlisted">Não listada</option><option value="private">Privada</option></select></label>
+        <label className="text-xs text-white/55">{t("community.titulo_colecao")}<input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={120} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none focus:border-[color:var(--accent)]" /></label>
+        <label className="text-xs text-white/55">{t("community.visibilidade")}<select value={draft.visibility} onChange={(event) => setDraft({ ...draft, visibility: event.target.value as CollectionDraft["visibility"] })} className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none"><option value="public">{t("community.visibilidade.publica")}</option><option value="unlisted">{t("community.visibilidade.nao_listada")}</option><option value="private">{t("community.visibilidade.privada")}</option></select></label>
       </div>
-      <label className="mt-2 block text-xs text-white/55">Descrição (opcional)<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} maxLength={2000} rows={3} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs leading-relaxed text-white outline-none focus:border-[color:var(--accent)]" /></label>
-      {!editing && <p className="mt-2 text-[11px] text-white/35">A coleção nova começa com {gameTitle || `o jogo ${appid}`}.</p>}
-      <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">Cancelar</button><button type="submit" disabled={busy} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50">{busy ? "Salvando…" : editing ? "Salvar alterações" : "Criar"}</button></div>
+      <label className="mt-2 block text-xs text-white/55">{t("community.descricao_opcional")}<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} maxLength={2000} rows={3} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs leading-relaxed text-white outline-none focus:border-[color:var(--accent)]" /></label>
+      {!editing && <p className="mt-2 text-[11px] text-white/35">{t("community.colecao_comeca", { game: gameTitle || t("community.para_jogo", { appid }) })}</p>}
+      <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">Cancelar</button><button type="submit" disabled={busy} className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50">{busy ? t("common.salvando") : editing ? t("community.salvar_alteracoes") : t("community.criar")}</button></div>
     </form>
   )
 }
@@ -677,12 +681,13 @@ function Pager({
   onPrevious: () => void
   onNext: () => void
 }) {
+  const { t } = useI18n()
   if (!offset && !more) return null
   return (
-    <nav className="mt-3 flex items-center justify-between border-t border-white/[0.07] pt-3" aria-label="Paginação">
-      <button type="button" disabled={!offset || busy} onClick={onPrevious} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/55 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30">Anterior</button>
-      <span className="text-[11px] text-white/35">Página {Math.floor(offset / PAGE_SIZE) + 1}</span>
-      <button type="button" disabled={!more || busy} onClick={onNext} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/55 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30">Próxima</button>
+    <nav className="mt-3 flex items-center justify-between border-t border-white/[0.07] pt-3" aria-label={t("community.paginacao_aria")}>
+      <button type="button" disabled={!offset || busy} onClick={onPrevious} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/55 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30">{t("community.anterior")}</button>
+      <span className="text-[11px] text-white/35">{t("community.pagina", { n: Math.floor(offset / PAGE_SIZE) + 1 })}</span>
+      <button type="button" disabled={!more || busy} onClick={onNext} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/55 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30">{t("community.proxima")}</button>
     </nav>
   )
 }

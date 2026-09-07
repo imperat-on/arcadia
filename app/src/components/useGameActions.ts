@@ -158,7 +158,7 @@ export function useGameActions({
 
   const launch = useCallback(
     async (game: Game, mode?: GameLaunchMode) => {
-      if (launchBlocked()) return { ok: false, error: "O launcher está ocupado com outro jogo." }
+      if (launchBlocked()) return { ok: false, error: t("launch.ocupado") }
       if (mode === undefined && game.launcher === "steam" && game.temExe) {
         callbacks.current.onChooseLaunch?.(game)
         return { ok: false, needsMode: true, warnings: [] }

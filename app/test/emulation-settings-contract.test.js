@@ -19,10 +19,10 @@ test("Emulação é uma subaba global de Configurações", () => {
   for (const api of ["emulatorsList", "emulatorsDetect", "emulatorsStatus", "emulatorsRomIndex", "emulatorProfileSet", "emulatorProfileRemove", "pickFile", "pickFolder"]) {
     assert.match(section, new RegExp(api), api)
   }
-  assert.match(section, /Configuração do/)
-  assert.match(section, /Encontrar .* no seu computador/)
-  assert.match(section, /Explorar manualmente/)
-  assert.match(section, /Não tenho o/)
+  assert.match(section, /emulacao\.configuracao_do/)
+  assert.match(section, /emulacao\.encontrar/)
+  assert.match(section, /emulacao\.explorar_manual/)
+  assert.match(section, /emulacao\.nao_tenho/)
   assert.match(installer, /Instalar \{name\}/)
   assert.match(installer, /openExternal/)
   assert.match(installer, /flatpak install flathub/)

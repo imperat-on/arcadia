@@ -25,7 +25,8 @@ test("painel de comunidade usa apenas a bridge e mantém o estado offline", () =
   ]) assert.match(panel, new RegExp(method), method)
   assert.match(panel, /offline/i)
   assert.match(panel, /aria-label=/)
-  assert.match(panel, /Página/)
+  // Paginação agora é i18n (chave community.pagina = "Página {n}")
+  assert.match(panel, /community\.pagina/)
 })
 
 test("painel não acessa ipcRenderer nem transporta credenciais ou paths locais", () => {
