@@ -225,7 +225,15 @@ export function PS5Launcher() {
       overviewCloseTimer.current = null
       if (overviewReopenRef.current) {
         overviewReopenRef.current = false
+        // Reabre no próximo frame (reopen intencional, ex.: ↓ durante o retorno).
         window.requestAnimationFrame(() => setOverviewOpen(true))
+      } else {
+        // Remove o overview do DOM ao fim do slide-down. Deixá-lo montado com
+        // a classe base .arcadia-overview (animation:ps5OverviewEnter ... both)
+        // faz qualquer re-render no React re-disparar a animação de entrada —
+        // a "piscada" do hub ao voltar, mais visível no Windows (foco/re-render
+        // alternam via gamepad + keydown).
+        setOverviewMounted(false)
       }
     }, 1000)
   }, [])
