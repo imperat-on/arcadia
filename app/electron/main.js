@@ -250,7 +250,9 @@ function responsiveWindowScale(mode) {
 
 function zoomFactorFor(mode, logical) {
   const value = Number(logical) || (mode === "console" ? 1.3 : 1)
-  const base = mode === "console" ? value : value * 1.2
+  // Desktop sem slider: mantém uma base legível, ignorando o zoom legado.
+  // O tamanho da janela e o DPI do Electron continuam ajustando a interface.
+  const base = mode === "console" ? value : 1.2
   return Math.min(2, Math.max(mode === "console" ? 0.7 : 0.84, base * responsiveWindowScale(mode)))
 }
 
@@ -5118,7 +5120,7 @@ app.whenReady().then(() => {
   ipcMain.handle("art:pick", async (_e, { id, kind } = {}) => {
     if (!id || !["cover", "hero", "logo"].includes(kind)) return { ok: false }
     const _d = readConfig()?.language || "en-US"
-    const _tr = (pt: string, en: string, es: string) => (_d === "pt-BR" ? pt : _d === "es-ES" ? es : en)
+    const _tr = (pt, en, es) => (_d === "pt-BR" ? pt : _d === "es-ES" ? es : en)
     const titulos = {
       cover: _tr("Escolher capa", "Choose cover", "Elegir portada"),
       hero: _tr("Escolher plano de fundo", "Choose background", "Elegir fondo"),
