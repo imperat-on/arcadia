@@ -26,7 +26,7 @@ export function HeroSection({ game, rodando, abrindo, onLaunch, onMore, onToggle
           ) : (
             <h1 className="game-name">{game.title}</h1>
           )}
-          <p className="ps5-hero-tagline">{game.genre || game.developer || "Pronto para jogar."}</p>
+          <p className="ps5-hero-tagline">{game.genre || game.developer || t("hero.pronto_para_jogar")}</p>
           <div className="ps5-hero-actions">
             <button
               type="button"

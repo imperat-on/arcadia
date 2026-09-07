@@ -2,7 +2,10 @@
 
 // Controles de janela no estilo macOS. A faixa continua arrastável e os
 // símbolos aparecem apenas ao passar o mouse sobre o conjunto.
+import { useI18n } from "../../i18n/I18nContext"
+
 export function WindowControls() {
+  const { t } = useI18n()
   const api = typeof window !== "undefined" ? window.launcherAPI : undefined
   if (!api?.winClose) return null
 
@@ -12,13 +15,13 @@ export function WindowControls() {
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       <div className="group flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-        <Dot color="#ff5f57" ring="#e0443e" label="Fechar" onClick={() => api.winClose?.()}>
+        <Dot color="#ff5f57" ring="#e0443e" label={t("common.fechar")} onClick={() => api.winClose?.()}>
           <path d="M4.2 4.2l3.6 3.6M7.8 4.2l-3.6 3.6" />
         </Dot>
-        <Dot color="#febc2e" ring="#dea123" label="Minimizar" onClick={() => api.winMinimize?.()}>
+        <Dot color="#febc2e" ring="#dea123" label={t("win.minimizar")} onClick={() => api.winMinimize?.()}>
           <path d="M3.8 6h4.4" />
         </Dot>
-        <Dot color="#28c840" ring="#1aab29" label="Maximizar" onClick={() => api.winMaximize?.()}>
+        <Dot color="#28c840" ring="#1aab29" label={t("win.maximizar")} onClick={() => api.winMaximize?.()}>
           <path d="M4.3 4.3h3.4v3.4z" fill="currentColor" stroke="none" />
         </Dot>
       </div>

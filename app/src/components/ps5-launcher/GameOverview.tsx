@@ -322,7 +322,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
         <section className="ps5-overview-activity">
           <span className="ps5-overview-badge">{tags[0] || String(platform)}</span>
           {game.logo ? <img src={game.logo} alt={game.title} className="ps5-overview-logo" /> : <h1>{game.title}</h1>}
-          <p>{game.playtime_minutes ? `Continue de onde parou · ${formatPlaytime(game.playtime_minutes)}` : description}</p>
+          <p>{game.playtime_minutes ? t("gameoverview.continuar", { tempo: formatPlaytime(game.playtime_minutes) }) : description}</p>
           <div className="ps5-overview-actions">
             <button
               type="button"
@@ -354,16 +354,16 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
         </section>
         <aside className="ps5-overview-product">
           {cover ? <img src={cover} alt="" /> : <span>{game.title}</span>}
-          <strong>{game.installed === false ? t("hero.instalar") : "Na biblioteca"}</strong>
+          <strong>{game.installed === false ? t("hero.instalar") : t("store.na_biblioteca")}</strong>
           <small>{release} · {developer}</small>
         </aside>
         <div className="ps5-overview-stats">
-          <section className="ps5-overview-progress"><span>◔ Progresso do jogo</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? `${unlocked}/${total} conquistas` : "Sem conquistas disponíveis"}</small></section>
-          <section className="ps5-overview-time">◷ {game.playtime_minutes ? `Jogado ${formatPlaytime(game.playtime_minutes)}` : "Ainda não jogado"}</section>
+          <section className="ps5-overview-progress"><span>◔ {t("gameoverview.progresso")}</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? `${unlocked}/${total} conquistas` : "Sem conquistas disponíveis"}</small></section>
+          <section className="ps5-overview-time">◷ {game.playtime_minutes ? t("gameoverview.jogado", { tempo: formatPlaytime(game.playtime_minutes) }) : t("gameoverview.nao_jogado")}</section>
         </div>
         <section className="ps5-overview-cards">
-          <article><span>🏆</span><b>Conquistas</b><small>{total ? `${unlocked} de ${total} desbloqueadas` : "Ainda não há dados"}</small></article>
-          <article><span>♟</span><b>Amigos que jogam</b><small>Nenhum amigo jogando agora</small></article>
+          <article><span>🏆</span><b>{t("conquistas.titulo")}</b><small>{total ? t("gameoverview.desbloqueadas", { done: unlocked, total }) : t("gameoverview.sem_dados")}</small></article>
+          <article><span>♟</span><b>{t("gameoverview.amigos_jogam")}</b><small>{t("gameoverview.nenhum_amigo")}</small></article>
           <article><span>✦</span><b>Ajuda do jogo</b><small>{relatedNews[0]?.title || "Dicas, notícias e informações"}</small></article>
           {mediaItems.slice(0, 1).map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} className="ps5-overview-media">{showingTrailer && trailer ? <video ref={videoRef} src={trailer} autoPlay loop muted playsInline /> : <img src={item.src} alt="" />}<span>{item.label}</span></button>)}
         </section>

@@ -249,7 +249,7 @@ export function LibraryView({
         )}
       </div>
 
-      <div className="flex items-center gap-1 px-8 pb-4" role="tablist" aria-label="Library sections">
+      <div className="flex items-center gap-1 px-8 pb-4" role="tablist" aria-label={t("library.sections_aria")}>
         {(["todos", "retro"] as const).map((key) => (
           <button
             key={key}
@@ -262,7 +262,7 @@ export function LibraryView({
             <span className="desktop-library-tab-icon" aria-hidden="true">
               {key === "retro" ? <RetroLibraryIcon /> : <AllGamesIcon />}
             </span>
-            {key === "retro" ? "Retro" : "All games"}
+            {key === "retro" ? t("library.retro") : t("library.todos_jogos")}
           </button>
         ))}
       </div>
@@ -304,7 +304,7 @@ export function LibraryView({
             )
           })}
         </div>
-          {lista.length === 0 && <div className="ui-empty">{aba === "retro" ? "No retro games in your library yet." : t("library.vazio")}</div>}
+          {lista.length === 0 && <div className="ui-empty">{aba === "retro" ? t("library.retro_vazio") : t("library.vazio")}</div>}
       </div>
 
       {/* Diálogo de instalação (escolher pasta, ver espaço em disco) */}

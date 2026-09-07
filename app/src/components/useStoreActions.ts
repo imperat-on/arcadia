@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useI18n } from "../i18n/I18nContext"
 import type { Game } from "./ps5-launcher/types"
 
 // Ações da loja — Baixar, Add, Remover, reiniciar a Steam — compartilhadas
@@ -72,6 +73,7 @@ export interface StoreActionsOpts {
 }
 
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
+  const { t: _t } = useI18n()
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
   const [removidosLocal, setRemovidosLocal] = useState<Set<string>>(new Set())
   const [escolhendo, setEscolhendo] = useState<EscolhaDisco | null>(null)
@@ -228,14 +230,14 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         const libs = ((await window.launcherAPI?.storeLibraries()) || []) as Biblioteca[]
         if (meu !== pedido.current) return
         if (!libs.length) {
-          setToast("Nenhuma biblioteca Steam encontrada.")
+          setToast(_t("store.no_steam_lib"))
           return
         }
         // O diálogo aparece sempre, mesmo com uma biblioteca só: um download de
         // vários GB não deve começar sem confirmação.
         setEscolhendo({ jogo, info: info as ManifestInfo, libs })
       } catch (e) {
-        setToast(`Falha ao preparar o download: ${e}`)
+        setToast(_t("store.falha_download", { erro: String(e) }))
       } finally {
         if (meu === pedido.current) setBusy("")
       }
@@ -290,7 +292,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
           : r?.error || "Falha ao iniciar o torrent",
       )
     } catch (e) {
-      setToast(`Falha ao iniciar o torrent: ${e}`)
+      setToast(_t("store.falha_torrent", { erro: String(e) }))
     } finally {
       setBusy("")
     }
@@ -321,7 +323,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         })
         const via = info.fonte ? ` (via ${info.fonte})` : ""
         if (r?.plugin) {
-          setToast(`Requer o plugin ${r.plugin} (aba Plugins).`)
+          setToast(_t("store.requer_plugin", { plugin: String(r.plugin) }))
         } else {
           setToast(
             r?.ok

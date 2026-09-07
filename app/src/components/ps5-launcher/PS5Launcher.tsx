@@ -1224,9 +1224,9 @@ export function PS5Launcher() {
   )
   const footerNode = (
     <footer className="retro-console-footer flex h-7 shrink-0 items-center justify-between border-t px-10 text-[9px] font-black uppercase tracking-[0.16em]">
-      <span>Press Start</span>
+      <span>{t("footer.press_start")}</span>
       <strong>Arcadia</strong>
-      <span>Insert Coin</span>
+      <span>{t("footer.insert_coin")}</span>
     </footer>
   )
 

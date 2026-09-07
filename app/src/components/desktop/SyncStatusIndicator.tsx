@@ -93,7 +93,7 @@ export function SyncStatusIndicator() {
         : t("sync.ok")
 
   const forcarLogout = async () => {
-    if (window.confirm("Fazer logout e login novamente? Isso pode resolver problemas de sessão.")) {
+    if (window.confirm(t("auth.confirm_relogin"))) {
       await window.launcherAPI?.accountSignOut()
     }
   }

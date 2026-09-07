@@ -105,10 +105,10 @@ export function RetroAchievementsGamePanel({
       <>
       <section className="h-[286px] overflow-hidden rounded-[7px] border border-white/[.1] bg-[#080a0d] p-3.5 shadow-[0_8px_20px_rgba(0,0,0,.22)]">
         <header className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-[10px] font-bold uppercase tracking-[.09em] text-white/78">Conquistas</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-[.09em] text-white/78">{t("conquistas.titulo")}</h3>
           <div className="flex items-center gap-3">
             <span className="text-[9px] text-white/45">
-              {items && !needsApiKey ? t("conquistas.contador", { done: String(done), total: String(total) }) : "Carregando…"}
+              {items && !needsApiKey ? t("conquistas.contador", { done: String(done), total: String(total) }) : t("common.carregando")}
             </span>
             {items && items.length > 6 && <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
               Ver todas
@@ -171,7 +171,7 @@ export function RetroAchievementsGamePanel({
           </div>
         ) : (
           <p className="py-8 text-center text-[10px] text-white/30">
-            {items === null ? "Carregando conquistas…" : error || (!gameFound ? t("retroachievements.jogo_nao_encontrado") : t("conquistas.vazio"))}
+            {items === null ? t("common.carregando") : error || (!gameFound ? t("retroachievements.jogo_nao_encontrado") : t("conquistas.vazio"))}
           </p>
         )}
       </section>
