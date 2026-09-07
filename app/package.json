@@ -73,6 +73,7 @@
     "dist:appimage": "vite build && electron-builder --linux AppImage --x64",
     "dist:nsis": "vite build && electron-builder --win nsis --x64",
     "dist:portable": "vite build && electron-builder --win portable --x64",
+    "dist:zip": "vite build && electron-builder --win zip --x64",
     "test": "NODE_ENV=test node --test",
     "electron": "electron .",
     "start": "vite build && electron ."
