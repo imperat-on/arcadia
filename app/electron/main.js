@@ -2464,7 +2464,9 @@ function createWindow() {
     wp.contextIsolation = true
   })
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
-  win.once("ready-to-show", () => win.show())
+  win.once("ready-to-show", () => {
+    win.show()
+  })
 
   // Recalcula o zoom depois que o usuário maximiza, redimensiona a janela ou
   // a move para outro monitor. O debounce evita chamar setZoomFactor dezenas
