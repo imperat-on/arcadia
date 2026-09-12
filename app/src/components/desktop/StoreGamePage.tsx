@@ -78,7 +78,8 @@ export function StoreGamePage({
   game?: Game
   onClose: () => void
   onBaixar: () => void
-  onAdicionar: () => void
+  /** Só é usado quando o jogo ainda NÃO está na biblioteca. */
+  onAdicionar?: () => void
   onRemover?: () => void
   onConfig?: () => void
   onJogar?: () => void
@@ -430,7 +431,7 @@ export function StoreGamePage({
                 <>
                   {onJogar && (rodando ? (
                     <>
-                      <PrimaryBtn onClick={() => {}} disabled label={t("gamepage.rodando")}>
+                      <PrimaryBtn disabled label={t("gamepage.rodando")}>
                         <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
                           <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
                           <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
@@ -671,7 +672,8 @@ function PrimaryBtn({
   action,
 }: {
   children: React.ReactNode
-  onClick: () => void
+  /** Ausente no botão apenas visual (ex.: "Rodando", que já nasce disabled). */
+  onClick?: () => void
   disabled?: boolean
   label: string
   action?: "stop" | "cancel"

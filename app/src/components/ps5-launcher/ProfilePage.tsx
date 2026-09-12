@@ -12,7 +12,7 @@ interface ProfilePageProps {
   profile: Profile
   games: Game[]
   onClose: () => void
-  onEdit: () => void
+  onEdit?: () => void
   onJogoClick?: (g: Game) => void
   embedded?: boolean
   navActive?: boolean

@@ -32,7 +32,9 @@ test("ponte aditiva do catálogo Retro permanece no main/preload/tipos", () => {
   assert.match(artwork, /loadRetroCovers/)
   assert.doesNotMatch(artwork, /searchArt/)
   assert.match(artwork, /protocol !== "https:"/)
-  assert.match(launcher, /onOpenDownloads=.*setView\("downloads"\)/)
+  // O atalho de downloads da loja passa pelo mesmo ponto de navegação do shell
+  // (irPara limpa as páginas abertas antes de trocar de aba).
+  assert.match(launcher, /onOpenDownloads=\{\(\) => irPara\("downloads"\)\}/)
 })
 
 test("downloads Retro usam o diálogo e a pasta compartilhados", () => {

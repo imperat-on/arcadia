@@ -82,6 +82,9 @@ export function DesktopLauncher() {
   const { setMode } = useMode()
   const [view, setView] = useState<DesktopView>("inicio")
   const [configSub, setConfigSub] = useState<ConfigSub>("gerais")
+  // Cada navegação entregue pelo shell incrementa isto; entra na `key` do
+  // conteúdo para a aba sempre começar limpa (ver irPara).
+  const [navegacao, setNavegacao] = useState(0)
   const {
     games,
     setGames,
@@ -236,6 +239,24 @@ export function DesktopLauncher() {
     })
   }, [])
 
+  // Navegação do shell: TODA troca de aba passa por aqui.
+  //
+  // Cada ponto de entrada fazia o seu próprio `setView` e dois bugs vinham
+  // disso: (1) "Meu perfil" — e os atalhos de downloads da loja — não limpavam
+  // a página de jogo aberta, e as páginas do shell não checam a aba, então
+  // clicar em "Meu perfil" não mudava nada na tela; (2) reabrir a aba em que já
+  // se está não remontava o conteúdo, então um detalhe aberto DENTRO da aba
+  // (loja, início, biblioteca) engolia o clique.
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const irPara = useCallback((destino: DesktopView) => {
+    setJogoPagina(null)
+    setRetroPaginaJogo(null)
+    setShowEditProfile(false)
+    if (viewRef.current === destino) setNavegacao((n) => n + 1)
+    setView(destino)
+  }, [])
+
   const instalar = useCallback((g: Game) => {
     if (g.launcher === "steam") {
       const appid = String(g.id).replace(/^steam:/, "")
@@ -300,18 +321,14 @@ export function DesktopLauncher() {
       <WindowControls />
       <Sidebar
         view={view}
-        onView={(v) => {
-          setJogoPagina(null)
-          setRetroPaginaJogo(null)
-          setView(v)
-        }}
+        onView={irPara}
         downloadsActive={downloadsActive}
         onQuit={() => window.launcherAPI?.quit()}
         onBigPicture={() => setConfirmBigPicture(true)}
         configSub={configSub}
         onConfigSub={setConfigSub}
         profile={profile}
-        onProfile={() => setView("perfil")}
+        onProfile={() => irPara("perfil")}
         onLogout={() => {
           setContaAberta(true)
           setAposLogout(true)
@@ -321,14 +338,13 @@ export function DesktopLauncher() {
         librarySidebar={librarySidebar}
         onToggleLibrarySidebar={toggleLibrarySidebar}
         onOpenGame={(g) => {
-          setView("biblioteca")
-          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca)
+          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca).
+          // irPara já limpa as duas páginas antes de abrir a escolhida.
+          irPara("biblioteca")
           if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
             setRetroPaginaJogo(g)
-            setJogoPagina(null)
           } else {
             setJogoPagina(g)
-            setRetroPaginaJogo(null)
           }
         }}
         onAddGame={() => setAdicionando(true)}
@@ -336,12 +352,12 @@ export function DesktopLauncher() {
       />
 
       <main
-        key={view}
+        key={`${view}:${navegacao}`}
         className="desktop-retro-main view-in flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.06]"
       >
         <DesktopHeader />
         <div className="min-h-0 flex-1 overflow-hidden">
-        {jogoPagina && String(jogoPagina.id).startsWith("steam:") && (
+        {view === "biblioteca" && jogoPagina && String(jogoPagina.id).startsWith("steam:") && (
               <StoreGamePage
                 embedded
                 jogo={{
@@ -355,7 +371,6 @@ export function DesktopLauncher() {
                 game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
                 onBaixar={() => instalar(jogoPagina)}
-                onAdicionar={() => {}}
                 onConfig={() => setJogoConfig(jogoPagina)}
                 onRemover={() => {
                   window.launcherAPI
@@ -379,7 +394,7 @@ export function DesktopLauncher() {
                 ocupado={gameRunning}
               />
             )}
-            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
+            {view === "biblioteca" && jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
               <GamePage
                 embedded
                 game={jogoPagina}
@@ -403,7 +418,7 @@ export function DesktopLauncher() {
                   initialGameId={retroPaginaJogo.id}
                   initialGame={retroPaginaSeed}
                   onExit={() => setRetroPaginaJogo(null)}
-                  onOpenDownloads={() => setView("downloads")}
+                  onOpenDownloads={() => irPara("downloads")}
                   onLaunchGame={(game) => { void launchDesktopGame(game) }}
                 />
               </div>
@@ -427,13 +442,13 @@ export function DesktopLauncher() {
                 appFocused={appFocused}
                 gameRunning={gameRunning}
                 runningGameId={jogoAtivo.jogo?.id}
-                onOpenDownloads={() => setView("downloads")}
+                onOpenDownloads={() => irPara("downloads")}
                 onLaunchGame={(game) => { void launchDesktopGame(game) }}
               />
             )}
             {!jogoPagina && view === "plugins" && <PluginsView />}
             {!jogoPagina && view === "downloads" && <DownloadsView feed={downloadsFeed} />}
-            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => setView("downloads")} />}
+            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => irPara("downloads")} />}
             {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
               <ProfilePage
@@ -442,17 +457,15 @@ export function DesktopLauncher() {
                 navActive={!showEditProfile}
                 profile={perfil ? { ...profile, name: perfil.display_name || perfil.username || profile.name, avatar: perfil.avatar_url ?? "", background: perfil.background_url ?? "", banner: perfil.banner_url ?? "" } : profile}
                 games={games}
-                onClose={() => setView("inicio")}
+                onClose={() => irPara("inicio")}
                 onEdit={() => setShowEditProfile(true)}
                 onJogoClick={(g) => {
                   // Mesma tela de quando clica no jogo na Biblioteca.
-                  setView("biblioteca")
+                  irPara("biblioteca")
                   if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
                     setRetroPaginaJogo(g)
-                    setJogoPagina(null)
                   } else {
                     setJogoPagina(g)
-                    setRetroPaginaJogo(null)
                   }
                 }}
               />
