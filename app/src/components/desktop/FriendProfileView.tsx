@@ -177,8 +177,8 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
           statsOverride={perfil.stats}
           friendsOverride={perfil.friends}
           onClose={onVoltar}
-          onEdit={() => {}}
-          onJogoClick={() => {}}
+          // readOnly já esconde o "Editar perfil"; sem onJogoClick os tiles do
+          // amigo ficam desabilitados em vez de clicáveis e mudos.
         />
         {confirmandoRemover ? (
           <div className="absolute right-8 top-6 z-10 flex items-center gap-2 rounded-xl border border-[#ff6b81]/30 bg-[#16161c]/95 p-2 shadow-xl backdrop-blur">

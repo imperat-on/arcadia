@@ -149,6 +149,14 @@ export function FriendsView({ games }: { games: Game[] }) {
     </button>
   )
 
+  // Pedido ENVIADO e ainda pendente não é ação: é estado. Como botão, o clique
+  // não fazia nada (e a cor laranja prometia uma ação que não existia).
+  const seloPendente = (label: string) => (
+    <span className="shrink-0 rounded-lg bg-[#f5a623]/15 px-3 py-1.5 text-xs font-semibold text-[#f5a623]">
+      {label}
+    </span>
+  )
+
   const card = (
     p: { id: string; username: string; display_name?: string | null; avatar_url?: string | null; since?: string | null; status?: "pending" | "accepted" | null },
     acoes?: React.ReactNode,
@@ -263,7 +271,7 @@ export function FriendsView({ games }: { games: Game[] }) {
                     r,
                     r.incoming
                       ? botaoAcao(t("amigos.aceitar"), () => aceitar(r.id), "verde")
-                      : botaoAcao(t("amigos.pendente"), () => {}, "laranja"),
+                      : seloPendente(t("amigos.pendente")),
                   )
                 return card(r, botaoAcao(t("amigos.adicionar"), () => enviar(r.id)))
               })}

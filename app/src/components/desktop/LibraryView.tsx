@@ -162,7 +162,6 @@ export function LibraryView({
           game={paginaLoja}
           onClose={() => setPaginaLoja(null)}
           onBaixar={() => instalar(paginaLoja)}
-          onAdicionar={() => {}}
           onRemover={() => {
             window.launcherAPI
               ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
