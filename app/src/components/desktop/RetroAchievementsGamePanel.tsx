@@ -89,15 +89,6 @@ export function RetroAchievementsGamePanel({
   const progress = total ? Math.round((done / total) * 100) : 0
   const [allOpen, setAllOpen] = useState(false)
 
-  useEffect(() => {
-    if (!allOpen) return
-    const closeWithEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAllOpen(false)
-    }
-    window.addEventListener("keydown", closeWithEscape)
-    return () => window.removeEventListener("keydown", closeWithEscape)
-  }, [allOpen])
-
   if (!systemId) return null
 
   if (compact) {
@@ -110,9 +101,11 @@ export function RetroAchievementsGamePanel({
             <span className="text-[9px] text-white/45">
               {items && !needsApiKey ? t("conquistas.contador", { done: String(done), total: String(total) }) : t("common.carregando")}
             </span>
-            {items && items.length > 6 && <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
-              Ver todas
-            </button>}
+            {items && items.length > 6 && (
+              <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
+                {t("conquistas.ver_todas")}
+              </button>
+            )}
           </div>
         </header>
 

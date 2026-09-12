@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 
 export function AchievementsFullScreen({
@@ -17,6 +17,18 @@ export function AchievementsFullScreen({
   children: ReactNode
 }) {
   const { t } = useI18n()
+
+  // Escape fecha a tela cheia — mesmo contrato dos outros overlays do app.
+  // Fica aqui (e não em cada chamador) para valer em qualquer painel que use
+  // esta tela.
+  useEffect(() => {
+    const aoTeclar = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", aoTeclar)
+    return () => window.removeEventListener("keydown", aoTeclar)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-[80] flex flex-col bg-[#030405] text-white" role="dialog" aria-modal="true" aria-label="Todas as conquistas">
       <header className="flex h-[58px] shrink-0 items-center gap-3 border-b border-white/[.1] bg-[#050608] px-5">
