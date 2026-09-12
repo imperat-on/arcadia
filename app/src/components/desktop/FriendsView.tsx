@@ -162,7 +162,7 @@ export function FriendsView({ games }: { games: Game[] }) {
     acoes?: React.ReactNode,
     clicavel = false,
   ) => (
-    <div
+    <div data-no-drag
       key={p.id}
       onClick={clicavel ? () => setAmigoPerfil(p as FriendProfile) : undefined}
       className={`group flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 transition-all ${

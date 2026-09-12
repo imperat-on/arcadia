@@ -255,11 +255,11 @@ export function AddGameDialog({
   )
 
   return (
-    <div
+    <div data-no-drag
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div
+      <div data-no-drag
         className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >

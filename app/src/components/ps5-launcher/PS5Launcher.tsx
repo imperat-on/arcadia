@@ -1609,7 +1609,7 @@ export function PS5Launcher() {
 
       {/* Toast do hook da loja (fila, falhas, remoções) */}
       {acoesLoja.toast && (
-        <div
+        <div data-no-drag
           onClick={() => acoesLoja.setToast("")}
           className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
         >

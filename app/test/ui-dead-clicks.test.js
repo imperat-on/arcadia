@@ -61,3 +61,41 @@ test("página de jogo só pede 'adicionar' quando o jogo não está na bibliotec
   assert.doesNotMatch(launcher, /onAdicionar=\{\(\) => \{\}\}/)
   assert.doesNotMatch(library, /onAdicionar=\{\(\) => \{\}\}/)
 })
+
+test("todo elemento clicável fora de <button> escapa da região de arraste", () => {
+  // O shell do desktop inteiro é `-webkit-app-region: drag`. O CSS libera o
+  // clique com no-drag para button/a/input/select/textarea/video/img,
+  // [role="button"], [role="dialog"], [data-no-drag] e [class*="overflow-"].
+  // Um <div onClick> fora dessa lista vira ÁREA DE ARRASTE: o Electron consome o
+  // clique e move a janela — era o caso dos backdrops dos diálogos montados à
+  // mão, dos avisos flutuantes e do card de amigo.
+  const ABRE = /<(div|span|li|article|section|main|aside|header)\b/g
+  const achados = []
+  for (const arquivo of listarTsx(src)) {
+    const texto = read(path.relative(src, arquivo))
+    for (const achado of texto.matchAll(ABRE)) {
+      let i = achado.index + achado[0].length
+      let profundidade = 0
+      let tag = ""
+      for (; i < texto.length; i++) {
+        const c = texto[i]
+        tag += c
+        if (c === "{") profundidade++
+        else if (c === "}") profundidade--
+        else if (c === ">" && profundidade === 0) break
+      }
+      if (!/\bonClick=/.test(tag)) continue
+      if (/data-no-drag|role="button"|role="dialog"|overflow-/.test(tag)) continue
+      const linha = texto.slice(0, achado.index).split("\n").length
+      achados.push(`${path.relative(src, arquivo)}:${linha}`)
+    }
+  }
+  assert.deepEqual(achados, [], "elemento clicável sem no-drag (o clique viraria arraste)")
+})
+
+test("o CSS mantém as saídas de no-drag que os componentes usam", () => {
+  const css = read("index.css")
+  assert.match(css, /\.app-drag \[data-no-drag\],/)
+  assert.match(css, /\.app-drag \[role="dialog"\],/)
+  assert.match(css, /\.app-drag \[class\*="overflow-"\]/)
+})

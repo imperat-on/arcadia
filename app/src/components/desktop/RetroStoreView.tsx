@@ -812,7 +812,7 @@ function RetroDetail({
       />
 
       {confirmandoRemover && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[75] flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={() => { if (!removendo) setConfirmandoRemover(false) }}
         >

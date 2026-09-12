@@ -744,7 +744,7 @@ export function StoreView({
       {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
 
       {toast && (
-        <div
+        <div data-no-drag
           className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
           onClick={() => setToast("")}
         >
