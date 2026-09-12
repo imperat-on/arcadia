@@ -178,7 +178,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
       )}
 
       {toast && (
-        <div className="fixed bottom-12 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>
+        <div data-no-drag className="fixed bottom-12 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>
           {toast}
         </div>
       )}

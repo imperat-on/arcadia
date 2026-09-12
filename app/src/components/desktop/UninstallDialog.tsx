@@ -64,11 +64,11 @@ export function UninstallDialog({
   )
 
   return (
-    <div
+    <div data-no-drag
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div
+      <div data-no-drag
         className="w-[540px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >

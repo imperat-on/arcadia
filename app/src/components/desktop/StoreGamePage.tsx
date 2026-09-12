@@ -611,11 +611,11 @@ export function StoreGamePage({
       </div>
 
       {fixesAberto && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={() => setFixesAberto(false)}
         >
-          <div className="w-[520px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
+          <div data-no-drag className="w-[520px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
             <FixesPanel appid={jogo.appid} installPath={installPath} />
           </div>
         </div>

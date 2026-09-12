@@ -561,11 +561,11 @@ export function DesktopLauncher() {
       />
 
       {confirmBigPicture && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setConfirmBigPicture(false)}
         >
-          <div
+          <div data-no-drag
             className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >

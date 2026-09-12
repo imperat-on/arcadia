@@ -311,11 +311,11 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
 
       {/* Modal auth ryuu */}
       {showAuth && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={() => setShowAuth(false)}
         >
-          <div
+          <div data-no-drag
             className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5"
             onClick={(e) => e.stopPropagation()}
           >
