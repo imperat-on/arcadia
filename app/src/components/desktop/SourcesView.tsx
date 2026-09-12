@@ -100,6 +100,13 @@ export function SourcesView({ onOpenDownloads }: { onOpenDownloads?: () => void 
       setBaixando("")
       return
     }
+    // Política 2026-09-12: release sem debrid não inicia.
+    const st = await window.launcherAPI?.debridStatus?.()
+    if (st?.ok && !st.configured) {
+      setErro(t("fontes.debrid_obrigatorio"))
+      setBaixando("")
+      return
+    }
     const r = await window.launcherAPI?.torrentStart({
       gameId: g.ref,
       url: String(uri),

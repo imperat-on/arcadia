@@ -1,14 +1,14 @@
-// Lado Node do subsistema torrent: spawna o worker Python (torrent_rpc/main.py)
-// e conversa por JSON-lines no stdio. Persiste os downloads ativos em
-// torrent_state.json para retomar após reiniciar o app (o libtorrent verifica
-// os arquivos no disco e continua de onde parou).
+// Lado Node do subsistema torrent. Linux: worker Python (torrent_rpc/main.py)
+// por JSON-lines no stdio. Windows nativo: engine aria2c (electron/aria2.js) —
+// mesmo estado/UI. Persiste os downloads ativos em torrent_state.json para
+// retomar após reiniciar o app (o engine verifica os arquivos e continua).
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
 const { spawn } = require("child_process")
 const { Readable } = require("stream")
 const { pipeline } = require("stream/promises")
-const { fetchRede } = require("./httpfetch")
+const { fetchRede, fetchManual } = require("./httpfetch")
 const { getDataDir } = require("./runtime-paths")
 
 const DATA_DIR = getDataDir()
@@ -19,6 +19,10 @@ let child = null
 let nextId = 1
 const pendentes = new Map() // id -> { resolve, reject, timer }
 let statusTimer = null
+let vigiaAria2Timer = null // watchdog do daemon aria2 (RPC mudo = event loop preso)
+let vigiaFalhas = 0
+let vigiaUltimaRecuperacao = 0
+let tickRpcInicio = 0 // timestamp do tick em andamento (guarda anti-empilhamento)
 let onProgress = null
 let _libtorrentOk = null // null = ainda não testado
 
@@ -100,7 +104,9 @@ async function fetchPublicHttp(url, options = {}, maxRedirects = 5) {
   let requestOptions = { ...options }
   if (!current || !/^https?:\/\//i.test(current)) throw new Error("URI de download inválida")
   for (let redirects = 0; redirects <= maxRedirects; redirects++) {
-    const response = await fetchRede(current, { ...requestOptions, redirect: "manual" })
+    // fetchManual (undici): o net.fetch do Chromium não suporta
+    // redirect:"manual" e falhava com "Redirect was cancelled" em qualquer 3xx.
+    const response = await fetchManual(current, { ...requestOptions, redirect: "manual" })
     if (response.status < 300 || response.status >= 400) return response
     const location = response.headers?.get?.("location")
     try {
@@ -184,6 +190,8 @@ function writeState(list) {
 function matarChild() {
   statusTimer && clearInterval(statusTimer)
   statusTimer = null
+  vigiaAria2Timer && clearInterval(vigiaAria2Timer)
+  vigiaAria2Timer = null
   for (const [, p] of pendentes) {
     clearTimeout(p.timer)
     p.reject(new Error("worker torrent morreu"))
@@ -259,15 +267,132 @@ function libtorrentDisponivel() {
 }
 
 // Poll de status enquanto houver downloads ativos (evento para a UI).
+// Watchdog do daemon aria2 ------------------------------------------------
+// Caso real (2026-09-11): sob carga o RPC do aria2 1.37 fica MUDO em rajadas
+// (30s–2,5min, reproduzido em controle) enquanto o download CONTINUA — e um
+// processo morto não era ressuscitado (a UI congelava). Regras:
+//   - processo morto com item ativo -> recicla JÁ (não espera sonda);
+//   - RPC mudo mas progredindo em disco (mtime do .aria2 avança) -> deixa
+//     quieto: é rajada normal e reciclar mataria um download saudável;
+//   - RPC mudo SEM progresso por ~50s -> recicla (trava real): mata, sobe de
+//     novo e retoma os ativos do disco. Cooldown de 120s entre reciclagens.
+const ultimoVivo = new Map() // gameId -> último snapshot vivo do engine (anti "0 do nada")
+let vigiaUltimaAtividade = 0
+
+function mtimeArquivo(p) {
+  try {
+    return fs.statSync(p).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+// O .aria2 de controle fica em <savePath>/<name>.aria2 e é reescrito pelo
+// daemon conforme o download avança — sinal de progresso mesmo com RPC mudo.
+function controlFileDe(item) {
+  const nome = item.folderName || ""
+  if (nome && item.savePath) return path.join(item.savePath, `${nome}.aria2`)
+  // Sem nome conhecido: usa o .aria2 mais recente do savePath.
+  try {
+    let melhor = 0
+    let caminho = ""
+    for (const f of fs.readdirSync(item.savePath)) {
+      if (!f.endsWith(".aria2")) continue
+      const m = mtimeArquivo(path.join(item.savePath, f))
+      if (m > melhor) {
+        melhor = m
+        caminho = path.join(item.savePath, f)
+      }
+    }
+    return caminho
+  } catch {
+    return ""
+  }
+}
+
+async function vigiarAria2() {
+  if (!_aria2) return
+  const ativos = readState().filter(
+    (i) => i.engine === "aria2" && !i.completo && !i.pausado && !i.erro && !i.cacheando,
+  )
+  if (!ativos.length) {
+    vigiaFalhas = 0
+    return
+  }
+  const reciclar = (motivo) => {
+    if (Date.now() - vigiaUltimaRecuperacao < 120_000) return
+    vigiaUltimaRecuperacao = Date.now()
+    vigiaFalhas = 0
+    console.warn(`[torrent] reciclando daemon aria2 (${motivo}; ${ativos.length} item(ns))`)
+    try {
+      _aria2.stop()
+    } catch {}
+    ariaJobs.clear()
+    ultimoVivo.clear()
+    tickRpcInicio = 0 // destranca um tick preso no daemon morto
+    setTimeout(() => {
+      retomar().catch(() => {})
+    }, 1500)
+  }
+  if (!_aria2.isAlive()) {
+    reciclar("processo morto")
+    return
+  }
+  let vivo = false
+  try {
+    vivo = await Promise.race([
+      _aria2.probe(4000),
+      new Promise((res) => setTimeout(() => res(false), 6000)),
+    ])
+  } catch {
+    vivo = false
+  }
+  if (vivo) {
+    vigiaFalhas = 0
+    vigiaUltimaAtividade = Date.now()
+    return
+  }
+  vigiaFalhas++
+  // Mudo mas baixando? Rajada normal do aria2 — não interromper.
+  const progrediu = ativos.some((i) => {
+    const c = controlFileDe(i)
+    return c && mtimeArquivo(c) > vigiaUltimaAtividade
+  })
+  if (progrediu) {
+    vigiaFalhas = 0
+    vigiaUltimaAtividade = Date.now()
+    return
+  }
+  if (vigiaFalhas >= 9) reciclar("RPC mudo sem progresso")
+}
+
 function armarPolling() {
   if (statusTimer) return
+  // Vigia do daemon aria2 (lazy: só age quando há item aria2 ativo).
+  if (!vigiaAria2Timer) {
+    vigiaAria2Timer = setInterval(() => {
+      vigiarAria2().catch(() => {})
+    }, 10_000)
+  }
   statusTimer = setInterval(async () => {
+    // Tick anterior ainda preso num RPC lento? Não empilha outro (com um
+    // daemon mudo, cada tick abria mais uma conexão pendurada). O teto de 2
+    // minutos destranca mesmo se a promessa presa nunca resolver.
+    if (tickRpcInicio && Date.now() - tickRpcInicio < 120_000) return
+    tickRpcInicio = Date.now()
     try {
       const lista = readState()
       // Só consulta o worker Python se houver torrent vivo (HTTP é lido direto).
       let todos = {}
       if (
-        lista.some((i) => i.engine !== "http" && i.engine !== "debrid" && !i.completo && !i.pausado)
+        lista.some(
+          (i) =>
+            i.engine !== "http" &&
+            i.engine !== "debrid" &&
+            i.engine !== "aria2" &&
+            !i.completo &&
+            !i.pausado,
+        )
       ) {
         try {
           todos = (await rpc("status", {}, 30000)) || {}
@@ -275,6 +400,9 @@ function armarPolling() {
       }
       const ativos = []
       for (const item of lista) {
+        // Cancelado há instantes: o snapshot pode ser anterior ao cancel —
+        // ignorar aqui é o que impede o item "ressuscitar" no writeState.
+        if (marcadosCancelados.has(item.gameId)) continue
         // Preserve failed starts in the queue so Downloads can explain the
         // failure and offer cancel/retry instead of silently dropping them.
         if (item.erro) {
@@ -289,27 +417,76 @@ function armarPolling() {
         if (item.engine === "http") {
           const h = httpDls.get(item.gameId)
           if (item.pausado || !h) {
-            ativos.push(item)
+            httpSpeed.delete(item.gameId)
+            ativos.push({ ...item, downloadSpeed: 0 })
             continue
           }
           const completo = h.total > 0 && h.bytes >= h.total
+          // Velocidade REAL (B/s) por amostra de tempo — o 1º tick sai 0 (sem
+          // referência) e os seguintes mostram o ritmo atual.
+          const agora = Date.now()
+          const bps = httpBps(httpSpeed.get(item.gameId), h.bytes, agora)
+          if (completo) httpSpeed.delete(item.gameId)
+          else httpSpeed.set(item.gameId, { bytes: h.bytes, ts: agora })
           ativos.push({
             ...item,
             progress: h.total > 0 ? h.bytes / h.total : 0,
             bytesDownloaded: h.bytes,
             fileSize: h.total,
-            downloadSpeed: h.bytes - (item._b || 0),
-            _b: h.bytes,
+            downloadSpeed: bps,
             completo,
           })
           continue
         }
-        const s = todos[item.gameId]
         if (item.pausado) {
           ativos.push(item)
           continue
         }
-        if (!s) continue // cancelado/sem handle
+        let s = todos[item.gameId]
+        if (item.engine === "aria2") {
+          const gid = ariaJobs.get(item.gameId)
+          const aria2 = getAria2()
+          if (!aria2 || !gid) {
+            // Daemon reiniciado/sem gid: mantém o item visível no estado.
+            ativos.push(item)
+            continue
+          }
+          try {
+            s = await aria2.tell(gid)
+            // Magnet: quando o metadata termina, o download real assume um gid
+            // novo (followedBy). Atualiza o mapeamento para pause/cancel futuros.
+            if (s.gid && s.gid !== gid) ariaJobs.set(item.gameId, s.gid)
+            // Guarda o último snapshot vivo: se o RPC emudecer numa rajada, a
+            // UI continua mostrando os últimos números reais em vez de zeros.
+            ultimoVivo.set(item.gameId, {
+              progress: s.progress,
+              bytesDownloaded: s.bytesDownloaded,
+              downloadSpeed: s.downloadSpeed,
+              numPeers: s.numPeers,
+              numSeeds: s.numSeeds,
+              fileSize: s.fileSize,
+              folderName: s.folderName,
+              pausado: s.pausado,
+              state: s.state,
+            })
+          } catch {
+            // Falha de RPC não pode DESCARTAR o estado do download; mostra o
+            // último snapshot conhecido (nunca inventa zero no lugar de dado).
+            ativos.push({ ...item, ...(ultimoVivo.get(item.gameId) || {}) })
+            continue
+          }
+        }
+        if (!s) {
+          // Sem handle de motor vivo (worker ausente/daemon reiniciado):
+          // item COMPLETO continua registrado — a UI mostra "concluído" até
+          // o usuário dispensar (ver comentário do writeState abaixo). Não
+          // descartar concluídos aqui: no Windows o registro sumia no 1º tick.
+          if (item.completo) {
+            ativos.push(item)
+            continue
+          }
+          continue // cancelado/sem handle
+        }
         const completo = s.progress >= 1
         ativos.push({ ...item, ...s, completo })
       }
@@ -331,6 +508,13 @@ function armarPolling() {
             fileSize,
             cacheando,
             erro,
+            // progresso/bytes: sem eles, item PAUSADO perde a posição a cada
+            // tick (a projeção antiga zerava a barra: "— / X GiB · 0%").
+            progress,
+            bytesDownloaded,
+            // nome da pasta do torrent: o watchdog usa p/ achar o .aria2 de
+            // controle (sinal de progresso com o RPC mudo).
+            folderName,
           }) => ({
             gameId,
             url,
@@ -345,15 +529,28 @@ function armarPolling() {
             fileSize,
             cacheando,
             erro,
+            progress,
+            bytesDownloaded,
+            folderName,
           }),
         ),
       )
-      if (onProgress) onProgress(ativos.map(({ _b, ...rest }) => rest))
+      if (onProgress) onProgress(ativos)
+      // Guard de cancelamento: libera o gameId quando o item já saiu do estado.
+      for (const id of [...marcadosCancelados]) {
+        if (!ativos.some((a) => a.gameId === id)) marcadosCancelados.delete(id)
+      }
       if (!ativos.some((a) => !a.completo && !a.pausado && !a.erro)) {
         clearInterval(statusTimer)
         statusTimer = null
+        if (vigiaAria2Timer) {
+          clearInterval(vigiaAria2Timer)
+          vigiaAria2Timer = null
+        }
       }
-    } catch {}
+    } catch {} finally {
+      tickRpcInicio = 0
+    }
   }, 1000)
 }
 
@@ -362,6 +559,16 @@ function armarPolling() {
 // pausar/reabrir o app. Hosters que respondem HTML (página de espera/captcha,
 // ex.: gofile, 1fichier) são recusados — esses precisariam de resolvedor.
 const httpDls = new Map() // gameId -> { ctrl, bytes, total, fileName }
+const httpSpeed = new Map() // gameId -> { bytes, ts }: amostra p/ velocidade B/s
+
+// Velocidade HTTP em bytes/segundo: delta de bytes ÷ tempo real decorrido.
+// (O antigo delta "por tick" não servia: `_b` não é persistido pelo estado —
+// a projeção do tick tem whitelist — e o intervalo do tick não é 1s. Efeito
+// do bug: a "velocidade" exibida virava o TOTAL baixado, "419 MiB/s".)
+function httpBps(prev, bytes, agora) {
+  if (!prev || !(agora > prev.ts) || bytes < prev.bytes) return 0
+  return Math.round(((bytes - prev.bytes) * 1000) / (agora - prev.ts))
+}
 const debridJobs = new Map() // gameId -> AbortController (espera de cache)
 
 // Algum debrid configurado? (magnet via debrid só com token presente)
@@ -374,6 +581,38 @@ function temDebridConfigurado() {
   } catch {
     return false
   }
+}
+
+// Política 2026-09-12: releases (magnet/torrent) NÃO baixam sem debrid — o
+// caminho P2P foi desativado por decisão de produto (menos superfície de
+// falha). Mensagem única para start() e resume().
+const ERRO_DEBRID = "Sem debrid conectado — downloads por torrent exigem debrid."
+
+// --- Engine aria2 (Windows): magnet sem debrid (dormente; bloqueado acima) --
+// O worker Python (libtorrent) é Linux-only; no Windows nativo o aria2c
+// assume magnet/torrent (binário único, JSON-RPC local em 127.0.0.1).
+// Import preguiçoso: nada disto carrega no Linux.
+let _aria2 = null
+const ariaJobs = new Map() // gameId -> gid
+// gameIds cancelados: o tick de polling pode ter um snapshot ANTERIOR ao
+// cancel e "ressuscitar" o item — o guard faz o tick ignorá-lo até sumir.
+const marcadosCancelados = new Set()
+function getAria2() {
+  if (_aria2) return _aria2
+  try {
+    const { createAria2Manager, createAria2Engine } = require("./aria2")
+    const manager = createAria2Manager({
+      depsDir: path.join(DATA_DIR, "bin", "deps", "aria2"),
+      tmpDir: path.join(DATA_DIR, "bin", "tmp"),
+    })
+    _aria2 = createAria2Engine({
+      ensureExe: () => manager.ensure(),
+      workDir: path.join(DATA_DIR, "bin", "aria2"),
+    })
+  } catch {
+    _aria2 = null
+  }
+  return _aria2
 }
 
 // Hoster -> URL direta. Resolvedores conhecidos (gofile/pixeldrain/rootz)
@@ -676,6 +915,9 @@ async function start({ gameId, url, savePath, fileIndices, title, cover } = {}) 
 
   const previous = readState().find((item) => item.gameId === gameId)
   const sameUrl = previous?.url === url
+  // Re-adicionar este gameId cancela o guard de "cancelado" (senão o tick
+  // continuaria ignorando um item legitimamente recomeçado).
+  marcadosCancelados.delete(gameId)
   const base = {
     ...(sameUrl ? previous : {}),
     gameId,
@@ -711,6 +953,14 @@ async function start({ gameId, url, savePath, fileIndices, title, cover } = {}) 
     return startHttp({ gameId, url, savePath, title, cover })
   }
 
+  // Política 2026-09-12: sem debrid, release por torrent não inicia — nem
+  // debrid (não tem), nem aria2/P2P. O clique fica visível com o motivo.
+  if (!temDebridConfigurado()) {
+    upsertState({ ...base, erro: ERRO_DEBRID })
+    armarPolling()
+    return { ok: false, queued: true, error: ERRO_DEBRID }
+  }
+
   // Magnet: com QUALQUER debrid configurado, o torrent baixa no servidor do
   // debrid. Enquanto cacheia, o item fica no Downloads como "cacheando" (0
   // MB) — SEM fallback para P2P: quem paga debrid quer o debrid. Quando o
@@ -743,6 +993,37 @@ async function start({ gameId, url, savePath, fileIndices, title, cover } = {}) 
       }
     })()
     return { ok: true }
+  }
+
+  // Windows nativo: sem worker Python/libtorrent — o magnet vai pelo aria2c.
+  // Mantém a mesma forma de estado (progresso/velocidade/fileName) da UI.
+  if (process.platform === "win32") {
+    const aria2 = getAria2()
+    const failAria = (error) => {
+      markStateError(gameId, error)
+      armarPolling()
+      return { ok: false, queued: true, error }
+    }
+    const err = "engine de torrent indisponível no Windows"
+    if (!aria2) return failAria(err)
+    try {
+      const pronto = await aria2.ensure()
+      if (!pronto.ok) throw new Error(pronto.error || "falha ao preparar o aria2")
+      const gid = await aria2.addMagnet(String(url), { dir: savePath, fileIndices })
+      ariaJobs.set(gameId, gid)
+      upsertState({
+        ...base,
+        engine: "aria2",
+        cacheando: false,
+        pausado: false,
+        completo: false,
+        erro: "",
+      })
+      armarPolling()
+      return { ok: true }
+    } catch (e) {
+      return failAria(String(e.message || e))
+    }
   }
 
   // Persist the placeholder before dependency/worker checks. This makes an
@@ -788,7 +1069,8 @@ async function pause(gameId) {
     const current = readState().find((item) => item.gameId === gameId)
     const dj = debridJobs.get(gameId)
     const h = httpDls.get(gameId)
-    if (current?.erro && !dj && !h) {
+    const gidAria = ariaJobs.get(gameId)
+    if (current?.erro && !dj && !h && !gidAria) {
       patchState(gameId, { pausado: true })
       return { ok: true }
     }
@@ -799,6 +1081,10 @@ async function pause(gameId) {
       h.reason = "pause"
       h.ctrl.abort()
       httpDls.delete(gameId)
+    } else if (gidAria) {
+      await getAria2()?.pause(gidAria)
+    } else if (current?.engine === "aria2") {
+      // Sem daemon vivo (reinício do app): nada a pausar no engine.
     } else {
       await rpc("action", { action: "pause", game_id: String(gameId) })
     }
@@ -820,21 +1106,46 @@ async function resume(gameId) {
   if (!gameId) return { ok: false, error: "invalid_game_id" }
   const it = readState().find((i) => i.gameId === gameId)
   if (!it) return { ok: false, error: "download não encontrado" }
+  const gidAria = ariaJobs.get(gameId)
+  // Política 2026-09-12: item P2P não retoma sem debrid (nem o unpause).
+  if (it.engine === "aria2" && !temDebridConfigurado()) {
+    return { ok: false, error: ERRO_DEBRID }
+  }
+  if (it.engine === "aria2" && gidAria) {
+    try {
+      await getAria2()?.unpause(gidAria)
+      patchState(gameId, { pausado: false })
+      armarPolling()
+      return { ok: true }
+    } catch {
+      // Daemon caiu: cai no start(), que readiciona o magnet (o aria2
+      // re-verifica o que já está no disco e continua de onde parou).
+      ariaJobs.delete(gameId)
+    }
+  }
   return start({ ...it, gameId: it.gameId })
 }
 
 async function cancel(gameId) {
   gameId = normId(gameId)
   if (!gameId) return { ok: false, error: "invalid_game_id" }
+  // Um tick em voo pode ter lido o estado ANTES deste cancel — o guard evita
+  // que ele reescreva o item (ressuscitando o download na UI).
+  marcadosCancelados.add(gameId)
   try {
     const current = readState().find((item) => item.gameId === gameId)
     const dj = debridJobs.get(gameId)
     const h = httpDls.get(gameId)
+    const gidAria = ariaJobs.get(gameId)
     if (
       current &&
       !dj &&
       !h &&
-      (current.erro || current.engine === "http" || current.engine === "debrid")
+      !gidAria &&
+      (current.erro ||
+        current.engine === "http" ||
+        current.engine === "debrid" ||
+        current.engine === "aria2")
     ) {
       writeState(readState().filter((item) => item.gameId !== gameId))
       emitProgress()
@@ -847,6 +1158,10 @@ async function cancel(gameId) {
       h.reason = "cancel"
       h.ctrl.abort()
       httpDls.delete(gameId)
+    } else if (gidAria) {
+      await getAria2()?.remove(gidAria)
+      ariaJobs.delete(gameId)
+      ultimoVivo.delete(gameId)
     } else {
       await rpc("action", { action: "cancel", game_id: String(gameId) }).catch(() => {})
     }
@@ -874,7 +1189,13 @@ async function files(magnet, timeoutMs) {
     return { ok: false, error: "invalid_download_uri" }
   }
   if (!(await libtorrentDisponivel())) {
-    return { ok: false, error: "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)" }
+    return {
+      ok: false,
+      error:
+        process.platform === "win32"
+          ? "lista de arquivos indisponível no Windows (engine aria2)"
+          : "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)",
+    }
   }
   try {
     return {
@@ -906,14 +1227,23 @@ function list() {
 async function retomar() {
   const pendentesDl = readState().filter((i) => !i.completo && !i.pausado)
   if (!pendentesDl.length) return
-  const temTorrent = pendentesDl.some((i) => i.engine !== "http" && i.engine !== "debrid")
-  if (temTorrent && !(await libtorrentDisponivel())) return
+  // Só itens que dependem do worker Python exigem libtorrent. Magnet no win32
+  // usa aria2 e NÃO pode ser bloqueado pelo gate do libtorrent.
+  const usaWorker = pendentesDl.some((i) => {
+    if (i.engine === "http" || i.engine === "debrid" || i.engine === "aria2") return false
+    if (process.platform === "win32" && /^magnet:/i.test(String(i.url || ""))) return false
+    return true
+  })
+  if (usaWorker && !(await libtorrentDisponivel())) return
   for (const it of pendentesDl) {
     try {
       if (it.engine === "http") {
         await startHttp(it)
-      } else if (it.engine === "debrid") {
-        // Espera de cache interrompida pelo fechamento do app: recomeça.
+      } else if (it.engine === "debrid" || it.engine === "aria2") {
+        // Espera de cache/interrupção pelo fechamento do app: recomeça.
+        await start(it)
+      } else if (process.platform === "win32" && /^magnet:/i.test(String(it.url || ""))) {
+        // Item legado (sem engine) de magnet no Windows: vai pelo aria2.
         await start(it)
       } else {
         const stableId = normalizeTorrentId(it.gameId)
@@ -944,8 +1274,16 @@ module.exports = {
   setLimit,
   list,
   retomar,
+  temDebridConfigurado,
+  httpBps,
   normalizeDownloadUri,
   normalizeTorrentId,
+  // Encerramento do app: derruba o daemon aria2 (Windows) se estiver vivo.
+  shutdown: () => {
+    try {
+      getAria2()?.stop()
+    } catch {}
+  },
   onProgress: (cb) => {
     onProgress = cb
   },

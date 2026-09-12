@@ -42,4 +42,14 @@ function fetchRede(url, opts) {
   return f ? f(url, o) : fetch(url, o)
 }
 
-module.exports = { fetchRede }
+// Fetch com CONTROLE MANUAL de redirects. O net.fetch do Chromium NÃO suporta
+// `redirect: "manual"`: em QUALQUER resposta 3xx ele falha com
+// "Redirect was cancelled" (comprovado 2026-09-11 com httpbin e datanodes).
+// Onde precisamos inspecionar/validar cada salto (anti-SSRF no download),
+// usamos o fetch global do Node (undici), que segue o padrão WHATWG.
+function fetchManual(url, opts) {
+  const o = saneOpts(opts)
+  return fetch(url, o)
+}
+
+module.exports = { fetchRede, fetchManual }
