@@ -36,6 +36,8 @@ export function MetodoDownloadDialog({
   const [escolhida, setEscolhida] = useState<OpcaoTorrent | null>(null)
   const [pasta, setPasta] = useState("")
   const [livre, setLivre] = useState<number | null>(null)
+  // Política 2026-09-12: release sem debrid não baixa. null = checando.
+  const [debridOk, setDebridOk] = useState<boolean | null>(null)
 
   useGamepadNav(ref, true, onClose)
 
@@ -61,6 +63,20 @@ export function MetodoDownloadDialog({
       setLivre(r?.ok ? (r.free ?? null) : null)
     })
   }, [pasta])
+
+  // Debrid configurado? (sem ele, downloads de release ficam bloqueados)
+  useEffect(() => {
+    let vivo = true
+    window.launcherAPI
+      ?.debridStatus?.()
+      .then((r) => {
+        if (vivo) setDebridOk(r?.ok ? !!r.configured : null)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [])
 
   const escolherPasta = async () => {
     const r = await window.launcherAPI?.pickFolder()
@@ -106,13 +122,16 @@ export function MetodoDownloadDialog({
               )}
               <button
                 onClick={() => setEtapa("fonte")}
-                className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3.5 text-left transition-colors hover:border-white/25"
+                disabled={debridOk === false}
+                className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3.5 text-left transition-colors hover:border-white/25 disabled:opacity-40 disabled:hover:border-white/10"
               >
                 <span className="text-[13px] font-medium text-white/90">
                   {t("store.metodo.torrent")}
                 </span>
                 <span className="text-[11px] text-white/50">
-                  {t("store.metodo.torrent_fontes", { count: String(opcoes.length) })}
+                  {debridOk === false
+                    ? t("store.metodo.torrent_debrid")
+                    : t("store.metodo.torrent_fontes", { count: String(opcoes.length) })}
                 </span>
               </button>
             </div>
@@ -123,6 +142,11 @@ export function MetodoDownloadDialog({
           <>
             <h3 className="mb-1 text-base font-semibold text-white">{t("store.fonte.titulo")}</h3>
             <p className="mb-4 text-[12px] text-white/40">{t("store.fonte.sub")}</p>
+            {debridOk === false ? (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[12px] leading-relaxed text-white/60">
+                {t("store.fonte.debrid_obrigatorio")}
+              </div>
+            ) : (
             <div className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto">
               {opcoes.map((o, i) => (
                 <button
@@ -156,6 +180,7 @@ export function MetodoDownloadDialog({
                 </button>
               ))}
             </div>
+            )}
           </>
         )}
 
@@ -180,7 +205,7 @@ export function MetodoDownloadDialog({
             </button>
             <button
               onClick={() => escolhida && onTorrent(escolhida.magnet, pasta)}
-              disabled={!pasta || !escolhida}
+              disabled={!pasta || !escolhida || debridOk === false}
               className="mt-3 w-full rounded-lg py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.02] disabled:opacity-40"
               style={{ background: "var(--accent)" }}
             >

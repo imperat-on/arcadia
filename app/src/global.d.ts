@@ -1574,6 +1574,8 @@ declare global {
       }>
       torrentSetLimit: (bytes: number) => Promise<{ ok: boolean; error?: string }>
       torrentList: () => Promise<{ ok: boolean; downloads: TorrentItem[] }>
+      /** Debrid configurado? O renderer bloqueia releases sem debrid. */
+      debridStatus: () => Promise<{ ok: boolean; configured: boolean }>
       onTorrentProgress: (cb: (items: TorrentItem[]) => void) => () => void
       /** Conquistas do jogo (Steam): achievements.json local ou scrape da loja. */
       achievementsGet: (appid: string) => Promise<

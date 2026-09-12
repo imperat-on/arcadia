@@ -3790,13 +3790,7 @@ app.whenReady().then(() => {
       // config:get; se ele devolver a máscara de volta (form inalterado), mantém
       // o valor real no disco.
       const atual = readConfig()
-      for (const k of [
-        "steam_api_key",
-        "steamgriddb_api_key",
-        "hubcap_api_key",
-        "retroachievements_token",
-        "retroachievements_web_api_key",
-      ]) {
+      for (const k of SEGREDOS) {
         if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
           cfg[k] = atual[k] // preserva a chave real
         }
@@ -3808,6 +3802,7 @@ app.whenReady().then(() => {
       const ALLOWED_CONFIG = new Set([
         "language", "ui_scale", "console_ui_scale", "default_wine_prefix_path",
         "steam_api_key", "steamgriddb_api_key", "hubcap_api_key",
+        "realdebrid_token", "torbox_token", "alldebrid_token", "premiumize_token",
         "retroachievements_username", "retroachievements_token",
         "retroachievements_web_api_key", "slssteam_path", "profile",
         "steam_path", "theme", "console_wallpaper", "desktop_wallpaper",
@@ -3819,13 +3814,29 @@ app.whenReady().then(() => {
         "enable_controller_navigation", "controller_deadzone",
         "music_enabled", "music_volume", "music_auto_play",
         "system_theme", "notifications_enabled", "notification_volume",
+        "trailer_auto", "youtube_cookies", "card_scale", "library_sidebar", "accent",
+        "desktop_font_scale_v3", "theme_name",
+        "big_picture_scale_defaults_v2", "big_picture_scale_defaults_v3",
+        // Acessibilidade (AccessibilityView salvar()) — estavam fora e eram descartadas.
+        "content_font", "actions_font", "custom_css_path", "tiles_color", "always_titles",
+        "no_click_outside", "no_smooth_scroll", "no_anim",
+        // Config. Gerais (GeneralSection set()/pickFolder) — idem.
+        "check_updates_on_start", "start_in_console_mode", "hide_changelog_on_start",
+        "minimize_on_game_launch", "frameless_window", "disable_playtime_tracking",
+        "discord_rich_presence", "discord_client_id", "download_cpu_cores",
+        "default_install_path",
         "compatibility", "wine_arch", "wine_version",
         "steamcmd_path", "steam_auto_login", "steam_auto_launch",
         "epic_auto_login", "gog_auto_login",
       ])
       if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
         for (const k of Object.keys(cfg)) {
-          if (!ALLOWED_CONFIG.has(k)) delete cfg[k]
+          if (!ALLOWED_CONFIG.has(k)) {
+            // Drift UI↔allowlist era silencioso (token/pref "não salvava" sem
+            // pista). O log torna o descarte visível em debug.log/console.
+            console.warn(`[config] chave descartada (fora do allowlist): ${k}`)
+            delete cfg[k]
+          }
         }
       }
       // Pasta de prefixos mudou? Cria de verdade (ela não existia antes).
@@ -4279,7 +4290,10 @@ app.whenReady().then(() => {
     ])
     if (patch && typeof patch === "object" && !Array.isArray(patch)) {
       for (const k of Object.keys(patch)) {
-        if (!ALLOWED.has(k)) delete patch[k]
+        if (!ALLOWED.has(k)) {
+          console.warn(`[gamesettings] chave descartada (fora do allowlist): ${k}`)
+          delete patch[k]
+        }
       }
     }
     return setGameSettings(id, patch)
@@ -4911,6 +4925,8 @@ app.whenReady().then(() => {
   )
   ipcMain.handle("torrent:setLimit", (_e, bytes) => torrent.setLimit(bytes))
   ipcMain.handle("torrent:list", () => ({ ok: true, downloads: torrent.list() }))
+  // Debrid configurado? O renderer bloqueia downloads de release sem debrid.
+  ipcMain.handle("debrid:status", () => ({ ok: true, configured: torrent.temDebridConfigurado() }))
 
   // Registry/SDK local de plugins. Os canais antigos permanecem estáveis;
   // os novos só trafegam metadados sanitizados (nunca o caminho privado do
@@ -5272,6 +5288,10 @@ app.on("before-quit", () => {
   app.isQuitting = true
   try {
     require("./downloadmanager").killActive()
+  } catch {}
+  // Derruba o worker/daemon de torrent — no Windows é o aria2c (JSON-RPC).
+  try {
+    require("./torrent").shutdown()
   } catch {}
   // Derruba o toast de conquista para não deixar janela always-on-top órfã.
   try {

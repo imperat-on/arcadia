@@ -122,6 +122,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   torrentFiles: (magnet, timeoutMs) => ipcRenderer.invoke("torrent:files", { magnet, timeoutMs }),
   torrentSetLimit: (bytes) => ipcRenderer.invoke("torrent:setLimit", bytes),
   torrentList: () => ipcRenderer.invoke("torrent:list"),
+  debridStatus: () => ipcRenderer.invoke("debrid:status"),
   onTorrentProgress: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("torrent:progress", h)

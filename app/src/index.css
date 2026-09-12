@@ -956,6 +956,16 @@ select:disabled {
   }
 }
 
+/* Barra indeterminada (debrid cacheando no servidor): desliza na horizontal */
+@keyframes dm-indeterminate {
+  from {
+    margin-left: -30%;
+  }
+  to {
+    margin-left: 105%;
+  }
+}
+
 /* Novas animações para o visual futurista */
 @keyframes scan {
   0% {

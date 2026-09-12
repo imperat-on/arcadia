@@ -1,27 +1,17 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import type { DmItem } from "../../global"
-import { DmCard } from "../ps5-launcher/DownloadManager"
-import { TorrentSection } from "./TorrentSection"
+import { useDownloadsFeed } from "../downloads/useDownloadsFeed"
+import { DownloadCard } from "../downloads/DownloadCard"
 import { useI18n } from "../../i18n/I18nContext"
 
+// Aba Downloads (desktop). Uma lista só para os dois subsistemas (fila
+// Epic/Steam + torrent/HTTP/debrid) — antes a seção de torrent era um bloco
+// separado com contador e card próprios, e a tela se contradizia ("0 ativo"
+// com torrent baixando na frente).
 export function DownloadsView() {
   const { t } = useI18n()
-  const [items, setItems] = useState<DmItem[]>([])
-
-  useEffect(() => {
-    window.launcherAPI?.dmQueue().then((q) => {
-      if (Array.isArray(q)) setItems(q)
-    })
-    return window.launcherAPI?.onDmProgress((q) => {
-      if (Array.isArray(q)) setItems(q)
-    })
-  }, [])
-
-  const ativos = items.filter((i) => ["downloading", "queued", "paused"].includes(i.status))
-  const parados = items.filter((i) => !["downloading", "queued", "paused"].includes(i.status))
-  const baixando = ativos.some((i) => i.status === "downloading")
+  const feed = useDownloadsFeed()
+  const baixando = feed.ativos.some((i) => i.status === "active")
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">
@@ -30,31 +20,40 @@ export function DownloadsView() {
           {baixando ? t("downloads.baixando_agora") : t("downloads.fila")}
         </h1>
         <span className="text-sm text-white/40">
-          {t("downloads.ativos", { count: String(ativos.length) })}
-          {parados.length > 0 &&
-            ` · ${t("downloads.com_falha", { count: String(parados.length) })}`}
+          {t("downloads.ativos", { count: String(feed.ativosCount) })}
+          {feed.falhasCount > 0 &&
+            ` · ${t("downloads.com_falha", { count: String(feed.falhasCount) })}`}
         </span>
       </div>
 
-      {items.length === 0 ? (
-        <div className="ui-empty">{t("downloads.vazio")}</div>
+      {feed.total === 0 ? (
+        <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 text-center">
+          <p className="text-lg font-semibold text-white/70">{t("downloads.vazio_titulo")}</p>
+          <p className="max-w-[380px] text-sm text-white/35">{t("downloads.vazio_sub")}</p>
+        </div>
       ) : (
         <div className="desktop-fluid-column flex max-w-[900px] flex-col gap-4 pb-8">
-          {ativos.map((it) => (
-            <DmCard key={it.appid} item={it} />
+          {feed.ativos.map((it) => (
+            <DownloadCard key={it.id} item={it} />
           ))}
-          {parados.length > 0 && (
+          {feed.concluidos.length > 0 && (
             <>
-              <h2 className="ui-section-title mt-4">{t("downloads.nao_concluidos")}</h2>
-              {parados.map((it) => (
-                <DmCard key={it.appid} item={it} />
+              <h2 className="ui-section-title mt-4">{t("downloads.secao.concluidos")}</h2>
+              {feed.concluidos.map((it) => (
+                <DownloadCard key={it.id} item={it} />
+              ))}
+            </>
+          )}
+          {feed.falhas.length > 0 && (
+            <>
+              <h2 className="ui-section-title mt-4">{t("downloads.secao.falhas")}</h2>
+              {feed.falhas.map((it) => (
+                <DownloadCard key={it.id} item={it} />
               ))}
             </>
           )}
         </div>
       )}
-
-      <TorrentSection />
     </div>
   )
 }

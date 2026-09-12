@@ -67,8 +67,11 @@ function parseINI(texto) {
 function parseGoldbergJSON(texto) {
   try {
     const obj = JSON.parse(texto)
-    // Goldberg: array de { name, earned, earned_time }
-    return Array.isArray(obj) ? obj : Object.values(obj)
+    // Goldberg: array de { name, earned, earned_time } OU objeto { "<name>": { earned, earned_time } }.
+    // No formato objeto a chave É o nome da conquista — precisamos preservá-la como `name`,
+    // senão o Object.values descarta o vínculo e o unlock nunca casa com o apiname do catálogo
+    // (ficava silenciosamente perdido em `itemParaDesbloqueio`).
+    return Array.isArray(obj) ? obj : Object.entries(obj).map(([name, v]) => ({ name, ...v }))
   } catch {
     return []
   }
