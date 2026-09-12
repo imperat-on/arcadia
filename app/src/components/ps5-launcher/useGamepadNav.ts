@@ -236,6 +236,7 @@ export function useGamepadNav(
     }
 
     let raf = 0
+    let retryTimer: number | null = null
     let prev: boolean[] = []
     let rest: number[] | null = null
     let sx = 0,
@@ -338,16 +339,37 @@ export function useGamepadNav(
       }
     }
 
+    let running = true
+    const schedule = (delay = 0) => {
+      if (!running) return
+      if (delay > 0 && retryTimer !== null) return
+      if (delay > 0) {
+        retryTimer = window.setTimeout(() => {
+          retryTimer = null
+          raf = requestAnimationFrame(loop)
+        }, delay)
+      } else {
+        raf = requestAnimationFrame(loop)
+      }
+    }
     const loop = () => {
+      if (!running) return
       // Janela sem foco: ignora o controle (Gamepad API entrega input desfocada).
       if (!document.hasFocus()) {
         prev = []
         scrollVel = 0
-        raf = requestAnimationFrame(loop)
+        schedule(250)
         return
       }
       const pads = navigator.getGamepads ? navigator.getGamepads() : []
       const gp = Array.from(pads).find((p) => p) || null
+      if (!gp) {
+        prev = []
+        scrollVel = 0
+        scrollVelX = 0
+        schedule(250)
+        return
+      }
       if (gp) {
         const now = Date.now()
         const primed = prev.length > 0
@@ -463,9 +485,13 @@ export function useGamepadNav(
         }
         prev = gp.buttons.map((b) => b.pressed)
       }
-      raf = requestAnimationFrame(loop)
+      schedule()
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    schedule()
+    return () => {
+      running = false
+      cancelAnimationFrame(raf)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+    }
   }, [active, rootRef, onBack, scrollOnly, extras])
 }

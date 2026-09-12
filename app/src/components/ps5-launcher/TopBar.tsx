@@ -12,9 +12,9 @@ export function TopBar({profile,activeTab,onTab,onRefresh,onOpenProfile,menuOpen
  const {t}=useI18n(); const [now,setNow]=useState(new Date()); useEffect(()=>{const timer=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(timer)},[]); const initial=(profile?.name?.[0]||t("topbar.fallback_inicial")).toUpperCase()
  return <header className="ps5-topbar anim-nav fixed inset-x-0 top-0 z-30 flex h-[92px] items-center px-[4.5vw] text-white">
   <nav className="ps5-primary-nav flex items-center gap-9" aria-label={t("topbar.nav_aria")}>{[{i:0,l:t("topbar.noticias")},{i:1,l:t("topbar.jogos")}].map(x=><button key={x.i} data-active={activeTab===x.i} onClick={()=>onTab(x.i)}>{x.l}</button>)}</nav>
-  <div className="ml-auto flex items-center gap-5">{activeTab===1&&<label className="ps5-search"><Icon className="h-5 w-5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></Icon><input value={search} onChange={e=>onSearch?.(e.target.value)} placeholder={t("topbar.buscar")}/></label>}
+  <div className="ml-auto flex items-center gap-5">{activeTab===1&&<label className="ps5-search"><Icon className="h-5 w-5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></Icon><input aria-label={t("topbar.buscar")} value={search} onChange={e=>onSearch?.(e.target.value)} placeholder={t("topbar.buscar")}/></label>}
    <time className="ps5-time">{now.toLocaleTimeString(userLocale(),{hour:"2-digit",minute:"2-digit"})}</time>
-   <div className="relative"><button onClick={onToggleMenu} className="ps5-profile-button">{profile?.avatar?<img src={profile.avatar} alt=""/>:initial}</button><UserMenu open={menuOpen} onClose={onCloseMenu} onOpenProfile={onOpenProfile} onRefresh={onRefresh} showHidden={showHidden} onToggleShowHidden={onToggleShowHidden} onOpenSettings={onOpenSettings} profile={profile}/></div>
+   <div className="relative"><button type="button" aria-label={t("topbar.perfil")} aria-expanded={menuOpen} onClick={onToggleMenu} className="ps5-profile-button">{profile?.avatar?<img src={profile.avatar} alt=""/>:initial}</button><UserMenu open={menuOpen} onClose={onCloseMenu} onOpenProfile={onOpenProfile} onRefresh={onRefresh} showHidden={showHidden} onToggleShowHidden={onToggleShowHidden} onOpenSettings={onOpenSettings} profile={profile}/></div>
   </div>
  </header>
 }

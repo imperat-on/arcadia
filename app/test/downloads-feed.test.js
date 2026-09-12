@@ -144,11 +144,16 @@ test("wiring: o card único roteia dm* para a fila e torrent* para o P2P", () =>
 
 test("wiring: as duas telas usam o feed unificado e a seção antiga sumiu", () => {
   const view = fs.readFileSync(path.join(APP, "src/components/desktop/DownloadsView.tsx"), "utf8")
+  const desktop = fs.readFileSync(path.join(APP, "src/components/desktop/DesktopLauncher.tsx"), "utf8")
   const manager = fs.readFileSync(
     path.join(APP, "src/components/ps5-launcher/DownloadManager.tsx"),
     "utf8",
   )
   assert.match(view, /useDownloadsFeed/)
+  // A aba recebe o feed do launcher e não abre uma segunda assinatura dos
+  // mesmos canais IPC quando o feed já veio de cima.
+  assert.match(view, /useDownloadsFeed\(!feedProp\)/)
+  assert.match(desktop, /<DownloadsView feed=\{downloadsFeed\} \/>/)
   assert.match(manager, /useDownloadsFeed/)
   assert.ok(view.includes("DownloadCard"), "desktop sem card unificado")
   assert.ok(manager.includes("DownloadCard"), "console sem card unificado")
