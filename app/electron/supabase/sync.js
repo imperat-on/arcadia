@@ -12,6 +12,7 @@ const {
   normalizeSyncTimestamp,
   resolveAchievementConflict,
 } = require("../../../contracts")
+const { buildIndex, findItem, rememberAlias } = require("../achievements/match")
 
 // Fila, estado e metadados são POR CONTA (conta.js escopa por username)
 const QUEUE_PATH = () => caminhoArquivoConta("sync_queue.json")
@@ -197,9 +198,21 @@ function applyPulled(rows, context = null) {
     const appid = remote.appid
     const app = store[appid] || (store[appid] = { at: Date.now(), items: [] })
     if (!Array.isArray(app.items)) app.items = []
-    const item = app.items.find((i) => i && i.apiname === remote.apiname)
+    // A MESMA conquista pode ter apiname diferente em cada máquina (bin da
+    // Steam entrega "ACH01"; o fallback de scrape gerou "ach_01"). Casa por
+    // apiname → apelido → título único e memoriza a chave do servidor no item,
+    // para o push seguinte ser idempotente. Sem isso o item do pull ficava
+    // duplicado/sem dono e o reload do schema o descartava.
+    const item = findItem(buildIndex(app.items), { apiname: remote.apiname, title: remote.title })
     const remoteAchieved = remote.achieved === true || (remote.unlocked_at != null && remote.unlocked_at > 0)
     if (item) {
+      if (rememberAlias(item, remote.apiname)) mudou = true
+      // Set-once: a primeira chave vista para este item é a que o servidor
+      // conhece; trocar depois só criaria linha nova lá.
+      if (!item.remoteApiname) {
+        item.remoteApiname = remote.apiname
+        mudou = true
+      }
       // Merge: achieved é monotônico (OR) — se qualquer lado desbloqueou, fica desbloqueado.
       // Timestamp usa earliest-wins (menor vence).
       const localAchieved = item.achieved === true
@@ -217,9 +230,11 @@ function applyPulled(rows, context = null) {
       }
     } else if (remoteAchieved || remoteUnlock != null) {
       // apiname desconhecido localmente (schema ainda não carregado): cria o
-      // item mínimo — o reloader de schema preenche título/ícone depois.
+      // item mínimo — o reloader de schema preenche título/ícone depois e o
+      // casamento por título/apelido adota este item (antes ele era descartado).
       app.items.push({
         apiname: remote.apiname,
+        remoteApiname: remote.apiname,
         title: remote.title || remote.apiname,
         desc: "",
         icon: remote.icon || "",
