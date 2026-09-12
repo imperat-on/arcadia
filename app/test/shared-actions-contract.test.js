@@ -45,8 +45,14 @@ test("o estado compartilhado aguarda a configuração antes de liberar defaults 
   const desktop = read("src/components/desktop/DesktopLauncher.tsx")
   const ps5 = read("src/components/ps5-launcher/PS5Launcher.tsx")
   assert.ok(state.indexOf("setLibraryLoaded(true)") > state.indexOf("getConfig"))
+  assert.match(state, /finally\s*\{\s*setConfigLoaded\(true\)/s)
   assert.match(desktop, /if \(!libraryLoaded\) return/)
   assert.match(ps5, /if \(!libraryLoaded\) return/)
+})
+
+test("busca de capa desativa o estado quando o texto volta a ser curto", () => {
+  const dialog = read("src/components/desktop/AddGameDialog.tsx")
+  assert.match(dialog, /if \(q\.length < 3\) \{\s*setBuscandoArte\(false\)\s*return/s)
 })
 
 test("o Big Picture usa o novo overview cinematográfico", () => {

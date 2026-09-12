@@ -2467,6 +2467,7 @@ function createWindow() {
     wp.preload = path.join(__dirname, "webview-steam-preload.js")
     wp.nodeIntegration = false
     wp.contextIsolation = true
+    wp.sandbox = true
   })
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
   win.once("ready-to-show", () => {
@@ -5260,8 +5261,28 @@ app.whenReady().then(() => {
   // do app. Só afeta contents do tipo webview (a página de terceiros).
   app.on("web-contents-created", (_e, contents) => {
     if (contents.getType() !== "webview") return
+    contents.on("will-navigate", (event, url) => {
+      if (/^https:\/\/store\.steampowered\.com(?:\/|$)/i.test(url)) return
+      event.preventDefault()
+      try {
+        const parsed = new URL(url)
+        if (
+          parsed.protocol === "https:" &&
+          !parsed.username &&
+          !parsed.password &&
+          /^(?:store\.steampowered\.com|steamcommunity\.com)$/i.test(parsed.hostname)
+        ) {
+          void shell.openExternal(parsed.href)
+        }
+      } catch {}
+    })
     contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//.test(url)) shell.openExternal(url)
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol === "https:" && !parsed.username && !parsed.password) {
+          void shell.openExternal(parsed.href)
+        }
+      } catch {}
       return { action: "deny" }
     })
   })

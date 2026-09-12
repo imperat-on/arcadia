@@ -143,7 +143,7 @@ interface LaunchToast {
 
 export function PS5Launcher() {
   // Fora do Electron (dev no navegador) cai no mock; dentro, carrega o real.
-  const { games, setGames, profile, setProfile, config, libraryLoaded } = useLibraryState(
+  const { games, setGames, profile, setProfile, config, libraryLoaded, configLoaded } = useLibraryState(
     typeof window !== "undefined" && window.launcherAPI ? [] : MOCK_GAMES,
   )
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -419,6 +419,7 @@ export function PS5Launcher() {
   }
   useEffect(() => {
     if (!libraryLoaded) return
+    if (!configLoaded) return
     bootLibOk.current = libraryLoaded
     tentarSairBoot()
     const firstNewDefaults = config.big_picture_scale_defaults_v3 !== true
@@ -441,7 +442,7 @@ export function PS5Launcher() {
     } catch {
       /* ignore */
     }
-  }, [config, libraryLoaded])
+  }, [config, configLoaded, libraryLoaded])
 
   // Aplica preferências visuais (escala das capas + cor de destaque).
   function applyUiPrefs(c: { card_scale?: number; accent?: string }) {
@@ -996,6 +997,7 @@ export function PS5Launcher() {
   // Navegação por controle (Gamepad API): D-pad/analógico, A=jogar, Start=atualizar.
   useEffect(() => {
     let raf = 0
+    let retryTimer: number | null = null
     let prev: boolean[] = []
     let restAxes: number[] | null = null
     let sx = 0,
@@ -1063,23 +1065,44 @@ export function PS5Launcher() {
       setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + delta)))
     }
 
+    let running = true
+    const schedule = (delay = 0) => {
+      if (!running) return
+      if (delay > 0 && retryTimer !== null) return
+      if (delay > 0) {
+        retryTimer = window.setTimeout(() => {
+          retryTimer = null
+          raf = requestAnimationFrame(loop)
+        }, delay)
+      } else {
+        raf = requestAnimationFrame(loop)
+      }
+    }
+
     const loop = () => {
+      if (!running) return
       // Janela sem foco (jogo em primeiro plano, alt-tab, gamescope): ignora
       // o controle — a Gamepad API entrega input mesmo desfocada.
       if (!appFocusedRef.current) {
         prev = [] // ressincroniza ao voltar (não dispara botão segurado)
-        raf = requestAnimationFrame(loop)
+        schedule(250)
         return
       }
       if (launchPendingRef.current) {
         // O IPC de launch é assíncrono; ignora o botão ainda pressionado até o
         // estado pendente/rodando estar refletido no renderer.
         prev = []
-        raf = requestAnimationFrame(loop)
+        schedule(100)
         return
       }
       const pads = navigator.getGamepads ? navigator.getGamepads() : []
       const gp = Array.from(pads).find((p) => p) || null
+      if (!gp) {
+        prev = []
+        scrollVel = 0
+        schedule(250)
+        return
+      }
       if (gp) {
         const now = Date.now()
         const primed = prev.length > 0
@@ -1158,10 +1181,14 @@ export function PS5Launcher() {
         }
         prev = gp.buttons.map((b) => b.pressed)
       }
-      raf = requestAnimationFrame(loop)
+      schedule()
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    schedule()
+    return () => {
+      running = false
+      cancelAnimationFrame(raf)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+    }
   }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing])
 
   const topBarNode = (

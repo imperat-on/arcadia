@@ -53,12 +53,15 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
   const [erros, setErros] = useState<string[]>([])
   // Resoluções marcadas. Vazio = o padrão do tipo (definido no Electron).
   const [resolucoes, setResolucoes] = useState<string[]>([])
+  const buscaId = useRef(0)
 
   const buscar = useCallback(
     async (q: string, dims: string[]) => {
+      const requestId = ++buscaId.current
       setCarregando(true)
       setErros([])
       const res = await window.launcherAPI?.searchArt(gameId, q, kind, dims)
+      if (requestId !== buscaId.current) return
       setCandidatos(res?.candidatos ?? [])
       setErros(res?.erros ?? [])
       setCarregando(false)

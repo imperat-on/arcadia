@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { WineVer, ArtCandidate, EmulatorInfo } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
@@ -51,22 +51,32 @@ export function AddGameDialog({
   const [candidatas, setCandidatas] = useState<ArtCandidate[]>([])
   const [buscandoArte, setBuscandoArte] = useState(false)
   const [capaEscolhida, setCapaEscolhida] = useState("")
+  const buscaArteId = useRef(0)
 
   // Editando: o id é o do próprio jogo (preserva configs/arte). Novo: do slug.
   const id = useMemo(() => editGame?.id || `custom:${slug(titulo) || "jogo"}`, [titulo, editGame])
 
   // Debounce: 700ms após parar de digitar, busca capas e mostra previews.
   useEffect(() => {
+    const requestId = ++buscaArteId.current
     const q = titulo.trim()
     setCandidatas([])
     setCapaEscolhida("")
-    if (q.length < 3) return
+    if (q.length < 3) {
+      setBuscandoArte(false)
+      return
+    }
     setBuscandoArte(true)
     const t = setTimeout(() => {
       window.launcherAPI
         ?.searchArt(id, q, "cover")
-        .then((r) => setCandidatas((r?.candidatos || []).slice(0, 4)))
-        .finally(() => setBuscandoArte(false))
+        .then((r) => {
+          if (requestId !== buscaArteId.current) return
+          setCandidatas((r?.candidatos || []).slice(0, 4))
+        })
+        .finally(() => {
+          if (requestId === buscaArteId.current) setBuscandoArte(false)
+        })
     }, 700)
     return () => clearTimeout(t)
   }, [titulo, id])

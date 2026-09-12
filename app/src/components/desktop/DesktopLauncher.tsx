@@ -29,7 +29,7 @@ import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
 import { SyncStatusIndicator } from "./SyncStatusIndicator"
 import { useLibraryState } from "../useLibraryState"
-import { useDownloadBadges } from "../useDownloadBadges"
+import { useDownloadsFeed } from "../downloads/useDownloadsFeed"
 import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 import { useMode } from "../ModeContext"
 import { useGameActions, type GameActions, type GameLaunchResult } from "../useGameActions"
@@ -89,9 +89,11 @@ export function DesktopLauncher() {
     setProfile,
     config: cfg,
     libraryLoaded,
+    configLoaded,
     reloadLibrary,
   } = useLibraryState()
-  const downloadsActive = useDownloadBadges({ includeTorrents: true })
+  const downloadsFeed = useDownloadsFeed()
+  const downloadsActive = downloadsFeed.ativosCount
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
@@ -252,6 +254,7 @@ export function DesktopLauncher() {
 
   useEffect(() => {
     if (!libraryLoaded) return
+    if (!configLoaded) return
     const requested = Number(cfg.ui_scale)
     const promoteDefault = cfg.desktop_font_scale_v3 !== true && (!Number.isFinite(requested) || requested === 1)
     const safeScale = Math.min(1.1, Math.max(.7, promoteDefault ? 1.1 : (Number.isFinite(requested) ? requested : 1.1)))
@@ -260,7 +263,7 @@ export function DesktopLauncher() {
     }
     window.launcherAPI?.setZoom(safeScale, "desktop")
     aplicarA11y(cfg)
-  }, [cfg, libraryLoaded])
+  }, [cfg, configLoaded, libraryLoaded])
 
   useEffect(() => {
     const offDl = window.launcherAPI?.onStoreDownloaded((d) => setBaixado(d))
@@ -429,7 +432,7 @@ export function DesktopLauncher() {
               />
             )}
             {!jogoPagina && view === "plugins" && <PluginsView />}
-            {!jogoPagina && view === "downloads" && <DownloadsView />}
+            {!jogoPagina && view === "downloads" && <DownloadsView feed={downloadsFeed} />}
             {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => setView("downloads")} />}
             {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
