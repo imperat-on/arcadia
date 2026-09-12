@@ -110,6 +110,38 @@ test("detalhe Retro usa a composição Hydra compartilhada", () => {
   assert.match(retroAchievements, /h-\[286px\] overflow-hidden/)
 })
 
+test("conquistas do Steam também abrem a tela cheia", () => {
+  const panel = read("src", "components", "desktop", "AchievementsPanel.tsx")
+  const detail = read("src", "components", "desktop", "StoreGamePage.tsx")
+  const retroAchievements = read("src", "components", "desktop", "RetroAchievementsGamePanel.tsx")
+  const screen = read("src", "components", "desktop", "AchievementsFullScreen.tsx")
+
+  // O painel da loja (conquistas da Steam) oferecia só a lista no painel; os
+  // desbloqueios do GTA SA DE ficavam sem a visão completa que o painel Retro
+  // já tinha.
+  assert.match(detail, /<AchievementsPanel appid=\{jogo\.appid\}/)
+  assert.match(panel, /import \{ AchievementsFullScreen \} from "\.\/AchievementsFullScreen"/)
+  assert.match(panel, /items\.length > 6 && \(/)
+  assert.match(panel, /detail-achievements-all/)
+  assert.match(panel, /allOpen && items && items\.length > 0 &&/)
+  assert.match(panel, /detail-achievement-full-grid/)
+  assert.match(panel, /detail-achievement-card[^\n]*min-h-\[230px\]/)
+
+  // A tela cheia é UMA só para os dois painéis e fecha no Escape — antes só o
+  // painel Retro registrava a tecla.
+  assert.match(retroAchievements, /<AchievementsFullScreen/)
+  assert.doesNotMatch(retroAchievements, /closeWithEscape/)
+  assert.match(screen, /event\.key === "Escape"/)
+
+  // Rótulo do botão traduzido nos três catálogos (era literal "Ver todas").
+  assert.match(retroAchievements, /conquistas\.ver_todas/)
+  assert.match(panel, /conquistas\.ver_todas/)
+  for (const lang of ["pt-BR", "en-US", "es-ES"]) {
+    const catalogo = JSON.parse(read("src", "i18n", lang + ".json"))
+    assert.equal(typeof catalogo["conquistas.ver_todas"], "string", `${lang} sem conquistas.ver_todas`)
+  }
+})
+
 test("catálogo da Loja usa linhas compactas e Retro usa paginação", () => {
   const store = read("src", "components", "desktop", "StoreView.tsx")
   const retro = read("src", "components", "desktop", "RetroStoreView.tsx")
