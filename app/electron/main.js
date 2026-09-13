@@ -1,6 +1,20 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, screen } = require("electron")
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
 
+// ── DNS: resolver por conta própria, não pelo DNS de quem usa ─────────
+// O `net.fetch` do Electron (usado pelo httpfetch) resolve nomes pela pilha do
+// Chromium, que por padrão segue o resolvedor do sistema. Um resolvedor de
+// operadora/roteador ruim derruba o app inteiro: numa máquina em que o DNS
+// passou a devolver só AAAA (IPv6) para o backend — sem IPv6 funcionando — o
+// perfil parou de carregar e a imagem veio quebrada, sem aviso nenhum.
+// Com DoH o app resolve por HTTPS contra o Cloudflare e ignora o resolvedor
+// local. `ARCADIA_NO_DOH=1` desliga (útil em rede com portal cativo que bloqueia
+// DoH e ainda depende do DNS do próprio portal).
+if (process.env.ARCADIA_NO_DOH !== "1") {
+  app.commandLine.appendSwitch("dns-over-https-mode", "secure")
+  app.commandLine.appendSwitch("dns-over-https-templates", "https://cloudflare-dns.com/dns-query")
+}
+
 ignoreBrokenPipe(process.stdout)
 ignoreBrokenPipe(process.stderr)
 
