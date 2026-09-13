@@ -88,7 +88,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),
   setFullscreen: (on) => ipcRenderer.invoke("app:setFullscreen", on),
   setLauncherMode: (mode) => ipcRenderer.invoke("app:setMode", mode),
-  setZoom: (z, modo) => ipcRenderer.invoke("app:setZoom", z, modo),
+  setUiScale: (rel) => ipcRenderer.invoke("app:setUiScale", rel),
   rebuildMeta: () => ipcRenderer.invoke("meta:rebuild"),
   integrationsStatus: () => ipcRenderer.invoke("integrations:status"),
   pickImage: (kind) => ipcRenderer.invoke("profile:pickImage", kind),

@@ -23,6 +23,8 @@ if (!lockUnico) {
   })
 }
 
+const { aliasesOf } = require("./achievements/match")
+const { fatorDeZoom, clampRelativo, migrarEscala } = require("./ui-scale")
 const { startAchievementWatcher, fetchAchievementsForApp } = require("./achievements")
 const { iniciarVigia } = require("./achievements/cracked_watcher")
 const { prepareUplayInstallation } = require("./achievements/uplay")
@@ -248,12 +250,10 @@ function responsiveWindowScale(mode) {
   }
 }
 
-function zoomFactorFor(mode, logical) {
-  const value = Number(logical) || (mode === "console" ? 1.3 : 1)
-  // Desktop sem slider: mantém uma base legível, ignorando o zoom legado.
-  // O tamanho da janela e o DPI do Electron continuam ajustando a interface.
-  const base = mode === "console" ? value : 1.2
-  return Math.min(2, Math.max(mode === "console" ? 0.7 : 0.84, base * responsiveWindowScale(mode)))
+// Único ponto que decide o zoom da janela. A matemática mora em ./ui-scale
+// (uma chave só, base por skin); aqui fica apenas a leitura do config.
+function uiScaleFactor(mode) {
+  return fatorDeZoom(mode, readConfig().ui_scale, responsiveWindowScale(mode))
 }
 
 let appliedZoomFactor = null
@@ -267,10 +267,7 @@ function applyWindowZoom(factor) {
 
 function reapplyWindowZoom() {
   if (!win || win.isDestroyed() || !win.webContents) return
-  const mode = win.isFullScreen() ? "console" : "desktop"
-  const config = readConfig()
-  const logical = Number(config[mode === "console" ? "console_ui_scale" : "ui_scale"]) || (mode === "console" ? 1.3 : 1)
-  applyWindowZoom(zoomFactorFor(mode, logical))
+  applyWindowZoom(uiScaleFactor(win.isFullScreen() ? "console" : "desktop"))
 }
 // Uma sessão pode gerar vários sinais "jogo ausente". A restauração deve ser
 // feita uma vez só, no desarme do poll, para não roubar foco repetidamente.
@@ -2344,7 +2341,7 @@ function onUnlockAchievement(payload) {
       (x) =>
         `${x.block}|${x.bit}` === payload.key ||
         (payload.apiname &&
-          String(x.apiname || "").toLowerCase() === String(payload.apiname).toLowerCase()),
+          aliasesOf(x).some((nome) => nome.toLowerCase() === String(payload.apiname).toLowerCase())),
     )
     if (it && !it.achieved) {
           it.achieved = true
@@ -2355,13 +2352,15 @@ function onUnlockAchievement(payload) {
       // Conta online: enfileira o desbloqueio pro sync (só se o item tem
       // apiname — sem ele não dá pra referenciar na nuvem). Nunca bloqueia
       // o caminho do launch: enqueue é síncrono local e o sync roda depois.
+      // A chave do servidor tem prioridade: usar a local criaria uma segunda
+      // linha para a mesma conquista quando os apinames divergem.
       try {
         if (it.apiname) {
           const syncMod = require("./supabase/sync")
           syncMod.enqueue([
             {
               appid: payload.appid,
-              apiname: it.apiname,
+              apiname: it.remoteApiname || it.apiname,
               unlocked_at: payload.unlock,
               title: it.title,
               icon: it.icon,
@@ -2524,31 +2523,11 @@ function createWindow() {
 
   // Aplica a escala salva assim que a página carrega.
   win.webContents.on("did-finish-load", () => {
-    // Modo ativo decide qual chave vale: fullscreen = console_ui_scale,
-    // janela = ui_scale. Antes só aplicava o ui_scale do desktop — um 1.25
-    // salvo no console vazava pro desktop no próximo load.
-    let config = readConfig()
-    // Recalibração única: o antigo 120% vira o novo 100%, sem alterar o
-    // tamanho que a pessoa já vê. Instalações novas começam diretamente em 100%.
-    if (!win.isFullScreen() && config.desktop_scale_base_v2 !== true) {
-      const escalaAntiga = Number(config.ui_scale)
-      const escalaLogica = Number.isFinite(escalaAntiga)
-        ? Math.min(1.1, Math.max(0.7, escalaAntiga / 1.2))
-        : 1
-      writeConfig({ ui_scale: escalaLogica, desktop_scale_base_v2: true })
-      config = readConfig()
-    }
-    // O padrão anterior de 100% deixava os rótulos compactos do desktop
-    // pequenos demais. Promove somente esse padrão para 110%; valores que o
-    // usuário já escolheu no controle de acessibilidade continuam intactos.
-    if (!win.isFullScreen() && config.desktop_font_scale_v3 !== true) {
-      const escalaAtual = Number(config.ui_scale)
-      const escalaLegivel = !Number.isFinite(escalaAtual) || escalaAtual === 1
-        ? 1.1
-        : Math.min(1.1, Math.max(0.7, escalaAtual))
-      writeConfig({ ui_scale: escalaLegivel, desktop_font_scale_v3: true })
-      config = readConfig()
-    }
+    // Escala: uma chave só (`ui_scale`). A migração roda uma única vez e some
+    // com os knobs antigos — console_ui_scale vira o relativo, e o ui_scale
+    // decorativo do desktop volta a 1, então a tela não muda de tamanho.
+    const migracao = migrarEscala(readConfig())
+    if (migracao) writeConfig(migracao)
     reapplyWindowZoom()
     // Modo console (tela cheia): cursor OCULTO por padrão, mas aparece ao
     // mexer o mouse e some após ~2s parado (navegação continua por gamepad).
@@ -3777,10 +3756,7 @@ app.whenReady().then(() => {
     try {
       win.setFullScreen(mode === "console")
       process.env.ARCADIA_MODE = mode
-      const cfg = readConfig()
-      const logical = Number(cfg[mode === "console" ? "console_ui_scale" : "ui_scale"]) || (mode === "console" ? 1.3 : 1)
-      const factor = zoomFactorFor(mode, logical)
-      applyWindowZoom(factor)
+      applyWindowZoom(uiScaleFactor(mode))
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e.message || e) }
@@ -3801,7 +3777,7 @@ app.whenReady().then(() => {
       // "default_wine_prefix_path"=/tmp/evil para fazer o mkdirSync em
       // qualquer lugar, ou "wine_arch"=x32 para quebrar prefixos, etc.
       const ALLOWED_CONFIG = new Set([
-        "language", "ui_scale", "console_ui_scale", "default_wine_prefix_path",
+        "language", "ui_scale", "card_scale", "accent", "default_wine_prefix_path",
         "steam_api_key", "steamgriddb_api_key", "hubcap_api_key",
         "realdebrid_token", "torbox_token", "alldebrid_token", "premiumize_token",
         "retroachievements_username", "retroachievements_token",
@@ -3816,8 +3792,7 @@ app.whenReady().then(() => {
         "music_enabled", "music_volume", "music_auto_play",
         "system_theme", "notifications_enabled", "notification_volume",
         "trailer_auto", "youtube_cookies", "card_scale", "library_sidebar", "accent",
-        "desktop_font_scale_v3", "theme_name",
-        "big_picture_scale_defaults_v2", "big_picture_scale_defaults_v3",
+        "theme_name",
         // Acessibilidade (AccessibilityView salvar()) — estavam fora e eram descartadas.
         "content_font", "actions_font", "custom_css_path", "tiles_color", "always_titles",
         "no_click_outside", "no_smooth_scroll", "no_anim",
@@ -4692,20 +4667,15 @@ app.whenReady().then(() => {
     if (win) win.setFullScreen(consoleMode)
     process.env.ARCADIA_MODE = consoleMode ? "console" : "desktop"
   })
-  ipcMain.handle("app:setZoom", (_e, z, modo) => {
-    // Escalas do console e do desktop são independentes: o setZoomFactor é
-    // GLOBAL na janela, então aplicar o 1.25 do console sobrescrevia o zoom
-    // do desktop (e vice-versa). Cada chamada carrega o modo que a originou;
-    // só aplica se for o modo ativo — senão o zoom fica com o do outro modo.
-    const ativo = win?.isFullScreen() ? "console" : "desktop"
-    if (modo && modo !== ativo) {
-      const chave = modo === "console" ? "console_ui_scale" : "ui_scale"
-      return Number(readConfig()?.[chave]) || 1
-    }
-    const logical = Number(z) || 1
-    const factor = zoomFactorFor(ativo, logical)
-    applyWindowZoom(factor)
-    return factor
+  ipcMain.handle("app:setUiScale", (_e, rel) => {
+    // Uma chave só, valendo nas duas skins: o relativo é multiplicado pela base
+    // da skin ATIVA (console 1.3, desktop 1.2). Persiste aqui mesmo — antes o
+    // renderer mandava setConfig + zoom em duas chamadas, e cada skin tinha o
+    // seu número solto (o do desktop, inclusive, era ignorado no cálculo).
+    const valor = clampRelativo(rel)
+    writeConfig({ ui_scale: valor })
+    applyWindowZoom(uiScaleFactor(win?.isFullScreen() ? "console" : "desktop"))
+    return valor
   })
 
   ipcMain.handle("library:refresh", async () => {

@@ -30,6 +30,17 @@ export function aplicarA11y(cfg: AppConfig) {
   root.style.setProperty("--text", tema.text)
   root.style.setProperty("--muted", tema.muted)
 
+  // O tema alimenta a PALETA SEMÂNTICA: a escada de superfície e a hierarquia
+  // de texto saem daqui, então componente que lê --surface-*/--text-* segue o
+  // tema sem precisar de sobrescrita por classe. Os nomes antigos (--bg,
+  // --sidebar-bg, --card-bg, --text) continuam sendo escritos para o CSS que
+  // ainda os lê.
+  root.style.setProperty("--surface-0", tema.bg)
+  root.style.setProperty("--surface-1", tema.sidebar)
+  root.style.setProperty("--surface-2", tema.card)
+  root.style.setProperty("--text-1", tema.text)
+  root.style.setProperty("--text-2", tema.muted)
+
   const conteudo = cfg.content_font && cfg.content_font !== "Inter" ? cfg.content_font : "Inter"
   root.style.setProperty("font-family", `'${conteudo}', 'Inter', sans-serif`)
   const acoes = cfg.actions_font && cfg.actions_font !== "Rubik" ? cfg.actions_font : "Rubik"
@@ -40,15 +51,11 @@ export function aplicarA11y(cfg: AppConfig) {
     style.id = "a11y-style"
     document.head.appendChild(style)
   }
+  // Aqui só fica o que NÃO é cor: fonte, scroll e movimento. As regras que
+  // reescreviam classe de hex (`.bg-\[\#0d0d0f\]` etc.) morreram junto com os
+  // hex — o componente agora lê o token do tema direto, sem !important.
   style.textContent = `
-    body, #root { background: var(--bg) !important; color: var(--text) !important; }
-    /* Fundos utilitários comuns passam a respeitar o tema */
-    .bg-black { background: var(--bg) !important; }
-    .bg-\\[\\#0d0d0f\\], .bg-\\[\\#101014\\] { background: var(--sidebar-bg) !important; }
-    .bg-\\[\\#141419\\], .bg-\\[\\#16161a\\] { background: var(--card-bg) !important; }
-    /* Texto muted padrão do app */
-    .text-\\[\\#8a93a6\\], .text-\\[\\#a8b3cc\\] { color: var(--muted) !important; }
-    /* Inputs e selects escuros seguem o card do tema */
+    body, #root { background: var(--surface-0) !important; color: var(--text-1) !important; }
     input, select, textarea { color-scheme: dark; }
     button, select, input, [role="button"] { font-family: '${acoes}', '${conteudo}', sans-serif; }
     ${cfg.no_smooth_scroll ? "* { scroll-behavior: auto !important; }" : ""}
@@ -64,15 +71,10 @@ export function AccessibilityView() {
   useEffect(() => {
     window.launcherAPI?.getConfig().then((c) => {
       const loaded = c || {}
-      const requested = Number(loaded.ui_scale)
-      const promoteDefault = loaded.desktop_font_scale_v3 !== true && (!Number.isFinite(requested) || requested === 1)
-      const safeScale = Math.min(1.1, Math.max(.7, promoteDefault ? 1.1 : (Number.isFinite(requested) ? requested : 1.1)))
-      const normalized = { ...loaded, ui_scale: safeScale, desktop_font_scale_v3: true }
-      setCfg(normalized)
-      if (loaded.ui_scale !== safeScale || loaded.desktop_font_scale_v3 !== true) {
-        window.launcherAPI?.setConfig({ ui_scale: safeScale, desktop_font_scale_v3: true })
-      }
-      aplicarA11y(normalized)
+      // A escala não é normalizada aqui: virou uma chave só, presa na faixa e
+      // aplicada pelo processo principal (electron/ui-scale.js).
+      setCfg(loaded)
+      aplicarA11y(loaded)
     })
   }, [])
 

@@ -121,20 +121,20 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
       <main className="retro-settings-content flex-1 overflow-y-auto p-10">
         {section === "temas" && (
           <ThemeSection
-            scale={cfg.console_ui_scale ?? 1.3}
+            scale={cfg.ui_scale ?? 1}
             cardScale={cfg.card_scale ?? 1.6}
             accent={cfg.accent ?? "#00a8ff"}
             onScale={(z) => {
-              // Slider % anima ao vivo (via setCfg); zoom real só ao parar.
+              // Slider % anima ao vivo (via setCfg); o zoom real só ao parar.
               // setZoomFactor re-rasteriza a webContents inteira: chamar a cada
               // step trava e faz o card bugar. Aplica 250ms após o último ajuste.
-              setCfg((c) => ({ ...c, console_ui_scale: z }))
+              // É UMA escala (ui_scale), então vale também no modo desktop.
+              setCfg((c) => ({ ...c, ui_scale: z }))
               scalePendingRef.current = z
               if (scaleCommitRef.current != null) window.clearTimeout(scaleCommitRef.current)
               scaleCommitRef.current = window.setTimeout(() => {
                 const val = scalePendingRef.current ?? z
-                window.launcherAPI?.setConfig({ console_ui_scale: val })
-                window.launcherAPI?.setZoom(val, "console")
+                window.launcherAPI?.setUiScale(val)
                 scaleCommitRef.current = null
               }, 250)
             }}
