@@ -52,7 +52,10 @@
   --secondary: #161619;
   --muted: #161619;
   --muted-foreground: #7a8aaa;
-  --accent: #00a8ff;
+  /* O acento nasce ja com a cor do tema: antes o :root abria em #00a8ff e o
+     tema sobrescrevia para #22d3ee no mount, o que pintava um flash azul->ciano
+     no boot. Componente le sempre var(--accent). */
+  --accent: #22d3ee;
   --accent-foreground: #ffffff;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.1);
@@ -81,8 +84,67 @@
   /* Design OLED - cores sutis e elegantes */
   --accent-glow: #0088cc;
   --accent-soft: #005a99;
-  --surface-1: #0a0a0a;
-  --surface-2: #121212;
+
+  /* ─── Paleta semântica ───────────────────────────────────────────────────
+     ÚNICA fonte de cor do app. Antes a paleta vivia em três lugares (themes.ts,
+     este :root e 129 hex espalhados em 58 componentes), e o desalinhamento
+     aparecia na tela. Componente nunca escreve hex: lê o token.
+
+     Os quatro níveis de superfície formam a escada do fundo: -0 é a tela cheia,
+     -1 é a superfície de shell/sidebar/diálogo, -2 é card e input, -3 é o painel
+     mais claro. Os três primeiros casam com o tema (bg/sidebar/card), então
+     trocar de tema move a escada inteira.
+
+     text-1/2/3 são hierarquia de leitura; state-* é significado (erro, sucesso,
+     atenção, informação); pad-* são as cores dos botões do controle; brand-* é
+     cor de serviço de terceiro, que NÃO deve seguir o tema. */
+  --surface-0: #000000;
+  --surface-1: #0d0d0f;
+  --surface-2: #141419;
+  --surface-3: #1c1c22;
+  /* Fundo imersivo (tela de boot, conquistas em tela cheia, notícias): preto
+     levemente azulado, um degrau acima do preto puro do tema. */
+  --surface-night: #05070d;
+
+  --text-1: #ffffff;
+  --text-2: #8a93a6;
+  --text-3: #6b7280;
+  --text-strong: #c8d0e0;
+
+  --state-danger: #ff6b81;
+  --state-danger-soft: #ffa07a;
+  --state-danger-tint: #ffb3c0;
+  --state-danger-solid: #ef4444;
+  --state-success: #4adf9a;
+  --state-warn: #f5a623;
+  --state-warn-soft: #ffb86b;
+  --state-info: #7fb8ff;
+  --state-info-soft: #7fd0ff;
+  --state-gold: #ffd166;
+
+  --pad-cross: #7fb8ff;
+  --pad-circle: #ff7f7f;
+  --pad-triangle: #7fffb0;
+  --pad-square: #ff8fd6;
+  --pad-alt: #ffd97f;
+
+  --brand-steam: #0072ce;
+  --brand-steam-mid: #0057a3;
+  --brand-steam-dark: #003791;
+  --brand-violet: #7c3aed;
+  --brand-twitch: #9147ff;
+  --retro-amber: #ffb454;
+
+  --placeholder-warm: #2b165c;
+  --placeholder-mid: #101024;
+  --placeholder-cool: #1e2536;
+  --placeholder-deep: #0a0e1a;
+
+  /* Camadas. O modal (90) fica acima dos overlays de página (70/75/80) e abaixo
+     do aviso flutuante (95) — antes um modal em z-70 era recortado por um
+     detalhe em z-80, e cada overlay escolhia o seu número. */
+  --z-modal: 90;
+  --z-toast: 95;
 }
 
 /* Quem pediu menos movimento no sistema recebe menos movimento. Antes só
