@@ -36,11 +36,24 @@ test("nomes legados continuam funcionando quando o URL canônico não existe", (
   assert.equal(config.url, "https://legacy.example.test")
 })
 
-test("instalação sem variáveis usa a API oficial publicada", () => {
+test("instalação sem variáveis usa a API oficial publicada, com reserva", () => {
   const config = loadConfig({
     ARCADIA_API_URL: "",
     ARCADIA_SUPABASE_URL: "",
     SUPABASE_URL: "",
   })
-  assert.equal(config.url, "https://zes.tail6e748d.ts.net")
+  // Endereço público = Worker do Cloudflare (IPv4 e IPv6, não depende do DNS de
+  // quem usa); o Funnel do Tailscale fica como reserva, tentada só se a rede
+  // falhar (ver electron/httpfetch.js).
+  assert.equal(config.url, "https://arcadiaserver.zesmehentperu.workers.dev")
+  assert.deepEqual(config.urls, [
+    "https://arcadiaserver.zesmehentperu.workers.dev",
+    "https://zes.tail6e748d.ts.net",
+  ])
+})
+
+test("com servidor próprio não existe reserva para o backend oficial", () => {
+  const config = loadConfig({ ARCADIA_API_URL: "https://meu.servidor.test" })
+  assert.equal(config.url, "https://meu.servidor.test")
+  assert.deepEqual(config.urls, ["https://meu.servidor.test"])
 })
