@@ -71,7 +71,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
   }
 
   return (
-    <div className={`desktop-retro-home h-full bg-[#08080a] ${pagina ? "overflow-hidden" : "overflow-y-auto"}`}>
+    <div className={`desktop-retro-home h-full bg-[color:var(--surface-1)] ${pagina ? "overflow-hidden" : "overflow-y-auto"}`}>
       {pagina ? (
         <div className="h-full overflow-hidden">
           <StoreGamePage
@@ -178,7 +178,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
       )}
 
       {toast && (
-        <div className="fixed bottom-12 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>
+        <div data-no-drag className="fixed bottom-12 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>
           {toast}
         </div>
       )}
@@ -204,7 +204,7 @@ function HomeHero({ jogo, onOpen }: { jogo: ItemLoja; onOpen: () => void }) {
         }}
       />
       <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/25 to-black/35" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--surface-1)] via-transparent to-transparent" />
       <div className="absolute bottom-10 left-8 max-w-[720px]">
         <h1 className="mb-5 text-4xl font-semibold tracking-wide text-white drop-shadow-lg">{jogo.title}</h1>
         {desc && <p className="max-w-[680px] text-[14px] leading-relaxed text-white/80 drop-shadow-lg">{desc}</p>}

@@ -78,7 +78,8 @@ export function StoreGamePage({
   game?: Game
   onClose: () => void
   onBaixar: () => void
-  onAdicionar: () => void
+  /** Só é usado quando o jogo ainda NÃO está na biblioteca. */
+  onAdicionar?: () => void
   onRemover?: () => void
   onConfig?: () => void
   onJogar?: () => void
@@ -430,7 +431,7 @@ export function StoreGamePage({
                 <>
                   {onJogar && (rodando ? (
                     <>
-                      <PrimaryBtn onClick={() => {}} disabled label={t("gamepage.rodando")}>
+                      <PrimaryBtn disabled label={t("gamepage.rodando")}>
                         <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 animate-spin">
                           <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-30" />
                           <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
@@ -440,7 +441,7 @@ export function StoreGamePage({
                         type="button"
                         data-game-action="stop"
                         onClick={onStop || (() => jogoAtivo.parar())}
-                        className="flex items-center gap-2 rounded-full bg-[#ef4444] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
+                        className="flex items-center gap-2 rounded-full bg-[color:var(--state-danger-solid)] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                           <rect x="5" y="5" width="14" height="14" rx="2" />
@@ -610,11 +611,11 @@ export function StoreGamePage({
       </div>
 
       {fixesAberto && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={() => setFixesAberto(false)}
         >
-          <div className="w-[520px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
+          <div data-no-drag className="w-[520px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
             <FixesPanel appid={jogo.appid} installPath={installPath} />
           </div>
         </div>
@@ -671,7 +672,8 @@ function PrimaryBtn({
   action,
 }: {
   children: React.ReactNode
-  onClick: () => void
+  /** Ausente no botão apenas visual (ex.: "Rodando", que já nasce disabled). */
+  onClick?: () => void
   disabled?: boolean
   label: string
   action?: "stop" | "cancel"
@@ -726,7 +728,7 @@ function DangerBtn({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+      className="rounded-full border border-[color:var(--state-danger)]/40 px-4 py-2 text-[12.5px] font-semibold text-[color:var(--state-danger)] transition-colors enabled:hover:bg-[color:var(--state-danger)]/10 disabled:opacity-50"
     >
       {label}
     </button>

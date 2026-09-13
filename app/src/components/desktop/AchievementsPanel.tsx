@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { Panel } from "./GameDetailPanels"
+import { AchievementsFullScreen } from "./AchievementsFullScreen"
 
 type ItemConquista = {
   title: string
@@ -23,6 +24,8 @@ export function AchievementsPanel({ appid }: { appid: string }) {
   const { t } = useI18n()
   const [items, setItems] = useState<ItemConquista[] | null>(null)
   const [feedback, setFeedback] = useState<{ texto: string; cor: "ok" | "erro" } | null>(null)
+  // Tela cheia com TODAS as conquistas (mesma do painel Retro).
+  const [allOpen, setAllOpen] = useState(false)
 
   // Recarrega apiname/título/desc/ícones dos itens a partir dos schemas da Steam.
   const recarregarSchema = async () => {
@@ -44,6 +47,7 @@ export function AchievementsPanel({ appid }: { appid: string }) {
   useEffect(() => {
     let vivo = true
     setItems(null)
+    setAllOpen(false)
     window.launcherAPI?.achievementsGet(appid).then((arr) => {
       if (vivo) setItems(arr || [])
     })
@@ -91,8 +95,10 @@ export function AchievementsPanel({ appid }: { appid: string }) {
 
   const done = items ? items.filter((x) => x.achieved).length : 0
   const total = items ? items.length : 0
+  const progress = total ? Math.round((done / total) * 100) : 0
 
   return (
+    <>
     <Panel
       title={t("conquistas.titulo")}
       right={
@@ -106,6 +112,15 @@ export function AchievementsPanel({ appid }: { appid: string }) {
             >
               {t("conquistas.atualizar_schema")}
             </button>
+            {items && items.length > 6 && (
+              <button
+                type="button"
+                onClick={() => setAllOpen(true)}
+                className="detail-achievements-all"
+              >
+                {t("conquistas.ver_todas")}
+              </button>
+            )}
           </span>
           {feedback && (
             <span
@@ -163,5 +178,43 @@ export function AchievementsPanel({ appid }: { appid: string }) {
         </div>
       )}
     </Panel>
+
+    {allOpen && items && items.length > 0 && (
+      <AchievementsFullScreen
+        done={done}
+        total={total}
+        progress={progress}
+        onClose={() => setAllOpen(false)}
+      >
+        <div className="detail-achievement-full-grid grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+          {items.map((it, i) => (
+            <article
+              key={it.title + (it.block ?? "") + (it.bit ?? "") + i}
+              className={`detail-achievement-card flex min-h-[230px] min-w-0 flex-col overflow-hidden rounded-[6px] border px-3 py-3 text-center ${it.achieved ? "border-[var(--desktop-green)]/45 bg-[var(--desktop-green)]/[.035]" : "border-white/[.08] bg-white/[.015]"}`}
+            >
+              <div className="detail-achievement-icon relative mx-auto mb-4 aspect-square w-20 shrink-0 overflow-hidden rounded-[5px] bg-white/5">
+                {it.icon || it.icongray ? (
+                  <img
+                    src={it.achieved ? it.icon : it.icongray || it.icon}
+                    alt=""
+                    loading="lazy"
+                    className={`h-full w-full object-cover ${it.achieved ? "" : "opacity-55 sepia"}`}
+                  />
+                ) : null}
+              </div>
+              <h4
+                className={`line-clamp-2 text-[11px] font-semibold leading-[1.35] ${it.achieved ? "text-white/90" : "text-white/65"}`}
+              >
+                {it.title}
+              </h4>
+              <p className="mt-2 line-clamp-4 text-[9px] leading-[1.45] text-white/35">
+                {it.desc || (it.achieved ? t("conquistas.concluido") : "")}
+              </p>
+            </article>
+          ))}
+        </div>
+      </AchievementsFullScreen>
+    )}
+    </>
   )
 }

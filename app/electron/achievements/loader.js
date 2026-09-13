@@ -13,6 +13,7 @@ const path = require("path")
 const os = require("os")
 const { loadKvBin, progressMap, fetchAchievementsForApp } = require("./steam_bin")
 const { loadAchievements, saveAchievements } = require("./schema")
+const { buildIndex, findItem, aliasesOf, rememberAlias } = require("./match")
 const { log } = require("./../debug")
 const { caminhoArquivoConta } = require("./../supabase/conta")
 const { readLibraryFile } = require("./../library-store")
@@ -236,10 +237,14 @@ async function loadAllSchemas() {
     }
     if (!idx || !Object.keys(idx).length) continue
 
-    // Itens antigos: índice pra preservar achieved/unlock/percent/ícones
+    // Itens antigos: índice pra preservar achieved/unlock/percent/ícones.
+    // `indiceAntigo` casa também por apelido e por título único — é o que liga a
+    // conquista de uma máquina à MESMA conquista da outra quando o apiname
+    // divergiu (bin da Steam x scrape).
+    const antigos = ((store[appid] && store[appid].items) || []).filter(Boolean)
+    const indiceAntigo = buildIndex(antigos)
     const old = new Map()
-    for (const it of (store[appid] && store[appid].items) || []) {
-      if (!it) continue
+    for (const it of antigos) {
       if (it.apiname) old.set("apiname:" + it.apiname, it)
       if (it.block != null && it.bit != null) old.set("bb:" + it.block + "|" + it.bit, it)
     }
@@ -265,9 +270,17 @@ async function loadAllSchemas() {
     // deduplica por (appid, apiname), então re-enviar é seguro e o RPC é
     // idempotente (quem desbloqueou primeiro vence).
     const p_sync = []
+    // Entradas do schema que já adotaram um item antigo. O que sobrar no fim são
+    // itens que vieram do pull e o schema local não conhece — preservados.
+    const usados = new Set()
     for (const [k, sch] of Object.entries(idx)) {
       const [blk, bit] = k.split("|")
-      const prev = old.get("apiname:" + sch.apiname) || old.get("bb:" + k)
+      let prev = old.get("apiname:" + sch.apiname) || old.get("bb:" + k)
+      // Sem casamento exato, tenta apelido e depois título único. Sem isso, um
+      // item criado pelo pull (apiname remoto, sem block|bit) ficava sem dono e
+      // era descartado na regravação — a conquista vinda do servidor sumia.
+      if (!prev) prev = findItem(indiceAntigo, { apiname: sch.apiname, title: sch.name })
+      if (prev) usados.add(prev)
       const binTs = progress[`${blk}|${bit}`] || 0
       // Ícone: hash local do bin (copia pro cache ou monta URL da Steam) ou URL
       // completa vinda do fallback de jogos sem bin (repack/crackeado).
@@ -282,10 +295,14 @@ async function loadAllSchemas() {
       // com unlocked_at=0 para que outro dispositivo saiba que existem.
       // O merge no servidor usa "achieved OR" — se qualquer máquina desbloqueou,
       // fica desbloqueado em todas.
+      // A chave que o servidor já conhece tem prioridade no push: sem isso o
+      // mesmo desbloqueio subia duas vezes (uma por apiname) e o servidor
+      // guardava duas linhas para a mesma conquista.
+      const apinameSync = (prev && prev.remoteApiname) || sch.apiname
       if (sch.apiname && (!prev || prev.achieved !== achieved || prev.unlock !== unlock)) {
         p_sync.push({
           appid,
-          apiname: sch.apiname,
+          apiname: apinameSync,
           unlocked_at: unlock || 0,
           achieved,
           title: sch.name,
@@ -293,7 +310,7 @@ async function loadAllSchemas() {
           percent: prev && prev.percent ? prev.percent : 0,
         })
       }
-      items.push({
+      const item = {
         apiname: sch.apiname,
         title: sch.name,
         desc: sch.desc,
@@ -304,7 +321,20 @@ async function loadAllSchemas() {
         achieved,
         unlock,
         percent: prev && prev.percent ? prev.percent : 0,
-      })
+      }
+      // Herda apelidos e a chave do servidor do item anterior: é o que mantém o
+      // casamento (e o push) exatos nas próximas sessões.
+      if (prev) {
+        for (const nome of aliasesOf(prev)) rememberAlias(item, nome)
+        if (prev.remoteApiname) item.remoteApiname = prev.remoteApiname
+      }
+      items.push(item)
+    }
+    // Itens que o pull criou e que o schema local não conhece (apiname de outra
+    // máquina, sem título equivalente) são PRESERVADOS em vez de descartados:
+    // descartar apagava conquista vinda do servidor a cada boot.
+    for (const it of antigos) {
+      if (!usados.has(it)) items.push(it)
     }
     if (p_sync.length) {
       try {
@@ -315,7 +345,17 @@ async function loadAllSchemas() {
         log("achievements/enqueue-sync", e)
       }
     }
-    items.sort((a, b) => a.block - b.block || a.bit - b.bit)
+    // Itens preservados do pull podem não ter block/bit — vão para o fim, sem
+    // contaminar a ordem do schema.
+    const ordem = (it) => (Number.isInteger(it.block) && Number.isInteger(it.bit) ? [it.block, it.bit] : null)
+    items.sort((a, b) => {
+      const x = ordem(a)
+      const y = ordem(b)
+      if (!x && !y) return 0
+      if (!x) return 1
+      if (!y) return -1
+      return x[0] - y[0] || x[1] - y[1]
+    })
     store[appid] = Object.assign({}, store[appid], { items })
     updated++
   }

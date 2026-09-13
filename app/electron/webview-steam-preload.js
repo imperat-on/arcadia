@@ -4,7 +4,7 @@
 //
 // Única injeção: nas páginas de JOGO (/app/<id>) coloca uma barra discreta com
 // ações da Arcadia. O clique vira mensagem para o host
-// (StoreConsole.tsx), que dispara o fluxo de download do próprio Arcadia. Fora
+// (o host da loja), que dispara o fluxo de download do próprio Arcadia. Fora
 // de página de jogo, nenhuma barra. Sem tema/CSS na página.
 const { ipcRenderer } = require("electron")
 

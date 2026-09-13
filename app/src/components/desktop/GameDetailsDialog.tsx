@@ -37,12 +37,12 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
   ]
 
   return (
-    <div
+    <div data-no-drag
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-[520px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
+        className="flex max-h-[85vh] w-[520px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Hero */}
@@ -55,7 +55,7 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
               draggable={false}
             />
           ) : null}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0d0d10]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[color:var(--surface-1)]" />
           <button
             onClick={onClose}
             className="absolute right-3 top-3 rounded-md bg-black/50 p-1.5 text-white/70 transition-colors hover:bg-black/70 hover:text-white"

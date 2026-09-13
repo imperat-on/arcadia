@@ -93,13 +93,13 @@ export function MetodoDownloadDialog({
         : null
 
   return (
-    <div
+    <div data-no-drag
       ref={ref}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div
-        className="w-[440px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5 shadow-2xl"
+      <div data-no-drag
+        className="w-[440px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {etapa === "metodo" && (

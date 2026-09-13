@@ -620,7 +620,7 @@ export function StoreView({
             </button>
           )}
           {sugestoes.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-[#15181d] shadow-2xl shadow-black/60">
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-[color:var(--surface-2)] shadow-2xl shadow-black/60">
               {sugestoes.map((s, i) => (
                 <button
                   key={s.appid}
@@ -744,8 +744,8 @@ export function StoreView({
       {configGame && <GameSettingsDialog game={configGame} onClose={() => setConfigGame(null)} />}
 
       {toast && (
-        <div
-          className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
+        <div data-no-drag
+          className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
           onClick={() => setToast("")}
         >
           {toast}

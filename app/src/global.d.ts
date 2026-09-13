@@ -210,11 +210,9 @@ export interface AppConfig {
   steam_api_key?: string
   steamgriddb_api_key?: string
   steam_id64?: string
+  /** Tamanho da interface: multiplicador relativo (1 = 100%) sobre a base da
+   * skin ativa. Única chave de escala do app — ver electron/ui-scale.js. */
   ui_scale?: number
-  /** Migração: 100% no desktop usa a antiga escala visual de 120%. */
-  desktop_scale_base_v2?: boolean
-  /** Migração: tipografia do desktop passa a iniciar em 110% lógico. */
-  desktop_font_scale_v3?: boolean
   /** API key do Hubcap (catálogo de manifestos Steam, aba Lojas). */
   hubcap_api_key?: string
   /** Tokens dos serviços debrid (aba Integrações). Ter QUALQUER um já basta —
@@ -223,12 +221,8 @@ export interface AppConfig {
   torbox_token?: string
   alldebrid_token?: string
   premiumize_token?: string
-  /** Zoom do modo console (separado do desktop para não conflitarem). */
-  console_ui_scale?: number
+  /** Tamanho das capas da biblioteca (eixo próprio, não é a escala da UI). */
   card_scale?: number
-  /** Padrões do Big Picture migrados para interface 130% e capas 160%. */
-  big_picture_scale_defaults_v2?: boolean
-  big_picture_scale_defaults_v3?: boolean
   accent?: string
   sources?: Sources
   slssteam_path?: string
@@ -246,6 +240,10 @@ export interface AppConfig {
   no_click_outside?: boolean // não fechar diálogos clicando fora
   no_smooth_scroll?: boolean
   no_anim?: boolean
+  /** Navegação por D-pad/analógico/A-B (aba Controle). Padrão: ligada. */
+  enable_controller_navigation?: boolean
+  /** Quanto o analógico esquerdo precisa inclinar para mover o foco (0.15–0.85). */
+  controller_deadzone?: number
   // Configurações Globais → Config. Gerais
   language?: string // ex.: "en-US" (padrão), "pt-BR", "es-ES"
   default_install_path?: string // pasta padrão de instalação de jogos
@@ -1225,13 +1223,14 @@ declare global {
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
+      gamepadStatus: () => Promise<{ ok: boolean; emulator: string; running: boolean }>
       quit: () => Promise<void>
       /** Entra no modo console (PS5, tela cheia) — fecha o desktop. */
       enterConsole: () => Promise<{ ok: boolean; error?: string }>
       toggleFullscreen: () => Promise<void>
       setFullscreen: (on: boolean) => Promise<void>
       setLauncherMode: (mode: "console" | "desktop") => Promise<{ ok: boolean; error?: string }>
-      setZoom: (z: number, modo?: "console" | "desktop") => Promise<number>
+      setUiScale: (rel: number) => Promise<number>
       rebuildMeta: () => Promise<Game[]>
       integrationsStatus: () => Promise<IntegrationsStatus>
       pickImage: (

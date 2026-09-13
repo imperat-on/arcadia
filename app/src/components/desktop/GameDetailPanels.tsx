@@ -138,7 +138,7 @@ const PROTON_CORES: Record<string, string> = {
   gold: "#cfb53b",
   silver: "#a7a7ad",
   bronze: "#cd7f32",
-  borked: "#ff6b81",
+  borked: "var(--state-danger)",
 }
 
 // Painel ProtonDB: tier, Steam Deck e score. Só aparece se houver dados.
@@ -402,7 +402,7 @@ export function GameDescription({ html, fallback }: { html?: string; fallback?: 
           dangerouslySetInnerHTML={{ __html: limpo }}
         />
         {colapsado && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#121216] to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[color:var(--surface-2)] to-transparent" />
         )}
       </div>
       {!temMidia && (
@@ -808,7 +808,7 @@ function ReviewCard({ c, last }: { c: Comment; last: boolean }) {
               {c.author || "Steam"}
             </div>
             <div className="flex items-center gap-2 text-[11px] text-white/40">
-              <span className={c.positive ? "text-[#4adf9a]" : "text-[#ff6b81]"}>
+              <span className={c.positive ? "text-[color:var(--state-success)]" : "text-[color:var(--state-danger)]"}>
                 {c.positive ? "★" : "☆"}{" "}
                 {t(c.positive ? "comentarios.recomenda" : "comentarios.nao_recomenda")}
               </span>

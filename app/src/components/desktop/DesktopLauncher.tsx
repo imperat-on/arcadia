@@ -29,7 +29,7 @@ import { AuthDialog } from "./AuthDialog"
 import { FriendsView } from "./FriendsView"
 import { SyncStatusIndicator } from "./SyncStatusIndicator"
 import { useLibraryState } from "../useLibraryState"
-import { useDownloadBadges } from "../useDownloadBadges"
+import { useDownloadsFeed } from "../downloads/useDownloadsFeed"
 import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 import { useMode } from "../ModeContext"
 import { useGameActions, type GameActions, type GameLaunchResult } from "../useGameActions"
@@ -61,12 +61,12 @@ function AutoOpenLogin({
   useEffect(() => {
     if (status === "logado") onLogado?.()
   }, [status, onLogado])
-  if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   // Sessão pronta, mas perfil online ainda não carregou (display_name/avatar) —
   // segura o splash até resolver (evita o flash do nome)
-  if (status === "logado" && !perfil) return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  if (status === "logado" && !perfil) return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   if (status === "deslogado" && !dispensado && !abriu.current) {
-    return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+    return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   }
   return null
 }
@@ -82,6 +82,9 @@ export function DesktopLauncher() {
   const { setMode } = useMode()
   const [view, setView] = useState<DesktopView>("inicio")
   const [configSub, setConfigSub] = useState<ConfigSub>("gerais")
+  // Cada navegação entregue pelo shell incrementa isto; entra na `key` do
+  // conteúdo para a aba sempre começar limpa (ver irPara).
+  const [navegacao, setNavegacao] = useState(0)
   const {
     games,
     setGames,
@@ -89,9 +92,11 @@ export function DesktopLauncher() {
     setProfile,
     config: cfg,
     libraryLoaded,
+    configLoaded,
     reloadLibrary,
   } = useLibraryState()
-  const downloadsActive = useDownloadBadges({ includeTorrents: true })
+  const downloadsFeed = useDownloadsFeed()
+  const downloadsActive = downloadsFeed.ativosCount
   const [baixado, setBaixado] = useState<{ appid: string; title: string } | null>(null)
   const [confirmBigPicture, setConfirmBigPicture] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
@@ -234,6 +239,24 @@ export function DesktopLauncher() {
     })
   }, [])
 
+  // Navegação do shell: TODA troca de aba passa por aqui.
+  //
+  // Cada ponto de entrada fazia o seu próprio `setView` e dois bugs vinham
+  // disso: (1) "Meu perfil" — e os atalhos de downloads da loja — não limpavam
+  // a página de jogo aberta, e as páginas do shell não checam a aba, então
+  // clicar em "Meu perfil" não mudava nada na tela; (2) reabrir a aba em que já
+  // se está não remontava o conteúdo, então um detalhe aberto DENTRO da aba
+  // (loja, início, biblioteca) engolia o clique.
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const irPara = useCallback((destino: DesktopView) => {
+    setJogoPagina(null)
+    setRetroPaginaJogo(null)
+    setShowEditProfile(false)
+    if (viewRef.current === destino) setNavegacao((n) => n + 1)
+    setView(destino)
+  }, [])
+
   const instalar = useCallback((g: Game) => {
     if (g.launcher === "steam") {
       const appid = String(g.id).replace(/^steam:/, "")
@@ -252,15 +275,12 @@ export function DesktopLauncher() {
 
   useEffect(() => {
     if (!libraryLoaded) return
-    const requested = Number(cfg.ui_scale)
-    const promoteDefault = cfg.desktop_font_scale_v3 !== true && (!Number.isFinite(requested) || requested === 1)
-    const safeScale = Math.min(1.1, Math.max(.7, promoteDefault ? 1.1 : (Number.isFinite(requested) ? requested : 1.1)))
-    if (cfg.ui_scale !== safeScale || cfg.desktop_font_scale_v3 !== true) {
-      window.launcherAPI?.setConfig({ ui_scale: safeScale, desktop_font_scale_v3: true })
-    }
-    window.launcherAPI?.setZoom(safeScale, "desktop")
+    if (!configLoaded) return
+    // A escala da UI é uma chave só e quem aplica é o processo principal
+    // (electron/ui-scale.js), inclusive na troca de modo. Aqui só sobra a
+    // acessibilidade (fontes, animações, tema).
     aplicarA11y(cfg)
-  }, [cfg, libraryLoaded])
+  }, [cfg, configLoaded, libraryLoaded])
 
   useEffect(() => {
     const offDl = window.launcherAPI?.onStoreDownloaded((d) => setBaixado(d))
@@ -297,18 +317,14 @@ export function DesktopLauncher() {
       <WindowControls />
       <Sidebar
         view={view}
-        onView={(v) => {
-          setJogoPagina(null)
-          setRetroPaginaJogo(null)
-          setView(v)
-        }}
+        onView={irPara}
         downloadsActive={downloadsActive}
         onQuit={() => window.launcherAPI?.quit()}
         onBigPicture={() => setConfirmBigPicture(true)}
         configSub={configSub}
         onConfigSub={setConfigSub}
         profile={profile}
-        onProfile={() => setView("perfil")}
+        onProfile={() => irPara("perfil")}
         onLogout={() => {
           setContaAberta(true)
           setAposLogout(true)
@@ -318,14 +334,13 @@ export function DesktopLauncher() {
         librarySidebar={librarySidebar}
         onToggleLibrarySidebar={toggleLibrarySidebar}
         onOpenGame={(g) => {
-          setView("biblioteca")
-          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca)
+          // Jogos Retro abrem a loja Retro (mesma tela que na biblioteca).
+          // irPara já limpa as duas páginas antes de abrir a escolhida.
+          irPara("biblioteca")
           if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
             setRetroPaginaJogo(g)
-            setJogoPagina(null)
           } else {
             setJogoPagina(g)
-            setRetroPaginaJogo(null)
           }
         }}
         onAddGame={() => setAdicionando(true)}
@@ -333,12 +348,12 @@ export function DesktopLauncher() {
       />
 
       <main
-        key={view}
+        key={`${view}:${navegacao}`}
         className="desktop-retro-main view-in flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.06]"
       >
         <DesktopHeader />
         <div className="min-h-0 flex-1 overflow-hidden">
-        {jogoPagina && String(jogoPagina.id).startsWith("steam:") && (
+        {view === "biblioteca" && jogoPagina && String(jogoPagina.id).startsWith("steam:") && (
               <StoreGamePage
                 embedded
                 jogo={{
@@ -352,7 +367,6 @@ export function DesktopLauncher() {
                 game={jogoPagina}
                 onClose={() => setJogoPagina(null)}
                 onBaixar={() => instalar(jogoPagina)}
-                onAdicionar={() => {}}
                 onConfig={() => setJogoConfig(jogoPagina)}
                 onRemover={() => {
                   window.launcherAPI
@@ -376,7 +390,7 @@ export function DesktopLauncher() {
                 ocupado={gameRunning}
               />
             )}
-            {jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
+            {view === "biblioteca" && jogoPagina && !String(jogoPagina.id).startsWith("steam:") && !(jogoPagina.launcher === "retro" || jogoPagina.retro === true || String(jogoPagina.id).startsWith("retro:")) && (
               <GamePage
                 embedded
                 game={jogoPagina}
@@ -400,7 +414,7 @@ export function DesktopLauncher() {
                   initialGameId={retroPaginaJogo.id}
                   initialGame={retroPaginaSeed}
                   onExit={() => setRetroPaginaJogo(null)}
-                  onOpenDownloads={() => setView("downloads")}
+                  onOpenDownloads={() => irPara("downloads")}
                   onLaunchGame={(game) => { void launchDesktopGame(game) }}
                 />
               </div>
@@ -424,13 +438,13 @@ export function DesktopLauncher() {
                 appFocused={appFocused}
                 gameRunning={gameRunning}
                 runningGameId={jogoAtivo.jogo?.id}
-                onOpenDownloads={() => setView("downloads")}
+                onOpenDownloads={() => irPara("downloads")}
                 onLaunchGame={(game) => { void launchDesktopGame(game) }}
               />
             )}
             {!jogoPagina && view === "plugins" && <PluginsView />}
-            {!jogoPagina && view === "downloads" && <DownloadsView />}
-            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => setView("downloads")} />}
+            {!jogoPagina && view === "downloads" && <DownloadsView feed={downloadsFeed} />}
+            {!jogoPagina && view === "fontes" && <SourcesView onOpenDownloads={() => irPara("downloads")} />}
             {!jogoPagina && view === "amigos" && <FriendsView games={games} />}
             {!jogoPagina && view === "perfil" && (
               <ProfilePage
@@ -439,17 +453,15 @@ export function DesktopLauncher() {
                 navActive={!showEditProfile}
                 profile={perfil ? { ...profile, name: perfil.display_name || perfil.username || profile.name, avatar: perfil.avatar_url ?? "", background: perfil.background_url ?? "", banner: perfil.banner_url ?? "" } : profile}
                 games={games}
-                onClose={() => setView("inicio")}
+                onClose={() => irPara("inicio")}
                 onEdit={() => setShowEditProfile(true)}
                 onJogoClick={(g) => {
                   // Mesma tela de quando clica no jogo na Biblioteca.
-                  setView("biblioteca")
+                  irPara("biblioteca")
                   if (g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")) {
                     setRetroPaginaJogo(g)
-                    setJogoPagina(null)
                   } else {
                     setJogoPagina(g)
-                    setRetroPaginaJogo(null)
                   }
                 }}
               />
@@ -493,7 +505,7 @@ export function DesktopLauncher() {
 
       {baixado && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl">
+          <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl">
             <h3 className="mb-2 text-lg font-semibold text-white">
               {t("desktop.store.download_concluido")}
             </h3>
@@ -545,12 +557,12 @@ export function DesktopLauncher() {
       />
 
       {confirmBigPicture && (
-        <div
+        <div data-no-drag
           className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setConfirmBigPicture(false)}
         >
-          <div
-            className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+          <div data-no-drag
+            className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-lg font-semibold text-white">

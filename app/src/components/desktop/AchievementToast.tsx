@@ -75,7 +75,7 @@ function ToastItem({
 
   return (
     <div
-      className="pointer-events-auto relative flex items-center gap-3 rounded-xl border border-white/10 bg-[#1c1c22]/95 px-3 py-2.5 shadow-2xl shadow-black/60 backdrop-blur-md"
+      className="pointer-events-auto relative flex items-center gap-3 rounded-xl border border-white/10 bg-[color:var(--surface-3)]/95 px-3 py-2.5 shadow-2xl shadow-black/60 backdrop-blur-md"
       style={{
         minWidth: "280px",
         maxWidth: "360px",
@@ -109,7 +109,7 @@ function ToastItem({
         </div>
       )}
       <div className="flex min-w-0 flex-col">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f5a623]">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--state-warn)]">
           {heading}
         </div>
         <div className="truncate text-[13px] font-semibold text-white">{item.title}</div>

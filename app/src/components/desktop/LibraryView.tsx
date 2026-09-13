@@ -162,7 +162,6 @@ export function LibraryView({
           game={paginaLoja}
           onClose={() => setPaginaLoja(null)}
           onBaixar={() => instalar(paginaLoja)}
-          onAdicionar={() => {}}
           onRemover={() => {
             window.launcherAPI
               ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
@@ -237,11 +236,11 @@ export function LibraryView({
             onChange={(e) => setCatFiltro(e.target.value)}
             className="appearance-none rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-medium text-white/70 outline-none transition-colors focus:border-[color:var(--accent)]"
           >
-            <option value="todas" className="bg-[#16161a]">
+            <option value="todas" className="bg-[color:var(--surface-2)]">
               {t("library.categorias")}
             </option>
             {categorias.map((c) => (
-              <option key={c} value={c} className="bg-[#16161a]">
+              <option key={c} value={c} className="bg-[color:var(--surface-2)]">
                 {c}
               </option>
             ))}
@@ -475,7 +474,7 @@ function Card({
         e.preventDefault()
         onMenu?.(e.clientX, e.clientY)
       }}
-      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#121216] transition-colors hover:border-white/25"
+      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[color:var(--surface-2)] transition-colors hover:border-white/25"
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-black">
         <Capa game={g} apagada={!instalado && !tilesColor} />

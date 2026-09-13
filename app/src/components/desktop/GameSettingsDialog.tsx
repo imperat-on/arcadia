@@ -210,7 +210,7 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
             style={{ background: "var(--accent)" }}
           >
             i
-            <span className="pointer-events-none absolute right-0 top-5 z-50 w-56 rounded-lg border border-white/10 bg-[#1a1a20] px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-white/80 opacity-0 shadow-xl transition-opacity duration-100 group-hover/tip:opacity-100">
+            <span className="pointer-events-none absolute right-0 top-5 z-50 w-56 rounded-lg border border-white/10 bg-[color:var(--surface-3)] px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-white/80 opacity-0 shadow-xl transition-opacity duration-100 group-hover/tip:opacity-100">
               {hint}
             </span>
           </span>
@@ -221,12 +221,12 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
   )
 
   return (
-    <div
+    <div data-no-drag
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex h-[70vh] w-[720px] max-w-[94vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111] shadow-2xl"
+        className="flex h-[70vh] w-[720px] max-w-[94vw] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Título */}
@@ -292,11 +292,11 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                     onChange={(e) => set({ wineVersion: e.target.value || undefined })}
                     className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
                   >
-                    <option value="" className="bg-[#16161a]">
+                    <option value="" className="bg-[color:var(--surface-2)]">
                       {t("gamesettings.wine_padrao")}
                     </option>
                     {wines.map((w) => (
-                      <option key={w.id} value={w.id} className="bg-[#16161a]">
+                      <option key={w.id} value={w.id} className="bg-[color:var(--surface-2)]">
                         {w.name}
                       </option>
                     ))}
@@ -462,16 +462,16 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                   onChange={(e) => set({ dxvkHud: e.target.value || undefined })}
                   className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
                 >
-                  <option value="" className="bg-[#16161a]">
+                  <option value="" className="bg-[color:var(--surface-2)]">
                     {t("gamesettings.dxvk_hud_off")}
                   </option>
-                  <option value="fps" className="bg-[#16161a]">
+                  <option value="fps" className="bg-[color:var(--surface-2)]">
                     {t("gamesettings.dxvk_hud_fps")}
                   </option>
-                  <option value="frametimes" className="bg-[#16161a]">
+                  <option value="frametimes" className="bg-[color:var(--surface-2)]">
                     {t("gamesettings.dxvk_hud_frametimes")}
                   </option>
-                  <option value="full" className="bg-[#16161a]">
+                  <option value="full" className="bg-[color:var(--surface-2)]">
                     {t("gamesettings.dxvk_hud_completo")}
                   </option>
                 </select>
@@ -888,12 +888,12 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                       className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
                     >
                       {!gamescopeHasPresetResolution && (
-                        <option value={gamescopeResolution} className="bg-[#16161a]">
+                        <option value={gamescopeResolution} className="bg-[color:var(--surface-2)]">
                           {gamescopeResolution} ({t("gamesettings.gamescope_custom")})
                         </option>
                       )}
                       {GAMESCOPE_RESOLUTIONS.map((resolution) => (
-                        <option key={resolution} value={resolution} className="bg-[#16161a]">
+                        <option key={resolution} value={resolution} className="bg-[color:var(--surface-2)]">
                           {resolution}
                         </option>
                       ))}
@@ -915,13 +915,13 @@ export function GameSettingsDialog({ game, onClose }: { game: Game; onClose: () 
                       }}
                       className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none transition-colors focus:border-[color:var(--accent)]"
                     >
-                      <option value="fullscreen" className="bg-[#16161a]">
+                      <option value="fullscreen" className="bg-[color:var(--surface-2)]">
                         {t("gamesettings.gamescope_window_fullscreen")}
                       </option>
-                      <option value="borderless" className="bg-[#16161a]">
+                      <option value="borderless" className="bg-[color:var(--surface-2)]">
                         {t("gamesettings.gamescope_window_borderless")}
                       </option>
-                      <option value="windowed" className="bg-[#16161a]">
+                      <option value="windowed" className="bg-[color:var(--surface-2)]">
                         {t("gamesettings.gamescope_window_windowed")}
                       </option>
                     </select>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { WineVer, ArtCandidate, EmulatorInfo } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
@@ -51,22 +51,32 @@ export function AddGameDialog({
   const [candidatas, setCandidatas] = useState<ArtCandidate[]>([])
   const [buscandoArte, setBuscandoArte] = useState(false)
   const [capaEscolhida, setCapaEscolhida] = useState("")
+  const buscaArteId = useRef(0)
 
   // Editando: o id é o do próprio jogo (preserva configs/arte). Novo: do slug.
   const id = useMemo(() => editGame?.id || `custom:${slug(titulo) || "jogo"}`, [titulo, editGame])
 
   // Debounce: 700ms após parar de digitar, busca capas e mostra previews.
   useEffect(() => {
+    const requestId = ++buscaArteId.current
     const q = titulo.trim()
     setCandidatas([])
     setCapaEscolhida("")
-    if (q.length < 3) return
+    if (q.length < 3) {
+      setBuscandoArte(false)
+      return
+    }
     setBuscandoArte(true)
     const t = setTimeout(() => {
       window.launcherAPI
         ?.searchArt(id, q, "cover")
-        .then((r) => setCandidatas((r?.candidatos || []).slice(0, 4)))
-        .finally(() => setBuscandoArte(false))
+        .then((r) => {
+          if (requestId !== buscaArteId.current) return
+          setCandidatas((r?.candidatos || []).slice(0, 4))
+        })
+        .finally(() => {
+          if (requestId === buscaArteId.current) setBuscandoArte(false)
+        })
     }, 700)
     return () => clearTimeout(t)
   }, [titulo, id])
@@ -245,12 +255,12 @@ export function AddGameDialog({
   )
 
   return (
-    <div
+    <div data-no-drag
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div
-        className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
+      <div data-no-drag
+        className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between px-6 pt-5">
@@ -353,13 +363,13 @@ export function AddGameDialog({
                 onChange={(e) => setPlatform(e.target.value as "windows" | "linux" | "emulator")}
                 className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
               >
-                <option value="windows" className="bg-[#16161a]">
+                <option value="windows" className="bg-[color:var(--surface-2)]">
                   {t("addgame.windows")}
                 </option>
-                <option value="linux" className="bg-[#16161a]">
+                <option value="linux" className="bg-[color:var(--surface-2)]">
                   {t("addgame.linux_nativo")}
                 </option>
-                <option value="emulator" className="bg-[#16161a]">
+                <option value="emulator" className="bg-[color:var(--surface-2)]">
                   {t("addgame.emulador_rom")}
                 </option>
               </select>
@@ -416,11 +426,11 @@ export function AddGameDialog({
                       onChange={(e) => setWineVersion(e.target.value)}
                       className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                     >
-                      <option value="" className="bg-[#16161a]">
+                      <option value="" className="bg-[color:var(--surface-2)]">
                         {t("addgame.padrao_sistema")}
                       </option>
                       {wines.map((w) => (
-                        <option key={w.id} value={w.id} className="bg-[#16161a]">
+                        <option key={w.id} value={w.id} className="bg-[color:var(--surface-2)]">
                           {w.name}
                         </option>
                       ))}
@@ -451,9 +461,9 @@ export function AddGameDialog({
                     }}
                     className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                   >
-                    <option value="" className="bg-[#16161a]">{t("addgame.selecione")}</option>
+                    <option value="" className="bg-[color:var(--surface-2)]">{t("addgame.selecione")}</option>
                     {emulators.map((item) => (
-                      <option key={item.id} value={item.id} className="bg-[#16161a]">
+                      <option key={item.id} value={item.id} className="bg-[color:var(--surface-2)]">
                         {item.name} · {item.systems.join(" / ")}{item.available ? "" : t("emulador.nao_detectado_sufixo")}
                       </option>
                     ))}
@@ -524,7 +534,7 @@ export function AddGameDialog({
               />
             </>
           )}
-          {erro && <p className="mb-2 text-[12px] text-[#ff6b81]">{erro}</p>}
+          {erro && <p className="mb-2 text-[12px] text-[color:var(--state-danger)]">{erro}</p>}
         </div>
 
         <div className="flex justify-end gap-2.5 border-t border-white/[0.06] px-6 py-4">

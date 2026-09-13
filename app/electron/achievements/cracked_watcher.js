@@ -35,6 +35,7 @@ const {
   uplayRuntimePath,
   uplaySaveRoot,
 } = require("./uplay")
+const { aliasesOf } = require("./match")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
@@ -462,14 +463,26 @@ function resolvePrefixo(appid, entry) {
   return path.join(COMPATDATA, String(appid), "pfx")
 }
 
+// Índice apiname → item. Inclui os APELIDOS: o arquivo de conquista do crack
+// pode usar a chave real ("ACH01") enquanto o item local ficou com a sintética
+// ("ach_01") do fallback de scrape — sem os apelidos o desbloqueio local seria
+// silenciosamente ignorado.
+function indicePorApiname(items) {
+  const idx = new Map()
+  for (const it of Array.isArray(items) ? items : []) {
+    for (const nome of aliasesOf(it)) {
+      const chave = nome.toLowerCase()
+      if (!idx.has(chave)) idx.set(chave, it)
+    }
+  }
+  return idx
+}
+
 // Resolve um registro do UPC para o item do Arcadia. O loader atual grava
 // somente a chave decimal ("40"), enquanto o catálogo Steam usa, neste jogo,
 // ACObsidian_Ach_40. Nunca usamos a posição do array quando há um ID explícito.
 function itemParaDesbloqueio(items, desbloqueio, registro) {
-  const byName = new Map()
-  for (const item of items) {
-    if (item && item.apiname) byName.set(String(item.apiname).toLowerCase(), item)
-  }
+  const byName = indicePorApiname(items)
   if (registro?.name === "upc") {
     // O Goldberg/vozes38 numera o runtime numa ordem PRÓPRIA que não corresponde
     // ao número do apiname (permutações: id 44 = "Amigo dos Bichos", id 46 =
@@ -707,14 +720,11 @@ function iniciarVigia(onUnlock, onRevoke = null) {
         const desbloqueadas = parseFLT(fltDir)
         if (!desbloqueadas.length) continue
 
-        const indexPorApiname = new Map()
-        for (const it of items) {
-          if (it.apiname) indexPorApiname.set(it.apiname.toLowerCase(), it)
-        }
+        const indice = indicePorApiname(items)
 
         let atualizou = false
         for (const d of desbloqueadas) {
-          const it = indexPorApiname.get(String(d.name).toLowerCase())
+          const it = indice.get(String(d.name).toLowerCase())
           if (!it) continue
           if (it.achieved) continue
 
@@ -768,10 +778,7 @@ function iniciarVigia(onUnlock, onRevoke = null) {
           cacheMtime.set(cacheKey(ef.file), mtime)
           const desbloqueadas = ef.parse(fs.readFileSync(ef.file, "utf-8"))
           if (!desbloqueadas || !desbloqueadas.length) continue
-          const idx = new Map()
-          for (const it of items) {
-            if (it.apiname) idx.set(it.apiname.toLowerCase(), it)
-          }
+          const idx = indicePorApiname(items)
           let mudou = false
           for (const d of desbloqueadas) {
             const it = idx.get(String(d.name).toLowerCase())

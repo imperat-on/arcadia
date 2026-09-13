@@ -9,6 +9,7 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 const { loadItemIndex, ACHIEVEMENTS_STORE_FILE, STORE_TTL_MS } = require("./schema")
+const { log } = require("./../debug")
 
 const { findSteamDir } = require("./../steam-path")
 const STATS_DIR = path.join(findSteamDir(), "appcache", "stats")
@@ -182,6 +183,9 @@ function parseAchievementsHtml(page) {
     const titleM = /<h3>([\s\S]*?)<\/h3>/.exec(b)
     if (!iconM || !titleM) continue
     const descM = /<h5>([\s\S]*?)<\/h5>/.exec(b)
+    // Percentual de jogadores com a conquista. A página usa "." (80.8%), mas o
+    // locale pt-BR pode trazer ","; a normalização fica em percentKey().
+    const pctM = /achievePercent">([\d.,]+)%</.exec(b)
     const unesc = (s) =>
       s
         .replace(/&amp;/g, "&")
@@ -195,6 +199,7 @@ function parseAchievementsHtml(page) {
       desc: descM ? unesc(descM[1]).trim() : "",
       icon: iconM[1],
       icongray: iconM[1],
+      percent: pctM ? Number(String(pctM[1]).replace(",", ".")) : null,
     })
   }
   return out
@@ -208,6 +213,64 @@ function fetchConsentUrl(appid) {
   )
 }
 
+// --- Apiname real das conquistas da página ----------------------------------
+// A página pública deixou de expor o apiname no HTML (as <div class="achieveRow">
+// vêm sem atributo id), então o scrape sozinho só consegue numerar as linhas
+// ("ach_01", "ach_02"...). Essa numeração é DESTA página: não bate com o apiname
+// real da Steam ("ACH01") nem com a máquina que leu o schema do bin. A mesma
+// conquista ficava com duas chaves e o sync não conseguia casá-las.
+//
+// O percentual de jogadores é o mesmo número nos dois lados e é o que amarra a
+// linha da página ao nome da API pública. Só entra percentual que aparece UMA
+// vez em cada lado: percentual repetido é ambíguo e mantém o nome sintético.
+
+function percentKey(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(1) : null
+}
+
+// Pura (e testável): recebe as linhas da página (com `percent`) e a lista da API
+// ({ name, percent }) e devolve as linhas com o apiname real preenchido.
+function apinamesByPercent(items, percentuais) {
+  const lista = Array.isArray(items) ? items : []
+  const daApi = new Map()
+  for (const a of Array.isArray(percentuais) ? percentuais : []) {
+    const p = percentKey(a && a.percent)
+    const nome = a && a.name ? String(a.name) : ""
+    if (!p || !nome) continue
+    daApi.set(p, daApi.has(p) ? null : nome)
+  }
+  const repeticoes = new Map()
+  for (const it of lista) {
+    const p = percentKey(it && it.percent)
+    if (!p) continue
+    repeticoes.set(p, (repeticoes.get(p) || 0) + 1)
+  }
+  return lista.map((it, i) => {
+    const sintetico = "ach_" + String(i + 1).padStart(2, "0")
+    if (it.apiname) return it
+    const p = percentKey(it.percent)
+    const nome = p && repeticoes.get(p) === 1 ? daApi.get(p) : null
+    return { ...it, apiname: nome || sintetico }
+  })
+}
+
+async function fetchApinamesDaApi(appid, signal) {
+  try {
+    const res = await fetch(
+      "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=" +
+        appid,
+      { signal },
+    )
+    if (!res.ok) return []
+    const dados = await res.json()
+    return dados?.achievementpercentages?.achievements || []
+  } catch (e) {
+    log("achievements/apinames-api", e)
+    return []
+  }
+}
+
 // Conquistas do jogo (não precisa estar na biblioteca). Cache próprio em
 // achievements_store.json (30d) — jogos da loja ficam fora do achievements.json.
 async function fetchAchievementsForApp(appid) {
@@ -218,8 +281,12 @@ async function fetchAchievementsForApp(appid) {
   } catch {}
 
   const ent = store[appid]
-  if (ent && ent.items?.length && Date.now() - ent.at < STORE_TTL_MS) {
-    return ent.items
+  const cache = ent && ent.items?.length ? ent.items : null
+  // Cache cujos apinames são TODOS sintéticos não é autoritativo: o nome real
+  // existe e é a chave do sync. Refaz agora em vez de servir por 30 dias.
+  const soSintetico = Boolean(cache) && cache.every((it) => /^ach_\d+$/.test(String(it?.apiname || "")))
+  if (cache && !soSintetico && Date.now() - ent.at < STORE_TTL_MS) {
+    return cache
   }
 
   const ctl = AbortSignal.timeout(15000)
@@ -238,6 +305,11 @@ async function fetchAchievementsForApp(appid) {
     if (res2.ok) items = parseAchievementsHtml(await res2.text())
   }
 
+  // Apiname real pelo percentual (a página não expõe mais o id).
+  if (items.some((it) => !it.apiname)) {
+    items = apinamesByPercent(items, await fetchApinamesDaApi(appid, ctl))
+  }
+
   const out = items.map((it, i) => ({
     apiname: it.apiname || "ach_" + String(i + 1).padStart(2, "0"),
     title: it.title,
@@ -248,7 +320,8 @@ async function fetchAchievementsForApp(appid) {
     bit: null,
     achieved: false,
     unlock: 0,
-    percent: 0,
+    // Percentual de jogadores (a página traz; era descartado).
+    percent: Number.isFinite(it.percent) ? it.percent : 0,
   }))
 
   // Vazio não vai pro cache: pode ser falha de parse transitória, e um cache
@@ -269,5 +342,7 @@ module.exports = {
   progressMap,
   startSteamBinWatcher,
   fetchAchievementsForApp,
+  parseAchievementsHtml,
+  apinamesByPercent,
   STATS_DIR,
 }

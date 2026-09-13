@@ -137,11 +137,11 @@ export function FriendsView({ games }: { games: Game[] }) {
       }}
       className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-40 ${
         cor === "azul"
-          ? "bg-[#0072ce]/85 text-white hover:bg-[#0072ce] hover:shadow-[0_0_18px_rgba(0,114,206,0.4)]"
+          ? "bg-[color:var(--brand-steam)]/85 text-white hover:bg-[color:var(--brand-steam)] hover:shadow-[0_0_18px_rgba(0,114,206,0.4)]"
           : cor === "verde"
-            ? "bg-[#4adf9a]/15 text-[#4adf9a] hover:bg-[#4adf9a]/25"
+            ? "bg-[color:var(--state-success)]/15 text-[color:var(--state-success)] hover:bg-[color:var(--state-success)]/25"
             : cor === "laranja"
-              ? "bg-[#f5a623]/15 text-[#f5a623] hover:bg-[#f5a623]/25"
+              ? "bg-[color:var(--state-warn)]/15 text-[color:var(--state-warn)] hover:bg-[color:var(--state-warn)]/25"
               : "border border-white/10 text-white/50 hover:text-white"
       }`}
     >
@@ -149,17 +149,25 @@ export function FriendsView({ games }: { games: Game[] }) {
     </button>
   )
 
+  // Pedido ENVIADO e ainda pendente não é ação: é estado. Como botão, o clique
+  // não fazia nada (e a cor laranja prometia uma ação que não existia).
+  const seloPendente = (label: string) => (
+    <span className="shrink-0 rounded-lg bg-[color:var(--state-warn)]/15 px-3 py-1.5 text-xs font-semibold text-[color:var(--state-warn)]">
+      {label}
+    </span>
+  )
+
   const card = (
     p: { id: string; username: string; display_name?: string | null; avatar_url?: string | null; since?: string | null; status?: "pending" | "accepted" | null },
     acoes?: React.ReactNode,
     clicavel = false,
   ) => (
-    <div
+    <div data-no-drag
       key={p.id}
       onClick={clicavel ? () => setAmigoPerfil(p as FriendProfile) : undefined}
       className={`group flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 transition-all ${
         clicavel
-          ? "cursor-pointer hover:border-[#00a8ff]/40 hover:bg-white/[0.06] hover:shadow-[0_0_24px_rgba(0,168,255,0.12)]"
+          ? "cursor-pointer hover:border-[color:var(--accent)]/40 hover:bg-white/[0.06] hover:shadow-[0_0_24px_rgba(0,168,255,0.12)]"
           : ""
       }`}
     >
@@ -215,8 +223,8 @@ export function FriendsView({ games }: { games: Game[] }) {
         <div
           className={`arc-fade-in mb-4 rounded-xl border px-3.5 py-2.5 text-xs ${
             feedback.cor === "ok"
-              ? "border-[#4adf9a]/25 bg-[#4adf9a]/[0.07] text-[#4adf9a]"
-              : "border-[#ff6b81]/25 bg-[#ff6b81]/[0.07] text-[#ff6b81]"
+              ? "border-[color:var(--state-success)]/25 bg-[color:var(--state-success)]/[0.07] text-[color:var(--state-success)]"
+              : "border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.07] text-[color:var(--state-danger)]"
           }`}
         >
           {feedback.texto}
@@ -235,7 +243,7 @@ export function FriendsView({ games }: { games: Game[] }) {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder={t("amigos.busca_placeholder")}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-4 text-sm text-white placeholder-white/25 outline-none transition-all focus:border-[#00a8ff]/60 focus:shadow-[0_0_0_3px_rgba(0,168,255,0.12)]"
+          className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-4 text-sm text-white placeholder-white/25 outline-none transition-all focus:border-[color:var(--accent)]/60 focus:shadow-[0_0_0_3px_rgba(0,168,255,0.12)]"
         />
         {buscando && (
           <span
@@ -263,7 +271,7 @@ export function FriendsView({ games }: { games: Game[] }) {
                     r,
                     r.incoming
                       ? botaoAcao(t("amigos.aceitar"), () => aceitar(r.id), "verde")
-                      : botaoAcao(t("amigos.pendente"), () => {}, "laranja"),
+                      : seloPendente(t("amigos.pendente")),
                   )
                 return card(r, botaoAcao(t("amigos.adicionar"), () => enviar(r.id)))
               })}
@@ -289,7 +297,7 @@ export function FriendsView({ games }: { games: Game[] }) {
               ),
             )}
           </div>,
-          "#f5a623",
+          "var(--state-warn)",
         )}
 
       {/* Pedidos enviados */}
