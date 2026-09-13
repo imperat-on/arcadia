@@ -23,7 +23,7 @@ const path = require("node:path")
 // Constants da arquitetura Sony DualSense / DS4. Também reconhecemos qualquer
 // joystick que NÃO seja XInput nativo (para jogos Windows via Proton/Wine).
 const SONY_VENDOR = 0x054c
-const SONY_PRODUCTS = new Set([0x09cc, 0x0ce6, 0x05c4, 0x05ce])
+const SONY_PRODUCTS = new Set([0x09cc, 0x0df2, 0x0ce6, 0x05c4, 0x05ce])
 // Vendor do Xbox (XInput nativo) — NÃO precisa do wrapper: o kernel já o expõe
 // como XInput e o Wine o enxerga direto.
 const XBOX_VENDOR = 0x045e
