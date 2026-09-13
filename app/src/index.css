@@ -642,6 +642,27 @@ input,
 }
 
 /* ─── Vidro (blur) ─────────────────────────────────────────────────────────
+   Classes utilitárias de superfície translúcida. Usar em vez de repetir
+   backdrop-filter solto: garante o mesmo véu/borda sobre o OLED em todo lugar.
+   .glass-3 tem fallback opaco quando o compositor não suporta blur. */
+.glass-1,
+.glass-2,
+.glass-3 {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--blur-1));
+  backdrop-filter: blur(var(--blur-1));
+}
+.glass-2 {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--blur-2));
+  backdrop-filter: blur(var(--blur-2));
+}
+.glass-3 {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur-3)) saturate(1.3);
+  backdrop-filter: blur(var(--blur-3)) saturate(1.3);
+}
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-1 {
     background: #0b0b0d;
@@ -2023,9 +2044,8 @@ select:disabled {
   box-shadow: 0 5px 20px rgba(0,0,0,.28);
 }
 
-/* Player persistente do tema Arcadia. A barra ocupa todo o rodapé do desktop,
-
-
+/* A regra .desktop-with-music saiu junto com o player antigo; este @media
+   sobrevive porque a pílula de sincronização ainda existe. */
 @media (max-width: 560px) {
   .desktop-sync-status { bottom: 50px !important; }
 }

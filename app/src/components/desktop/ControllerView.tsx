@@ -53,8 +53,15 @@ export function ControllerView() {
     window.launcherAPI?.setConfig?.(patch)
   }
 
-  // Consulta o status do emulador XInput no main (IPC se existir).
+  // Consulta o status do emulador XInput no main (IPC se existir). O emulador é
+  // Linux-only (/dev/uinput): no Windows o pad já é XInput nativo e o wrapper
+  // nunca sobe — prometer "será ativado ao abrir um jogo" seria mentira.
+  const emuladorDisponivel = (window.launcherPlatform || "linux") === "linux"
   useEffect(() => {
+    if (!emuladorDisponivel) {
+      setStatusEmulador("indisponivel")
+      return
+    }
     const launcher = window as unknown as {
       launcherAPI?: { gamepadStatus?: () => Promise<{ emulator: string; running: boolean }> }
     }
@@ -70,7 +77,7 @@ export function ControllerView() {
     check()
     const id = setInterval(check, 3000)
     return () => clearInterval(id)
-  }, [])
+  }, [emuladorDisponivel])
 
   const controleConectado = Boolean(primeiro)
 

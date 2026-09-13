@@ -273,6 +273,14 @@ test("a aba Controle está ligada na sidebar e renderiza o ControllerView", () =
   assert.match(settings, /\{sub === "controle" && <ControllerView \/>\}/)
 })
 
+test("a aba Controle não promete emulador no Windows (uinput é Linux-only)", () => {
+  // No Windows o pad já é XInput nativo: o wrapper nunca sobe. Dizer "inativo —
+  // será ativado ao abrir um jogo" ali seria mentira.
+  const fonte = ler("src", "components", "desktop", "ControllerView.tsx")
+  assert.match(fonte, /\(window\.launcherPlatform \|\| "linux"\) === "linux"/)
+  assert.match(fonte, /setStatusEmulador\("indisponivel"\)/)
+})
+
 test("toda chave i18n usada pelas telas de controle existe nos 3 catálogos", () => {
   const catalogos = ["pt-BR", "en-US", "es-ES"].map((n) =>
     JSON.parse(ler("src", "i18n", `${n}.json`)),
