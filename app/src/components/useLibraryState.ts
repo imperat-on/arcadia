@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { setControllerConfig } from "./controllerConfig"
 import type { Profile } from "../global"
 import type { Game } from "./ps5-launcher/types"
 
@@ -23,6 +24,13 @@ export function useLibraryState(initialGames: Game[] = []) {
       if (cfg) {
         setConfig(cfg)
         setProfile(cfg.profile || {})
+        // Semeia o cache dos laços de gamepad: eles leem zona morta e
+        // liga/desliga a 60fps, fora do React, e um config salvo precisa valer
+        // já no primeiro quadro.
+        setControllerConfig({
+          enable_controller_navigation: cfg.enable_controller_navigation,
+          controller_deadzone: cfg.controller_deadzone,
+        })
       }
     } catch {
       // Configuração indisponível não deve impedir o boot da interface.

@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   diagnostics: () => ipcRenderer.invoke("app:diagnostics"),
   diagnosticsExport: () => ipcRenderer.invoke("app:diagnosticsExport"),
   setConfig: (cfg) => ipcRenderer.invoke("config:set", cfg),
+  gamepadStatus: () => ipcRenderer.invoke("gamepadStatus"),
   quit: () => ipcRenderer.invoke("app:quit"),
   enterConsole: () => ipcRenderer.invoke("app:enterConsole"),
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),

@@ -27,8 +27,13 @@ for (const arquivo of ARQUIVOS) {
     assert.match(src, /const schedule = \(delay = 0\) =>/, "agendador presente")
     assert.match(src, /retryTimer = window\.setTimeout\(/, "caminho lento usa timer")
     assert.match(src, /raf = requestAnimationFrame\(loop\)/, "caminho ativo usa frame")
-    // Sem gamepad: re-agenda devagar.
-    assert.match(src, /if \(!gp\) \{[\s\S]{0,200}?schedule\(250\)/, "sem gamepad desacelera")
+    // Sem gamepad — ou com a navegação desligada na aba Controle (só o laço do
+    // hook de navegação tem essa segunda condição): re-agenda devagar.
+    assert.match(
+      src,
+      /if \(!gp(?: \|\| !navegacaoControleAtiva\(\))?\) \{[\s\S]{0,220}?schedule\(250\)/,
+      "sem gamepad desacelera",
+    )
     // Sem foco: idem.
     assert.match(src, /hasFocus\(\)\) \{[\s\S]{0,200}?schedule\(250\)|!appFocusedRef\.current\) \{[\s\S]{0,220}?schedule\(250\)/, "sem foco desacelera")
     // Não empilha timers quando um já está pendente.
