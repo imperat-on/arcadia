@@ -49,7 +49,7 @@ export function StoreImg({
   )
   if (fase >= fontes.length) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-[#121216] px-3 text-center">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-[color:var(--surface-2)] px-3 text-center">
         <svg
           width="22"
           height="22"

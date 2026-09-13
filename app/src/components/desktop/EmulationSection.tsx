@@ -63,7 +63,7 @@ export function EmulationSection() {
   )
 
   return (
-    <div className="min-h-full bg-[#08080a] px-8 py-7">
+    <div className="min-h-full bg-[color:var(--surface-1)] px-8 py-7">
       <div className="desktop-fluid-column mx-auto max-w-6xl pb-10">
         <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -255,7 +255,7 @@ function EmulatorCard({
   }
 
   return (
-    <article className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101014] shadow-xl shadow-black/10 transition-colors hover:border-white/[0.16]">
+    <article className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] shadow-xl shadow-black/10 transition-colors hover:border-white/[0.16]">
       <ConsoleArt item={item} />
       <div className="p-4">
         <div className="mb-1 flex items-start justify-between gap-3">
@@ -513,7 +513,7 @@ function EmulatorConfigDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="emulator-config-title"
-        className="flex max-h-[92vh] w-[680px] max-w-full flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0d0d10] shadow-2xl shadow-black/60"
+        className="flex max-h-[92vh] w-[680px] max-w-full flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[color:var(--surface-1)] shadow-2xl shadow-black/60"
       >
         <div className="flex items-start justify-between border-b border-white/[0.07] px-6 py-5">
           <div>

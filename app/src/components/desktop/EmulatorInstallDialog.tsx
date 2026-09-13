@@ -271,7 +271,7 @@ export function EmulatorInstallDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="emulator-install-title"
-        className="flex max-h-[92vh] w-[760px] max-w-full flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0d0d10] shadow-2xl shadow-black/60"
+        className="flex max-h-[92vh] w-[760px] max-w-full flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[color:var(--surface-1)] shadow-2xl shadow-black/60"
       >
         <div className="flex items-start justify-between border-b border-white/[0.07] px-6 py-5">
           <div>

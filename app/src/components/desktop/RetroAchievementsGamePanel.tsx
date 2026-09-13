@@ -89,30 +89,23 @@ export function RetroAchievementsGamePanel({
   const progress = total ? Math.round((done / total) * 100) : 0
   const [allOpen, setAllOpen] = useState(false)
 
-  useEffect(() => {
-    if (!allOpen) return
-    const closeWithEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAllOpen(false)
-    }
-    window.addEventListener("keydown", closeWithEscape)
-    return () => window.removeEventListener("keydown", closeWithEscape)
-  }, [allOpen])
-
   if (!systemId) return null
 
   if (compact) {
     return (
       <>
-      <section className="h-[286px] overflow-hidden rounded-[7px] border border-white/[.1] bg-[#080a0d] p-3.5 shadow-[0_8px_20px_rgba(0,0,0,.22)]">
+      <section className="h-[286px] overflow-hidden rounded-[7px] border border-white/[.1] bg-[color:var(--surface-1)] p-3.5 shadow-[0_8px_20px_rgba(0,0,0,.22)]">
         <header className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-[10px] font-bold uppercase tracking-[.09em] text-white/78">{t("conquistas.titulo")}</h3>
           <div className="flex items-center gap-3">
             <span className="text-[9px] text-white/45">
               {items && !needsApiKey ? t("conquistas.contador", { done: String(done), total: String(total) }) : t("common.carregando")}
             </span>
-            {items && items.length > 6 && <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
-              Ver todas
-            </button>}
+            {items && items.length > 6 && (
+              <button type="button" onClick={() => setAllOpen(true)} className="detail-achievements-all">
+                {t("conquistas.ver_todas")}
+              </button>
+            )}
           </div>
         </header>
 

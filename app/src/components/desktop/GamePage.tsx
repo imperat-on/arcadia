@@ -188,7 +188,7 @@ export function GamePage({
 
       <div className="desktop-game-page relative z-[1] mx-auto grid h-full w-full max-w-none flex-1 grid-cols-2 gap-5 overflow-hidden p-5 pt-16">
         {/* Coluna esquerda: arte + info */}
-        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90">
+        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)]/90">
           <div className="relative h-[42%] shrink-0 overflow-hidden bg-black">
             {g.hero || g.cover ? (
               <img
@@ -198,7 +198,7 @@ export function GamePage({
                 draggable={false}
               />
             ) : null}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-[#0d0d10]" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-[color:var(--surface-1)]" />
             {/* Glow de accent atrás do logo/título */}
             <div
               className="absolute inset-x-0 bottom-0 h-24"
@@ -383,7 +383,7 @@ export function GamePage({
         </div>
 
         {/* Coluna direita: dados + painéis estilo Hydra */}
-        <div className="flex min-h-0 flex-col overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#0d0d10]/90 p-5">
+        <div className="flex min-h-0 flex-col overflow-y-auto rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)]/90 p-5">
           <div className="mx-auto mb-5 flex gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
             {(
               [

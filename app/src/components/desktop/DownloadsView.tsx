@@ -3,14 +3,16 @@
 import { useDownloadsFeed } from "../downloads/useDownloadsFeed"
 import { DownloadCard } from "../downloads/DownloadCard"
 import { useI18n } from "../../i18n/I18nContext"
+import type { DownloadsFeed } from "../downloads/normalize"
 
 // Aba Downloads (desktop). Uma lista só para os dois subsistemas (fila
 // Epic/Steam + torrent/HTTP/debrid) — antes a seção de torrent era um bloco
 // separado com contador e card próprios, e a tela se contradizia ("0 ativo"
 // com torrent baixando na frente).
-export function DownloadsView() {
+export function DownloadsView({ feed: feedProp }: { feed?: DownloadsFeed }) {
   const { t } = useI18n()
-  const feed = useDownloadsFeed()
+  const ownFeed = useDownloadsFeed(!feedProp)
+  const feed = feedProp ?? ownFeed
   const baixando = feed.ativos.some((i) => i.status === "active")
 
   return (

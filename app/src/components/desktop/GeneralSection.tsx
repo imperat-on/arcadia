@@ -53,7 +53,7 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="max-w-2xl">
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.general")}</h2>
-      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.general_desc")}</p>
+      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.general_desc")}</p>
 
       <Group title={t("settings.language")}>
         <Select
@@ -217,7 +217,7 @@ function ProcurarAtualizacao() {
           <button
             onClick={procurar}
             disabled={busy}
-            className="rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white disabled:opacity-60"
+            className="rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white disabled:opacity-60"
           >
             {busy ? t("update.procurando") : t("update.procurar")}
           </button>
@@ -310,7 +310,7 @@ function Select({
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+          className="rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
         >
           {options.map((o) => (
             <option key={o.id} value={o.id}>
@@ -345,7 +345,7 @@ function Path({
         <button
           onClick={onPick}
           title={value || placeholder}
-          className="flex max-w-[260px] items-center gap-2 rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white"
+          className="flex max-w-[260px] items-center gap-2 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white"
         >
           <svg
             width="13"
@@ -387,7 +387,7 @@ function TextField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           spellCheck={false}
-          className="w-64 rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[12px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+          className="w-64 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
         />
       }
     />
@@ -423,7 +423,7 @@ function NumberField({
             const n = Number(e.target.value)
             if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)))
           }}
-          className="w-20 rounded-lg border border-white/10 bg-[#141419] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+          className="w-20 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
         />
       }
     />

@@ -18,7 +18,7 @@ export type DesktopView =
   | "amigos"
   | "perfil"
   | "config"
-export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "emulacao"
+export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "controle" | "emulacao"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
   { id: "inicio", label: "Início", labelKey: "sidebar.inicio", icon: <IconHome /> },
@@ -36,6 +36,7 @@ const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string; groupKey?: 
   { id: "integracoes", label: "Integrações", labelKey: "settings.integracoes" },
   { id: "metadados", label: "Metadados", labelKey: "settings.metadados.titulo" },
   { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade" },
+  { id: "controle", label: "Controle", labelKey: "controller.titulo", icon: <IconGamepad /> },
   { id: "emulacao", label: "Emulação", labelKey: "settings.emulacao", groupKey: "settings.emulacao.grupo", icon: <IconGamepad />, badgeKey: "settings.emulacao.novo" },
 ]
 
@@ -142,7 +143,7 @@ export function Sidebar({
           </div>
         </button>
         {profileMenu && (
-          <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-[#16161c]/95 shadow-2xl shadow-black/50 backdrop-blur">
+          <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)]/95 shadow-2xl shadow-black/50 backdrop-blur">
             <ProfileMenuItem
               label={t("profile.meu_perfil")}
               onClick={() => {
@@ -214,7 +215,7 @@ export function Sidebar({
                 {it.id === "amigos" && pedidos > 0 && (
                   <span
                     className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-black"
-                    style={{ background: "#f5a623" }}
+                    style={{ background: "var(--state-warn)" }}
                   >
                     {pedidos}
                   </span>
@@ -458,7 +459,7 @@ function ProfileMenuItem({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-white/[0.07] ${danger ? "text-[#ff6b81]" : "text-white/80"}`}
+      className={`flex w-full items-center px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-white/[0.07] ${danger ? "text-[color:var(--state-danger)]" : "text-white/80"}`}
     >
       {label}
     </button>

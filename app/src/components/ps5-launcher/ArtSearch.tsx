@@ -53,12 +53,15 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
   const [erros, setErros] = useState<string[]>([])
   // Resoluções marcadas. Vazio = o padrão do tipo (definido no Electron).
   const [resolucoes, setResolucoes] = useState<string[]>([])
+  const buscaId = useRef(0)
 
   const buscar = useCallback(
     async (q: string, dims: string[]) => {
+      const requestId = ++buscaId.current
       setCarregando(true)
       setErros([])
       const res = await window.launcherAPI?.searchArt(gameId, q, kind, dims)
+      if (requestId !== buscaId.current) return
       setCandidatos(res?.candidatos ?? [])
       setErros(res?.erros ?? [])
       setCarregando(false)
@@ -156,7 +159,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
             className="px-6 py-3 flex items-center gap-2 flex-wrap"
             style={{ background: "rgba(0,0,0,0.25)" }}
           >
-            <span className="text-[11px] font-bold tracking-wider uppercase text-[#8a93a6] mr-1">
+            <span className="text-[11px] font-bold tracking-wider uppercase text-[color:var(--text-2)] mr-1">
               {t("editmetadata.resolucao")}
             </span>
             {RESOLUCOES[kind].map((r) => {
@@ -167,7 +170,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                   onClick={() => alternarResolucao(r.valor)}
                   className="px-3 py-1 rounded-full text-[12px] font-medium transition-colors"
                   style={{
-                    color: on ? "#fff" : "#8a93a6",
+                    color: on ? "#fff" : "var(--text-2)",
                     background: on ? "var(--accent)" : "rgba(255,255,255,0.06)",
                     border: `1px solid ${on ? "transparent" : "rgba(255,255,255,0.10)"}`,
                   }}
@@ -182,7 +185,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                   setResolucoes([])
                   buscar(termo, [])
                 }}
-                className="text-[12px] text-[#8a93a6] hover:text-white underline ml-1"
+                className="text-[12px] text-[color:var(--text-2)] hover:text-white underline ml-1"
               >
                 {t("editmetadata.limpar_filtro")}
               </button>
@@ -192,9 +195,9 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
 
         <div className="flex-1 overflow-y-auto p-6">
           {carregando ? (
-            <p className="text-center text-[#8a93a6] py-12">{t("editmetadata.procurando")}</p>
+            <p className="text-center text-[color:var(--text-2)] py-12">{t("editmetadata.procurando")}</p>
           ) : candidatos.length === 0 ? (
-            <p className="text-center text-[#8a93a6] py-12">
+            <p className="text-center text-[color:var(--text-2)] py-12">
               {t("editmetadata.nada_encontrado", { termo })}
             </p>
           ) : (
@@ -231,7 +234,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
                   {c.animado && (
                     <span
                       className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold text-black"
-                      style={{ background: "#ffd166" }}
+                      style={{ background: "var(--pad-alt)" }}
                     >
                       {t("editmetadata.animado")}
                     </span>
@@ -253,7 +256,7 @@ export function ArtSearch({ gameId, titulo, kind, onClose, onPicked }: ArtSearch
           {erros.length > 0 && (
             <div className="mt-6 flex flex-col gap-1">
               {erros.map((e) => (
-                <p key={e} className="text-[12px] text-[#ffa07a]">
+                <p key={e} className="text-[12px] text-[color:var(--state-danger-soft)]">
                   {e}
                 </p>
               ))}

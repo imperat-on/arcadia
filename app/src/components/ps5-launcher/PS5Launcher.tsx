@@ -143,7 +143,7 @@ interface LaunchToast {
 
 export function PS5Launcher() {
   // Fora do Electron (dev no navegador) cai no mock; dentro, carrega o real.
-  const { games, setGames, profile, setProfile, config, libraryLoaded } = useLibraryState(
+  const { games, setGames, profile, setProfile, config, libraryLoaded, configLoaded } = useLibraryState(
     typeof window !== "undefined" && window.launcherAPI ? [] : MOCK_GAMES,
   )
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -419,34 +419,26 @@ export function PS5Launcher() {
   }
   useEffect(() => {
     if (!libraryLoaded) return
+    if (!configLoaded) return
     bootLibOk.current = libraryLoaded
     tentarSairBoot()
-    const firstNewDefaults = config.big_picture_scale_defaults_v3 !== true
-    const consoleScale = firstNewDefaults ? 1.3 : (config.console_ui_scale ?? 1.3)
-    const coverScale = firstNewDefaults ? 1.6 : (config.card_scale ?? 1.6)
-    if (firstNewDefaults) {
-      window.launcherAPI?.setConfig({
-        console_ui_scale: consoleScale,
-        card_scale: coverScale,
-        big_picture_scale_defaults_v2: true,
-        big_picture_scale_defaults_v3: true,
-      })
-    }
-    window.launcherAPI?.setZoom(consoleScale, "console")
+    // A escala da UI é uma chave só e quem aplica é o processo principal
+    // (electron/ui-scale.js) — inclusive ao trocar de modo. Aqui ficam só as
+    // preferências de aparência: tamanho da capa e cor de destaque.
     trailerAutoRef.current = config.trailer_auto !== false
-    applyUiPrefs({ ...config, card_scale: coverScale })
+    applyUiPrefs({ ...config, card_scale: config.card_scale ?? 1.6 })
     try {
       const r = JSON.parse(localStorage.getItem("gs_recent") || "[]")
       if (Array.isArray(r)) setRecent(r)
     } catch {
       /* ignore */
     }
-  }, [config, libraryLoaded])
+  }, [config, configLoaded, libraryLoaded])
 
   // Aplica preferências visuais (escala das capas + cor de destaque).
   function applyUiPrefs(c: { card_scale?: number; accent?: string }) {
     setCardScale(c?.card_scale ?? 1.6)
-    document.documentElement.style.setProperty("--accent", c?.accent || "#00a8ff")
+    document.documentElement.style.setProperty("--accent", c?.accent || "var(--accent)")
   }
 
   // Trailer no fundo: ao focar um jogo por ~1,5s, toca o trailer. Se não estiver
@@ -996,6 +988,7 @@ export function PS5Launcher() {
   // Navegação por controle (Gamepad API): D-pad/analógico, A=jogar, Start=atualizar.
   useEffect(() => {
     let raf = 0
+    let retryTimer: number | null = null
     let prev: boolean[] = []
     let restAxes: number[] | null = null
     let sx = 0,
@@ -1063,23 +1056,44 @@ export function PS5Launcher() {
       setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + delta)))
     }
 
+    let running = true
+    const schedule = (delay = 0) => {
+      if (!running) return
+      if (delay > 0 && retryTimer !== null) return
+      if (delay > 0) {
+        retryTimer = window.setTimeout(() => {
+          retryTimer = null
+          raf = requestAnimationFrame(loop)
+        }, delay)
+      } else {
+        raf = requestAnimationFrame(loop)
+      }
+    }
+
     const loop = () => {
+      if (!running) return
       // Janela sem foco (jogo em primeiro plano, alt-tab, gamescope): ignora
       // o controle — a Gamepad API entrega input mesmo desfocada.
       if (!appFocusedRef.current) {
         prev = [] // ressincroniza ao voltar (não dispara botão segurado)
-        raf = requestAnimationFrame(loop)
+        schedule(250)
         return
       }
       if (launchPendingRef.current) {
         // O IPC de launch é assíncrono; ignora o botão ainda pressionado até o
         // estado pendente/rodando estar refletido no renderer.
         prev = []
-        raf = requestAnimationFrame(loop)
+        schedule(100)
         return
       }
       const pads = navigator.getGamepads ? navigator.getGamepads() : []
       const gp = Array.from(pads).find((p) => p) || null
+      if (!gp) {
+        prev = []
+        scrollVel = 0
+        schedule(250)
+        return
+      }
       if (gp) {
         const now = Date.now()
         const primed = prev.length > 0
@@ -1158,10 +1172,14 @@ export function PS5Launcher() {
         }
         prev = gp.buttons.map((b) => b.pressed)
       }
-      raf = requestAnimationFrame(loop)
+      schedule()
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    schedule()
+    return () => {
+      running = false
+      cancelAnimationFrame(raf)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+    }
   }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing])
 
   const topBarNode = (
@@ -1207,7 +1225,7 @@ export function PS5Launcher() {
         onLaunch={_activate}
       />
     ) : (
-      <div className="px-10 py-10 text-[#8a93a6]">{t("ps5.biblioteca.vazia")}</div>
+      <div className="px-10 py-10 text-[color:var(--text-2)]">{t("ps5.biblioteca.vazia")}</div>
     )
   const heroNode = (
     <HeroSection
@@ -1529,7 +1547,7 @@ export function PS5Launcher() {
           novo (o guarda de pedido do hook cobre, mas a tela precisa responder). */}
       {acoesLoja.busy && !acoesLoja.escolhendo && (
         <div className="fixed inset-0 z-[88] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="rounded-2xl border border-white/10 bg-[#0b0b0d] px-8 py-6 text-center">
+          <div className="rounded-2xl border border-white/10 bg-[color:var(--surface-1)] px-8 py-6 text-center">
             <div
               className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/15"
               style={{ borderTopColor: "var(--accent)" }}
@@ -1546,7 +1564,7 @@ export function PS5Launcher() {
           ref={semManifestoRef}
           className="gp-scope fixed inset-0 z-[90] flex items-center justify-center bg-black/85 backdrop-blur-sm"
         >
-          <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0b0b0d] p-7">
+          <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[color:var(--surface-1)] p-7">
             <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
               {t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
@@ -1582,9 +1600,9 @@ export function PS5Launcher() {
 
       {/* Toast do hook da loja (fila, falhas, remoções) */}
       {acoesLoja.toast && (
-        <div
+        <div data-no-drag
           onClick={() => acoesLoja.setToast("")}
-          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
+          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
         >
           {acoesLoja.toast}
         </div>

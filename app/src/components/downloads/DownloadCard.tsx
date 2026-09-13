@@ -41,7 +41,7 @@ const ROTULO: Record<DownloadActionType, string> = {
 }
 
 function statusTone(status: DownloadVM["status"]): string {
-  if (status === "error") return "#ff6b81"
+  if (status === "error") return "var(--state-danger)"
   if (status === "active") return "var(--accent)"
   if (status === "done") return "rgba(255,255,255,0.75)"
   return "rgba(255,255,255,0.55)"
@@ -172,7 +172,7 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
               className="relative h-full rounded-full transition-all duration-500"
               style={{
                 width: `${vm.percent}%`,
-                background: vm.status === "error" ? "#ff6b81" : "var(--accent)",
+                background: vm.status === "error" ? "var(--state-danger)" : "var(--accent)",
                 boxShadow: baixando ? "0 0 14px var(--accent)" : "none",
               }}
             >
@@ -201,7 +201,7 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
 
         {/* Erro é informação de primeira classe, não nota de rodapé */}
         {vm.status === "error" && (
-          <div className="mt-1.5 truncate text-[11px] text-[#ff6b81]">
+          <div className="mt-1.5 truncate text-[11px] text-[color:var(--state-danger)]">
             {vm.error || t("downloads.falhou")}
           </div>
         )}
@@ -220,7 +220,7 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
               tipo === "resume" || tipo === "retry"
                 ? "text-black hover:scale-105"
                 : tipo === "cancel"
-                  ? "border border-[#ff6b81]/40 text-[#ff6b81] hover:border-[#ff6b81]/70 hover:bg-[#ff6b81]/10"
+                  ? "border border-[color:var(--state-danger)]/40 text-[color:var(--state-danger)] hover:border-[color:var(--state-danger)]/70 hover:bg-[color:var(--state-danger)]/10"
                   : "border border-white/15 text-white/80 hover:border-white/30 hover:bg-white/10"
             }`}
             style={

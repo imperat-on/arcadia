@@ -8,15 +8,18 @@ const vm = require("node:vm")
 
 const root = path.join(__dirname, "..")
 const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+const { fatorDeZoom } = require("../electron/ui-scale")
 
-// main importa Electron e inicia serviços no load; executamos só as funções
-// de escala reais com a geometria fornecida pelo ambiente de teste.
-function zoomFor({ width = 1600, height = 900, maximized = false, displaySize } = {}) {
+// main importa Electron e inicia serviços no load; executamos só a geometria
+// real (responsiveWindowScale) com o ambiente de teste e compomos com a
+// matemática da escala, que agora mora em electron/ui-scale.js — exatamente a
+// mesma composição que o main faz.
+function janela({ width = 1600, height = 900, maximized = false, displaySize } = {}) {
   const size = displaySize || { width: 3840, height: 2160 }
   const display = { size, workAreaSize: size }
   const start = main.indexOf("function responsiveWindowScale(")
   const end = main.indexOf("let appliedZoomFactor", start)
-  assert.ok(start >= 0 && end > start, "funções de escala presentes no main")
+  assert.ok(start >= 0 && end > start, "responsiveWindowScale presente no main")
   const context = {
     win: {
       isDestroyed: () => false,
@@ -29,18 +32,44 @@ function zoomFor({ width = 1600, height = 900, maximized = false, displaySize } 
     },
   }
   vm.runInNewContext(main.slice(start, end), context)
-  return context.zoomFactorFor
+  return context.responsiveWindowScale
 }
+
+const zoomFor = (opts) => {
+  const escala = janela(opts)
+  return (mode, rel) => fatorDeZoom(mode, rel, escala(mode))
+}
+
+// Janela e tela em 1:1 com 1920×1080 → responsiveWindowScale() = 1, então o
+// fator resultante é só base × preferência (o resto é testado à parte).
+const NEUTRO = { width: 1920, height: 1080, displaySize: { width: 1920, height: 1080 } }
 
 test("main empacotado usa JavaScript válido, sem anotações TypeScript", () => {
   assert.doesNotThrow(() => new vm.Script(main, { filename: "electron/main.js" }))
 })
 
-test("desktop mantém base legível mesmo com zoom legado reduzido", () => {
-  const zoom = zoomFor()
-  for (const legacy of [undefined, 0.7, 0.8, 0.9, 1, 1.1]) {
-    assert.equal(zoom("desktop", legacy), 1.2)
-  }
+test("uma escala só: a preferência padrão (100%) usa a base de cada skin", () => {
+  const zoom = zoomFor(NEUTRO)
+  // 100% = base da skin — é o tamanho que o app já tinha antes da migração.
+  assert.equal(zoom("desktop", 1), 1.2)
+  assert.equal(zoom("console", 1), 1.3)
+  // valor ausente/ inválido cai em 100%, nunca em zero
+  assert.equal(zoom("desktop", undefined), 1.2)
+  assert.equal(zoom("console", NaN), 1.3)
+})
+
+test("a MESMA chave passa a valer no desktop (antes o valor era ignorado)", () => {
+  const zoom = zoomFor(NEUTRO)
+  assert.ok(Math.abs(zoom("desktop", 0.85) - 1.02) < 1e-9)
+  assert.ok(Math.abs(zoom("desktop", 1.15) - 1.38) < 1e-9)
+  // e no console a preferência também manda
+  assert.ok(Math.abs(zoom("console", 0.9) - 1.17) < 1e-9)
+})
+
+test("a preferência é presa na faixa 0.7–1.6", () => {
+  const zoom = zoomFor(NEUTRO)
+  assert.equal(zoom("desktop", 0.1), 0.84) // 1.2 × 0.7
+  assert.equal(zoom("desktop", 99), 1.92) // 1.2 × 1.6
 })
 
 test("desktop acompanha a janela, não o tamanho físico do monitor", () => {
@@ -59,14 +88,32 @@ test("desktop não reduz controles em janelas menores nem exagera em ultrawide",
   assert.equal(ultrawide("desktop", 1), 1.2)
 })
 
-test("console preserva a preferência de zoom e o limite existente", () => {
+test("console acompanha a tela e respeita o teto de 2×", () => {
   const fullHD = zoomFor({ displaySize: { width: 1920, height: 1080 } })
-  assert.equal(fullHD("console", 0.9), 0.9)
-  assert.equal(fullHD("console", 1.3), 1.3)
-  assert.equal(zoomFor()("console", 1.3), 2)
+  assert.equal(fullHD("console", 1), 1.3)
+  assert.equal(zoomFor()("console", 1), 2) // 1.3 × 1.55 = 2.015 → teto
 })
 
-test("desktop abre em janela normal e não oferece mais slider de zoom", () => {
+test("não existe mais um segundo knob de escala em lugar nenhum", () => {
+  for (const chave of [
+    "console_ui_scale",
+    "desktop_scale_base_v2",
+    "desktop_font_scale_v3",
+    "big_picture_scale_defaults_v2",
+    "big_picture_scale_defaults_v3",
+  ]) {
+    assert.doesNotMatch(
+      main,
+      new RegExp(`readConfig\\(\\)\\.${chave}|config\\.${chave}`),
+      `${chave} não pode ser lida pelo main`,
+    )
+  }
+  // o único caminho de zoom é o helper que delega para o módulo
+  assert.match(main, /function uiScaleFactor\(mode\)/)
+  assert.doesNotMatch(main, /function zoomFactorFor/)
+})
+
+test("desktop abre em janela normal e não oferece slider de zoom separado", () => {
   const start = main.indexOf("function createWindow()")
   const end = main.indexOf("win.loadFile(", start)
   assert.ok(start >= 0 && end > start)

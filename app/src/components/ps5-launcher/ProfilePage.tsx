@@ -12,7 +12,7 @@ interface ProfilePageProps {
   profile: Profile
   games: Game[]
   onClose: () => void
-  onEdit: () => void
+  onEdit?: () => void
   onJogoClick?: (g: Game) => void
   embedded?: boolean
   navActive?: boolean
@@ -202,7 +202,7 @@ export function ProfilePage({
               <div
                 className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl text-3xl font-bold text-white shadow-2xl"
                 style={{
-                  background: "linear-gradient(135deg, color-mix(in oklab, var(--accent) 55%, #003791), #003791)",
+                  background: "linear-gradient(135deg, color-mix(in oklab, var(--accent) 55%, var(--brand-steam-dark)), var(--brand-steam-dark))",
                   boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
                   border: "3px solid rgba(0,0,0,0.6)",
                 }}
@@ -244,7 +244,7 @@ export function ProfilePage({
               </div>
               {todosJogos.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] py-14 px-8 text-center">
-                  <p className="text-sm text-[#8a93a6]">{t("profile.nenhum_jogado")}</p>
+                  <p className="text-sm text-[color:var(--text-2)]">{t("profile.nenhum_jogado")}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-3">
@@ -278,7 +278,7 @@ export function ProfilePage({
 
             <ProfileCard title={t("amigos.titulo")}>
               {friends.length === 0 ? (
-                <p className="py-2 text-center text-xs text-[#8a93a6]">
+                <p className="py-2 text-center text-xs text-[color:var(--text-2)]">
                   {t("profile.vitrine_vazia", { max: "0" }).split(".")[0]}
                 </p>
               ) : (
@@ -313,7 +313,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
       className="flex items-center justify-between rounded-lg px-3.5 py-2.5"
       style={{ background: "rgba(255,255,255,0.03)" }}
     >
-      <span className="text-sm text-[#c8d0e0]">{label}</span>
+      <span className="text-sm text-[color:var(--text-strong)]">{label}</span>
       <span className="text-sm font-bold text-white tabular-nums">{value}</span>
     </div>
   )
@@ -329,7 +329,7 @@ function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
   const [broken, setBroken] = useState(false)
   const horas = formatarHoras(game.playtime_minutes)
   const cls =
-    "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[#1e2536] to-[#0a0e1a] text-3xl font-bold text-white/50 ring-1 ring-white/10"
+    "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--placeholder-cool)] to-[color:var(--placeholder-deep)] text-3xl font-bold text-white/50 ring-1 ring-white/10"
   if (!game.cover || broken) {
     return (
       <button
@@ -386,7 +386,7 @@ function FriendAvatar({ friend }: { friend: FriendProfile }) {
   const initial = (friend.display_name || friend.username)?.[0]?.toUpperCase() || "?"
   return (
     <div
-      className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#0072ce] to-[#003791] text-xl font-bold text-white ring-1 ring-white/15"
+      className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[color:var(--brand-steam)] to-[color:var(--brand-steam-dark)] text-xl font-bold text-white ring-1 ring-white/15"
       title={friend.display_name || friend.username}
     >
       {friend.avatar_url ? (
