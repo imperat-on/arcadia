@@ -240,6 +240,10 @@ export interface AppConfig {
   no_click_outside?: boolean // não fechar diálogos clicando fora
   no_smooth_scroll?: boolean
   no_anim?: boolean
+  /** Navegação por D-pad/analógico/A-B (aba Controle). Padrão: ligada. */
+  enable_controller_navigation?: boolean
+  /** Quanto o analógico esquerdo precisa inclinar para mover o foco (0.15–0.85). */
+  controller_deadzone?: number
   // Configurações Globais → Config. Gerais
   language?: string // ex.: "en-US" (padrão), "pt-BR", "es-ES"
   default_install_path?: string // pasta padrão de instalação de jogos
@@ -1219,6 +1223,7 @@ declare global {
       setConfig: (
         cfg: Partial<AppConfig>,
       ) => Promise<{ ok: boolean; error?: string; config?: AppConfig }>
+      gamepadStatus: () => Promise<{ ok: boolean; emulator: string; running: boolean }>
       quit: () => Promise<void>
       /** Entra no modo console (PS5, tela cheia) — fecha o desktop. */
       enterConsole: () => Promise<{ ok: boolean; error?: string }>

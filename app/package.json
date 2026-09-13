@@ -19,6 +19,9 @@
       "public/logo-512.png",
       "package.json"
     ],
+    "asarUnpack": [
+      "electron/scripts/**"
+    ],
     "extraResources": [
       {
         "from": "../contracts",

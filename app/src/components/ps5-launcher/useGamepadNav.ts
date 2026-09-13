@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, type RefObject } from "react"
+import { deadzoneAtual, navegacaoControleAtiva } from "../controllerConfig"
 
 // Navegação por controle em QUALQUER overlay: move o foco entre os elementos
 // (navegação espacial), A ativa (click), B volta/fecha.
@@ -268,8 +269,11 @@ export function useGamepadNav(
       if (!extras?.dpadOnly) {
         const ax = (gp.axes[0] ?? 0) - (rest[0] ?? 0)
         const ay = (gp.axes[1] ?? 0) - (rest[1] ?? 0)
-        if (!x) x = ax > 0.6 ? 1 : ax < -0.6 ? -1 : 0
-        if (!y) y = ay > 0.6 ? 1 : ay < -0.6 ? -1 : 0
+        // A zona morta vem da configuração (aba Controle), lida do cache a cada
+        // quadro: é o que faz o slider valer sem re-render.
+        const dz = deadzoneAtual()
+        if (!x) x = ax > dz ? 1 : ax < -dz ? -1 : 0
+        if (!y) y = ay > dz ? 1 : ay < -dz ? -1 : 0
       }
       // D-pad como hat (eixo 9)
       const h = gp.axes[9]
@@ -363,7 +367,9 @@ export function useGamepadNav(
       }
       const pads = navigator.getGamepads ? navigator.getGamepads() : []
       const gp = Array.from(pads).find((p) => p) || null
-      if (!gp) {
+      if (!gp || !navegacaoControleAtiva()) {
+        // Sem controle, ou navegação desligada na aba Controle: volta ao
+        // polling lento em vez de girar o quadro à toa.
         prev = []
         scrollVel = 0
         scrollVelX = 0

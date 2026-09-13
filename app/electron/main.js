@@ -69,6 +69,9 @@ const { findUmuLauncher, ensureUmuLauncher } = require("./umu-runtime")
 const { createSteamNewsImageResolver, extractSteamNewsImage } = require("./steam-news")
 const DiscordRpc = require("./discord-rpc")
 const { catalogGet } = require("./catalog")
+// Emulador DualSense/DS4 -> XInput (uinput): publica um controle virtual para
+// jogos não-Steam usarem a API XInput no Proton/Wine.
+const { buildGamepadWrapperCommand } = require("./gamepad-launch")
 // Escopo por conta dos arquivos locais — PRECISA estar no escopo do módulo
 // (readLibrary e outros helpers rodam fora do whenReady; require dentro de
 // bloco deixava "caminhoConta is not defined" → biblioteca vazia).
@@ -280,6 +283,9 @@ let minimizarTimer = null
 // ocupado durante `stopping`, até a saída ser confirmada, para que callbacks
 // atrasados nunca iniciem um jogo depois de Stop.
 let launchInFlight = false
+// Processo do emulador DualSense->XInput lançado junto do jogo não-Steam.
+// Derrubado quando a sessão de jogo encerra (cleanup de launch).
+let gamepadWrapperChild = null
 let lancamentoAtual = null
 
 function estadoLancamento() {
@@ -396,6 +402,24 @@ function stopLaunchChild(record, child, timerKey = "childKillTimer") {
   return true
 }
 
+// Derruba o processo do emulador DualSense->XInput (wrapper uinput) lançado
+// junto de um jogo não-Steam. É um processo detached em background; quando o
+// jogo encerra, o device virtual é removido via UI_DEV_DESTROY no closure do
+// Python, então basta sinalizar o processo com SIGTERM.
+function derrubarGamepadWrapper() {
+  const child = gamepadWrapperChild
+  gamepadWrapperChild = null
+  if (child && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM")
+    } catch {
+      try {
+        child.kill("SIGTERM")
+      } catch {}
+    }
+  }
+}
+
 function releaseLaunch(record) {
   if (!launchIsCurrent(record)) return false
   clearLaunchTimers(record)
@@ -421,6 +445,7 @@ function releaseLaunch(record) {
     record.closeLog?.()
   } catch {}
   record.closeLog = null
+  derrubarGamepadWrapper()
   launchLifecycle.finish(record.token)
   lancamentoAtual = null
   launchInFlight = false
@@ -2796,6 +2821,18 @@ app.whenReady().then(() => {
     }
     return focado
   })
+  // Estado do emulador DualSense->XInput: informa ao renderer se o wrapper
+  // está rodando (para a aba "Controle"). `gamepadWrapperChild` é a
+  // referência do processo lançado junto do jogo não-Steam.
+  ipcMain.handle("gamepadStatus", () => {
+    let running = false
+    try {
+      running = Boolean(gamepadWrapperChild && gamepadWrapperChild.pid && !gamepadWrapperChild.killed)
+    } catch {
+      running = false
+    }
+    return { ok: true, emulator: "uinput", running }
+  })
   ipcMain.handle("app:diagnostics", () => diagnostics.collect())
   ipcMain.handle("app:diagnosticsExport", async () => {
     const res = await dialog.showOpenDialog(win, {
@@ -3151,6 +3188,29 @@ app.whenReady().then(() => {
         if (process.platform === "win32" && path.basename(String(c[0])).replace(/\.exe$/, "").toLowerCase() === "steam") {
           const resolved = findSteamExe()
           if (resolved) c = [resolved, ...c.slice(1)]
+        }
+        // Jogos não-Steam com DualSense/DS4: injeta um controle XInput virtual
+        // (uinput) para o Proton/Wine enxergar. O wrapper roda em PARALELO com o
+        // jogo (é um loop infinito — como argv[0] o jogo nunca abriria). Jogos
+        // Steam já fazem Steam Input, então ficam de fora; no Windows o pad já é
+        // XInput nativo e o wrapper não roda.
+        const isSteamAlvo = path.basename(String(c[0])).replace(/\.exe$/, "").toLowerCase() === "steam"
+        if (!isSteamAlvo && process.platform !== "win32") {
+          const wrapperCmd = buildGamepadWrapperCommand()
+          if (wrapperCmd) {
+            try {
+              gamepadWrapperChild = spawn(wrapperCmd[0], wrapperCmd.slice(1), {
+                detached: true,
+                stdio: "ignore",
+                env: { ...env },
+              })
+              gamepadWrapperChild.unref?.()
+              console.warn(`[gamepad] wrapper XInput iniciado (${wrapperCmd[2]})`)
+            } catch (e) {
+              console.warn("[gamepad] falha ao iniciar wrapper XInput:", e?.message || String(e))
+              gamepadWrapperChild = null
+            }
+          }
         }
         let child
         try {
