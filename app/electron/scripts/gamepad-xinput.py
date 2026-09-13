@@ -61,13 +61,19 @@ ID_VERSION = 0x0001
 
 # Sony DualSense / DS4 (usado para autodetecção via uevent)
 SONY_VENDOR = 0x054C
+NINTENDO_VENDOR = 0x057E
 SONY_PRODUCTS = {
-    0x09CC: "DualSense (wireless)",
-    0x0CE6: "DualSense (cable/USB)",
-    0x05C4: "DualShock 4 (cable)",
-    0x0CE6: "DualShock 4",
-    0x05CE: "DualShock 4 (v2/BT)",  # 0x05CE não é DualSense, mas DS4 v2
+    0x0CE6: "DualSense",
+    0x0DF2: "DualSense Edge",
+    0x05C4: "DualShock 4 (v1)",
+    0x09CC: "DualShock 4 (v2)",
+    0x05CE: "DualShock 4 (v2, BT)",
 }
+
+# Vendedores cujos drivers nomeiam o diamante pela GEOMETRIA (esquerda = WEST,
+# topo = NORTH): Sony (hid-playstation) e Nintendo (hid-nintendo). Ver
+# mapa_botoes() para o porquê de isso importar na conversão para XInput.
+VENDEDORES_GEOMETRICOS = {SONY_VENDOR, NINTENDO_VENDOR}
 
 
 # ----------------------------------------------------------------------------
@@ -197,10 +203,10 @@ def styles_dump(ranges):
 def evdev_codes():
     """Códigos que o wrapper lê do DualSense e re-emite como XInput."""
     return {
-        BTN_SOUTH: 0x130,  # A
-        BTN_EAST: 0x131,   # B
-        BTN_NORTH: 0x133,  # X
-        BTN_WEST: 0x134,   # Y
+        BTN_SOUTH: 0x130,  # A  | Cross (baixo)
+        BTN_EAST: 0x131,   # B  | Circle (direita)
+        BTN_NORTH: 0x133,  # X  | Triangle (topo)
+        BTN_WEST: 0x134,   # Y  | Square (esquerda)
         BTN_TL: 0x136,     # LB
         BTN_TR: 0x137,     # RB
         BTN_TL2: 0x138,    # LT (trigger)
@@ -215,6 +221,30 @@ def evdev_codes():
         BTN_DPAD_LEFT: 0x222,
         BTN_DPAD_RIGHT: 0x223,
     }
+
+
+# Mapa de botões: código lido do controle -> código emitido no device XInput.
+#
+# A pegadinha do diamante. O kernel nomeia os quatro botões de duas formas.
+# hid-playstation (Sony) e hid-nintendo nomeiam pela GEOMETRIA: hid-playstation
+# reporta Square = BTN_WEST (0x134, esquerda) e Triangle = BTN_NORTH (0x133,
+# topo); no Switch Pro é igual (Y = oeste, X = norte). Já o xpad, driver do
+# Xbox 360, usa os apelidos legados do header — no Xbox o botão ESQUERDO é
+# BTN_X = BTN_NORTH (0x133) e o de CIMA é BTN_Y = BTN_WEST (0x134)
+# (input-event-codes.h define BTN_X = BTN_NORTH e BTN_Y = BTN_WEST). Repassar
+# os códigos 1:1 punha o Square no slot do Y e o Triangle no do X: era a troca
+# de X com Y sentida no jogo. Cross e Circle caem certos sozinhos (sul/leste
+# nas duas convenções).
+#
+# Para os demais vendedores o repasse fica 1:1: sem saber a convenção do
+# driver, cruzar por conta própria quebraria quem já numera no padrão Xbox.
+def mapa_botoes(vendor):
+    """Mapa de botões do controle -> device XInput, conforme a convenção do vendor."""
+    mapa = {code: code for code in evdev_codes()}
+    if vendor in VENDEDORES_GEOMETRICOS:
+        mapa[BTN_WEST] = BTN_NORTH  # esquerda -> X
+        mapa[BTN_NORTH] = BTN_WEST  # topo     -> Y
+    return mapa
 
 
 # Mapa ABS: eixo DualSense (evdev) -> (eixo XInput, estilo de escala).
@@ -438,6 +468,35 @@ def fcntl_ioctl(fd, request, arg):
 # ----------------------------------------------------------------------------
 # Loop principal
 # ----------------------------------------------------------------------------
+def _resolver_device(target):
+    """Resolve /dev/input/eventXX para um dict de dispositivo.
+
+    Primeiro procura entre os Sony conhecidos. Se não for, aceita como gamepad
+    genérico quando o uevent confirma botões (k130) e stick (ra0) — é o caso de
+    um controle que o launcher escolheu e mandou por --device.
+    """
+    alvo = target if target.startswith("/dev/") else f"/dev/input/{target}"
+    for d in detect_sony_devices():
+        if d["dev"] == alvo:
+            return d
+    uev = _read_uevent(f"/sys/class/input/{os.path.basename(alvo)}")
+    if not _is_gamepad_uevent(uev):
+        return None
+    bus, vendor, product = _parse_uevent(uev) or (0, 0, 0)
+    print(
+        f"{alvo} não é Sony; seguindo como gamepad genérico "
+        f"(0x{vendor:04x}:0x{product:04x})",
+        file=sys.stderr,
+    )
+    return {
+        "dev": alvo,
+        "bus": bus,
+        "vendor": vendor,
+        "product": product,
+        "name": f"gamepad 0x{vendor:04x}:0x{product:04x}",
+    }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="DualSense/DS4 -> XInput via uinput")
@@ -453,20 +512,20 @@ def main():
             print("Nenhum joystick Sony (DualSense/DS4) encontrado.")
         return 0
 
-    devices = detect_sony_devices()
-    if not devices:
-        print("Nenhum DualSense/DS4 detectado. Conecte por USB ou Bluetooth.", file=sys.stderr)
-        return 1
-
     if args.device:
-        target = args.device if args.device.startswith("/dev/") else f"/dev/input/{args.device}"
-        dev = next((d for d in devices if d["dev"] == target), None)
-        if not dev:
-            print(f"Dispositivo {target} não é um joystick Sony.", file=sys.stderr)
+        dev = _resolver_device(args.device)
+        if dev is None:
+            print(f"Dispositivo {args.device} não é um gamepad.", file=sys.stderr)
             return 1
     else:
+        devices = detect_sony_devices()
+        if not devices:
+            print("Nenhum DualSense/DS4 detectado. Conecte por USB ou Bluetooth.", file=sys.stderr)
+            return 1
         dev = devices[0]
     print(f"Lendo {dev['dev']} ({dev['name']})", file=sys.stderr)
+    # O diamante muda de nome conforme o driver do vendedor: ver mapa_botoes().
+    mapa = mapa_botoes(dev.get("vendor"))
 
     # Abre o joystick evdev em modo de leitura
     try:
@@ -517,11 +576,12 @@ def main():
             for i in range(0, len(data) - (len(data) % sz), sz):
                 ev = input_event.from_buffer_copy(data[i:i + sz])
                 if ev.type == EV_KEY:
-                    code = ev.code
-                    # Re-emite como botão XInput (mesmo código já é o padrão
-                    # para os botões; d-pad via HAT é tratado em EV_ABS).
-                    if code in evdev_codes():
-                        xin._write_event(EV_KEY, code, ev.value)
+                    # Re-emite como botão XInput pelo mapa do vendor (o d-pad
+                    # via HAT é tratado em EV_ABS). O mapa cruza o diamante
+                    # para quem nomeia pela geometria: ver mapa_botoes().
+                    destino = mapa.get(ev.code)
+                    if destino is not None:
+                        xin._write_event(EV_KEY, destino, ev.value)
                         xin.sync()
                 elif ev.type == EV_ABS:
                     code = ev.code

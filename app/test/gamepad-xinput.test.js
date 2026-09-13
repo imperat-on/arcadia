@@ -75,7 +75,7 @@ test("o wrapper compila e falha com mensagem clara num device inválido", (t) =>
 
   const r = spawnSync(python, [launcher.WRAPPER, "--device", "/dev/input/eventZZZ"], { encoding: "utf8" })
   assert.notEqual(r.status, 0, "device inexistente deve sair com erro")
-  assert.match(`${r.stdout}${r.stderr}`, /joystick/i)
+  assert.match(`${r.stdout}${r.stderr}`, /gamepad|joystick/i)
 })
 
 test("o wrapper sai do asar: o python é processo externo e não lê dentro do pacote", () => {
@@ -111,6 +111,64 @@ test("o wrapper converte os eixos para a faixa do XInput, de forma dinâmica", (
   assert.match(fonte, /ABS_X/)
   assert.match(fonte, /UI_DEV_DESTROY/)
   assert.match(fonte, /uinput/i)
+})
+
+test("o wrapper cruza o diamante só para quem nomeia pela geometria (Sony/Nintendo)", (t) => {
+  const python = launcher.pythonCmd()
+  if (spawnSync(python, ["--version"], { stdio: "ignore" }).status !== 0) {
+    return t.skip(`sem ${python} no PATH`)
+  }
+  // Importa o wrapper e chama o mapa de verdade (não lê o texto do arquivo).
+  const script = [
+    "import importlib.util, json, sys",
+    "spec = importlib.util.spec_from_file_location('w', sys.argv[1])",
+    "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+    "print(json.dumps({str(v): {str(k): str(c) for k, c in m.mapa_botoes(v).items()}",
+    "                  for v in (0x054C, 0x057E, 0x045E, 0x1234)}))",
+  ].join("\n")
+  const r = spawnSync(python, ["-c", script, launcher.WRAPPER], { encoding: "utf8" })
+  assert.equal(r.status, 0, r.stderr)
+  const mapas = JSON.parse(r.stdout)
+
+  // hid-playstation: Square=BTN_WEST(308), Cross=BTN_SOUTH(304),
+  // Circle=BTN_EAST(305), Triangle=BTN_NORTH(307).
+  // xpad (Xbox 360): A=BTN_A(304), B=BTN_B(305), X=BTN_X=BTN_NORTH(307),
+  // Y=BTN_Y=BTN_WEST(308) — o botão ESQUERDO do Xbox é o X.
+  for (const vendor of ["1356", "1406"]) { // 0x054C Sony, 0x057E Nintendo
+    const mapa = mapas[vendor]
+    assert.equal(mapa["304"], "304", `${vendor}: Cross (baixo) -> A`)
+    assert.equal(mapa["305"], "305", `${vendor}: Circle (direita) -> B`)
+    assert.equal(mapa["308"], "307", `${vendor}: botão da esquerda -> X`)
+    assert.equal(mapa["307"], "308", `${vendor}: botão de cima -> Y`)
+  }
+
+  // Vendedor desconhecido: repasse 1:1 (cruzar por conta própria quebraria
+  // quem já numera no padrão Xbox).
+  for (const vendor of ["1118", "4660"]) { // 0x045E Xbox, 0x1234 genérico
+    const mapa = mapas[vendor]
+    assert.equal(mapa["308"], "308", `${vendor}: sem cruzamento`)
+    assert.equal(mapa["307"], "307", `${vendor}: sem cruzamento`)
+  }
+
+  // O resto atravessa inteiro em qualquer caso: ombros, sticks, start/select.
+  for (const codigo of ["310", "311", "312", "313", "314", "315", "316", "317", "318"]) {
+    assert.equal(mapas["1356"][codigo], codigo, `código ${codigo} deveria passar reto`)
+  }
+})
+
+test("a lista de produtos Sony inclui o DualSense Edge (0x0df2)", () => {
+  // O hid-playstation também cobre o Edge (alias v054Cp0DF2): sem ele, o
+  // controle caía no ramo genérico do launcher e era recusado no wrapper.
+  const wrapper = fs.readFileSync(launcher.WRAPPER, "utf8")
+  assert.match(wrapper, /0x0DF2/)
+  assert.match(ler("electron", "gamepad-launch.js"), /0x0df2/)
+})
+
+test("o loop re-emite pelo mapa do vendor, não repassa o código cru", () => {
+  const fonte = fs.readFileSync(launcher.WRAPPER, "utf8")
+  assert.match(fonte, /destino = mapa\.get\(ev\.code\)/)
+  assert.match(fonte, /xin\._write_event\(EV_KEY, destino, ev\.value\)/)
+  assert.doesNotMatch(fonte, /_write_event\(EV_KEY, code, ev\.value\)/)
 })
 
 // ---------------------------------------------------------------------------
