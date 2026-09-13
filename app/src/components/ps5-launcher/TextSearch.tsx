@@ -99,9 +99,9 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3">
           {carregando ? (
-            <p className="text-center text-[#8a93a6] py-12">{t("textsearch.procurando")}</p>
+            <p className="text-center text-[color:var(--text-2)] py-12">{t("textsearch.procurando")}</p>
           ) : textos.length === 0 ? (
-            <p className="text-center text-[#8a93a6] py-12">
+            <p className="text-center text-[color:var(--text-2)] py-12">
               {t("textsearch.nenhuma_descricao", { termo })}
             </p>
           ) : (
@@ -125,7 +125,7 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
                   >
                     {cand.fonte}
                   </span>
-                  <span className="text-[11px] text-[#8a93a6]">
+                  <span className="text-[11px] text-[color:var(--text-2)]">
                     {cand.texto.length} {t("textsearch.caracteres")}
                   </span>
                 </div>
@@ -140,7 +140,7 @@ export function TextSearch({ gameId, titulo, onClose, onPicked }: TextSearchProp
           {erros.length > 0 && (
             <div className="flex flex-col gap-1 pt-2">
               {erros.map((e) => (
-                <p key={e} className="text-[12px] text-[#ffa07a]">
+                <p key={e} className="text-[12px] text-[color:var(--state-danger-soft)]">
                   {e}
                 </p>
               ))}

@@ -67,7 +67,7 @@ export function InstallDialog({
       onClick={() => !busy && onClose(false)}
     >
       <div data-no-drag
-        className="w-[520px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+        className="w-[520px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Título */}

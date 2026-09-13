@@ -52,5 +52,6 @@ test("painel não executa comandos nem acessa ipcRenderer", () => {
 test("seletor de emulador usa o tema escuro do Arcadia", () => {
   assert.match(panel, /colorScheme: "dark"/)
   assert.match(panel, /\[color-scheme:dark\]/)
-  assert.match(panel, /<option[^>]+bg-\[#151515\][^>]+text-white/)
+  // A superfície do dropdown vem do token do tema (antes era o hex #151515).
+  assert.match(panel, /<option[^>]+bg-\[color:var\(--surface-[0-9]\)\][^>]+text-white/)
 })

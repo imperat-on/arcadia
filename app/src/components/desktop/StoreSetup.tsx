@@ -79,7 +79,7 @@ export function StoreSetup() {
             <span
               className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
               style={{
-                color: depotOk ? "#4adf9a" : "#ffb86b",
+                color: depotOk ? "var(--state-success)" : "var(--state-warn-soft)",
                 background: depotOk ? "rgba(74,223,154,0.12)" : "rgba(255,184,107,0.12)",
               }}
             >

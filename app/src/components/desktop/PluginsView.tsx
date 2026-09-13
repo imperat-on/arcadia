@@ -57,7 +57,7 @@ export function PluginsView() {
       <h1 className="ui-title mb-1">{t("plugins.titulo")}</h1>
       <p className="ui-subtitle mb-6 max-w-3xl">{t("plugins.descricao")}</p>
       {msg && (
-        <p className="mb-4 rounded-lg border border-[#ff6b81]/30 bg-[#ff6b81]/10 px-3 py-2 text-[13px] text-[#ffb3c0]">
+        <p className="mb-4 rounded-lg border border-[color:var(--state-danger)]/30 bg-[color:var(--state-danger)]/10 px-3 py-2 text-[13px] text-[color:var(--state-danger-tint)]">
           {msg}
         </p>
       )}
@@ -81,7 +81,7 @@ export function PluginsView() {
                     </span>
                     {/* Status de detecção só faz sentido p/ plugins com arquivo físico. */}
                     {temCaminho && !p.installed && (
-                      <span className="rounded-full bg-[#ffb86b]/15 px-2 py-0.5 text-[11px] font-semibold text-[#ffb86b]">
+                      <span className="rounded-full bg-[color:var(--state-warn-soft)]/15 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--state-warn-soft)]">
                         {t("plugins.arquivo_nao_encontrado")}
                       </span>
                     )}
@@ -94,7 +94,7 @@ export function PluginsView() {
                   <button
                     onClick={() => desativar(p.id)}
                     disabled={busy === p.id}
-                    className="ui-btn-secondary shrink-0 rounded-lg px-4 py-2 text-[12px] font-semibold text-[#ff6b81] disabled:opacity-50"
+                    className="ui-btn-secondary shrink-0 rounded-lg px-4 py-2 text-[12px] font-semibold text-[color:var(--state-danger)] disabled:opacity-50"
                   >
                     {busy === p.id ? "…" : t("plugins.desativar")}
                   </button>

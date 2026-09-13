@@ -151,7 +151,7 @@ export function SourcesView({ onOpenDownloads }: { onOpenDownloads?: () => void 
             {adicionando ? t("fontes.adicionando") : t("fontes.adicionar")}
           </button>
         </div>
-        {erro && <p className="mt-2 text-[12px] text-[#ff6b81]">{erro}</p>}
+        {erro && <p className="mt-2 text-[12px] text-[color:var(--state-danger)]">{erro}</p>}
 
         {/* Lista de fontes */}
         {fontes.length > 0 && (

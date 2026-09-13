@@ -61,12 +61,12 @@ function AutoOpenLogin({
   useEffect(() => {
     if (status === "logado") onLogado?.()
   }, [status, onLogado])
-  if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  if (status === "carregando") return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   // Sessão pronta, mas perfil online ainda não carregou (display_name/avatar) —
   // segura o splash até resolver (evita o flash do nome)
-  if (status === "logado" && !perfil) return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+  if (status === "logado" && !perfil) return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   if (status === "deslogado" && !dispensado && !abriu.current) {
-    return <div className="fixed inset-0 z-[95] bg-[#0d0d10]" />
+    return <div className="fixed inset-0 z-[95] bg-[color:var(--surface-1)]" />
   }
   return null
 }
@@ -505,7 +505,7 @@ export function DesktopLauncher() {
 
       {baixado && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl">
+          <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl">
             <h3 className="mb-2 text-lg font-semibold text-white">
               {t("desktop.store.download_concluido")}
             </h3>
@@ -562,7 +562,7 @@ export function DesktopLauncher() {
           onClick={() => setConfirmBigPicture(false)}
         >
           <div data-no-drag
-            className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+            className="w-[400px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-lg font-semibold text-white">

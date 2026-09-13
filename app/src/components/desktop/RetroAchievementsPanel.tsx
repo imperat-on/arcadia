@@ -73,7 +73,7 @@ export function RetroAchievementsPanel() {
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white">{t("retroachievements.titulo")}</h3>
         {connected && (
-          <span className="text-[11px] font-medium" style={{ color: "#4adf9a" }}>
+          <span className="text-[11px] font-medium" style={{ color: "var(--state-success)" }}>
             {t("retroachievements.conectado")}
           </span>
         )}

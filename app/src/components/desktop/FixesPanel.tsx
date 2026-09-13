@@ -205,7 +205,7 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
           {t("fixes.titulo")}
         </h3>
         {applied && (
-          <span className="rounded-full bg-[#4adf9a]/15 px-2.5 py-1 text-[10.5px] font-semibold text-[#4adf9a]">
+          <span className="rounded-full bg-[color:var(--state-success)]/15 px-2.5 py-1 text-[10.5px] font-semibold text-[color:var(--state-success)]">
             {t("fixes.aplicado")}
           </span>
         )}
@@ -218,7 +218,7 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
             <span>{state.kind === "downloading" ? t("fixes.baixando") : t("fixes.extraindo")}</span>
             <button
               onClick={cancelar}
-              className="text-[11px] font-semibold text-[#ff6b81] hover:underline"
+              className="text-[11px] font-semibold text-[color:var(--state-danger)] hover:underline"
             >
               {t("common.cancelar")}
             </button>
@@ -245,12 +245,12 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
         </div>
       )}
       {state.kind === "failed" && (
-        <div className="mb-4 rounded-xl border border-[#ff6b81]/30 bg-[#ff6b81]/[0.06] p-3">
-          <p className="text-[12px] text-[#ffb3c0]">{state.error}</p>
+        <div className="mb-4 rounded-xl border border-[color:var(--state-danger)]/30 bg-[color:var(--state-danger)]/[0.06] p-3">
+          <p className="text-[12px] text-[color:var(--state-danger-tint)]">{state.error}</p>
           {state.errorCode === "authentication" && (
             <button
               onClick={() => setShowAuth(true)}
-              className="mt-1 text-[11px] font-semibold text-[#ff6b81] hover:underline"
+              className="mt-1 text-[11px] font-semibold text-[color:var(--state-danger)] hover:underline"
             >
               {t("fixes.adicionar_chave")}
             </button>
@@ -258,8 +258,8 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
         </div>
       )}
       {state.kind === "done" && (
-        <div className="mb-4 rounded-xl border border-[#4adf9a]/30 bg-[#4adf9a]/[0.06] p-3">
-          <p className="text-[12px] text-[#4adf9a]">{t("fixes.sucesso")}</p>
+        <div className="mb-4 rounded-xl border border-[color:var(--state-success)]/30 bg-[color:var(--state-success)]/[0.06] p-3">
+          <p className="text-[12px] text-[color:var(--state-success)]">{t("fixes.sucesso")}</p>
         </div>
       )}
 
@@ -306,7 +306,7 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
       </div>
 
       {!installPath && (
-        <p className="mt-3 text-[11px] text-[#ffb86b]">{t("fixes.sem_install_path")}</p>
+        <p className="mt-3 text-[11px] text-[color:var(--state-warn-soft)]">{t("fixes.sem_install_path")}</p>
       )}
 
       {/* Modal auth ryuu */}
@@ -316,7 +316,7 @@ export function FixesPanel({ appid, installPath }: { appid: string; installPath:
           onClick={() => setShowAuth(false)}
         >
           <div data-no-drag
-            className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-5"
+            className="w-[420px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-[15px] font-semibold text-white">{t("fixes.auth_titulo")}</h3>
