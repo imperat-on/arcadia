@@ -422,20 +422,11 @@ export function PS5Launcher() {
     if (!configLoaded) return
     bootLibOk.current = libraryLoaded
     tentarSairBoot()
-    const firstNewDefaults = config.big_picture_scale_defaults_v3 !== true
-    const consoleScale = firstNewDefaults ? 1.3 : (config.console_ui_scale ?? 1.3)
-    const coverScale = firstNewDefaults ? 1.6 : (config.card_scale ?? 1.6)
-    if (firstNewDefaults) {
-      window.launcherAPI?.setConfig({
-        console_ui_scale: consoleScale,
-        card_scale: coverScale,
-        big_picture_scale_defaults_v2: true,
-        big_picture_scale_defaults_v3: true,
-      })
-    }
-    window.launcherAPI?.setZoom(consoleScale, "console")
+    // A escala da UI é uma chave só e quem aplica é o processo principal
+    // (electron/ui-scale.js) — inclusive ao trocar de modo. Aqui ficam só as
+    // preferências de aparência: tamanho da capa e cor de destaque.
     trailerAutoRef.current = config.trailer_auto !== false
-    applyUiPrefs({ ...config, card_scale: coverScale })
+    applyUiPrefs({ ...config, card_scale: config.card_scale ?? 1.6 })
     try {
       const r = JSON.parse(localStorage.getItem("gs_recent") || "[]")
       if (Array.isArray(r)) setRecent(r)

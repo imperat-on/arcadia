@@ -276,13 +276,9 @@ export function DesktopLauncher() {
   useEffect(() => {
     if (!libraryLoaded) return
     if (!configLoaded) return
-    const requested = Number(cfg.ui_scale)
-    const promoteDefault = cfg.desktop_font_scale_v3 !== true && (!Number.isFinite(requested) || requested === 1)
-    const safeScale = Math.min(1.1, Math.max(.7, promoteDefault ? 1.1 : (Number.isFinite(requested) ? requested : 1.1)))
-    if (cfg.ui_scale !== safeScale || cfg.desktop_font_scale_v3 !== true) {
-      window.launcherAPI?.setConfig({ ui_scale: safeScale, desktop_font_scale_v3: true })
-    }
-    window.launcherAPI?.setZoom(safeScale, "desktop")
+    // A escala da UI é uma chave só e quem aplica é o processo principal
+    // (electron/ui-scale.js), inclusive na troca de modo. Aqui só sobra a
+    // acessibilidade (fontes, animações, tema).
     aplicarA11y(cfg)
   }, [cfg, configLoaded, libraryLoaded])
 
