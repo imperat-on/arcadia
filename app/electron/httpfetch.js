@@ -36,10 +36,47 @@ function saneOpts(opts = {}) {
   return { ...opts, headers }
 }
 
-function fetchRede(url, opts) {
+// Endereço do backend: primário + reserva. Um DNS ruim ou uma queda do provedor
+// não podem derrubar o app quando existe um segundo caminho. Só erro de REDE
+// (o fetch lança: DNS, conexão, TLS) troca de endereço — resposta HTTP com erro
+// (401, 404) é resposta legítima do servidor e não se repete.
+const { urls } = require("./supabase/config")
+
+let preferido = 0
+
+/** O endereço da lista que esta URL está usando, ou null se for URL externa. */
+function baseDaUrl(url) {
+  if (typeof url !== "string") return null
+  return urls.find((u) => url.startsWith(u)) || null
+}
+
+async function fetchRede(url, opts) {
   const f = obter()
   const o = saneOpts(opts)
-  return f ? f(url, o) : fetch(url, o)
+  const chamar = (alvo) => (f ? f(alvo, o) : fetch(alvo, o))
+
+  const base = baseDaUrl(url)
+  // URL externa (loja, CDN, SteamSpy): nada a fazer, comportamento de sempre.
+  if (!base) return chamar(url)
+
+  // Tenta primeiro o endereço que respondeu por último e, se a rede falhar,
+  // os outros. Requisição abortada pelo chamador e corpo em stream não são
+  // falha de rede reenviável: propagam na hora.
+  const ordem = [...new Set([urls[preferido], ...urls])].filter(Boolean)
+  let ultimoErro
+  for (const alvo of ordem) {
+    const destino = alvo === base ? url : alvo + url.slice(base.length)
+    try {
+      const resposta = await chamar(destino)
+      preferido = urls.indexOf(alvo)
+      return resposta
+    } catch (erro) {
+      ultimoErro = erro
+      if (o?.signal?.aborted) throw erro
+      if (o?.body && typeof o.body?.pipe === "function") throw erro
+    }
+  }
+  throw ultimoErro
 }
 
 // Fetch com CONTROLE MANUAL de redirects. O net.fetch do Chromium NÃO suporta
