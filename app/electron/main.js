@@ -2676,7 +2676,7 @@ app.whenReady().then(() => {
     console.error("[supabase] falha ao registrar IPC de conta:", e)
   }
   // Não há prefetch de vitrine: a loja é a página web da Steam embutida
-  // (StoreConsole/webview), que se cacheia sozinha. O que vale a pena é abrir
+  // (o webview da loja), que se cacheia sozinha. O que vale a pena é abrir
   // a conexão com a Steam cedo — a primeira requisição do processo custa ~3,4s
   // de DNS + TLS, e sem isto ela caía na primeira tecla digitada na busca.
   setTimeout(() => {
