@@ -148,7 +148,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                   ? t("trailer.preview")
                   : t("trailer.escolher")}
             </h2>
-            <p className="text-xs text-[#8a93a6] truncate">
+            <p className="text-xs text-[color:var(--text-2)] truncate">
               {game.title} — {downloading || preview ? "" : t("trailer.resultados_youtube")}
             </p>
           </div>
@@ -173,7 +173,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
             />
             <div className="flex-1 min-w-0">
               <div className="text-white font-semibold line-clamp-2">{preview.title}</div>
-              <div className="text-sm text-[#8a93a6] mt-1">
+              <div className="text-sm text-[color:var(--text-2)] mt-1">
                 {preview.channel}
                 {preview.duration ? ` · ${fmtDur(preview.duration)}` : ""}
               </div>
@@ -187,7 +187,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                     style={{ width: `${percent}%`, background: "var(--accent)" }}
                   />
                 </div>
-                <div className="text-xs text-[#8a93a6] mt-2">
+                <div className="text-xs text-[color:var(--text-2)] mt-2">
                   {stage === "processando"
                     ? t("trailer.processando")
                     : stage === "done"
@@ -205,7 +205,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
               style={{ height: "58vh", background: "#000" }}
             >
               {streamLoading ? (
-                <div className="text-[#8a93a6]">{t("trailer.carregando_video")}</div>
+                <div className="text-[color:var(--text-2)]">{t("trailer.carregando_video")}</div>
               ) : streamUrl ? (
                 <video
                   className="w-full h-full object-contain"
@@ -215,7 +215,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                   playsInline
                 />
               ) : (
-                <div className="text-[#8a93a6] px-8 text-center leading-relaxed">
+                <div className="text-[color:var(--text-2)] px-8 text-center leading-relaxed">
                   {streamErr || t("trailer.sem_previa")}
                 </div>
               )}
@@ -223,12 +223,12 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
             <div className="flex items-center justify-between gap-4 mt-4 shrink-0">
               <div className="min-w-0">
                 <div className="text-white font-semibold line-clamp-1">{preview.title}</div>
-                <div className="text-sm text-[#8a93a6]">
+                <div className="text-sm text-[color:var(--text-2)]">
                   {preview.channel}
                   {preview.duration ? ` · ${fmtDur(preview.duration)}` : ""}
                 </div>
                 {dlError && (
-                  <div className="text-xs text-[#ff6b81] mt-1 line-clamp-2">{dlError}</div>
+                  <div className="text-xs text-[color:var(--state-danger)] mt-1 line-clamp-2">{dlError}</div>
                 )}
               </div>
               <button
@@ -244,16 +244,16 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
           /* ── Grade de resultados ───────────────────────────────────────── */
           <div className="overflow-y-auto p-5">
             {loading ? (
-              <div className="text-center text-[#8a93a6] py-16">
+              <div className="text-center text-[color:var(--text-2)] py-16">
                 {t("trailer.buscando_youtube")}
               </div>
             ) : searchErr ? (
               <div className="text-center py-16 px-6">
-                <div className="text-[#ff6b6b]">{t("trailer.falha_busca")}</div>
-                <div className="text-[#8a93a6] text-sm mt-2 break-words">{searchErr}</div>
+                <div className="text-[color:var(--state-danger)]">{t("trailer.falha_busca")}</div>
+                <div className="text-[color:var(--text-2)] text-sm mt-2 break-words">{searchErr}</div>
               </div>
             ) : results.length === 0 ? (
-              <div className="text-center text-[#8a93a6] py-16">{t("trailer.nenhum_video")}</div>
+              <div className="text-center text-[color:var(--text-2)] py-16">{t("trailer.nenhum_video")}</div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {results.map((v) => (
@@ -294,7 +294,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-white text-sm font-medium line-clamp-2">{v.title}</div>
-                      <div className="text-xs text-[#8a93a6] mt-1 truncate">{v.channel}</div>
+                      <div className="text-xs text-[color:var(--text-2)] mt-1 truncate">{v.channel}</div>
                     </div>
                   </button>
                 ))}

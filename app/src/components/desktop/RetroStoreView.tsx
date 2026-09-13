@@ -495,8 +495,8 @@ export function RetroStoreView({
           className="ui-input min-w-[190px] px-3 py-2.5 text-[12px] text-white/75 [color-scheme:dark]"
           style={{ colorScheme: "dark" }}
         >
-          <option value="" className="bg-[#151515] text-white">{t("store.retro_all_platforms")}</option>
-          {RETRO_SYSTEMS.map(([id, label]) => <option key={id} value={id} className="bg-[#151515] text-white">{label}</option>)}
+          <option value="" className="bg-[color:var(--surface-2)] text-white">{t("store.retro_all_platforms")}</option>
+          {RETRO_SYSTEMS.map(([id, label]) => <option key={id} value={id} className="bg-[color:var(--surface-2)] text-white">{label}</option>)}
         </select>
         <div className="relative flex-1">
           <input
@@ -820,7 +820,7 @@ function RetroDetail({
             role="dialog"
             aria-modal="true"
             aria-labelledby="retro-remove-title"
-            className="w-[460px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[#0d0d10] p-6 shadow-2xl"
+            className="w-[460px] max-w-[92vw] rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="retro-remove-title" className="mb-2 text-lg font-semibold text-white">
@@ -842,7 +842,7 @@ function RetroDetail({
                 type="button"
                 onClick={() => void remover()}
                 disabled={removendo}
-                className="rounded-lg border border-[#ff6b81]/45 px-5 py-2.5 text-[12px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+                className="rounded-lg border border-[color:var(--state-danger)]/45 px-5 py-2.5 text-[12px] font-semibold text-[color:var(--state-danger)] transition-colors enabled:hover:bg-[color:var(--state-danger)]/10 disabled:opacity-50"
               >
                 {t("common.remover")}
               </button>
@@ -936,8 +936,8 @@ function RetroCardSkeleton({ count }: { count: number }) {
 
 function RetroDetailSkeleton() {
   return (
-    <div className="store-game-skeleton flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0b0e] text-white">
-      <div className="h-[50px] shrink-0 border-b border-white/[.08] bg-[#09090c]" />
+    <div className="store-game-skeleton flex h-full min-h-0 flex-col overflow-hidden bg-[color:var(--surface-1)] text-white">
+      <div className="h-[50px] shrink-0 border-b border-white/[.08] bg-[color:var(--surface-1)]" />
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="store-game-hero h-[46vh] min-h-[280px] animate-pulse bg-white/[.04]" />
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[1fr_360px]">

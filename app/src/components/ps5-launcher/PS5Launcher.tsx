@@ -438,7 +438,7 @@ export function PS5Launcher() {
   // Aplica preferências visuais (escala das capas + cor de destaque).
   function applyUiPrefs(c: { card_scale?: number; accent?: string }) {
     setCardScale(c?.card_scale ?? 1.6)
-    document.documentElement.style.setProperty("--accent", c?.accent || "#00a8ff")
+    document.documentElement.style.setProperty("--accent", c?.accent || "var(--accent)")
   }
 
   // Trailer no fundo: ao focar um jogo por ~1,5s, toca o trailer. Se não estiver
@@ -1225,7 +1225,7 @@ export function PS5Launcher() {
         onLaunch={_activate}
       />
     ) : (
-      <div className="px-10 py-10 text-[#8a93a6]">{t("ps5.biblioteca.vazia")}</div>
+      <div className="px-10 py-10 text-[color:var(--text-2)]">{t("ps5.biblioteca.vazia")}</div>
     )
   const heroNode = (
     <HeroSection
@@ -1547,7 +1547,7 @@ export function PS5Launcher() {
           novo (o guarda de pedido do hook cobre, mas a tela precisa responder). */}
       {acoesLoja.busy && !acoesLoja.escolhendo && (
         <div className="fixed inset-0 z-[88] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="rounded-2xl border border-white/10 bg-[#0b0b0d] px-8 py-6 text-center">
+          <div className="rounded-2xl border border-white/10 bg-[color:var(--surface-1)] px-8 py-6 text-center">
             <div
               className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/15"
               style={{ borderTopColor: "var(--accent)" }}
@@ -1564,7 +1564,7 @@ export function PS5Launcher() {
           ref={semManifestoRef}
           className="gp-scope fixed inset-0 z-[90] flex items-center justify-center bg-black/85 backdrop-blur-sm"
         >
-          <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0b0b0d] p-7">
+          <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[color:var(--surface-1)] p-7">
             <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
               {t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
@@ -1602,7 +1602,7 @@ export function PS5Launcher() {
       {acoesLoja.toast && (
         <div data-no-drag
           onClick={() => acoesLoja.setToast("")}
-          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[#0d1017]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
+          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
         >
           {acoesLoja.toast}
         </div>

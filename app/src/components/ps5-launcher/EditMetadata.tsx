@@ -131,7 +131,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
               <button
                 onClick={() => setBuscandoTexto(true)}
                 className="px-3 py-1 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
-                style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
+                style={{ background: isConsole ? "var(--accent)" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
               >
                 {t("editmetadata.buscar_online")}
               </button>
@@ -192,7 +192,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
             <button
               onClick={save}
               className="px-7 py-2.5 rounded-lg text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
-              style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
+              style={{ background: isConsole ? "var(--accent)" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
             >
               {t("common.salvar")}
             </button>
@@ -287,7 +287,7 @@ function ArtField({
       <button
         onClick={onSearch}
         className="w-full px-2 py-1.5 rounded-md text-[12px] font-semibold text-white transition-transform hover:scale-[1.03]"
-        style={{ background: isConsole ? "#00a8ff" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
+        style={{ background: isConsole ? "var(--accent)" : "var(--accent)", color: isConsole ? "#ffffff" : "#000000" }}
       >
         {t("editmetadata.buscar_online")}
       </button>

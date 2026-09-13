@@ -14,7 +14,7 @@ interface NewsViewProps {
 // Fundo de fallback quando a notícia não tem imagem.
 function Fallback({ source }: { source: string }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[#050505]">
+    <div className="flex h-full w-full items-center justify-center bg-[color:var(--surface-0)]">
       <span className="text-sm font-semibold uppercase tracking-[0.2em] text-white/30">
         {source}
       </span>

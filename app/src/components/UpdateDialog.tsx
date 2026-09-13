@@ -66,7 +66,7 @@ export function UpdateDialog({ info, console: modoConsole = false, onDepois }: U
       <div
         ref={ref}
         className="gp-scope w-[460px] max-w-[92vw] rounded-2xl border border-white/[0.08] p-6 shadow-2xl"
-        style={{ background: modoConsole ? "rgba(10,12,20,0.98)" : "#0d0d10" }}
+        style={{ background: modoConsole ? "rgba(10,12,20,0.98)" : "var(--surface-1)" }}
         role="dialog"
         aria-label={t("update.titulo")}
       >
@@ -92,7 +92,7 @@ export function UpdateDialog({ info, console: modoConsole = false, onDepois }: U
           <p className="mb-3 text-[12px] text-white/45">{t("update.deps_aviso")}</p>
         )}
 
-        {erro && <p className="mb-3 text-[12px] text-[#ffa07a]">{erro}</p>}
+        {erro && <p className="mb-3 text-[12px] text-[color:var(--state-danger-soft)]">{erro}</p>}
 
         {aplicando ? (
           <p className="py-1 text-[13px] text-white/70">{rotuloEtapa}</p>

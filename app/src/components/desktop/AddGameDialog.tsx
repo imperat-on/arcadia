@@ -260,7 +260,7 @@ export function AddGameDialog({
       onClick={onClose}
     >
       <div data-no-drag
-        className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[#0d0d10] shadow-2xl"
+        className="flex max-h-[88vh] w-[560px] max-w-[94vw] flex-col rounded-2xl border border-white/[0.08] bg-[color:var(--surface-1)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between px-6 pt-5">
@@ -363,13 +363,13 @@ export function AddGameDialog({
                 onChange={(e) => setPlatform(e.target.value as "windows" | "linux" | "emulator")}
                 className="mb-4 w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
               >
-                <option value="windows" className="bg-[#16161a]">
+                <option value="windows" className="bg-[color:var(--surface-2)]">
                   {t("addgame.windows")}
                 </option>
-                <option value="linux" className="bg-[#16161a]">
+                <option value="linux" className="bg-[color:var(--surface-2)]">
                   {t("addgame.linux_nativo")}
                 </option>
-                <option value="emulator" className="bg-[#16161a]">
+                <option value="emulator" className="bg-[color:var(--surface-2)]">
                   {t("addgame.emulador_rom")}
                 </option>
               </select>
@@ -426,11 +426,11 @@ export function AddGameDialog({
                       onChange={(e) => setWineVersion(e.target.value)}
                       className="w-full appearance-none rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                     >
-                      <option value="" className="bg-[#16161a]">
+                      <option value="" className="bg-[color:var(--surface-2)]">
                         {t("addgame.padrao_sistema")}
                       </option>
                       {wines.map((w) => (
-                        <option key={w.id} value={w.id} className="bg-[#16161a]">
+                        <option key={w.id} value={w.id} className="bg-[color:var(--surface-2)]">
                           {w.name}
                         </option>
                       ))}
@@ -461,9 +461,9 @@ export function AddGameDialog({
                     }}
                     className="mb-3 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-white outline-none focus:border-[color:var(--accent)]"
                   >
-                    <option value="" className="bg-[#16161a]">{t("addgame.selecione")}</option>
+                    <option value="" className="bg-[color:var(--surface-2)]">{t("addgame.selecione")}</option>
                     {emulators.map((item) => (
-                      <option key={item.id} value={item.id} className="bg-[#16161a]">
+                      <option key={item.id} value={item.id} className="bg-[color:var(--surface-2)]">
                         {item.name} · {item.systems.join(" / ")}{item.available ? "" : t("emulador.nao_detectado_sufixo")}
                       </option>
                     ))}
@@ -534,7 +534,7 @@ export function AddGameDialog({
               />
             </>
           )}
-          {erro && <p className="mb-2 text-[12px] text-[#ff6b81]">{erro}</p>}
+          {erro && <p className="mb-2 text-[12px] text-[color:var(--state-danger)]">{erro}</p>}
         </div>
 
         <div className="flex justify-end gap-2.5 border-t border-white/[0.06] px-6 py-4">

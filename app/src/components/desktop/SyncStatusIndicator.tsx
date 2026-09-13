@@ -83,7 +83,7 @@ export function SyncStatusIndicator() {
 
   const temErro = !!st.lastError
   const temFila = st.queueLen > 0
-  const cor = temErro ? "#ff6b6b" : temFila ? "#f5a623" : "#4ade80"
+  const cor = temErro ? "var(--state-danger)" : temFila ? "var(--state-warn)" : "#4ade80"
   const texto = temErro
     ? t("sync.erro")
     : sincronizando
@@ -103,7 +103,7 @@ export function SyncStatusIndicator() {
       onClick={sincronizar}
       onContextMenu={(e) => { e.preventDefault(); forcarLogout() }}
       title={st.lastError || "Clique direito = logout"}
-      className="desktop-sync-status fixed bottom-[56px] right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[#16161c]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[#1d1d24]"
+      className="desktop-sync-status fixed bottom-[56px] right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[color:var(--surface-2)]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[color:var(--surface-3)]"
     >
       <span
         className={`h-2 w-2 rounded-full ${sincronizando ? "animate-pulse" : ""}`}

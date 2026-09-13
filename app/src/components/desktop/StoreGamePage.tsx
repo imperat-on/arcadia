@@ -441,7 +441,7 @@ export function StoreGamePage({
                         type="button"
                         data-game-action="stop"
                         onClick={onStop || (() => jogoAtivo.parar())}
-                        className="flex items-center gap-2 rounded-full bg-[#ef4444] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
+                        className="flex items-center gap-2 rounded-full bg-[color:var(--state-danger-solid)] px-5 py-2 text-[12.5px] font-bold text-white transition-transform hover:scale-[1.03]"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                           <rect x="5" y="5" width="14" height="14" rx="2" />
@@ -728,7 +728,7 @@ function DangerBtn({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded-full border border-[#ff6b81]/40 px-4 py-2 text-[12.5px] font-semibold text-[#ff6b81] transition-colors enabled:hover:bg-[#ff6b81]/10 disabled:opacity-50"
+      className="rounded-full border border-[color:var(--state-danger)]/40 px-4 py-2 text-[12.5px] font-semibold text-[color:var(--state-danger)] transition-colors enabled:hover:bg-[color:var(--state-danger)]/10 disabled:opacity-50"
     >
       {label}
     </button>

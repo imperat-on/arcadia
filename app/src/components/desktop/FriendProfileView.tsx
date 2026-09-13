@@ -181,9 +181,9 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
           // amigo ficam desabilitados em vez de clicáveis e mudos.
         />
         {confirmandoRemover ? (
-          <div className="absolute right-8 top-6 z-10 flex items-center gap-2 rounded-xl border border-[#ff6b81]/30 bg-[#16161c]/95 p-2 shadow-xl backdrop-blur">
+          <div className="absolute right-8 top-6 z-10 flex items-center gap-2 rounded-xl border border-[color:var(--state-danger)]/30 bg-[color:var(--surface-2)]/95 p-2 shadow-xl backdrop-blur">
             <span className="px-1 text-xs text-white/70">{t("amigos.confirmar_remover")}</span>
-            <button onClick={remover} disabled={removendo} className="rounded-lg bg-[#ff6b81] px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-40">
+            <button onClick={remover} disabled={removendo} className="rounded-lg bg-[color:var(--state-danger)] px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-40">
               {removendo ? "..." : t("amigos.remover")}
             </button>
             <button onClick={() => setConfirmandoRemover(false)} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/60">
@@ -193,7 +193,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
         ) : (
           <button
             onClick={() => setConfirmandoRemover(true)}
-            className="absolute right-8 top-6 z-10 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/55 hover:border-[#ff6b81]/40 hover:text-[#ff6b81]"
+            className="absolute right-8 top-6 z-10 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/55 hover:border-[color:var(--state-danger)]/40 hover:text-[color:var(--state-danger)]"
           >
             {t("amigos.remover")}
           </button>
@@ -258,7 +258,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
           </div>
 
         {erro && (
-          <div className="rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.07] px-3.5 py-2.5 text-xs text-[#ff6b81]">
+          <div className="rounded-xl border border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.07] px-3.5 py-2.5 text-xs text-[color:var(--state-danger)]">
             {erro}
           </div>
         )}
@@ -285,13 +285,13 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
             {/* Resumo estilo "meu perfil" */}
             <div className="mb-4 grid grid-cols-3 gap-3">
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[#7fd0ff]">{conquistas.length}</div>
+                <div className="text-xl font-bold text-[color:var(--state-info-soft)]">{conquistas.length}</div>
                 <div className="text-[10px] uppercase tracking-wider text-white/35">
                   {t("amigos.total_conquistas")}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[#4adf9a]">
+                <div className="text-xl font-bold text-[color:var(--state-success)]">
                   {conquistas.filter((c) => c.percent != null && c.percent >= 100).length > 0
                     ? `${Math.round(
                         (conquistas.filter((c) => c.percent != null && c.percent >= 100).length / conquistas.length) * 100,
@@ -303,7 +303,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[#f5a623]">
+                <div className="text-xl font-bold text-[color:var(--state-warn)]">
                   {new Set(conquistas.map((c) => c.appid)).size}
                 </div>
                 <div className="text-[10px] uppercase tracking-wider text-white/35">
@@ -316,7 +316,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
               {conquistas.map((c) => (
                 <div
                   key={c.appid + c.apiname}
-                  className="group flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-all hover:border-[#00a8ff]/40 hover:bg-white/[0.05]"
+                  className="group flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-all hover:border-[color:var(--accent)]/40 hover:bg-white/[0.05]"
                 >
                   <div className="flex items-start gap-2.5">
                     {c.icon ? (
@@ -326,7 +326,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
                         className="h-11 w-11 shrink-0 rounded-lg border border-white/10 object-cover"
                       />
                     ) : (
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#0072ce]/30 to-[#00a8ff]/10 text-lg text-[#7fd0ff]">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--brand-steam)]/30 to-[color:var(--accent)]/10 text-lg text-[color:var(--state-info-soft)]">
                         🏆
                       </div>
                     )}
@@ -337,7 +337,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
                       <div className="mt-0.5 truncate text-[10px] text-white/35">{c.appid}</div>
                     </div>
                     {c.percent != null && (
-                      <span className="shrink-0 rounded-full bg-[#4adf9a]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#4adf9a]">
+                      <span className="shrink-0 rounded-full bg-[color:var(--state-success)]/15 px-1.5 py-0.5 text-[10px] font-bold text-[color:var(--state-success)]">
                         {Math.round(c.percent)}%
                       </span>
                     )}
@@ -346,7 +346,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
                     <span className="text-[10px] text-white/35">
                       {formatarData(c.unlocked_at)}
                     </span>
-                    <span className="text-[10px] font-semibold text-[#4adf9a]">✓</span>
+                    <span className="text-[10px] font-semibold text-[color:var(--state-success)]">✓</span>
                   </div>
                 </div>
               ))}
@@ -360,12 +360,12 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
       {aceito && (
         <div className="mt-auto pt-8">
           {confirmandoRemover ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.06] p-3">
+            <div className="flex items-center gap-2 rounded-xl border border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.06] p-3">
               <span className="text-sm text-white/70">{t("amigos.confirmar_remover")}</span>
               <button
                 onClick={remover}
                 disabled={removendo}
-                className="ml-auto rounded-lg bg-[#ff6b81] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+                className="ml-auto rounded-lg bg-[color:var(--state-danger)] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
               >
                 {removendo ? "…" : t("amigos.remover")}
               </button>
@@ -379,7 +379,7 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
           ) : (
             <button
               onClick={() => setConfirmandoRemover(true)}
-              className="rounded-lg border border-white/10 px-4 py-2 text-xs font-medium text-white/50 transition-colors hover:border-[#ff6b81]/40 hover:text-[#ff6b81]"
+              className="rounded-lg border border-white/10 px-4 py-2 text-xs font-medium text-white/50 transition-colors hover:border-[color:var(--state-danger)]/40 hover:text-[color:var(--state-danger)]"
             >
               {t("amigos.remover")}
             </button>

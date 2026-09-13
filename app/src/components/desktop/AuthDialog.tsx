@@ -1,7 +1,7 @@
 "use client"
 
 // TELA DE LOGIN do Arcadia — fullscreen, com a identidade do launcher:
-// fundo escuro #0d0d10, neon azul (#0072ce/#00a8ff), glassmorphism e
+// fundo escuro var(--surface-1), neon azul (var(--brand-steam)/var(--accent)), glassmorphism e
 // micro-animações CSS (sem dependências extra).
 // Cadastro: EMAIL + USERNAME + SENHA (sem verificação — projeto libertário).
 // Login: USERNAME + SENHA (email resolvido no main via RPC login_email).
@@ -22,7 +22,7 @@ type Modo = "criar" | "entrar"
 const inputBase =
   "w-full rounded-xl border bg-white/[0.04] px-4 py-3 pl-11 text-sm text-white " +
   "placeholder-white/25 outline-none transition-all duration-200 " +
-  "border-white/10 focus:border-[#00a8ff]/60 focus:bg-white/[0.06] focus:shadow-[0_0_0_3px_rgba(0,168,255,0.12)]"
+  "border-white/10 focus:border-[color:var(--accent)]/60 focus:bg-white/[0.06] focus:shadow-[0_0_0_3px_rgba(0,168,255,0.12)]"
 
 function IconMail() {
   return (
@@ -145,7 +145,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
 
   return (
     <div
-      className="gp-scope fixed inset-0 z-[90] overflow-hidden bg-[#0d0d10]"
+      className="gp-scope fixed inset-0 z-[90] overflow-hidden bg-[color:var(--surface-1)]"
       onKeyDown={onEsc}
       tabIndex={-1}
     >
@@ -169,9 +169,9 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
 
       {/* Glows de fundo */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="arc-anim-a absolute -top-40 left-1/4 h-[480px] w-[480px] rounded-full bg-[#0072ce]/25 blur-[130px]" />
-        <div className="arc-anim-b absolute -bottom-48 right-1/5 h-[420px] w-[420px] rounded-full bg-[#00a8ff]/20 blur-[120px]" />
-        <div className="absolute left-1/2 top-1/2 h-[300px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#0072ce]/[0.06] blur-[90px]" />
+        <div className="arc-anim-a absolute -top-40 left-1/4 h-[480px] w-[480px] rounded-full bg-[color:var(--brand-steam)]/25 blur-[130px]" />
+        <div className="arc-anim-b absolute -bottom-48 right-1/5 h-[420px] w-[420px] rounded-full bg-[color:var(--accent)]/20 blur-[120px]" />
+        <div className="absolute left-1/2 top-1/2 h-[300px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--brand-steam)]/[0.06] blur-[90px]" />
         {/* grid sutil */}
         <div
           className="absolute inset-0 opacity-[0.35]"
@@ -201,7 +201,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
           {/* Logo */}
           <div className="arc-fade-up mb-8 flex flex-col items-center" style={{ animationDelay: "0ms" }}>
             <div className="text-3xl font-bold tracking-[0.18em] text-white">
-              ARCAD<span className="text-[#00a8ff]">IA</span>
+              ARCAD<span className="text-[color:var(--accent)]">IA</span>
             </div>
             <div className="mt-1 text-[11px] uppercase tracking-[0.35em] text-white/30">
               Launcher
@@ -215,7 +215,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
           >
             {logado ? (
               <div className="arc-fade-in flex flex-col items-center gap-4 py-4">
-                <div className="arc-pop flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4adf9a]/25 to-[#4adf9a]/5 text-[#4adf9a] shadow-[0_0_50px_rgba(74,223,154,0.25)]">
+                <div className="arc-pop flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-[color:var(--state-success)]/25 to-[color:var(--state-success)]/5 text-[color:var(--state-success)] shadow-[0_0_50px_rgba(74,223,154,0.25)]">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="h-9 w-9">
                     <path d="m5 13 4 4L19 7" />
                   </svg>
@@ -230,7 +230,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                   {t("account.logado_ok")}
                 </div>
                 {usernameReal && usernameReal !== session.user?.username && (
-                  <div className="mt-2 w-full rounded-xl border border-[#ffb454]/20 bg-[#ffb454]/[0.06] px-4 py-2.5 text-center text-xs text-[#ffb454]">
+                  <div className="mt-2 w-full rounded-xl border border-[color:var(--retro-amber)]/20 bg-[color:var(--retro-amber)]/[0.06] px-4 py-2.5 text-center text-xs text-[color:var(--retro-amber)]">
                     {t("account.username_ajustado", { pedido: session.user?.username, real: usernameReal })}
                   </div>
                 )}
@@ -239,7 +239,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                     await signOut()
                     setSenha("")
                   }}
-                  className="mt-1 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-[#ff6b81] transition-all hover:border-[#ff6b81]/40 hover:bg-[#ff6b81]/[0.06]"
+                  className="mt-1 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-[color:var(--state-danger)] transition-all hover:border-[color:var(--state-danger)]/40 hover:bg-[color:var(--state-danger)]/[0.06]"
                 >
                   {t("account.sair")}
                 </button>
@@ -249,7 +249,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                 {/* Tabs */}
                 <div className="relative flex rounded-xl border border-white/10 bg-black/30 p-1">
                   <div
-                    className="absolute bottom-1 top-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-b from-[#0072ce] to-[#0057a3] shadow-[0_0_20px_rgba(0,114,206,0.4)] transition-transform duration-300 ease-out"
+                    className="absolute bottom-1 top-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-b from-[color:var(--brand-steam)] to-[color:var(--brand-steam-mid)] shadow-[0_0_20px_rgba(0,114,206,0.4)] transition-transform duration-300 ease-out"
                     style={{ transform: modo === "criar" ? "translateX(0)" : "translateX(calc(100% + 8px))" }}
                   />
                   {(["criar", "entrar"] as Modo[]).map((m) => (
@@ -321,7 +321,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                   )}
 
                   {erro && (
-                    <div className="arc-fade-in rounded-xl border border-[#ff6b81]/25 bg-[#ff6b81]/[0.07] px-3.5 py-2.5 text-xs text-[#ff6b81]">
+                    <div className="arc-fade-in rounded-xl border border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.07] px-3.5 py-2.5 text-xs text-[color:var(--state-danger)]">
                       {erro}
                     </div>
                   )}
@@ -331,7 +331,7 @@ export function AuthDialog({ open, onClose, semFechar }: AuthDialogProps) {
                 <button
                   onClick={continuar}
                   disabled={!podeEnviar}
-                  className={`arc-btn-shine group relative mt-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-[#0072ce] to-[#0057a3] px-4 py-3 text-sm font-bold text-white shadow-[0_8px_30px_rgba(0,114,206,0.35)] transition-all duration-200 hover:shadow-[0_8px_40px_rgba(0,168,255,0.5)] hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none ${
+                  className={`arc-btn-shine group relative mt-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-[color:var(--brand-steam)] to-[color:var(--brand-steam-mid)] px-4 py-3 text-sm font-bold text-white shadow-[0_8px_30px_rgba(0,114,206,0.35)] transition-all duration-200 hover:shadow-[0_8px_40px_rgba(0,168,255,0.5)] hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none ${
                     enviando ? "cursor-wait" : ""
                   }`}
                 >

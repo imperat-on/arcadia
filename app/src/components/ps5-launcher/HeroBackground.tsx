@@ -69,7 +69,7 @@ export function HeroBackground({ preto, hero, id }: HeroBackgroundProps) {
       {/* Fallback: se nada foi montado ainda, um gradiente cobre o preto puro. */}
       <div
         className="absolute inset-0"
-        style={{ background: "linear-gradient(135deg, #000000, #161619)" }}
+        style={{ background: "linear-gradient(135deg, #000000, var(--surface-2))" }}
       />
       {/* Camada atual: fica em opacidade cheia, sem fade (já está posicionada). */}
       {atual.hero && <CamadaBG key={`a-${atual.id}`} hero={atual.hero} />}

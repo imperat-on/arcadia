@@ -30,8 +30,8 @@ export function AchievementsFullScreen({
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-[#030405] text-white" role="dialog" aria-modal="true" aria-label="Todas as conquistas">
-      <header className="flex h-[58px] shrink-0 items-center gap-3 border-b border-white/[.1] bg-[#050608] px-5">
+    <div className="fixed inset-0 z-[80] flex flex-col bg-[color:var(--surface-0)] text-white" role="dialog" aria-modal="true" aria-label="Todas as conquistas">
+      <header className="flex h-[58px] shrink-0 items-center gap-3 border-b border-white/[.1] bg-[color:var(--surface-0)] px-5">
         <button type="button" autoFocus onClick={onClose} className="detail-icon-btn" title="Voltar" aria-label="Voltar">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>

@@ -93,7 +93,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
                   <h2 className="mt-4 flex items-center gap-2 text-sm font-semibold text-white/55">
                     <span
                       className="inline-block h-1 w-1 rounded-full"
-                      style={{ background: "#ff6b81" }}
+                      style={{ background: "var(--state-danger)" }}
                     />
                     {t("downloads.secao.falhas")}
                   </h2>

@@ -123,7 +123,7 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
           <ThemeSection
             scale={cfg.ui_scale ?? 1}
             cardScale={cfg.card_scale ?? 1.6}
-            accent={cfg.accent ?? "#00a8ff"}
+            accent={cfg.accent ?? "var(--accent)"}
             onScale={(z) => {
               // Slider % anima ao vivo (via setCfg); o zoom real só ao parar.
               // setZoomFactor re-rasteriza a webContents inteira: chamar a cada
@@ -140,7 +140,7 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
             }}
             onCardScale={(z) => {
               setCfg((c) => ({ ...c, card_scale: z }))
-              const accentNow = cfg.accent ?? "#00a8ff"
+              const accentNow = cfg.accent ?? "var(--accent)"
               cardPendingRef.current = { z, accent: accentNow }
               if (cardCommitRef.current != null) window.clearTimeout(cardCommitRef.current)
               cardCommitRef.current = window.setTimeout(() => {
@@ -223,7 +223,7 @@ export function IntegrationsSection({
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">
         {t("settings.integracoes")}
       </h2>
-      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.integracoes.desc")}</p>
+      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.integracoes.desc")}</p>
 
       {/* Debrid services: agrupa os 4 num bloco só, cada um começa colapsado
           (apenas nome + status). Clicar no cabeçalho expande o campo do
@@ -231,7 +231,7 @@ export function IntegrationsSection({
           fallback para os hosters que exigem JS/captcha. */}
       <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <h3 className="mb-1 text-base font-semibold text-white">{t("settings.debrid.titulo")}</h3>
-        <p className="mb-4 text-xs text-[#8a93a6]">{t("settings.debrid.desc")}</p>
+        <p className="mb-4 text-xs text-[color:var(--text-2)]">{t("settings.debrid.desc")}</p>
         <div className="flex flex-col divide-y divide-white/[0.06]">
           {DEBRIDS.map((d) => (
             <DebridItem
@@ -282,7 +282,7 @@ function ScaleControl({
   return (
     <div className="mb-10">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-[#a8b3cc]">{label}</span>
+        <span className="text-sm font-semibold text-[color:var(--text-2)]">{label}</span>
         <span className="text-lg font-bold text-white tabular-nums">
           {Math.round(value * 100)}%
         </span>
@@ -311,7 +311,7 @@ function ScaleControl({
               }}
             >
               <span className="text-sm font-semibold text-white">{p.label}</span>
-              <span className="text-xs text-[#8a93a6]">{Math.round(p.z * 100)}%</span>
+              <span className="text-xs text-[color:var(--text-2)]">{Math.round(p.z * 100)}%</span>
             </button>
           )
         })}
@@ -338,7 +338,7 @@ export function ThemeSection({
   const { t, lang, setLang } = useI18n()
 
   const ACCENTS = [
-    { name: t("settings.cores.azul_ps"), hex: "#00a8ff" },
+    { name: t("settings.cores.azul_ps"), hex: "var(--accent)" },
     { name: t("settings.cores.roxo"), hex: "#a06bff" },
     { name: t("settings.cores.verde"), hex: "#3ddc84" },
     { name: t("settings.cores.vermelho"), hex: "#ff5d5d" },
@@ -353,7 +353,7 @@ export function ThemeSection({
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">
         {t("settings.temas.titulo")}
       </h2>
-      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.temas.desc")}</p>
+      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.temas.desc")}</p>
 
       <ScaleControl
         label={t("settings.temas.escala")}
@@ -383,7 +383,7 @@ export function ThemeSection({
 
       {/* Cor de destaque */}
       <div className="mb-4">
-        <span className="text-sm font-semibold text-[#a8b3cc]">
+        <span className="text-sm font-semibold text-[color:var(--text-2)]">
           {t("settings.temas.cor_destaque")}
         </span>
         <div className="flex flex-wrap gap-3 mt-3">
@@ -410,7 +410,7 @@ export function ThemeSection({
           console não tinha nenhum — quem só usa o Big Picture ficava preso ao
           idioma detectado na primeira execução. */}
       <div className="mt-10">
-        <h3 className="text-sm uppercase tracking-wider text-[#8a93a6] mb-4">
+        <h3 className="text-sm uppercase tracking-wider text-[color:var(--text-2)] mb-4">
           {t("settings.language")}
         </h3>
         <div className="flex gap-3">
@@ -434,7 +434,7 @@ export function ThemeSection({
         </div>
       </div>
 
-      <p className="text-xs text-[#6b7280] mt-6">{t("settings.temas.nota")}</p>
+      <p className="text-xs text-[color:var(--text-3)] mt-6">{t("settings.temas.nota")}</p>
     </div>
   )
 }
@@ -505,7 +505,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       <h2 className="text-3xl font-light tracking-wide text-white mb-1">
         {t("settings.metadados.titulo")}
       </h2>
-      <p className="text-sm text-[#8a93a6] mb-8">{t("settings.metadados.desc")}</p>
+      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.metadados.desc")}</p>
 
       {/* Chave do SteamGridDB: libera a busca de arte em "Editar metadados" */}
       <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
@@ -517,14 +517,14 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           <span
             className="text-xs font-semibold px-2.5 py-1 rounded-full"
             style={{
-              color: sgdbKey ? "#4adf9a" : "#8a93a6",
+              color: sgdbKey ? "var(--state-success)" : "var(--text-2)",
               background: sgdbKey ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
             }}
           >
             {sgdbKey ? t("common.conectado") : t("common.sem_chave")}
           </span>
         </div>
-        <p className="text-xs text-[#8a93a6] mb-3">{t("settings.steamgriddb.desc")}</p>
+        <p className="text-xs text-[color:var(--text-2)] mb-3">{t("settings.steamgriddb.desc")}</p>
         <input
           type="password"
           value={sgdbKey}
@@ -548,7 +548,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ff4d6d" }} />
           <h3 className="text-base font-semibold text-white">{t("settings.trailers")}</h3>
         </div>
-        <p className="text-xs text-[#8a93a6] mb-4">{t("settings.trailers.desc")}</p>
+        <p className="text-xs text-[color:var(--text-2)] mb-4">{t("settings.trailers.desc")}</p>
 
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm text-white">{t("settings.trailers.auto_tocar")}</span>
@@ -569,11 +569,11 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
           {dlAll ? t("common.baixando") : t("settings.trailers.baixar_todos")}
         </button>
         {dlAll && (
-          <p className="text-xs text-[#8a93a6] mt-3">
+          <p className="text-xs text-[color:var(--text-2)] mt-3">
             {dlAll.total ? `${dlAll.done}/${dlAll.total}` : ""} {dlAll.title && `— ${dlAll.title}`}
           </p>
         )}
-        <p className="text-[11px] text-[#6b7280] mt-2">{t("settings.trailers.hint")}</p>
+        <p className="text-[11px] text-[color:var(--text-3)] mt-2">{t("settings.trailers.hint")}</p>
 
         {/* Cookies do YouTube: só para vídeos com restrição de idade */}
         <div className="mt-5 pt-5" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
@@ -582,19 +582,19 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             <span
               className="text-xs font-semibold px-2.5 py-1 rounded-full shrink-0"
               style={{
-                color: cookies ? "#4adf9a" : "#8a93a6",
+                color: cookies ? "var(--state-success)" : "var(--text-2)",
                 background: cookies ? "rgba(74,223,154,0.12)" : "rgba(255,255,255,0.05)",
               }}
             >
               {cookies ? t("common.configurado") : t("common.nao_usado")}
             </span>
           </div>
-          <p className="text-xs text-[#8a93a6] mb-3">{t("settings.trailers.cookies_desc")}</p>
+          <p className="text-xs text-[color:var(--text-2)] mb-3">{t("settings.trailers.cookies_desc")}</p>
           <div
-            className="rounded-lg p-3 mb-3 text-xs text-[#8a93a6]"
+            className="rounded-lg p-3 mb-3 text-xs text-[color:var(--text-2)]"
             style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
-            <div className="text-[#a8b3cc] font-semibold mb-1">
+            <div className="text-[color:var(--text-2)] font-semibold mb-1">
               {t("settings.trailers.cookies_instrucoes")}
             </div>
             {t("settings.trailers.cookies_passo1")}
@@ -615,13 +615,13 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             </button>
             {cookies && (
               <>
-                <span className="text-xs text-[#8a93a6] truncate flex-1">{cookies}</span>
+                <span className="text-xs text-[color:var(--text-2)] truncate flex-1">{cookies}</span>
                 <button
                   onClick={() => {
                     setCookies("")
                     window.launcherAPI?.setConfig({ youtube_cookies: "" })
                   }}
-                  className="text-xs text-[#ff6b81] shrink-0"
+                  className="text-xs text-[color:var(--state-danger)] shrink-0"
                 >
                   {t("settings.trailers.remover")}
                 </button>
@@ -635,23 +635,23 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#9147ff" }} />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--brand-twitch)" }} />
             <h3 className="text-base font-semibold text-white">{t("settings.igdb")}</h3>
           </div>
           <span
             className="text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={{ color: "#4adf9a", background: "rgba(74,223,154,0.12)" }}
+            style={{ color: "var(--state-success)", background: "rgba(74,223,154,0.12)" }}
           >
             {t("common.sem_chave")}
           </span>
         </div>
-        <p className="text-xs text-[#8a93a6]">{t("settings.igdb.desc")}</p>
+        <p className="text-xs text-[color:var(--text-2)]">{t("settings.igdb.desc")}</p>
       </div>
 
       <h3 className="text-base font-semibold text-white mb-1">
         {t("settings.igdb.o_que_buscado")}
       </h3>
-      <p className="text-xs text-[#8a93a6] mb-4">{t("settings.igdb.coletados_desc")}</p>
+      <p className="text-xs text-[color:var(--text-2)] mb-4">{t("settings.igdb.coletados_desc")}</p>
       <div className="grid grid-cols-2 gap-2.5 mb-8">
         {items.map((it) => (
           <div
@@ -665,9 +665,9 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             <span className="text-sm text-white flex-1 leading-tight">{it.label}</span>
             <span
               className="flex items-center gap-1.5 text-[11px] font-semibold shrink-0"
-              style={{ color: "#4adf9a" }}
+              style={{ color: "var(--state-success)" }}
             >
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#4adf9a" }} />
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--state-success)" }} />
               {t("common.ativo")}
             </span>
           </div>
@@ -685,7 +685,7 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
             ? t("settings.igdb.atualizado")
             : t("settings.igdb.reconstruir")}
       </button>
-      <p className="text-xs text-[#6b7280] mt-3">{t("settings.igdb.reconstruir_hint")}</p>
+      <p className="text-xs text-[color:var(--text-3)] mt-3">{t("settings.igdb.reconstruir_hint")}</p>
     </div>
   )
 }
@@ -823,7 +823,7 @@ function DebridItem({
               height="14"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#4adf9a"
+              stroke="var(--state-success)"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -835,14 +835,14 @@ function DebridItem({
         </span>
         <span
           className="text-[11px] font-medium"
-          style={{ color: conectado ? "#4adf9a" : "#8a93a6" }}
+          style={{ color: conectado ? "var(--state-success)" : "var(--text-2)" }}
         >
           {conectado ? t("common.conectado") : t("common.nao_conectado")}
         </span>
       </button>
       {aberto && (
         <div className="mt-3">
-          <p className="mb-3 text-xs text-[#8a93a6]">{t(descKey)}</p>
+          <p className="mb-3 text-xs text-[color:var(--text-2)]">{t(descKey)}</p>
           <div className="flex gap-2">
             <input
               type="password"

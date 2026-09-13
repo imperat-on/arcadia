@@ -52,7 +52,7 @@ export function aplicarA11y(cfg: AppConfig) {
     document.head.appendChild(style)
   }
   // Aqui só fica o que NÃO é cor: fonte, scroll e movimento. As regras que
-  // reescreviam classe de hex (`.bg-\[\#0d0d0f\]` etc.) morreram junto com os
+  // reescreviam classe de hex (`.bg-\[\var(--surface-1)\]` etc.) morreram junto com os
   // hex — o componente agora lê o token do tema direto, sem !important.
   style.textContent = `
     body, #root { background: var(--surface-0) !important; color: var(--text-1) !important; }
@@ -94,7 +94,7 @@ export function AccessibilityView() {
       <div className="max-w-2xl space-y-8 pb-10">
         {/* Fontes */}
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-[#a8b3cc]">{t("accessibility.fontes")}</h2>
+          <h2 className="mb-3 text-sm font-semibold text-[color:var(--text-2)]">{t("accessibility.fontes")}</h2>
           <div className="space-y-3">
             <SelectFonte
               label={t("accessibility.fonte_conteudo")}
@@ -111,7 +111,7 @@ export function AccessibilityView() {
 
         {/* CSS customizado */}
         <section>
-          <h2 className="mb-1 text-sm font-semibold text-[#a8b3cc]">
+          <h2 className="mb-1 text-sm font-semibold text-[color:var(--text-2)]">
             {t("accessibility.caminho_temas")}
           </h2>
           <p className="mb-2 text-xs text-white/40">{t("accessibility.pasta_css_desc")}</p>
@@ -214,7 +214,7 @@ function SelectFonte({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-white/10 bg-[#16161a] px-3 py-1.5 text-sm text-white outline-none focus:border-[color:var(--accent)]"
+        className="rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-sm text-white outline-none focus:border-[color:var(--accent)]"
       >
         {FONTES.map((f) => (
           <option key={f.id} value={f.id}>

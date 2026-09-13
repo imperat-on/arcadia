@@ -128,7 +128,7 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm" onPointerUp={onPointerUp}>
-      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#121218] p-6 shadow-[0_0_60px_rgba(0,168,255,0.15)]">
+      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[color:var(--surface-2)] p-6 shadow-[0_0_60px_rgba(0,168,255,0.15)]">
         <h3 className="mb-1 text-lg font-bold text-white">{t("avatar.crop_titulo")}</h3>
         <p className="mb-4 text-xs text-white/40">{t("avatar.crop_dica")}</p>
 
@@ -146,7 +146,7 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
                     top: `${sy}%`,
                     width: `${ss}%`,
                     aspectRatio: "1",
-                    border: "2px solid #00a8ff",
+                    border: "2px solid var(--accent)",
                     boxShadow: "0 0 0 9999px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.15)",
                   }}
                   onPointerDown={(e) => onPointerDown(e, "mover")}
@@ -160,7 +160,7 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
                     <div className="absolute top-2/3 left-0 w-full h-px bg-white/70" />
                   </div>
                   <div
-                    className="absolute -bottom-1.5 -right-1.5 h-5 w-5 cursor-nwse-resize rounded-md border-2 border-white bg-[#00a8ff]"
+                    className="absolute -bottom-1.5 -right-1.5 h-5 w-5 cursor-nwse-resize rounded-md border-2 border-white bg-[color:var(--accent)]"
                     onPointerDown={(e) => {
                       e.stopPropagation()
                       onPointerDown(e, "redimensionar")
@@ -190,7 +190,7 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
           <button
             onClick={aplicar}
             disabled={processando}
-            className="rounded-lg bg-gradient-to-r from-[#0072ce] to-[#00a8ff] px-5 py-2 text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
+            className="rounded-lg bg-gradient-to-r from-[color:var(--brand-steam)] to-[color:var(--accent)] px-5 py-2 text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
           >
             {processando ? t("avatar.crop_processando") : t("avatar.crop_aplicar")}
           </button>

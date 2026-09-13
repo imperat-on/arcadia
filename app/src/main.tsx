@@ -22,7 +22,7 @@ const DesktopLauncher = lazy(() =>
 
 function LauncherLoading() {
   return (
-    <div className="min-h-screen bg-[#05070d] text-white/70 grid place-items-center">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-white/70 grid place-items-center">
       <div className="text-xs tracking-[0.3em] uppercase animate-pulse">Arcadia</div>
     </div>
   )
