@@ -4626,8 +4626,10 @@ app.whenReady().then(() => {
         // A biblioteca identifica o jogo pelo `id` ("steam:990080"); `appid` só
         // existe nas linhas da loja. Passar os dois candidatos evita a estatística
         // ficar só com o tempo medido pelo Arcadia.
-        const daSteam = Number(steam[chaveAppid(g.id || g.appid || g.appId)] || 0)
-        playMin += daSteam > 0 ? daSteam : Number(g.playtime_minutes) || 0
+        const daSteam = Number(steam[chaveAppid(g.id || g.appid || "")] || 0)
+        // Maior dos dois (nunca a soma): a Steam já conta as sessões do Arcadia, e
+        // um resíduo da Steam não pode apagar o tempo medido pelo app.
+        playMin += Math.max(daSteam, Number(g.playtime_minutes) || 0)
       }
       return {
         jogos: lib.length,

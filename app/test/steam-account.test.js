@@ -106,6 +106,20 @@ test("captura automática desligada pausa, e 'Capturar agora' força uma vez", (
   assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "e só uma")
 })
 
+test("captura automática vem DESLIGADA por padrão (sem a chave no config)", () => {
+  // Sem config.json nenhum: nada é ingerido sozinho — só pelo botão "Capturar agora".
+  escreverLoginUsers(CONTA_A)
+  fs.rmSync(path.join(process.env.ARCADIA_DATA_DIR, "config.json"), { force: true })
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "default é desligada")
+
+  sa.forcarProximaCaptura()
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "e o botão continua mandando")
+
+  // Só liga quando o usuário liga explicitamente.
+  configCom(true)
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "ligada pelo usuário")
+})
+
 test("vincular de novo amarra na conta que está logada agora", () => {
   escreverLoginUsers(CONTA_B)
   configCom(true)

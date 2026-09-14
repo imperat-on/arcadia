@@ -21,8 +21,9 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
       vivo = false
     }
   }, [game.appid])
-  const totalMinutos =
-    minutosSteam > 0 ? minutosSteam : Number(game.playtime_minutes) > 0 ? game.playtime_minutes! : 0
+  // Maior dos dois, nunca a soma: o número da Steam já inclui as sessões lançadas
+  // pelo Arcadia, e um resíduo da Steam (minutos) não pode apagar horas reais.
+  const totalMinutos = Math.max(minutosSteam, Number(game.playtime_minutes) || 0)
   const campos: [string, string][] = [
     [t("gameoverview.detalhes.fonte"), game.launcher],
     ...(game.genre

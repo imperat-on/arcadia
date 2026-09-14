@@ -107,11 +107,14 @@ export function useSteamHoras(): Record<string, number> {
 }
 
 /**
- * Horas do jogo, uma fonte só de verdade:
- *   - a conta Steam manda quando tem o número (é o TOTAL, e já inclui o tempo das
- *     sessões que o Arcadia lançou — o jogo abre pela Steam);
- *   - o tempo medido pelo Arcadia entra só quando a Steam não conta o jogo
- *     (crackeado/emulador). Somar os dois seria contagem dupla.
+ * Horas do jogo, com uma fonte só de verdade.
+ *
+ * O número da Steam é o TOTAL da conta e **já inclui** o tempo das sessões que o
+ * Arcadia lançou (o jogo abre pela Steam), então somar os dois seria contagem dupla.
+ * A escolha é o MAIOR dos dois, que também resolve dois casos reais:
+ *   - jogo crackeado/emulado: a Steam não conta nada e vale o tempo do Arcadia;
+ *   - jogo que a Steam tem com um resíduo (segundos/minutos de um teste) e o Arcadia
+ *     mediu horas: vale o do Arcadia, em vez de aparecer "3min" no perfil.
  *
  * `fontes` aceita o id do jogo, o appid, ou os dois: a biblioteca usa `id`
  * (`steam:990080`) e a loja usa `appid` (`990080`).
@@ -122,5 +125,6 @@ export function horasCombinadas(
   minutosArcadia?: number,
 ): number {
   const daSteam = minutosDaSteam(steam, fontes)
-  return daSteam > 0 ? daSteam : Number(minutosArcadia) || 0
+  const arcadia = Number(minutosArcadia) || 0
+  return Math.max(daSteam, arcadia)
 }
