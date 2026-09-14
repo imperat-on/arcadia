@@ -236,7 +236,11 @@ export function ThemeSection({
   const { t, lang, setLang } = useI18n()
 
   const ACCENTS = [
-    { name: t("settings.cores.azul_ps"), hex: "var(--accent)" },
+    // "Azul PS" = o acento do tema principal (mesmo valor do --accent no :root).
+    // Antes esta entrada gravava a string "var(--accent)" como valor do próprio
+    // --accent, o que é uma referência cíclica: a propriedade ficava inválida e o
+    // app perdia o acento inteiro.
+    { name: t("settings.cores.azul_ps"), hex: "#22d3ee" },
     { name: t("settings.cores.roxo"), hex: "#a06bff" },
     { name: t("settings.cores.verde"), hex: "#3ddc84" },
     { name: t("settings.cores.vermelho"), hex: "#ff5d5d" },
