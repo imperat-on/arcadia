@@ -37,6 +37,18 @@ test("as horas aparecem na loja, na biblioteca e no diálogo de detalhes", () =>
   assert.ok(dialog.includes("minutosSteam > 0"), "e usa a mesma regra")
 })
 
+test("o perfil e as capas usam as horas combinadas, não só as do Arcadia", () => {
+  const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  // O agregado do perfil ("horas jogadas") passa a somar Steam (quando existe).
+  const blocoStats = main.slice(main.indexOf('ipcMain.handle("profile:stats"'), main.indexOf("steam:horasTodas"))
+  assert.match(blocoStats, /steam-account/, "o perfil lê as horas da Steam")
+  assert.match(blocoStats, /daSteam > 0 \? daSteam/, "e aplica a regra: Steam manda")
+
+  const perfil = ler("src/components/ps5-launcher/ProfilePage.tsx")
+  assert.ok(perfil.includes("horasCombinadas"), "as capas do perfil usam a regra")
+  assert.ok(ler("src/components/steamHoras.ts").includes("steamHorasTodas"), "uma leitura só serve para todos os tiles")
+})
+
 test("os textos existem nos três catálogos", () => {
   for (const lang of ["pt-BR", "en-US", "es-ES"]) {
     const d = JSON.parse(ler(`src/i18n/${lang}.json`))

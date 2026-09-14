@@ -5,6 +5,7 @@ import type { Game } from "./types"
 import type { Profile, ProfileStats } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
+import { horasCombinadas, useSteamHoras } from "../steamHoras"
 import { useFriends } from "../account/FriendsContext"
 
 interface ProfilePageProps {
@@ -80,10 +81,14 @@ export function ProfilePage({
 
   // Todos os jogos da biblioteca (com capa), mais jogados primeiro — o perfil
   // mostra a biblioteca INTEIRA com as horas em cima de cada capa.
+  const steamHoras = useSteamHoras()
   const todosJogos = games
     .filter((g) => g.cover && !g.hidden)
-    .sort((a, b) => (b.playtime_minutes || 0) - (a.playtime_minutes || 0))
-
+    .sort(
+      (a, b) =>
+        horasCombinadas(steamHoras, b.appid, b.playtime_minutes) -
+        horasCombinadas(steamHoras, a.appid, a.playtime_minutes),
+    )
   return (
     <div
       ref={rootRef}
@@ -327,7 +332,10 @@ function formatarHoras(min?: number): string {
 
 function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
   const [broken, setBroken] = useState(false)
-  const horas = formatarHoras(game.playtime_minutes)
+  // Horas da capa: Steam manda, Arcadia completa (mesma regra do resto do app).
+  const horas = formatarHoras(
+    horasCombinadas(useSteamHoras(), game.appid, game.playtime_minutes),
+  )
   const cls =
     "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--placeholder-cool)] to-[color:var(--placeholder-deep)] text-3xl font-bold text-white/50 ring-1 ring-white/10"
   if (!game.cover || broken) {

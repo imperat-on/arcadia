@@ -4557,18 +4557,43 @@ app.whenReady().then(() => {
     }
   })
 
-  // Estatísticas do perfil: jogos e horas jogadas (agregado de library.json).
+  // Estatísticas do perfil: jogos e horas jogadas.
+  // As horas seguem a MESMA regra do resto do app: o total da conta Steam manda
+  // quando existe (o jogo do Arcadia abre pela Steam, então já está contado lá);
+  // o tempo medido pelo Arcadia só entra quando a Steam não tem o jogo. Somar os
+  // dois contaria o mesmo tempo duas vezes.
   ipcMain.handle("profile:stats", () => {
     try {
       const lib = readLibrary()
+      let steam = {}
+      try {
+        steam = require("./steam-account").lerHoras(caminhoConta, require("./debug").log).horas
+      } catch {}
       let playMin = 0
-      for (const g of lib) playMin += g.playtime_minutes || 0
+      for (const g of lib) {
+        const daSteam = Number(steam[String(g.appid)] || 0)
+        playMin += daSteam > 0 ? daSteam : Number(g.playtime_minutes) || 0
+      }
       return {
         jogos: lib.length,
         playtime_hours: Math.round(playMin / 60),
       }
     } catch {
       return null
+    }
+  })
+
+  // Horas de todos os jogos da conta Steam vinculada, de uma vez: as capas (tiles)
+  // precisam do número por jogo e não podem fazer uma chamada cada.
+  ipcMain.handle("steam:horasTodas", () => {
+    try {
+      const { horas, persona } = require("./steam-account").lerHoras(
+        caminhoConta,
+        require("./debug").log,
+      )
+      return { ok: true, horas, persona }
+    } catch (e) {
+      return { ok: false, horas: {}, motivo: String(e) }
     }
   })
 

@@ -1179,6 +1179,13 @@ declare global {
       steamHorasDoJogo: (
         appid: string,
       ) => Promise<{ ok: boolean; minutos: number; persona?: string; motivo?: string }>
+      /** Minutos por appid de toda a conta Steam vinculada (para as capas). */
+      steamHorasTodas: () => Promise<{
+        ok: boolean
+        horas: Record<string, number>
+        persona?: string
+        motivo?: string
+      }>
       /** Pasta de instalação do jogo. */
       storeInstallDir: (game: Game) => Promise<{ path: string }>
       /** Bibliotecas Steam detectadas (multi-drive) com espaço livre. */
