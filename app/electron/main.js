@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, screen } = require("electron")
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
+const { refreshBootVideo, BOOT_VIDEO_CODECS } = require("./bootVideo")
 
 // ── DNS: resolver por conta própria, não pelo DNS de quem usa ─────────
 // O `net.fetch` do Electron (usado pelo httpfetch) resolve nomes pela pilha do
@@ -121,10 +122,10 @@ const BUNDLED_BOOT_VIDEO = app.isPackaged
   ? path.join(process.resourcesPath, "boot.mp4")
   : path.join(__dirname, "..", "..", "boot.mp4")
 try {
-  if (!fs.existsSync(BOOT_VIDEO) && fs.existsSync(BUNDLED_BOOT_VIDEO)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
-    fs.copyFileSync(BUNDLED_BOOT_VIDEO, BOOT_VIDEO, fs.constants.COPYFILE_EXCL)
-  }
+  // Compare-and-copy: se o asset da versão mudou (codec novo, ex.: trocamos
+  // VP9/Opus por H.264/AAC), a cópia STALE em DATA_DIR é sobrescrita. Erro não
+  // derruba o app; o BootScreen segue seu caminho "sem vídeo". (bootVideo.js)
+  refreshBootVideo({ dataDir: DATA_DIR, bundled: BUNDLED_BOOT_VIDEO })
 } catch (error) {
   console.warn(`[arcadia:boot] não foi possível instalar o vídeo: ${error.message || error}`)
 }
@@ -3944,7 +3945,9 @@ app.whenReady().then(() => {
     for (const arquivo of [BOOT_VIDEO, BUNDLED_BOOT_VIDEO]) {
       try {
         const data = fs.readFileSync(arquivo)
-        if (data.length) return { ok: true, mime: "video/mp4", data }
+        if (data.length) {
+          return { ok: true, mime: "video/mp4", data, codecs: BOOT_VIDEO_CODECS }
+        }
       } catch {
         /* tenta a próxima origem */
       }

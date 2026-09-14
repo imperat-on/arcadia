@@ -1263,7 +1263,7 @@ declare global {
       setLauncherMode: (mode: "console" | "desktop") => Promise<{ ok: boolean; error?: string }>
       /** Vídeo de boot do pacote entregue em bytes para o renderer montar um
        * blob URL (file:// é bloqueado quando a página roda em http://). */
-      bootVideo: () => Promise<{ ok: boolean; mime?: string; data?: Uint8Array }>
+      bootVideo: () => Promise<{ ok: boolean; mime?: string; data?: Uint8Array; codecs?: string }>
       /** Escala da tela avisada pelo processo principal: `escala` é o multiplicador
        * automático (também aplicado no zoom) e `capa` o tamanho das capas do trilho. */
       onUiEscala: (cb: (dados: { escala: number; capa: number }) => void) => (() => void) | undefined
