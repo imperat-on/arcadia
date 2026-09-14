@@ -42,23 +42,12 @@ function autoLigado() {
   }
 }
 
-// Mesmas raízes que o resto do app usa para achar a Steam.
+// Mesmas raízes que o resto do app usa para achar a Steam. A lista (registro do
+// Windows, discos, Program Files, Flatpak/.deb no Linux) mora em steam-path.js, para
+// não existirem duas respostas diferentes para "onde está a Steam".
 function raizesSteam() {
-  const home = os.homedir()
-  const env = process.env
-  const cands = []
-  if (env.STEAM_DIR) cands.push(env.STEAM_DIR)
-  if (process.platform === "win32") {
-    if (env["ProgramFiles(x86)"]) cands.push(path.join(env["ProgramFiles(x86)"], "Steam"))
-    if (env.ProgramFiles) cands.push(path.join(env.ProgramFiles, "Steam"))
-  } else {
-    cands.push(path.join(home, ".steam", "steam"))
-    cands.push(path.join(home, ".local", "share", "Steam"))
-    cands.push(path.join(home, ".steam", "root"))
-    cands.push(path.join(home, ".var", "app", "com.valvesoftware.Steam", "data", "Steam"))
-  }
-  const vistos = new Set()
-  return cands.filter((p) => p && !vistos.has(p) && vistos.add(p) && fs.existsSync(p))
+  const cands = require("./steam-path").candidatosSteam()
+  return cands.filter((p) => fs.existsSync(p))
 }
 
 /** A chave das horas é o NÚMERO do appid: o id do jogo pode vir como `steam:990080`. */
