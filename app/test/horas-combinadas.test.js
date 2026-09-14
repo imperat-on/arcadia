@@ -29,6 +29,28 @@ test("o componente escolhe Steam; Arcadia é o que sobra", () => {
   )
 })
 
+test("o id do jogo (steam:990080) casa com a chave numérica do arquivo da Steam", () => {
+  // O bug que deixava as capas em 0min: a chave da Steam é "990080" e o id do
+  // jogo na biblioteca é "steam:990080" — comparação crua nunca casa.
+  const main = fs.readFileSync(path.join(root, "electron", "steam-account.js"), "utf8")
+  assert.match(main, /function chaveAppid\(appid\)/, "existe o normalizador de chave")
+  assert.ok(
+    main.includes("module.exports") && main.includes("chaveAppid,"),
+    "e ele é exportado para o main usar",
+  )
+  const mainJs = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
+  assert.ok(
+    (mainJs.match(/chaveAppid\(/g) || []).length >= 2,
+    "perfil e horasDoJogo normalizam a chave (não comparam a string crua)",
+  )
+  const renderer = ler("src/components/steamHoras.ts")
+  assert.ok(renderer.includes("export function chaveAppid"), "o renderer faz o mesmo")
+  assert.ok(
+    renderer.includes("minutosDaSteam") && renderer.includes("chaveAppid(appid)"),
+    "e o lookup passa pelo normalizador",
+  )
+})
+
 test("as horas aparecem na loja, na biblioteca e no diálogo de detalhes", () => {
   assert.ok(ler("src/components/desktop/StoreGamePage.tsx").includes("<HorasNaSteam"))
   assert.ok(ler("src/components/desktop/GamePage.tsx").includes("<HorasNaSteam"))

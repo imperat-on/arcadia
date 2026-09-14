@@ -4231,7 +4231,8 @@ app.whenReady().then(() => {
         caminhoConta,
         require("./debug").log,
       )
-      return { ok: true, minutos: Number(horas[String(appid)] || 0), persona }
+      const chave = require("./steam-account").chaveAppid(appid)
+      return { ok: true, minutos: Number(horas[chave] || 0), persona }
     } catch (e) {
       return { ok: false, minutos: 0, motivo: String(e) }
     }
@@ -4570,8 +4571,9 @@ app.whenReady().then(() => {
         steam = require("./steam-account").lerHoras(caminhoConta, require("./debug").log).horas
       } catch {}
       let playMin = 0
+      const chaveAppid = require("./steam-account").chaveAppid
       for (const g of lib) {
-        const daSteam = Number(steam[String(g.appid)] || 0)
+        const daSteam = Number(steam[chaveAppid(g.appid)] || 0)
         playMin += daSteam > 0 ? daSteam : Number(g.playtime_minutes) || 0
       }
       return {

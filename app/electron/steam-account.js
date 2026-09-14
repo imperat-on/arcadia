@@ -57,6 +57,13 @@ function raizesSteam() {
   return cands.filter((p) => p && !vistos.has(p) && vistos.add(p) && fs.existsSync(p))
 }
 
+/** A chave das horas é o NÚMERO do appid: o id do jogo pode vir como `steam:990080`. */
+function chaveAppid(appid) {
+  const s = String(appid == null ? "" : appid).trim()
+  const m = /(\d{2,})/.exec(s)
+  return m ? m[1] : s
+}
+
 function lerArquivo(caminho) {
   try {
     return fs.readFileSync(caminho, "utf-8")
@@ -228,6 +235,7 @@ module.exports = {
   capturaPermitida,
   forcarProximaCaptura,
   vincularContaAtual,
+  chaveAppid,
   lerVinculo,
   gravarVinculo,
   lerHoras,
