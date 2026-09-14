@@ -2390,6 +2390,9 @@ function heroicConnected() {
 // Vigia de conquistas (toast estilo PS5 ao desbloquear). Além do toast,
 // marca o item no achievements.json na hora.
 let pararAchievementWatcher = null
+// Stop do vigia de arquivos (crack/emulador). Guardado para o "Capturar agora"
+// reiniciar sem acumular intervals.
+let pararVigia = null
 
 // Callback único de desbloqueio: marca o item no achievements.json (o painel
 // lê de lá) e avisa o renderer.
@@ -2638,7 +2641,10 @@ function createWindow() {
   // achievements.json (o painel lê de lá; sem isso só atualizava no refresh).
   if (pararAchievementWatcher) pararAchievementWatcher()
   pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
-  iniciarVigia(onUnlockAchievement, onRevokeAchievement)
+  // Guarda o stop do vigia: o "Capturar agora" reinicia a vigia, e sem isto cada
+  // clique deixaria mais um interval rodando.
+  if (pararVigia) pararVigia()
+  pararVigia = iniciarVigia(onUnlockAchievement, onRevokeAchievement)
 
   // Modo gamescope: o Electron roda no X aninhado e NÃO recebe blur/focus
   // quando o jogo abre no desktop. O foco é resolvido dentro do poll de jogo
@@ -3889,6 +3895,8 @@ app.whenReady().then(() => {
         "music_enabled", "music_volume", "music_auto_play",
         "system_theme", "notifications_enabled", "notification_volume",
         "trailer_auto", "youtube_cookies", "card_scale", "library_sidebar", "accent",
+        // Captura de conquistas (B2): desligada, só o botão "Capturar agora" ingere.
+        "achievements_auto_capture",
         "theme_name",
         // Acessibilidade (AccessibilityView salvar()) — estavam fora e eram descartadas.
         "content_font", "actions_font", "custom_css_path", "tiles_color", "always_titles",
@@ -4180,6 +4188,55 @@ app.whenReady().then(() => {
     }
     return r
   })
+  // --- Conta da Steam x conta do Arcadia (B1) + captura sob demanda (B2) ------
+  // Status para a tela de configuração: qual conta Steam está logada, a qual esta
+  // conta do Arcadia está vinculada, e se a captura está liberada agora.
+  ipcMain.handle("steam:contaStatus", () => {
+    try {
+      return require("./steam-account").status(caminhoConta, require("./debug").log)
+    } catch (e) {
+      return { erro: String(e) }
+    }
+  })
+
+  // Amarra esta conta do Arcadia à conta Steam logada agora.
+  ipcMain.handle("steam:vincularConta", () => {
+    try {
+      return require("./steam-account").vincularContaAtual(caminhoConta, require("./debug").log)
+    } catch (e) {
+      return { ok: false, motivo: String(e) }
+    }
+  })
+
+  // Captura sob demanda: libera UMA passada (mesmo com a conta trocada ou a
+  // captura automática desligada) e reinicia a vigia para aplicar já.
+  ipcMain.handle("steam:capturarAgora", () => {
+    try {
+      const sa = require("./steam-account")
+      sa.forcarProximaCaptura()
+      if (pararAchievementWatcher) pararAchievementWatcher()
+      pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
+      if (pararVigia) pararVigia()
+      pararVigia = iniciarVigia(onUnlockAchievement, onRevokeAchievement)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, motivo: String(e) }
+    }
+  })
+
+  // Horas da Steam (localconfig.vdf da conta vinculada/ativa da Steam).
+  ipcMain.handle("steam:horasDoJogo", (_e, appid) => {
+    try {
+      const { horas, persona } = require("./steam-account").lerHoras(
+        caminhoConta,
+        require("./debug").log,
+      )
+      return { ok: true, minutos: Number(horas[String(appid)] || 0), persona }
+    } catch (e) {
+      return { ok: false, minutos: 0, motivo: String(e) }
+    }
+  })
+
   // Valida a chave do Hubcap sem sair da tela de configuracao: e o teste que
   // separa "chave errada" de "servico fora do ar". A mascara que o formulario
   // devolve nao serve como chave — nesse caso, usa a que esta no disco.

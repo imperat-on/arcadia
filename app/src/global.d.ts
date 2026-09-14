@@ -1156,6 +1156,29 @@ declare global {
       storeValidarChaveHubcap: (
         chave?: string,
       ) => Promise<{ ok: boolean; status?: number; motivo?: string; erro?: string }>
+      /** Conta Steam x conta do Arcadia: quem está logado e se a captura está liberada. */
+      steamContaStatus: () => Promise<{
+        vinculo: { steamid: string; persona: string } | null
+        contaAtual: { steamid: string; persona: string } | null
+        permitido: boolean
+        vinculoOk: boolean
+        semSteam: boolean
+        auto: boolean
+        contasSteam: { steamid: string; persona: string }[]
+        erro?: string
+      }>
+      /** Amarra esta conta do Arcadia à conta Steam logada agora. */
+      steamVincularConta: () => Promise<{
+        ok: boolean
+        motivo?: string
+        vinculo?: { steamid: string; persona: string }
+      }>
+      /** Captura sob demanda: libera uma passada da vigia e aplica já. */
+      steamCapturarAgora: () => Promise<{ ok: boolean; motivo?: string }>
+      /** Minutos que a conta mostra na Steam para este appid (0 se não houver). */
+      steamHorasDoJogo: (
+        appid: string,
+      ) => Promise<{ ok: boolean; minutos: number; persona?: string; motivo?: string }>
       /** Pasta de instalação do jogo. */
       storeInstallDir: (game: Game) => Promise<{ path: string }>
       /** Bibliotecas Steam detectadas (multi-drive) com espaço livre. */

@@ -27,6 +27,7 @@ const { loadAchievements, saveAchievements } = require("./schema")
 const { caminhoArquivoConta, conta } = require("./../supabase/conta")
 const { dataPath } = require("./../runtime-paths")
 const { readLibraryFile } = require("../library-store")
+const { log } = require("../debug")
 const {
   parseUPC,
   upcRuntimeMap,
@@ -579,7 +580,28 @@ function iniciarVigia(onUnlock, onRevoke = null) {
   const cacheMtime = new Map() // account + filePath → mtimeMs
   const cacheKey = (filePath) => `${conta() || "__guest__"}\0${filePath}`
 
+  // Avisa a pausa UMA vez por transição: o scan roda em laço e sem isto o log
+  // viraria spam.
+  let avisoPausa = false
   const scan = () => {
+    // B1/B2 — só ingere/revoga quando a conta Steam logada é a mesma amarrada a
+    // esta conta do Arcadia (e a captura automática está ligada). Trocou de
+    // conta: para, sem mexer em nada.
+    const permissao = require("./../steam-account").capturaPermitida(caminhoArquivoConta, log)
+    if (!permissao.permitido) {
+      if (!avisoPausa) {
+        avisoPausa = true
+        const s = permissao.status
+        log(
+          "achievements/captura-pausada",
+          `conta Arcadia vinculada a ${s.vinculo ? s.vinculo.persona : "?"}; Steam está em ${
+            s.contaAtual ? s.contaAtual.persona : "nenhuma"
+          }`,
+        )
+      }
+      return
+    }
+    avisoPausa = false
     const library = lerLibrary()
     if (!library || !library.length) return
 

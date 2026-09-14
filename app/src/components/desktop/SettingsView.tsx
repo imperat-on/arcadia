@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import type { AppConfig } from "../../global"
 import { IntegrationsSection, MetadataSection } from "../ps5-launcher/SettingsPanel"
+import { SteamCaptureSection } from "./SteamCaptureSection"
 import { GeneralSection } from "./GeneralSection"
 import { StoreSetup } from "./StoreSetup"
 import { AccessibilityView } from "./AccessibilityView"
@@ -26,6 +27,7 @@ export function SettingsView({ sub, onSaved }: { sub: Sub; onSaved: () => void }
       {sub === "integracoes" && (
         <>
           <StoreSetup />
+          <SteamCaptureSection onSaved={onSaved} />
           <IntegrationsSection cfg={cfg} />
         </>
       )}
