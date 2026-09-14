@@ -23,18 +23,22 @@ const { contasDoLoginUsers, contaAtivaDoLoginUsers, horasDoLocalConfig } = requi
 
 const VINCULO = "steam_account.json"
 
-// Interruptor "capturar automaticamente" (B2). Lido direto do config do app para
-// o vigia e o loader não precisarem de plumbing: default LIGADO, e quem desliga
-// passa a capturar só pelo botão "Capturar agora" (forcar=true).
+// Interruptor "capturar automaticamente" (B2). Lido direto do config do app para o
+// vigia e o loader não precisarem de plumbing.
+//
+// Default DESLIGADO: a captura automática só roda quando o usuário LIGA o
+// interruptor, ou numa passada sob demanda pelo botão "Capturar agora"
+// (forcar=true). Sem isso, nada é ingerido sem o usuário pedir.
 function autoLigado() {
   try {
     const raiz = process.env.ARCADIA_DATA_DIR
       ? process.env.ARCADIA_DATA_DIR
       : path.join(os.homedir(), ".local", "share", "arcadia")
     const cfg = JSON.parse(fs.readFileSync(path.join(raiz, "config.json"), "utf-8"))
-    return cfg.achievements_auto_capture !== false
+    // Só liga com valor explícito: sem a chave (ou com qualquer outra coisa), fica off.
+    return cfg.achievements_auto_capture === true
   } catch {
-    return true
+    return false
   }
 }
 

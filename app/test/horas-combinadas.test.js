@@ -16,16 +16,19 @@ const path = require("node:path")
 const root = path.join(__dirname, "..")
 const ler = (rel) => fs.readFileSync(path.join(root, rel), "utf8")
 
-test("o componente escolhe Steam; Arcadia é o que sobra", () => {
+test("o componente usa o MAIOR dos dois, nunca a soma", () => {
   const fonte = ler("src/components/desktop/HorasNaSteam.tsx")
-  assert.ok(fonte.includes("minutosSteam > 0"), "decide pelo valor da Steam")
   assert.ok(
-    /const total = daSteam \? minutosSteam :/.test(fonte),
-    "Steam manda; Arcadia só quando a Steam não tem",
+    /const total = Math\.max\(minutosSteam, Number\(minutosArcadia\)/.test(fonte),
+    "o total é o maior entre Steam e Arcadia",
   )
   assert.ok(
     !/minutosSteam\s*\+\s*(Number\()?minutosArcadia/.test(fonte),
     "somar as duas fontes é contagem dupla — não pode voltar",
+  )
+  assert.ok(
+    !/daSteam > 0 \? minutosSteam/.test(fonte),
+    "a Steam não pode vencer só por ter um resíduo (era o '3min' no perfil)",
   )
 })
 
@@ -76,7 +79,7 @@ test("as horas aparecem na loja, na biblioteca e no diálogo de detalhes", () =>
   assert.ok(ler("src/components/desktop/GamePage.tsx").includes("<HorasNaSteam"))
   const dialog = ler("src/components/desktop/GameDetailsDialog.tsx")
   assert.ok(dialog.includes("steamHorasDoJogo"), "o diálogo lê as horas da Steam")
-  assert.ok(dialog.includes("minutosSteam > 0"), "e usa a mesma regra")
+  assert.ok(dialog.includes("Math.max(minutosSteam"), "e usa a mesma regra (o maior)")
 })
 
 test("o perfil e as capas usam as horas combinadas, não só as do Arcadia", () => {
@@ -84,7 +87,7 @@ test("o perfil e as capas usam as horas combinadas, não só as do Arcadia", () 
   // O agregado do perfil ("horas jogadas") passa a somar Steam (quando existe).
   const blocoStats = main.slice(main.indexOf('ipcMain.handle("profile:stats"'), main.indexOf("steam:horasTodas"))
   assert.match(blocoStats, /steam-account/, "o perfil lê as horas da Steam")
-  assert.match(blocoStats, /daSteam > 0 \? daSteam/, "e aplica a regra: Steam manda")
+  assert.match(blocoStats, /Math\.max\(daSteam, Number\(g\.playtime_minutes\)/, "e aplica o maior (não a soma, nem resíduo da Steam)")
 
   const perfil = ler("src/components/ps5-launcher/ProfilePage.tsx")
   assert.ok(perfil.includes("horasCombinadas"), "as capas do perfil usam a regra")

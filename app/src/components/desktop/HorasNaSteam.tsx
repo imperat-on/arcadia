@@ -4,15 +4,15 @@ import { useI18n } from "../../i18n/I18nContext"
 /**
  * Horas do jogo, combinando as duas fontes:
  *
- *   - a conta Steam vinculada (lida do `localconfig.vdf`) — é o TOTAL de verdade,
- *     e já inclui o tempo das sessões que o Arcadia lançou, porque o jogo abre
- *     pela própria Steam;
- *   - o que o Arcadia mediu por conta própria (`playtime_added_minutes`) — entra
- *     só quando a Steam não tem nada (jogo crackeado/emulador, que a Steam não
- *     contabiliza).
+ *   - a conta Steam (lida do `localconfig.vdf`) — é o TOTAL, e já inclui o tempo das
+ *     sessões que o Arcadia lançou, porque o jogo abre pela própria Steam;
+ *   - o que o Arcadia mediu por conta própria (`playtime_added_minutes`) — vale para
+ *     jogo que a Steam não contabiliza (crackeado/emulador).
  *
- * Somar as duas daria número maior que o cliente da Steam mostra (contagem dupla
- * do mesmo tempo), que é o oposto de "condizente".
+ * A escolha é o MAIOR dos dois, nunca a soma: somar contaria duas vezes o mesmo
+ * tempo. O maior também impede que um resíduo da Steam (segundos/minutos de um
+ * teste) apague horas medidas pelo Arcadia — era assim que o perfil mostrava "3min"
+ * num jogo com dezenas de horas.
  */
 export function HorasNaSteam({
   appid,
@@ -38,8 +38,8 @@ export function HorasNaSteam({
     }
   }, [appid])
 
-  const daSteam = minutosSteam > 0
-  const total = daSteam ? minutosSteam : Number(minutosArcadia) || 0
+  const total = Math.max(minutosSteam, Number(minutosArcadia) || 0)
+  const daSteam = minutosSteam > 0 && minutosSteam >= total
   if (!appid || total <= 0) return null
 
   const h = String(Math.floor(total / 60))
