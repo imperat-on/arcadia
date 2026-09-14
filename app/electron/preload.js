@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   storeEnsureDepotDownloader: () => ipcRenderer.invoke("store:ensureDepotDownloader"),
   storeAddToLibrary: (payload) => ipcRenderer.invoke("store:addToLibrary", payload),
   storeAddToSteam: (payload) => ipcRenderer.invoke("store:addToSteam", payload),
+  storeValidarChaveHubcap: (chave) => ipcRenderer.invoke("store:validarChaveHubcap", chave),
   storeInstallDir: (game) => ipcRenderer.invoke("store:installDir", game),
   storeLibraries: () => ipcRenderer.invoke("store:libraries"),
   storeRemoveFromSteam: (appid) => ipcRenderer.invoke("store:removeFromSteam", appid),

@@ -44,6 +44,7 @@ const { iniciarVigia } = require("./achievements/cracked_watcher")
 const { prepareUplayInstallation } = require("./achievements/uplay")
 const { getNews } = require("./news")
 const plugins = require("./plugins")
+const { resolverSegredos } = require("./secret-config")
 const updater = require("./updater")
 const { showAchievementToast, closeAchievementToast } = require("./notify")
 const path = require("path")
@@ -2073,10 +2074,13 @@ function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKe
 }
 
 // Merge raso (preserva chaves não enviadas; perfil é mesclado à parte).
-function writeConfig(partial) {
+// `removerChaves` é o único jeito de APAGAR uma chave: simplesmente faltar no
+// partial não apaga nada, porque o merge traz o valor antigo de volta.
+function writeConfig(partial, removerChaves) {
   try {
     const cur = readConfig()
     const next = { ...cur, ...(partial || {}) }
+    for (const k of removerChaves || []) delete next[k]
     if (partial && partial.profile) {
       next.profile = { ...(cur.profile || {}), ...partial.profile }
     }
@@ -3860,11 +3864,11 @@ app.whenReady().then(() => {
       // config:get; se ele devolver a máscara de volta (form inalterado), mantém
       // o valor real no disco.
       const atual = readConfig()
-      for (const k of SEGREDOS) {
-        if (typeof cfg?.[k] === "string" && cfg[k].includes("•") && cfg[k] === redigirSegredos(atual)[k]) {
-          cfg[k] = atual[k] // preserva a chave real
-        }
-      }
+      // null/"" = apagar de verdade; máscara igual à atual = "não mexi" (mantém a
+      // chave real). A lista `remover` viaja à parte porque o writeConfig faz
+      // merge: uma chave apenas ausente do patch voltaria do disco.
+      const { cfg: limpo, remover } = resolverSegredos(cfg, atual, redigirSegredos, SEGREDOS)
+      cfg = limpo
       // SEGURANCA F3: allowlist de chaves que o renderer pode definir.
       // Sem esta guarda, o renderer poderia injetar chaves como
       // "default_wine_prefix_path"=/tmp/evil para fazer o mkdirSync em
@@ -3915,7 +3919,7 @@ app.whenReady().then(() => {
       } catch {}
     }
     const idiomaAntes = readConfig().language
-    const r = writeConfig(cfg)
+    const r = writeConfig(cfg, remover)
     // SEGURANÇA: a resposta NUNCA devolve as chaves em claro (o config:get
     // já é redigido; o set devolvia o config inteiro com hubcap_api_key...).
     if (r?.config) r.config = redigirSegredos(r.config)
@@ -4176,6 +4180,17 @@ app.whenReady().then(() => {
     }
     return r
   })
+  // Valida a chave do Hubcap sem sair da tela de configuracao: e o teste que
+  // separa "chave errada" de "servico fora do ar". A mascara que o formulario
+  // devolve nao serve como chave — nesse caso, usa a que esta no disco.
+  ipcMain.handle("store:validarChaveHubcap", async (_e, chave) => {
+    const cfg = readConfig()
+    const informada = typeof chave === "string" ? chave.trim() : ""
+    const usar = informada && !informada.includes("•") ? informada : cfg.hubcap_api_key
+    if (!usar) return { ok: false, motivo: "sem_chave" }
+    return steamstore.validarChaveHubcap(usar)
+  })
+
   ipcMain.handle("store:installInfo", async (_e, appid) => {
     try {
       return await steamstore.getManifest(appid)

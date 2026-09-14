@@ -1152,6 +1152,10 @@ declare global {
         dlcs?: string[]
         title?: string
       }) => Promise<{ ok: boolean; error?: string; plugin?: string }>
+      /** Testa a chave do Hubcap (para no status; não baixa o zip). */
+      storeValidarChaveHubcap: (
+        chave?: string,
+      ) => Promise<{ ok: boolean; status?: number; motivo?: string; erro?: string }>
       /** Pasta de instalação do jogo. */
       storeInstallDir: (game: Game) => Promise<{ path: string }>
       /** Bibliotecas Steam detectadas (multi-drive) com espaço livre. */

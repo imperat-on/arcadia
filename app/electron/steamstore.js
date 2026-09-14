@@ -2389,6 +2389,31 @@ async function status() {
   }
 }
 
+// Checagem BARATA da chave do Hubcap: pede o manifesto de um appid conhecido
+// e para no STATUS. Nao precisa baixar o zip — o corpo e cancelado assim que os
+// cabecalhos chegam, entao testar a chave custa uma requisicao, nao um download.
+// E o que separa "chave errada" (401/403) de "servico fora do ar" (o resto).
+async function validarChaveHubcap(chave) {
+  const k = String(chave || "").trim()
+  if (!k) return { ok: false, motivo: "sem_chave" }
+  try {
+    const r = await gh(`${HUBCAP_BASE}/manifest/440`, {
+      headers: { "User-Agent": "arcadia", Authorization: `Bearer ${k}` },
+      signal: AbortSignal.timeout(15000),
+    })
+    try {
+      if (r.body && typeof r.body.cancel === "function") await r.body.cancel()
+    } catch {}
+    if (r.status === 200) return { ok: true, status: r.status }
+    if (r.status === 401 || r.status === 403) {
+      return { ok: false, status: r.status, motivo: "chave_invalida" }
+    }
+    return { ok: false, status: r.status, motivo: "http_" + r.status }
+  } catch (e) {
+    return { ok: false, motivo: "rede", erro: String((e && e.message) || e) }
+  }
+}
+
 module.exports = {
   search,
   indexarCatalogo,
@@ -2406,6 +2431,7 @@ module.exports = {
   popular,
   gameInstallDir,
   getManifest,
+  validarChaveHubcap,
   prepareDownload,
   ensureDotnet,
   ensureDepotDownloader,
