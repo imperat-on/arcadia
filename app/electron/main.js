@@ -4573,7 +4573,10 @@ app.whenReady().then(() => {
       let playMin = 0
       const chaveAppid = require("./steam-account").chaveAppid
       for (const g of lib) {
-        const daSteam = Number(steam[chaveAppid(g.appid)] || 0)
+        // A biblioteca identifica o jogo pelo `id` ("steam:990080"); `appid` só
+        // existe nas linhas da loja. Passar os dois candidatos evita a estatística
+        // ficar só com o tempo medido pelo Arcadia.
+        const daSteam = Number(steam[chaveAppid(g.id || g.appid || g.appId)] || 0)
         playMin += daSteam > 0 ? daSteam : Number(g.playtime_minutes) || 0
       }
       return {
