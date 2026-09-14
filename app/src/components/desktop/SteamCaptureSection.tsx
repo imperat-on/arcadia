@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
+import { useSteamHoras } from "../steamHoras"
 
 type Status = Awaited<ReturnType<NonNullable<Window["launcherAPI"]>["steamContaStatus"]>>
 
@@ -17,6 +18,9 @@ export function SteamCaptureSection({ onSaved }: { onSaved?: () => void }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [msg, setMsg] = useState("")
   const [ocupado, setOcupado] = useState(false)
+  // Quantos jogos a leitura trouxe — diagnóstico na tela (se for 0 com a conta
+  // certa, a leitura não chegou ao renderer).
+  const jogosComHoras = Object.keys(useSteamHoras()).length
 
   const recarregar = useCallback(async () => {
     try {
@@ -145,6 +149,11 @@ export function SteamCaptureSection({ onSaved }: { onSaved?: () => void }) {
             </div>
 
             <p className="text-[11px] text-white/35">{t("steam_captura.explicacao")}</p>
+            {/* Diagnóstico: se este número for 0 e a conta estiver certa, a leitura
+                não chegou na tela — é o primeiro lugar a olhar. */}
+            <p className="text-[11px] text-white/35" data-horas-lidas>
+              {t("steam_captura.horas_lidas", { n: String(jogosComHoras) })}
+            </p>
           </>
         )}
       </div>

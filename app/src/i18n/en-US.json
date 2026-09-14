@@ -990,6 +990,7 @@
   "steam_captura.desligar_auto": "Turn off automatic capture",
   "steam_captura.explicacao": "Capture only happens while the logged-in Steam account is the one linked here. Arcadia never writes to Steam's files.",
   "steam_captura.falha_vinculo": "Could not link.",
+  "steam_captura.horas_lidas": "{n} game(s) with hours read from Steam",
   "steam_captura.horas_na_steam": "On Steam: {h}h{m}",
   "steam_captura.ligar_auto": "Turn on automatic capture",
   "steam_captura.na_steam": "On Steam",

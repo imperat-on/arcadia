@@ -3,19 +3,28 @@ import { useEffect, useState } from "react"
 // Horas da conta Steam vinculada, para as capas e o perfil.
 //
 // Uma leitura serve para todos os tiles: o cache é do processo (módulo) e a
-// chamada é única, compartilhada entre quem pedir ao mesmo tempo. Uma chamada por
-// capa faria dezenas de leituras do mesmo arquivo.
+// chamada é única para quem pedir ao mesmo tempo. Uma chamada por capa faria
+// dezenas de leituras do mesmo arquivo.
+//
+// IMPORTANTE: falha NÃO é cacheada. Se a primeira tentativa acontecer antes do IPC
+// estar pronto (ou voltar vazia), a próxima montagem tenta de novo — guardar a
+// promessa falhada deixava as capas em "0min" para sempre.
 
 let cache: Record<string, number> = {}
-let emVoo: Promise<void> | null = null
+let emVoo: Promise<Record<string, number>> | null = null
 
-export function carregarSteamHoras(): Promise<void> {
+export async function carregarSteamHoras(): Promise<Record<string, number>> {
   if (emVoo) return emVoo
   emVoo = (async () => {
     try {
       const r = await window.launcherAPI?.steamHorasTodas()
-      if (r?.ok && r.horas) cache = { ...r.horas }
+      if (r?.ok && r.horas && Object.keys(r.horas).length) {
+        cache = { ...r.horas }
+        return cache
+      }
     } catch {}
+    emVoo = null // sem cache de falha: tenta de novo na próxima vez
+    return cache
   })()
   return emVoo
 }
@@ -24,8 +33,8 @@ export function useSteamHoras(): Record<string, number> {
   const [horas, setHoras] = useState<Record<string, number>>(cache)
   useEffect(() => {
     let vivo = true
-    void carregarSteamHoras().then(() => {
-      if (vivo) setHoras({ ...cache })
+    void carregarSteamHoras().then((h) => {
+      if (vivo) setHoras({ ...h })
     })
     return () => {
       vivo = false

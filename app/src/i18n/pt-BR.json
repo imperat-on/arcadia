@@ -990,6 +990,7 @@
   "steam_captura.desligar_auto": "Desligar captura automática",
   "steam_captura.explicacao": "A captura só acontece quando a conta da Steam logada é a mesma vinculada aqui. O Arcadia nunca escreve nos arquivos da Steam.",
   "steam_captura.falha_vinculo": "Não deu para vincular.",
+  "steam_captura.horas_lidas": "{n} jogo(s) com horas lidas da Steam",
   "steam_captura.horas_na_steam": "Na Steam: {h}h{m}",
   "steam_captura.ligar_auto": "Ligar captura automática",
   "steam_captura.na_steam": "Na Steam",
