@@ -4255,6 +4255,9 @@ app.whenReady().then(() => {
       pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)
       if (pararVigia) pararVigia()
       pararVigia = iniciarVigia(onUnlockAchievement, onRevokeAchievement)
+      // As horas da Steam sobem também aqui: sem isso o envio só aconteceria ao
+      // fechar uma sessão, e o número demoraria a aparecer nas outras máquinas.
+      void enviarHorasDaSteam()
       return { ok: true }
     } catch (e) {
       return { ok: false, motivo: String(e) }
