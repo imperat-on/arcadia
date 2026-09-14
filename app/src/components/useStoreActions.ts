@@ -69,11 +69,7 @@ export interface StoreActionsOpts {
    * lojas querem. O modo console usa o gancho para oferecer a instalação pela
    * Steam como saída, em vez de deixar o jogo sem caminho nenhum.
    */
-  onSemManifesto?: (
-    jogo: JogoLoja,
-    motivo: string,
-    acao: "adicionar" | "baixar" | "sem_chave",
-  ) => void
+  onSemManifesto?: (jogo: JogoLoja, motivo: string, acao: "adicionar" | "baixar") => void
 }
 
 /** Mensagem de aviso: as que começam com "Aviso:"/"Warning:" (nos três idiomas). */
@@ -373,20 +369,6 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       try {
         let r
         if (slsAtivo) {
-          // Integração ligada EXIGE a chave do Hubcap: sem ela não existe
-          // manifesto, e sem manifesto não existe injeção. Neste caso o jogo NÃO
-          // entra na biblioteca — adicionar "pela metade" fazia parecer que a
-          // injeção tinha acontecido, que foi exatamente o relato.
-          const cfg = (await window.launcherAPI?.getConfig()) as Record<string, unknown> | undefined
-          if (!cfg?.hubcap_api_key) {
-            const motivo = _t("store.sem_chave_hubcap")
-            // O toast é o aviso GARANTIDO (aparece em qualquer tela). O popup,
-            // quando a tela tem um, entra por cima — antes o toast só existia no
-            // `else`, então quem tinha popup não via aviso nenhum.
-            setToast(_t("store.adicionado_sem_chave", { titulo: jogo.title }))
-            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "sem_chave")
-            return
-          }
           const info = await obterInfo(jogo.appid)
           if (info?.ok) {
             const injetado = await window.launcherAPI?.storeAddToSteam({
@@ -398,9 +380,11 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
             if (injetado?.ok) r = injetado
             else r = { ...(await paraBiblioteca()), injecao: "falhou", motivo: injetado?.error || "" }
           } else {
-            const motivo = info?.error || _t("store.sem_manifesto_motivo")
-            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "adicionar")
-            r = { ...(await paraBiblioteca()), injecao: "sem_manifesto", motivo }
+            // Sem manifesto — o caso normal de integração ligada SEM a chave do
+            // Hubcap (sem chave não há provedor, e sem provedor não há manifesto).
+            // O jogo entra só na biblioteca, com a mensagem de sucesso de sempre:
+            // isto não é erro, e aviso aqui só poluía a tela.
+            r = await paraBiblioteca()
           }
         } else {
           r = await paraBiblioteca()

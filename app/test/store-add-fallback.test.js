@@ -1,13 +1,16 @@
 "use strict"
 
-// Catraca dos três estados do "Adicionar" da loja, definidos pelo dono:
+// Contrato do "Adicionar" da loja (decidido pelo dono, depois de três idas e
+// voltas — este é o que vale):
 //
-//   integração DESLIGADA        -> entra na biblioteca do Arcadia (como sempre)
+//   integração DESLIGADA        -> entra na biblioteca do Arcadia
 //   integração LIGADA + chave   -> entra na biblioteca E injeta na Steam
-//   integração LIGADA sem chave -> NÃO entra em lugar nenhum: avisa e para
+//   integração LIGADA sem chave -> entra na biblioteca, sem injeção e SEM AVISO
 //
-// O último estado é o que mais engana: sem chave não existe manifesto, e
-// "adicionar pela metade" faz a pessoa achar que a injeção na Steam aconteceu.
+// O último caso é estado normal, não erro: sem chave o provedor de manifesto é
+// pulado e não há como injetar, então o jogo (que é o que a pessoa pediu) entra
+// na biblioteca. Quem avisa que falta a chave é o aviso FIXO da página do jogo
+// (`AvisoSemChaveHubcap`), não um toast/popup a cada clique.
 
 const test = require("node:test")
 const assert = require("node:assert/strict")
@@ -26,25 +29,23 @@ function blocoAdicionar() {
   return fonte.slice(inicio, fim)
 }
 
-test("integração LIGADA sem chave: avisa e NÃO adiciona nada", () => {
+test("integração LIGADA sem chave: entra na biblioteca, sem aviso no clique", () => {
   const bloco = blocoAdicionar()
-  const guarda = "if (!cfg?.hubcap_api_key) {"
-  assert.ok(bloco.includes(guarda), "o caminho com integração ligada precisa olhar a chave")
-
-  // O trecho da guarda vai até o manifesto: não pode existir biblioteca ali.
-  const inicio = bloco.indexOf(guarda)
-  const fim = bloco.indexOf("const info = await obterInfo(", inicio)
-  assert.ok(fim > inicio, "depois da guarda vem o manifesto")
-  const trecho = bloco.slice(inicio, fim)
-  assert.match(trecho, /return\b/, "a guarda tem que PARAR o fluxo")
   assert.ok(
-    !trecho.includes("storeAddToLibrary"),
-    "sem chave o jogo não pode entrar na biblioteca (era o que parecia sucesso)",
+    !bloco.includes("hubcap_api_key"),
+    "o Add não olha mais a chave: sem chave ele simplesmente não injeta",
   )
-  assert.ok(trecho.includes('"sem_chave"'), "o aviso é o do caso sem chave")
-  // O toast é o aviso GARANTIDO: antes ele vivia no `else` do popup, então onde
-  // havia popup o clique ficava sem aviso nenhum.
-  assert.ok(trecho.includes("setToast("), "o aviso tem que sair SEMPRE, não só sem popup")
+  assert.ok(!bloco.includes('"sem_chave"'), "nada de popup/toast de 'sem chave' no clique")
+  assert.ok(
+    !bloco.includes("adicionado_sem_chave") && !bloco.includes("sem_chave_hubcap"),
+    "as mensagens de bloqueio saíram",
+  )
+  // Falhou o manifesto (o caso normal sem chave): cai na biblioteca, sem marcar
+  // a adição como falha nem carregar motivo para toast de aviso.
+  const posManifesto = bloco.indexOf("} else {", bloco.indexOf("obterInfo"))
+  const trecho = bloco.slice(posManifesto, bloco.indexOf("} else {\n          r = await paraBiblioteca()"))
+  assert.ok(trecho.includes("await paraBiblioteca()"), "sem manifesto, adiciona à biblioteca")
+  assert.ok(!trecho.includes("injecao:"), "sem manifesto não é falha marcada")
 })
 
 test("integração LIGADA com chave: injeta na Steam e cai para a biblioteca só se falhar", () => {
@@ -85,19 +86,4 @@ test("a chave do Hubcap não vai na URL (só no header)", () => {
     assert.ok(!l.includes("api_key"), `chave na URL de novo: ${l.trim()}`)
   }
   assert.ok(bloco.includes('nome: "Hubcap"'), "provedor renomeado para Hubcap (ex-Morrenus)")
-})
-
-test("as mensagens do bloqueio existem nos três catálogos", () => {
-  const chaves = [
-    "store.sem_chave_hubcap",
-    "store.adicionado_sem_chave",
-    "ps5.sem_manifesto.sem_chave",
-    "ps5.sem_manifesto.adicionado",
-  ]
-  for (const lang of ["pt-BR", "en-US", "es-ES"]) {
-    const d = JSON.parse(ler(`src/i18n/${lang}.json`))
-    for (const k of chaves) {
-      assert.ok(typeof d[k] === "string" && d[k].length > 20, `${lang} sem ${k}`)
-    }
-  }
 })

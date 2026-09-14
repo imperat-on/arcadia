@@ -276,7 +276,7 @@ export function PS5Launcher() {
   const [semManifesto, setSemManifesto] = useState<{
     jogo: { appid: string; title: string }
     motivo: string
-    acao?: "adicionar" | "baixar" | "sem_chave"
+    acao?: "adicionar" | "baixar"
   } | null>(null)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
 
@@ -1577,32 +1577,28 @@ export function PS5Launcher() {
           <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[color:var(--surface-1)] p-7">
             <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
-              {semManifesto.acao === "sem_chave"
-                ? t("ps5.sem_manifesto.sem_chave")
-                : semManifesto.acao === "adicionar"
-                  ? t("ps5.sem_manifesto.adicionado", { motivo: semManifesto.motivo })
-                  : t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
+              {semManifesto.acao === "adicionar"
+                ? t("ps5.sem_manifesto.adicionado", { motivo: semManifesto.motivo })
+                : t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
             </p>
             <div className="mt-6 flex flex-col gap-2">
-              {semManifesto.acao !== "sem_chave" && (
-                <button
-                  autoFocus
-                  onClick={() => {
-                    if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
-                    void launchCommand(["steam", `steam://install/${semManifesto.jogo.appid}`])
-                    setToast({
-                      title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }),
-                      visible: true,
-                    })
-                    setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
-                    setSemManifesto(null)
-                  }}
-                  className="rounded-xl px-5 py-3.5 text-[13px] font-semibold text-black outline-none transition-transform focus:scale-[1.02]"
-                  style={{ background: "var(--accent)" }}
-                >
-                  {t("ps5.sem_manifesto.botao")}
-                </button>
-              )}
+              <button
+                autoFocus
+                onClick={() => {
+                  if (!appFocusedRef.current || gameRunningRef.current || launchPendingRef.current) return
+                  void launchCommand(["steam", `steam://install/${semManifesto.jogo.appid}`])
+                  setToast({
+                    title: t("ps5.sem_manifesto.toast", { title: semManifesto.jogo.title }),
+                    visible: true,
+                  })
+                  setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
+                  setSemManifesto(null)
+                }}
+                className="rounded-xl px-5 py-3.5 text-[13px] font-semibold text-black outline-none transition-transform focus:scale-[1.02]"
+                style={{ background: "var(--accent)" }}
+              >
+                {t("ps5.sem_manifesto.botao")}
+              </button>
               <button
                 onClick={() => setSemManifesto(null)}
                 className="rounded-xl border border-white/10 py-3 text-[13px] text-white/55 outline-none transition-colors hover:text-white/85"

@@ -47,11 +47,5 @@ test("as chaves do aviso existem nos três catálogos", () => {
     for (const k of ["loja.aviso_sem_chave_titulo", "loja.aviso_sem_chave_texto"]) {
       assert.ok(typeof d[k] === "string" && d[k].length > 20, `${lang} sem ${k}`)
     }
-    // O toast de "entrou só na biblioteca" tem que se anunciar como aviso.
-    assert.match(
-      d["store.adicionado_sem_manifesto"],
-      /^(Aviso|Warning): /,
-      `${lang}: mensagem de sucesso disfarçada de aviso`,
-    )
   }
 })
