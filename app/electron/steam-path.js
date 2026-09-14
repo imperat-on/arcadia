@@ -7,45 +7,104 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 
+// Onde uma Steam pode estar instalada, em ordem de confiança.
+//
+// No Windows, procurar só em "Program Files (x86)\Steam" e "Program Files\Steam"
+// deixava de fora quem instalou no registro em outro lugar — D:\Steam, C:\Games\Steam,
+// outro disco. Sintoma real: as conquistas vinham do servidor e o playtime não,
+// porque a leitura do localconfig.vdf não achava a instalação.
+const LETRAS_DISCO = "CDEFGHIJKLMNOPQRSTUVWXYZ"
+
+/** Steam registrada no Windows (SteamPath/InstallPath). Silencioso fora do win32. */
+function raizesDoRegistro() {
+  if (process.platform !== "win32") return []
+  const saida = []
+  const consultas = [
+    ["HKCU\\Software\\Valve\\Steam", "SteamPath"],
+    ["HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath"],
+    ["HKLM\\SOFTWARE\\Valve\\Steam", "InstallPath"],
+  ]
+  let execSync = null
+  try {
+    execSync = require("child_process").execSync
+  } catch {
+    return []
+  }
+  for (const [chave, valor] of consultas) {
+    try {
+      const out = execSync(`reg query "${chave}" /v ${valor}`, {
+        encoding: "utf8",
+        timeout: 3000,
+        windowsHide: true,
+      })
+      const m = String(out).match(/REG_SZ\s+(.+?)\s*$/m)
+      if (m) saida.push(m[1].trim().replace(/[\\/]+$/, ""))
+    } catch {}
+  }
+  return saida
+}
+
+/** Pastas candidatas a raiz da Steam, na plataforma atual. */
+function candidatosSteam() {
+  const cands = []
+  if (process.env.STEAM_DIR) cands.push(process.env.STEAM_DIR)
+  if (process.platform === "win32") {
+    cands.push(...raizesDoRegistro())
+    for (const pf of [process.env["ProgramFiles(x86)"], process.env.ProgramFiles]) {
+      if (pf) cands.push(path.join(pf, "Steam"))
+    }
+    for (const letra of LETRAS_DISCO) {
+      const raiz = `${letra}:\\`
+      cands.push(path.join(raiz, "Steam"))
+      cands.push(path.join(raiz, "Program Files (x86)", "Steam"))
+      cands.push(path.join(raiz, "Program Files", "Steam"))
+      cands.push(path.join(raiz, "Games", "Steam"))
+      cands.push(path.join(raiz, "SteamLibrary"))
+    }
+  } else {
+    const home = os.homedir()
+    cands.push(path.join(home, ".steam", "steam"))
+    cands.push(path.join(home, ".local", "share", "Steam"))
+    cands.push(path.join(home, ".steam", "root"))
+    cands.push(path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"))
+    cands.push(path.join(home, ".var", "app", "com.valvesoftware.Steam", "data", "Steam"))
+  }
+  const vistos = new Set()
+  return cands.filter((p) => p && !vistos.has(p) && vistos.add(p))
+}
+
+/** Uma pasta é raiz da Steam se tem o executável, a appcache ou a steamapps. */
+function pareceRaizDaSteam(dir) {
+  try {
+    return (
+      fs.existsSync(path.join(dir, "steam.exe")) ||
+      fs.existsSync(path.join(dir, "appcache")) ||
+      fs.existsSync(path.join(dir, "steamapps"))
+    )
+  } catch {
+    return false
+  }
+}
+
 function findSteamDir() {
   if (process.platform === "win32") {
-    return findSteamDirWindows()
+    for (const c of candidatosSteam()) {
+      if (pareceRaizDaSteam(c)) return c
+    }
+    return candidatosSteam()[0] || "C:\\Program Files (x86)\\Steam"
   }
   return findSteamDirLinux()
 }
 
-function findSteamDirWindows() {
-  const programFiles = [
-    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
-    process.env["ProgramFiles"] || "C:\\Program Files",
-  ]
-  for (const pf of programFiles) {
-    const steam = path.join(pf, "Steam")
-    if (fs.existsSync(path.join(steam, "steamapps"))) return steam
-  }
-  // Library folders via libraryfolders.vdf NÃO são o root da Steam.
-  // A função findSteamDir retorna APENAS o diretório de instalação da
-  // Steam (onde steam.exe vive). Library folders (bibliotecas alternativas
-  // em D:\, E:\, etc.) são resolvidas separadamente onde forem necessárias
-  // (ex. compatdata, appcache/stats sempre ficam no root da Steam).
-  // Se nada foi encontrado, fallback no caminho mais comum.
-  return path.join(programFiles[0], "Steam")
-}
-
 function findSteamDirLinux() {
-  const home = os.homedir()
-  const candidatos = [
-    path.join(home, ".steam", "steam"),
-    path.join(home, ".local", "share", "Steam"),
-    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),
-  ]
+  const candidatos = candidatosSteam()
   for (const c of candidatos) {
     if (fs.existsSync(path.join(c, "steamapps"))) return c
   }
   return candidatos[0]
 }
 
-module.exports = { findSteamDir, findSteamExe }
+module.exports = { findSteamDir, findSteamExe, candidatosSteam, raizesDoRegistro }
 
 function findSteamExe() {
   if (process.platform !== "win32") return "steam"
