@@ -76,6 +76,11 @@ export interface StoreActionsOpts {
   ) => void
 }
 
+/** Mensagem de aviso: as que começam com "Aviso:"/"Warning:" (nos três idiomas). */
+export function ehAviso(texto: string) {
+  return /^(Aviso|Warning):/.test(String(texto || "").trim())
+}
+
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
   const { t: _t } = useI18n()
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
@@ -375,8 +380,11 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
           const cfg = (await window.launcherAPI?.getConfig()) as Record<string, unknown> | undefined
           if (!cfg?.hubcap_api_key) {
             const motivo = _t("store.sem_chave_hubcap")
+            // O toast é o aviso GARANTIDO (aparece em qualquer tela). O popup,
+            // quando a tela tem um, entra por cima — antes o toast só existia no
+            // `else`, então quem tinha popup não via aviso nenhum.
+            setToast(_t("store.adicionado_sem_chave", { titulo: jogo.title }))
             if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "sem_chave")
-            else setToast(_t("store.adicionado_sem_chave", { titulo: jogo.title }))
             return
           }
           const info = await obterInfo(jogo.appid)

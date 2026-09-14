@@ -42,6 +42,9 @@ test("integração LIGADA sem chave: avisa e NÃO adiciona nada", () => {
     "sem chave o jogo não pode entrar na biblioteca (era o que parecia sucesso)",
   )
   assert.ok(trecho.includes('"sem_chave"'), "o aviso é o do caso sem chave")
+  // O toast é o aviso GARANTIDO: antes ele vivia no `else` do popup, então onde
+  // havia popup o clique ficava sem aviso nenhum.
+  assert.ok(trecho.includes("setToast("), "o aviso tem que sair SEMPRE, não só sem popup")
 })
 
 test("integração LIGADA com chave: injeta na Steam e cai para a biblioteca só se falhar", () => {

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
-import { useStoreActions } from "../useStoreActions"
+import { useStoreActions, ehAviso } from "../useStoreActions"
 import { StoreGamePage } from "./StoreGamePage"
 
 export type ItemLoja = {
@@ -235,4 +235,4 @@ export function useGameSysinfo(appid: string) {
 }
 
 export type { Game }
-export { useStoreActions, StoreGamePage, useI18n }
+export { useStoreActions, StoreGamePage, useI18n, ehAviso }
