@@ -14,10 +14,10 @@ let cache: Record<string, number> = {}
 let emVoo: Promise<Record<string, number>> | null = null
 
 /**
- * A chave das horas na Steam é o NÚMERO do appid. O id do jogo na biblioteca do
- * Arcadia vem como `steam:990080` (e há ids de outras lojas, tipo `epic:...`), então
- * comparar a string crua nunca casa — era por isso que as capas mostravam 0min com
- * as horas certas chegando (44 jogos lidos).
+ * A chave das horas na Steam é o NÚMERO do appid. O jogo na biblioteca do Arcadia
+ * carrega esse número dentro do `id` (`steam:990080`), e o campo `appid` costuma
+ * nem existir fora das linhas da loja — procurar `game.appid` dava undefined, a
+ * chave saía vazia e o selo ficava em 0min com as horas certas na mão.
  */
 export function chaveAppid(appid: unknown): string {
   const s = String(appid ?? "").trim()
@@ -41,14 +41,18 @@ export async function carregarSteamHoras(): Promise<Record<string, number>> {
   return emVoo
 }
 
-/** Minutos da Steam para um appid/id de jogo, ou 0. */
+/** Minutos da Steam para um id/appid (ou vários candidatos), ou 0. */
 export function minutosDaSteam(
   steam: Record<string, number> | null | undefined,
-  appid: unknown,
+  fontes: unknown,
 ): number {
   const mapa = steam || {}
-  const exato = Number(mapa[chaveAppid(appid)] || 0)
-  if (exato > 0) return exato
+  const lista = Array.isArray(fontes) ? fontes : [fontes]
+  for (const f of lista) {
+    if (f == null || f === "") continue
+    const min = Number(mapa[chaveAppid(f)] || 0)
+    if (min > 0) return min
+  }
   return 0
 }
 
@@ -72,12 +76,15 @@ export function useSteamHoras(): Record<string, number> {
  *     sessões que o Arcadia lançou — o jogo abre pela Steam);
  *   - o tempo medido pelo Arcadia entra só quando a Steam não conta o jogo
  *     (crackeado/emulador). Somar os dois seria contagem dupla.
+ *
+ * `fontes` aceita o id do jogo, o appid, ou os dois: a biblioteca usa `id`
+ * (`steam:990080`) e a loja usa `appid` (`990080`).
  */
 export function horasCombinadas(
   steam: Record<string, number> | null | undefined,
-  appid: unknown,
+  fontes: unknown,
   minutosArcadia?: number,
 ): number {
-  const daSteam = minutosDaSteam(steam, appid)
+  const daSteam = minutosDaSteam(steam, fontes)
   return daSteam > 0 ? daSteam : Number(minutosArcadia) || 0
 }

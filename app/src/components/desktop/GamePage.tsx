@@ -237,7 +237,10 @@ export function GamePage({
               </p>
             )}
             <div className="mt-1.5">
-              <HorasNaSteam appid={String(g.appid)} minutosArcadia={g.playtime_minutes || 0} />
+              <HorasNaSteam
+                appid={String(g.id || g.appid || "")}
+                minutosArcadia={g.playtime_minutes || 0}
+              />
             </div>
             <p className="mt-3 min-h-0 flex-1 overflow-y-auto text-[13px] leading-relaxed text-white/65">
               {g.description || t("gamepage.sem_descricao")}

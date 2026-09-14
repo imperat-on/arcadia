@@ -30,8 +30,9 @@ test("o componente escolhe Steam; Arcadia é o que sobra", () => {
 })
 
 test("o id do jogo (steam:990080) casa com a chave numérica do arquivo da Steam", () => {
-  // O bug que deixava as capas em 0min: a chave da Steam é "990080" e o id do
-  // jogo na biblioteca é "steam:990080" — comparação crua nunca casa.
+  // O bug que deixava as capas em 0min: a chave da Steam é "990080" e o jogo da
+  // biblioteca carrega o número dentro do `id` ("steam:990080") — o campo `appid`
+  // não existe fora das linhas da loja.
   const main = fs.readFileSync(path.join(root, "electron", "steam-account.js"), "utf8")
   assert.match(main, /function chaveAppid\(appid\)/, "existe o normalizador de chave")
   assert.ok(
@@ -46,8 +47,23 @@ test("o id do jogo (steam:990080) casa com a chave numérica do arquivo da Steam
   const renderer = ler("src/components/steamHoras.ts")
   assert.ok(renderer.includes("export function chaveAppid"), "o renderer faz o mesmo")
   assert.ok(
-    renderer.includes("minutosDaSteam") && renderer.includes("chaveAppid(appid)"),
+    renderer.includes("export function minutosDaSteam") && renderer.includes("chaveAppid(f)"),
     "e o lookup passa pelo normalizador",
+  )
+
+  // Quem usa precisa mandar o `id` do jogo, não só o appid (que falta na biblioteca).
+  const perfil = ler("src/components/ps5-launcher/ProfilePage.tsx")
+  assert.ok(
+    (perfil.match(/\[game\.id, game\.appid\]|\[[ab]\.id, [ab]\.appid\]/g) || []).length >= 2,
+    "as capas do perfil passam id e appid como candidatos",
+  )
+  assert.ok(
+    ler("src/components/desktop/GamePage.tsx").includes("g.id || g.appid"),
+    "a página da biblioteca também",
+  )
+  assert.ok(
+    ler("src/components/desktop/GameDetailsDialog.tsx").includes("game.id || game.appid"),
+    "e o diálogo de detalhes",
   )
 })
 
