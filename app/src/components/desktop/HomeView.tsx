@@ -9,6 +9,7 @@ import {
   useI18n,
   useStoreActions,
   type ItemLoja,
+  ehAviso,
 } from "./storeShared"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
@@ -178,7 +179,7 @@ export function HomeView({ games = [] }: { games?: Game[] }) {
       )}
 
       {toast && (
-        <div data-no-drag className="fixed bottom-12 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md" onClick={() => setToast("")}>
+        <div data-no-drag className={`fixed bottom-12 right-5 z-[80] max-w-[440px] rounded-xl border px-4 py-3 text-[13px] leading-relaxed shadow-2xl shadow-black/60 backdrop-blur-md ${ehAviso(toast) ? "border-amber-300/45 bg-amber-100/[0.08] font-semibold text-amber-50" : "border-white/15 bg-[color:var(--surface-1)]/95 text-white/90"}`} onClick={() => setToast("")}>
           {toast}
         </div>
       )}

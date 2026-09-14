@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useStoreActions, StoreGamePage, type ItemLoja, LinhaLoja, useI18n } from "./storeShared"
+import { useStoreActions, StoreGamePage, type ItemLoja, LinhaLoja, useI18n, ehAviso } from "./storeShared"
 import { GameSettingsDialog } from "./GameSettingsDialog"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
@@ -745,7 +745,11 @@ export function StoreView({
 
       {toast && (
         <div data-no-drag
-          className="fixed bottom-5 right-5 z-[80] max-w-[360px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-4 py-3 text-[13px] text-white/90 shadow-2xl shadow-black/60 backdrop-blur-md"
+          className={`fixed bottom-5 right-5 z-[80] max-w-[440px] rounded-xl border px-4 py-3 text-[13px] leading-relaxed shadow-2xl shadow-black/60 backdrop-blur-md ${
+            ehAviso(toast)
+              ? "border-amber-300/45 bg-amber-100/[0.08] font-semibold text-amber-50"
+              : "border-white/15 bg-[color:var(--surface-1)]/95 text-white/90"
+          }`}
           onClick={() => setToast("")}
         >
           {toast}

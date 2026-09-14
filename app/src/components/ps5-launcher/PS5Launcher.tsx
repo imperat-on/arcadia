@@ -18,7 +18,7 @@ import { EditMetadata } from "./EditMetadata"
 import { TopBar, TABS, type LibraryFilter } from "./TopBar"
 import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
-import { useStoreActions } from "../useStoreActions"
+import { useStoreActions, ehAviso } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { useLibraryState } from "../useLibraryState"
 import { fmtMiB } from "../tamanho"
@@ -1664,6 +1664,21 @@ export function PS5Launcher() {
 
       {/* Toast notification */}
       <Toast visible={toast.visible} title={toast.title} />
+      {/* Aviso das ações da loja (ex.: Adicionar sem a chave do Hubcap). Esta tela
+          não tem o toast do StoreView, então sem isto o clique ficava mudo. */}
+      {acoesLoja.toast && (
+        <div
+          data-no-drag
+          className={`fixed bottom-32 left-8 z-[95] max-w-[560px] rounded-xl border px-6 py-4 text-[15px] leading-relaxed shadow-2xl shadow-black/60 ${
+            ehAviso(acoesLoja.toast)
+              ? "border-amber-300/45 bg-amber-100/[0.08] font-semibold text-amber-50"
+              : "border-white/15 bg-[color:var(--surface-1)]/95 text-white/90"
+          }`}
+          onClick={() => acoesLoja.setToast("")}
+        >
+          {acoesLoja.toast}
+        </div>
+      )}
       <AchievementToast />
     </div>
   )
