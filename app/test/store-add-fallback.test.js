@@ -67,3 +67,17 @@ test("as mensagens usadas existem nos três catálogos", () => {
     }
   }
 })
+
+test("a chave do Hubcap não vai na URL (só no header)", () => {
+  const fonteSteam = fs.readFileSync(path.join(root, "electron", "steamstore.js"), "utf8")
+  const inicio = fonteSteam.indexOf("const PROVEDORES = [")
+  const fim = fonteSteam.indexOf("]", inicio)
+  const bloco = fonteSteam.slice(inicio, fim)
+  // A chave ia em `?api_key=` e ficava registrada em log de proxy/CDN. O certo é
+  // só o header `Authorization`, que o `headers: (cfg) =>` do provedor monta.
+  const linhasUrl = bloco.split("\n").filter((l) => l.trim().startsWith("url:"))
+  for (const l of linhasUrl) {
+    assert.ok(!l.includes("api_key"), `chave na URL de novo: ${l.trim()}`)
+  }
+  assert.ok(bloco.includes('nome: "Hubcap"'), "provedor renomeado para Hubcap (ex-Morrenus)")
+})

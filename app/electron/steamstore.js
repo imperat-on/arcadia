@@ -1360,8 +1360,11 @@ function gameInstallDir(g) {
 // devolver depots. Todos devolvem um zip no formato SteamTools (.lua+manifest).
 const PROVEDORES = [
   {
-    nome: "Morrenus",
-    url: (appid, cfg) => `${HUBCAP_BASE}/manifest/${appid}?api_key=${cfg.hubcap_api_key || ""}`,
+    // "Morrenus" virou "Hubcap" (mesmo serviço, domínio novo). A chave vai
+    // SÓ no header de autorizacao — antes ela tambem ia na query
+    // (`?api_key=`), o que a deixava registrada em log de proxy/CDN.
+    nome: "Hubcap",
+    url: (appid) => `${HUBCAP_BASE}/manifest/${appid}`,
     headers: (cfg) => ({ Authorization: `Bearer ${cfg.hubcap_api_key}` }),
     precisaKey: true,
   },

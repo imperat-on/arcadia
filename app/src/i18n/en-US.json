@@ -984,7 +984,7 @@
   "stats.titulo": "Statistics",
   "store.adicionado_biblioteca": "\"{titulo}\" added to the library.",
   "store.adicionado_sem_injecao": "\"{titulo}\" was added to the library. Steam injection failed ({motivo}).",
-  "store.adicionado_sem_manifesto": "\"{titulo}\" was added to the library. Without a manifest it was not injected into Steam ({motivo}).",
+  "store.adicionado_sem_manifesto": "\"{titulo}\" was added to the library. Without a manifest it was not injected into Steam ({motivo}). To inject it, get a free Hubcap key at hubcapmanifest.com/api-keys and paste it in Store → Set up store.",
   "store.adicionar_biblioteca": "Add to library",
   "store.adicionar_steam": "Add to Steam",
   "store.baixar": "Download",
