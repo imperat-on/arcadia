@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useJogoRodando } from "../useJogoRodando"
+import { AvisoSemChaveHubcap } from "./AvisoSemChaveHubcap"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
@@ -549,6 +550,8 @@ export function StoreGamePage({
             </p>
           </div>
         )}
+        <AvisoSemChaveHubcap ativo={slsAtivo} />
+
 
         {/* ─── Corpo: 2 colunas ───────────────────────────────────────────── */}
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 px-6 pb-10 pt-6 lg:grid-cols-[1fr_360px]">
