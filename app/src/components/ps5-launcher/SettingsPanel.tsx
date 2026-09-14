@@ -17,7 +17,7 @@ interface SettingsPanelProps {
   open: boolean
   onClose: () => void
   onSaved: () => void // refresh da biblioteca
-  onUiChange?: (c: { card_scale?: number; accent?: string }) => void
+  onUiChange?: (c: { accent?: string }) => void
 }
 
 type Section = "temas"
@@ -29,25 +29,13 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
   const rootRef = useRef<HTMLDivElement>(null)
   useGamepadNav(rootRef, open, onClose)
 
-  // Arrastar o slider de escala dispara onChange dezenas de vezes por segundo.
-  // Sem controle, cada passo grava config.json + IPC setZoomFactor + re-render
-  // da árvore do launcher = piscada e foco pulando. Estratégia: preview vivo
-  // via rAF (máx 1x por frame) e escrita no disco só quando parar (~250ms).
-  const scaleCommitRef = useRef<number | null>(null)
-  const cardCommitRef = useRef<number | null>(null)
+  // A cor de destaque grava no disco com atraso (120ms) para não escrever
+  // config.json a cada clique em cima da paleta.
   const accentCommitRef = useRef<number | null>(null)
-  const scalePendingRef = useRef<number | null>(null)
-  const cardPendingRef = useRef<{ z: number; accent: string } | null>(null)
-  const scaleRafRef = useRef<number | null>(null)
-  const cardRafRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
-      if (scaleCommitRef.current != null) window.clearTimeout(scaleCommitRef.current)
-      if (cardCommitRef.current != null) window.clearTimeout(cardCommitRef.current)
       if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
-      if (scaleRafRef.current != null) window.cancelAnimationFrame(scaleRafRef.current)
-      if (cardRafRef.current != null) window.cancelAnimationFrame(cardRafRef.current)
     }
   }, [])
 
@@ -121,43 +109,13 @@ export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPa
       <main className="retro-settings-content flex-1 overflow-y-auto p-10">
         {section === "temas" && (
           <ThemeSection
-            scale={cfg.ui_scale ?? 1}
-            cardScale={cfg.card_scale ?? 1.6}
             accent={cfg.accent ?? "var(--accent)"}
-            onScale={(z) => {
-              // Slider % anima ao vivo (via setCfg); o zoom real só ao parar.
-              // setZoomFactor re-rasteriza a webContents inteira: chamar a cada
-              // step trava e faz o card bugar. Aplica 250ms após o último ajuste.
-              // É UMA escala (ui_scale), então vale também no modo desktop.
-              setCfg((c) => ({ ...c, ui_scale: z }))
-              scalePendingRef.current = z
-              if (scaleCommitRef.current != null) window.clearTimeout(scaleCommitRef.current)
-              scaleCommitRef.current = window.setTimeout(() => {
-                const val = scalePendingRef.current ?? z
-                window.launcherAPI?.setUiScale(val)
-                scaleCommitRef.current = null
-              }, 250)
-            }}
-            onCardScale={(z) => {
-              setCfg((c) => ({ ...c, card_scale: z }))
-              const accentNow = cfg.accent ?? "var(--accent)"
-              cardPendingRef.current = { z, accent: accentNow }
-              if (cardCommitRef.current != null) window.clearTimeout(cardCommitRef.current)
-              cardCommitRef.current = window.setTimeout(() => {
-                const p = cardPendingRef.current
-                if (p) {
-                  window.launcherAPI?.setConfig({ card_scale: p.z })
-                  onUiChange?.({ card_scale: p.z, accent: p.accent })
-                }
-                cardCommitRef.current = null
-              }, 250)
-            }}
             onAccent={(hex) => {
               setCfg((c) => ({ ...c, accent: hex }))
               if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
               accentCommitRef.current = window.setTimeout(() => {
                 window.launcherAPI?.setConfig({ accent: hex })
-                onUiChange?.({ card_scale: cfg.card_scale ?? 1.6, accent: hex })
+                onUiChange?.({ accent: hex })
                 accentCommitRef.current = null
               }, 120)
             }}
@@ -268,71 +226,11 @@ export function IntegrationsSection({
 /* Metadados                                                             */
 /* --------------------------------------------------------------------- */
 
-function ScaleControl({
-  label,
-  value,
-  onChange,
-  presets,
-}: {
-  label: string
-  value: number
-  onChange: (z: number) => void
-  presets: { label: string; z: number }[]
-}) {
-  return (
-    <div className="mb-10">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-[color:var(--text-2)]">{label}</span>
-        <span className="text-lg font-bold text-white tabular-nums">
-          {Math.round(value * 100)}%
-        </span>
-      </div>
-      <input
-        type="range"
-        min={0.8}
-        max={1.6}
-        step={0.05}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full mb-4"
-        style={{ accentColor: "var(--accent)" }}
-      />
-      <div className="grid grid-cols-5 gap-3">
-        {presets.map((p) => {
-          const active = Math.abs(p.z - value) < 0.03
-          return (
-            <button
-              key={p.label}
-              onClick={() => onChange(p.z)}
-              className="flex flex-col items-center py-2.5 rounded-xl transition-colors"
-              style={{
-                background: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${active ? "var(--accent)" : "rgba(255,255,255,0.08)"}`,
-              }}
-            >
-              <span className="text-sm font-semibold text-white">{p.label}</span>
-              <span className="text-xs text-[color:var(--text-2)]">{Math.round(p.z * 100)}%</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export function ThemeSection({
-  scale,
-  cardScale,
   accent,
-  onScale,
-  onCardScale,
   onAccent,
 }: {
-  scale: number
-  cardScale: number
   accent: string
-  onScale: (z: number) => void
-  onCardScale: (z: number) => void
   onAccent: (hex: string) => void
 }) {
   const { t, lang, setLang } = useI18n()
@@ -355,31 +253,8 @@ export function ThemeSection({
       </h2>
       <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.temas.desc")}</p>
 
-      <ScaleControl
-        label={t("settings.temas.escala")}
-        value={scale}
-        onChange={onScale}
-        presets={[
-          { label: t("settings.temas.pequeno"), z: 0.9 },
-          { label: t("settings.temas.medio"), z: 1.0 },
-          { label: t("settings.temas.grande"), z: 1.15 },
-          { label: t("common.padrao"), z: 1.3 },
-          { label: t("settings.temas.gigante"), z: 1.5 },
-        ]}
-      />
-
-      <ScaleControl
-        label={t("settings.temas.tamanho_capas")}
-        value={cardScale}
-        onChange={onCardScale}
-        presets={[
-          { label: t("settings.temas.compacto"), z: 0.85 },
-          { label: t("settings.temas.pequeno"), z: 1.0 },
-          { label: t("settings.temas.medio"), z: 1.2 },
-          { label: t("settings.temas.grande"), z: 1.4 },
-          { label: t("common.padrao"), z: 1.6 },
-        ]}
-      />
+      {/* Escala e tamanho das capas não têm mais controle: a interface se adapta
+          sozinha à tela (resolução e escala do sistema), no processo principal. */}
 
       {/* Cor de destaque */}
       <div className="mb-4">

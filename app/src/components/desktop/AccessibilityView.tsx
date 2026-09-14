@@ -63,7 +63,9 @@ export function aplicarA11y(cfg: AppConfig) {
   `
 }
 
-// Aba Acessibilidade (modo desktop): zoom, fontes, tema, CSS custom e toggles.
+// Aba Acessibilidade (modo desktop): fontes, tema, CSS custom e toggles.
+// Escala da interface não aparece aqui de propósito — ela é automática, derivada
+// da tela pelo processo principal (electron/ui-scale.js).
 export function AccessibilityView() {
   const { t } = useI18n()
   const [cfg, setCfg] = useState<AppConfig>({})
@@ -71,8 +73,6 @@ export function AccessibilityView() {
   useEffect(() => {
     window.launcherAPI?.getConfig().then((c) => {
       const loaded = c || {}
-      // A escala não é normalizada aqui: virou uma chave só, presa na faixa e
-      // aplicada pelo processo principal (electron/ui-scale.js).
       setCfg(loaded)
       aplicarA11y(loaded)
     })

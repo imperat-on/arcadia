@@ -38,7 +38,7 @@ if (!lockUnico) {
 }
 
 const { aliasesOf } = require("./achievements/match")
-const { fatorDeZoom, clampRelativo, migrarEscala } = require("./ui-scale")
+const { fatorDeZoom, escalaEfetiva, escalaDaCapa, migrarEscala, REFERENCIA } = require("./ui-scale")
 const { startAchievementWatcher, fetchAchievementsForApp } = require("./achievements")
 const { iniciarVigia } = require("./achievements/cracked_watcher")
 const { prepareUplayInstallation } = require("./achievements/uplay")
@@ -244,33 +244,49 @@ let focado = true
 // janela e precisam levantá-la quando o jogo termina.
 let win
 
-// O layout do Big Picture e do Desktop usa 1920x1080 como referência lógica.
-// Em resoluções maiores, manter o mesmo fator de zoom deixa a interface
-// fisicamente pequena. A escala usa a menor dimensão para não estourar a altura
-// em ultrawide. Janelas Desktop não maximizadas usam o próprio tamanho, então
-// abrir o app pequeno num monitor 4K não transforma os controles em gigantes.
-function responsiveWindowScale(mode) {
+// Qual tamanho a escala deve considerar. O layout do Big Picture e do Desktop usa
+// 1920x1080 como referência lógica — a matemática vive em ./ui-scale; aqui só se
+// decide QUAL tamanho usar. No console, a tela inteira; no desktop maximizado, a
+// área útil; numa janela solta, a própria janela (abrir o app pequeno num monitor
+// 4K não pode transformar os controles em gigantes). Tudo em pixels LÓGICOS, que
+// já embutem a escala do sistema.
+function tamanhoDaTela(mode) {
   try {
     const bounds = win && !win.isDestroyed() ? win.getBounds() : null
     const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()
-    const displaySize = mode === "console"
+    const tamanho = mode === "console"
       ? display?.size
       : win?.isMaximized()
         ? display?.workAreaSize
         : bounds
-    const width = Number(displaySize?.width) || 1920
-    const height = Number(displaySize?.height) || 1080
-    const ratio = Math.min(width / 1920, height / 1080)
-    return Math.min(1.55, Math.max(1, ratio))
+    const width = Number(tamanho?.width)
+    const height = Number(tamanho?.height)
+    return {
+      width: Number.isFinite(width) && width > 0 ? width : REFERENCIA.width,
+      height: Number.isFinite(height) && height > 0 ? height : REFERENCIA.height,
+    }
   } catch {
-    return 1
+    return { ...REFERENCIA }
   }
 }
 
-// Único ponto que decide o zoom da janela. A matemática mora em ./ui-scale
-// (uma chave só, base por skin); aqui fica apenas a leitura do config.
+// Escala efetiva da tela atual: automática, com ARCADIA_UI_SCALE como única
+// sobreposição (para setups incomuns). Não há mais preferência guardada.
+function escalaAtual(mode) {
+  return escalaEfetiva(tamanhoDaTela(mode), process.env.ARCADIA_UI_SCALE)
+}
+
+// Único ponto que decide o zoom da janela.
 function uiScaleFactor(mode) {
-  return fatorDeZoom(mode, readConfig().ui_scale, responsiveWindowScale(mode))
+  return fatorDeZoom(mode, escalaAtual(mode))
+}
+
+// O renderer dimensiona as capas do trilho com a MESMA escala da tela, para as
+// duas coisas não divergirem quando a janela muda de monitor.
+function avisarEscala(mode) {
+  if (!win || win.isDestroyed() || !win.webContents) return
+  const escala = escalaAtual(mode)
+  win.webContents.send("ui:escala", { escala, capa: escalaDaCapa(escala) })
 }
 
 let appliedZoomFactor = null
@@ -284,7 +300,9 @@ function applyWindowZoom(factor) {
 
 function reapplyWindowZoom() {
   if (!win || win.isDestroyed() || !win.webContents) return
-  applyWindowZoom(uiScaleFactor(win.isFullScreen() ? "console" : "desktop"))
+  const mode = win.isFullScreen() ? "console" : "desktop"
+  applyWindowZoom(uiScaleFactor(mode))
+  avisarEscala(mode)
 }
 // Uma sessão pode gerar vários sinais "jogo ausente". A restauração deve ser
 // feita uma vez só, no desarme do poll, para não roubar foco repetidamente.
@@ -3831,6 +3849,7 @@ app.whenReady().then(() => {
       win.setFullScreen(mode === "console")
       process.env.ARCADIA_MODE = mode
       applyWindowZoom(uiScaleFactor(mode))
+      avisarEscala(mode)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e.message || e) }
@@ -4741,16 +4760,8 @@ app.whenReady().then(() => {
     if (win) win.setFullScreen(consoleMode)
     process.env.ARCADIA_MODE = consoleMode ? "console" : "desktop"
   })
-  ipcMain.handle("app:setUiScale", (_e, rel) => {
-    // Uma chave só, valendo nas duas skins: o relativo é multiplicado pela base
-    // da skin ATIVA (console 1.3, desktop 1.2). Persiste aqui mesmo — antes o
-    // renderer mandava setConfig + zoom em duas chamadas, e cada skin tinha o
-    // seu número solto (o do desktop, inclusive, era ignorado no cálculo).
-    const valor = clampRelativo(rel)
-    writeConfig({ ui_scale: valor })
-    applyWindowZoom(uiScaleFactor(win?.isFullScreen() ? "console" : "desktop"))
-    return valor
-  })
+  // Não existe mais IPC de escala manual: a interface se adapta à tela sozinha
+  // (ver ./ui-scale e ARCADIA_UI_SCALE para setups incomuns).
 
   ipcMain.handle("library:refresh", async () => {
     return curarCapasSteam(readLibrary())

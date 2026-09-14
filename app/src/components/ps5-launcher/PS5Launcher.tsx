@@ -426,7 +426,7 @@ export function PS5Launcher() {
     // (electron/ui-scale.js) — inclusive ao trocar de modo. Aqui ficam só as
     // preferências de aparência: tamanho da capa e cor de destaque.
     trailerAutoRef.current = config.trailer_auto !== false
-    applyUiPrefs({ ...config, card_scale: config.card_scale ?? 1.6 })
+    applyUiPrefs({ accent: config.accent })
     try {
       const r = JSON.parse(localStorage.getItem("gs_recent") || "[]")
       if (Array.isArray(r)) setRecent(r)
@@ -435,11 +435,22 @@ export function PS5Launcher() {
     }
   }, [config, configLoaded, libraryLoaded])
 
-  // Aplica preferências visuais (escala das capas + cor de destaque).
-  function applyUiPrefs(c: { card_scale?: number; accent?: string }) {
-    setCardScale(c?.card_scale ?? 1.6)
+  // Aplica preferências visuais (cor de destaque). O tamanho das capas NÃO vem
+  // daqui: ele segue a escala da tela, avisada pelo processo principal.
+  function applyUiPrefs(c: { accent?: string }) {
     document.documentElement.style.setProperty("--accent", c?.accent || "var(--accent)")
   }
+
+  // Tamanho das capas: derivado da MESMA escala que o processo principal aplica
+  // na interface, então acompanha sozinho a resolução e a escala do sistema.
+  // Antes do primeiro aviso vale o padrão de sempre (1.6).
+  useEffect(() => {
+    const sair = window.launcherAPI?.onUiEscala?.((dados) => {
+      const capa = Number(dados?.capa)
+      if (Number.isFinite(capa) && capa > 0) setCardScale(capa)
+    })
+    return typeof sair === "function" ? sair : undefined
+  }, [])
 
   // Trailer no fundo: ao focar um jogo por ~1,5s, toca o trailer. Se não estiver
   // baixado ainda, busca no YouTube em segundo plano e toca quando pronto (desde
