@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
-import { isRovingKey, nextRovingIndex } from "./rovingTab.cjs"
+import { isRovingKey, nextRovingIndex } from "./rovingTab.mjs"
 
 interface GameRailProps {
   games: Game[]
@@ -47,7 +47,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
       // o primeiro item. Em tela cheia isso empurrava a sidebar para fora do
       // viewport. Alterar apenas scrollLeft mantém o shell imóvel.
       const target = selected.offsetLeft - (rail.clientWidth - selected.offsetWidth) / 2
-      rail.scrollTo({ left: Math.max(0, target), behavior: fast ? "auto" : "smooth" })
+      rail.scrollTo({ left: Math.max(0, target), behavior: fast || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })
     }
     if (railRef.current?.contains(document.activeElement)) selectedRef.current?.focus({ preventScroll: true })
   }, [selectedIndex])
@@ -55,7 +55,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
   return (
     <section className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
       <div className="retro-featured-label mb-2 px-1 text-[10px] font-black uppercase tracking-[0.12em]">{t("gameoverview.em_destaque")}</div>
-      <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Biblioteca de jogos">
+      <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("topbar.jogos")}>
         {games.map((game, index) => {
           const focused = index === selectedIndex
           const cover = coverFor(game)
@@ -81,10 +81,11 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
               }}
               className="retro-library-card shrink-0 text-left outline-none"
               style={{ width: cardWidth }}
-              aria-label={`${game.title} — selecionar`}
+              aria-label={game.title}
+              aria-current={focused ? "true" : undefined}
             >
               <div className="retro-library-cover relative overflow-hidden" style={{ height: Math.round(cardWidth * 1.42), background: FALLBACK_GRADIENTS[game.launcher] || "#09100f" }}>
-                {cover ? <img src={cover} alt={game.title} className="ps5-cover-art" loading="lazy" draggable={false} /> : (
+                {cover ? <img src={cover} onError={(event) => { event.currentTarget.style.visibility = "hidden" }} alt={game.title} className="ps5-cover-art" loading="lazy" draggable={false} /> : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-3 text-center text-white/50">
                     <LauncherIcon launcher={game.launcher} size={28} />
                     <span className="line-clamp-3 text-[11px] font-bold uppercase">{game.title}</span>

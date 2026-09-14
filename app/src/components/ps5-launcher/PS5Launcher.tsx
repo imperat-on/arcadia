@@ -219,6 +219,9 @@ export function PS5Launcher() {
     setOverviewClosing(true)
     overviewCloseTimer.current = window.setTimeout(() => {
       setOverviewOpen(false)
+      if (!document.activeElement?.closest(".console-profile,.retro-edit-profile,.retro-download-shell")) {
+        document.querySelector<HTMLElement>('[data-roving-item="true"][data-active="true"]')?.focus({ preventScroll: true })
+      }
       setOverviewClosing(false)
       overviewCloseTimer.current = null
       if (overviewReopenRef.current) {
@@ -233,7 +236,7 @@ export function PS5Launcher() {
         // alternam via gamepad + keydown).
         setOverviewMounted(false)
       }
-    }, 1000)
+    }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 420)
   }, [])
   useEffect(() => {
     return () => {
@@ -364,7 +367,7 @@ export function PS5Launcher() {
     Boolean(instalarGame) ||
     Boolean(semManifesto) ||
     Boolean(escolhendoLaunch) ||
-    Boolean(acoesLoja.escolhendo)
+    Boolean(acoesLoja.escolhendo) || Boolean(acoesLoja.busy) || Boolean(atualizacao.info)
 
   // uiBlockedRef: pausa a navegação de JOGOS (D-pad/A). Vale também na aba de
   // Notícias, que tem foco próprio — mas o L1/R1 (trocar aba) segue funcionando.
@@ -393,11 +396,6 @@ export function PS5Launcher() {
   const storeMode = activeTab === 2
   const columns = GRID_COLUMNS
 
-  // A Loja antiga pode ter ficado selecionada durante hot reload; no Big
-  // Picture atual existem somente Notícias e Jogos.
-  useEffect(() => {
-    if (activeTab > 1) setActiveTab(1)
-  }, [activeTab])
 
   const selectedGame = viewGames[selectedIndex] ?? viewGames[0] ?? null
 
@@ -636,7 +634,7 @@ export function PS5Launcher() {
   // Navegação por controle na aba de notícias (D-pad move o foco, A abre, B nada).
   // Notícias: navegação SÓ por scroll (analógico direito). Sem foco espacial —
   // o anel azul de foco no card destaque poluía a tela.
-  useGamepadNav(newsRef, newsMode && appFocused && !gameRunning, undefined, true)
+  useGamepadNav(newsRef, newsMode && appFocused && !gameRunning && !modalOpenRef.current, undefined, true)
   // A loja agora é a StoreView nativa (React puro): busca, cards e página do
   // jogo são todos DOM comum, com foco padrão dos <button>. O useGamepadNav
   // move o foco espacial como em qualquer outra tela — sem cursor virtual,
@@ -679,7 +677,7 @@ export function PS5Launcher() {
   }, [storeMode])
   useGamepadNav(
     storeRef,
-    storeMode && !lojaOverlay && appFocused && !gameRunning,
+    storeMode && !lojaOverlay && !modalOpenRef.current && appFocused && !gameRunning,
     voltarLoja,
     false,
     extrasLoja,
@@ -696,14 +694,10 @@ export function PS5Launcher() {
     !showProfile &&
     !ctxGame &&
     !editGame &&
-    !trailerPickGame
-  useGamepadNav(overviewRef, overviewNavActive, closeOverview, false, { onUp: closeOverview })
-
-  // Navegação por controle no perfil (D-pad move o foco, B fecha).
-  const profileRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(profileRef, showProfile && appFocused && !showEditProfile && !gameRunning, () =>
-    setShowProfile(false),
-  )
+    !trailerPickGame &&
+    !showDownloads && !instalarGame && !semManifesto && !escolhendoLaunch &&
+    !acoesLoja.escolhendo && !acoesLoja.busy && !atualizacao.info
+  useGamepadNav(overviewRef, overviewNavActive, closeOverview)
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
   useGamepadNav(perfilRef, perfilGate && !boot && appFocused && !gameRunning)
@@ -714,7 +708,7 @@ export function PS5Launcher() {
   // o jogo fullscreen está na frente.
   useGamepadNav(
     dmRef,
-    showDownloads && appFocused && !gameRunning,
+    showDownloads && appFocused && !gameRunning && !atualizacao.info,
     () => setShowDownloads(false),
   )
 
@@ -742,14 +736,14 @@ export function PS5Launcher() {
     if (!overviewOpen) return
     const handleEscape = (event: KeyboardEvent) => {
       if (!appFocusedRef.current || gameRunningRef.current) return
-      if (event.key === "Escape" || event.key === "ArrowUp") {
+      if (event.key === "Escape" && overviewNavActive) {
         event.preventDefault()
         closeOverview()
       }
     }
     window.addEventListener("keydown", handleEscape)
     return () => window.removeEventListener("keydown", handleEscape)
-  }, [overviewOpen, closeOverview])
+  }, [overviewOpen, overviewNavActive, closeOverview])
 
   const abrirJogo = useCallback(
     (game: Game, mode?: "steam" | "exe") => {
@@ -974,6 +968,8 @@ export function PS5Launcher() {
           "button, a[href], input, select, textarea, [role=button], [contenteditable=true]",
         ),
       )
+      if (target?.closest("input, textarea, select, [contenteditable=true]")) return
+      if (e.defaultPrevented) return
       const now = Date.now()
       if (now - lastNav < COOLDOWN) return
 
@@ -985,6 +981,7 @@ export function PS5Launcher() {
         step(1)
       } else if (e.key === "ArrowUp") {
         lastNav = now
+        document.querySelector<HTMLButtonElement>(".ps5-primary-nav button[data-active=true]")?.focus()
       } else if (e.key === "ArrowDown") {
         lastNav = now
         if (selectedGameRef.current) openOverview()
@@ -1055,6 +1052,16 @@ export function PS5Launcher() {
 
     const N = viewGames.length
     const move = (dx: number, dy: number) => {
+      const focused = document.activeElement as HTMLElement | null
+      const header = document.querySelector<HTMLElement>(".ps5-topbar")
+      if (focused && header?.contains(focused)) {
+        if (dy > 0) { document.querySelector<HTMLElement>('[data-roving-item="true"][data-active="true"]')?.focus(); return }
+        const buttons = Array.from(header.querySelectorAll<HTMLElement>("button,input")).filter(el => el.getBoundingClientRect().width > 0)
+        const index = buttons.indexOf(focused)
+        if (dx) buttons[Math.max(0, Math.min(buttons.length - 1, index + dx))]?.focus()
+        return
+      }
+      if (dy < 0) { header?.querySelector<HTMLElement>('button[data-active="true"]')?.focus(); return }
       // Para baixo abre o hub do jogo selecionado; o trilho continua horizontal.
       if (dy > 0) {
         if (selectedGameRef.current) openOverview()
@@ -1111,7 +1118,7 @@ export function PS5Launcher() {
         if (overviewClosing && primed && gp.buttons[13]?.pressed && !prev[13]) {
           openOverview()
         }
-        if (primed && gp.buttons[8]?.pressed && !prev[8] && !gameRunningRef.current) {
+        if (primed && gp.buttons[8]?.pressed && !prev[8] && !gameRunningRef.current && !modalOpenRef.current) {
           setMenuOpen((v) => !v)
         }
 
@@ -1170,7 +1177,15 @@ export function PS5Launcher() {
             lastStep = now
           }
 
-          if (primed && gp.buttons[0]?.pressed && !prev[0]) _launch_selected() // A
+          if (primed && gp.buttons[0]?.pressed && !prev[0]) {
+            const focused = document.activeElement as HTMLElement | null
+            if (focused?.closest(".ps5-topbar,.ps5-hero-actions")) focused.click()
+            else _launch_selected()
+          }
+          if (primed && gp.buttons[1]?.pressed && !prev[1]) {
+            document.querySelector<HTMLElement>('[data-roving-item="true"][data-active="true"]')?.focus()
+          }
+          if (primed && gp.buttons[2]?.pressed && !prev[2] && selectedGameRef.current) _toggle_favorite(selectedGameRef.current)
           // Start abre as opções do jogo selecionado.
           if (primed && gp.buttons[9]?.pressed && !prev[9]) {
             setCtxGame(selectedGameRef.current)
@@ -1206,6 +1221,7 @@ export function PS5Launcher() {
       }
       activeTab={activeTab}
       onTab={setActiveTab}
+      onOpenDownloads={() => setShowDownloads(true)}
       onRefresh={_refresh_library}
       onOpenProfile={() => setShowProfile(true)}
       menuOpen={menuOpen}
@@ -1246,15 +1262,16 @@ export function PS5Launcher() {
         selectedGame && jogoAtivo.pendente && jogoAtivo.jogo?.id === selectedGame.id,
       )}
       onLaunch={_launch_selected}
-      onMore={() => selectedGame && setCtxGame(selectedGame)}
+      onMore={() => openOverview()}
       onToggleFavorite={() => selectedGame && _toggle_favorite(selectedGame)}
     />
   )
   const footerNode = (
-    <footer className="retro-console-footer flex h-7 shrink-0 items-center justify-between border-t px-10 text-[9px] font-black uppercase tracking-[0.16em]">
-      <span>{t("footer.press_start")}</span>
-      <strong>Arcadia</strong>
-      <span>{t("footer.insert_coin")}</span>
+    <footer className="console-hints">
+      <span>← → {t("topbar.jogos")}</span>
+      <span>↓ {t("gameoverview.detalhes")}</span>
+      <span>Enter / A · {t("hero.jogar")}</span>
+      <span>Esc / B · {t("gameoverview.controle.voltar")}</span>
     </footer>
   )
 
@@ -1302,7 +1319,7 @@ export function PS5Launcher() {
           que a antiga sai. Sem gap preto. */}
       <HeroBackground
         preto={newsMode || storeMode}
-        hero={trailerUrl || selectedGame?.hero || selectedGame?.cover}
+        hero={(appFocused && !gameRunning ? trailerUrl : null) || selectedGame?.hero || selectedGame?.cover}
         id={selectedGame ? `${selectedGame.id}:${trailerUrl ? "trailer" : "art"}` : null}
       />
 
@@ -1350,7 +1367,7 @@ export function PS5Launcher() {
           <ProfilePage
             open
             embedded={false}
-            navActive={appFocused && !gameRunning && !showEditProfile}
+            navActive={appFocused && !gameRunning && !showEditProfile && !showDownloads && !atualizacao.info}
             profile={
               conta?.perfil
                 ? {
@@ -1373,6 +1390,7 @@ export function PS5Launcher() {
       {overviewMounted && selectedGame && (
         <GameOverview
           ref={overviewRef}
+          onOpenFriends={() => { closeOverview(); setShowProfile(true) }}
           onMore={() => selectedGame && setCtxGame(selectedGame)}
           game={selectedGame}
           news={news}
@@ -1477,9 +1495,9 @@ export function PS5Launcher() {
           aria-hidden={!storeMode}
         >
           <StoreView
-            games={viewGames}
+            games={games}
             bigPicture
-            ativo={storeMode && appFocused && !gameRunning}
+            ativo={storeMode && appFocused && !gameRunning && !modalOpenRef.current}
             appFocused={appFocused}
             gameRunning={gameRunning}
             runningGameId={jogoAtivo.jogo?.id}
@@ -1607,16 +1625,6 @@ export function PS5Launcher() {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Toast do hook da loja (fila, falhas, remoções) */}
-      {acoesLoja.toast && (
-        <div data-no-drag
-          onClick={() => acoesLoja.setToast("")}
-          className="fixed bottom-8 right-8 z-[95] max-w-[420px] rounded-xl border border-white/15 bg-[color:var(--surface-1)]/95 px-5 py-4 text-sm text-white/90 shadow-2xl backdrop-blur-md"
-        >
-          {acoesLoja.toast}
         </div>
       )}
 

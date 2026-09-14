@@ -4,6 +4,8 @@
 // exibida com um quadrado 1:1 que o usuário arrasta e redimensiona; o preview
 // mostra o resultado final em 256×256; "Aplicar" devolve os bytes recortados.
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useGamepadNav } from "./useGamepadNav"
+import { useMode } from "../ModeContext"
 
 interface AvatarCropProps {
   src: string // file:// URL da imagem escolhida
@@ -16,6 +18,14 @@ const SAIDA = 256 // lado do avatar final
 const MIME = "image/png"
 
 export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
+  const { isConsole } = useMode()
+  const rootRef = useRef<HTMLDivElement>(null)
+  useGamepadNav(rootRef, isConsole, onCancel)
+  useEffect(() => {
+    const back = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onCancel() } }
+    document.addEventListener("keydown", back, true)
+    return () => document.removeEventListener("keydown", back, true)
+  }, [onCancel])
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [crop, setCrop] = useState({ x: 0, y: 0, size: 0 }) // em px NATURAIS (quadrado)
   const [preview, setPreview] = useState("")
@@ -127,11 +137,18 @@ export function AvatarCrop({ src, onConfirm, onCancel, t }: AvatarCropProps) {
   const ss = crop.size && img ? (crop.size / img.naturalWidth) * 100 : 0
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm" onPointerUp={onPointerUp}>
+    <div ref={rootRef} className="gp-scope fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm" onPointerUp={onPointerUp}>
       <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[color:var(--surface-2)] p-6 shadow-[0_0_60px_rgba(0,168,255,0.15)]">
         <h3 className="mb-1 text-lg font-bold text-white">{t("avatar.crop_titulo")}</h3>
         <p className="mb-4 text-xs text-white/40">{t("avatar.crop_dica")}</p>
 
+        {isConsole && img && <div className="mb-4 flex justify-center gap-3">
+          {["←", "→", "↑", "↓", "−", "+"].map((label, index) => <button type="button" key={label} className="min-h-12 min-w-12 rounded-lg border border-white/30 text-xl" onClick={() => setCrop(current => {
+            const step = Math.max(1, Math.round(Math.min(img.naturalWidth, img.naturalHeight) / 20))
+            const size = clamp(current.size + (index === 4 ? step : index === 5 ? -step : 0), Math.min(64, img.naturalWidth, img.naturalHeight), Math.min(img.naturalWidth, img.naturalHeight))
+            return { size, x: clamp(current.x + (index === 0 ? -step : index === 1 ? step : 0), 0, img.naturalWidth - size), y: clamp(current.y + (index === 2 ? -step : index === 3 ? step : 0), 0, img.naturalHeight - size) }
+          })}>{label}</button>)}
+        </div>}
         <div className="flex items-center justify-center gap-6">
           {/* Área da imagem com o quadrado de recorte */}
           <div ref={boxRef} className="relative max-h-[420px] max-w-[60%] overflow-hidden rounded-xl bg-black/40">
