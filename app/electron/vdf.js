@@ -112,10 +112,26 @@ function contaAtivaDoLoginUsers(texto) {
   return contas.find((c) => c.maisRecente) || null
 }
 
+/**
+ * Onde ficam as horas no localconfig.vdf REAL: `UserLocalConfigStore` →
+ * `Software` → `Valve` → `Steam` → `apps` → `<appid>` → `Playtime`.
+ *
+ * A primeira versão procurava `apps` direto sob `UserLocalConfigStore` (foi o que
+ * um teste de rascunho usou) e voltava sempre vazio no arquivo de verdade — o
+ * sintoma foi "jogos com horas no vdf: 0" com o arquivo cheio de horas.
+ * O caminho direto continua aceito por compatibilidade.
+ */
+function acharApps(raiz) {
+  const uls = (raiz && raiz.UserLocalConfigStore) || {}
+  if (uls.apps && typeof uls.apps === "object") return uls.apps
+  const steam = uls.Software && uls.Software.Valve && uls.Software.Valve.Steam
+  if (steam && steam.apps && typeof steam.apps === "object") return steam.apps
+  return {}
+}
+
 /** Minutos por appid a partir do localconfig.vdf de uma conta. */
 function horasDoLocalConfig(texto) {
-  const raiz = parseVDF(texto)
-  const apps = (raiz && raiz.UserLocalConfigStore && raiz.UserLocalConfigStore.apps) || {}
+  const apps = acharApps(parseVDF(texto))
   const horas = {}
   for (const [appid, dado] of Object.entries(apps)) {
     // appid 0 é entrada da própria Steam ("LastPlayed"/"Playtime" da loja), não jogo.
