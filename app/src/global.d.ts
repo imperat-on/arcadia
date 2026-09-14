@@ -210,9 +210,6 @@ export interface AppConfig {
   steam_api_key?: string
   steamgriddb_api_key?: string
   steam_id64?: string
-  /** Tamanho da interface: multiplicador relativo (1 = 100%) sobre a base da
-   * skin ativa. Única chave de escala do app — ver electron/ui-scale.js. */
-  ui_scale?: number
   /** API key do Hubcap (catálogo de manifestos Steam, aba Lojas). */
   hubcap_api_key?: string
   /** Tokens dos serviços debrid (aba Integrações). Ter QUALQUER um já basta —
@@ -1230,7 +1227,9 @@ declare global {
       toggleFullscreen: () => Promise<void>
       setFullscreen: (on: boolean) => Promise<void>
       setLauncherMode: (mode: "console" | "desktop") => Promise<{ ok: boolean; error?: string }>
-      setUiScale: (rel: number) => Promise<number>
+      /** Escala da tela avisada pelo processo principal: `escala` é o multiplicador
+       * automático (também aplicado no zoom) e `capa` o tamanho das capas do trilho. */
+      onUiEscala: (cb: (dados: { escala: number; capa: number }) => void) => (() => void) | undefined
       rebuildMeta: () => Promise<Game[]>
       integrationsStatus: () => Promise<IntegrationsStatus>
       pickImage: (

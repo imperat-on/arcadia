@@ -8,18 +8,17 @@ const vm = require("node:vm")
 
 const root = path.join(__dirname, "..")
 const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8")
-const { fatorDeZoom } = require("../electron/ui-scale")
+const { fatorDeZoom, escalaAutomatica, escalaDaCapa } = require("../electron/ui-scale")
 
 // main importa Electron e inicia serviços no load; executamos só a geometria
-// real (responsiveWindowScale) com o ambiente de teste e compomos com a
-// matemática da escala, que agora mora em electron/ui-scale.js — exatamente a
-// mesma composição que o main faz.
-function janela({ width = 1600, height = 900, maximized = false, displaySize } = {}) {
+// real (tamanhoDaTela) com o ambiente de teste e compomos com a matemática da
+// escala, que mora em electron/ui-scale.js — a MESMA composição que o main faz.
+function tela({ width = 1600, height = 900, maximized = false, displaySize } = {}) {
   const size = displaySize || { width: 3840, height: 2160 }
   const display = { size, workAreaSize: size }
-  const start = main.indexOf("function responsiveWindowScale(")
+  const start = main.indexOf("function tamanhoDaTela(")
   const end = main.indexOf("let appliedZoomFactor", start)
-  assert.ok(start >= 0 && end > start, "responsiveWindowScale presente no main")
+  assert.ok(start >= 0 && end > start, "tamanhoDaTela presente no main")
   const context = {
     win: {
       isDestroyed: () => false,
@@ -30,72 +29,36 @@ function janela({ width = 1600, height = 900, maximized = false, displaySize } =
       getDisplayMatching: () => display,
       getPrimaryDisplay: () => display,
     },
+    REFERENCIA: { width: 1920, height: 1080 },
   }
   vm.runInNewContext(main.slice(start, end), context)
-  return context.responsiveWindowScale
+  return context.tamanhoDaTela
 }
 
+// Compõe exatamente como o main: tamanho da tela → escala automática → fator.
 const zoomFor = (opts) => {
-  const escala = janela(opts)
-  return (mode, rel) => fatorDeZoom(mode, rel, escala(mode))
+  const tamanho = tela(opts)
+  return (mode) => fatorDeZoom(mode, escalaAutomatica(tamanho(mode)))
 }
 
-// Janela e tela em 1:1 com 1920×1080 → responsiveWindowScale() = 1, então o
-// fator resultante é só base × preferência (o resto é testado à parte).
 const NEUTRO = { width: 1920, height: 1080, displaySize: { width: 1920, height: 1080 } }
 
 test("main empacotado usa JavaScript válido, sem anotações TypeScript", () => {
   assert.doesNotThrow(() => new vm.Script(main, { filename: "electron/main.js" }))
 })
 
-test("uma escala só: a preferência padrão (100%) usa a base de cada skin", () => {
+test("escala automática: a referência 1920x1080 dá o tamanho de sempre", () => {
   const zoom = zoomFor(NEUTRO)
-  // 100% = base da skin — é o tamanho que o app já tinha antes da migração.
-  assert.equal(zoom("desktop", 1), 1.2)
-  assert.equal(zoom("console", 1), 1.3)
-  // valor ausente/ inválido cai em 100%, nunca em zero
-  assert.equal(zoom("desktop", undefined), 1.2)
-  assert.equal(zoom("console", NaN), 1.3)
+  // 1.0 automático = base da skin — o tamanho que o app sempre teve nessa tela.
+  assert.equal(zoom("desktop"), 1.2)
+  assert.equal(zoom("console"), 1.3)
 })
 
-test("a MESMA chave passa a valer no desktop (antes o valor era ignorado)", () => {
-  const zoom = zoomFor(NEUTRO)
-  assert.ok(Math.abs(zoom("desktop", 0.85) - 1.02) < 1e-9)
-  assert.ok(Math.abs(zoom("desktop", 1.15) - 1.38) < 1e-9)
-  // e no console a preferência também manda
-  assert.ok(Math.abs(zoom("console", 0.9) - 1.17) < 1e-9)
-})
-
-test("a preferência é presa na faixa 0.7–1.6", () => {
-  const zoom = zoomFor(NEUTRO)
-  assert.equal(zoom("desktop", 0.1), 0.84) // 1.2 × 0.7
-  assert.equal(zoom("desktop", 99), 1.92) // 1.2 × 1.6
-})
-
-test("desktop acompanha a janela, não o tamanho físico do monitor", () => {
-  const windowed = zoomFor()
-  const resized = zoomFor({ width: 2560, height: 1440 })
-  const maximized = zoomFor({ maximized: true })
-  assert.equal(windowed("desktop", 1), 1.2)
-  assert.ok(Math.abs(resized("desktop", 1) - 1.6) < 0.00001)
-  assert.ok(maximized("desktop", 1) > resized("desktop", 1))
-})
-
-test("desktop não reduz controles em janelas menores nem exagera em ultrawide", () => {
-  const smaller = zoomFor({ width: 1280, height: 720 })
-  const ultrawide = zoomFor({ width: 3440, height: 1080 })
-  assert.equal(smaller("desktop", 1), 1.2)
-  assert.equal(ultrawide("desktop", 1), 1.2)
-})
-
-test("console acompanha a tela e respeita o teto de 2×", () => {
-  const fullHD = zoomFor({ displaySize: { width: 1920, height: 1080 } })
-  assert.equal(fullHD("console", 1), 1.3)
-  assert.equal(zoomFor()("console", 1), 2) // 1.3 × 1.55 = 2.015 → teto
-})
-
-test("não existe mais um segundo knob de escala em lugar nenhum", () => {
+test("não existe mais preferência de escala: quem decide é a tela", () => {
+  // nem chave lida, nem IPC de escala manual, nem knobs antigos
   for (const chave of [
+    "ui_scale",
+    "card_scale",
     "console_ui_scale",
     "desktop_scale_base_v2",
     "desktop_font_scale_v3",
@@ -108,9 +71,42 @@ test("não existe mais um segundo knob de escala em lugar nenhum", () => {
       `${chave} não pode ser lida pelo main`,
     )
   }
+  assert.doesNotMatch(main, /app:setUiScale/, "o IPC de escala manual foi removido")
+  assert.doesNotMatch(main, /function zoomFactorFor/)
   // o único caminho de zoom é o helper que delega para o módulo
   assert.match(main, /function uiScaleFactor\(mode\)/)
-  assert.doesNotMatch(main, /function zoomFactorFor/)
+  // e a válvula de escape existe, com o nome combinado
+  assert.match(main, /ARCADIA_UI_SCALE/)
+})
+
+test("desktop acompanha a janela, não o tamanho físico do monitor", () => {
+  const windowed = zoomFor()
+  const resized = zoomFor({ width: 2560, height: 1440 })
+  const maximized = zoomFor({ maximized: true })
+  assert.equal(windowed("desktop"), 1.2)
+  assert.ok(Math.abs(resized("desktop") - 1.6) < 0.00001)
+  assert.ok(maximized("desktop") > resized("desktop"))
+})
+
+test("desktop não reduz controles em janelas menores nem exagera em ultrawide", () => {
+  const smaller = zoomFor({ width: 1280, height: 720 })
+  const ultrawide = zoomFor({ width: 3440, height: 1080 })
+  assert.equal(smaller("desktop"), 1.2, "janela pequena nunca encolhe")
+  assert.equal(ultrawide("desktop"), 1.2, "ultrawide limita pela altura")
+})
+
+test("console acompanha a tela e respeita o teto do fator", () => {
+  const fullHD = zoomFor({ displaySize: { width: 1920, height: 1080 } })
+  assert.equal(fullHD("console"), 1.3)
+  // 4K puro: 1.3 × 1.7 = 2.21 (o teto generoso é justamente o que faltava)
+  assert.equal(zoomFor()("console").toFixed(2), "2.21")
+  assert.ok(zoomFor()("console") < 2.4, "nunca passa do teto do fator")
+})
+
+test("a capa do trilho sai da mesma escala da tela", () => {
+  const capa = (opts) => escalaDaCapa(escalaAutomatica(tela(opts)("console")))
+  assert.equal(capa(NEUTRO), 1.6, "na referência, o tamanho de sempre")
+  assert.equal(capa({ displaySize: { width: 3840, height: 2160 } }), 1.9, "4K: capa maior")
 })
 
 test("desktop abre em janela normal e não oferece slider de zoom separado", () => {

@@ -1,5 +1,6 @@
-// Escala de UI: uma chave só. Estes testes fixam o comportamento que garante
-// que a troca das chaves antigas NÃO muda o tamanho da interface na tela.
+// Escala de UI: AUTOMÁTICA, derivada da tela. Estes testes fixam as bordas da
+// conta (para a adaptação não virar mágica sem prova) e garantem que o padrão
+// continua idêntico ao de antes: escala 1 → fator da skin, capa 1.6.
 "use strict"
 
 const test = require("node:test")
@@ -7,77 +8,113 @@ const assert = require("node:assert/strict")
 
 const {
   BASE_POR_SKIN,
-  clampRelativo,
-  fatorDeZoom,
-  migrarEscala,
+  REFERENCIA,
+  ESCALA_MIN,
+  ESCALA_MAX,
+  MANUAL_MIN,
+  MANUAL_MAX,
   CHAVE_MIGRADA,
+  escalaAutomatica,
+  escalaManual,
+  escalaEfetiva,
+  fatorDeZoom,
+  escalaDaCapa,
+  migrarEscala,
 } = require("../electron/ui-scale")
 
-test("padrão mantém exatamente o fator de antes (desktop 1.2, console 1.3)", () => {
+test("padrão continua exatamente o de antes (desktop 1.2, console 1.3)", () => {
   assert.equal(fatorDeZoom("desktop", 1), 1.2)
   assert.equal(fatorDeZoom("console", 1), 1.3)
   // o desconhecido nunca explode: cai no desktop
   assert.equal(fatorDeZoom("qualquer-coisa", undefined), 1.2)
+  // e a capa na escala 1 tem o tamanho que sempre teve
+  assert.equal(escalaDaCapa(1), 1.6)
 })
 
-test("a escala da janela multiplica a base (mesma conta de antes)", () => {
-  assert.equal(fatorDeZoom("desktop", 1, 1.25), 1.5)
-  assert.equal(fatorDeZoom("console", 1, 1.25), 1.625)
-  // valor inválido de escala da janela é neutro
-  assert.equal(fatorDeZoom("desktop", 1, 0), 1.2)
-  assert.equal(fatorDeZoom("desktop", 1, NaN), 1.2)
+test("escala automática: a resolução lógica manda, pela MENOR dimensão", () => {
+  // 1920x1080 (referência, e também o que um 4K a 200% reporta): fator neutro
+  assert.equal(escalaAutomatica({ width: 1920, height: 1080 }), 1)
+  // 4K a 150% -> ~2560x1440
+  assert.equal(Number(escalaAutomatica({ width: 2560, height: 1440 }).toFixed(4)), 1.3333)
+  // 4K puro
+  assert.equal(escalaAutomatica({ width: 3840, height: 2160 }), ESCALA_MAX)
+  // notebook pequeno / telas de mão: nunca encolhe abaixo do tamanho base
+  assert.equal(escalaAutomatica({ width: 1366, height: 768 }), ESCALA_MIN)
+  // ultrawide 3440x1440: a altura (menor) é quem limita, senão estouraria
+  assert.equal(Number(escalaAutomatica({ width: 3440, height: 1440 }).toFixed(4)), 1.3333)
+  assert.equal(escalaAutomatica({ width: 1280, height: 800 }), ESCALA_MIN)
 })
 
-test("relativo é preso na faixa 0.7–1.6 e inválido vira 1", () => {
-  assert.equal(clampRelativo(5), 1.6)
-  assert.equal(clampRelativo(0.1), 0.7)
-  assert.equal(clampRelativo("1.25"), 1.25)
-  assert.equal(clampRelativo(0), 1)
-  assert.equal(clampRelativo(-3), 1)
-  assert.equal(clampRelativo(undefined), 1)
-  assert.equal(clampRelativo("abc"), 1)
+test("escala automática: entrada inválida cai na referência, nunca em NaN", () => {
+  assert.equal(escalaAutomatica(undefined), 1)
+  assert.equal(escalaAutomatica({}), 1)
+  assert.equal(escalaAutomatica({ width: 0, height: 0 }), 1)
+  assert.equal(escalaAutomatica({ width: "abc", height: null }), 1)
+  assert.equal(escalaAutomatica({ width: -5000, height: -5000 }), 1)
 })
 
-test("o fator final fica dentro de 0.7–2", () => {
-  assert.equal(fatorDeZoom("console", 1.6, 1.55), 2)
-  assert.equal(fatorDeZoom("desktop", 0.7, 0.5), 0.7)
+test("sobreposição por ambiente: só valor válido conta; 'auto' é o automático", () => {
+  assert.equal(escalaManual(undefined), null)
+  assert.equal(escalaManual(null), null)
+  assert.equal(escalaManual(""), null)
+  assert.equal(escalaManual("auto"), null)
+  assert.equal(escalaManual("AUTO"), null)
+  assert.equal(escalaManual("abc"), null)
+  assert.equal(escalaManual(0), null)
+  assert.equal(escalaManual(-2), null)
+  assert.equal(escalaManual("1.25"), 1.25)
+  // a faixa da sobreposição é mais larga que a da automática, de propósito
+  assert.equal(escalaManual(9), MANUAL_MAX)
+  assert.equal(escalaManual(0.1), MANUAL_MIN)
 })
 
-test("migração: sem chave antiga, tudo vira 1 e os marcadores somem", () => {
-  const patch = migrarEscala({ ui_scale: 1.1, desktop_font_scale_v3: false })
+test("escala efetiva: o ambiente manda quando existe, senão a tela decide", () => {
+  const tela = { width: 2560, height: 1440 }
+  assert.equal(Number(escalaEfetiva(tela, undefined).toFixed(4)), 1.3333)
+  assert.equal(escalaEfetiva(tela, "1.1"), 1.1)
+  assert.equal(escalaEfetiva(tela, "auto"), 1.3333333333333333)
+})
+
+test("fator final: base da skin × escala, dentro da faixa", () => {
+  assert.equal(fatorDeZoom("console", ESCALA_MAX).toFixed(2), "2.21")
+  assert.equal(fatorDeZoom("desktop", ESCALA_MIN), 1.2)
+  // piso e teto
+  assert.equal(fatorDeZoom("desktop", 0), 1.2, "escala inválida é neutra")
+  assert.equal(fatorDeZoom("desktop", NaN), 1.2)
+  assert.equal(fatorDeZoom("desktop", 1e6), 2.4)
+})
+
+test("capa acompanha a tela e fica na faixa 0.9–1.9", () => {
+  const r = (n) => Number(n.toFixed(4))
+  assert.equal(r(escalaDaCapa(0.85)), 1.36)
+  assert.equal(r(escalaDaCapa(1.3333)), 1.9, "sem trava seria grande demais (2.13)")
+  assert.equal(r(escalaDaCapa(1.7)), 1.9)
+  assert.equal(r(escalaDaCapa(0.1)), 0.9)
+  assert.equal(r(escalaDaCapa(undefined)), 1.6, "sem aviso da tela, o padrão de sempre")
+  assert.equal(r(escalaDaCapa(NaN)), 1.6)
+})
+
+test("migração: aposenta as preferências de escala e de capa", () => {
+  const patch = migrarEscala({ ui_scale: 1.15, card_scale: 1.4, console_ui_scale: 1.5 })
   assert.ok(patch, "deve migrar na primeira vez")
   assert.equal(patch[CHAVE_MIGRADA], true)
-  assert.equal(patch.ui_scale, 1, "ui_scale antigo era decorativo: volta para 1")
-  assert.equal(patch.console_ui_scale, undefined, "chave legada é removida")
-  assert.equal(patch.desktop_font_scale_v3, undefined, "marcador é removido")
-  assert.equal(patch.big_picture_scale_defaults_v3, undefined)
-  // e o fator final é o mesmo de antes da migração
-  assert.equal(fatorDeZoom("desktop", patch.ui_scale), 1.2)
+  assert.equal(patch.ui_scale, undefined, "escala manual é aposentada")
+  assert.equal(patch.card_scale, undefined, "tamanho de capa manual é aposentado")
+  assert.equal(patch.console_ui_scale, undefined, "chave legada também")
+  // e nada sobra para o config guardar
+  const sobrou = Object.values(patch).filter((v) => v !== undefined && v !== true)
+  assert.deepEqual(sobrou, [], "só a marcadora sobrevive")
 })
 
-test("migração: console customizado vira o relativo e preserva o tamanho", () => {
-  const patch = migrarEscala({ console_ui_scale: 1.5 })
-  assert.equal(Number(patch.ui_scale.toFixed(4)), Number((1.5 / 1.3).toFixed(4)))
-  assert.equal(
-    Number(fatorDeZoom("console", patch.ui_scale).toFixed(4)),
-    1.5,
-    "o Big Picture continua do mesmo tamanho que estava",
-  )
-})
-
-test("migração: rodar duas vezes é no-op", () => {
-  assert.equal(migrarEscala({ [CHAVE_MIGRADA]: true, console_ui_scale: 1.5 }), null)
-  assert.equal(migrarEscala({ [CHAVE_MIGRADA]: true }), null)
-})
-
-test("migração: config vazio/estranho não quebra", () => {
-  assert.equal(migrarEscala(undefined).ui_scale, 1)
-  assert.equal(migrarEscala(null).ui_scale, 1)
-  assert.equal(migrarEscala("lixo").ui_scale, 1)
-  assert.equal(migrarEscala({ console_ui_scale: "abc" }).ui_scale, 1)
-  assert.equal(migrarEscala({ console_ui_scale: -1 }).ui_scale, 1)
+test("migração: rodar duas vezes é no-op, e config estranho não quebra", () => {
+  assert.equal(migrarEscala({ [CHAVE_MIGRADA]: true, ui_scale: 1.5 }), null)
+  assert.equal(migrarEscala(undefined)[CHAVE_MIGRADA], true)
+  assert.equal(migrarEscala(null)[CHAVE_MIGRADA], true)
+  assert.equal(migrarEscala("lixo")[CHAVE_MIGRADA], true)
+  assert.equal(migrarEscala({ card_scale: "abc" })[CHAVE_MIGRADA], true)
 })
 
 test("BASE_POR_SKIN é a única fonte das bases", () => {
   assert.deepEqual(BASE_POR_SKIN, { console: 1.3, desktop: 1.2 })
+  assert.deepEqual(REFERENCIA, { width: 1920, height: 1080 })
 })

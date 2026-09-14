@@ -89,7 +89,11 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),
   setFullscreen: (on) => ipcRenderer.invoke("app:setFullscreen", on),
   setLauncherMode: (mode) => ipcRenderer.invoke("app:setMode", mode),
-  setUiScale: (rel) => ipcRenderer.invoke("app:setUiScale", rel),
+  onUiEscala: (cb) => {
+    const h = (_e, dados) => cb(dados)
+    ipcRenderer.on("ui:escala", h)
+    return () => ipcRenderer.removeListener("ui:escala", h)
+  },
   rebuildMeta: () => ipcRenderer.invoke("meta:rebuild"),
   integrationsStatus: () => ipcRenderer.invoke("integrations:status"),
   pickImage: (kind) => ipcRenderer.invoke("profile:pickImage", kind),
