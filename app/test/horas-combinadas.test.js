@@ -44,6 +44,10 @@ test("o id do jogo (steam:990080) casa com a chave numérica do arquivo da Steam
     (mainJs.match(/chaveAppid\(/g) || []).length >= 2,
     "perfil e horasDoJogo normalizam a chave (não comparam a string crua)",
   )
+  assert.ok(
+    mainJs.includes("chaveAppid(g.id || g.appid"),
+    "o agregado do perfil usa o id da biblioteca (não só o appid da loja)",
+  )
   const renderer = ler("src/components/steamHoras.ts")
   assert.ok(renderer.includes("export function chaveAppid"), "o renderer faz o mesmo")
   assert.ok(

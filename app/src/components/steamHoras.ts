@@ -12,6 +12,37 @@ import { useEffect, useState } from "react"
 
 let cache: Record<string, number> = {}
 let emVoo: Promise<Record<string, number>> | null = null
+const ouvintes = new Set<(h: Record<string, number>) => void>()
+
+function avisar() {
+  for (const f of ouvintes) {
+    try {
+      f({ ...cache })
+    } catch {}
+  }
+}
+
+/** Nova leitura, forçada: quem está na tela recebe o número fresquinho. */
+export async function recarregarSteamHoras(): Promise<Record<string, number>> {
+  emVoo = null
+  const h = await carregarSteamHoras()
+  avisar()
+  return h
+}
+
+// A Steam grava o playtime quando o jogo FECHA. Ao voltar o foco para a janela
+// (você acabou de sair do jogo), relemos — com trava de tempo para o `focus` não
+// virar uma leitura por clique. Sem isso as horas só atualizavam reiniciando.
+let ultimaLeitura = 0
+const INTERVALO_FOCO = 30_000
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("focus", () => {
+    const agora = Date.now()
+    if (agora - ultimaLeitura < INTERVALO_FOCO) return
+    ultimaLeitura = agora
+    void recarregarSteamHoras()
+  })
+}
 
 /**
  * A chave das horas na Steam é o NÚMERO do appid. O jogo na biblioteca do Arcadia
@@ -60,11 +91,16 @@ export function useSteamHoras(): Record<string, number> {
   const [horas, setHoras] = useState<Record<string, number>>(cache)
   useEffect(() => {
     let vivo = true
+    const ouvir = (h: Record<string, number>) => {
+      if (vivo) setHoras(h)
+    }
+    ouvintes.add(ouvir)
     void carregarSteamHoras().then((h) => {
       if (vivo) setHoras({ ...h })
     })
     return () => {
       vivo = false
+      ouvintes.delete(ouvir)
     }
   }, [])
   return horas

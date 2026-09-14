@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
-import { useSteamHoras } from "../steamHoras"
+import { useSteamHoras, recarregarSteamHoras } from "../steamHoras"
 
 type Status = Awaited<ReturnType<NonNullable<Window["launcherAPI"]>["steamContaStatus"]>>
 
@@ -71,6 +71,9 @@ export function SteamCaptureSection({ onSaved }: { onSaved?: () => void }) {
     setOcupado(true)
     try {
       await window.launcherAPI?.steamCapturarAgora()
+      // Releitura imediata: as horas da Steam também mudam depois de jogar, e o
+      // botão é o caminho manual para atualizar tudo sem reiniciar.
+      await recarregarSteamHoras()
       await recarregar()
       aviso(t("steam_captura.capturando"))
     } finally {
