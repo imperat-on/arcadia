@@ -1,130 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import type { AppConfig } from "../../global"
-import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
 
-// Os três idiomas traduzidos. O rótulo fica no idioma nativo de cada um: quem
-// abriu o app no idioma errado precisa reconhecer o seu na lista.
-const IDIOMAS = [
-  { id: "pt-BR", label: "Português (Brasil)" },
-  { id: "en-US", label: "English (US)" },
-  { id: "es-ES", label: "Español" },
-]
-
-interface SettingsPanelProps {
-  open: boolean
-  onClose: () => void
-  onSaved: () => void // refresh da biblioteca
-  onUiChange?: (c: { accent?: string }) => void
-}
 
 type Section = "temas"
 
-export function SettingsPanel({ open, onClose, onSaved, onUiChange }: SettingsPanelProps) {
-  const { t } = useI18n()
-  const [section, setSection] = useState<Section>("temas")
-  const [cfg, setCfg] = useState<AppConfig>({})
-  const rootRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(rootRef, open, onClose)
-
-  // A cor de destaque grava no disco com atraso (120ms) para não escrever
-  // config.json a cada clique em cima da paleta.
-  const accentCommitRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    window.launcherAPI?.getConfig().then((c) => setCfg(c || {}))
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return
-      onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose, section])
-
-  if (!open) return null
-
-  const NAV: { id: Section; label: string; icon: JSX.Element }[] = [
-    { id: "temas", label: t("settings.temas"), icon: <IconTheme /> },
-  ]
-
-  return (
-    <div ref={rootRef} className="retro-settings-shell gp-scope fixed inset-0 z-50 flex bg-black/90 backdrop-blur-2xl">
-      {/* Sidebar */}
-      <aside className="retro-settings-nav flex w-72 shrink-0 flex-col gap-1 border-r border-white/[0.06] bg-black/40 p-6">
-        <div className="mb-6 flex items-center gap-2 px-2 text-[11px] font-medium uppercase tracking-[0.24em] text-white/50">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ background: "var(--accent)" }}
-          />
-          {t("settings.configuracoes")}
-        </div>
-        {NAV.map((n) => {
-          const active = section === n.id
-          return (
-            <button
-              key={n.id}
-              onClick={() => setSection(n.id)}
-              className="relative flex items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] transition-colors"
-              style={{
-                color: active ? "#ffffff" : "rgba(255,255,255,0.45)",
-                background: active ? "rgba(255,255,255,0.06)" : "transparent",
-                fontWeight: active ? 500 : 400,
-              }}
-            >
-              {active && (
-                <span
-                  className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full"
-                  style={{ background: "var(--accent)" }}
-                />
-              )}
-              <span className="opacity-80">{n.icon}</span>
-              {n.label}
-            </button>
-          )
-        })}
-        <div className="mt-auto">
-          <button
-            onClick={onClose}
-            className="w-full rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
-          >
-            {t("settings.fechar")}
-          </button>
-        </div>
-      </aside>
-
-      {/* Conteúdo */}
-      <main className="retro-settings-content flex-1 overflow-y-auto p-10">
-        {section === "temas" && (
-          <ThemeSection
-            accent={cfg.accent ?? "var(--accent)"}
-            onAccent={(hex) => {
-              setCfg((c) => ({ ...c, accent: hex }))
-              if (accentCommitRef.current != null) window.clearTimeout(accentCommitRef.current)
-              accentCommitRef.current = window.setTimeout(() => {
-                window.launcherAPI?.setConfig({ accent: hex })
-                onUiChange?.({ accent: hex })
-                accentCommitRef.current = null
-              }, 120)
-            }}
-          />
-        )}
-      </main>
-    </div>
-  )
-}
 
 /* --------------------------------------------------------------------- */
 /* Integrações                                                           */
@@ -226,97 +108,6 @@ export function IntegrationsSection({
 /* Metadados                                                             */
 /* --------------------------------------------------------------------- */
 
-export function ThemeSection({
-  accent,
-  onAccent,
-}: {
-  accent: string
-  onAccent: (hex: string) => void
-}) {
-  const { t, lang, setLang } = useI18n()
-
-  const ACCENTS = [
-    // "Azul PS" = o acento do tema principal (mesmo valor do --accent no :root).
-    // Antes esta entrada gravava a string "var(--accent)" como valor do próprio
-    // --accent, o que é uma referência cíclica: a propriedade ficava inválida e o
-    // app perdia o acento inteiro.
-    { name: t("settings.cores.azul_ps"), hex: "#22d3ee" },
-    { name: t("settings.cores.roxo"), hex: "#a06bff" },
-    { name: t("settings.cores.verde"), hex: "#3ddc84" },
-    { name: t("settings.cores.vermelho"), hex: "#ff5d5d" },
-    { name: t("settings.cores.laranja"), hex: "#ff9f1c" },
-    { name: t("settings.cores.rosa"), hex: "#ff5da2" },
-    { name: t("settings.cores.ciano"), hex: "#22d3ee" },
-    { name: t("settings.cores.dourado"), hex: "#ffd23f" },
-  ]
-
-  return (
-    <div className="max-w-2xl">
-      <h2 className="text-3xl font-light tracking-wide text-white mb-1">
-        {t("settings.temas.titulo")}
-      </h2>
-      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.temas.desc")}</p>
-
-      {/* Escala e tamanho das capas não têm mais controle: a interface se adapta
-          sozinha à tela (resolução e escala do sistema), no processo principal. */}
-
-      {/* Cor de destaque */}
-      <div className="mb-4">
-        <span className="text-sm font-semibold text-[color:var(--text-2)]">
-          {t("settings.temas.cor_destaque")}
-        </span>
-        <div className="flex flex-wrap gap-3 mt-3">
-          {ACCENTS.map((a) => {
-            const active = a.hex.toLowerCase() === accent.toLowerCase()
-            return (
-              <button
-                key={a.hex}
-                onClick={() => onAccent(a.hex)}
-                title={a.name}
-                className="w-11 h-11 rounded-full transition-transform hover:scale-110"
-                style={{
-                  background: a.hex,
-                  border: active ? "3px solid #ffffff" : "3px solid rgba(255,255,255,0.15)",
-                  boxShadow: active ? `0 0 14px ${a.hex}` : "none",
-                }}
-              />
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Idioma: o modo desktop já tinha o seletor em Configurações Gerais, o
-          console não tinha nenhum — quem só usa o Big Picture ficava preso ao
-          idioma detectado na primeira execução. */}
-      <div className="mt-10">
-        <h3 className="text-sm uppercase tracking-wider text-[color:var(--text-2)] mb-4">
-          {t("settings.language")}
-        </h3>
-        <div className="flex gap-3">
-          {IDIOMAS.map((i) => {
-            const active = lang === i.id
-            return (
-              <button
-                key={i.id}
-                onClick={() => setLang(i.id)}
-                className="rounded-xl px-5 py-3 text-sm transition-colors"
-                style={{
-                  background: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
-                  border: active ? "1px solid #ffffff" : "1px solid rgba(255,255,255,0.12)",
-                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
-                }}
-              >
-                {i.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <p className="text-xs text-[color:var(--text-3)] mt-6">{t("settings.temas.nota")}</p>
-    </div>
-  )
-}
 
 export function MetadataSection({ onSaved }: { onSaved: () => void }) {
   const { t } = useI18n()
@@ -583,13 +374,6 @@ function IconPlug() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
       <path d="M16 7V3h-2v4h-4V3H8v4H7a1 1 0 00-1 1v4a6 6 0 005 5.91V22h2v-4.09A6 6 0 0018 12V8a1 1 0 00-1-1h-1z" />
-    </svg>
-  )
-}
-function IconTheme() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 3a9 9 0 000 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 005-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3.5 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
     </svg>
   )
 }
