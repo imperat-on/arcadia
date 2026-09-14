@@ -2444,6 +2444,11 @@ let pararAchievementWatcher = null
 // reiniciar sem acumular intervals.
 let pararVigia = null
 
+// Janela em que um desbloqueio conta como "agora" para efeito de toast. O vigia roda
+// a cada 15s, então uma conquista de verdade cai bem dentro disso; o que é mais velho
+// é item reaparecendo (store reconstruído / pull / passe forçado), não notícia nova.
+const JANELA_TOAST_S = 300
+
 // Callback único de desbloqueio: marca o item no achievements.json (o painel
 // lê de lá) e avisa o renderer.
 function onUnlockAchievement(payload) {
@@ -2512,8 +2517,24 @@ function onUnlockAchievement(payload) {
     } catch {}
 
     const toastPayload = { ...payload, done, total }
-    if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", toastPayload)
-    showAchievementToast(toastPayload, { platinum: isPlatinum })
+    // Só avisa quando o desbloqueio é RECENTE.
+    //
+    // O vigia roda a cada 15s, então conquista de verdade chega com timestamp de
+    // agora. Já um item ANTIGO que reaparece como "não desbloqueado" (store
+    // reconstruído, item adotado do servidor, passe forçado do "Capturar agora",
+    // troca de conta) vinha disparando toast + som "do nada", como se tivesse
+    // acabado de acontecer. O timestamp é a diferença entre os dois casos.
+    const quando = Number(payload.unlock) || 0
+    const agora = Math.floor(Date.now() / 1000)
+    const recente = quando > 0 && agora - quando <= JANELA_TOAST_S
+    require("./debug").log(
+      recente ? "achievements/toast" : "achievements/toast-suprimido",
+      `${payload.appid} ${payload.apiname || payload.key} unlock=${quando} (idade ${quando ? agora - quando : "?"}s)`,
+    )
+    if (recente) {
+      if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", toastPayload)
+      showAchievementToast(toastPayload, { platinum: isPlatinum })
+    }
   }
 }
 
