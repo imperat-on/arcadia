@@ -15,7 +15,6 @@ import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { GameContextMenu } from "./GameContextMenu"
 import { TrailerPicker } from "./TrailerPicker"
 import { EditMetadata } from "./EditMetadata"
-import { SettingsPanel } from "./SettingsPanel"
 import { TopBar, TABS, type LibraryFilter } from "./TopBar"
 import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
@@ -165,7 +164,6 @@ export function PS5Launcher() {
   const [ctxGame, setCtxGame] = useState<Game | null>(null)
   const [trailerPickGame, setTrailerPickGame] = useState<Game | null>(null)
   const [editGame, setEditGame] = useState<Game | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
 
   // Jogo em execução, segundo o vigia de processo do main — e não mais um
@@ -359,7 +357,6 @@ export function PS5Launcher() {
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
-    Boolean(settingsOpen) ||
     Boolean(trailerPickGame) ||
     Boolean(instalarGame) ||
     Boolean(semManifesto) ||
@@ -1207,7 +1204,6 @@ export function PS5Launcher() {
       activeTab={activeTab}
       onTab={setActiveTab}
       onRefresh={_refresh_library}
-      onOpenSettings={() => setSettingsOpen(true)}
       onOpenProfile={() => setShowProfile(true)}
       menuOpen={menuOpen}
       onToggleMenu={() => setMenuOpen((v) => !v)}
@@ -1630,13 +1626,8 @@ export function PS5Launcher() {
         }}
       />
 
-      {/* Editar metadados (capa, fundo, logo, título, descrição) */}
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={_refresh_library}
-        onUiChange={applyUiPrefs}
-      />
+      {/* Configurações não existem no big picture: a escala é automática, o tema é
+          o do projeto e o idioma se troca pelo modo desktop. */}
 
       <EditMetadata
         game={editGame}
