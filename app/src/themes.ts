@@ -25,7 +25,7 @@ export const TEMAS: Theme[] = [
     id: "midnight",
     nome: "Midnight Mirage",
     bg: "#000000",
-    sidebar: "#0d0d0f",
+    sidebar: "#000000",
     card: "#141419",
     accent: "#22d3ee",
     text: "#ffffff",

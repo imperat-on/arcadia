@@ -905,19 +905,14 @@ select:disabled {
   z-index: 18;
   pointer-events: none;
   content: "";
-  background-image:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 1.8%, transparent) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background: var(--background);
   mask-image: linear-gradient(to right, black, transparent 80%);
 }
 
 
 .retro-crt-overlay {
   opacity: 0.32;
-  background:
-    repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(0, 0, 0, 0.24) 4px),
-    linear-gradient(90deg, rgba(255, 0, 0, 0.012), rgba(0, 255, 0, 0.008), rgba(0, 0, 255, 0.012));
+  background: var(--background);
   mix-blend-mode: multiply;
 }
 
@@ -932,11 +927,7 @@ select:disabled {
   border: 1px solid rgba(191, 84, 255, .62);
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
   color: rgba(239, 247, 231, .82);
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.2%, transparent) 1px, transparent 1px),
-    rgba(2, 7, 10, .97);
-  background-size: 18px 18px, 18px 18px, auto;
+  background: var(--background);
   box-shadow: 0 18px 50px rgba(0,0,0,.72), 0 0 20px rgba(191,84,255,.15);
   backdrop-filter: blur(14px);
 }
@@ -947,7 +938,7 @@ select:disabled {
   z-index: 4;
   pointer-events: none;
   content: "";
-  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0,0,0,.2) 4px);
+  background: var(--background);
 }
 
 .retro-user-menu-header {
@@ -1127,12 +1118,7 @@ select:disabled {
 }
 
 .retro-profile-root {
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 38%),
-    var(--background) !important;
-  background-size: 32px 32px, 32px 32px, auto, auto !important;
+  background: var(--background) !important;
 }
 
 .retro-boot-screen::after {
@@ -1140,7 +1126,7 @@ select:disabled {
   inset: 0;
   content: "";
   pointer-events: none;
-  background: repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(0,0,0,.2) 4px);
+  background: var(--background);
 }
 
 
@@ -1370,11 +1356,7 @@ select:disabled {
 .retro-settings-shell,
 .retro-download-shell,
 .retro-big-picture .retro-edit-profile {
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2%, transparent) 1px, transparent 1px),
-    var(--background) !important;
-  background-size: 32px 32px !important;
+  background: var(--background) !important;
 }
 
 .retro-settings-nav {
@@ -1428,11 +1410,7 @@ select:disabled {
 }
 
 .retro-news-view {
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 1.8%, transparent) 1px, transparent 1px),
-    var(--background) !important;
-  background-size: 32px 32px !important;
+  background: var(--background) !important;
 }
 
 .retro-news-view button {
@@ -1501,11 +1479,7 @@ select:disabled {
 }
 
 .retro-console-store {
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.2%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 1.6%, transparent) 1px, transparent 1px),
-    var(--background);
-  background-size: 32px 32px;
+  background: var(--background);
 }
 
 .retro-console-store > div:first-of-type:not([aria-hidden="true"]) {
@@ -1545,12 +1519,7 @@ select:disabled {
   height: 100vh;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 6.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 48% 42%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 42%),
-    #02060a;
-  background-size: 20px 20px, 20px 20px, auto, auto;
+  background: #02060a;
   color: #edf5f4;
 }
 
@@ -1570,7 +1539,7 @@ select:disabled {
 
 .retro-crt-overlay {
   opacity: .28;
-  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0,0,0,.28) 4px);
+  background: var(--background);
   mix-blend-mode: multiply;
 }
 
@@ -1665,11 +1634,7 @@ select:disabled {
 
 .retro-hero-section {
   border-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, transparent) 1px, transparent 1px),
-    color-mix(in srgb, var(--card) 72%, transparent) !important;
-  background-size: 18px 18px, 18px 18px, auto !important;
+  background: var(--background) !important;
 }
 
 .retro-game-copy {
@@ -1830,11 +1795,7 @@ select:disabled {
   --desktop-bg: var(--background);
   --desktop-panel: #080a0d;
   --desktop-line: color-mix(in srgb, var(--accent) 16%, transparent);
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
-    var(--desktop-bg);
-  background-size: 18px 18px;
+  background: var(--desktop-bg);
   font-family: "Inter", sans-serif;
 }
 
@@ -1845,7 +1806,7 @@ select:disabled {
   pointer-events: none;
   content: "";
   opacity: .16;
-  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0,0,0,.22) 4px);
+  background: var(--background);
 }
 
 .desktop-retro-sidebar {
@@ -2016,11 +1977,7 @@ select:disabled {
 
 .desktop-retro-main {
   border-color: color-mix(in srgb, var(--accent) 13%, transparent) !important;
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
-    var(--background);
-  background-size: 18px 18px;
+  background: var(--background);
 }
 
 .desktop-retro-topbar {
@@ -2060,11 +2017,7 @@ select:disabled {
 }
 
 .desktop-classic-home-grid {
-  background:
-    linear-gradient(color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2%, transparent) 1px, transparent 1px),
-    rgba(3,6,8,.72);
-  background-size: 18px 18px;
+  background: var(--background);
 }
 
 .desktop-classic-home-grid .grid-stagger > div {
