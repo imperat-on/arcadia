@@ -2381,11 +2381,19 @@ select:disabled {
 .console-filters { position:absolute; top:90px; display:flex; gap:10px; }
 .console-filters button { padding:6px 16px; border-radius:24px; font-size:14px; color:#ffffffa8; }
 .console-filters button[aria-pressed=true] { color:white; background:#ffffff21; }
-.retro-big-picture .retro-featured { top:144px; left:0; width:100%; height:clamp(172px, 25vh, 260px) !important; }
+/* O trilho reserva espaço para o NOME (até 2 linhas) abaixo da capa: a altura
+   útil vira o teto do tamanho da capa, então o título nunca é cortado pelo
+   overflow-y do trilho — nem em telas baixas. 78px = 12+20 (padding) + 11
+   (margem do nome) + 2×17,5 (linhas de 14px com leading-tight). */
+.retro-big-picture .retro-featured { --bp-rail-h:clamp(172px, 28vh, 260px); top:144px; left:0; width:100%; height:var(--bp-rail-h) !important; }
 .retro-big-picture .retro-game-rail { overflow-x:auto !important; overflow-y:hidden !important; padding:12px var(--console-gutter) 20px !important; gap:18px !important; scroll-padding-inline:var(--console-gutter); }
-.retro-big-picture .retro-library-card { width:clamp(82px, 9vw, 140px) !important; transform:translateY(10px); opacity:.7; filter:none; transition:width 300ms var(--console-ease), transform 300ms var(--console-ease),opacity 200ms; }
+.retro-big-picture .retro-library-card { width:max(64px, min(clamp(82px, 9vw, 140px), calc(var(--bp-rail-h) - 78px))) !important; transform:translateY(10px); opacity:.7; filter:none; transition:width 300ms var(--console-ease), transform 300ms var(--console-ease),opacity 200ms; }
 .retro-big-picture .retro-library-cover { height:auto !important; aspect-ratio:1; border-radius:14px; background:#141419 !important; }
-.retro-big-picture .retro-library-card[data-active=true],.retro-big-picture .retro-library-card:focus-visible { width:clamp(120px, 13vw, 190px) !important; transform:translateY(0); opacity:1; }
+.retro-big-picture .retro-library-card[data-active=true],.retro-big-picture .retro-library-card:focus-visible { width:max(clamp(82px, 9vw, 140px), min(clamp(120px, 13vw, 190px), calc(var(--bp-rail-h) - 78px))) !important; transform:translateY(0); opacity:1; }
+/* Fora de forma: o outline do botão contornava capa + nome num retângulo maior
+   que a capa. O destaque fica só com o anel branco de 2px que acompanha o raio
+   da capa (box-shadow abaixo) + escala/opacidade. */
+.retro-big-picture .retro-library-card:focus-visible { outline:none !important; }
 .retro-big-picture .retro-library-card[data-active=true] .retro-library-cover,.retro-big-picture .retro-library-card:focus-visible .retro-library-cover { height:auto !important; box-shadow:0 0 0 2px #fff,0 12px 30px #0008 !important; }
 .retro-big-picture .retro-library-card strong { font-size:14px !important; font-weight:500; }
 .retro-big-picture .retro-hero-section { padding:0 var(--console-gutter) 90px !important; top:clamp(320px, 43vh, 460px) !important; pointer-events:none; }
@@ -2438,9 +2446,9 @@ select:disabled {
 @media(max-height:650px) {
   .retro-big-picture .ps5-topbar { height:64px; }
   .console-filters { top:64px; }
-  .retro-big-picture .retro-featured { top:108px; height:170px !important; }
-  .retro-big-picture .retro-library-card { width:80px !important; }
-  .retro-big-picture .retro-library-card[data-active=true] { width:112px !important; }
+  .retro-big-picture .retro-featured { --bp-rail-h:178px; top:108px; height:var(--bp-rail-h) !important; }
+  .retro-big-picture .retro-library-card { width:max(56px, min(80px, calc(var(--bp-rail-h) - 78px))) !important; }
+  .retro-big-picture .retro-library-card[data-active=true] { width:max(80px, min(112px, calc(var(--bp-rail-h) - 78px))) !important; }
   .retro-big-picture .retro-hero-section { top:280px !important; padding-bottom:60px !important; }
   .retro-big-picture .ps5-hero-actions { margin-top:14px; }
   .retro-big-picture .ps5-hero-logo { max-height:75px; }
