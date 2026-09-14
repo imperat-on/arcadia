@@ -269,11 +269,14 @@ export function PS5Launcher() {
   // Jogo Epic aguardando escolha do destino de instalação.
   const [instalarGame, setInstalarGame] = useState<Game | null>(null)
   const [destinosEpic, setDestinosEpic] = useState<DestinoOpcao[]>([])
-  // Jogo Steam sem manifesto em nenhum provedor: o único caminho que resta é
-  // a própria Steam, e a pessoa decide se quer.
+  // Jogo Steam sem manifesto em nenhum provedor. Em "baixar" isso significa que
+  // não dá para baixar pelo Arcadia; em "adicionar" significa que o jogo ENTROU
+  // na biblioteca, mas não foi injetado na Steam — o texto tem que distinguir,
+  // senão a pessoa lê o popup como "não foi adicionado".
   const [semManifesto, setSemManifesto] = useState<{
     jogo: { appid: string; title: string }
     motivo: string
+    acao?: "adicionar" | "baixar"
   } | null>(null)
   const [escolhendoLaunch, setEscolhendoLaunch] = useState<Game | null>(null)
 
@@ -300,7 +303,7 @@ export function PS5Launcher() {
   // Instalação de jogo Steam pelo NOSSO downloader (manifesto + DepotDownloader),
   // o mesmo caminho do botão Baixar da loja — e não pelo cliente da Steam.
   const acoesLoja = useStoreActions(games, {
-    onSemManifesto: (jogo, motivo) => setSemManifesto({ jogo, motivo }),
+    onSemManifesto: (jogo, motivo, acao) => setSemManifesto({ jogo, motivo, acao }),
   })
   // `_activate` é um useCallback sem dependências (o trilho o chama a cada
   // tecla); a ref evita capturar uma versão velha do hook.
@@ -1574,7 +1577,9 @@ export function PS5Launcher() {
           <div className="w-[560px] max-w-[92vw] rounded-2xl border border-white/10 bg-[color:var(--surface-1)] p-7">
             <h2 className="text-[22px] font-semibold text-white">{semManifesto.jogo.title}</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
-              {t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
+              {semManifesto.acao === "adicionar"
+                ? t("ps5.sem_manifesto.adicionado", { motivo: semManifesto.motivo })
+                : t("ps5.sem_manifesto.explicacao", { motivo: semManifesto.motivo })}
             </p>
             <div className="mt-6 flex flex-col gap-2">
               <button

@@ -69,7 +69,7 @@ export interface StoreActionsOpts {
    * lojas querem. O modo console usa o gancho para oferecer a instalação pela
    * Steam como saída, em vez de deixar o jogo sem caminho nenhum.
    */
-  onSemManifesto?: (jogo: JogoLoja, motivo: string) => void
+  onSemManifesto?: (jogo: JogoLoja, motivo: string, acao: "adicionar" | "baixar") => void
 }
 
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
@@ -223,7 +223,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         if (meu !== pedido.current) return
         if (!info?.ok || !info.depots?.length) {
           const motivo = info?.error || "Sem manifesto para este jogo."
-          if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
+          if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "baixar")
           else setToast(motivo)
           return
         }
@@ -376,7 +376,7 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
             else r = { ...(await paraBiblioteca()), injecao: "falhou", motivo: injetado?.error || "" }
           } else {
             const motivo = info?.error || _t("store.sem_manifesto_motivo")
-            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
+            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "adicionar")
             r = { ...(await paraBiblioteca()), injecao: "sem_manifesto", motivo }
           }
         } else {
