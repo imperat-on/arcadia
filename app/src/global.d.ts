@@ -1446,6 +1446,8 @@ declare global {
           description: string
           points: number
           badgeName: string
+          badgeUrl?: string
+          badgeLockedUrl?: string
           unlocked: boolean
           unlockedHardcore: boolean
         }[]

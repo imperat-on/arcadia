@@ -26,7 +26,6 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
   const { isConsole } = useMode()
   const ref = useRef<HTMLDivElement>(null)
   const open = Boolean(game)
-  useGamepadNav(ref, open, onClose)
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -36,6 +35,7 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
   // Qual campo está com a busca online aberta.
   const [buscando, setBuscando] = useState<"cover" | "hero" | "logo" | null>(null)
   const [buscandoTexto, setBuscandoTexto] = useState(false)
+  useGamepadNav(ref, open && !buscando && !buscandoTexto, onClose)
 
   // Recarrega o rascunho sempre que abrir para outro jogo.
   useEffect(() => {
@@ -48,13 +48,13 @@ export function EditMetadata({ game, onClose, onSave }: EditMetadataProps) {
   }, [game])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || buscando || buscandoTexto) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, onClose, buscando, buscandoTexto])
 
   if (!game) return null
 

@@ -69,19 +69,19 @@ export function ProfilePage({
     if (!open) return
     if (statsOverride !== undefined) setStats(statsOverride)
     else window.launcherAPI?.profileStats().then(setStats)
-    if (embedded) return
+    if (embedded || !navActive) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose, embedded, statsOverride])
+  }, [open, onClose, embedded, statsOverride, navActive, games])
 
+  const steamHoras = useSteamHoras()
   if (!open) return null
 
   const name = profile.name || t("profile.jogador")
 
   // Todos os jogos da biblioteca (com capa), mais jogados primeiro — o perfil
   // mostra a biblioteca INTEIRA com as horas em cima de cada capa.
-  const steamHoras = useSteamHoras()
   const todosJogos = games
     .filter((g) => g.cover && !g.hidden)
     .sort(
@@ -93,7 +93,7 @@ export function ProfilePage({
     <div
       ref={rootRef}
       className={
-        embedded ? "gp-scope h-full overflow-y-auto" : "gp-scope fixed inset-0 z-50 overflow-y-auto"
+        embedded ? "gp-scope h-full overflow-y-auto" : "console-profile gp-scope fixed inset-0 z-50 overflow-y-auto"
       }
       style={embedded ? undefined : { background: "#000000" }}
     >
@@ -149,7 +149,7 @@ export function ProfilePage({
 
       <div className="relative min-h-full pb-12">
         {/* ── Header estilo Steam: faixa de capa + avatar sobreposto + nome ── */}
-        <div className="mx-auto max-w-6xl px-6 pt-6">
+        <div className="profile-header mx-auto max-w-6xl px-6 pt-6">
           {/* Faixa de ações (voltar + editar) no topo */}
           <div className="mb-4 flex items-center justify-between">
             {embedded ? (
@@ -178,7 +178,7 @@ export function ProfilePage({
           </div>
 
           {/* Banner do perfil (faixa larga estilo Steam) */}
-          <div className="relative h-48 overflow-hidden rounded-2xl border border-white/10">
+          <div className="profile-banner relative h-48 overflow-hidden rounded-2xl border border-white/10">
             {profile.banner ? (
               <img
                 src={profile.banner}
@@ -198,7 +198,7 @@ export function ProfilePage({
           </div>
 
           {/* Avatar sobreposto à capa + nome */}
-          <div className="-mt-14 flex items-end gap-5 px-4">
+          <div className="profile-identity -mt-14 flex items-end gap-5 px-4">
             <div className="relative shrink-0">
               <div
                 className="absolute -inset-1 rounded-2xl opacity-40 blur-lg"
@@ -236,7 +236,7 @@ export function ProfilePage({
         </div>
 
         {/* ── Corpo: biblioteca (principal) + sidebar (stats/amigos) ── */}
-        <div className="mx-auto mt-8 grid max-w-6xl grid-cols-[minmax(0,1fr)_340px] gap-6 px-6">
+        <div className="profile-content mx-auto mt-8 grid max-w-6xl grid-cols-[minmax(0,1fr)_340px] gap-6 px-6">
           <main className="min-w-0">
             <section>
               <div className="mb-4 flex items-end justify-between gap-3">
@@ -252,7 +252,7 @@ export function ProfilePage({
                   <p className="text-sm text-[color:var(--text-2)]">{t("profile.nenhum_jogado")}</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-4 gap-3">
+                <div className="profile-library grid grid-cols-4 gap-3">
                   {todosJogos.map((game) => (
                     <JogoTile
                       key={game.id}

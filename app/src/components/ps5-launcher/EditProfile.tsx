@@ -58,7 +58,7 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   })
   const timer = useRef<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  useGamepadNav(rootRef, open, onClose)
+  useGamepadNav(rootRef, open && !cropSrc, () => fecharRef.current())
 
   // Último campo digitado com debounce pendente — o fechar flusha (senão
   // digitar e fechar rápido PERDE o campo silenciosamente).
@@ -98,11 +98,11 @@ export function EditProfile({ open, profile, games, onClose, onChange }: EditPro
   }, [profile.avatar])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || cropSrc) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && fecharRef.current()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, onClose, cropSrc])
 
   if (!open) return null
 
