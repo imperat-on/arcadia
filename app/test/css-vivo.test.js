@@ -161,8 +161,6 @@ test("toda regra do index.css chega ao CSS compilado", (t) => {
 // regra no index.css. Cada um foi conferido: não existiam nem antes do prune.
 const GANCHOS_SEM_ESTILO = new Set([
   "detail-achievement-full-grid",
-  "retro-rail-arrow-left",
-  "retro-rail-arrow-right",
   "store-game-hero",
   "store-game-skeleton",
 ])

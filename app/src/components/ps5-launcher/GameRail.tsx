@@ -52,12 +52,9 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
     if (railRef.current?.contains(document.activeElement)) selectedRef.current?.focus({ preventScroll: true })
   }, [selectedIndex])
 
-  const move = (delta: number) => onSelect(Math.max(0, Math.min(games.length - 1, selectedIndex + delta)))
-
   return (
     <section className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
       <div className="retro-featured-label mb-2 px-1 text-[10px] font-black uppercase tracking-[0.12em]">{t("gameoverview.em_destaque")}</div>
-      <button type="button" onClick={() => move(-1)} disabled={selectedIndex === 0} className="retro-rail-arrow retro-rail-arrow-left absolute left-1 top-1/2 z-20 grid h-12 w-7 place-items-center text-2xl disabled:opacity-15" aria-label={t("gameoverview.anterior")}>‹</button>
       <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Biblioteca de jogos">
         {games.map((game, index) => {
           const focused = index === selectedIndex
@@ -100,7 +97,6 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
           )
         })}
       </div>
-      <button type="button" onClick={() => move(1)} disabled={selectedIndex >= games.length - 1} className="retro-rail-arrow retro-rail-arrow-right absolute right-1 top-1/2 z-20 grid h-12 w-7 place-items-center text-2xl disabled:opacity-15" aria-label={t("gameoverview.proximo")}>›</button>
       <div className="retro-page-dots mt-2 flex justify-center gap-2" aria-hidden="true">
         {Array.from({ length: Math.min(4, Math.max(1, Math.ceil(games.length / 6))) }).map((_, index) => {
           const current = Math.min(3, Math.floor(selectedIndex / Math.max(1, Math.ceil(games.length / 4))))
