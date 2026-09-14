@@ -133,6 +133,10 @@
   --brand-steam-dark: #003791;
   --brand-violet: #7c3aed;
   --brand-twitch: #9147ff;
+
+  /* Cor de ATENÇÃO (não de decoração): o diálogo de conta avisa com ela quando o
+     nome de usuário pedido difere do real. Fica no :root porque é lida pelo
+     desktop, e não pela pele do console. */
   --retro-amber: #ffb454;
 
   --placeholder-warm: #2b165c;
@@ -887,16 +891,10 @@ select:disabled {
    independente. As variáveis abaixo não vazam para o modo desktop.
    ---------------------------------------------------------------------- */
 .retro-big-picture {
-  --retro-amber: #ffb454;
-  --retro-cyan: #49e7d5;
   --retro-violet: #a47aff;
-  --retro-ink: #050908;
-  --retro-panel: rgba(7, 17, 15, 0.92);
-  --retro-panel-2: rgba(13, 27, 23, 0.88);
-  --retro-line: color-mix(in srgb, var(--accent) 24%, transparent);
   background:
-    radial-gradient(circle at 70% 25%, rgba(73, 231, 213, 0.07), transparent 35%),
-    linear-gradient(135deg, #050908 0%, #08100e 48%, #020403 100%);
+    radial-gradient(circle at 70% 25%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 35%),
+    linear-gradient(135deg, var(--background) 0%, var(--card) 48%, var(--background) 100%);
   color: #edf7dc;
   font-family: "Inter", sans-serif;
 }
@@ -935,8 +933,8 @@ select:disabled {
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
   color: rgba(239, 247, 231, .82);
   background:
-    linear-gradient(rgba(34, 223, 242, .028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 223, 242, .022) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.2%, transparent) 1px, transparent 1px),
     rgba(2, 7, 10, .97);
   background-size: 18px 18px, 18px 18px, auto;
   box-shadow: 0 18px 50px rgba(0,0,0,.72), 0 0 20px rgba(191,84,255,.15);
@@ -955,7 +953,7 @@ select:disabled {
 .retro-user-menu-header {
   position: relative;
   color: white;
-  border-bottom: 1px solid rgba(34,223,242,.18);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   background: linear-gradient(90deg, rgba(191,84,255,.13), color-mix(in srgb, var(--accent) 3.5%, transparent));
 }
 
@@ -993,7 +991,7 @@ select:disabled {
 
 .retro-user-menu-divider {
   height: 1px;
-  background: linear-gradient(90deg, rgba(34,223,242,.08), rgba(191,84,255,.55), rgba(34,223,242,.08));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(191,84,255,.55), color-mix(in srgb, var(--accent) 8%, transparent));
 }
 
 .retro-user-menu-item {
@@ -1132,8 +1130,8 @@ select:disabled {
   background:
     linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 50% 45%, rgba(73,231,213,.11), transparent 38%),
-    #050908 !important;
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 38%),
+    var(--background) !important;
   background-size: 32px 32px, 32px 32px, auto, auto !important;
 }
 
@@ -1177,8 +1175,8 @@ select:disabled {
   justify-content: center;
   padding: clamp(38px, 7vh, 78px) clamp(24px, 4vw, 70px) clamp(28px, 5vh, 54px);
   background:
-    linear-gradient(180deg, rgba(4, 12, 26, .08), rgba(2, 6, 14, .88)),
-    radial-gradient(circle at 72% 16%, rgba(92, 164, 255, .22), transparent 35%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(2, 6, 14, .88)),
+    radial-gradient(circle at 72% 16%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 35%),
     radial-gradient(circle at 25% 92%, rgba(255, 255, 255, .07), transparent 34%),
     #071326 !important;
   font-family: Inter, sans-serif;
@@ -1287,7 +1285,7 @@ select:disabled {
   opacity: 1 !important;
   transform: translateY(0) scale(1.08) !important;
   border-color: transparent !important;
-  box-shadow: 0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px rgba(88,156,255,.24) !important;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px color-mix(in srgb, var(--accent) 24%, transparent) !important;
   background: rgba(255,255,255,.16) !important;
 }
 
@@ -1375,13 +1373,13 @@ select:disabled {
   background:
     linear-gradient(color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 2%, transparent) 1px, transparent 1px),
-    #040908 !important;
+    var(--background) !important;
   background-size: 32px 32px !important;
 }
 
 .retro-settings-nav {
   border-color: color-mix(in srgb, var(--accent) 18%, transparent) !important;
-  background: rgba(4,12,10,.94) !important;
+  background: color-mix(in srgb, var(--card) 94%, transparent) !important;
 }
 
 .retro-settings-content {
@@ -1397,7 +1395,7 @@ select:disabled {
 .retro-download-card {
   border-radius: 2px !important;
   border-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
-  background: rgba(7,17,15,.9) !important;
+  background: color-mix(in srgb, var(--card) 90%, transparent) !important;
   box-shadow: 5px 5px 0 rgba(0,0,0,.38) !important;
 }
 
@@ -1433,14 +1431,14 @@ select:disabled {
   background:
     linear-gradient(color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 1.8%, transparent) 1px, transparent 1px),
-    #050908 !important;
+    var(--background) !important;
   background-size: 32px 32px !important;
 }
 
 .retro-news-view button {
   border-radius: 2px !important;
   border-color: color-mix(in srgb, var(--accent) 15%, transparent) !important;
-  background-color: rgba(7,17,15,.88) !important;
+  background-color: color-mix(in srgb, var(--card) 88%, transparent) !important;
   box-shadow: 5px 5px 0 rgba(0,0,0,.32);
 }
 
@@ -1506,7 +1504,7 @@ select:disabled {
   background:
     linear-gradient(color-mix(in srgb, var(--accent) 2.2%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 1.6%, transparent) 1px, transparent 1px),
-    #050908;
+    var(--background);
   background-size: 32px 32px;
 }
 
@@ -1544,16 +1542,13 @@ select:disabled {
    ---------------------------------------------------------------------- */
 .retro-big-picture {
   --retro-violet: #bf54ff;
-  --retro-cyan: #22dff2;
-  --retro-ink: #03070b;
-  --retro-line: rgba(104, 226, 255, .18);
   height: 100vh;
   min-height: 0;
   overflow: hidden;
   background:
-    linear-gradient(rgba(27, 123, 144, .065) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(27, 123, 144, .05) 1px, transparent 1px),
-    radial-gradient(circle at 48% 42%, rgba(28, 79, 82, .18), transparent 42%),
+    linear-gradient(color-mix(in srgb, var(--accent) 6.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 48% 42%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 42%),
     #02060a;
   background-size: 20px 20px, 20px 20px, auto, auto;
   color: #edf5f4;
@@ -1600,7 +1595,7 @@ select:disabled {
   height: min(444px, 52vh);
   min-height: min(414px, 52vh);
   flex-direction: column;
-  border-color: rgba(32, 222, 242, .2) !important;
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent) !important;
   background: rgba(2, 10, 14, .55);
   box-shadow: inset 0 -12px 30px rgba(0,0,0,.26);
   overflow: hidden;
@@ -1669,11 +1664,11 @@ select:disabled {
 }
 
 .retro-hero-section {
-  border-color: rgba(32,222,242,.16) !important;
+  border-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
   background:
-    linear-gradient(rgba(17,104,119,.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(17,104,119,.04) 1px, transparent 1px),
-    rgba(1,7,10,.72) !important;
+    linear-gradient(color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, transparent) 1px, transparent 1px),
+    color-mix(in srgb, var(--card) 72%, transparent) !important;
   background-size: 18px 18px, 18px 18px, auto !important;
 }
 
@@ -1715,7 +1710,7 @@ select:disabled {
 
 .retro-console-footer {
   color: var(--retro-violet);
-  border-color: rgba(32,222,242,.2);
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
   background: rgba(2,7,12,.95);
   text-shadow: 0 0 7px rgba(191,84,255,.35);
 }
@@ -1778,7 +1773,7 @@ select:disabled {
   grid-template-columns: 1fr minmax(0, 1.2fr);
   gap: 14px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(176, 213, 255, .09);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 9%, transparent);
   font-size: 9px;
 }
 
@@ -1832,12 +1827,12 @@ select:disabled {
   --desktop-green: #b7ff00;
   --desktop-violet: #9d2fe8;
   --desktop-cyan: #34d9ee;
-  --desktop-bg: #030507;
+  --desktop-bg: var(--background);
   --desktop-panel: #080a0d;
-  --desktop-line: rgba(112, 167, 187, .16);
+  --desktop-line: color-mix(in srgb, var(--accent) 16%, transparent);
   background:
-    linear-gradient(rgba(38,111,126,.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(38,111,126,.028) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
     var(--desktop-bg);
   background-size: 18px 18px;
   font-family: "Inter", sans-serif;
@@ -1855,13 +1850,13 @@ select:disabled {
 
 .desktop-retro-sidebar {
   width: 212px !important;
-  border-right: 1px solid rgba(112,167,187,.17);
+  border-right: 1px solid color-mix(in srgb, var(--accent) 17%, transparent);
   background: rgba(3,6,10,.98) !important;
   box-shadow: 7px 0 22px rgba(0,0,0,.32);
 }
 
 .desktop-sidebar-brand {
-  border-color: rgba(112,167,187,.14) !important;
+  border-color: color-mix(in srgb, var(--accent) 14%, transparent) !important;
   font-family: "Orbitron", sans-serif;
   padding-top: 14px;
   transform: skew(-3deg);
@@ -1944,13 +1939,13 @@ select:disabled {
 }
 
 .desktop-sidebar-games {
-  border-color: rgba(112,167,187,.13) !important;
+  border-color: color-mix(in srgb, var(--accent) 13%, transparent) !important;
 }
 
 .desktop-sidebar-games input {
   height: 27px;
   border-radius: 2px !important;
-  border-color: rgba(112,167,187,.18) !important;
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent) !important;
   background: rgba(255,255,255,.025) !important;
   font-size: 9px !important;
 }
@@ -2010,7 +2005,7 @@ select:disabled {
 .desktop-sidebar-footer > button {
   margin-bottom: 0 !important;
   border-radius: 3px !important;
-  border-color: rgba(112,167,187,.22) !important;
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent) !important;
   background: rgba(255,255,255,.012);
   font-size: 9px !important;
 }
@@ -2020,16 +2015,16 @@ select:disabled {
 }
 
 .desktop-retro-main {
-  border-color: rgba(112,167,187,.13) !important;
+  border-color: color-mix(in srgb, var(--accent) 13%, transparent) !important;
   background:
-    linear-gradient(rgba(31,93,108,.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31,93,108,.028) 1px, transparent 1px),
-    #030507;
+    linear-gradient(color-mix(in srgb, var(--accent) 3.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2.8%, transparent) 1px, transparent 1px),
+    var(--background);
   background-size: 18px 18px;
 }
 
 .desktop-retro-topbar {
-  border-color: rgba(112,167,187,.15) !important;
+  border-color: color-mix(in srgb, var(--accent) 15%, transparent) !important;
   background: rgba(3,6,9,.94);
   box-shadow: 0 5px 20px rgba(0,0,0,.28);
 }
@@ -2053,7 +2048,7 @@ select:disabled {
 .desktop-classic-home-hero {
   height: min(440px, 46vh) !important;
   min-height: 340px !important;
-  border-bottom: 1px solid rgba(112,167,187,.14);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .desktop-classic-home-hero h1 {
@@ -2066,14 +2061,14 @@ select:disabled {
 
 .desktop-classic-home-grid {
   background:
-    linear-gradient(rgba(31,93,108,.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31,93,108,.02) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--accent) 2.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 2%, transparent) 1px, transparent 1px),
     rgba(3,6,8,.72);
   background-size: 18px 18px;
 }
 
 .desktop-classic-home-grid .grid-stagger > div {
-  border-color: rgba(112,167,187,.17) !important;
+  border-color: color-mix(in srgb, var(--accent) 17%, transparent) !important;
   background: #080b0d !important;
   box-shadow: 0 8px 20px rgba(0,0,0,.3);
 }
@@ -2171,7 +2166,7 @@ select:disabled {
 /* Big Picture — linguagem visual PS5: tipografia leve, navegação horizontal,
    arte em tela cheia e superfícies brancas translúcidas. */
 .retro-big-picture { background:#071326; font-family:Inter,sans-serif; }
-.retro-big-picture::before { position:absolute;inset:0;z-index:0;content:"";pointer-events:none;background:radial-gradient(circle at 74% 24%,rgba(35,117,215,.2),transparent 35%),linear-gradient(180deg,rgba(2,9,20,.08),rgba(2,8,18,.86)); }
+.retro-big-picture::before { position:absolute;inset:0;z-index:0;content:"";pointer-events:none;background:radial-gradient(circle at 74% 24%,color-mix(in srgb, var(--accent) 20%, transparent),transparent 35%),linear-gradient(180deg,color-mix(in srgb, var(--accent) 8%, transparent),rgba(2,8,18,.86)); }
 .retro-big-picture .retro-hero-background { display:block!important;width:100%!important;height:100%!important;object-fit:cover;background-repeat:no-repeat;filter:saturate(.88) contrast(1.03) brightness(.72);transform:none; }
 /* Regra legada escondia especificamente vídeos absolutos; o áudio seguia
    tocando, mas a imagem virava uma tela preta. */
@@ -2261,7 +2256,7 @@ select:disabled {
 .retro-library-card>span { display:none!important; }
 .retro-library-card[data-active="true"],.retro-library-card:focus-visible { width:142px!important;opacity:1;filter:none;outline:none!important;transform:translateY(0); }
 .retro-library-card[data-active="true"] strong,.retro-library-card:focus-visible strong { opacity:1; }
-.retro-library-card[data-active="true"] .retro-library-cover,.retro-library-card:focus-visible .retro-library-cover { height:213px!important;outline:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.72),0 0 24px rgba(105,177,255,.2),0 16px 38px rgba(0,0,0,.62)!important; }
+.retro-library-card[data-active="true"] .retro-library-cover,.retro-library-card:focus-visible .retro-library-cover { height:213px!important;outline:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.72),0 0 24px color-mix(in srgb, var(--accent) 20%, transparent),0 16px 38px rgba(0,0,0,.62)!important; }
 .retro-library-card[data-active="true"] .retro-library-cover .ps5-cover-art,.retro-library-card:focus-visible .retro-library-cover .ps5-cover-art { object-fit:cover;object-position:center;transform:none; }
 
 .retro-hero-section { position:absolute!important;inset:0!important;z-index:5;padding:405px 5vw 48px!important;border:0!important;background:transparent!important; }
@@ -2284,8 +2279,8 @@ select:disabled {
    linguagem de vidro escuro e foco branco do restante da interface PS5. */
 .retro-big-picture .retro-profile-root {
   background:
-    linear-gradient(180deg, rgba(4,12,26,.08), rgba(2,6,14,.88)),
-    radial-gradient(circle at 72% 16%, rgba(92,164,255,.22), transparent 35%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(2,6,14,.88)),
+    radial-gradient(circle at 72% 16%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 35%),
     radial-gradient(circle at 25% 92%, rgba(255,255,255,.07), transparent 34%),
     #071326 !important;
   background-size: auto !important;
@@ -2293,7 +2288,7 @@ select:disabled {
 .retro-big-picture .retro-profile-title { color:#fff !important; font-family:Inter,sans-serif !important; font-weight:300 !important; letter-spacing:0 !important; text-shadow:0 8px 36px rgba(0,0,0,.48) !important; }
 .retro-big-picture .retro-profile-title::before { content:none !important; }
 .retro-big-picture .retro-profile-avatar { border:0 !important; border-radius:18px !important; clip-path:none !important; box-shadow:0 13px 34px rgba(0,0,0,.32) !important; }
-.retro-big-picture .retro-profile-slot[data-focus="true"] .retro-profile-avatar { border-color:transparent !important; box-shadow:0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px rgba(88,156,255,.24) !important; }
+.retro-big-picture .retro-profile-slot[data-focus="true"] .retro-profile-avatar { border-color:transparent !important; box-shadow:0 0 0 3px rgba(255,255,255,.95), 0 18px 45px rgba(0,0,0,.46), 0 0 38px color-mix(in srgb, var(--accent) 24%, transparent) !important; }
 
 .retro-big-picture .retro-console-store {
   box-sizing: border-box;
@@ -2301,7 +2296,7 @@ select:disabled {
   color: #fff;
   background:
     linear-gradient(180deg, rgba(3,9,19,.72), rgba(3,9,19,.96)),
-    radial-gradient(circle at 76% 4%, rgba(71,150,255,.16), transparent 34%),
+    radial-gradient(circle at 76% 4%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
     #071326 !important;
   background-size: auto !important;
   font-family: Inter, sans-serif;
@@ -2329,7 +2324,7 @@ select:disabled {
   color:#fff;
   background:
     linear-gradient(180deg, rgba(3,9,19,.66), rgba(3,9,19,.96)),
-    radial-gradient(circle at 78% 8%, rgba(76,156,255,.18), transparent 36%),
+    radial-gradient(circle at 78% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 36%),
     #071326 !important;
   background-size:auto !important;
   font-family:Inter,sans-serif;
