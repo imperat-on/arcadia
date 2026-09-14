@@ -7,8 +7,9 @@ import { useEffect, useRef, useState } from "react"
 // ~/.local/share/arcadia/boot.mp4) e vira um blob URL. O `file://` usado antes
 // era bloqueado quando a página roda em http:// (dev/preview) e dependia de um
 // arquivo externo ao pacote. `saindo` dispara o fade de saída.
-// Sem vídeo nenhum (sem bytes, sem fallback) o boot NÃO fica preso: onError
-// pula direto para a home pelo mesmo caminho de sempre.
+// Defensas para o boot nunca prender em tela preta:
+//  - sem bytes (ou sem fallback) → onError pula direto pelo mesmo caminho;
+//  - codec do asset não tocável (canPlayType "") sem fallback → onError.
 export function BootScreen({
   src,
   saindo,
@@ -38,17 +39,26 @@ export function BootScreen({
   useEffect(() => {
     let vivo = true
     let criado: string | null = null
-    const usar = (bytes?: Uint8Array | null) => {
+    const usar = (bytes?: Uint8Array | null, codecs?: string) => {
       if (!vivo) return
-      if (bytes && bytes.byteLength) {
+      const tocaCodec = (() => {
+        try {
+          return document.createElement("video").canPlayType(codecs || "video/mp4") !== ""
+        } catch {
+          // Sem canPlayType (runtime antigo): deixa tentar tocar — o erro do
+          // vídeo cai no onError dele.
+          return true
+        }
+      })()
+      if (bytes && bytes.byteLength && tocaCodec) {
         criado = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "video/mp4" }))
         setVideoSrc(criado)
       } else if (src) {
-        // Sem bytes: cai no caminho file:// passado (só funciona no Electron,
-        // onde a própria página roda em file://).
+        // Sem bytes (ou codec não suportado): cai no caminho file:// passado
+        // (só funciona no Electron, onde a própria página roda em file://).
         setVideoSrc(src)
       } else {
-        // Nada para tocar: pula o boot — nunca prende a tela preta.
+        // Nada para tocar: pula o boot — nunca preto-para-sempre.
         vivo = false
         avisarFalha()
       }
@@ -63,7 +73,7 @@ export function BootScreen({
     }
     api
       .bootVideo()
-      .then((resultado) => usar(resultado?.ok ? resultado.data : null))
+      .then((resultado) => usar(resultado?.ok ? resultado.data : null, resultado?.codecs))
       .catch(() => usar(null))
     return () => {
       vivo = false
