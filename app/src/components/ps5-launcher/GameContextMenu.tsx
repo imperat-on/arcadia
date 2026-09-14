@@ -31,8 +31,9 @@ export function GameContextMenu({
 }: GameContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
   const open = Boolean(game)
-  useGamepadNav(ref, open, onClose)
   const [ferramentas, setFerramentas] = useState(false)
+  const back = () => { if (ferramentas) setFerramentas(false); else onClose() }
+  useGamepadNav(ref, open, back)
   const [toolBusy, setToolBusy] = useState("")
   const { t } = useI18n()
 
@@ -47,16 +48,18 @@ export function GameContextMenu({
     const onDown = (e: MouseEvent) => {
       if (clickFora && ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
     window.addEventListener("mousedown", onDown)
-    window.addEventListener("keydown", onKey)
     return () => {
       window.removeEventListener("mousedown", onDown)
-      window.removeEventListener("keydown", onKey)
     }
   }, [open, onClose])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") back() }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, ferramentas, onClose])
 
   // O primeiro item recebe foco ao abrir e sempre que Ferramentas troca o
   // conteúdo. Isso deixa o popup pronto para teclado e controle sem depender
