@@ -25,16 +25,19 @@ test("o aviso existe e só aparece no estado certo (ligado E sem chave)", () => 
   assert.ok(fonte.includes("getConfig"), "a chave vem do config do app")
 })
 
-test("a página do jogo e a lista da loja mostram o aviso", () => {
+test("o aviso vive na página do jogo, não na lista da loja", () => {
   const pagina = ler("src/components/desktop/StoreGamePage.tsx")
   assert.ok(
     pagina.includes("<AvisoSemChaveHubcap ativo={slsAtivo} />"),
     "StoreGamePage: é onde o Add é clicado, o aviso tem que estar aqui",
   )
+  // A LISTA da loja NÃO mostra o aviso: com 85 mil resultados, uma faixa fixa
+  // no topo vira ruído e ninguém pediu a informação ali. O aviso pertence a onde
+  // a decisão acontece — a página do jogo — e ao clique no botão (toast).
   const lista = ler("src/components/desktop/StoreView.tsx")
   assert.ok(
-    lista.includes("<AvisoSemChaveHubcap ativo={slsAtivo} />"),
-    "StoreView: ver a situação antes de abrir o jogo",
+    !lista.includes("AvisoSemChaveHubcap"),
+    "a lista da loja não pode trazer o aviso de volta",
   )
 })
 
