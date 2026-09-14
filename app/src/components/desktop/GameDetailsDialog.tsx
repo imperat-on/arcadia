@@ -12,7 +12,7 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
   useEffect(() => {
     let vivo = true
     window.launcherAPI
-      ?.steamHorasDoJogo(String(game.appid))
+      ?.steamHorasDoJogo(String(game.id || game.appid || ""))
       .then((r) => {
         if (vivo && r?.ok) setMinutosSteam(Number(r.minutos) || 0)
       })

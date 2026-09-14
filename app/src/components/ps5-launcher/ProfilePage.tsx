@@ -86,8 +86,8 @@ export function ProfilePage({
     .filter((g) => g.cover && !g.hidden)
     .sort(
       (a, b) =>
-        horasCombinadas(steamHoras, b.appid, b.playtime_minutes) -
-        horasCombinadas(steamHoras, a.appid, a.playtime_minutes),
+        horasCombinadas(steamHoras, [b.id, b.appid], b.playtime_minutes) -
+        horasCombinadas(steamHoras, [a.id, a.appid], a.playtime_minutes),
     )
   return (
     <div
@@ -334,7 +334,7 @@ function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
   const [broken, setBroken] = useState(false)
   // Horas da capa: Steam manda, Arcadia completa (mesma regra do resto do app).
   const horas = formatarHoras(
-    horasCombinadas(useSteamHoras(), game.appid, game.playtime_minutes),
+    horasCombinadas(useSteamHoras(), [game.id, game.appid], game.playtime_minutes),
   )
   const cls =
     "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--placeholder-cool)] to-[color:var(--placeholder-deep)] text-3xl font-bold text-white/50 ring-1 ring-white/10"
