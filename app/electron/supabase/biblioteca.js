@@ -289,6 +289,18 @@ async function pull() {
     return false
   }
 
+  // Horas por CONTA Steam: as linhas ficam no estado para a tela somar as contas
+  // (o servidor guarda o maior valor por conta, então a mesma conta nunca entra
+  // duas vezes). Sem servidor novo, o RPC erra e o app segue como estava.
+  try {
+    const { data: linhasSteam, error: erroSteam } = await getClient().rpc("pull_steam_playtime")
+    if (!erroSteam && Array.isArray(linhasSteam)) {
+      const stSteam = loadState()
+      stSteam.steamPlaytime = linhasSteam
+      saveState(stSteam)
+    }
+  } catch {}
+
   let mudou = false
   const st = loadState()
   const enviados = st.libPush || {}
@@ -683,4 +695,11 @@ function watchChanges() {
   return { start, stop }
 }
 
-module.exports = { push, pull, reconcile, agendarPush, onChanged, watchChanges }
+// Horas por conta Steam que o servidor devolveu (somadas na tela, com "maior
+// vence" por conta). Fica no estado para sobreviver a reinícios.
+function linhasSteamDoServidor() {
+  const st = loadState()
+  return Array.isArray(st.steamPlaytime) ? st.steamPlaytime : []
+}
+
+module.exports = { push, pull, reconcile, agendarPush, onChanged, watchChanges, linhasSteamDoServidor }
