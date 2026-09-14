@@ -104,7 +104,7 @@
   --surface-3: #1c1c22;
   /* Fundo imersivo (tela de boot, conquistas em tela cheia, notícias): preto
      levemente azulado, um degrau acima do preto puro do tema. */
-  --surface-night: #05070d;
+  --surface-night: #000;
 
   --text-1: #ffffff;
   --text-2: #8a93a6;
@@ -488,7 +488,7 @@ input,
      preto absoluto; o que dá chão aos cards são as superfícies acima dele —
      cinzas neutros, sem a tonalidade azulada do tema anterior. */
   --loja-fundo: #000;
-  --loja-sup-1: #0b0b0d;
+  --loja-sup-1: #000;
   --loja-sup-2: #141416;
   --loja-sup-3: #1f1f23;
   --loja-fio: #1b1b1f;
@@ -669,7 +669,7 @@ input,
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-1 {
-    background: #0b0b0d;
+    background: #000;
   }
   .glass-2 {
     background: #0d0d10;
@@ -928,7 +928,7 @@ select:disabled {
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
   color: rgba(239, 247, 231, .82);
   background: var(--background);
-  box-shadow: 0 18px 50px rgba(0,0,0,.72), 0 0 20px rgba(191,84,255,.15);
+  box-shadow: 0 18px 50px rgba(0,0,0,.72), 0 0 20px color-mix(in srgb, var(--accent) 15%, transparent);
   backdrop-filter: blur(14px);
 }
 
@@ -945,7 +945,7 @@ select:disabled {
   position: relative;
   color: white;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
-  background: linear-gradient(90deg, rgba(191,84,255,.13), color-mix(in srgb, var(--accent) 3.5%, transparent));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), color-mix(in srgb, var(--accent) 3.5%, transparent));
 }
 
 .retro-user-menu-header::after {
@@ -961,16 +961,16 @@ select:disabled {
 
 .retro-user-menu-header:hover,
 .retro-user-menu-header:focus-visible {
-  background: linear-gradient(90deg, rgba(191,84,255,.21), color-mix(in srgb, var(--accent) 7%, transparent));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 21%, transparent), color-mix(in srgb, var(--accent) 7%, transparent));
 }
 
 .retro-user-menu-avatar {
   flex: none;
-  border: 1px solid rgba(191,84,255,.82);
+  border: 1px solid color-mix(in srgb, var(--accent) 82%, transparent);
   border-radius: 2px;
   clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-  background: radial-gradient(circle, rgba(191,84,255,.4), #091018 72%);
-  box-shadow: 0 0 12px rgba(191,84,255,.24);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 40%, transparent), #091018 72%);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .retro-user-menu-header .text-sm {
@@ -982,7 +982,7 @@ select:disabled {
 
 .retro-user-menu-divider {
   height: 1px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(191,84,255,.55), color-mix(in srgb, var(--accent) 8%, transparent));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent) 55%, transparent), color-mix(in srgb, var(--accent) 8%, transparent));
 }
 
 .retro-user-menu-item {
@@ -1005,14 +1005,14 @@ select:disabled {
   height: 3px;
   content: "";
   transform: translateY(-50%);
-  background: rgba(191,84,255,.55);
-  box-shadow: 0 0 6px rgba(191,84,255,.45);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .retro-user-menu-item:hover,
 .retro-user-menu-item:focus-visible {
   padding-left: 23px !important;
-  color: #071006;
+  color: #000;
   outline: 0 !important;
   background: var(--accent);
   box-shadow: inset 4px 0 0 white, 0 0 14px color-mix(in srgb, var(--accent) 18%, transparent) !important;
@@ -1020,12 +1020,12 @@ select:disabled {
 
 .retro-user-menu-item:hover::before,
 .retro-user-menu-item:focus-visible::before {
-  background: #071006;
+  background: #000;
   box-shadow: none;
 }
 
 .retro-user-menu-hint {
-  color: rgba(191,84,255,.72);
+  color: color-mix(in srgb, var(--accent) 72%, transparent);
   font-family: "Inter", sans-serif;
   font-size: 8px;
   text-transform: none;
@@ -1070,8 +1070,8 @@ select:disabled {
   scroll-snap-type: x mandatory;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
   background:
-    linear-gradient(90deg, rgba(3,8,7,.96), transparent 18%, transparent 82%, rgba(3,8,7,.96)),
-    linear-gradient(180deg, rgba(8,20,17,.82), rgba(3,8,7,.72)) !important;
+    linear-gradient(90deg, rgba(0,0,0,0.96), transparent 18%, transparent 82%, rgba(0,0,0,0.96)),
+    linear-gradient(180deg, rgba(0,0,0,0.82), rgba(0,0,0,0.72)) !important;
 }
 
 
@@ -1327,7 +1327,7 @@ select:disabled {
 .player-select-menu {
   border: 1px solid rgba(255,255,255,.14) !important;
   border-radius: 14px !important;
-  background: rgba(22,27,35,.94) !important;
+  background: rgba(0,0,0,0.94) !important;
   box-shadow: 0 18px 48px rgba(0,0,0,.48) !important;
   backdrop-filter: blur(24px);
 }
@@ -1515,7 +1515,7 @@ select:disabled {
    por último de propósito para isolar a identidade do Big Picture.
    ---------------------------------------------------------------------- */
 .retro-big-picture {
-  --retro-violet: #bf54ff;
+  --retro-violet: var(--accent);
   height: 100vh;
   min-height: 0;
   overflow: hidden;
@@ -1622,7 +1622,7 @@ select:disabled {
 .retro-page-dots span {
   width: 6px;
   height: 6px;
-  border: 1px solid rgba(191,84,255,.65);
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
   border-radius: 999px;
 }
 
@@ -1654,7 +1654,7 @@ select:disabled {
 }
 
 .retro-play-button {
-  color: #031005;
+  color: #000;
   border-color: #bdff77;
   background: var(--accent);
   box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 32%, transparent), 4px 4px 0 color-mix(in srgb, var(--accent) 13%, transparent);
@@ -1677,7 +1677,7 @@ select:disabled {
   color: var(--retro-violet);
   border-color: color-mix(in srgb, var(--accent) 20%, transparent);
   background: rgba(2,7,12,.95);
-  text-shadow: 0 0 7px rgba(191,84,255,.35);
+  text-shadow: 0 0 7px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .retro-console-footer strong {
@@ -1828,7 +1828,7 @@ select:disabled {
   font-size: 19px;
   font-weight: 900;
   letter-spacing: .04em;
-  text-shadow: 2px 2px 0 rgba(183,255,0,.3);
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .desktop-arcadia-logo {
@@ -1880,15 +1880,17 @@ select:disabled {
 
 .desktop-sidebar-nav .desktop-sidebar-item:hover {
   color: white !important;
-  border-color: rgba(183,255,0,.14);
-  background: rgba(183,255,0,.035) !important;
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.05) !important;
 }
 
 .desktop-sidebar-nav .desktop-sidebar-item.bg-white\/\[0\.07\] {
   color: white !important;
-  border-color: rgba(157,47,232,.72);
-  background: linear-gradient(90deg, rgba(157,47,232,.25), rgba(157,47,232,.08)) !important;
-  box-shadow: inset 0 0 18px rgba(157,47,232,.1), 0 0 10px rgba(157,47,232,.08);
+  border-color: rgba(255,255,255,.12);
+  /* Preto puro: o item ativo se distingue pela barra do acento e pelo texto
+     branco, nao por preenchimento colorido. */
+  background: #000 !important;
+  box-shadow: none;
 }
 
 .desktop-sidebar-nav .desktop-sidebar-item > span.absolute {
@@ -1896,7 +1898,7 @@ select:disabled {
   height: 20px !important;
   border-radius: 0 !important;
   background: var(--accent) !important;
-  box-shadow: 0 0 7px rgba(183,255,0,.65);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
 .desktop-sidebar-games {
@@ -1953,14 +1955,14 @@ select:disabled {
 }
 
 .desktop-library-tab[aria-selected="true"] {
-  border-color: rgba(183,255,0,.78);
-  box-shadow: 0 0 10px rgba(183,255,0,.12), inset 0 0 12px rgba(183,255,0,.04);
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent), inset 0 0 12px color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .desktop-library-tab[aria-selected="true"] .desktop-library-tab-icon {
   color: var(--accent);
   opacity: 1;
-  filter: drop-shadow(0 0 4px rgba(183,255,0,.5));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 50%, transparent));
 }
 
 .desktop-sidebar-footer > button {
@@ -2027,8 +2029,8 @@ select:disabled {
 }
 
 .desktop-classic-home-grid .grid-stagger > div:hover {
-  border-color: rgba(183,255,0,.5) !important;
-  box-shadow: 0 0 13px rgba(183,255,0,.09), 0 10px 22px rgba(0,0,0,.42);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+  box-shadow: 0 0 13px color-mix(in srgb, var(--accent) 9%, transparent), 0 10px 22px rgba(0,0,0,.42);
 }
 
 /* As telas internas continuam as mesmas, mas recebem a geometria do shell. */
@@ -2087,7 +2089,7 @@ select:disabled {
 }
 
 .detail-icon-btn { width: 34px; flex: none; padding: 0; color: rgba(255,255,255,.62); border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.025); }
-.detail-action-primary { color: #071000; border-color: #d9ff76; background: var(--accent); box-shadow: 0 0 12px rgba(183,255,0,.18); }
+.detail-action-primary { color: #000; border-color: #d9ff76; background: var(--accent); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 18%, transparent); }
 .detail-icon-btn:hover, .detail-action-primary:hover { filter: brightness(1.15); transform: translateY(-1px); }
 .detail-achievement-grid {
   grid-template-columns: repeat(6, minmax(82px, 96px));
@@ -2110,10 +2112,10 @@ select:disabled {
   transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
 }
 .detail-achievements-all:hover,
-.detail-achievements-all:focus-visible { border-color: var(--accent); color: white; background: rgba(183,255,0,.06); }
+.detail-achievements-all:focus-visible { border-color: var(--accent); color: white; background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .detail-achievement-icon { box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
 .detail-achievement-card { transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease; }
-.detail-achievement-card:hover { border-color: var(--accent) !important; background: rgba(183,255,0,.035); box-shadow: inset 0 0 0 1px rgba(183,255,0,.16), 0 0 9px rgba(183,255,0,.2); transform: none; }
+.detail-achievement-card:hover { border-color: var(--accent) !important; background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 9px color-mix(in srgb, var(--accent) 20%, transparent); transform: none; }
 .detail-achievement-card:hover .detail-achievement-icon img { filter: none; opacity: .9; }
 
 /* Big Picture — linguagem visual PS5: tipografia leve, navegação horizontal,
@@ -2130,7 +2132,7 @@ select:disabled {
   border-radius:14px!important;
   clip-path:none!important;
   color:rgba(255,255,255,.9)!important;
-  background:rgba(22,27,35,.94)!important;
+  background:rgba(0,0,0,0.94)!important;
   background-image:none!important;
   box-shadow:0 18px 48px rgba(0,0,0,.48)!important;
   backdrop-filter:blur(24px);
@@ -2232,7 +2234,7 @@ select:disabled {
    linguagem de vidro escuro e foco branco do restante da interface PS5. */
 .retro-big-picture .retro-profile-root {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(2,6,14,.88)),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(0,0,0,0.88)),
     radial-gradient(circle at 72% 16%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 35%),
     radial-gradient(circle at 25% 92%, rgba(255,255,255,.07), transparent 34%),
     #071326 !important;
@@ -2248,7 +2250,7 @@ select:disabled {
   padding: 28px 4vw 42px !important;
   color: #fff;
   background:
-    linear-gradient(180deg, rgba(3,9,19,.72), rgba(3,9,19,.96)),
+    linear-gradient(180deg, rgba(0,0,0,0.72), rgba(0,0,0,0.96)),
     radial-gradient(circle at 76% 4%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
     #071326 !important;
   background-size: auto !important;
@@ -2276,7 +2278,7 @@ select:disabled {
 .retro-big-picture .retro-news-view {
   color:#fff;
   background:
-    linear-gradient(180deg, rgba(3,9,19,.66), rgba(3,9,19,.96)),
+    linear-gradient(180deg, rgba(0,0,0,0.66), rgba(0,0,0,0.96)),
     radial-gradient(circle at 78% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 36%),
     #071326 !important;
   background-size:auto !important;
