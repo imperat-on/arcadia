@@ -69,7 +69,11 @@ export interface StoreActionsOpts {
    * lojas querem. O modo console usa o gancho para oferecer a instalação pela
    * Steam como saída, em vez de deixar o jogo sem caminho nenhum.
    */
-  onSemManifesto?: (jogo: JogoLoja, motivo: string, acao: "adicionar" | "baixar") => void
+  onSemManifesto?: (
+    jogo: JogoLoja,
+    motivo: string,
+    acao: "adicionar" | "baixar" | "sem_chave",
+  ) => void
 }
 
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
@@ -364,6 +368,17 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       try {
         let r
         if (slsAtivo) {
+          // Integração ligada EXIGE a chave do Hubcap: sem ela não existe
+          // manifesto, e sem manifesto não existe injeção. Neste caso o jogo NÃO
+          // entra na biblioteca — adicionar "pela metade" fazia parecer que a
+          // injeção tinha acontecido, que foi exatamente o relato.
+          const cfg = (await window.launcherAPI?.getConfig()) as Record<string, unknown> | undefined
+          if (!cfg?.hubcap_api_key) {
+            const motivo = _t("store.sem_chave_hubcap")
+            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo, "sem_chave")
+            else setToast(_t("store.adicionado_sem_chave", { titulo: jogo.title }))
+            return
+          }
           const info = await obterInfo(jogo.appid)
           if (info?.ok) {
             const injetado = await window.launcherAPI?.storeAddToSteam({

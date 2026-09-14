@@ -1,13 +1,13 @@
 "use strict"
 
-// Catraca do "Adicionar" da loja.
+// Catraca dos três estados do "Adicionar" da loja, definidos pelo dono:
 //
-// O botão se chama "adicionar à biblioteca" e tem que terminar SEMPRE com o jogo
-// na biblioteca. O bug que estes testes fixam: com a integração local (SLSsteam)
-// ativa, o caminho pedia o manifesto e, quando ele faltava, abortava num
-// `return null` — o jogo não entrava na biblioteca NEM na Steam, sem nada
-// acontecer além de um toast. Como os provedores de manifesto falham com
-// frequência (403/521/sem .manifest), isso deixava o botão inútil na prática.
+//   integração DESLIGADA        -> entra na biblioteca do Arcadia (como sempre)
+//   integração LIGADA + chave   -> entra na biblioteca E injeta na Steam
+//   integração LIGADA sem chave -> NÃO entra em lugar nenhum: avisa e para
+//
+// O último estado é o que mais engana: sem chave não existe manifesto, e
+// "adicionar pela metade" faz a pessoa achar que a injeção na Steam aconteceu.
 
 const test = require("node:test")
 const assert = require("node:assert/strict")
@@ -15,9 +15,9 @@ const fs = require("node:fs")
 const path = require("node:path")
 
 const root = path.join(__dirname, "..")
-const fonte = fs.readFileSync(path.join(root, "src", "components", "useStoreActions.ts"), "utf8")
+const ler = (rel) => fs.readFileSync(path.join(root, rel), "utf8")
+const fonte = ler("src/components/useStoreActions.ts")
 
-/** O bloco da ação `adicionar` (do início do useCallback até o fechamento dele). */
 function blocoAdicionar() {
   const inicio = fonte.indexOf("const adicionar = useCallback(")
   assert.ok(inicio > 0, "adicionar() presente no arquivo")
@@ -26,58 +26,75 @@ function blocoAdicionar() {
   return fonte.slice(inicio, fim)
 }
 
-test("o caminho do componente ativo NUNCA sai sem adicionar à biblioteca", () => {
+test("integração LIGADA sem chave: avisa e NÃO adiciona nada", () => {
   const bloco = blocoAdicionar()
+  const guarda = "if (!cfg?.hubcap_api_key) {"
+  assert.ok(bloco.includes(guarda), "o caminho com integração ligada precisa olhar a chave")
+
+  // O trecho da guarda vai até o manifesto: não pode existir biblioteca ali.
+  const inicio = bloco.indexOf(guarda)
+  const fim = bloco.indexOf("const info = await obterInfo(", inicio)
+  assert.ok(fim > inicio, "depois da guarda vem o manifesto")
+  const trecho = bloco.slice(inicio, fim)
+  assert.match(trecho, /return\b/, "a guarda tem que PARAR o fluxo")
   assert.ok(
-    bloco.includes("storeAddToLibrary"),
-    "sem manifesto / injeção falhando, o jogo tem que entrar na biblioteca mesmo assim",
+    !trecho.includes("storeAddToLibrary"),
+    "sem chave o jogo não pode entrar na biblioteca (era o que parecia sucesso)",
   )
-  assert.ok(
-    !bloco.includes("return null"),
-    "o aborto silencioso (return null) não pode voltar: era ele que deixava o jogo em lugar nenhum",
-  )
+  assert.ok(trecho.includes('"sem_chave"'), "o aviso é o do caso sem chave")
 })
 
-test("a injeção na Steam continua sendo tentada quando o componente está ativo", () => {
+test("integração LIGADA com chave: injeta na Steam e cai para a biblioteca só se falhar", () => {
   const bloco = blocoAdicionar()
-  assert.ok(bloco.includes("storeAddToSteam"), "com manifesto, injeta na Steam")
+  assert.ok(bloco.includes("storeAddToSteam"), "com chave, tenta injetar")
   assert.ok(bloco.includes("obterInfo"), "e é o manifesto que decide o caminho")
+  assert.ok(
+    bloco.includes("paraBiblioteca = () =>") && bloco.includes("storeAddToLibrary"),
+    "o helper é quem cria o stub na biblioteca",
+  )
+  const posInjecao = bloco.indexOf("storeAddToSteam")
+  const posFallback = bloco.indexOf("await paraBiblioteca()", posInjecao)
+  assert.ok(
+    posFallback > posInjecao,
+    "quando a injeção falha, o fallback da biblioteca vem DEPOIS da tentativa",
+  )
 })
 
-test("quando não dá para injetar, a pessoa recebe o MOTIVO (e não um aviso genérico)", () => {
+test("integração DESLIGADA: só biblioteca", () => {
   const bloco = blocoAdicionar()
-  assert.ok(bloco.includes('injecao: "sem_manifesto"'), "marca que faltou manifesto")
-  assert.ok(bloco.includes('injecao: "falhou"'), "marca quando a injeção falhou")
-  assert.ok(/motivo/.test(bloco), "o motivo viaja junto para a mensagem")
-})
-
-test("as mensagens usadas existem nos três catálogos", () => {
-  const chaves = [
-    "store.adicionado_biblioteca",
-    "store.adicionado_sem_injecao",
-    "store.adicionado_sem_manifesto",
-    "store.falha_adicionar",
-    "store.falha_adicionar_detalhe",
-    "store.sem_manifesto_motivo",
-  ]
-  for (const lang of ["pt-BR", "en-US", "es-ES"]) {
-    const d = JSON.parse(fs.readFileSync(path.join(root, "src", "i18n", `${lang}.json`), "utf8"))
-    for (const k of chaves) {
-      assert.ok(typeof d[k] === "string" && d[k].length > 0, `${lang} sem ${k}`)
-    }
-  }
+  const posSls = bloco.indexOf("if (slsAtivo) {")
+  const posElse = bloco.indexOf("} else {", posSls)
+  const ultimoTrecho = bloco.slice(posElse)
+  assert.ok(ultimoTrecho.includes("paraBiblioteca"), "sem integração, adiciona à biblioteca")
+  assert.ok(
+    !ultimoTrecho.includes("storeAddToSteam"),
+    "sem integração, nada de injeção na Steam",
+  )
 })
 
 test("a chave do Hubcap não vai na URL (só no header)", () => {
-  const fonteSteam = fs.readFileSync(path.join(root, "electron", "steamstore.js"), "utf8")
+  const fonteSteam = ler("electron/steamstore.js")
   const inicio = fonteSteam.indexOf("const PROVEDORES = [")
   const fim = fonteSteam.indexOf("]", inicio)
   const bloco = fonteSteam.slice(inicio, fim)
-  // A chave ia em `?api_key=` e ficava registrada em log de proxy/CDN. O certo é
-  // só o header `Authorization`, que o `headers: (cfg) =>` do provedor monta.
   const linhasUrl = bloco.split("\n").filter((l) => l.trim().startsWith("url:"))
   for (const l of linhasUrl) {
     assert.ok(!l.includes("api_key"), `chave na URL de novo: ${l.trim()}`)
   }
   assert.ok(bloco.includes('nome: "Hubcap"'), "provedor renomeado para Hubcap (ex-Morrenus)")
+})
+
+test("as mensagens do bloqueio existem nos três catálogos", () => {
+  const chaves = [
+    "store.sem_chave_hubcap",
+    "store.adicionado_sem_chave",
+    "ps5.sem_manifesto.sem_chave",
+    "ps5.sem_manifesto.adicionado",
+  ]
+  for (const lang of ["pt-BR", "en-US", "es-ES"]) {
+    const d = JSON.parse(ler(`src/i18n/${lang}.json`))
+    for (const k of chaves) {
+      assert.ok(typeof d[k] === "string" && d[k].length > 20, `${lang} sem ${k}`)
+    }
+  }
 })
