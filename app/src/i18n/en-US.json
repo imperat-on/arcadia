@@ -1,4 +1,12 @@
 {
+  "console.friends": "Friends",
+  "console.filter.all": "All games",
+  "console.filter.favorites": "Favorites",
+  "console.filter.collections": "Collections",
+  "console.options": "Game options",
+  "console.unlocked": "Unlocked",
+  "console.locked": "Locked",
+
   "accessibility.ajuda_readme": "Help (README)",
   "accessibility.aviso_protondb": "Notice: compatibility (ProtonDB)",
   "accessibility.blocos_coloridos": "Show all game tiles colored",

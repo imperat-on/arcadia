@@ -2,7 +2,7 @@
 
 const test = require("node:test")
 const assert = require("node:assert/strict")
-const { isRovingKey, nextRovingIndex } = require("../src/components/ps5-launcher/rovingTab.cjs")
+const { isRovingKey, nextRovingIndex } = require("../src/components/ps5-launcher/rovingTab.mjs")
 
 test("roving rail moves horizontally and clamps at the edges", () => {
   assert.equal(nextRovingIndex(2, 4, "ArrowLeft"), 1)

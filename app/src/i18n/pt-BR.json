@@ -1,4 +1,12 @@
 {
+  "console.friends": "Amigos",
+  "console.filter.all": "Todos",
+  "console.filter.favorites": "Favoritos",
+  "console.filter.collections": "Coleções",
+  "console.options": "Opções do jogo",
+  "console.unlocked": "Desbloqueada",
+  "console.locked": "Bloqueada",
+
   "accessibility.ajuda_readme": "Ajuda (README)",
   "accessibility.aviso_protondb": "Aviso: compatibilidade (ProtonDB)",
   "accessibility.blocos_coloridos": "Mostrar todos os blocos de jogos coloridos",

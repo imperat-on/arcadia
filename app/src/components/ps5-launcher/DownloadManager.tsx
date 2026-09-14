@@ -22,6 +22,7 @@ export const DownloadManager = forwardRef<HTMLDivElement, DownloadManagerProps>(
       <div
         ref={ref}
         className="retro-download-shell gp-scope fixed inset-0 z-50 overflow-y-auto bg-black/95 text-white antialiased backdrop-blur-xl"
+        onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose() } }}
       >
         {/* Glow ambiente de acento no topo (assinatura da tela) */}
         <div

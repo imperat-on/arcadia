@@ -216,11 +216,36 @@ export function useGamepadNav(
   },
 ) {
   useEffect(() => {
+    if (!active || scrollOnly) return
+    const root = rootRef.current
+    if (!root) return
+    const origin = document.activeElement as HTMLElement | null
+    const trapTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !root.contains(document.activeElement)) return
+      const targets = focaveis(root, 0, 0, Infinity).map(target => target.el)
+      const first = targets[0]
+      const last = targets[targets.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    root.addEventListener("keydown", trapTab)
+    return () => {
+      root.removeEventListener("keydown", trapTab)
+      // Do not steal focus from a child overlay opening above this scope.
+      requestAnimationFrame(() => {
+        if (origin?.isConnected && !root.contains(origin) &&
+          (document.activeElement === document.body || root.contains(document.activeElement))) origin.focus({ preventScroll: true })
+      })
+    }
+  }, [active, rootRef, scrollOnly])
+
+  useEffect(() => {
     if (!active) return
     const root = rootRef.current
     if (!root) return
     const noFocusMove = Boolean(extras?.noFocusMove)
 
+    let initialFrame = 0
     // Foca o 1º elemento ao abrir.
     if (!scrollOnly && !noFocusMove) {
       // Sem poda aqui: na abertura o alvo pode estar em qualquer lugar da tela.
@@ -230,8 +255,8 @@ export function useGamepadNav(
       // quadro, e checar antes atropelaria essa restauração com o primeiro
       // elemento da tela.
       if (first) {
-        requestAnimationFrame(() => {
-          if (!root.contains(document.activeElement)) first.el.focus()
+        initialFrame = requestAnimationFrame(() => {
+          if (root.isConnected && !root.contains(document.activeElement)) first.el.focus()
         })
       }
     }
@@ -496,6 +521,7 @@ export function useGamepadNav(
     schedule()
     return () => {
       running = false
+      cancelAnimationFrame(initialFrame)
       cancelAnimationFrame(raf)
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }

@@ -5,6 +5,8 @@ import type { NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import { userLocale } from "../../i18n/locale"
 import type { Game } from "./types"
+import { horasCombinadas, useSteamHoras } from "../steamHoras"
+import { useFriends } from "../account/FriendsContext"
 
 type OverviewInfo = {
   short_description?: string
@@ -46,6 +48,7 @@ interface GameOverviewProps {
   onLaunch: (game: Game) => void
   onOpenNews: (url: string) => void
   onMore?: () => void
+  onOpenFriends?: () => void
 }
 
 type OverviewGame = Game & {
@@ -96,10 +99,13 @@ function timeSince(date: string): string {
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
-  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews, onMore },
+  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews, onMore, onOpenFriends },
   ref,
 ) {
   const { t } = useI18n()
+  const { data: friendsData } = useFriends()
+  const steamHoras = useSteamHoras()
+  const minutes = horasCombinadas(steamHoras, [game.id, game.appid], game.playtime_minutes)
   const mediaGame = game as OverviewGame
   const [meta, setMeta] = useState<OverviewInfo | null>(null)
   const [trailer, setTrailer] = useState<string | null>(null)
@@ -125,7 +131,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   useEffect(() => {
     setReady(false)
     if (!visible) return
-    const timer = window.setTimeout(() => setReady(true), 1050)
+    const timer = window.setTimeout(() => setReady(true), 150)
     return () => window.clearTimeout(timer)
   }, [game.id, visible])
 
@@ -178,52 +184,52 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
   useEffect(() => {
     let live = true
+    let request = 0
     setAchievements(null)
     setRetroProgress(null)
     if (!ready) return () => { live = false }
     const api = window.launcherAPI
-    if (!api)
-      return () => {
-        live = false
-      }
-
-    if (game.retro && game.systemId && api.retroachievementsGameProgress) {
-      api
-        .retroachievementsGameProgress(game.title, game.systemId)
-        .then((result) => {
-          if (live && result?.game) {
-            setRetroProgress({
-              unlocked: result.game.numAwardedToUser || 0,
-              total: result.game.numAchievements || 0,
-            })
-          }
-        })
-        .catch(() => {})
-      return () => {
-        live = false
+    if (!api) { setAchievements([]); return }
+    const appid = String(game.appid || game.id).replace(/^steam:/, "")
+    const refresh = async () => {
+      const current = ++request
+      try {
+        if (game.retro && game.systemId && api.retroachievementsGameProgress) {
+          const result = await api.retroachievementsGameProgress(game.title, game.systemId)
+          if (!live || current !== request) return
+          setAchievements((result?.achievements || []).map(item => ({ title: item.title, desc: item.description, icon: item.badgeUrl, icongray: item.badgeLockedUrl, achieved: item.unlocked })))
+          setRetroProgress(result?.game ? { unlocked: result.game.numAwardedToUser || 0, total: result.game.numAchievements || 0 } : null)
+        } else if (game.launcher === "steam") {
+          const items = await api.achievementsGet(appid)
+          if (live && current === request) setAchievements(Array.isArray(items) ? items : [])
+        } else if (live) setAchievements([])
+      } catch {
+        // A transient refresh failure must not erase the last known progress.
+        if (live && current === request) setAchievements(items => items ?? [])
       }
     }
-
-    if (game.launcher !== "steam") {
-      setAchievements([])
-      return () => {
-        live = false
-      }
-    }
-
-    const appid = String(game.id).replace(/^steam:/, "")
-    api
-      .achievementsGet(appid)
-      .then((items) => {
-        if (live) setAchievements(Array.isArray(items) ? items : [])
-      })
-      .catch(() => {
-        if (live) setAchievements([])
-      })
+    void refresh()
+    // The same IPC as the desktop panel; re-read the authoritative list to
+    // preserve schema aliases instead of matching duplicate display titles.
+    const offUnlock = api.onAchievementUnlocked?.(payload => {
+      if (!game.retro && payload.appid === appid) void refresh()
+    })
+    const offLibrary = api.onLibraryChanged?.(() => { void refresh() })
+    const offSync = api.onSyncState?.(() => { void refresh() })
+    // RA has no unlock event in the launcher. Returning from the emulator
+    // queries the service again, as does reopening the hub.
+    const offFocus = api.onAppFocus?.(focused => { if (focused) void refresh() })
+    const onFocus = () => { void refresh() }
+    if (!api.onAppFocus) window.addEventListener("focus", onFocus)
     return () => {
       live = false
+      offUnlock?.()
+      offLibrary?.()
+      offSync?.()
+      offFocus?.()
+      window.removeEventListener("focus", onFocus)
     }
-  }, [game.id, game.launcher, game.retro, game.systemId, game.title, ready])
+  }, [game.id, game.appid, game.launcher, game.retro, game.systemId, game.title, ready])
 
   useEffect(() => {
     setMedia("hero")
@@ -310,19 +316,27 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
       role="dialog"
       aria-modal="true"
       aria-label={`${t("gameoverview.detalhes")}: ${game.title}`}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return
+        const targets = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),video[controls],[tabindex="0"]')).filter(el => el.getBoundingClientRect().width > 0)
+        const first = targets[0]
+        const last = targets[targets.length - 1]
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+      }}
     >
       <div className="ps5-overview-bg" style={{ backgroundImage: backdrop ? `url(${backdrop})` : undefined }} />
       <div className="ps5-overview-wash" />
       <header className="ps5-overview-top">
-        <button ref={backRef} type="button" onClick={onClose} className="ps5-overview-back sr-only">{t("gameoverview.controle.voltar")}</button>
+        <button ref={backRef} type="button" onClick={onClose} className="ps5-overview-back">{t("gameoverview.controle.voltar")}</button>
         <div className="ps5-overview-game"><div className="ps5-overview-icon">{cover && <img src={cover} alt="" />}</div><span>{game.title}</span></div>
         <time className="ps5-overview-time-top">{overviewTime}</time>
       </header>
-      <main key={game.id} className="ps5-overview-main">
+      <main key={game.id} className="ps5-overview-main" data-gamepad-scroll>
         <section className="ps5-overview-activity">
           <span className="ps5-overview-badge">{tags[0] || String(platform)}</span>
           {game.logo ? <img src={game.logo} alt={game.title} className="ps5-overview-logo" /> : <h1>{game.title}</h1>}
-          <p>{game.playtime_minutes ? t("gameoverview.continuar", { tempo: formatPlaytime(game.playtime_minutes) }) : description}</p>
+          <p>{minutes ? t("gameoverview.continuar", { tempo: formatPlaytime(minutes) }) : description}</p>
           <div className="ps5-overview-actions">
             <button
               type="button"
@@ -348,7 +362,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     ? t("hero.instalar")
                     : t("gameoverview.jogar_agora")}
             </button>
-            <button type="button" onClick={() => trailer ? setMedia("trailer") : onMore?.()} className="ps5-overview-more" aria-label="Mais opções">•••</button>
+            <button type="button" onClick={onMore} className="ps5-overview-more" aria-label={t("console.options")}>•••</button>
             {trailer && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
           </div>
         </section>
@@ -358,15 +372,21 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           <small>{release} · {developer}</small>
         </aside>
         <div className="ps5-overview-stats">
-          <section className="ps5-overview-progress"><span>◔ {t("gameoverview.progresso")}</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? `${unlocked}/${total} conquistas` : "Sem conquistas disponíveis"}</small></section>
-          <section className="ps5-overview-time">◷ {game.playtime_minutes ? t("gameoverview.jogado", { tempo: formatPlaytime(game.playtime_minutes) }) : t("gameoverview.nao_jogado")}</section>
+          <section className="ps5-overview-progress"><span>◔ {t("gameoverview.progresso")}</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? t("gameoverview.desbloqueadas", { done: unlocked, total }) : t("conquistas.vazio")}</small></section>
+          <section className="ps5-overview-time">◷ {minutes ? t("gameoverview.jogado", { tempo: formatPlaytime(minutes) }) : t("gameoverview.nao_jogado")}</section>
         </div>
-        <section className="ps5-overview-cards">
-          <article><span>🏆</span><b>{t("conquistas.titulo")}</b><small>{total ? t("gameoverview.desbloqueadas", { done: unlocked, total }) : t("gameoverview.sem_dados")}</small></article>
-          <article><span>♟</span><b>{t("gameoverview.amigos_jogam")}</b><small>{t("gameoverview.nenhum_amigo")}</small></article>
-          <article><span>✦</span><b>Ajuda do jogo</b><small>{relatedNews[0]?.title || "Dicas, notícias e informações"}</small></article>
-          {mediaItems.slice(0, 1).map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} className="ps5-overview-media">{showingTrailer && trailer ? <video ref={videoRef} src={trailer} autoPlay loop muted playsInline /> : <img src={item.src} alt="" />}<span>{item.label}</span></button>)}
+        <section className="console-achievements">
+          <h2>{t("conquistas.titulo")} <small>{total ? `${unlocked} / ${total}` : ""}</small></h2>
+          {achievements === null ? <p role="status">{t("common.carregando")}</p> : achievements.length ? <div className="console-achievement-grid">{achievements.map((item, index) => <article key={`${item.title}-${index}`} tabIndex={0} data-unlocked={Boolean(item.achieved)}>
+            {(item.icon || item.icongray) && <img src={item.achieved ? item.icon : item.icongray || item.icon} alt="" loading="lazy" />}
+            <div><h3>{item.title}</h3><p>{item.desc}</p><small>{t(item.achieved ? "console.unlocked" : "console.locked")}</small></div>
+          </article>)}</div> : <p>{t("conquistas.vazio")}</p>}
         </section>
+        {mediaItems.length > 0 && <section className="console-media"><h2>{t("gameoverview.trailer")}</h2><div>{mediaItems.map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} aria-label={item.label}><img src={item.src} alt=""/><span>{item.label}</span></button>)}</div>{media !== "hero" && (showingTrailer && trailer ? <video ref={videoRef} src={trailer} controls autoPlay muted playsInline /> : <img className="console-media-preview" src={preview} alt={game.title} />)}</section>}
+        <section className="console-related"><h2>{t("gameoverview.detalhes")}</h2><p>{description}</p><p>{[developer, publisher, platform, release, ...tags].filter(Boolean).join(" · ")}</p></section>
+        <section className="console-related"><h2>{t("console.friends")}</h2><button type="button" onClick={onOpenFriends}>{friendsData?.friends?.length ? friendsData.friends.map(friend => friend.display_name || friend.username).join(" · ") : t("gameoverview.nenhum_amigo")}</button></section>
+        {relatedNews.length > 0 && <section className="console-related"><h2>{t("topbar.noticias")}</h2>{relatedNews.map(item => <button key={item.url} type="button" onClick={() => onOpenNews(item.url)}>{item.title}</button>)}</section>}
+
       </main>
     </div>
   )
