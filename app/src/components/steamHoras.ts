@@ -13,6 +13,18 @@ import { useEffect, useState } from "react"
 let cache: Record<string, number> = {}
 let emVoo: Promise<Record<string, number>> | null = null
 
+/**
+ * A chave das horas na Steam é o NÚMERO do appid. O id do jogo na biblioteca do
+ * Arcadia vem como `steam:990080` (e há ids de outras lojas, tipo `epic:...`), então
+ * comparar a string crua nunca casa — era por isso que as capas mostravam 0min com
+ * as horas certas chegando (44 jogos lidos).
+ */
+export function chaveAppid(appid: unknown): string {
+  const s = String(appid ?? "").trim()
+  const m = /(\d{2,})/.exec(s)
+  return m ? m[1] : s
+}
+
 export async function carregarSteamHoras(): Promise<Record<string, number>> {
   if (emVoo) return emVoo
   emVoo = (async () => {
@@ -27,6 +39,17 @@ export async function carregarSteamHoras(): Promise<Record<string, number>> {
     return cache
   })()
   return emVoo
+}
+
+/** Minutos da Steam para um appid/id de jogo, ou 0. */
+export function minutosDaSteam(
+  steam: Record<string, number> | null | undefined,
+  appid: unknown,
+): number {
+  const mapa = steam || {}
+  const exato = Number(mapa[chaveAppid(appid)] || 0)
+  if (exato > 0) return exato
+  return 0
 }
 
 export function useSteamHoras(): Record<string, number> {
@@ -55,6 +78,6 @@ export function horasCombinadas(
   appid: unknown,
   minutosArcadia?: number,
 ): number {
-  const daSteam = Number((steam || {})[String(appid)] || 0)
+  const daSteam = minutosDaSteam(steam, appid)
   return daSteam > 0 ? daSteam : Number(minutosArcadia) || 0
 }
