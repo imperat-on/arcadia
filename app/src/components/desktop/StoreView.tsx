@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStoreActions, StoreGamePage, type ItemLoja, LinhaLoja, useI18n } from "./storeShared"
 import { GameSettingsDialog } from "./GameSettingsDialog"
-import { AvisoSemChaveHubcap } from "./AvisoSemChaveHubcap"
 import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { EscolhaDownloadDialog } from "../DepotPicker"
 import type { Game } from "../ps5-launcher/types"
@@ -581,7 +580,6 @@ export function StoreView({
       <StoreTabs aba={aba} onAba={setAba} t={t} />
       <h1 className="ui-title mb-1">{t("store.titulo")}</h1>
       <p className="ui-subtitle mb-6">{t("store.descricao")}</p>
-      <AvisoSemChaveHubcap ativo={slsAtivo} />
 
       <div className="desktop-fluid-search mb-4 flex max-w-[860px] gap-2">
         <div ref={caixaRef} className="relative flex-1">
