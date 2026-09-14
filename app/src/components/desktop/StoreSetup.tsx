@@ -71,6 +71,7 @@ export function StoreSetup() {
               {t("common.salvar")}
             </button>
           </div>
+          <p className="mt-1.5 text-[11px] text-white/35">{t("store_setup.hubcap_dica")}</p>
         </div>
 
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
