@@ -1302,10 +1302,10 @@ export function PS5Launcher() {
       }}
     >
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
-      {/* Tela de boot (vídeo em ~/.local/share/arcadia/boot.mp4) */}
+      {/* Tela de boot (boot.mp4 chega por IPC boot:video e é montado como
+          blob URL — um src file:// direto era bloqueado em http://). */}
       {boot && (
         <BootScreen
-          src={`file://${String(window.launcherPaths?.dataDir || "").replace(/\\/g, "/")}/boot.mp4`}
           saindo={bootSaindo}
           onEnded={() => {
             bootVideoFim.current = true

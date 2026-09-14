@@ -2379,6 +2379,10 @@ select:disabled {
 .retro-big-picture .ps5-time { font-size: 18px; font-weight: 400; }
 .console-download-action { width:44px; height:44px; border-radius:50%; background:#ffffff14; font-size:26px; }
 .console-filters { position:absolute; top:90px; display:flex; gap:10px; }
+/* O Big Picture não expõe os subfiltros: a aba Jogos sempre mostra toda a
+   biblioteca (filtro interno continua no padrão "all"). display:none também
+   tira os botões da ordem de foco/gamepad — nada trava na fileira removida. */
+.retro-big-picture .console-filters { display:none !important; }
 .console-filters button { padding:6px 16px; border-radius:24px; font-size:14px; color:#ffffffa8; }
 .console-filters button[aria-pressed=true] { color:white; background:#ffffff21; }
 /* O trilho reserva espaço para o NOME (até 2 linhas) abaixo da capa: a altura

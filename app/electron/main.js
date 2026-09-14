@@ -3936,6 +3936,21 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e.message || e) }
     }
   })
+  // Vídeo de boot: entrega os bytes do asset do pacote (ou a cópia atualizada
+  // em DATA_DIR) para o renderer montar um blob URL. O src file:// era
+  // bloqueado quando a página roda em http:// (dev/preview) e vivia preso a um
+  // arquivo externo; o blob funciona nos dois contextos.
+  ipcMain.handle("boot:video", () => {
+    for (const arquivo of [BOOT_VIDEO, BUNDLED_BOOT_VIDEO]) {
+      try {
+        const data = fs.readFileSync(arquivo)
+        if (data.length) return { ok: true, mime: "video/mp4", data }
+      } catch {
+        /* tenta a próxima origem */
+      }
+    }
+    return { ok: false }
+  })
   ipcMain.handle("config:set", (_e, cfg) => {
       // SEGURANCA (auditoria A-06): o renderer recebe as chaves MASCARADAS no
       // config:get; se ele devolver a máscara de volta (form inalterado), mantém
