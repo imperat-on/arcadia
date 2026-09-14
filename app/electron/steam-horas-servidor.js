@@ -83,10 +83,31 @@ function somarPorAppid(mapa) {
 }
 
 /**
+ * Junta as leituras de VÁRIAS contas locais num só mapa `appid -> { steamid: min }`.
+ * Cada conta entra com o seu próprio steamid, então elas somam — e a mesma conta
+ * vinda do servidor depois é resolvida pelo "maior vence" em mesclarHoras.
+ *
+ * @param {Array<{horas: Record<string, number>, steamid: string}>} leituras
+ */
+function locaisDeContas(leituras) {
+  const saida = {}
+  for (const leitura of Array.isArray(leituras) ? leituras : []) {
+    const porConta = locaisPorConta(leitura?.horas, leitura?.steamid)
+    for (const [appid, contas] of Object.entries(porConta)) {
+      if (!saida[appid]) saida[appid] = {}
+      for (const [steamid, minutos] of Object.entries(contas)) {
+        saida[appid][steamid] = Math.max(saida[appid][steamid] || 0, minutos)
+      }
+    }
+  }
+  return saida
+}
+
+/**
  * Itens para enviar ao servidor: o TOTAL de cada jogo nesta conta (absoluto, não
  * delta) — o servidor guarda o maior por (jogo, conta).
  */
-function itensParaEnviar(locais, steamid) {
+function itensParaEnviar(locais, steamid, persona = "") {
   const conta = String(steamid || "")
   if (!conta) return []
   const itens = []
@@ -94,7 +115,7 @@ function itensParaEnviar(locais, steamid) {
     const chave = chaveAppid(appid)
     const valor = Number(minutos) || 0
     if (!chave || valor <= 0) continue
-    itens.push({ appid: chave, steamid: conta, minutes: valor })
+    itens.push({ appid: chave, steamid: conta, minutes: valor, persona: String(persona || "") })
   }
   return itens
 }
@@ -102,6 +123,7 @@ function itensParaEnviar(locais, steamid) {
 module.exports = {
   chaveAppid,
   locaisPorConta,
+  locaisDeContas,
   mesclarHoras,
   somarPorAppid,
   itensParaEnviar,

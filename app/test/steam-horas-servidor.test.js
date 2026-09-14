@@ -13,6 +13,7 @@ const path = require("node:path")
 const {
   chaveAppid,
   locaisPorConta,
+  locaisDeContas,
   mesclarHoras,
   somarPorAppid,
   itensParaEnviar,
@@ -20,6 +21,25 @@ const {
 
 const CONTA_A = "76561197960265728"
 const CONTA_B = "76561198000004541"
+
+test("trocar de conta não apaga nada: todas as contas locais entram juntas", () => {
+  // O caso real: a conta antiga continuava com o arquivo em userdata/, mas a leitura
+  // só olhava a vinculada — e as horas dela desapareciam da tela.
+  const leituras = [
+    { steamid: CONTA_A, persona: "NEGO EJACULADO", horas: { "steam:990080": 4907, "steam:220": 120 } },
+    { steamid: CONTA_B, persona: "Kk", horas: { "steam:990080": 1800, "steam:730": 5000 } },
+  ]
+  const somado = somarPorAppid(mesclarHoras([], locaisDeContas(leituras)))
+  assert.strictEqual(somado[990080], 6707, "81h47 + 30h das duas contas")
+  assert.strictEqual(somado[220], 120, "jogo só da conta antiga continua aparecendo")
+  assert.strictEqual(somado[730], 5000, "jogo só da conta nova entra")
+})
+
+test("a persona vai junto no envio (o servidor guarda o nome da conta)", () => {
+  const [item] = itensParaEnviar({ "steam:990080": 4907 }, CONTA_A, "NEGO EJACULADO")
+  assert.strictEqual(item.persona, "NEGO EJACULADO")
+  assert.strictEqual(item.steamid, CONTA_A)
+})
 
 test("a chave é o número do appid, venha ele do id da biblioteca ou da loja", () => {
   assert.strictEqual(chaveAppid("steam:990080"), "990080")
@@ -72,7 +92,7 @@ test("minutos zerados ou negativos não criam linha", () => {
 test("o envio é o TOTAL da conta (absoluto), com a chave numérica", () => {
   const itens = itensParaEnviar({ "steam:990080": 4907, "steam:400": 0 }, CONTA_A)
   assert.deepStrictEqual(itens, [
-    { appid: "990080", steamid: CONTA_A, minutes: 4907 },
+    { appid: "990080", steamid: CONTA_A, minutes: 4907, persona: "" },
   ])
   assert.deepStrictEqual(itensParaEnviar({ "steam:990080": 10 }, ""), [], "sem conta, nada sobe")
 })

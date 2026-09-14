@@ -2222,27 +2222,40 @@ function preencherArte(games) {
 function horasSomadasDaSteam() {
   try {
     const conta = require("./steam-account")
-    const { horas, persona, steamid } = conta.lerHoras(caminhoConta, require("./debug").log)
     const hs = require("./steam-horas-servidor")
-    const locais = hs.locaisPorConta(horas, steamid)
+    const log = require("./debug").log
+    // TODAS as contas Steam desta máquina, não só a vinculada: quem troca de conta
+    // não pode ver as horas da conta anterior sumirem da tela.
+    const leituras = conta.lerHorasDeTodasAsContas(log)
+    const locais = hs.locaisDeContas(leituras)
     const doServidor = require("./supabase/biblioteca").linhasSteamDoServidor()
-    return { ok: true, horas: hs.somarPorAppid(hs.mesclarHoras(doServidor, locais)), persona, steamid }
+    const horas = hs.somarPorAppid(hs.mesclarHoras(doServidor, locais))
+    // O rótulo da tela continua sendo a conta vinculada.
+    const vinculada = conta.lerHoras(caminhoConta, log)
+    return { ok: true, horas, persona: vinculada.persona, steamid: vinculada.steamid }
   } catch (e) {
     return { ok: false, horas: {}, persona: "", steamid: "", motivo: String(e) }
   }
 }
 
 // Sobe os TOTAIS por conta Steam (absoluto, não delta): o servidor guarda o maior
-// por (jogo, conta) e a leitura soma as contas. Sem conta vinculada não há o que
-// subir. É o mesmo desenho das conquistas, que já se fundem em uma só.
+// por (jogo, conta) e a leitura soma as contas. Sobe de TODAS as contas locais, não
+// só da vinculada — assim o tempo da conta antiga fica no servidor e acompanha você.
 async function enviarHorasDaSteam() {
   try {
-    const { horas, steamid } = require("./steam-account").lerHoras(caminhoConta, require("./debug").log)
-    const itens = require("./steam-horas-servidor").itensParaEnviar(horas, steamid)
+    const conta = require("./steam-account")
+    const hs = require("./steam-horas-servidor")
+    const log = require("./debug").log
+    const leituras = conta.lerHorasDeTodasAsContas(log)
+    const itens = []
+    for (const leitura of leituras) {
+      itens.push(...hs.itensParaEnviar(leitura.horas, leitura.steamid, leitura.persona))
+    }
     if (!itens.length) return
     const { getClient } = require("./supabase/client")
     const { error } = await getClient().rpc("push_steam_playtime", { p_items: itens })
-    if (error) require("./debug").log("steam-horas/push", error.message)
+    if (error) log("steam-horas/push", error.message)
+    else log("steam-horas/push", `${itens.length} item(ns) de ${leituras.length} conta(s)`)
   } catch (e) {
     require("./debug").log("steam-horas/push", String(e))
   }

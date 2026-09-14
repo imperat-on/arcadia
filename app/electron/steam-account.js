@@ -227,6 +227,46 @@ function lerHoras(caminhoConta, log = () => {}) {
   return { horas: {}, persona: s.vinculo ? s.vinculo.persona : "", steamid: alvo }
 }
 
+/** Horas de UMA conta Steam, pelo steamid (não depende de vínculo nenhum). */
+function lerHorasDaConta(steamid, persona = "") {
+  const alvo = String(steamid || "")
+  if (!alvo) return { horas: {}, persona, steamid: "" }
+  const contaId = String(BigInt(alvo) - 76561197960265728n)
+  for (const raiz of raizesSteam()) {
+    const txt = lerArquivo(path.join(raiz, "userdata", contaId, "config", "localconfig.vdf"))
+    if (!txt) continue
+    const horas = horasDoLocalConfig(txt)
+    if (Object.keys(horas).length) return { horas, persona, steamid: alvo }
+  }
+  return { horas: {}, persona, steamid: alvo }
+}
+
+/**
+ * Horas de TODAS as contas Steam conhecidas nesta máquina.
+ *
+ * Existe para uma coisa só: quem troca de conta não pode PERDER as horas da conta
+ * anterior. Cada conta tem a sua pasta em `userdata/`, então dá para ler todas — e o
+ * servidor guarda o maior valor por (jogo, conta), de modo que o que já subiu de
+ * outra máquina também entra na soma.
+ */
+function lerHorasDeTodasAsContas(log = () => {}) {
+  const leituras = []
+  for (const c of contasSteam()) {
+    const leitura = lerHorasDaConta(c.steamid, c.persona)
+    if (Object.keys(leitura.horas).length) leituras.push(leitura)
+  }
+  if (!leituras.length) {
+    // Sem lista de contas (loginusers recém-mexido): cai na conta que está ativa.
+    const ativa = contaSteamAtiva()
+    if (ativa) {
+      const leitura = lerHorasDaConta(ativa.steamid, ativa.persona)
+      if (Object.keys(leitura.horas).length) leituras.push(leitura)
+    }
+  }
+  log("steam-account/horas", `${leituras.length} conta(s) com horas locais`)
+  return leituras
+}
+
 module.exports = {
   raizesSteam,
   contaSteamAtiva,
@@ -239,5 +279,7 @@ module.exports = {
   lerVinculo,
   gravarVinculo,
   lerHoras,
+  lerHorasDaConta,
+  lerHorasDeTodasAsContas,
   VINCULO,
 }
