@@ -342,35 +342,46 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
 
   // Add muda conforme a integração local: ativa = registra na Steam usando o
   // manifesto; desativada = cria só o stub na biblioteca do Arcadia.
+  //
+  // O botão se chama "adicionar à biblioteca" e NÃO pode terminar sem nada: sem
+  // manifesto (ou com a injeção falhando), o jogo entra na biblioteca de todo
+  // jeito e a pessoa recebe o motivo. Antes o caminho com o componente ativo
+  // abortava no `return null` e o jogo não aparecia em lugar nenhum — nem na
+  // biblioteca, nem na Steam.
   const adicionar = useCallback(
     async (jogo: JogoLoja) => {
       const meu = ++pedido.current
       setEscolhendo(null)
       setBusy(jogo.appid)
+      const paraBiblioteca = () =>
+        window.launcherAPI?.storeAddToLibrary({
+          appid: jogo.appid,
+          title: jogo.title,
+          cover: jogo.capa || jogo.cover,
+          hero: jogo.hero,
+          heroi: jogo.heroi,
+        })
       try {
-        const r = slsAtivo
-          ? await (async () => {
-              const info = await obterInfo(jogo.appid)
-              if (!info?.ok) {
-                const motivo = info?.error || "Sem manifesto para este jogo."
-                if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
-                else setToast(motivo)
-                return null
-              }
-              return window.launcherAPI?.storeAddToSteam({
-                appid: jogo.appid,
-                title: jogo.title,
-                token: info.token,
-                dlcs: info.dlcs,
-              })
-            })()
-          : await window.launcherAPI?.storeAddToLibrary({
+        let r
+        if (slsAtivo) {
+          const info = await obterInfo(jogo.appid)
+          if (info?.ok) {
+            const injetado = await window.launcherAPI?.storeAddToSteam({
               appid: jogo.appid,
               title: jogo.title,
-              cover: jogo.capa || jogo.cover,
-              hero: jogo.hero,
-              heroi: jogo.heroi,
+              token: info.token,
+              dlcs: info.dlcs,
             })
+            if (injetado?.ok) r = injetado
+            else r = { ...(await paraBiblioteca()), injecao: "falhou", motivo: injetado?.error || "" }
+          } else {
+            const motivo = info?.error || _t("store.sem_manifesto_motivo")
+            if (semManifestoRef.current) semManifestoRef.current(jogo, motivo)
+            r = { ...(await paraBiblioteca()), injecao: "sem_manifesto", motivo }
+          }
+        } else {
+          r = await paraBiblioteca()
+        }
         if (meu !== pedido.current || !r) return
         if (r?.ok) {
           setJaAdicionados((prev) => new Set(prev).add(jogo.appid))
@@ -383,13 +394,17 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
         const faltaPlugin = "plugin" in r && r.plugin
         setToast(
           faltaPlugin
-            ? "Configure uma integração local em Plugins para habilitar estas ações."
-            : r?.ok
-              ? `"${jogo.title}" adicionado à biblioteca.`
-              : r?.error || "Falha ao adicionar",
+            ? _t("store.requer_plugin", { plugin: String(r.plugin) })
+            : r?.injecao === "sem_manifesto"
+              ? _t("store.adicionado_sem_manifesto", { titulo: jogo.title, motivo: String(r.motivo || "") })
+              : r?.injecao === "falhou"
+                ? _t("store.adicionado_sem_injecao", { titulo: jogo.title, motivo: String(r.motivo || "") })
+                : r?.ok
+                  ? _t("store.adicionado_biblioteca", { titulo: jogo.title })
+                  : r?.error || _t("store.falha_adicionar"),
         )
       } catch (e) {
-        setToast(`Falha ao adicionar: ${e}`)
+        setToast(_t("store.falha_adicionar_detalhe", { erro: String(e) }))
       } finally {
         if (meu === pedido.current) setBusy("")
       }
