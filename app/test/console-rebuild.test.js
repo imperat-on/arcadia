@@ -18,8 +18,12 @@ test('console navigation exposes filters and downloads and respects text editing
   assert.match(bar, /onOpenDownloads/)
   assert.match(bar, /aria-pressed=\{libraryFilter===filter\}/)
   assert.match(shell, /target\?\.closest\("input, textarea, select, \[contenteditable=true\]"\)/)
-  assert.match(shell, /useGamepadNav\(overviewRef, overviewNavActive, closeOverview\)/)
-  assert.doesNotMatch(shell, /event.key === "Escape" \|\| event.key === "ArrowUp"/)
+  assert.match(shell, /useGamepadNav\(overviewRef, overviewNavActive, closeOverview, false, overviewNavExtras\)/)
+  // A seta ↑ fecha o hub pelo mesmo caminho do B/Esc (animação inversa), mas
+  // só quando o hub está no controle — não pode roubar o ↑ de um modal aberto
+  // por cima dele.
+  assert.match(shell, /event\.key === "Escape" \|\| event\.key === "ArrowUp"/)
+  assert.match(shell, /if \(!overviewNavActive\) return/)
 })
 test('console hub refreshes authoritative progress and cleans IPC subscriptions', () => {
   const source = read('components/ps5-launcher/GameOverview.tsx')

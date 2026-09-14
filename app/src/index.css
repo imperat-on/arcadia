@@ -2409,7 +2409,7 @@ select:disabled {
 .retro-big-picture .ps5-overview-game { font-size:20px; min-width:0; }
 .retro-big-picture .ps5-overview-game span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .retro-big-picture .ps5-overview-icon { width:48px; height:48px; flex-shrink:0; }
-.retro-big-picture .ps5-overview-main { height:calc(100dvh - 92px); overflow-y:auto; grid-template-columns:minmax(0, 1fr) minmax(200px, 26%); grid-template-rows:auto; padding:32px var(--console-gutter) 60px; gap:32px; scroll-padding:24px; }
+.retro-big-picture .ps5-overview-main { height:calc(100dvh - 92px); overflow-y:auto; grid-template-columns:minmax(0, 1fr) minmax(200px, 26%); grid-template-rows:minmax(max-content, 1fr); padding:32px var(--console-gutter) 60px; gap:32px; scroll-padding:24px; }
 .retro-big-picture .ps5-overview-main > * { animation:console-reveal 360ms var(--console-ease) both; animation-delay:0ms; }
 .retro-big-picture .ps5-overview-activity { min-height:260px; }
 .retro-big-picture .ps5-overview-activity p { font-size:18px; }

@@ -697,7 +697,11 @@ export function PS5Launcher() {
     !trailerPickGame &&
     !showDownloads && !instalarGame && !semManifesto && !escolhendoLaunch &&
     !acoesLoja.escolhendo && !acoesLoja.busy && !atualizacao.info
-  useGamepadNav(overviewRef, overviewNavActive, closeOverview)
+  // A seta ↑ fecha o hub com a MESMA animação inversa do ↓ que o abre: o
+  // `onUp` só troca o gesto, o caminho de saída continua sendo o closeOverview
+  // (classe `is-closing`), compartilhado com B/voltar/Esc.
+  const overviewNavExtras = useMemo(() => ({ onUp: closeOverview }), [closeOverview])
+  useGamepadNav(overviewRef, overviewNavActive, closeOverview, false, overviewNavExtras)
 
   // Navegação por controle na seleção de perfil (só depois do boot sair).
   useGamepadNav(perfilRef, perfilGate && !boot && appFocused && !gameRunning)
@@ -731,12 +735,16 @@ export function PS5Launcher() {
     setSelectedIndex((i) => Math.min(i, Math.max(0, viewGames.length - 1)))
   }, [viewGames.length])
 
-  // Escape fecha o hub com a mesma animação do botão B.
+  // Escape fecha o hub com a mesma animação do botão B. A seta ↑ também fecha
+  // (é o gesto inverso ao ↓ que abre a tela) e usa exatamente o mesmo caminho
+  // de saída — só vale quando o hub é quem está no controle (overviewNavActive),
+  // para não roubar o ↑ de um modal aberto por cima dele.
   useEffect(() => {
     if (!overviewOpen) return
     const handleEscape = (event: KeyboardEvent) => {
       if (!appFocusedRef.current || gameRunningRef.current) return
-      if (event.key === "Escape" && overviewNavActive) {
+      if (event.key === "Escape" || event.key === "ArrowUp") {
+        if (!overviewNavActive) return
         event.preventDefault()
         closeOverview()
       }
