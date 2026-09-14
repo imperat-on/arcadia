@@ -984,7 +984,7 @@
   "stats.titulo": "Estadísticas",
   "store.adicionado_biblioteca": "\"{titulo}\" añadido a la biblioteca.",
   "store.adicionado_sem_injecao": "\"{titulo}\" se añadió a la biblioteca. La inyección en Steam falló ({motivo}).",
-  "store.adicionado_sem_manifesto": "\"{titulo}\" se añadió a la biblioteca. Sin manifiesto no se inyectó en Steam ({motivo}).",
+  "store.adicionado_sem_manifesto": "\"{titulo}\" se añadió a la biblioteca. Sin manifiesto no se inyectó en Steam ({motivo}). Para inyectarlo, consigue una clave gratis de Hubcap en hubcapmanifest.com/api-keys y pégala en Tienda → Configurar tienda.",
   "store.adicionar_biblioteca": "Añadir a la biblioteca",
   "store.adicionar_steam": "Añadir a Steam",
   "store.baixar": "Descargar",
