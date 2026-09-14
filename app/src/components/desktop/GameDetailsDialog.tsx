@@ -1,11 +1,28 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 
 export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () => void }) {
   const { t } = useI18n()
-  const horas = game.playtime_minutes != null ? Math.floor(game.playtime_minutes / 60) : null
+  // Horas da Steam: mesma regra do HorasNaSteam (Steam manda; Arcadia é o que
+  // sobra quando a Steam não tem o jogo, caso de crackeado/emulador).
+  const [minutosSteam, setMinutosSteam] = useState(0)
+  useEffect(() => {
+    let vivo = true
+    window.launcherAPI
+      ?.steamHorasDoJogo(String(game.appid))
+      .then((r) => {
+        if (vivo && r?.ok) setMinutosSteam(Number(r.minutos) || 0)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [game.appid])
+  const totalMinutos =
+    minutosSteam > 0 ? minutosSteam : Number(game.playtime_minutes) > 0 ? game.playtime_minutes! : 0
   const campos: [string, string][] = [
     [t("gameoverview.detalhes.fonte"), game.launcher],
     ...(game.genre
@@ -20,16 +37,14 @@ export function GameDetailsDialog({ game, onClose }: { game: Game; onClose: () =
     ...(game.publisher
       ? [[t("gameoverview.detalhes.publicadora"), game.publisher] as [string, string]]
       : []),
-    ...(horas != null
-      ? ([
-          [
-            t("gameoverview.detalhes.tempo_jogo"),
-            t("gameoverview.tempo.horas_minutos", {
-              h: String(horas),
-              m: String(game.playtime_minutes! % 60),
-            }),
-          ],
-        ] as [string, string][])
+    ...(totalMinutos > 0
+      ? ([[
+          t(minutosSteam > 0 ? "steam_captura.na_steam" : "gameoverview.detalhes.tempo_jogo"),
+          t("gameoverview.tempo.horas_minutos", {
+            h: String(Math.floor(totalMinutos / 60)),
+            m: String(totalMinutos % 60),
+          }),
+        ]] as [string, string][])
       : []),
     ...(game.players
       ? [[t("gameoverview.detalhes.jogadores"), game.players] as [string, string]]
