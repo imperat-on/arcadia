@@ -1105,6 +1105,9 @@ const finalizarSessao = () => {
         try {
           require("./supabase/biblioteca").agendarPush()
         } catch {}
+        // As horas da STEAM sobem também (totais por conta, "maior vence" no
+        // servidor): assim o tempo de outras contas/máquinas entra na soma.
+        void enviarHorasDaSteam()
         if (win && !win.isDestroyed()) win.webContents.send("library:changed")
       }
     } catch {}
@@ -2208,6 +2211,40 @@ function preencherArte(games) {
     if (!g.icon && it.icon) g.icon = it.icon
     if (!g.cover && it.capa) g.cover = it.capa
     if (!g.hero && it.heroi) g.hero = it.heroi
+  }
+}
+
+// Horas da Steam combinadas para a TELA: soma das CONTAS (o arquivo desta máquina +
+// o que já subiu de qualquer máquina), com "maior vence" por (jogo, conta) — a mesma
+// conta nunca é contada duas vezes. Quando o jogo não existe na Steam, ele não entra
+// aqui e a tela usa o tempo medido pelo Arcadia. As duas fontes nunca somam juntas:
+// o arquivo da Steam já inclui o tempo das sessões que o app lançou.
+function horasSomadasDaSteam() {
+  try {
+    const conta = require("./steam-account")
+    const { horas, persona, steamid } = conta.lerHoras(caminhoConta, require("./debug").log)
+    const hs = require("./steam-horas-servidor")
+    const locais = hs.locaisPorConta(horas, steamid)
+    const doServidor = require("./supabase/biblioteca").linhasSteamDoServidor()
+    return { ok: true, horas: hs.somarPorAppid(hs.mesclarHoras(doServidor, locais)), persona, steamid }
+  } catch (e) {
+    return { ok: false, horas: {}, persona: "", steamid: "", motivo: String(e) }
+  }
+}
+
+// Sobe os TOTAIS por conta Steam (absoluto, não delta): o servidor guarda o maior
+// por (jogo, conta) e a leitura soma as contas. Sem conta vinculada não há o que
+// subir. É o mesmo desenho das conquistas, que já se fundem em uma só.
+async function enviarHorasDaSteam() {
+  try {
+    const { horas, steamid } = require("./steam-account").lerHoras(caminhoConta, require("./debug").log)
+    const itens = require("./steam-horas-servidor").itensParaEnviar(horas, steamid)
+    if (!itens.length) return
+    const { getClient } = require("./supabase/client")
+    const { error } = await getClient().rpc("push_steam_playtime", { p_items: itens })
+    if (error) require("./debug").log("steam-horas/push", error.message)
+  } catch (e) {
+    require("./debug").log("steam-horas/push", String(e))
   }
 }
 
@@ -4227,10 +4264,7 @@ app.whenReady().then(() => {
   // Horas da Steam (localconfig.vdf da conta vinculada/ativa da Steam).
   ipcMain.handle("steam:horasDoJogo", (_e, appid) => {
     try {
-      const { horas, persona } = require("./steam-account").lerHoras(
-        caminhoConta,
-        require("./debug").log,
-      )
+      const { horas, persona } = horasSomadasDaSteam()
       const chave = require("./steam-account").chaveAppid(appid)
       return { ok: true, minutos: Number(horas[chave] || 0), persona }
     } catch (e) {
@@ -4568,7 +4602,7 @@ app.whenReady().then(() => {
       const lib = readLibrary()
       let steam = {}
       try {
-        steam = require("./steam-account").lerHoras(caminhoConta, require("./debug").log).horas
+        steam = horasSomadasDaSteam().horas
       } catch {}
       let playMin = 0
       const chaveAppid = require("./steam-account").chaveAppid
@@ -4592,10 +4626,7 @@ app.whenReady().then(() => {
   // precisam do número por jogo e não podem fazer uma chamada cada.
   ipcMain.handle("steam:horasTodas", () => {
     try {
-      const { horas, persona } = require("./steam-account").lerHoras(
-        caminhoConta,
-        require("./debug").log,
-      )
+      const { horas, persona } = horasSomadasDaSteam()
       return { ok: true, horas, persona }
     } catch (e) {
       return { ok: false, horas: {}, motivo: String(e) }
