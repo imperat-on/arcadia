@@ -266,6 +266,9 @@ async function loadAllSchemas() {
     }
 
     const items = []
+    // Apinames que vieram do schema de verdade (bin da Steam): na consolidação
+    // abaixo, é o item real que sobrevive quando dois itens são a mesma conquista.
+    const reais = new Set()
     // Desbloqueios novos que o sync ainda não viu: sobe pro servidor. A fila
     // deduplica por (appid, apiname), então re-enviar é seguro e o RPC é
     // idempotente (quem desbloqueou primeiro vence).
@@ -275,6 +278,7 @@ async function loadAllSchemas() {
     const usados = new Set()
     for (const [k, sch] of Object.entries(idx)) {
       const [blk, bit] = k.split("|")
+      if (sch.apiname) reais.add(String(sch.apiname))
       let prev = old.get("apiname:" + sch.apiname) || old.get("bb:" + k)
       // Sem casamento exato, tenta apelido e depois título único. Sem isso, um
       // item criado pelo pull (apiname remoto, sem block|bit) ficava sem dono e
@@ -336,6 +340,15 @@ async function loadAllSchemas() {
     for (const it of antigos) {
       if (!usados.has(it)) items.push(it)
     }
+    // Duas entradas para a MESMA conquista (schema sintético antigo + schema real)
+    // são fundidas numa só: sem isto a contagem inflava — Hogwarts Legacy aparecia
+    // com 47 itens e 44 desbloqueadas para 45 conquistas e 42 reais.
+    const consolidados = require("./consolidar").consolidarItens(items, reais)
+    if (consolidados.length !== items.length) {
+      log("achievements/consolidacao", `${appid}: ${items.length} -> ${consolidados.length} itens`)
+    }
+    items.length = 0
+    for (const it of consolidados) items.push(it)
     if (p_sync.length) {
       try {
         const syncMod = require("./../supabase/sync")
