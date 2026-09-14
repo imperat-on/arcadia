@@ -253,16 +253,23 @@ async function loadAllSchemas() {
     // Sincroniza o achieved/unlock com o estado real — sem depender do watcher
     // ter rodado antes (bits já estavam setados no boot).
     let progress = {}
-    try {
-      for (const f of fs.readdirSync(STATS_DIR)) {
-        const pm = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
-        if (pm && pm[2] === appid) {
-          progress = progressMap(path.join(STATS_DIR, f))
-          break
+    // B1/B2 — sem permissão de captura (conta da Steam trocada, ou captura
+    // automática desligada) o progresso do bin NÃO é lido: nada é ingerido.
+    const permissao = require("./../steam-account").capturaPermitida(caminhoArquivoConta, log)
+    if (!permissao.permitido) {
+      log("achievements/captura-pausada", `${appid}: progresso do bin ignorado`)
+    } else {
+      try {
+        for (const f of fs.readdirSync(STATS_DIR)) {
+          const pm = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
+          if (pm && pm[2] === appid) {
+            progress = progressMap(path.join(STATS_DIR, f))
+            break
+          }
         }
+      } catch (e) {
+        log("achievements/progresso-bin", e)
       }
-    } catch (e) {
-      log("achievements/progresso-bin", e)
     }
 
     const items = []

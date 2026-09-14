@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useJogoRodando } from "../useJogoRodando"
 import { AvisoSemChaveHubcap } from "./AvisoSemChaveHubcap"
+import { HorasNaSteam } from "./HorasNaSteam"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import {
@@ -354,6 +355,7 @@ export function StoreGamePage({
                   {jogo.title}
                 </h1>
                 <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-white/70">
+                  <HorasNaSteam appid={jogo.appid} />
                   {release !== "—" && <Chip>{release}</Chip>}
                   {dev && <Chip>{dev}</Chip>}
                   {pub && pub !== dev && (
