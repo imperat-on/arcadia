@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   pluginsInstall: (id) => ipcRenderer.invoke("plugins:install", id),
   pluginsRemove: (id) => ipcRenderer.invoke("plugins:remove", id),
   profileStats: () => ipcRenderer.invoke("profile:stats"),
+  steamHorasTodas: () => ipcRenderer.invoke("steam:horasTodas"),
   achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
   achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
   appDiagnostico: () => ipcRenderer.invoke("app:diagnostico"),
