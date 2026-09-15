@@ -161,6 +161,8 @@ test('o quadrado tem canal proprio de IPC, sem dimensions magicas', () => {
   assert.match(main, /ipcMain\.handle\("meta:squareArt"/)
   assert.doesNotMatch(main, /kind === "cover" && Array\.isArray\(dimensions\)/)
   assert.match(preload, /searchSquareArt: \(gameId, titulo\)/)
+  // O canal do preload precisa ser EXATAMENTE o que o main registra.
+  assert.match(preload, /invoke\("meta:squareArt", \{ gameId, titulo \}\)/)
   assert.match(tipos, /searchSquareArt:/)
 })
 
