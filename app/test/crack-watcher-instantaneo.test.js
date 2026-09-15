@@ -18,9 +18,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 
-const SEM_WATCH = process.platform !== "win32"
-  ? "no Linux o vigia é polling-only (inotify não é confiável dentro do prefixo Wine)"
-  : false
+const SEM_WATCH = false // o observador vale nas duas plataformas; o polling é o piso
 
 let cw = null
 let APPID = ""
@@ -113,8 +111,8 @@ test("o desbloqueio de jogo crackeado avisa NO ATO (fs.watch, não o polling)", 
   assert.equal(recebidos[0].title, "Primeiros passos")
   assert.ok(recebidos[0].unlock > 0, "veio com o carimbo do arquivo")
   assert.ok(
-    demorou < cw.INTERVALO_POLL - 5000,
-    `avisou em ${demorou}ms — tem de ser bem antes do polling (${cw.INTERVALO_POLL}ms)`,
+    demorou < 2000,
+    `avisou em ${demorou}ms — tem de ser no ato (debounce de 300ms), não no piso de ${cw.INTERVALO_POLL}ms`,
   )
 
   // Os observadores fecham no parar(); apagar o diretório no mesmo instante deixa a
@@ -125,18 +123,22 @@ test("o desbloqueio de jogo crackeado avisa NO ATO (fs.watch, não o polling)", 
   } catch {}
 })
 
-test("o polling continua no código como rede de segurança", () => {
-  // Sem isto, um evento perdido (pasta de rede, arquivo criado antes do watcher
-  // subir) deixaria a conquista invisível para sempre.
+test("o polling continua no código como piso do aviso", () => {
+  // Sem isto, um evento perdido (pasta de rede, arquivo criado antes do watcher subir)
+  // ou um inotify que não entrega dentro do prefixo Proton deixaria a conquista
+  // invisível por tempo indeterminado. O piso tem de ser curto: 15s era a queixa.
   const fonte = fs.readFileSync(path.join(__dirname, "..", "electron", "achievements", "cracked_watcher.js"), "utf8")
-  assert.match(fonte, /setInterval\(scan, INTERVALO_POLL\)/, "o polling continua")
+  assert.match(fonte, /setInterval\(scan, INTERVALO_POLL\)/, "o piso continua")
+  assert.match(fonte, /const INTERVALO_POLL = (\d+)/, "e tem valor explícito")
+  const pisoMs = Number(/const INTERVALO_POLL = (\d+)/.exec(fonte)[1])
+  assert.ok(pisoMs <= 5000, `piso curto (${pisoMs}ms) — 15s era o problema`)
+
   const iBloco = fonte.indexOf("--- Observadores de diretório")
   const iWatch = fonte.indexOf("fs.watch(")
   assert.ok(iBloco > 0 && iWatch > iBloco, "o observador está no bloco de observadores")
-  assert.match(
-    fonte.slice(iBloco, iWatch),
-    /process\.platform === "win32"/,
-    "o observador é só do Windows (no Linux o vigia segue polling-only)",
+  assert.ok(
+    !/if \(process\.platform === "win32"\) \{\s*for \(const dir of dirsObservaveis/.test(fonte),
+    "o observador vale nas duas plataformas (o Linux também tem piso curto se o inotify não entregar)",
   )
   assert.match(fonte, /clearInterval\(interval\)[\s\S]{0,200}o\.close\(\)/, "parar a vigia fecha os observadores")
 })
