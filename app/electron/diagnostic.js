@@ -49,6 +49,28 @@ function collect() {
   out.sync.estado = lerJson(caminhoArquivoConta("sync_state.json"))
   out.sync.fila = lerJson(caminhoArquivoConta("sync_queue.json"))
 
+  // Estado da captura de conquistas. Existe porque a pergunta "por que as
+  // conquistas não sobem?" custou uma investigação inteira: o log dizia
+  // "progresso do bin ignorado" sem dizer se era o interruptor, o vínculo ou a
+  // conta. Aqui sai o motivo, o interruptor, o vínculo e as contas.
+  try {
+    const sa = require("./steam-account")
+    const { caminhoArquivoConta } = require("./supabase/conta")
+    const st = sa.status(caminhoArquivoConta, () => {}, { naoGravar: true })
+    out.captura = {
+      auto: st.auto,
+      permitido: st.permitido,
+      motivo: sa.motivoPausa(st),
+      steamAgora: st.contaAtual ? st.contaAtual.persona : null,
+      vinculada: st.vinculo ? st.vinculo.persona : null,
+      vinculoOk: st.vinculoOk,
+      escopo: conta() || "guest (raiz)",
+      contasSteam: st.contasSteam.map((c) => c.persona),
+    }
+  } catch (e) {
+    out.captura = { erro: String(e) }
+  }
+
   // Erros recentes do debug.log (ultimas linhas)
   const linhas = lerJson(path.join(DATA_DIR, "logs", "debug.log"), (s) => s.trim().split("\n"))
   if (Array.isArray(linhas)) out.debugLog = linhas.slice(-20)

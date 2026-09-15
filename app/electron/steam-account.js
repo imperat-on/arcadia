@@ -147,7 +147,8 @@ function status(caminhoConta, log = () => {}, opts = {}) {
 
   // Primeiro uso: sem vínculo ainda, amarra na conta Steam que está logada.
   // É o padrão sensato — quem nunca trocou de conta não sente diferença.
-  if (!vinculo && ativa) {
+  // `naoGravar` (diagnóstico) só OLHA: quem pergunta o estado não deve criar estado.
+  if (!vinculo && ativa && !opts.naoGravar) {
     const novo = { steamid: ativa.steamid, persona: ativa.persona, vinculadoEm: Date.now() }
     if (gravarVinculo(caminhoConta, novo)) {
       vinculo = novo
