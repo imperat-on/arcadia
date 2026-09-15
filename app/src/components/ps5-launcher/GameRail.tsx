@@ -92,7 +92,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
                   </div>
                 )}
               </div>
-              <strong className="mt-2 block truncate px-1 text-[9px] font-bold uppercase tracking-[0.025em] text-white/80">{game.title}</strong>
+              <strong className="mt-2 block line-clamp-2 px-1 text-[9px] font-bold uppercase leading-tight tracking-[0.025em] text-white/80">{game.title}</strong>
               <span className="mt-1 block px-1 text-[9px] font-black text-[var(--accent)]">{game.year || "—"}</span>
             </button>
           )
