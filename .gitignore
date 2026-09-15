@@ -91,3 +91,6 @@ session.json.bak
 profile_cache.json
 logs/
 .worktrees/
+
+# Estado de conta (vínculo com a Steam): nunca versionar
+steam_account.json

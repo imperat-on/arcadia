@@ -8,7 +8,6 @@
 // Hoje são dois; a assinatura é a mesma para plugar outros (IGDB, RAWG…).
 
 const { fetchRede } = require("./httpfetch")
-const { ordenar: ordenarQuadrada } = require("./arte-quadrada")
 
 const SGDB_BASE = "https://www.steamgriddb.com/api/v2"
 const STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
@@ -26,7 +25,7 @@ const SGDB_ENDPOINT = { cover: "grids", hero: "heroes", logo: "logos" }
 // Dimensões que a SGDB aceita, por tipo. Capa retrato 600x900 = formato PS5.
 // A lista é fechada: mandar uma dimensão inventada faz a API recusar.
 const SGDB_DIMENSIONS = {
-  cover: ["600x900", "660x930", "342x482", "920x430", "460x215", "512x512", "1024x1024"],
+  cover: ["600x900", "660x930", "342x482", "920x430", "460x215"],
   hero: ["1920x620", "3840x1240", "1600x650"],
   logo: [], // logo não tem dimensão fixa
 }
@@ -49,15 +48,9 @@ async function getJSON(url, headers) {
 // ── SteamGridDB ────────────────────────────────────────────────────────────
 // Arte da comunidade, cobre qualquer loja e tem versões animadas.
 
-// Cabecalho de autenticacao da SteamGridDB, num so lugar: tres funcoes usam.
-// A chave nunca vai para log, mensagem de erro nem para a URL.
-function cabecalhoSgdb(chave) {
-  return { Authorization: `Bearer ${chave}` }
-}
-
 async function sgdbSearch(titulo, chave) {
   const url = `${SGDB_BASE}/search/autocomplete/${encodeURIComponent(titulo)}`
-  const j = await getJSON(url, cabecalhoSgdb(chave))
+  const j = await getJSON(url, { Authorization: `Bearer ${chave}` })
   if (!j?.success) throw new Error("SteamGridDB recusou a busca (chave inválida?)")
   return (j.data || []).map((g) => ({ id: g.id, titulo: g.name, ano: g.release_date }))
 }
@@ -84,7 +77,9 @@ function sgdbArtURL(sgdbId, kind, { animado = true, dimensions } = {}) {
 }
 
 async function sgdbArt(sgdbId, kind, chave, opts) {
-  const j = await getJSON(sgdbArtURL(sgdbId, kind, opts), cabecalhoSgdb(chave))
+  const j = await getJSON(sgdbArtURL(sgdbId, kind, opts), {
+    Authorization: `Bearer ${chave}`,
+  })
   if (!j?.success) throw new Error("SteamGridDB recusou o pedido de arte")
   return (j.data || []).map((a) => ({
     fonte: "SteamGridDB",
@@ -100,16 +95,6 @@ async function sgdbArt(sgdbId, kind, chave, opts) {
   }))
 }
 
-// Ficha da SteamGridDB pelo ID da plataforma. Sem comparacao de nome, resolve
-// de uma vez os dois casos que a comparacao por titulo erra: "Red Dead
-// Redemption 2" x "Red Dead Redemption II" e as edicoes renomeadas
-// ("Legacy", "Definitive Edition").
-async function sgdbIdPorSteam(appid, chave) {
-  const j = await getJSON(`${SGDB_BASE}/games/steam/${appid}`, cabecalhoSgdb(chave))
-  if (!j?.success) throw new Error("SteamGridDB recusou o pedido por ID")
-  return j.data?.id || null
-}
-
 // ── Steam ──────────────────────────────────────────────────────────────────
 // Sem chave. Só serve para jogos Steam, e a arte é a oficial da loja.
 
@@ -119,26 +104,14 @@ function steamAppId(gameId) {
   return m ? m[1] : null
 }
 
-// Nomes possíveis por tipo, com as dimensões REAIS de cada arquivo. A Steam não
-// tem endpoint de "listar artes", e QUAIS existem muda de jogo para jogo (uns
-// têm library_600x900, outros só hero_2x) — por isso cada candidato é conferido
-// com HEAD antes de ser oferecido. A dimensão vem declarada aqui porque é fixa
-// e é ela que decide o enquadramento no quadrado do modo console: sem número, a
-// arte seria descartada por "geometria desconhecida".
+// Nomes possíveis por tipo. A Steam não tem endpoint de "listar artes", e
+// QUAIS existem muda de jogo para jogo (uns têm library_600x900, outros só
+// hero_2x). Por isso cada candidato é conferido com HEAD antes de ser
+// oferecido — senão a grade encheria de miniatura quebrada.
 const STEAM_FILES = {
-  cover: [
-    { arquivo: "library_600x900.jpg", largura: 600, altura: 900 },
-    { arquivo: "header.jpg", largura: 460, altura: 215 },
-  ],
-  hero: [
-    { arquivo: "library_hero.jpg", largura: 1920, altura: 620 },
-    { arquivo: "library_hero_2x.jpg", largura: 3840, altura: 1240 },
-    { arquivo: "page_bg_generated_v6b.jpg", largura: 1438, altura: 810 },
-  ],
-  logo: [
-    { arquivo: "logo.png", largura: 0, altura: 0 },
-    { arquivo: "logo_2x.png", largura: 0, altura: 0 },
-  ],
+  cover: ["library_600x900.jpg", "header.jpg"],
+  hero: ["library_hero.jpg", "library_hero_2x.jpg", "page_bg_generated_v6b.jpg"],
+  logo: ["logo.png", "logo_2x.png"],
 }
 
 async function existe(url) {
@@ -154,22 +127,19 @@ async function steamArt(gameId, kind) {
   const appid = steamAppId(gameId)
   const arquivos = STEAM_FILES[kind]
   if (!appid || !arquivos) return []
-  const achados = await Promise.all(
-    arquivos.map(async (f) => {
-      const url = `${STEAM_CDN}/${appid}/${f.arquivo}`
-      if (!(await existe(url))) return null
-      return {
-        fonte: "Steam",
-        url,
-        thumb: url,
-        largura: f.largura,
-        altura: f.altura,
-        animado: false,
-        autor: "oficial",
-      }
-    }),
-  )
-  return achados.filter(Boolean)
+  const urls = arquivos.map((f) => `${STEAM_CDN}/${appid}/${f}`)
+  const achados = await Promise.all(urls.map(existe))
+  return urls
+    .filter((_, i) => achados[i])
+    .map((url) => ({
+      fonte: "Steam",
+      url,
+      thumb: url,
+      largura: 0,
+      altura: 0,
+      animado: false,
+      autor: "oficial",
+    }))
 }
 
 // ── IGDB ───────────────────────────────────────────────────────────────────
@@ -535,55 +505,6 @@ function tituloBate(a, b) {
   return x === y || x.startsWith(y) || y.startsWith(x)
 }
 
-// Palavras que dizem QUAL EDIÇÃO é, nunca QUAL jogo é. Servem para aceitar
-// "Hogwarts Legacy" quando a loja chama o produto de "Hogwarts Legacy Deluxe
-// Bundle", sem abrir a porta para o primeiro resultado aleatório da busca fuzzy.
-// Os compostos vêm antes dos simples, senão "…the definitive edition" perde
-// "edition" e sobra "…the definitive".
-const SUFIXOS_EDICAO = [
-  "definitive edition",
-  "deluxe edition",
-  "ultimate edition",
-  "complete edition",
-  "enhanced edition",
-  "game of the year edition",
-  "remastered",
-  "remake",
-  "definitive",
-  "deluxe",
-  "ultimate",
-  "complete",
-  "goty",
-  "bundle",
-  "legacy",
-  // O artigo fica sobrando depois de cortar o sufixo de edição: "…San Andreas –
-  // The Definitive Edition" vira "…sanandreasthe".
-  "the",
-]
-
-function tituloBase(titulo) {
-  let s = normalizaTitulo(titulo)
-  let mudou = true
-  while (mudou) {
-    mudou = false
-    for (const sufixo of SUFIXOS_EDICAO) {
-      const suf = normalizaTitulo(sufixo)
-      if (s.length > suf.length && s.endsWith(suf)) {
-        s = s.slice(0, -suf.length)
-        mudou = true
-      }
-    }
-  }
-  return s
-}
-
-// Mesma OBRA, ignorando a edição. Nome curto demais não vale: sobraria um
-// prefixo genérico casando com qualquer coisa.
-function mesmaObra(a, b) {
-  const x = tituloBase(a)
-  return x.length >= 3 && x === tituloBase(b)
-}
-
 async function xboxSearch(titulo, market = "US", locale = "en-us") {
   const p = new URLSearchParams({
     query: titulo,
@@ -864,94 +785,7 @@ async function psnStoreArt(id, tipo, kind) {
   return candidatos
 }
 
-// Arte para o quadrado do modo console. Não é "só arte quadrada": é quadrado
-// nativo quando existe, arte promocional (em regra sem título embutido) depois,
-// e a capa retrato como último recurso. Com isso NENHUM jogo fica sem arte e
-// nenhuma imagem é esticada — quem enquadra é o CSS, com recorte central.
-//
-// A IGDB fica por último e só é consultada se as fontes locais/gratuitas não
-// trouxeram nada: o proxy dela é de terceiros e não aceita rajada.
-async function squareArt(gameId, titulo, chave, opcoes = {}) {
-  const {
-    market = "US",
-    locale = "en-us",
-    steamArt: buscarSteam = steamArt,
-    xboxSearch: buscarXbox = xboxSearch,
-    xboxProduto: abrirProduto = xboxProduto,
-    xboxArtDe: arteDeXbox = xboxArtDe,
-    sgdbSearch: buscarSgdb = sgdbSearch,
-    sgdbPorSteam: buscarSgdbPorSteam = sgdbIdPorSteam,
-    sgdbArt: abrirSgdb = sgdbArt,
-    igdbProxy: buscarIgdb = igdbProxy,
-    igdbArtDe: arteIgdb = igdbArtDe,
-  } = opcoes
-
-  const candidatos = []
-  const erros = []
-  const alvo = String(titulo || "").trim()
-  if (!alvo) return { ok: true, candidatos: [], erros }
-
-  try {
-    candidatos.push(...(await buscarSteam(gameId, "hero")), ...(await buscarSteam(gameId, "cover")))
-  } catch {
-    erros.push("Steam: indisponivel")
-  }
-
-  if (chave) {
-    try {
-      // ID da plataforma primeiro: é o caminho que acerta "Red Dead Redemption 2"
-      // (a SGDB chama de "Red Dead Redemption II") sem heurística de nome.
-      const appid = steamAppId(gameId)
-      let sgdbId = appid ? await buscarSgdbPorSteam(appid, chave) : null
-      if (!sgdbId) {
-        const achado = (await buscarSgdb(alvo, chave)).find((g) => mesmaObra(g.titulo, alvo))
-        sgdbId = achado?.id || null
-      }
-      if (sgdbId) {
-        candidatos.push(
-          ...(await abrirSgdb(sgdbId, "cover", chave, {
-            animado: false,
-            dimensions: ["512x512", "1024x1024"],
-          })),
-          ...(await abrirSgdb(sgdbId, "hero", chave, { animado: false })),
-        )
-      }
-    } catch {
-      erros.push("SteamGridDB: indisponivel")
-    }
-  }
-
-  try {
-    const achado = (await buscarXbox(alvo, market, locale)).find((g) => mesmaObra(g.titulo, alvo))
-    if (achado) {
-      const produto = await abrirProduto(achado.id, market, locale)
-      // A lista de ImagePurpose da loja muda de produto para produto; a
-      // geometria não. Fica com a peneira de propósito do tipo ("cover") e
-      // depois só o que é quadrado de verdade.
-      candidatos.push(
-        ...arteDeXbox(produto, "cover").filter((a) => a.largura >= 256 && a.largura === a.altura),
-      )
-    }
-  } catch {
-    erros.push("Xbox: indisponivel")
-  }
-
-  if (!ordenarQuadrada(candidatos).some((c) => c.ajuste !== "capa")) {
-    try {
-      candidatos.push(...arteIgdb(await buscarIgdb(alvo), "hero"))
-    } catch {
-      erros.push("IGDB: indisponivel")
-    }
-  }
-
-  return { ok: true, candidatos: ordenarQuadrada(candidatos), erros }
-}
-
 module.exports = {
-  squareArt,
-  tituloBase,
-  mesmaObra,
-  sgdbIdPorSteam,
   sgdbSearch,
   sgdbArt,
   wallhavenBusca,

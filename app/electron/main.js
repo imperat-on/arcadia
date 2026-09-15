@@ -5226,18 +5226,6 @@ app.whenReady().then(() => {
     return r
   })
 
-  // Arte do quadrado do modo console: lista já ordenada (quadrado nativo
-  // primeiro, depois arte promocional, depois a capa retrato). É um canal
-  // próprio justamente para o formato do pedido não mudar o comportamento.
-  ipcMain.handle("meta:squareArt", async (_e, { gameId, titulo } = {}) => {
-    if (!gameId) return { ok: false, error: "pedido inválido" }
-    const cfg = readConfig()
-    const chave = String(cfg.steamgriddb_api_key || "").trim()
-    const [market, locale] = xboxLocale(cfg)
-    const r = await require("./metadata").squareArt(gameId, titulo, chave, { market, locale })
-    return { ok: true, candidatos: r.candidatos, erros: r.erros }
-  })
-
   // Escolher imagem (avatar ou plano de fundo) — aceita GIF animado.
   // Procura arte online para um jogo. Junta o que cada fonte achou numa lista
   // só; se uma fonte falhar (chave errada, rede caída), as outras seguem.

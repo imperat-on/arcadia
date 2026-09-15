@@ -1231,19 +1231,6 @@ declare global {
         erros?: string[]
         error?: string
       }>
-      /**
-       * Arte do quadrado do Big Picture: lista JÁ ordenada pelo main (quadrado
-       * nativo, depois arte promocional, depois capa retrato). Nunca esticar.
-       */
-      searchSquareArt: (
-        gameId: string,
-        titulo: string,
-      ) => Promise<{
-        ok: boolean
-        candidatos?: ArtCandidate[]
-        erros?: string[]
-        error?: string
-      }>
       /** Procura descrições nas fontes ligadas. */
       searchText: (
         gameId: string,
