@@ -16,29 +16,34 @@
 // arquivos da Steam.
 
 const fs = require("fs")
-const os = require("os")
 const path = require("path")
 
 const { contasDoLoginUsers, contaAtivaDoLoginUsers, horasDoLocalConfig } = require("./vdf")
+const { getDataDir } = require("./runtime-paths")
 
 const VINCULO = "steam_account.json"
 
 // Interruptor "capturar automaticamente" (B2). Lido direto do config do app para o
 // vigia e o loader não precisarem de plumbing.
 //
-// Default DESLIGADO: a captura automática só roda quando o usuário LIGA o
-// interruptor, ou numa passada sob demanda pelo botão "Capturar agora"
-// (forcar=true). Sem isso, nada é ingerido sem o usuário pedir.
+// LIGADO POR PADRÃO: capturar é o comportamento normal do app, e desligar é uma
+// escolha explícita do usuário (fica gravada no config). O portão de conta (B1)
+// continua valendo por cima: trocou a conta da Steam, a captura pausa de qualquer
+// jeito.
+//
+// NÃO montar este caminho na mão: no Windows a raiz é %LOCALAPPDATA%\arcadia e a
+// versão anterior apontava para ~/.local/share/arcadia (raiz do Linux). Resultado:
+// no Windows o arquivo nunca era encontrado, o catch devolvia `false` e a captura
+// ficava permanentemente desligada — o interruptor da UI gravava no config CERTO e
+// o leitor procurava em OUTRO lugar. `getDataDir()` é a única fonte da raiz.
 function autoLigado() {
   try {
-    const raiz = process.env.ARCADIA_DATA_DIR
-      ? process.env.ARCADIA_DATA_DIR
-      : path.join(os.homedir(), ".local", "share", "arcadia")
-    const cfg = JSON.parse(fs.readFileSync(path.join(raiz, "config.json"), "utf-8"))
-    // Só liga com valor explícito: sem a chave (ou com qualquer outra coisa), fica off.
-    return cfg.achievements_auto_capture === true
+    const cfg = JSON.parse(fs.readFileSync(path.join(getDataDir(), "config.json"), "utf-8"))
+    // Só DESLIGA com valor explícito: sem a chave, vale o padrão (ligada).
+    return cfg.achievements_auto_capture !== false
   } catch {
-    return false
+    // Config ausente/ilegível não é escolha do usuário: vale o padrão (ligada).
+    return true
   }
 }
 
@@ -163,6 +168,8 @@ function status(caminhoConta, log = () => {}, opts = {}) {
     contaAtual,
     // `forcar` = botão "Capturar agora": ignora a troca de conta e o interruptor.
     permitido: forcar || (auto && (semSteam || bate)),
+    // Por que passou (ou não) — o chamador registra isto no log.
+    forcado: forcar,
     vinculoOk: bate,
     semSteam,
     auto,
@@ -173,19 +180,51 @@ function status(caminhoConta, log = () => {}, opts = {}) {
 /** Atalho para os pontos de captura: pode ingerir/revogar agora? */
 function capturaPermitida(caminhoConta, log, opts) {
   const efetivo = Object.assign({}, opts)
-  if (forcarProxima) {
-    // "Capturar agora" força UMA passada e some: o próximo ciclo volta à regra.
-    efetivo.forcar = true
-    forcarProxima = false
+  if (efetivo.forcar === undefined) {
+    // O botão "Capturar agora" libera UMA passada de cada consumidor — o vigia de
+    // crack e o loader de schemas liberam o deles e o ciclo seguinte volta à regra.
+    if (consumirForca(String(efetivo.componente || "__default__"))) efetivo.forcar = true
   }
+  delete efetivo.componente
   const s = status(caminhoConta, log, efetivo)
   return { permitido: s.permitido, status: s }
 }
 
-// Marcado pelo IPC "Capturar agora" (uma passada, em memória).
-let forcarProxima = false
+// Marcado pelo IPC "Capturar agora" (em memória).
+//
+// Era um booleano consumido pela PRIMEIRA chamada que chegasse. Como o loader
+// chama capturaPermitida UMA VEZ POR APPID, o flag era gasto no primeiro appid e
+// os outros 41 continuavam bloqueados — o botão parecia não fazer nada para os
+// jogos sem bin da Steam. Agora cada `componente` consome a sua passada; a
+// liberação também expira sozinha, para nunca sobrar força pendente na sessão.
+const JANELA_FORCA_MS = 120000
+const forcar = { pendente: false, expira: 0, consumidoPor: new Set() }
+
+function consumirForca(componente) {
+  if (!forcar.pendente || Date.now() > forcar.expira) {
+    forcar.pendente = false
+    return false
+  }
+  if (forcar.consumidoPor.has(componente)) return false
+  forcar.consumidoPor.add(componente)
+  return true
+}
+
 function forcarProximaCaptura() {
-  forcarProxima = true
+  forcar.pendente = true
+  forcar.expira = Date.now() + JANELA_FORCA_MS
+  forcar.consumidoPor.clear()
+}
+
+/** Motivo legível do bloqueio. O log precisa dizer POR QUE nada foi ingerido —
+ *  "progresso do bin ignorado" sem motivo já custou uma investigação inteira. */
+function motivoPausa(s) {
+  if (!s) return "sem-status"
+  if (s.forcado) return "liberado-pelo-botao"
+  if (!s.auto) return "captura-automatica-desligada"
+  if (s.contaAtual && !s.vinculo) return "sem-vinculo-de-conta"
+  if (s.contaAtual && s.vinculo && !s.vinculoOk) return "conta-steam-trocada"
+  return "regra-de-captura"
 }
 
 /** Amarra esta conta do Arcadia à conta Steam que está logada agora. */
@@ -266,6 +305,7 @@ module.exports = {
   contasSteam,
   status,
   capturaPermitida,
+  motivoPausa,
   forcarProximaCaptura,
   vincularContaAtual,
   chaveAppid,

@@ -223,6 +223,37 @@ async function loadAllSchemas() {
 
   let updated = 0
   let iconsCopied = 0
+
+  // B1/B2 — permissão de captura: UMA consulta para a passada inteira.
+  //
+  // Antes isto era chamado DENTRO do laço, uma vez por appid. Cada consulta
+  // remonta a lista de raízes da Steam (3 processos `reg query` via execSync no
+  // Windows): medido, 245 ms por appid x 42 appids = ~10 s de main process
+  // TRAVADO no boot, com library:get esperando — a janela abria e congelava.
+  const saConta = require("./../steam-account")
+  const permissao = saConta.capturaPermitida(caminhoArquivoConta, log, { componente: "schemas" })
+  if (!permissao.permitido) {
+    const s = permissao.status || {}
+    log(
+      "achievements/captura-pausada",
+      `progresso do bin ignorado em ${appids.size} appid(s): motivo=${saConta.motivoPausa(s)} ` +
+        `auto=${s.auto} vinculoOk=${s.vinculoOk} ` +
+        `steam=${s.contaAtual ? s.contaAtual.persona : "-"} vinculada=${s.vinculo ? s.vinculo.persona : "-"}`,
+    )
+  }
+
+  // Bins de progresso do Steam (UserGameStats_<steamid>_<appid>.bin) indexados de
+  // UMA leitura da pasta, não de uma por appid.
+  const binsProgresso = new Map()
+  try {
+    for (const f of fs.readdirSync(STATS_DIR)) {
+      const pm = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
+      if (pm) binsProgresso.set(pm[2], path.join(STATS_DIR, f))
+    }
+  } catch (e) {
+    log("achievements/listar-bins-progresso", e)
+  }
+
   for (const appid of appids) {
     let idx = loadSchemaForAppid(appid)
     // Sem bin do Steam (crackeado/repack): o índice pode já estar SALVO no
@@ -255,20 +286,14 @@ async function loadAllSchemas() {
     let progress = {}
     // B1/B2 — sem permissão de captura (conta da Steam trocada, ou captura
     // automática desligada) o progresso do bin NÃO é lido: nada é ingerido.
-    const permissao = require("./../steam-account").capturaPermitida(caminhoArquivoConta, log)
-    if (!permissao.permitido) {
-      log("achievements/captura-pausada", `${appid}: progresso do bin ignorado`)
-    } else {
-      try {
-        for (const f of fs.readdirSync(STATS_DIR)) {
-          const pm = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
-          if (pm && pm[2] === appid) {
-            progress = progressMap(path.join(STATS_DIR, f))
-            break
-          }
+    if (permissao.permitido) {
+      const bin = binsProgresso.get(String(appid))
+      if (bin) {
+        try {
+          progress = progressMap(bin)
+        } catch (e) {
+          log("achievements/progresso-bin", e)
         }
-      } catch (e) {
-        log("achievements/progresso-bin", e)
       }
     }
 

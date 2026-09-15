@@ -15,9 +15,40 @@ const os = require("os")
 // porque a leitura do localconfig.vdf não achava a instalação.
 const LETRAS_DISCO = "CDEFGHIJKLMNOPQRSTUVWXYZ"
 
+// --- Cache da varredura -------------------------------------------------------
+//
+// `raizesDoRegistro()` roda DE TRÊS A QUATRO processos `reg query` via execSync:
+// medido, 62,6 ms por chamada nesta máquina. Como `candidatosSteam()` (e portanto
+// `raizesSteam()`, `findSteamDir()`, `status()`, `lerHoras()`) é chamada em laço
+// — 42 vezes no loadAllSchemas, uma por appid — isso virava ~10 s de main process
+// TRAVADO no boot (medido no debug.log: 42 x 245 ms).
+//
+// A resposta não muda durante a sessão (trocar a Steam de pasta exige reinstalar e
+// reiniciar), então um TTL curto resolve: a primeira chamada paga, as outras não.
+// O TTL (e não um memo de processo) existe para o caso de a Steam ser instalada
+// com o app aberto — em no máximo 30 s o app passa a ver.
+const TTL_CACHE_MS = 30000
+let cacheRegistro = { quando: 0, valor: null }
+let cacheRaiz = { quando: 0, valor: null }
+
+/** Esquece o cache (o "Capturar agora" pede leitura fresca). */
+function invalidarCacheSteam() {
+  cacheRegistro = { quando: 0, valor: null }
+  cacheRaiz = { quando: 0, valor: null }
+}
+
 /** Steam registrada no Windows (SteamPath/InstallPath). Silencioso fora do win32. */
 function raizesDoRegistro() {
   if (process.platform !== "win32") return []
+  if (cacheRegistro.valor !== null && Date.now() - cacheRegistro.quando < TTL_CACHE_MS) {
+    return cacheRegistro.valor
+  }
+  const saida = consultarRegistro()
+  cacheRegistro = { quando: Date.now(), valor: saida }
+  return saida
+}
+
+function consultarRegistro() {
   const saida = []
   const consultas = [
     ["HKCU\\Software\\Valve\\Steam", "SteamPath"],
@@ -87,6 +118,13 @@ function pareceRaizDaSteam(dir) {
 }
 
 function findSteamDir() {
+  if (cacheRaiz.valor !== null && Date.now() - cacheRaiz.quando < TTL_CACHE_MS) return cacheRaiz.valor
+  const achado = resolverSteamDir()
+  cacheRaiz = { quando: Date.now(), valor: achado }
+  return achado
+}
+
+function resolverSteamDir() {
   if (process.platform === "win32") {
     for (const c of candidatosSteam()) {
       if (pareceRaizDaSteam(c)) return c
@@ -104,7 +142,7 @@ function findSteamDirLinux() {
   return candidatos[0]
 }
 
-module.exports = { findSteamDir, findSteamExe, candidatosSteam, raizesDoRegistro }
+module.exports = { findSteamDir, findSteamExe, candidatosSteam, raizesDoRegistro, invalidarCacheSteam }
 
 function findSteamExe() {
   if (process.platform !== "win32") return "steam"

@@ -583,20 +583,30 @@ function iniciarVigia(onUnlock, onRevoke = null) {
   // Avisa a pausa UMA vez por transição: o scan roda em laço e sem isto o log
   // viraria spam.
   let avisoPausa = false
+  let escopoDoAviso = null
   const scan = () => {
+    // Escopo da conta mudou (boot como guest -> sessão restaurada): o aviso pode
+    // ter saído com o vínculo da RAIZ, que não é o desta conta — repete o aviso
+    // com o motivo certo em vez de ficar calado com um diagnóstico errado.
+    const escopoAtual = conta() || "__guest__"
+    if (escopoAtual !== escopoDoAviso) {
+      avisoPausa = false
+      escopoDoAviso = escopoAtual
+    }
     // B1/B2 — só ingere/revoga quando a conta Steam logada é a mesma amarrada a
     // esta conta do Arcadia (e a captura automática está ligada). Trocou de
     // conta: para, sem mexer em nada.
-    const permissao = require("./../steam-account").capturaPermitida(caminhoArquivoConta, log)
+    const saConta = require("./../steam-account")
+    const permissao = saConta.capturaPermitida(caminhoArquivoConta, log, { componente: "vigia-crack" })
     if (!permissao.permitido) {
       if (!avisoPausa) {
         avisoPausa = true
-        const s = permissao.status
+        const s = permissao.status || {}
         log(
           "achievements/captura-pausada",
-          `conta Arcadia vinculada a ${s.vinculo ? s.vinculo.persona : "?"}; Steam está em ${
-            s.contaAtual ? s.contaAtual.persona : "nenhuma"
-          }`,
+          `vigia de crack: motivo=${saConta.motivoPausa(s)} auto=${s.auto} vinculoOk=${s.vinculoOk} ` +
+            `escopo=${escopoAtual} steam=${s.contaAtual ? s.contaAtual.persona : "nenhuma"} ` +
+            `vinculada=${s.vinculo ? s.vinculo.persona : "nenhuma"}`,
         )
       }
       return

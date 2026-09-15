@@ -4,8 +4,10 @@
 //
 // O que precisa continuar verdadeiro:
 //   - conta Steam igual à vinculada  -> captura liberada;
-//   - conta Steam trocada            -> captura PAUSADA (nada é ingerido);
-//   - captura automática desligada   -> pausada, e "Capturar agora" força UMA vez;
+//   - conta Steam trocada            -> captura PAUSADA (nada é ingerido), mesmo
+//                                       com a captura automática ligada;
+//   - sem a chave no config          -> captura LIGADA (padrão do app);
+//   - "false" explícito no config    -> pausada, e "Capturar agora" força a passada;
 //   - sem Steam legível              -> liberada (não é troca de conta, é ausência);
 //   - as horas vêm do localconfig da conta vinculada.
 //
@@ -106,16 +108,20 @@ test("captura automática desligada pausa, e 'Capturar agora' força uma vez", (
   assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "e só uma")
 })
 
-test("captura automática vem DESLIGADA por padrão (sem a chave no config)", () => {
-  // Sem config.json nenhum: nada é ingerido sozinho — só pelo botão "Capturar agora".
+test("captura automática vem LIGADA por padrão (sem a chave no config)", () => {
+  // Sem config.json nenhum: capturar é o comportamento normal do app — desligar é
+  // escolha explícita do usuário. O portão de conta (teste acima) continua valendo.
   escreverLoginUsers(CONTA_A)
   fs.rmSync(path.join(process.env.ARCADIA_DATA_DIR, "config.json"), { force: true })
-  assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "default é desligada")
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "padrão é ligada")
+
+  // Desligar é explícito e manda.
+  configCom(false)
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "false explícito desliga")
 
   sa.forcarProximaCaptura()
   assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "e o botão continua mandando")
 
-  // Só liga quando o usuário liga explicitamente.
   configCom(true)
   assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "ligada pelo usuário")
 })
@@ -148,6 +154,67 @@ test("sem loginusers legível a captura não é bloqueada (ausência, não troca
   assert.equal(s.semSteam, true)
   assert.equal(s.permitido, true)
   fs.writeFileSync(path.join(steamDir, "config", "loginusers.vdf"), backup)
+})
+
+test("padrão ligado NÃO fura o portão de conta: Steam trocada continua pausada", () => {
+  // A garantia que torna o padrão-ligado seguro: sem nenhum config (padrão), a
+  // captura libera SÓ quando a conta Steam logada é a vinculada.
+  escreverLoginUsers(CONTA_A)
+  sa.vincularContaAtual(caminhoConta) // vínculo = CONTA_A
+  fs.rmSync(path.join(process.env.ARCADIA_DATA_DIR, "config.json"), { force: true })
+
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "conta certa + padrão = captura")
+
+  escreverLoginUsers(CONTA_B)
+  const s = sa.capturaPermitida(caminhoConta)
+  assert.equal(s.status.auto, true, "o padrão é ligado…")
+  assert.equal(s.permitido, false, "…e ainda assim a conta trocada PAUSA")
+  assert.equal(sa.motivoPausa(s.status), "conta-steam-trocada", "e o log diz o motivo")
+
+  escreverLoginUsers(CONTA_A)
+  sa.vincularContaAtual(caminhoConta)
+})
+
+test("'Capturar agora' libera uma passada por consumidor, não só a primeira chamada", () => {
+  // O bug antigo: o flag era consumido pela PRIMEIRA chamada. O loader chamava uma
+  // vez por appid, então gastava o flag no primeiro appid e bloqueava os outros 41.
+  escreverLoginUsers(CONTA_A)
+  configCom(false) // pausada por escolha: só o botão libera
+  sa.forcarProximaCaptura()
+
+  assert.equal(
+    sa.capturaPermitida(caminhoConta, undefined, { componente: "schemas" }).permitido,
+    true,
+    "o loader (schemas) recebe a passada",
+  )
+  assert.equal(
+    sa.capturaPermitida(caminhoConta, undefined, { componente: "vigia-crack" }).permitido,
+    true,
+    "e o vigia de crack também: um não come a passada do outro",
+  )
+  assert.equal(
+    sa.capturaPermitida(caminhoConta, undefined, { componente: "schemas" }).permitido,
+    false,
+    "mas é UMA por consumidor",
+  )
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, true, "quem não pede por nome também tem a sua")
+  assert.equal(sa.capturaPermitida(caminhoConta).permitido, false, "e só uma")
+})
+
+test("a raiz de dados nunca é montada à mão (~/.local/share/arcadia só no Linux)", () => {
+  // Este é o bug que deixou a captura de conquistas morta no Windows: o módulo
+  // procurava o config em ~/.local/share/arcadia, que não existe lá (a raiz é
+  // %LOCALAPPDATA%\arcadia). A raiz tem UMA fonte: runtime-paths.getDataDir().
+  // Guarda por leitura de fonte: o defeito não dá erro, ele só devolve false.
+  const raizApp = path.join(__dirname, "..", "electron")
+  const proibido = '.local", "share", "arcadia"'
+  for (const rel of ["steam-account.js", "emulator-registry.js", "plugins/trust.js"]) {
+    const fonte = fs.readFileSync(path.join(raizApp, rel), "utf8")
+    assert.ok(!fonte.includes(proibido), `${rel} não pode montar a raiz na mão`)
+  }
+  const contaFonte = fs.readFileSync(path.join(raizApp, "steam-account.js"), "utf8")
+  assert.ok(contaFonte.includes("runtime-paths"), "steam-account usa runtime-paths como fonte da raiz")
+  assert.ok(contaFonte.includes("getDataDir()"), "e resolve a raiz por getDataDir()")
 })
 
 test.after(() => {
