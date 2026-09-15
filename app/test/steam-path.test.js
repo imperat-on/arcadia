@@ -47,7 +47,25 @@ test("no Linux os candidatos são os de sempre", () => {
 })
 
 test("findSteamDir acha a Steam desta máquina", () => {
-  const dir = sp.findSteamDir()
-  assert.ok(dir, "devolveu um caminho")
-  assert.ok(fs.existsSync(dir), `caminho existe: ${dir}`)
+  // Hermético de propósito: a versão anterior exigia uma Steam INSTALADA na máquina
+  // de quem roda a suíte — no CI (ubuntu sem Steam) o teste ficava vermelho para
+  // sempre e escondia regressão de verdade. Aqui a raiz é falsa e vem do STEAM_DIR.
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-path-"))
+  const steamDir = path.join(temp, "Steam")
+  fs.mkdirSync(path.join(steamDir, "appcache", "stats"), { recursive: true })
+  const antes = process.env.STEAM_DIR
+  process.env.STEAM_DIR = steamDir
+  try {
+    sp.invalidarCacheSteam()
+    const dir = sp.findSteamDir()
+    assert.equal(dir, steamDir, "STEAM_DIR tem prioridade")
+    assert.ok(fs.existsSync(dir), `caminho existe: ${dir}`)
+    // O cache não pode servir o valor antigo depois de invalidado.
+    assert.equal(sp.findSteamDir(), steamDir, "estável com cache")
+  } finally {
+    if (antes === undefined) delete process.env.STEAM_DIR
+    else process.env.STEAM_DIR = antes
+    sp.invalidarCacheSteam()
+    fs.rmSync(temp, { recursive: true, force: true })
+  }
 })
