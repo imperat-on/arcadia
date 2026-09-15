@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   toggleFullscreen: () => ipcRenderer.invoke("app:toggleFullscreen"),
   setFullscreen: (on) => ipcRenderer.invoke("app:setFullscreen", on),
   setLauncherMode: (mode) => ipcRenderer.invoke("app:setMode", mode),
+  bootVideo: () => ipcRenderer.invoke("boot:video"),
   onUiEscala: (cb) => {
     const h = (_e, dados) => cb(dados)
     ipcRenderer.on("ui:escala", h)

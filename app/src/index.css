@@ -1121,11 +1121,7 @@ select:disabled {
   background: var(--background) !important;
 }
 
-.retro-boot-screen::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  pointer-events: none;
+.retro-boot-screen {
   background: var(--background);
 }
 
@@ -2379,13 +2375,25 @@ select:disabled {
 .retro-big-picture .ps5-time { font-size: 18px; font-weight: 400; }
 .console-download-action { width:44px; height:44px; border-radius:50%; background:#ffffff14; font-size:26px; }
 .console-filters { position:absolute; top:90px; display:flex; gap:10px; }
+/* O Big Picture não expõe os subfiltros: a aba Jogos sempre mostra toda a
+   biblioteca (filtro interno continua no padrão "all"). display:none também
+   tira os botões da ordem de foco/gamepad — nada trava na fileira removida. */
+.retro-big-picture .console-filters { display:none !important; }
 .console-filters button { padding:6px 16px; border-radius:24px; font-size:14px; color:#ffffffa8; }
 .console-filters button[aria-pressed=true] { color:white; background:#ffffff21; }
-.retro-big-picture .retro-featured { top:144px; left:0; width:100%; height:clamp(172px, 25vh, 260px) !important; }
+/* O trilho reserva espaço para o NOME (até 2 linhas) abaixo da capa: a altura
+   útil vira o teto do tamanho da capa, então o título nunca é cortado pelo
+   overflow-y do trilho — nem em telas baixas. 78px = 12+20 (padding) + 11
+   (margem do nome) + 2×17,5 (linhas de 14px com leading-tight). */
+.retro-big-picture .retro-featured { --bp-rail-h:clamp(172px, 28vh, 260px); top:144px; left:0; width:100%; height:var(--bp-rail-h) !important; }
 .retro-big-picture .retro-game-rail { overflow-x:auto !important; overflow-y:hidden !important; padding:12px var(--console-gutter) 20px !important; gap:18px !important; scroll-padding-inline:var(--console-gutter); }
-.retro-big-picture .retro-library-card { width:clamp(82px, 9vw, 140px) !important; transform:translateY(10px); opacity:.7; filter:none; transition:width 300ms var(--console-ease), transform 300ms var(--console-ease),opacity 200ms; }
+.retro-big-picture .retro-library-card { width:max(64px, min(clamp(82px, 9vw, 140px), calc(var(--bp-rail-h) - 78px))) !important; transform:translateY(10px); opacity:.7; filter:none; transition:width 300ms var(--console-ease), transform 300ms var(--console-ease),opacity 200ms; }
 .retro-big-picture .retro-library-cover { height:auto !important; aspect-ratio:1; border-radius:14px; background:#141419 !important; }
-.retro-big-picture .retro-library-card[data-active=true],.retro-big-picture .retro-library-card:focus-visible { width:clamp(120px, 13vw, 190px) !important; transform:translateY(0); opacity:1; }
+.retro-big-picture .retro-library-card[data-active=true],.retro-big-picture .retro-library-card:focus-visible { width:max(clamp(82px, 9vw, 140px), min(clamp(120px, 13vw, 190px), calc(var(--bp-rail-h) - 78px))) !important; transform:translateY(0); opacity:1; }
+/* Fora de forma: o outline do botão contornava capa + nome num retângulo maior
+   que a capa. O destaque fica só com o anel branco de 2px que acompanha o raio
+   da capa (box-shadow abaixo) + escala/opacidade. */
+.retro-big-picture .retro-library-card:focus-visible { outline:none !important; }
 .retro-big-picture .retro-library-card[data-active=true] .retro-library-cover,.retro-big-picture .retro-library-card:focus-visible .retro-library-cover { height:auto !important; box-shadow:0 0 0 2px #fff,0 12px 30px #0008 !important; }
 .retro-big-picture .retro-library-card strong { font-size:14px !important; font-weight:500; }
 .retro-big-picture .retro-hero-section { padding:0 var(--console-gutter) 90px !important; top:clamp(320px, 43vh, 460px) !important; pointer-events:none; }
@@ -2396,7 +2404,6 @@ select:disabled {
 .retro-big-picture .ps5-hero-actions { margin-top:24px; }
 .retro-big-picture .retro-game-copy .retro-play-button,.retro-big-picture .ps5-overview-play { background:white !important; color:#111 !important; min-width:180px !important; font-size:18px !important; }
 .retro-big-picture :is(.ps5-hero-more,.ps5-overview-more) { background:#ffffff24; }
-.console-hints { position:absolute; bottom:24px; left:var(--console-gutter); right:var(--console-gutter); display:flex; gap:28px; color:#ffffffb8; font-size:14px; }
 .retro-big-picture .retro-hero-section.anim-rise { animation:console-reveal 360ms var(--console-ease) backwards; }
 .retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:none; transform:none; opacity:1; }
 @keyframes console-reveal { from {opacity:0;transform:translateY(16px)} to {opacity:1;transform:none} }
@@ -2409,7 +2416,7 @@ select:disabled {
 .retro-big-picture .ps5-overview-game { font-size:20px; min-width:0; }
 .retro-big-picture .ps5-overview-game span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .retro-big-picture .ps5-overview-icon { width:48px; height:48px; flex-shrink:0; }
-.retro-big-picture .ps5-overview-main { height:calc(100dvh - 92px); overflow-y:auto; grid-template-columns:minmax(0, 1fr) minmax(200px, 26%); grid-template-rows:auto; padding:32px var(--console-gutter) 60px; gap:32px; scroll-padding:24px; }
+.retro-big-picture .ps5-overview-main { height:calc(100dvh - 92px); overflow-y:auto; grid-template-columns:minmax(0, 1fr) minmax(200px, 26%); grid-template-rows:minmax(max-content, 1fr); padding:32px var(--console-gutter) 60px; gap:32px; scroll-padding:24px; }
 .retro-big-picture .ps5-overview-main > * { animation:console-reveal 360ms var(--console-ease) both; animation-delay:0ms; }
 .retro-big-picture .ps5-overview-activity { min-height:260px; }
 .retro-big-picture .ps5-overview-activity p { font-size:18px; }
@@ -2438,13 +2445,12 @@ select:disabled {
 @media(max-height:650px) {
   .retro-big-picture .ps5-topbar { height:64px; }
   .console-filters { top:64px; }
-  .retro-big-picture .retro-featured { top:108px; height:170px !important; }
-  .retro-big-picture .retro-library-card { width:80px !important; }
-  .retro-big-picture .retro-library-card[data-active=true] { width:112px !important; }
+  .retro-big-picture .retro-featured { --bp-rail-h:178px; top:108px; height:var(--bp-rail-h) !important; }
+  .retro-big-picture .retro-library-card { width:max(56px, min(80px, calc(var(--bp-rail-h) - 78px))) !important; }
+  .retro-big-picture .retro-library-card[data-active=true] { width:max(80px, min(112px, calc(var(--bp-rail-h) - 78px))) !important; }
   .retro-big-picture .retro-hero-section { top:280px !important; padding-bottom:60px !important; }
   .retro-big-picture .ps5-hero-actions { margin-top:14px; }
   .retro-big-picture .ps5-hero-logo { max-height:75px; }
-  .console-hints { bottom:14px; }
 }
 @media(max-width:760px) {
   .retro-big-picture .ps5-topbar { gap:16px; }
@@ -2454,7 +2460,6 @@ select:disabled {
   .retro-big-picture .retro-game-copy { width:100%; }
   .retro-big-picture .ps5-overview-main { grid-template-columns:1fr; }
   .retro-big-picture .ps5-overview-product { display:none; }
-  .console-hints { gap:14px; font-size:11px; flex-wrap:wrap; }
 }
 @media(prefers-reduced-motion:reduce) {
   .retro-big-picture *, .retro-big-picture *::before, .retro-big-picture *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
