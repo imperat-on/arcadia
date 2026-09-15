@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   searchArt: (gameId, titulo, kind, dimensions, sgdbId) =>
     ipcRenderer.invoke("meta:art", { gameId, titulo, kind, dimensions, sgdbId }),
   searchText: (gameId, titulo) => ipcRenderer.invoke("meta:text", { gameId, titulo }),
+  searchSquareArt: (gameId, titulo) => ipcRenderer.invoke("meta:squareArt", { gameId, titulo }),
   downloadArt: (id, kind, url) => ipcRenderer.invoke("art:download", { id, kind, url }),
   getNews: () => ipcRenderer.invoke("news:get"),
   getGameNews: (appid) => ipcRenderer.invoke("news:game", appid),
