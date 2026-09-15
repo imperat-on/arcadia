@@ -42,9 +42,20 @@ function preparar() {
   fs.mkdirSync(path.join(dados, "contas", "zes"), { recursive: true })
   fs.writeFileSync(path.join(dados, "config.json"), JSON.stringify({}))
   fs.writeFileSync(path.join(dados, "contas", ".migrado"), "1")
+
+  // O LAYOUT do save depende da plataforma, e a varredura junto:
+  //   Windows → %APPDATA%\GSE Saves\<appid>\achievements.json
+  //   Linux   → <prefixo Wine>/drive_c/users/steamuser/AppData/Roaming/GSE Saves/...
+  //             (e o jogo só é varrido se o prefixo EXISTIR)
+  // O teste modelava só o layout do Windows, então no Linux nada era ingerido —
+  // nem por evento, nem pelo piso. Foi o CI que pegou.
+  const prefixo = path.join(raiz, "prefix")
+  fs.mkdirSync(path.join(prefixo, "drive_c", "users", "steamuser", "AppData", "Roaming"), { recursive: true })
   fs.writeFileSync(
     path.join(dados, "contas", "zes", "game_settings.json"),
-    JSON.stringify({ [`steam:${APPID}`]: { exePath: path.join(jogo, "Game.exe") } }),
+    JSON.stringify({
+      [`steam:${APPID}`]: { exePath: path.join(jogo, "Game.exe"), prefixPath: prefixo },
+    }),
   )
   fs.writeFileSync(
     path.join(dados, "contas", "zes", "achievements.json"),
@@ -63,7 +74,11 @@ function preparar() {
   process.env.STEAM_DIR = steam
   process.env.HOME = raiz
 
-  const gse = path.join(appdata, "GSE Saves", APPID)
+  const roaming =
+    process.platform === "win32"
+      ? appdata
+      : path.join(prefixo, "drive_c", "users", "steamuser", "AppData", "Roaming")
+  const gse = path.join(roaming, "GSE Saves", APPID)
   fs.mkdirSync(gse, { recursive: true })
   const arquivo = path.join(gse, "achievements.json")
   fs.writeFileSync(arquivo, JSON.stringify({ ACH01: { earned: false, earned_time: 0 }, ACH02: { earned: false, earned_time: 0 } }))

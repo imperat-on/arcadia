@@ -870,24 +870,37 @@ function iniciarVigia(onUnlock, onRevoke = null) {
   let debounceEvento = null
 
   const dirsObservaveis = () => {
-    // No Windows as raízes de save são as pastas reais do usuário (o `prefixo` não
-    // é usado por raizesCrack no win32).
-    const r = raizesCrack("")
-    return [
-      path.join(r.appdata, "GSE Saves"),
-      path.join(r.appdata, "Goldberg SteamEmu Saves"),
-      path.join(r.appdata, "Goldberg UplayEmu Saves"),
-      path.join(r.appdata, "EMPRESS"),
-      path.join(r.appdata, "CreamAPI"),
-      path.join(r.appdata, "SmartSteamEmu"),
-      path.join(r.appdata, ".1911"),
-      path.join(r.publicDocs, "Steam"),
-      path.join(r.publicDocs, "OnlineFix"),
-      path.join(r.programData, "RLD!"),
-      path.join(r.programData, "Steam"),
-      path.join(r.userDocs, "SKIDROW"),
-      path.join(r.localAppData, "SKIDROW"),
-    ]
+    // POR JOGO, não uma vez com prefixo vazio: no Linux as raízes saem do prefixo de
+    // cada jogo (`<prefixo>/drive_c/users/steamuser/AppData/Roaming`), então
+    // `raizesCrack("")` montava caminho RELATIVO e nenhum observador era criado. No
+    // Windows o prefixo é ignorado e a lista se repete entre jogos — o Set deduplica.
+    const dirs = new Set()
+    for (const entry of lerLibrary()) {
+      if (!entry.installed) continue
+      const appid = extrairAppid(entry)
+      if (!appid) continue
+      const prefixo = resolvePrefixo(appid, entry)
+      if (process.platform !== "win32" && !fs.existsSync(prefixo)) continue
+      const r = raizesCrack(prefixo)
+      for (const d of [
+        path.join(r.appdata, "GSE Saves"),
+        path.join(r.appdata, "Goldberg SteamEmu Saves"),
+        path.join(r.appdata, "Goldberg UplayEmu Saves"),
+        path.join(r.appdata, "EMPRESS"),
+        path.join(r.appdata, "CreamAPI"),
+        path.join(r.appdata, "SmartSteamEmu"),
+        path.join(r.appdata, ".1911"),
+        path.join(r.publicDocs, "Steam"),
+        path.join(r.publicDocs, "OnlineFix"),
+        path.join(r.programData, "RLD!"),
+        path.join(r.programData, "Steam"),
+        path.join(r.userDocs, "SKIDROW"),
+        path.join(r.localAppData, "SKIDROW"),
+      ]) {
+        dirs.add(d)
+      }
+    }
+    return [...dirs]
   }
 
   // Um evento → uma varredura (com debounce: o crack costuma truncar e regravar, o
