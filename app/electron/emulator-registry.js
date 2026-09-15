@@ -770,9 +770,10 @@ function atomicWrite(file, value, fsImpl = fsDefault) {
 // `extraDefinitions`/`definitions` permite que um integrador adicione um
 // emulador sem alterar a política de argv ou habilitar execução arbitrária.
 function createEmulatorRegistry({
-  dataDir = path.join(
-    process.env.ARCADIA_DATA_DIR || path.join(os.homedir(), ".local", "share", "arcadia"),
-  ),
+  // Raiz de dados do app: `getDataDir()` (runtime-paths) — NÃO montar o caminho na
+  // mão. A versão anterior caía em ~/.local/share/arcadia, que no Windows não
+  // existe (lá a raiz é %LOCALAPPDATA%\arcadia).
+  dataDir = require("./runtime-paths").getDataDir(),
   profilesPath,
   fsImpl = fsDefault,
   envPath,

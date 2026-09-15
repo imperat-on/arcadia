@@ -2558,7 +2558,27 @@ async function onRevokeAchievement(payload) {
   }
 }
 
+// --- Perfil de boot ---------------------------------------------------------
+//
+// Instrumentação mínima para dizer ONDE o boot gasta o tempo. Existe porque o
+// debug.log mostrou um passo de ~10 s no boot sem nada apontando a origem — sem
+// número, diagnóstico vira chute.
+//
+// O helper fica em ESCOPO DE MÓDULO de propósito: um helper definido dentro do
+// callback do whenReady não existe para as funções de fora dele, e o boot quebra
+// com ReferenceError silencioso (a janela nunca aparece).
+const BOOT_T0 = Date.now()
+
+function bootProfile(marca) {
+  try {
+    require("./debug").log("boot-profile", `${Date.now() - BOOT_T0}ms ${marca}`)
+  } catch {}
+}
+
+bootProfile("module-load")
+
 function createWindow() {
+  bootProfile("createWindow-inicio")
   const cfgIni = readConfig()
   const launcherMode = resolveLauncherMode(process.env, cfgIni)
   appliedZoomFactor = null
@@ -2606,6 +2626,7 @@ function createWindow() {
   })
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"))
   win.once("ready-to-show", () => {
+    bootProfile("ready-to-show")
     win.show()
   })
 
@@ -2753,6 +2774,7 @@ function configurarLojaSteam() {
 }
 
 app.whenReady().then(() => {
+  bootProfile("whenReady")
   // Modo diagnóstico: imprime o estado interno (conta, achievements, bins do
   // Steam, fila de sync, erros recentes) e fecha. Sem janela.
   if (process.argv.includes("--diagnostico")) {
@@ -2808,7 +2830,17 @@ app.whenReady().then(() => {
   // O IPC de conta é o único dono da restauração. Reusar a mesma Promise
   // evita duas chamadas concorrentes de setSession() no boot.
   const { garantirSessao } = require("./supabase/ipc")
-  const contaPronta = garantirSessao()
+  // DUAS promessas, de propósito — antes era uma só e a UI pagava a conta inteira:
+  //   contaPronta — sessão restaurada e escopo da conta definido. É SÓ isto que
+  //                 library:get precisa esperar (é o que evita a UI piscar com os
+  //                 dados guest no boot).
+  //   posConta    — varredura de schemas de conquistas + pré-aquecimento de arte.
+  //                 Não é pré-requisito de biblioteca nenhuma: roda atrás.
+  // Medido antes: os schemas rodavam dentro de contaPronta e library:get esperava
+  // por eles — ~10 s de main process travado, janela aberta e sem resposta a
+  // nenhum IPC (a "trava" relatada).
+  const contaPronta = garantirSessao().catch(() => null)
+  const posConta = contaPronta
     .then(async (r) => {
       // Reconstrói as conquistas dos schemas DA STEAM DEPOIS de a conta estar
       // ativa. Antes rodava no createWindow como guest e gravava na raiz, então
@@ -2816,7 +2848,9 @@ app.whenReady().then(() => {
       // Cyberpunk (sem bin do Steam, jogo crackeado) isso significava aparecer
       // apenas 1 item mínimo. No-op se não há schema bin nem fallback.
       try {
+        bootProfile("schemas-inicio")
         await require("./achievements/loader").loadAllSchemas()
+        bootProfile("schemas-fim")
       } catch (e) {
         console.error("[achievements] boot load:", e)
       }
@@ -2851,7 +2885,11 @@ app.whenReady().then(() => {
     .catch(() => null)
 
   ipcMain.handle("library:get", async () => {
+    bootProfile("libget-inicio")
+    // Só a conta. Os schemas de conquistas são do posConta e NÃO entram aqui: a
+    // biblioteca não depende deles e esperar por eles travava a janela por ~10 s.
     await contaPronta
+    bootProfile("libget-contaPronta-ok")
     const games = readLibrary()
     // Enriquecimento de capas/ícones NUNCA pode bloquear a resposta — se a
     // rede do Steam Store travar, o renderer ficaria com a lista vazia.
@@ -2889,6 +2927,9 @@ app.whenReady().then(() => {
   // dos UserGameStatsSchema_*.bin da Steam.
   ipcMain.handle("achievements:schemas:load", async () => {
     try {
+      // Serializa com a passada do boot: duas varreduras ao mesmo tempo leem e
+      // regravam o MESMO achievements.json (uma sobrescreveria a outra).
+      await posConta.catch(() => {})
       const { loadAllSchemas } = require("./achievements/loader")
       return { ok: true, ...(await loadAllSchemas()) }
     } catch (e) {
@@ -4302,6 +4343,11 @@ app.whenReady().then(() => {
   ipcMain.handle("steam:capturarAgora", () => {
     try {
       const sa = require("./steam-account")
+      // Leitura fresca da Steam: o botão é justamente o "não confie no que está
+      // guardado" (o usuário acabou de instalar/logar/trocar algo).
+      try {
+        require("./steam-path").invalidarCacheSteam()
+      } catch {}
       sa.forcarProximaCaptura()
       if (pararAchievementWatcher) pararAchievementWatcher()
       pararAchievementWatcher = startAchievementWatcher(onUnlockAchievement)

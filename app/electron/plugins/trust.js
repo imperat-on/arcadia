@@ -231,7 +231,11 @@ function resolveStorePath(options = {}) {
   if (typeof dataDir === "string" && dataDir.trim()) {
     return path.join(path.resolve(dataDir), "plugins", TRUST_STORE_FILENAME)
   }
-  return path.join(os.homedir(), ".local", "share", "arcadia", "plugins", TRUST_STORE_FILENAME)
+  // Raiz de dados do app (runtime-paths): no Windows é %LOCALAPPDATA%\arcadia.
+  // Montar ~/.local/share/arcadia na mão apontava para um diretório inexistente
+  // fora do Linux.
+  const { getDataDir } = require("./../runtime-paths")
+  return path.join(getDataDir(), "plugins", TRUST_STORE_FILENAME)
 }
 
 function publicKeys(state) {

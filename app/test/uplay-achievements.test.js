@@ -8,8 +8,8 @@ const path = require("node:path")
 
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-upc-"))
 process.env.ARCADIA_DATA_DIR = DATA_DIR
-// A captura automática agora vem DESLIGADA de fábrica. Este teste exercita o vigia,
-// então liga o interruptor explicitamente no config isolado.
+// A captura automática é LIGADA por padrão; o interruptor explícito aqui mantém o
+// teste independente do padrão do app.
 fs.writeFileSync(
   path.join(DATA_DIR, "config.json"),
   JSON.stringify({ achievements_auto_capture: true }),
