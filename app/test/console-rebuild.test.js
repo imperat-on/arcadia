@@ -4,6 +4,23 @@ const fs = require('node:fs')
 const path = require('node:path')
 const read = name => fs.readFileSync(path.join(__dirname, '../src', name), 'utf8')
 
+test('o quadrado do console enquadra com recorte central, sem barra nem esticamento', () => {
+  const regras = [...read('index.css').matchAll(/([^{}]*\.ps5-cover-art[^{}]*)\{([^{}]*)\}/g)]
+  assert.ok(regras.length >= 2)
+  for (const [, , declaracoes] of regras) {
+    assert.match(declaracoes, /object-fit:\s*cover/)
+    assert.doesNotMatch(declaracoes, /object-fit:\s*(fill|contain)/)
+    assert.match(declaracoes, /transform:\s*none/)
+  }
+  // A moldura do Big Picture é quadrada: é ela que define o enquadramento.
+  const moldura = read('index.css').match(/\.retro-big-picture \.retro-library-cover \{[^}]*\}/)[0]
+  assert.match(moldura, /aspect-ratio:1/)
+})
+test('console does not render navigation instructions', () => {
+  assert.doesNotMatch(read('components/ps5-launcher/PS5Launcher.tsx'), /console-hints|footerNode/)
+  assert.doesNotMatch(read('index.css'), /console-hints/)
+})
+
 test('console overview uses shared hours and renders complete achievement collections', () => {
   const source = read('components/ps5-launcher/GameOverview.tsx')
   assert.match(source, /horasCombinadas\(steamHoras, \[game.id, game.appid\], game.playtime_minutes\)/)

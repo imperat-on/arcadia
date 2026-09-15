@@ -1121,11 +1121,7 @@ select:disabled {
   background: var(--background) !important;
 }
 
-.retro-boot-screen::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  pointer-events: none;
+.retro-boot-screen {
   background: var(--background);
 }
 
@@ -2408,7 +2404,6 @@ select:disabled {
 .retro-big-picture .ps5-hero-actions { margin-top:24px; }
 .retro-big-picture .retro-game-copy .retro-play-button,.retro-big-picture .ps5-overview-play { background:white !important; color:#111 !important; min-width:180px !important; font-size:18px !important; }
 .retro-big-picture :is(.ps5-hero-more,.ps5-overview-more) { background:#ffffff24; }
-.console-hints { position:absolute; bottom:24px; left:var(--console-gutter); right:var(--console-gutter); display:flex; gap:28px; color:#ffffffb8; font-size:14px; }
 .retro-big-picture .retro-hero-section.anim-rise { animation:console-reveal 360ms var(--console-ease) backwards; }
 .retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:none; transform:none; opacity:1; }
 @keyframes console-reveal { from {opacity:0;transform:translateY(16px)} to {opacity:1;transform:none} }
@@ -2456,7 +2451,6 @@ select:disabled {
   .retro-big-picture .retro-hero-section { top:280px !important; padding-bottom:60px !important; }
   .retro-big-picture .ps5-hero-actions { margin-top:14px; }
   .retro-big-picture .ps5-hero-logo { max-height:75px; }
-  .console-hints { bottom:14px; }
 }
 @media(max-width:760px) {
   .retro-big-picture .ps5-topbar { gap:16px; }
@@ -2466,7 +2460,6 @@ select:disabled {
   .retro-big-picture .retro-game-copy { width:100%; }
   .retro-big-picture .ps5-overview-main { grid-template-columns:1fr; }
   .retro-big-picture .ps5-overview-product { display:none; }
-  .console-hints { gap:14px; font-size:11px; flex-wrap:wrap; }
 }
 @media(prefers-reduced-motion:reduce) {
   .retro-big-picture *, .retro-big-picture *::before, .retro-big-picture *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
