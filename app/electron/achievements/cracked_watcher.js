@@ -840,13 +840,91 @@ function iniciarVigia(onUnlock, onRevoke = null) {
     }
   }
 
+  // --- Observadores de diretório (só Windows) ---------------------------------
+  //
+  // O polling de 15s é o que fazia o toast chegar "um pouco depois" do desbloqueio
+  // (até 15s de atraso, ~7s na média). No Windows nativo os arquivos do crack são
+  // arquivos REAIS do NTFS: fs.watch entrega o evento na hora — é o MESMO padrão que
+  // o vigia de bin da Steam já usa (steam_bin.js: watcher + debounce + poll de rede).
+  //
+  // O polling CONTINUA, como rede de segurança: evento perdido, arquivo criado antes
+  // de o watcher subir, pasta de rede, e o diretório ao lado do .exe (SteamData/
+  // 3DMGAME), que não é observado porque depende do jogo instalado.
+  //
+  // No Linux nada muda de propósito: dentro do prefixo Wine o inotify não é
+  // confiável (motivo documentado no topo deste arquivo), então lá segue só o
+  // polling. Trocar uma política que funciona por outra não verificada não vale.
+  const DEBOUNCE_EVENTO_MS = 300
+  const observadores = []
+  let debounceEvento = null
+
+  const dirsObservaveis = () => {
+    // No Windows as raízes de save são as pastas reais do usuário (o `prefixo` não
+    // é usado por raizesCrack no win32).
+    const r = raizesCrack("")
+    return [
+      path.join(r.appdata, "GSE Saves"),
+      path.join(r.appdata, "Goldberg SteamEmu Saves"),
+      path.join(r.appdata, "Goldberg UplayEmu Saves"),
+      path.join(r.appdata, "EMPRESS"),
+      path.join(r.appdata, "CreamAPI"),
+      path.join(r.appdata, "SmartSteamEmu"),
+      path.join(r.appdata, ".1911"),
+      path.join(r.publicDocs, "Steam"),
+      path.join(r.publicDocs, "OnlineFix"),
+      path.join(r.programData, "RLD!"),
+      path.join(r.programData, "Steam"),
+      path.join(r.userDocs, "SKIDROW"),
+      path.join(r.localAppData, "SKIDROW"),
+    ]
+  }
+
+  // Um evento → uma varredura (com debounce: o crack costuma truncar e regravar, o
+  // que dispara dois eventos para a mesma conquista).
+  const agendarVarredura = () => {
+    clearTimeout(debounceEvento)
+    debounceEvento = setTimeout(scan, DEBOUNCE_EVENTO_MS)
+  }
+
+  if (process.platform === "win32") {
+    for (const dir of dirsObservaveis()) {
+      if (!fs.existsSync(dir)) continue
+      // Caminho normalizado ANTES de observar. O Windows devolve nomes CURTOS 8.3
+      // (C:\Users\ADMINI~1\...) para algumas pastas, e o libuv compara o nome do
+      // arquivo recebido com o diretório observado: com nome curto isso estoura uma
+      // ASSERT NATIVA do Node (`!_wcsnicmp(filename, dir, dirlen)`, src\win\fs-event.c)
+      // que ABORTA o processo — try/catch não pega assert nativo. realpath resolve
+      // para o nome longo e mata o problema (também resolve junction/symlink).
+      let alvo = dir
+      try {
+        alvo = fs.realpathSync.native(dir)
+      } catch {}
+      try {
+        observadores.push(fs.watch(alvo, { recursive: true }, agendarVarredura))
+      } catch (e) {
+        log("achievements/vigia-watch", e)
+      }
+    }
+    if (observadores.length) {
+      log("achievements/vigia-watch", `${observadores.length} pasta(s) observada(s) — toast no ato`)
+    }
+  }
+
   // Roda uma vez no inicio para sincronizar o estado atual
   scan()
 
-  // Polling
+  // Polling (rede de segurança + único caminho no Linux)
   const interval = setInterval(scan, INTERVALO_POLL)
 
-  return () => clearInterval(interval)
+  return () => {
+    clearInterval(interval)
+    clearTimeout(debounceEvento)
+    for (const o of observadores) {
+      try {
+        o.close()
+      } catch {}
+    }
+  }
 }
 
 module.exports = {
