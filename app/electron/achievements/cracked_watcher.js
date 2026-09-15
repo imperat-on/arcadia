@@ -15,8 +15,10 @@
 //   Razor1911 → txt (linhas: name 1 timestamp)
 //   RLD!      → INI (hex State/Time)
 // Formato: 1 arquivo com header ou [Seção] + chave=valor.
-// Política: escuta o mtime pra detectar mudancas (sem fs.watch — confiavel
-//           em Wine/Proton onde inotify nao pega arquivos dentro do prefixo).
+// Política: o mtime é a fonte da verdade — o evento só ANTECIPA a varredura. O
+//           fs.watch entrega o aviso no ato nas duas plataformas e o polling de 3s é
+//           o PISO: em Wine/Proton o inotify pode não entregar arquivo escrito dentro
+//           do prefixo (lib em NTFS/exFAT), e aí quem avisa é o piso (antes: 15s).
 // Integracao: mesmo callback onUnlockAchievement do steam_bin.js — toasts,
 //             som e painel compartilhados.
 
@@ -40,7 +42,11 @@ const { aliasesOf } = require("./match")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
-const INTERVALO_POLL = 15000 // 15s
+// Piso de latência do vigia. Era 15s: o usuário desbloqueava e o aviso podia levar
+// até 15s (média ~7s). Uma varredura custa ~20ms (medido, com o store lido uma vez
+// por passada), então 3s é barato e garante aviso em no máximo 3s mesmo quando o
+// evento de arquivo não chega (ver a política no topo do arquivo).
+const INTERVALO_POLL = 3000 // 3s
 
 // --- Utilitários de parse ---
 
@@ -615,6 +621,13 @@ function iniciarVigia(onUnlock, onRevoke = null) {
     const library = lerLibrary()
     if (!library || !library.length) return
 
+    // O store é lido UMA vez por varredura, não uma por jogo. Antes era
+    // `loadAchievements()` dentro do laço — um JSON.parse do achievements.json
+    // (1,3 MB no perfil real) por jogo. Com o polling em 3s isso virava custo fixo
+    // proporcional ao tamanho da biblioteca, e o objeto em memória ainda acumula as
+    // gravações da própria passada (cada save escreve o store inteiro).
+    const store = loadAchievements()
+
     for (const entry of library) {
       if (!entry.installed) continue
       const appid = extrairAppid(entry)
@@ -627,7 +640,6 @@ function iniciarVigia(onUnlock, onRevoke = null) {
       if (process.platform !== "win32" && !fs.existsSync(prefixo)) continue
 
       // Carrega o índice de conquistas pra mapear apiname → item
-      const store = loadAchievements()
       const items = store[appid] && store[appid].items ? store[appid].items : []
       if (!items.length) continue // sem schema, sem o que detectar
 
@@ -840,20 +852,19 @@ function iniciarVigia(onUnlock, onRevoke = null) {
     }
   }
 
-  // --- Observadores de diretório (só Windows) ---------------------------------
+  // --- Observadores de diretório ------------------------------------------------
   //
-  // O polling de 15s é o que fazia o toast chegar "um pouco depois" do desbloqueio
-  // (até 15s de atraso, ~7s na média). No Windows nativo os arquivos do crack são
-  // arquivos REAIS do NTFS: fs.watch entrega o evento na hora — é o MESMO padrão que
-  // o vigia de bin da Steam já usa (steam_bin.js: watcher + debounce + poll de rede).
+  // O polling era o único caminho: 15s de latência (média ~7s) entre desbloquear e o
+  // aviso aparecer. Agora o evento antecipa a varredura — é o MESMO padrão que o vigia
+  // de bin da Steam já usa (steam_bin.js: watcher + debounce + poll de rede).
   //
-  // O polling CONTINUA, como rede de segurança: evento perdido, arquivo criado antes
-  // de o watcher subir, pasta de rede, e o diretório ao lado do .exe (SteamData/
-  // 3DMGAME), que não é observado porque depende do jogo instalado.
+  // O POLLING CONTINUA como piso, não como enfeite: no Linux há relato de inotify não
+  // entregar evento de arquivo escrito dentro de prefixo Proton (biblioteca em NTFS/
+  // exFAT), e no Windows um evento pode se perder (pasta de rede, arquivo criado antes
+  // de o watcher subir). Com o piso em 3s, o pior caso é avisar em 3s; o melhor é no ato.
   //
-  // No Linux nada muda de propósito: dentro do prefixo Wine o inotify não é
-  // confiável (motivo documentado no topo deste arquivo), então lá segue só o
-  // polling. Trocar uma política que funciona por outra não verificada não vale.
+  // O diretório ao lado do .exe (SteamData/3DMGAME) NÃO é observado porque depende do
+  // jogo instalado: quem cobre esse é o piso.
   const DEBOUNCE_EVENTO_MS = 300
   const observadores = []
   let debounceEvento = null
@@ -886,34 +897,36 @@ function iniciarVigia(onUnlock, onRevoke = null) {
     debounceEvento = setTimeout(scan, DEBOUNCE_EVENTO_MS)
   }
 
-  if (process.platform === "win32") {
-    for (const dir of dirsObservaveis()) {
-      if (!fs.existsSync(dir)) continue
-      // Caminho normalizado ANTES de observar. O Windows devolve nomes CURTOS 8.3
-      // (C:\Users\ADMINI~1\...) para algumas pastas, e o libuv compara o nome do
-      // arquivo recebido com o diretório observado: com nome curto isso estoura uma
-      // ASSERT NATIVA do Node (`!_wcsnicmp(filename, dir, dirlen)`, src\win\fs-event.c)
-      // que ABORTA o processo — try/catch não pega assert nativo. realpath resolve
-      // para o nome longo e mata o problema (também resolve junction/symlink).
-      let alvo = dir
-      try {
-        alvo = fs.realpathSync.native(dir)
-      } catch {}
-      try {
-        observadores.push(fs.watch(alvo, { recursive: true }, agendarVarredura))
-      } catch (e) {
-        log("achievements/vigia-watch", e)
-      }
+  // Vale nas duas plataformas. No Linux o diretório observado é o de dentro do
+  // prefixo (o mesmo que o polling já varria), e o `recursive` cobre o
+  // `<appid>/achievements.json`. Se o inotify não entregar (lib em NTFS/exFAT), o
+  // piso de 3s resolve — por isso o observador nunca substitui o polling.
+  for (const dir of dirsObservaveis()) {
+    if (!fs.existsSync(dir)) continue
+    // Caminho normalizado ANTES de observar. No Windows algumas pastas vêm em nome
+    // CURTO 8.3 (C:\Users\ADMINI~1\...) e o libuv compara o nome do arquivo recebido
+    // com o diretório observado: com nome curto isso estoura uma ASSERT NATIVA do Node
+    // (`!_wcsnicmp(filename, dir, dirlen)`, src\win\fs-event.c) que ABORTA o processo —
+    // try/catch não pega assert nativo. O realpath resolve para o nome longo e ainda
+    // desfaz junction/symlink (o prefixo Proton costuma ser caminho com symlink).
+    let alvo = dir
+    try {
+      alvo = fs.realpathSync.native(dir)
+    } catch {}
+    try {
+      observadores.push(fs.watch(alvo, { recursive: true }, agendarVarredura))
+    } catch (e) {
+      log("achievements/vigia-watch", e)
     }
-    if (observadores.length) {
-      log("achievements/vigia-watch", `${observadores.length} pasta(s) observada(s) — toast no ato`)
-    }
+  }
+  if (observadores.length) {
+    log("achievements/vigia-watch", `${observadores.length} pasta(s) observada(s) — aviso no ato`)
   }
 
   // Roda uma vez no inicio para sincronizar o estado atual
   scan()
 
-  // Polling (rede de segurança + único caminho no Linux)
+  // Piso: garante o aviso mesmo sem evento (e é o único caminho onde o evento não chega)
   const interval = setInterval(scan, INTERVALO_POLL)
 
   return () => {
