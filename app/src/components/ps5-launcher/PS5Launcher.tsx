@@ -1274,14 +1274,7 @@ export function PS5Launcher() {
       onToggleFavorite={() => selectedGame && _toggle_favorite(selectedGame)}
     />
   )
-  const footerNode = (
-    <footer className="console-hints">
-      <span>← → {t("topbar.jogos")}</span>
-      <span>↓ {t("gameoverview.detalhes")}</span>
-      <span>Enter / A · {t("hero.jogar")}</span>
-      <span>Esc / B · {t("gameoverview.controle.voltar")}</span>
-    </footer>
-  )
+
 
   return (
     <div
@@ -1483,7 +1476,6 @@ export function PS5Launcher() {
 
             {/* Hero embaixo à esquerda, com as ações */}
             {heroNode}
-            {footerNode}
           </>
         )}
       </div>
