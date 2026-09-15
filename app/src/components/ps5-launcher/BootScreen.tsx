@@ -92,6 +92,7 @@ export function BootScreen({
     const fim = () => fimRef.current()
     video.addEventListener("error", falha)
     video.addEventListener("ended", fim)
+    video.play().catch(() => {})
     return () => {
       video.removeEventListener("error", falha)
       video.removeEventListener("ended", fim)
