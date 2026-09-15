@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
@@ -21,12 +21,69 @@ const FALLBACK_GRADIENTS: Record<string, string> = {
   psn: "linear-gradient(145deg,#0a2550,#041027)",
 }
 
-function coverFor(game: Game) {
-  const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  if (game.cover?.includes("/header.jpg") && appid) {
-    return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
-  }
-  return game.cover
+// Uma leitura por jogo por sessão (sucesso 1 h, falha 60 s). O main devolve a
+// lista JÁ ordenada: quadrado nativo, arte promocional, capa retrato.
+const arteCache = new Map<string, { urls: string[]; expires: number }>()
+const artePendente = new Map<string, Promise<string[]>>()
+
+function arteDoQuadrado(game: Game): Promise<string[]> {
+  const key = `${game.id}|${game.title}`
+  const cached = arteCache.get(key)
+  if (cached && cached.expires > Date.now()) return Promise.resolve(cached.urls)
+  const pendente = artePendente.get(key)
+  if (pendente) return pendente
+  const request = Promise.resolve(window.launcherAPI?.searchSquareArt(game.id, game.title))
+    .then(result => (result?.candidatos || []).map(a => a.url).filter(Boolean))
+    .catch(() => [] as string[])
+    .then(urls => {
+      if (arteCache.size >= 300) arteCache.delete(arteCache.keys().next().value!)
+      arteCache.set(key, { urls, expires: Date.now() + (urls.length ? 3600000 : 60000) })
+      artePendente.delete(key)
+      return urls
+    })
+  artePendente.set(key, request)
+  return request
+}
+
+function QuadradoCapa({ game }: { game: Game }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [arte, setArte] = useState("")
+  useEffect(() => {
+    let alive = true
+    let started = false
+    setArte("")
+    const start = async () => {
+      if (started) return
+      started = true
+      // A capa da biblioteca é a rede de segurança: com ela, nenhum jogo fica no
+      // bloco de ícone. Quem cuida da proporção é o CSS (recorte central).
+      const urls = [...await arteDoQuadrado(game), game.cover].filter(Boolean) as string[]
+      for (const url of urls) {
+        if (!alive) return
+        const serve = await new Promise<boolean>(resolve => {
+          const image = new Image()
+          const timer = window.setTimeout(() => resolve(false), 10000)
+          image.onload = () => { clearTimeout(timer); resolve(image.naturalWidth > 0) }
+          image.onerror = () => { clearTimeout(timer); resolve(false) }
+          image.src = url
+        })
+        if (alive && serve) { setArte(url); return }
+      }
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) { observer.disconnect(); void start() }
+    }, { rootMargin: "200px" })
+    if (ref.current) observer.observe(ref.current)
+    return () => { alive = false; observer.disconnect() }
+  }, [game.id, game.title, game.cover])
+  return <div ref={ref} className="h-full w-full">
+    {arte ? <img src={arte} onError={() => setArte("")} alt={game.title} className="ps5-cover-art" draggable={false} /> : (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-3 text-center text-white/50">
+        <LauncherIcon launcher={game.launcher} size={28} />
+        <span className="line-clamp-3 text-[11px] font-bold uppercase">{game.title}</span>
+      </div>
+    )}
+  </div>
 }
 
 export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLaunch }: GameRailProps) {
@@ -58,7 +115,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
       <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("topbar.jogos")}>
         {games.map((game, index) => {
           const focused = index === selectedIndex
-          const cover = coverFor(game)
+
           return (
             <button
               key={game.id}
@@ -85,12 +142,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
               aria-current={focused ? "true" : undefined}
             >
               <div className="retro-library-cover relative overflow-hidden" style={{ height: Math.round(cardWidth * 1.42), background: FALLBACK_GRADIENTS[game.launcher] || "#09100f" }}>
-                {cover ? <img src={cover} onError={(event) => { event.currentTarget.style.visibility = "hidden" }} alt={game.title} className="ps5-cover-art" loading="lazy" draggable={false} /> : (
-                  <div className="flex h-full flex-col items-center justify-center gap-3 p-3 text-center text-white/50">
-                    <LauncherIcon launcher={game.launcher} size={28} />
-                    <span className="line-clamp-3 text-[11px] font-bold uppercase">{game.title}</span>
-                  </div>
-                )}
+                <QuadradoCapa game={game} />
               </div>
               <strong className="mt-2 block line-clamp-2 px-1 text-[9px] font-bold uppercase leading-tight tracking-[0.025em] text-white/80">{game.title}</strong>
               <span className="mt-1 block px-1 text-[9px] font-black text-[var(--accent)]">{game.year || "—"}</span>
