@@ -38,7 +38,7 @@ const {
   uplayRuntimePath,
   uplaySaveRoot,
 } = require("./uplay")
-const { aliasesOf } = require("./match")
+const { aliasesOf, buildIndex, findItem, rememberAlias } = require("./match")
 
 const { findSteamDir } = require("./../steam-path")
 const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
@@ -488,7 +488,7 @@ function indicePorApiname(items) {
 // Resolve um registro do UPC para o item do Arcadia. O loader atual grava
 // somente a chave decimal ("40"), enquanto o catálogo Steam usa, neste jogo,
 // ACObsidian_Ach_40. Nunca usamos a posição do array quando há um ID explícito.
-function itemParaDesbloqueio(items, desbloqueio, registro) {
+function itemParaDesbloqueio(items, desbloqueio, registro, extras = {}) {
   const byName = indicePorApiname(items)
   if (registro?.name === "upc") {
     // O Goldberg/vozes38 numera o runtime numa ordem PRÓPRIA que não corresponde
@@ -519,6 +519,24 @@ function itemParaDesbloqueio(items, desbloqueio, registro) {
   for (const name of names) {
     const item = byName.get(String(name ?? "").toLowerCase())
     if (item) return item
+  }
+  // Ponte pelo TÍTULO, com o schema do emulador: o arquivo de progresso entrega
+  // só o nome real ("ACH19") e o item local pode ter ficado com a chave
+  // sintética ("ach_15") e sem apelido — o nome não casa e o desbloqueio era
+  // descartado em silêncio. O schema (steam_settings/achievements.json) dá o
+  // título de cada nome; o match por título é o mesmo do resto do app e só
+  // aceita título ÚNICO dentro do appid.
+  const titulos = extras && extras.titulos
+  if (titulos && titulos.size) {
+    const indice = extras.indice || buildIndex(items)
+    for (const name of names) {
+      const chave = String(name ?? "").trim().toLowerCase()
+      if (!chave) continue
+      for (const titulo of titulos.get(chave) || []) {
+        const item = findItem(indice, { title: titulo })
+        if (item) return item
+      }
+    }
   }
   return null
 }
@@ -580,6 +598,79 @@ function resolveExeDir(entry, appid) {
   const cfg = readSettings(entry, appid)
   const exePath = cfg && cfg.exePath ? String(cfg.exePath) : entry && entry.exe
   return exePath ? path.dirname(exePath) : null
+}
+
+// --- Schema do PRÓPRIO emulador (steam_settings/achievements.json) -----------
+//
+// Numa instalação crackeada, quem define o NOME das conquistas é o schema que o
+// emulador carrega — `steam_settings/achievements.json` (GSE/Goldberg), com
+// `name` (ACH01, ACH02, ...) e `displayName` por idioma. O Arcadia nunca leu
+// esse arquivo, e é assim que os dois espaços de chave se separam: o arquivo de
+// progresso do emulador fala "ACH19" enquanto o item local pode ter ficado com
+// a chave SINTÉTICA do scrape ("ach_15", posicional, e sem apelido nenhum
+// quando a conquista ainda não veio do servidor). Sem uma ponte, esse
+// desbloqueio era descartado em silêncio — sem erro, sem aviso, só o número
+// que não sobe.
+//
+// A ponte é o TÍTULO: o schema dá o título de cada nome e o match.js casa por
+// título SOMENTE quando ele é único dentro do appid (marcar a conquista errada
+// é pior do que não marcar).
+const cacheSchemaEmulador = new Map() // caminho → { mtimeMs, titulos }
+
+// O `steam_settings` fica ao lado do executável no layout do GSE, mas o pacote
+// costuma instalá-lo na RAIZ do jogo (com o exe em Gameface/Binaries/Win64/...).
+// Sobe no máximo 5 níveis, sem sair da raiz do filesystem.
+function acharSchemaEmulador(pastaExe) {
+  if (!pastaExe) return null
+  let dir = pastaExe
+  for (let i = 0; i < 5; i++) {
+    const candidato = path.join(dir, "steam_settings", "achievements.json")
+    try {
+      const st = fs.statSync(candidato)
+      if (st.isFile()) return { caminho: candidato, mtimeMs: st.mtimeMs }
+    } catch {}
+    const pai = path.dirname(dir)
+    if (!pai || pai === dir || pai === path.parse(pai).root) break
+    dir = pai
+  }
+  return null
+}
+
+// Títulos na ordem de confiança: o idioma do catálogo do usuário primeiro e
+// depois os outros que o schema traz. Todos são tentados — o match por título
+// só aceita título ÚNICO, então uma tradução ambígua nunca casa por engano.
+const IDIOMAS_SCHEMA = ["brazilian", "english", "spanish", "latam", "LATAM"]
+const CAMPOS_IDIOMA = ["displayName", "display_name"]
+
+function titulosDoSchemaEmulador(pastaExe) {
+  const achado = acharSchemaEmulador(pastaExe)
+  if (!achado) return null
+  const emCache = cacheSchemaEmulador.get(achado.caminho)
+  if (emCache && emCache.mtimeMs === achado.mtimeMs) return emCache.titulos
+  let itens = []
+  try {
+    const bruto = JSON.parse(fs.readFileSync(achado.caminho, "utf-8"))
+    itens = Array.isArray(bruto) ? bruto : Object.values(bruto || {})
+  } catch {
+    return null
+  }
+  const titulos = new Map()
+  for (const it of itens) {
+    const nome = String((it && (it.name || it.apiname)) || "").trim()
+    if (!nome) continue
+    const lista = []
+    const push = (valor) => {
+      const t = String(valor ?? "").trim()
+      if (t && !lista.includes(t)) lista.push(t)
+    }
+    const disp = CAMPOS_IDIOMA.map((c) => it && it[c]).find((d) => d && typeof d === "object") || {}
+    for (const idioma of IDIOMAS_SCHEMA) push(disp[idioma])
+    for (const valor of Object.values(disp)) push(valor)
+    push(it && it.title)
+    if (lista.length) titulos.set(nome.toLowerCase(), lista)
+  }
+  cacheSchemaEmulador.set(achado.caminho, { mtimeMs: achado.mtimeMs, titulos })
+  return titulos
 }
 
 function iniciarVigia(onUnlock, onRevoke = null) {
@@ -644,6 +735,16 @@ function iniciarVigia(onUnlock, onRevoke = null) {
       if (!items.length) continue // sem schema, sem o que detectar
 
       const registros = caminhosPrefixados(prefixo, appid, entry)
+
+      // Schema do PRÓPRIO emulador (steam_settings/achievements.json): é a
+      // fonte do NOME REAL das conquistas numa instalação crackeada, e é o que
+      // permite casar o nome do arquivo de progresso ("ACH19") com um item
+      // local que ficou com a chave sintética do scrape ("ach_15"). Lido uma
+      // vez por jogo/varredura (cache por mtime dentro do helper) para o
+      // polling de 3s não pagar I/O por arquivo.
+      const pastaExeJogo = resolveExeDir(entry, appid)
+      const titulosEmu = titulosDoSchemaEmulador(pastaExeJogo)
+      const indiceTitulos = titulosEmu ? buildIndex(items) : null
 
       for (const reg of registros) {
         if (!reg.file) continue
@@ -726,8 +827,24 @@ function iniciarVigia(onUnlock, onRevoke = null) {
         }
 
         for (const d of desbloqueadas) {
-          const it = itemParaDesbloqueio(items, d, reg)
+          const it = itemParaDesbloqueio(items, d, reg, { titulos: titulosEmu, indice: indiceTitulos })
           if (!it) continue
+
+          // O nome que o emulador usa é o nome REAL do jogo — o mesmo espaço do
+          // bin da Steam e do servidor. Guardá-lo como apelido faz o casamento
+          // ser exato nas próximas vezes (não depende mais de título), e o
+          // `remoteApiname` impede que o desbloqueio suba com a chave sintética
+          // e crie uma SEGUNDA linha no servidor para a mesma conquista.
+          if (d.name) {
+            const nomeEmu = String(d.name).trim()
+            const jaConhecido = aliasesOf(it).some((a) => a.toLowerCase() === nomeEmu.toLowerCase())
+            if (!jaConhecido) {
+              if (!it.remoteApiname) it.remoteApiname = nomeEmu
+              rememberAlias(it, nomeEmu)
+              atualizou = true
+            }
+          }
+
           if (it.achieved) continue // ja estava marcado
 
           const payload = payloadParaDesbloqueio(appid, it, d, reg)
@@ -797,7 +914,7 @@ function iniciarVigia(onUnlock, onRevoke = null) {
 
       // SteamData e 3DMGAME: pastas na raiz do jogo (perto do .exe),
       // comuns em repacks. Exe path vem do game_settings.json.
-      const pastaExe = resolveExeDir(entry, appid)
+      const pastaExe = pastaExeJogo
       if (pastaExe && fs.existsSync(pastaExe)) {
         const exeFiles = [
           {
@@ -971,6 +1088,7 @@ module.exports = {
   raizesCrack,
   resolvePrefixo,
   resolveExeDir,
+  titulosDoSchemaEmulador,
   lerLibrary,
   extrairAppid,
   itemParaDesbloqueio,
