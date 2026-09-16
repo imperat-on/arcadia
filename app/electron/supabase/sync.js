@@ -366,7 +366,11 @@ async function syncAllLocal(context = null) {
       if (item.achieved && item.apiname && item.unlock) {
         items.push({
           appid,
-          apiname: item.apiname,
+          // A MESMA conquista pode ter apiname diferente em cada máquina (o
+          // schema local ficou sintético "ach_15" enquanto o servidor e a outra
+          // máquina usam o nome real "ACH19"). A chave do servidor manda: sem
+          // isto o catch-up criava uma SEGUNDA linha para a mesma conquista.
+          apiname: item.remoteApiname || item.apiname,
           unlocked_at: normalizeTs(item.unlock),
           title: item.title,
           icon: item.icon,
