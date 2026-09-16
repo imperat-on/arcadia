@@ -1,105 +1,82 @@
 # Arcadia
 
-A game launcher for **Linux and Windows** with two UIs: a **desktop** mode
-(windowed library, store and downloads) and a **console** mode (fullscreen,
-gamepad, TV-friendly).
+A self-hosted game launcher for **Linux and Windows**, built with Electron and
+React. It manages your library, launches games through Steam, Proton/Wine
+prefixes or local emulators, tracks achievements, and syncs playtime and
+achievements across your machines through your own backend.
 
-### Big Picture — boot
+Two interfaces ship in the same app:
 
-Cinematic boot into the fullscreen console UI. The launcher opens straight
-into it when started with `./arcadia.sh`, ready for a gamepad.
-
-<p align="center">
-  <img src="assets/boot-do-modo-big-picture.gif" width="820" alt="Big Picture boot">
-</p>
-
-### Big Picture — store & downloads
-
-The Games tab: hero of the selected title with its trailer as background,
-horizontal rail of covers, and per-game details a click away.
-
-<p align="center">
-  <img src="assets/tour-pela-aba-jogos-do-big-picture.gif" width="820" alt="Big Picture games tab">
-</p>
-
-### Big Picture — games tab
-
-The store laid out storefront-style: showcase with a rotating hero and rails
-per category, or open a category as a dense grid. Downloading a title
-enqueues DepotDownloader and shows real progress, speed and ETA.
-
-<p align="center">
-  <img src="assets/tour-pela-loja-e-download-do-modo-big-picture.gif" width="820" alt="Big Picture store and downloads">
-</p>
-
-### Desktop mode
-
-Windowed layout: library on the left, per-game overview on the right,
-launch options in a dedicated pane. Same backend as the console mode — just
-a different UI on top.
-
-<p align="center">
-  <img src="assets/tour-pelo-arcadia-desktop.gif" width="820" alt="Desktop mode tour">
-</p>
+- **Desktop** — windowed library, store and downloads.
+- **Console (Big Picture)** — fullscreen, gamepad-first, TV-friendly. The
+  launcher opens straight into it when started with `./arcadia.sh`.
 
 ## Features
 
-- **Unified library** — jogos adicionados pela loja, downloads via fontes
-  e jogos customizados, com capas e detalhes por jogo.
-- **Steam store** — pesquisa, download via **DepotDownloader** ou torrent e
-  adição à biblioteca Steam. Os manifestos vêm do catálogo configurado.
-- **Per-game launch options** — Wine/Proton version, per-game prefix,
+- **Unified library** — games added from the store, downloaded titles and
+  custom entries, each with cover art and per-game details.
+- **Store** — catalog search, per-title details and a download queue. Sources
+  are configured by you in Settings; providers can be cut in and out without
+  touching the rest of the app.
+- **Downloads** — serial queue with real progress in MiB, speed and ETA,
+  pause/resume/cancel and cleanup of partial files.
+- **Per-game launch options** — Wine/Proton version, dedicated prefix,
   DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom
-  wrappers, env vars, game args, pre/post scripts and verbose logs
-  (Linux only; Windows games run natively).
-- **Wine manager** — installs and manages GE-Proton and Wine-GE; Steam-shipped
-  Protons are detected automatically (Linux only).
-- **Downloads** — fila serial (DepotDownloader) e fontes torrent,
-  com progresso em MiB, velocidade e ETA;
-  pause/resume/cancel with cleanup of partials.
-- **Achievements** — real-time achievement unlock tracking with toast notifications.
-- **Trailers** — YouTube search and download via `yt-dlp`.
+  wrappers, environment variables, game arguments, pre/post scripts and
+  verbose logs (Linux only; Windows titles run natively).
+- **Wine manager** — installs and manages GE-Proton and Wine-GE, and detects
+  the Protons that Steam already ships (Linux only).
+- **Achievements** — real-time unlock tracking with native toast
+  notifications, plus sync across machines.
+- **Playtime** — hours read from your Steam installation, per account.
+- **Trailers** — YouTube search and download through `yt-dlp`.
+- **Accounts** — per-account libraries on the same machine; each account sees
+  the titles assigned to it.
 
 ## Requirements
 
 ### Linux
-- x86_64, `python3`, native **Steam**, **.NET 9+** (auto-installed locally if missing)
-- The compatible DepotDownloader runtime is downloaded automatically on the
-  first Steam depot download (or from Settings → Integrations).
-- For the Steam store: a **Hubcap API key** (free, community).
+
+- x86_64, `python3`, a native **Steam** installation, **.NET 9+**
+  (installed locally by the launcher if missing).
+- The compatible DepotDownloader runtime is fetched automatically on the first
+  depot download, or from Settings → Integrations.
 
 ### Windows
-- Windows 10/11 x64, native **Steam**, **.NET 9+** (auto-installed if missing)
-- For the Steam store: a **Hubcap API key** (free, community).
+
+- Windows 10/11 x64, a native **Steam** installation, **.NET 9+**
+  (installed automatically if missing).
 
 ## Install
 
-### Linux
+### Linux — script
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
 ```
 
-Or manual:
+### Linux — manual
 
 ```bash
 git clone https://github.com/imperat-on/arcadia.git && cd arcadia
-./install.sh                        # deps + npm + config + desktop entry
-cp config.example.json config.json  # if install.sh didn't create it
-./arcadia-desktop.sh                # desktop mode
-./arcadia.sh                        # console mode (fullscreen)
+./install.sh                       # dependencies, npm install, config, desktop entry
+cp config.example.json config.json # if install.sh did not create it
+./arcadia-desktop.sh               # desktop mode
+./arcadia.sh                       # console mode (fullscreen)
 ```
 
 ### Windows
 
-Download the latest release from the [Releases page](https://github.com/imperat-on/arcadia/releases):
+Download the latest build from the
+[releases page](https://github.com/imperat-on/arcadia/releases):
 
-- `Arcadia-Setup-1.1.0-x64.exe` — NSIS installer
-- `Arcadia-1.1.0-x64.exe` — Portable (no install)
+- `Arcadia-Setup-<version>-x64.exe` — NSIS installer.
+- `Arcadia-<version>-x64.exe` — portable, no installation.
+- `Arcadia-<version>-x64.zip` — plain unpacked folder.
+- `Arcadia-<version>-x86_64.AppImage` — Linux AppImage, `chmod +x` and run.
 
-On first run, the launcher prepares the local library, syncs with the account
-and builds the front-end (`npm run build` is handled automatically by the
-packaged app).
+On first run the launcher prepares the local data directory, restores the
+session and uses the front-end that ships inside the package.
 
 ## Uninstall
 
@@ -109,27 +86,30 @@ packaged app).
 curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall.sh | bash
 ```
 
-Or, from inside the repo: `./uninstall.sh`. Removes the app, its desktop
-entry/icons and `~/.local/share/arcadia/`. Asks before touching anything that
-isn't a cache/binary — installed games (`games/`), Wine prefixes
-(`prefixes/`, may hold saves) — and preserves them by default unless you opt in.
-Steam games downloaded through the store stay registered in your Steam
-installation; remove them from the store's "Remove" button first if you don't
-want them. Use `-y`/`--yes` to skip all prompts (keeps everything optional).
+Or, from inside the repo, `./uninstall.sh`. It removes the app, its desktop
+entry/icons and `~/.local/share/arcadia/`, and asks before touching anything
+that is not a cache or binary: installed games (`games/`) and Wine prefixes
+(`prefixes/`, which may hold saves) are kept unless you opt out. Use
+`-y`/`--yes` to skip the prompts. Games downloaded through the store stay
+registered in your Steam installation; remove them from the store first if you
+do not want them there.
 
 ### Windows
 
-Use **Add/Remove Programs** (installed version) or delete the extracted
-folder (portable version).
+Use **Add/Remove Programs** for the installed version, or delete the extracted
+folder for the portable one.
 
 ## Config
 
-`config.json` (not versioned — see `config.example.json`):
+`config.json` lives in the data directory, is not versioned, and is created
+from `config.example.json`:
 
 | Key | Purpose |
 |---|---|
-| `steam_api_key` | Dados opcionais de integração e metadados Steam |
-| `hubcap_api_key` | Manifest search and download for the store |
+| `steam_api_key` | Optional Steam metadata and integration data |
+| `steam_id64` | Account used for the Steam integration |
+| `hubcap_api_key` | Manifest provider key used by the store |
+| `language` | UI language (`pt-BR`, `en-US`, `es-ES`) |
 
 ## Layout
 
@@ -141,29 +121,27 @@ install.sh     # Linux setup · uninstall.sh (Linux full removal)
 ```
 
 User data (config, library, downloads, prefixes, artwork) lives under
-`~/.local/share/arcadia/` on Linux or `%LOCALAPPDATA%\arcadia` on Windows and
-is **not** versioned. Para usar um diretório isolado (desenvolvimento/testes),
-defina `ARCADIA_DATA_DIR=/caminho/absoluto`.
-O Electron e os caches locais respeitam o mesmo diretório.
-
+`~/.local/share/arcadia/` on Linux and `%LOCALAPPDATA%\arcadia` on Windows, and
+is never versioned. Set `ARCADIA_DATA_DIR=/absolute/path` to use an isolated
+directory for development or testing; the Electron caches follow the same
+directory.
 
 ## Architecture
 
-- **`app/`** — Electron launcher (desktop + Big Picture). React renderer in
-  `app/src`, Electron main process in `app/electron`.
-- **Backend separado** — o cliente conversa com a API gerenciada do Arcadia por
-  HTTPS. O código do servidor e as migrações ficam em um repositório privado.
+- **`app/`** — the Electron launcher: React renderer in `app/src`, main
+  process in `app/electron`.
+- **Backend** — the client talks to the Arcadia API over HTTPS. The server
+  code and migrations live in a separate, private repository.
 
-Per-account sync: the app talks to the backend over HTTPS. `owned_games.json`
-(per account) decides which games from the local snapshot each account sees. Guest sees
-everything. Sensitive data (debrid/Hubcap API keys, source caches) is
-**never** uploaded.
+Per-account sync works from `owned_games.json`: it decides which titles from
+the local snapshot each account sees (a guest sees everything). Sensitive
+values — provider keys and source caches — are never uploaded.
 
 ## Backend
 
-O launcher usa a API gerenciada do Arcadia. Configure o cliente com
-`ARCADIA_API_URL` quando precisar apontar para uma instância autorizada; a
-instalação do launcher não exige PostgreSQL local.
+The launcher uses the managed Arcadia API. Point the client at an authorized
+instance with `ARCADIA_API_URL`; installing the launcher does not require a
+local PostgreSQL.
 
 ## License
 
