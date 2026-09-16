@@ -195,16 +195,13 @@ function parseRLD(conteudo) {
     if (nome === "Steam") continue
     if (!pares.State) continue
     try {
-      const state = new DataView(
-        new Uint8Array(Buffer.from(String(pares.State), "hex").buffer),
-      ).getUint32(0, true)
-      if (state !== 1) continue
-      const time = pares.Time
-        ? new DataView(new Uint8Array(Buffer.from(String(pares.Time), "hex").buffer)).getUint32(
-            0,
-            true,
-          )
-        : 0
+      // Buffer.from pode ser uma view sobre um slab maior; usar `.buffer`
+      // diretamente lê bytes anteriores ao valor e transforma State=1 em zero.
+      const stateBytes = Buffer.from(String(pares.State), "hex")
+      if (stateBytes.length < 4 || stateBytes.readUInt32LE(0) !== 1) continue
+
+      const timeBytes = pares.Time ? Buffer.from(String(pares.Time), "hex") : null
+      const time = timeBytes && timeBytes.length >= 4 ? timeBytes.readUInt32LE(0) : 0
       ach.push({ name: nome, unlockTime: time * 1000 })
     } catch {}
   }
@@ -893,17 +890,10 @@ function iniciarVigia(onUnlock, onRevoke = null) {
           it.unlock = Math.floor((d.unlockTime || Date.now()) / 1000)
           atualizou = true
 
-          if (onUnlock) {
-            onUnlock({
-              appid,
-              key: `${it.block}|${it.bit}`,
-              title: it.title,
-              desc: it.desc,
-              icon: it.icon,
-              percent: it.percent || 0,
-              unlock: it.unlock,
-            })
-          }
+          // Mesmo construtor de payload dos outros formatos: sem isto o aviso
+          // saía sem `apiname`/`provider` (o toast casava pelo key, mas o log
+          // e qualquer consumidor futuro liam campos vazios).
+          if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: "flt" }))
         }
 
         if (atualizou) {
@@ -918,10 +908,12 @@ function iniciarVigia(onUnlock, onRevoke = null) {
       if (pastaExe && fs.existsSync(pastaExe)) {
         const exeFiles = [
           {
+            nome: "steamdata",
             file: path.join(pastaExe, "SteamData", "user_stats.ini"),
             parse: parseUserStats,
           },
           {
+            nome: "3dmgame",
             file: path.join(pastaExe, "3DMGAME", "Player", "stats", "achievements.ini"),
             parse: parseCODEX,
           },
@@ -948,17 +940,9 @@ function iniciarVigia(onUnlock, onRevoke = null) {
             it.achieved = true
             it.unlock = Math.floor(d.unlockTime / 1000) || Math.floor(Date.now() / 1000)
             mudou = true
-            if (onUnlock) {
-              onUnlock({
-                appid,
-                key: `${it.block}|${it.bit}`,
-                title: it.title,
-                desc: it.desc,
-                icon: it.icon,
-                percent: it.percent || 0,
-                unlock: it.unlock,
-              })
-            }
+            // Idem FLT: payload pelo construtor canônico para não perder
+            // `apiname`/`provider` no caminho do SteamData/3DMGAME.
+            if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: ef.nome }))
           }
           if (mudou) {
             store[appid] = { ...(store[appid] || {}), items }
