@@ -2412,21 +2412,16 @@ select:disabled {
 .retro-big-picture .retro-game-copy .retro-play-button,.retro-big-picture .ps5-overview-play { background:white !important; color:#111 !important; min-width:180px !important; font-size:18px !important; }
 .retro-big-picture :is(.ps5-hero-more,.ps5-overview-more) { background:#ffffff24; }
 /* Troca de jogo no Big Picture: logo, status e botões sobem de baixo para cima
-   em cascata. O ritmo é o do TRILHO, não o de uma tela estática: passar rápido
-   pelos jogos remonta esta seção a cada passo, então a animação tem que ser
-   curta e começar VISÍVEL — a versão de 760ms/opacidade 0 deixava a área vazia
-   enquanto ele ainda estava navegando (relatado assim: "passo o trilho, aquela
-   parte fica sem nada, aí a animação aparece").
-   O container fica sem animação e o efeito vem todo do conteúdo — animar os
-   dois somava os deslocamentos. Seletor mais específico que a regra base (a
-   cascata do desktop), que continua valendo fora do console. */
-@keyframes consoleHeroRise { from { opacity:.25; transform:translate3d(0,48px,0); } to { opacity:1; transform:none; } }
+   em cascata (o mesmo gesto que o desktop já tinha). O container fica sem
+   animação e o efeito vem todo do conteúdo — animar os dois somava os
+   deslocamentos. Seletor mais específico que a regra base (linha da cascata do
+   desktop), que continua valendo fora do console. */
 .retro-big-picture .retro-hero-section.anim-rise { animation:none; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:consoleHeroRise 320ms var(--console-ease) both; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(1) { animation-delay:0ms; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(2) { animation-delay:45ms; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(3) { animation-delay:90ms; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(4) { animation-delay:135ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:ps5HubRise 720ms var(--console-ease) both; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(1) { animation-delay:70ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(2) { animation-delay:150ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(3) { animation-delay:230ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(4) { animation-delay:310ms; }
 @keyframes console-reveal { from {opacity:0;transform:translateY(16px)} to {opacity:1;transform:none} }
 .retro-big-picture :is(.arcadia-overview,.arcadia-overview.is-closing,.retro-main-stage,.ps5-topbar) { animation-duration:420ms !important; }
 .retro-big-picture .arcadia-overview { background:#000 !important; }
