@@ -675,6 +675,30 @@ export function PS5Launcher() {
   useEffect(() => {
     if (storeMode) setLojaMontada(true)
   }, [storeMode])
+
+  // Troca de aba (Notícias/Jogos/Loja): a `key` da stage remonta o conteúdo a cada
+  // troca e a classe `console-tab-in` faz a entrada dela (fade + 6px, 320ms). A
+  // PRIMEIRA entrada da home depois do boot/perfil fica de fora: ela já tem a
+  // coreografia de abertura (`home-reveal`) e um fade em cima só competiria com ela.
+  // `trocou` já vale no primeiro render da nova aba (aplicar a classe um frame
+  // depois causaria um flash de opacidade); `janela` segura a classe até o fim da
+  // animação. A loja usa a mesma janela: ela fica montada de propósito (remontar
+  // recarrega o webview), então é a classe reaplicada que anima a entrada dela.
+  const abaAnteriorRef = useRef<number | null>(null)
+  const [janelaTrocaAba, setJanelaTrocaAba] = useState(false)
+  useEffect(() => {
+    const trocouAgora = abaAnteriorRef.current !== null && abaAnteriorRef.current !== activeTab
+    abaAnteriorRef.current = activeTab
+    if (!trocouAgora || boot || perfilGate) return
+    setJanelaTrocaAba(true)
+    const t = setTimeout(() => setJanelaTrocaAba(false), 380)
+    return () => clearTimeout(t)
+  }, [activeTab, boot, perfilGate])
+  const animarTrocaAba =
+    !boot &&
+    !perfilGate &&
+    (janelaTrocaAba ||
+      (abaAnteriorRef.current !== null && abaAnteriorRef.current !== activeTab))
   useGamepadNav(
     storeRef,
     storeMode && !lojaOverlay && !modalOpenRef.current && appFocused && !gameRunning,
@@ -1450,7 +1474,7 @@ export function PS5Launcher() {
           de abertura, que ja tem a sua propria sequencia. */}
       <div
         key={boot || perfilGate ? "intro" : activeTab}
-        className={`retro-main-stage ${newsMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex min-h-screen flex-col"}`}
+        className={`retro-main-stage ${animarTrocaAba ? "console-tab-in" : ""} ${newsMode || storeMode ? "relative z-10 flex h-screen flex-col overflow-hidden" : "relative z-10 flex min-h-screen flex-col"}`}
       >
         {topBarNode}
         {storeMode /* A loja vive FORA deste bloco (que é remontado a cada troca de aba
@@ -1487,7 +1511,7 @@ export function PS5Launcher() {
       {lojaMontada && (
         <div
           ref={storeRef}
-          className="retro-store-stage fixed bottom-0 right-0 top-0 z-10 overflow-hidden"
+          className={`retro-store-stage ${animarTrocaAba ? "console-tab-in" : ""} fixed bottom-0 right-0 top-0 z-10 overflow-hidden`}
           style={{
             visibility: storeMode ? "visible" : "hidden",
             pointerEvents: storeMode ? "auto" : "none",

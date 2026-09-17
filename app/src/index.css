@@ -2366,6 +2366,13 @@ select:disabled {
 }
 .retro-big-picture::before { content: none; }
 .retro-big-picture .retro-main-stage { height: 100dvh; min-height: 0; }
+/* Troca de aba no Big Picture: a `key` da stage remonta o conteúdo a cada troca
+   (Notícias/Jogos/Loja) e esta classe faz a entrada dela. O keyframe `viewIn`
+   termina em `transform: none` de propósito: terminar em translateY(0) tornaria o
+   elemento um containing block e deslocaria os overlays `fixed` do console.
+   Especificidade de 1 classe de propósito, para as animações do hub
+   (`.overview-active .retro-main-stage`, 980ms) continuarem ganhando. */
+.console-tab-in { animation: viewIn var(--dur-3) var(--ease) both; }
 .retro-big-picture .ps5-topbar { height: 90px; padding-inline: var(--console-gutter); background: linear-gradient(#0009, transparent); }
 .retro-big-picture .ps5-primary-nav button { font-size: clamp(18px, 1.6vw, 26px); padding: 8px 6px; }
 .retro-big-picture :is(button,input,select,a,[tabindex]):focus-visible { outline: 2px solid white !important; outline-offset: 5px; box-shadow: none !important; }
