@@ -2411,8 +2411,17 @@ select:disabled {
 .retro-big-picture .ps5-hero-actions { margin-top:24px; }
 .retro-big-picture .retro-game-copy .retro-play-button,.retro-big-picture .ps5-overview-play { background:white !important; color:#111 !important; min-width:180px !important; font-size:18px !important; }
 .retro-big-picture :is(.ps5-hero-more,.ps5-overview-more) { background:#ffffff24; }
-.retro-big-picture .retro-hero-section.anim-rise { animation:console-reveal 360ms var(--console-ease) backwards; }
-.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:none; transform:none; opacity:1; }
+/* Troca de jogo no Big Picture: logo, status e botões sobem de baixo para cima
+   em cascata (o mesmo gesto que o desktop já tinha). O container fica sem
+   animação e o efeito vem todo do conteúdo — animar os dois somava os
+   deslocamentos. Seletor mais específico que a regra base (linha da cascata do
+   desktop), que continua valendo fora do console. */
+.retro-big-picture .retro-hero-section.anim-rise { animation:none; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > * { animation:ps5HubRise 720ms var(--console-ease) both; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(1) { animation-delay:70ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(2) { animation-delay:150ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(3) { animation-delay:230ms; }
+.retro-big-picture .retro-hero-section.anim-rise .retro-game-copy > :nth-child(4) { animation-delay:310ms; }
 @keyframes console-reveal { from {opacity:0;transform:translateY(16px)} to {opacity:1;transform:none} }
 .retro-big-picture :is(.arcadia-overview,.arcadia-overview.is-closing,.retro-main-stage,.ps5-topbar) { animation-duration:420ms !important; }
 .retro-big-picture .arcadia-overview { background:#000 !important; }
