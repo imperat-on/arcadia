@@ -80,6 +80,10 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   searchArt: (gameId, titulo, kind, dimensions, sgdbId) =>
     ipcRenderer.invoke("meta:art", { gameId, titulo, kind, dimensions, sgdbId }),
   searchText: (gameId, titulo) => ipcRenderer.invoke("meta:text", { gameId, titulo }),
+  // Arte 1:1 do trilho (PSN -> Worker -> Xbox -> SGDB): resolve e cacheia.
+  arteQuadrada: (itens) => ipcRenderer.invoke("arte:quadrada", { itens }),
+  // Logo do hero (SGDB -> PSN): resolve quando a do jogo está faltando/quebrada.
+  arteLogo: (itens) => ipcRenderer.invoke("arte:logo", { itens }),
   downloadArt: (id, kind, url) => ipcRenderer.invoke("art:download", { id, kind, url }),
   getNews: () => ipcRenderer.invoke("news:get"),
   getGameNews: (appid) => ipcRenderer.invoke("news:game", appid),

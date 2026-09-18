@@ -10,6 +10,8 @@ interface GameRailProps {
   games: Game[]
   selectedIndex: number
   cardScale?: number
+  /** Arte 1:1 por id de jogo (Xbox/Worker, resolvida no main); ausente = capa normal. */
+  artes?: Record<string, string>
   onSelect: (index: number) => void
   onLaunch: (game: Game) => void
 }
@@ -21,7 +23,11 @@ const FALLBACK_GRADIENTS: Record<string, string> = {
   psn: "linear-gradient(145deg,#0a2550,#041027)",
 }
 
-function coverFor(game: Game) {
+function coverFor(game: Game, artes?: Record<string, string>) {
+  // Arte 1:1 de verdade (Xbox/Worker): é ela que faz a moldura quadrada encaixar
+  // sem recorte. Sem ela, cai na capa normal (o CSS recorta o centro).
+  const quadrada = artes ? artes[game.id] : undefined
+  if (quadrada) return quadrada
   const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
   if (game.cover?.includes("/header.jpg") && appid) {
     return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
@@ -29,7 +35,7 @@ function coverFor(game: Game) {
   return game.cover
 }
 
-export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLaunch }: GameRailProps) {
+export function GameRail({ games, selectedIndex, cardScale = 1.6, artes, onSelect, onLaunch }: GameRailProps) {
   const { t } = useI18n()
   const railRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLButtonElement>(null)
@@ -58,7 +64,7 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, onSelect, onLa
       <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("topbar.jogos")}>
         {games.map((game, index) => {
           const focused = index === selectedIndex
-          const cover = coverFor(game)
+          const cover = coverFor(game, artes)
           return (
             <button
               key={game.id}

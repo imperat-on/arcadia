@@ -785,7 +785,267 @@ async function psnStoreArt(id, tipo, kind) {
   return candidatos
 }
 
+// ── Arte 1:1 (quadrada) para o trilho do Big Picture ────────────────────────
+// O trilho é quadrado e uma capa 2:3 recortada perde o assunto. Aqui a arte
+// quadrada é procurada DE VERDADE, na ordem que não exige nada do usuário:
+//   1. catálogo Xbox — sem chave, BoxArt 1:1 de até 2160x2160;
+//   2. Worker do Arcadia (/arte-quadrada) — a chave da SteamGridDB mora lá,
+//      então o usuário final não configura nada (cache de borda de 7 dias);
+//   3. SteamGridDB direto, só quando o config local tem chave (dono do app).
+// Medido na biblioteca do dono: o Xbox cobre 12/13; o Worker fecha o resto
+// (CS, retro, jogo fora da loja).
+const ARTE_QUADRADA_MIN = 512
+
+/** Melhor imagem quadrada (>= 512) do produto do catálogo Xbox; null se não há. */
+function xboxImagemQuadrado(loc) {
+  const imgs = (loc && loc.Images) || []
+  const quadradas = imgs.filter((i) => i.Width === i.Height && (i.Width || 0) >= ARTE_QUADRADA_MIN)
+  if (!quadradas.length) return null
+  const ordem = ["BoxArt", "FeaturePromotionalSquareArt", "Tile", "BrandedKeyArt", "Logo"]
+  quadradas.sort(
+    (a, b) =>
+      ordem.indexOf(a.ImagePurpose) - ordem.indexOf(b.ImagePurpose) || (b.Width || 0) - (a.Width || 0),
+  )
+  return quadradas[0]
+}
+
+/** Arte 1:1 pelo catálogo Xbox (sem chave). null quando o jogo não está lá. */
+async function arteQuadradaXbox(titulo) {
+  const achados = await xboxSearch(titulo)
+  const pid = achados && achados[0] && achados[0].id
+  if (!pid) return null
+  const img = xboxImagemQuadrado(await xboxProduto(pid))
+  if (!img) return null
+  return {
+    url: xboxImg(img.Uri, { w: img.Width, h: img.Height, q: 100 }),
+    // o CDN da Microsoft aceita o tamanho na própria URL: card sem baixar 2160px
+    urlCard: xboxImg(img.Uri, { w: 384, h: 384, q: 100 }),
+    fonte: "xbox",
+    w: img.Width,
+    h: img.Height,
+  }
+}
+
+// ── Fonte 0: PS Store (keyless) ─────────────────────────────────────────────
+// O papel MASTER da PS Store é a arte quadrada OFICIAL — limpa, sem tarja de
+// loja e sem chave nenhuma. Medido em 2026-09: Black Myth Wukong, Cyberpunk
+// 2077, GTA V, ELDEN RING e Shadow of the Colossus vieram 1:1 e sem moldura.
+// É o mesmo papel que o plugin "Universal PSN Metadata" do Playnite usa. Se a
+// página da Sony mudar, isto devolve null e a cascata segue para o Worker —
+// a arte é um bônus, nunca um bloqueio.
+// A busca por scraping (psnStoreSearch/psnStoreArt, acima) serve para os
+// metadados da PSN no app, mas mediu-se instável para achar a capa quadrada.
+// Esta usa a mesma API GraphQL do site (persisted query pública, sem chave),
+// com 1 chamada e resultado direto: o media "MASTER" é a capa 1:1 oficial.
+// Se a Sony trocar a query assinada, isto devolve null e a cascata segue.
+const PSN_GQL_OP = "https://web.np.playstation.com/api/graphql/v1//op"
+const PSN_GQL_HASH = "4df6284f982e57bec70f23c77e2c219dc792eb19af7fb3d3a81767aa3f1958aa"
+const PSN_GQL_APP = "@sie-ppr-web-store/app"
+const PSN_GQL_VER = "0.113.0"
+
+/** O melhor jogo da busca da PS Store (casamento por prefixo comum), ou null. */
+async function psnJogoDaBusca(titulo) {
+  const variables = JSON.stringify({
+    countryCode: "US",
+    languageCode: "en",
+    nextCursor: "",
+    pageOffset: 0,
+    pageSize: 24,
+    searchTerm: titulo,
+  })
+  const extensions = JSON.stringify({ persistedQuery: { version: 1, sha256Hash: PSN_GQL_HASH } })
+  const url =
+    PSN_GQL_OP +
+    "?operationName=getSearchResults&variables=" +
+    encodeURIComponent(variables) +
+    "&extensions=" +
+    encodeURIComponent(extensions)
+  const j = await getJSON(url, {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": PSN_UA,
+    Origin: "https://store.playstation.com",
+    Referer: "https://store.playstation.com/",
+    "apollographql-client-name": PSN_GQL_APP,
+    "apollographql-client-version": PSN_GQL_VER,
+    "X-PSN-App-Ver": PSN_GQL_APP + "/" + PSN_GQL_VER + "-",
+    "X-PSN-Correlation-ID": crypto.randomUUID(),
+    "X-PSN-Request-ID": crypto.randomUUID(),
+    "X-PSN-Store-Locale-Override": "en-US",
+  })
+  const resultados = (((j || {}).data || {}).universalSearch || {}).results || []
+
+  // Casamento por PREFIXO COMUM, não por igualdade: as lojas renomeiam jogos
+  // ("Grand Theft Auto V Legacy" na Steam vs "Grand Theft Auto V (PS4 & PS5)"
+  // na PSN; "San Andreas – The Definitive Edition" vs "San Andreas"). Exige o
+  // maior prefixo comum entre os títulos limpos com pelo menos 8 caracteres e
+  // 60% do menor título — o suficiente para não casar jogo errado por engano.
+  const soLetras = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+  const prefixoComum = (a, b) => {
+    let i = 0
+    while (i < a.length && i < b.length && a[i] === b[i]) i++
+    return i
+  }
+  const alvo = soLetras(titulo)
+  if (!alvo) return null
+  // O prefixo precisa cobrir METADE DO TÍTULO ALVO e 60% do nome candidato.
+  // Só "60% do menor" não basta: "Grand Theft Auto VI" e "Grand Theft Auto: San
+  // Andreas – The Definitive Edition" compartilham 14 caracteres do nome da
+  // série, e o VI passaria como se fosse o San Andreas (caso real, visto).
+  const melhor = resultados
+    .filter((x) => x && x.name)
+    .map((x) => {
+      const nome = soLetras(x.name)
+      const n = prefixoComum(nome, alvo)
+      return { x, n, ok: n >= 8 && n >= alvo.length * 0.5 && n >= nome.length * 0.6 }
+    })
+    .filter((c) => c.ok)
+    .sort((a, b) => b.n - a.n)[0]
+  return melhor ? melhor.x : null
+}
+
+/** Media IMAGE de um papel (MASTER, LOGO…) do jogo da PS Store. */
+function psnMediaDe(jogo, role) {
+  const media = ((jogo && jogo.media) || []).find(
+    (m) => m && m.type === "IMAGE" && m.role === role && m.url,
+  )
+  return media ? media.url : null
+}
+
+/** Capa 1:1 (papel MASTER) da PS Store; null se não há. */
+async function arteQuadradaPSN(titulo) {
+  const jogo = await psnJogoDaBusca(titulo)
+  const url = psnMediaDe(jogo, "MASTER")
+  return url ? { url, urlCard: urlCardDe(url), fonte: "psn", w: null, h: null } : null
+}
+
+/** Logo transparente oficial (papel LOGO) da PS Store; null se não há. */
+async function logoPSN(titulo) {
+  const jogo = await psnJogoDaBusca(titulo)
+  const url = psnMediaDe(jogo, "LOGO")
+  if (!url) return null
+  // ?w=512: o hero não exibe maior que isto e a imagem crua pode ter vários MB
+  return { url: url + (url.includes("?") ? "&" : "?") + "w=512", fonte: "psn", w: null, h: null }
+}
+
+/** Arte 1:1 pelo Worker do Arcadia (a chave da SGDB fica lá, com cache). */
+async function arteQuadradaWorker(titulo, baseWorker) {
+  if (!baseWorker) return null
+  const base = String(baseWorker).replace(/\/$/, "")
+  const j = await getJSON(`${base}/arte-quadrada?titulo=${encodeURIComponent(titulo)}`)
+  return j && j.url
+    ? { url: j.url, urlCard: urlCardDe(j.url), fonte: "worker-" + (j.fonte || "sgdb"), w: j.w, h: j.h }
+    : null
+}
+
+/** Arte 1:1 pela SteamGridDB direto (precisa da chave local — dono do app). */
+async function arteQuadradaSgdb(titulo, chave) {
+  if (!chave) return null
+  const jogos = await sgdbSearch(titulo, chave)
+  const id = jogos && jogos[0] && jogos[0].id
+  if (!id) return null
+  const artes = await sgdbArt(id, "grid", chave, { dimensions: "1024x1024,512x512" })
+  const a = (artes || [])[0]
+  return a ? { url: a.url, urlCard: a.thumb || urlCardDe(a.url), fonte: "sgdb", w: a.largura, h: a.altura } : null
+}
+
+/**
+ * Resolve a arte quadrada de um título, tentando cada fonte em ordem e
+ * devolvendo a primeira que responder. `null` = nenhuma (o chamador cai na
+ * capa normal, com recorte).
+ */
+async function arteQuadrada(titulo, { baseWorker, chave } = {}) {
+  const t = String(titulo || "").trim()
+  if (!t) return null
+  // Ordem medida, da melhor arte para a pior: (1) PSN, quadrada OFICIAL e
+  // keyless; (2) Worker do Arcadia, que cobre o que não existe na PSN
+  // (CS/retro/PC-only) com cache de borda; (3) Xbox, reserva keyless — a busca
+  // dele embaralha títulos com número ("Cyberpunk 2077" volta como "VA-11
+  // Hall-A…"), então exige o filtro de título apertado; (4) SGDB local, só
+  // para quem tem chave no config.
+  const fontes = [
+    () => arteQuadradaPSN(t),
+    () => arteQuadradaWorker(t, baseWorker),
+    () => arteQuadradaXbox(t),
+    () => arteQuadradaSgdb(t, chave),
+  ]
+  for (const fonte of fontes) {
+    try {
+      const r = await fonte()
+      if (r && r.url) return r
+    } catch {
+      /* tenta a próxima fonte */
+    }
+  }
+  return null
+}
+
+/**
+ * Versão reduzida da arte para o CARD do trilho (~150-230px na tela).
+ * Medido: a arte crua da PSN tem 167KB e a da SGDB é PNG de até 783KB — decodificar
+ * isso a cada troca de card era a travadinha. Reduzida: PSN 39KB (?w=384) e SGDB
+ * 107KB (/thumb/, mesma imagem). O hero continua com a artegrande.
+ */
+function urlCardDe(url) {
+  const u = String(url || "")
+  if (!u) return null
+  if (u.includes("image.api.playstation.com")) return u + (u.includes("?") ? "&" : "?") + "w=384"
+  // CDN da SteamGridDB: /grid/{hash}.png -> /thumb/{hash}.jpg (mesmo hash)
+  const m = u.match(/^https:\/\/cdn2\.steamgriddb\.com\/grid\/([^./?]+)\.(png|jpg|jpeg|webp)/i)
+  if (m) return "https://cdn2.steamgriddb.com/thumb/" + m[1] + ".jpg"
+  return u // fontes que já aceitam tamanho na montagem (Xbox) ficam como estão
+}
+
+// ── Logo automática do hero ─────────────────────────────────────────────────
+// O hero desenha o logo do jogo; quando a URL guardada está morta, sobrava o
+// ícone de imagem quebrada do navegador. Aqui a logo é resolvida de novo, na
+// ordem medida na biblioteca do dono:
+//   1. SteamGridDB — cobre 14/14 (16 a 50 opções por jogo);
+//   2. PS Store — logo transparente oficial, keyless (10/14; a busca da PSN
+//      erra mais que a da SGDB, por isso vem depois).
+// Sem chave local e sem PSN, devolve null e o hero mostra o título em texto.
+async function logoAuto(titulo, { chave } = {}) {
+  const t = String(titulo || "").trim()
+  if (!t) return null
+  // Acima disto o Chromium se recusa a decodificar a imagem (o limite prático
+  // fica em ~16M de pixels). A PRIMEIRA logo do AC na SGDB é um PNG de
+  // 9657x12589 (121M de pixels): não decodifica, o onError dispara, tenta de
+  // novo, e o logo nunca sobe — era a "travada pra subir o logo".
+  const LIMITE_LOGO_PX = 4096
+  const fontes = [
+    async () => {
+      if (!chave) return null
+      const jogos = await sgdbSearch(t, chave)
+      const id = jogos && jogos[0] && jogos[0].id
+      if (!id) return null
+      const logos = await sgdbArt(id, "logo", chave)
+      const lista = (logos || []).filter((l) => l && l.url)
+      if (!lista.length) return null
+      const san = (l) =>
+        !l.largura || !l.altura || (l.largura <= LIMITE_LOGO_PX && l.altura <= LIMITE_LOGO_PX)
+      const grande = lista.find(san)
+      if (grande) return { url: grande.url, fonte: "sgdb", w: grande.largura, h: grande.altura }
+      const th = lista.find((l) => l.thumb)
+      if (th) return { url: th.thumb, fonte: "sgdb-thumb", w: null, h: null }
+      return null
+    },
+    () => logoPSN(t),
+  ]
+  for (const fonte of fontes) {
+    try {
+      const r = await fonte()
+      if (r && r.url) return r
+    } catch {
+      /* tenta a próxima fonte */
+    }
+  }
+  return null
+}
+
 module.exports = {
+  arteQuadrada,
+  urlCardDe,
+  logoAuto,
   sgdbSearch,
   sgdbArt,
   wallhavenBusca,

@@ -112,6 +112,9 @@ const {
   xboxArtDe,
   xboxTextoDe,
   downloadTo,
+  arteQuadrada,
+  urlCardDe,
+  logoAuto,
   SGDB_ENDPOINT,
 } = require("./metadata")
 
@@ -5004,6 +5007,129 @@ app.whenReady().then(() => {
   })
 
   // Reconstrói os metadados locais (limpa o cache da loja).
+  // ── Arte 1:1 do trilho do Big Picture ─────────────────────────────────────
+  // Xbox (sem chave) -> Worker do Arcadia (a chave da SGDB mora lá) -> SGDB
+  // local (só o dono tem chave). Cache em disco porque a resposta é estável:
+  // um boot novo não repete a rede, e o main nunca bloqueia o boot por isso.
+  const ARTE_CACHE_ARQUIVO = path.join(DATA_DIR, "arte_quadrada.json")
+  let arteCacheMem = null
+  function lerCacheArte() {
+    if (arteCacheMem) return arteCacheMem
+    try {
+      arteCacheMem = JSON.parse(fs.readFileSync(ARTE_CACHE_ARQUIVO, "utf8")) || {}
+    } catch {
+      arteCacheMem = {}
+    }
+    return arteCacheMem
+  }
+  function gravarCacheArte(cache) {
+    try {
+      fs.writeFileSync(ARTE_CACHE_ARQUIVO, JSON.stringify(cache))
+    } catch {
+      /* cache é apoio: falhar aqui não pode quebrar nada */
+    }
+  }
+
+  ipcMain.handle("arte:quadrada", async (_e, { itens } = {}) => {
+    const lista = (Array.isArray(itens) ? itens : []).filter((i) => i && i.id && i.titulo)
+    if (!lista.length) return { ok: true, artes: {} }
+    const cache = lerCacheArte()
+    // Entradas vencem em 30 dias: arte presa para sempre já mordeu uma vez
+    // (a resolução mudou e o cache continuou devolvendo a arte velha).
+    const agora = Date.now()
+    for (const k of Object.keys(cache)) {
+      if (!cache[k] || !cache[k].quando || agora - cache[k].quando > 30 * 24 * 60 * 60 * 1000) delete cache[k]
+    }
+    // Quem já escolheu capa na mão manda: para esses jogos não se resolve arte
+    // automática (o trilho usa a arte escolhida, como o resto do app faz).
+    const overrides = readOverrides(caminhoConta(OVERRIDES))
+    const faltam = lista.filter((i) => !cache[i.id] && !overrides[i.id]?.cover)
+    if (faltam.length) {
+      const { urls: urlsApi } = require("./supabase/config")
+      const chave = String(readConfig().steamgriddb_api_key || "").trim()
+      const fila = faltam.slice()
+      // pool de 3: nem serial lento, nem uma parede de requisições de uma vez
+      await Promise.all(
+        Array.from({ length: Math.min(3, fila.length) }, async () => {
+          while (fila.length) {
+            const item = fila.shift()
+            try {
+              const r = await arteQuadrada(item.titulo, { baseWorker: urlsApi && urlsApi[0], chave })
+              if (r && r.url) cache[item.id] = { ...r, quando: Date.now() }
+            } catch {
+              /* sem arte: o trilho usa a capa normal */
+            }
+          }
+        }),
+      )
+      gravarCacheArte(cache)
+    }
+    const artes = {}
+    // O trilho recebe a versão REDUZIDA (card de ~150-230px): a arte crua é PNG
+    // de até 783KB e decodificá-la a cada troca de card era a travadinha.
+    for (const i of lista) {
+      const c = cache[i.id]
+      if (c) artes[i.id] = c.urlCard || urlCardDe(c.url) || c.url
+    }
+    return { ok: true, artes }
+  })
+
+  // ── Logo automática do hero ───────────────────────────────────────────────
+  // Mesmo desenho da arte 1:1: resolve em segundo plano (SGDB -> PS Store),
+  // cacheia em disco por 30 dias e respeita a escolha manual do usuário.
+  const LOGO_CACHE_ARQUIVO = path.join(DATA_DIR, "logo_auto.json")
+  let logoCacheMem = null
+  function lerCacheLogo() {
+    if (logoCacheMem) return logoCacheMem
+    try {
+      logoCacheMem = JSON.parse(fs.readFileSync(LOGO_CACHE_ARQUIVO, "utf8")) || {}
+    } catch {
+      logoCacheMem = {}
+    }
+    return logoCacheMem
+  }
+  function gravarCacheLogo(cache) {
+    try {
+      fs.writeFileSync(LOGO_CACHE_ARQUIVO, JSON.stringify(cache))
+    } catch {
+      /* cache é apoio: falhar aqui não pode quebrar nada */
+    }
+  }
+
+  ipcMain.handle("arte:logo", async (_e, { itens } = {}) => {
+    const lista = (Array.isArray(itens) ? itens : []).filter((i) => i && i.id && i.titulo)
+    if (!lista.length) return { ok: true, logos: {} }
+    const cache = lerCacheLogo()
+    const agora = Date.now()
+    for (const k of Object.keys(cache)) {
+      if (!cache[k] || !cache[k].quando || agora - cache[k].quando > 30 * 24 * 60 * 60 * 1000) delete cache[k]
+    }
+    // Escolha manual de logo tem prioridade, igual à capa.
+    const overrides = readOverrides(caminhoConta(OVERRIDES))
+    const faltam = lista.filter((i) => !cache[i.id] && !overrides[i.id]?.logo)
+    if (faltam.length) {
+      const chave = String(readConfig().steamgriddb_api_key || "").trim()
+      const fila = faltam.slice()
+      await Promise.all(
+        Array.from({ length: Math.min(3, fila.length) }, async () => {
+          while (fila.length) {
+            const item = fila.shift()
+            try {
+              const r = await logoAuto(item.titulo, { chave })
+              if (r && r.url) cache[item.id] = { ...r, quando: Date.now() }
+            } catch {
+              /* sem logo: o hero mostra o título */
+            }
+          }
+        }),
+      )
+      gravarCacheLogo(cache)
+    }
+    const logos = {}
+    for (const i of lista) if (cache[i.id]) logos[i.id] = cache[i.id].url
+    return { ok: true, logos }
+  })
+
   ipcMain.handle("meta:rebuild", async () => {
     try {
       fs.unlinkSync(META_CACHE)
@@ -5396,6 +5522,34 @@ app.whenReady().then(() => {
     return { ok: true, textos, erros }
   })
 
+  // Blindagem contra arte gigante: o picker/download salvava o arquivo no
+  // tamanho original e um PNG de 9667x4577 (44 Mpx, escolhido pelo usuário)
+  // bloqueava a main thread ~460 ms A CADA visita ao jogo — medido por trace
+  // (Decode Image 180 ms + RasterTask 227 ms, zero JavaScript). Reduz com o
+  // nativeImage antes de o arquivo virar override; o teto por tipo mantem a
+  // qualidade onde ela realmente aparece (fundo em tela cheia).
+  const LIMITE_ARTE_PX = { logo: 1024, cover: 1200, hero: 2560 }
+  function reduzirArteGigante(caminho, kind) {
+    const limite = LIMITE_ARTE_PX[kind]
+    if (!limite || !caminho) return
+    try {
+      const { nativeImage } = require("electron")
+      const img = nativeImage.createFromPath(caminho)
+      if (img.isEmpty()) return
+      const { width, height } = img.getSize()
+      if (!width || width <= limite) return
+      const fator = limite / width
+      const reduzida = img.resize({
+        width: limite,
+        height: Math.max(1, Math.round(height * fator)),
+        quality: "good",
+      })
+      fs.writeFileSync(caminho, reduzida.toPNG())
+    } catch {
+      /* formato que o nativeImage não lê (gif animado/svg): fica como veio */
+    }
+  }
+
   // Baixa uma arte escolhida e guarda em art/. Mesmo destino do "Escolher".
     ipcMain.handle("art:download", async (_e, { id, kind, url } = {}) => {
       if (!id || !SGDB_ENDPOINT[kind] || !url) return { ok: false }
@@ -5408,6 +5562,7 @@ app.whenReady().then(() => {
       try {
         fs.mkdirSync(ART_DIR, { recursive: true })
         const { path: dest } = await downloadTo(url, base, fs)
+        reduzirArteGigante(dest, kind)
         const velha = artToDelete(readOverrides(caminhoConta(OVERRIDES))[id]?.[kind], ART_DIR, path.sep)
         if (velha) {
           try {
@@ -5458,6 +5613,7 @@ app.whenReady().then(() => {
     try {
       fs.mkdirSync(ART_DIR, { recursive: true })
       fs.copyFileSync(src, dest)
+      reduzirArteGigante(dest, kind)
     } catch (e) {
       return { ok: false, error: String(e) }
     }

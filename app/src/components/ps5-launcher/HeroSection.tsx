@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import type { Game } from "./types"
 import { useI18n } from "../../i18n/I18nContext"
 
@@ -8,25 +9,35 @@ interface HeroSectionProps {
   trailerUrl?: string | null
   rodando?: boolean
   abrindo?: boolean
+  /** Logo resolvida automaticamente (PSN/SteamGridDB) quando o jogo não tem uma boa. */
+  logoAuto?: string | null
   onLaunch: () => void
   onMore: () => void
   onToggleFavorite?: () => void
 }
 
-export function HeroSection({ game, rodando, abrindo, onLaunch, onMore, onToggleFavorite }: HeroSectionProps) {
+export function HeroSection({ game, rodando, abrindo, logoAuto, onLaunch, onMore, onToggleFavorite }: HeroSectionProps) {
   const { t } = useI18n()
+  // A logo do jogo pode estar quebrada (URL morta): aí tenta a automática e,
+  // se as duas falharem, cai no título em texto — nunca fica o ícone quebrado.
+  const [falhas, setFalhas] = useState(0)
+  useEffect(() => {
+    setFalhas(0)
+  }, [game?.id, game?.logo, logoAuto])
+
   if (!game) return <div className="retro-hero-section flex-1" />
+
+  const logo = falhas === 0 ? game.logo : falhas === 1 ? logoAuto : null
 
   return (
     <section key={game.id} className="retro-hero-section anim-rise relative min-h-0 flex-1 border-t px-6 py-4">
       <div className="retro-game-dashboard grid h-full min-h-0">
         <article className="retro-game-copy flex min-w-0 flex-col justify-center pr-3">
-          {game.logo ? (
-            <img src={game.logo} alt={game.title} className="ps5-hero-logo" />
+          {logo ? (
+            <img src={logo} alt={game.title} className="ps5-hero-logo" onError={() => setFalhas((f) => f + 1)} />
           ) : (
             <h1 className="game-name">{game.title}</h1>
           )}
-          <p className="ps5-hero-tagline">{game.genre || game.developer || t("hero.pronto_para_jogar")}</p>
           <div className="ps5-hero-actions">
             <button
               type="button"

@@ -1273,21 +1273,116 @@ export function PS5Launcher() {
       }}
     />
   )
+  // Arte 1:1 do trilho (Xbox -> Worker do Arcadia): pedida em segundo plano e
+  // cacheada no main. Se não vier, o trilho segue com a capa normal (recorte),
+  // exatamente como antes — esta chamada nunca atrasa nem quebra a fileira.
+  const [artesQuadradas, setArtesQuadradas] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const api = window.launcherAPI
+    const itens = viewGames.filter((g) => g.title).map((g) => ({ id: g.id, titulo: g.title }))
+    if (!itens.length || !api || typeof api.arteQuadrada !== "function") return
+    let vivo = true
+    api
+      .arteQuadrada(itens)
+      .then((r) => {
+        if (vivo && r && r.ok && r.artes) setArtesQuadradas((atual) => ({ ...atual, ...r.artes }))
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [viewGames])
+
   const railNode =
     viewGames.length > 0 ? (
       <GameRail
         games={viewGames}
         selectedIndex={selectedIndex}
         cardScale={cardScale}
+        artes={artesQuadradas}
         onSelect={setSelectedIndex}
         onLaunch={_activate}
       />
     ) : (
       <div className="px-10 py-10 text-[color:var(--text-2)]">{t("ps5.biblioteca.vazia")}</div>
     )
+  // Logo do hero: resolvida só para o jogo selecionado (SGDB -> PS Store), em
+  // segundo plano. O HeroSection decide ao vivo o que desenhar: a logo do jogo,
+  // esta automática (se a primeira falhar) e, no fim, o título em texto.
+  const [logosAuto, setLogosAuto] = useState<Record<string, string>>({})
+  // Resolve a logo do selecionado E dos vizinhos (prefetch na direcao da
+  // navegacao): medido, chegar num jogo sem a logo resolvida fazia o hero
+  // esperar a rede para desenhar ("demora pra aparecer a logo").
+  //
+  // O ref abaixo e obrigatorio: jogos SEM logo disponivel nunca aparecem no
+  // estado (`logosAuto`), e sem ele o efeito re-pedia o mesmo jogo a cada
+  // resposta — loop de IPC + re-render que congelava o app por segundos num
+  // jogo sem logo (visto com Far Cry). Uma tentativa por jogo, para sempre.
+  const logosPedidasRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const api = window.launcherAPI
+    if (!viewGames.length || !api || typeof api.arteLogo !== "function") return
+    const pedidas = logosPedidasRef.current
+    const itens = [selectedIndex - 1, selectedIndex, selectedIndex + 1]
+      .map((i) => viewGames[i])
+      .filter(Boolean)
+      .filter((g) => g.title && !pedidas.has(g.id) && !logosAuto[g.id])
+      .map((g) => ({ id: g.id, titulo: g.title }))
+    if (!itens.length) return
+    for (const it of itens) pedidas.add(it.id)
+    let vivo = true
+    api
+      .arteLogo(itens)
+      .then((r) => {
+        if (vivo && r && r.ok && r.logos) setLogosAuto((atual) => ({ ...atual, ...r.logos }))
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [selectedIndex, viewGames, logosAuto])
+
+  // Pré-decodifica a arte de fundo do hero (atual e vizinhos do trilho) em
+  // background. Medido: sem isto, a troca de jogo paga ~67ms de decode de uma
+  // imagem de 1-2MB no frame da troca (era a travadinha ao passar de jogo);
+  // com o pre-decode pronto antes, a troca nao produz frame longo nenhum.
+  // Decodes quentes: guarda os objetos de imagem ja decodificados dos jogos por
+  // perto. O Chromium descarta o decode cache sozinho, e voltar num jogo ja
+  // visitado pagava a decodificacao de novo NO FRAME da troca (a trava ao
+  // voltar). Segurar a referencia mantem o decode quente; sem timeout e sem
+  // cancelamento — trocar rapido nao pode interromper a preparacao do proximo.
+  const decodesQuentes = useRef<Map<string, HTMLImageElement>>(new Map())
+  useEffect(() => {
+    const alvos = [selectedIndex - 1, selectedIndex, selectedIndex + 1]
+      .map((i) => viewGames[i])
+      .filter(Boolean)
+    const urls: string[] = []
+    for (const g of alvos) {
+      const fundo = g.hero || g.cover
+      if (fundo) urls.push(fundo)
+      const logo = logosAuto[g.id] || g.logo
+      if (logo) urls.push(logo)
+    }
+    const cache = decodesQuentes.current
+    for (const u of urls) {
+      if (cache.has(u)) continue
+      const im = new Image()
+      im.src = u
+      if (typeof im.decode === "function") im.decode().catch(() => {})
+      cache.set(u, im)
+    }
+    // teto de 16 (fundo+logo de ~8 jogos): o suficiente para voltar e seguir
+    while (cache.size > 16) {
+      const maisVelha = cache.keys().next().value
+      if (maisVelha === undefined) break
+      cache.delete(maisVelha)
+    }
+  }, [selectedIndex, viewGames, logosAuto])
+
   const heroNode = (
     <HeroSection
       game={selectedGame}
+      logoAuto={selId ? logosAuto[selId] || null : null}
       trailerUrl={appFocused && !gameRunning && !boot && !perfilGate ? trailerUrl : null}
       rodando={Boolean(selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id)}
       abrindo={Boolean(

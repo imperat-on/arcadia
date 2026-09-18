@@ -1236,6 +1236,21 @@ declare global {
         gameId: string,
         titulo: string,
       ) => Promise<{ ok: boolean; textos?: TextCandidate[]; erros?: string[] }>
+      /**
+       * Arte 1:1 do trilho do Big Picture. Resolve no main (Xbox sem chave ->
+       * Worker do Arcadia -> SGDB local) e cacheia em `arte_quadrada.json`.
+       * Devolve o mapa por id; ausente = o trilho usa a capa normal.
+       */
+      arteQuadrada: (
+        itens: { id: string; titulo: string }[],
+      ) => Promise<{ ok: boolean; artes: Record<string, string> }>
+      /**
+       * Logo do hero, resolvida quando a do jogo está faltando ou quebrada
+       * (SteamGridDB -> PS Store). Ausente = o hero mostra o título em texto.
+       */
+      arteLogo: (
+        itens: { id: string; titulo: string }[],
+      ) => Promise<{ ok: boolean; logos: Record<string, string> }>
       /** Baixa a arte escolhida para art/. Devolve o caminho salvo. */
       downloadArt: (
         id: string,
