@@ -998,11 +998,10 @@ function urlCardDe(url) {
 
 // ── Logo automática do hero ─────────────────────────────────────────────────
 // O hero desenha o logo do jogo; quando a URL guardada está morta, sobrava o
-// ícone de imagem quebrada do navegador. Aqui a logo é resolvida de novo, na
-// ordem medida na biblioteca do dono:
-//   1. SteamGridDB — cobre 14/14 (16 a 50 opções por jogo);
-//   2. PS Store — logo transparente oficial, keyless (10/14; a busca da PSN
-//      erra mais que a da SGDB, por isso vem depois).
+// ícone de imagem quebrada do navegador. Ordem escolhida pelo dono:
+//   1. PS Store — logo transparente OFICIAL e keyless (pedido literal: "todas
+//      com logo da PSN Store");
+//   2. SteamGridDB — fallback para o que a PSN não tem (só-PC, retro, CS).
 // Sem chave local e sem PSN, devolve null e o hero mostra o título em texto.
 async function logoAuto(titulo, { chave } = {}) {
   const t = String(titulo || "").trim()
@@ -1012,7 +1011,9 @@ async function logoAuto(titulo, { chave } = {}) {
   // 9657x12589 (121M de pixels): não decodifica, o onError dispara, tenta de
   // novo, e o logo nunca sobe — era a "travada pra subir o logo".
   const LIMITE_LOGO_PX = 4096
+  // PSN PRIMEIRO (pedido do dono): logo transparente oficial e keyless.
   const fontes = [
+    () => logoPSN(t),
     async () => {
       if (!chave) return null
       const jogos = await sgdbSearch(t, chave)
@@ -1029,7 +1030,6 @@ async function logoAuto(titulo, { chave } = {}) {
       if (th) return { url: th.thumb, fonte: "sgdb-thumb", w: null, h: null }
       return null
     },
-    () => logoPSN(t),
   ]
   for (const fonte of fontes) {
     try {
