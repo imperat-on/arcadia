@@ -102,6 +102,8 @@ const NUMEROS_TITULO: Record<string, number> = {
 }
 const MARCA_VERSAO_TITULO = /^(?:v|ver|versao|version|build|patch|update|hotfix|rev|revision)\d*$/
 const CONTEXTO_NUMERO_TITULO = /^(?:episode|ep|part|chapter|act|book|vol|volume|disc|disk)$/
+const ANO_TITULO = /^(?:19|20)\d{2}$/
+const UNIDADE_METADADO_TITULO = new Set(["gb", "mb", "kb", "tb", "gib", "mib", "kib", "tib", "bit", "bits"])
 
 export function foldTituloLoja(value: string) {
   return String(value || "")
@@ -132,15 +134,29 @@ function tituloCanonicoLoja(value: string) {
     const palavra = palavras[i]
     const anterior = palavras[i - 1] || ""
     const proxima = palavras[i + 1] || ""
-    if (MARCA_VERSAO_TITULO.test(palavra) && (/\d$/.test(palavra) || /^\d/.test(proxima))) {
-      versao = true
-      continue
+    // "V (2018)" é o romano do título, não a versão "v2018".
+    if (MARCA_VERSAO_TITULO.test(palavra)) {
+      const romanoCurto = palavra === "v"
+      if (/\d$/.test(palavra) || (/^\d/.test(proxima) && !(romanoCurto && ANO_TITULO.test(proxima)))) {
+        versao = true
+        continue
+      }
     }
     if (versao && /^\d/.test(palavra)) continue
     versao = false
     let numero = 0
     if (/^\d+$/.test(palavra)) {
       if (/^\d/.test(anterior) || /^\d/.test(proxima)) continue
+      // Metadado não é sequência do título: "(From 40 GB)", "+ 9 DLCs",
+      // "Alpha 16", "64 Bit".
+      if (
+        anterior === "from" ||
+        anterior === "alpha" ||
+        proxima === "dlc" ||
+        proxima === "dlcs" ||
+        UNIDADE_METADADO_TITULO.has(proxima)
+      )
+        continue
       const n = Number(palavra)
       if (n >= 1 && n <= 99) numero = n
       else {
@@ -168,6 +184,9 @@ export function matchTituloLoja(alvo: string, candidato: string): MatchTituloLoj
   const a = tituloCanonicoLoja(alvo)
   const c = tituloCanonicoLoja(candidato)
   if (!a.palavras.length || !c.palavras.length) return null
+  for (const exigida of a.exigidas) {
+    if (exigida.charCodeAt(0) !== 35 && exigida.length >= 3 && !c.palavras.includes(exigida)) return null
+  }
   if (a.seq.size !== c.seq.size) return null
   for (const n of a.seq) if (!c.seq.has(n)) return null
   const candidatas = new Set(c.exigidas)

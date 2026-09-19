@@ -232,7 +232,9 @@ async function construirIndex() {
       index.push({
         ref: `${src.id}:${i}`,
         title: String(d.title),
-        lower: String(d.title).toLowerCase(),
+        // Título já dobrado (acento vira letra, não some): a busca compara
+        // sem refoldar 134k títulos a cada consulta.
+        fold: foldTitulo(d.title),
         fileSize: String(d.fileSize || "").trim(),
         uploadDate: String(d.uploadDate || "").trim(),
         src: src.name || data.name || src.id,
@@ -307,6 +309,8 @@ const NUMEROS_TITULO = {
 }
 const MARCA_VERSAO_TITULO = /^(?:v|ver|versao|version|build|patch|update|hotfix|rev|revision)\d*$/
 const CONTEXTO_NUMERO_TITULO = /^(?:episode|ep|part|chapter|act|book|vol|volume|disc|disk)$/
+const ANO_TITULO = /^(?:19|20)\d{2}$/
+const UNIDADE_METADADO_TITULO = new Set(["gb", "mb", "kb", "tb", "gib", "mib", "kib", "tib", "bit", "bits"])
 
 function foldTitulo(value) {
   return String(value || "")
@@ -331,8 +335,8 @@ function palavrasTitulo(value) {
 // Palavras exigidas + sequência do título. Numerais viram "#n" (romano e
 // por-extenso contam como o mesmo número), versões ("v1.0.6",
 // "(1.112.48699928)") são ignoradas e anos soltos seguem como palavra.
-function canonicoFolded(fold) {
-  const palavras = fold.split(/[^a-z0-9]+/).filter(Boolean)
+function canonicoFolded(fold, palavrasPre) {
+  const palavras = palavrasPre || fold.split(/[^a-z0-9]+/).filter(Boolean)
   const seq = new Set()
   const exigidas = []
   let versao = false
@@ -341,10 +345,14 @@ function canonicoFolded(fold) {
     const anterior = palavras[i - 1] || ""
     const proxima = palavras[i + 1] || ""
     // "v3.20" vira um token só ("v3" + "20"): marca de versão com dígitos
-    // dentro também engole os números seguintes.
-    if (MARCA_VERSAO_TITULO.test(palavra) && (/\d$/.test(palavra) || /^\d/.test(proxima))) {
-      versao = true
-      continue
+    // dentro também engole os números seguintes. Exceção: "V (2018)" é o
+    // romano do título, não a versão "v2018".
+    if (MARCA_VERSAO_TITULO.test(palavra)) {
+      const romanoCurto = palavra === "v"
+      if (/\d$/.test(palavra) || (/^\d/.test(proxima) && !(romanoCurto && ANO_TITULO.test(proxima)))) {
+        versao = true
+        continue
+      }
     }
     if (versao && /^\d/.test(palavra)) continue
     versao = false
@@ -352,6 +360,16 @@ function canonicoFolded(fold) {
     if (/^\d+$/.test(palavra)) {
       // Números vizinhos ("1.112.48699928") são versão, não sequência.
       if (/^\d/.test(anterior) || /^\d/.test(proxima)) continue
+      // Metadado não é sequência do título: "(From 40 GB)", "+ 9 DLCs",
+      // "Alpha 16", "64 Bit".
+      if (
+        anterior === "from" ||
+        anterior === "alpha" ||
+        proxima === "dlc" ||
+        proxima === "dlcs" ||
+        UNIDADE_METADADO_TITULO.has(proxima)
+      )
+        continue
       const n = Number(palavra)
       if (n >= 1 && n <= 99) numero = n
       else {
@@ -387,8 +405,16 @@ function tituloCanonico(value) {
 function matchTitulo(alvo, candidato, alvoCanon, candFold) {
   const a = alvoCanon || tituloCanonico(alvo)
   const fold = candFold || foldTitulo(candidato)
-  const c = canonicoFolded(fold)
-  if (!a.palavras.length || !c.palavras.length) return null
+  const palavras = fold.split(/[^a-z0-9]+/).filter(Boolean)
+  if (!a.palavras.length || !palavras.length) return null
+  // Corte barato antes de montar sequência/exigidas: palavra real do alvo
+  // (#n é sequência) tem de existir como token no candidato; a maioria do
+  // índice morre aqui sem montar Set/sequência.
+  for (const exigida of a.exigidas) {
+    if (exigida.charCodeAt(0) !== 35 && exigida.length >= 3 && !palavras.includes(exigida)) return null
+  }
+  const c = canonicoFolded(fold, palavras)
+  if (!c.palavras.length) return null
   if (a.seq.size !== c.seq.size) return null
   for (const n of a.seq) if (!c.seq.has(n)) return null
   const candidatas = new Set(c.exigidas)
@@ -415,7 +441,8 @@ function buscarNoIndice(index, query, limit = 40) {
   const casados = []
   for (let i = 0; i < index.length; i++) {
     const g = index[i]
-    const tituloFold = foldTitulo(g.title)
+    // Índice antigo em disco ainda tem `lower` no lugar de `fold`.
+    const tituloFold = g.fold || foldTitulo(g.lower || g.title)
     const match = matchTitulo(q, g.title, qCanon, tituloFold)
     if (match) {
       casados.push({ g, score: match.score, extra: match.extra, i })
@@ -431,7 +458,7 @@ function buscarNoIndice(index, query, limit = 40) {
   }
   casados.sort((a, b) => b.score - a.score || a.extra - b.extra || a.i - b.i)
   return casados.slice(0, limit).map(({ g }) => {
-    const { lower, ...leve } = g
+    const { lower, fold, ...leve } = g
     return leve
   })
 }

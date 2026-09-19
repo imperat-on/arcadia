@@ -68,10 +68,41 @@ test("versão não vira sequência: v3.20 e v1.2.0.59 não contam como numeral",
 })
 
 test("I solto é pronome, não numeral romano", () => {
-  assert.equal(casa("Team Fortress 2", "I am Bread (Meets Team Fortress 2 Update) [Dauphong]"), true)
+  assert.equal(casa("Bread", "I am Bread Free Download"), true)
   assert.equal(casa("The Last of Us Part I", "The Last of Us Part I Free Download"), true)
   assert.equal(casa("The Last of Us Part I", "The Last of Us Part II Remastered"), false)
   assert.equal(casa("Mega Man X", "Mega Man X4"), false)
+})
+
+test("metadado (From N GB, + N DLCs, Alpha N, N Bit) não vira sequência", () => {
+  assert.equal(
+    casa(
+      "The Last of Us Part I",
+      "The Last of Us: Part I - Digital Deluxe Edition (v1.0.4.1 + All DLCs + Bonus Content + Crash/Shaders Fixes + MULTi24) (From 40 GB) - [DODI Repack]",
+    ),
+    true,
+  )
+  assert.equal(
+    casa(
+      "Black Myth: Wukong",
+      "Black Myth: Wukong: Digital Deluxe Edition (v1.0.6 + All DLCs + Bonus Content + MULTi12) (From 95 GB) [DODI Repack]",
+    ),
+    true,
+  )
+  assert.equal(casa("Cyberpunk 2077", "Cyberpunk 2077 (v2.21 + All DLCs) (From 46 GB) - [DODI Repack]"), true)
+  assert.equal(casa("Cities: Skylines", "Cities: Skylines - Collection (v1.18.1-f3 + All DLCs) (From 6 GB)"), true)
+  assert.equal(casa("7 Days to Die", "7 Days to Die (v1.0 b333) + 9 DLCs [DODI Repack]"), true)
+  assert.equal(casa("7 Days to Die", "7 Days to Die Alpha 16 Free Download"), true)
+  assert.equal(casa("7 Days to Die", "7 Days to Die 64 Bit Free Download"), true)
+  assert.equal(casa("Portal", "Portal 2 (From 5 GB)"), false)
+  assert.equal(casa("Far Cry 3", "Far Cry 2: Fortune's Edition (From 40 GB)"), false)
+})
+
+test("Battlefield V (2018): ano não transforma o romano em versão", () => {
+  assert.equal(casa("Battlefield V", "Battlefield V (2018) PC | Repack ot xatab"), true)
+  assert.equal(casa("Battlefield V", "Battlefield V Free Download"), true)
+  assert.equal(casa("Battlefield V", "Battlefield 1 (2016) PC | Repack ot xatab"), false)
+  assert.equal(casa("Grand Theft Auto V", "Grand Theft Auto V (2013) [Xatab]"), true)
 })
 
 test("acento é dobrado, não removido: Ragnarok acha Ragnarök", () => {
