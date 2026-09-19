@@ -77,6 +77,113 @@ export function ehAviso(texto: string) {
   return /^(Aviso|Warning):/.test(String(texto || "").trim())
 }
 
+// Casamento de título da loja PC. Espelha o matcher do backend
+// (electron/sources.js): compara PALAVRA inteira ("ark" não casa
+// "dark"/"shark"), exige a mesma sequência/numeral (Far Cry 3 != Far Cry 2;
+// Portal != Portal 2) e, quando o alvo é DLC/pack, exige o sufixo do DLC
+// (todas as palavras do alvo). Acento é dobrado (NFD: "Ragnarök" ->
+// "ragnarok"), nunca removido. null = não é o mesmo jogo; score maior =
+// opção mais relevante (exato > prefixo > contém a frase > só palavras) e
+// `extra` (palavras a mais) desempata.
+export type MatchTituloLoja = { score: number; extra: number }
+
+const STOPWORDS_TITULO = new Set([
+  "the", "a", "an", "of", "and", "or", "to", "in", "on", "at", "for", "with",
+  "from", "de", "da", "do", "das", "dos", "e", "y", "la", "el", "los", "las",
+  "del", "le", "les", "des", "du",
+])
+const ROMANOS_TITULO: Record<string, number> = {
+  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10,
+  xi: 11, xii: 12, xiii: 13,
+}
+const NUMEROS_TITULO: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10,
+}
+const MARCA_VERSAO_TITULO = /^(?:v|ver|versao|version|build|patch|update|hotfix|rev|revision)\d*$/
+const CONTEXTO_NUMERO_TITULO = /^(?:episode|ep|part|chapter|act|book|vol|volume|disc|disk)$/
+
+export function foldTituloLoja(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u00f8]/g, "o")
+    .replace(/[\u00e6]/g, "ae")
+    .replace(/[\u0153]/g, "oe")
+    .replace(/[\u00df]/g, "ss")
+    .replace(/[\u0142]/g, "l")
+    .replace(/[\u0111]/g, "d")
+    .replace(/['\u2019`\u00b4]/g, "")
+}
+
+function palavrasTituloLoja(value: string) {
+  return foldTituloLoja(value)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+function tituloCanonicoLoja(value: string) {
+  const palavras = palavrasTituloLoja(value)
+  const seq = new Set<number>()
+  const exigidas: string[] = []
+  let versao = false
+  for (let i = 0; i < palavras.length; i++) {
+    const palavra = palavras[i]
+    const anterior = palavras[i - 1] || ""
+    const proxima = palavras[i + 1] || ""
+    if (MARCA_VERSAO_TITULO.test(palavra) && (/\d$/.test(palavra) || /^\d/.test(proxima))) {
+      versao = true
+      continue
+    }
+    if (versao && /^\d/.test(palavra)) continue
+    versao = false
+    let numero = 0
+    if (/^\d+$/.test(palavra)) {
+      if (/^\d/.test(anterior) || /^\d/.test(proxima)) continue
+      const n = Number(palavra)
+      if (n >= 1 && n <= 99) numero = n
+      else {
+        exigidas.push(palavra)
+        continue
+      }
+    } else if (ROMANOS_TITULO[palavra]) {
+      if (palavra.length > 1 || palavra === "v" || palavra === "x" || CONTEXTO_NUMERO_TITULO.test(anterior))
+        numero = ROMANOS_TITULO[palavra]
+    } else if (NUMEROS_TITULO[palavra] && CONTEXTO_NUMERO_TITULO.test(anterior)) {
+      numero = NUMEROS_TITULO[palavra]
+    }
+    if (numero) {
+      seq.add(numero)
+      exigidas.push(`#${numero}`)
+      continue
+    }
+    if (palavra.length < 2 || STOPWORDS_TITULO.has(palavra)) continue
+    exigidas.push(palavra)
+  }
+  return { palavras, seq, exigidas }
+}
+
+export function matchTituloLoja(alvo: string, candidato: string): MatchTituloLoja | null {
+  const a = tituloCanonicoLoja(alvo)
+  const c = tituloCanonicoLoja(candidato)
+  if (!a.palavras.length || !c.palavras.length) return null
+  if (a.seq.size !== c.seq.size) return null
+  for (const n of a.seq) if (!c.seq.has(n)) return null
+  const candidatas = new Set(c.exigidas)
+  for (const exigida of a.exigidas) if (!candidatas.has(exigida)) return null
+  const compacto = (s: string) => foldTituloLoja(s).replace(/[^a-z0-9]/g, "")
+  const alvoCompacto = compacto(alvo)
+  const candCompacto = compacto(candidato)
+  const cru = String(alvo || "").trim().toLowerCase() === String(candidato || "").trim().toLowerCase()
+  let score = 1
+  if (cru) score = 5
+  else if (candCompacto === alvoCompacto) score = 4
+  else if (alvoCompacto && candCompacto.startsWith(alvoCompacto)) score = 3
+  else if (alvoCompacto && candCompacto.includes(alvoCompacto)) score = 2
+  return { score, extra: Math.max(0, c.palavras.length - a.palavras.length) }
+}
+
 export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {}) {
   const { t: _t } = useI18n()
   const [jaAdicionados, setJaAdicionados] = useState<Set<string>>(new Set())
@@ -167,23 +274,16 @@ export function useStoreActions(games: Game[] = [], opts: StoreActionsOpts = {})
       // 50: jogos populares têm MUITAS releases (RDR2 tem 30+ entre as
       // fontes) — o diálogo lista todas as que têm link baixável.
       const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
-      const norm = (s: string) => limparTitulo(s).toLowerCase().replace(/[^a-z0-9]/g, "")
-      const alvo = norm(title)
-      if (!alvo) return null
-      const tokensAlvo = limparTitulo(title)
-        .toLowerCase()
-        .split(/\s+/)
-        .map((token) => token.replace(/[^a-z0-9]/g, ""))
-        .filter((token) => token.length >= 3)
-      const cands = (r?.results || []).filter((g) => {
-        const t = norm(g.title)
-        const tokensCoincidentes = tokensAlvo.filter((token) => t.includes(token)).length
-        return (
-          t.includes(alvo) ||
-          (t.length >= 8 && alvo.includes(t)) ||
-          (tokensAlvo.length >= 2 && tokensCoincidentes >= Math.min(2, tokensAlvo.length))
-        )
-      })
+      if (!tituloBusca) return null
+      // Só o mesmo jogo entra, e a opção mais relevante (título exato >
+      // prefixo > frase > palavras) vai para o topo do diálogo.
+      const cands = (r?.results || [])
+        .flatMap((g) => {
+          const match = matchTituloLoja(tituloBusca, g.title)
+          return match ? [{ g, match }] : []
+        })
+        .sort((a, b) => b.match.score - a.match.score || a.match.extra - b.match.extra)
+        .map((item) => item.g)
       // Junta TODAS as fontes baixáveis: magnet (torrent) ou URL http direta
       // (o backend resolve/recusa hoster HTML). O diálogo lista tudo e quem
       // escolhe é o usuário.

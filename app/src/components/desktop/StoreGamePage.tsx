@@ -6,6 +6,7 @@
 // conteúdo com painéis reagrupados. Preto OLED em toda superfície.
 
 import { useEffect, useRef, useState } from "react"
+import { matchTituloLoja } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
 import { AvisoSemChaveHubcap } from "./AvisoSemChaveHubcap"
 import { HorasNaSteam } from "./HorasNaSteam"
@@ -196,29 +197,18 @@ export function StoreGamePage({
     if (isRetro) return () => { vivo = false }
     ;(async () => {
       try {
-        const normalizar = (s: string) =>
-          String(s || "")
-            .replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "")
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, "")
         const tituloBusca = String(jogo.title || "").replace(/\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$/i, "").trim()
         const r = await window.launcherAPI?.sourcesSearch?.(tituloBusca, 50)
-        const resultados = Array.isArray(r?.results) ? r.results : []
-        const alvo = normalizar(tituloBusca)
-        const tokensAlvo = tituloBusca
-          .toLowerCase()
-          .split(/\s+/)
-          .map((token) => token.replace(/[^a-z0-9]/g, ""))
-          .filter((token) => token.length >= 3)
+        // Mesmo matcher da ação de download (palavra inteira, sequência e
+        // sufixo de DLC) e mesma ordem de relevância do diálogo.
+        const resultados = (Array.isArray(r?.results) ? r.results : [])
+          .flatMap((candidato) => {
+            const match = matchTituloLoja(tituloBusca, candidato.title)
+            return match ? [{ candidato, match }] : []
+          })
+          .sort((a, b) => b.match.score - a.match.score || a.match.extra - b.match.extra)
+          .map((item) => item.candidato)
         for (const candidato of resultados) {
-          const titulo = normalizar(String(candidato.title || ""))
-          const tokensCoincidentes = tokensAlvo.filter((token) => titulo.includes(token)).length
-          const compativel =
-            titulo &&
-            (titulo.includes(alvo) ||
-              (titulo.length >= 8 && alvo.includes(titulo)) ||
-              (tokensAlvo.length >= 2 && tokensCoincidentes >= Math.min(2, tokensAlvo.length)))
-          if (!compativel) continue
           const full = await window.launcherAPI?.sourcesGame?.(candidato.ref)
           const rawUris = full?.game?.uris
           const uris = Array.isArray(rawUris)
