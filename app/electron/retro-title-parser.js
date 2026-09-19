@@ -136,6 +136,41 @@ const RETRO_ROMAN_NUMERALS = (() => {
 const RETRO_VERSION_SUFFIX_RE =
   /\s*(?:[,;–—-]\s*)?(?:update\s*)?v\.?\d[\w.-]*(?:\s*\+[^()]*)?$/i
 
+// Known scene/repack groups. A generic "trailing ALL-CAPS token" heuristic
+// would eat legitimate subtitles such as `Armored Core - NEXUS` or
+// `Sesame Street - ABC`, so only names listed here are stripped.
+const RETRO_RELEASE_GROUPS = new Set([
+  "codex",
+  "cpy",
+  "dauphong",
+  "dodi",
+  "elamigos",
+  "empress",
+  "fitgirl",
+  "flt",
+  "goldberg",
+  "hoodlum",
+  "kaoskrew",
+  "onlinefix",
+  "p2p",
+  "plaza",
+  "prophet",
+  "proper",
+  "razor",
+  "razor1911",
+  "reloaded",
+  "repack",
+  "rip",
+  "rld",
+  "rune",
+  "skidrow",
+  "steamgg",
+  "steamrip",
+  "tenoke",
+  "tinyiso",
+  "xatab",
+])
+
 // PlayStation serial patterns
 const PS1_SERIAL_RE = /\b([SB][CL][UE][SD])[-_ ]?(\d{5})\b/i
 const PS2_SERIAL_RE = /\b([SB][CL][UE][SD])[-_ ]?(\d{5})\b/i
@@ -487,16 +522,19 @@ function foldRetroDiacritics(value) {
 }
 
 /**
- * Remove trailing scene/repack groups such as `-CODEX` or `-REPACK`.
+ * Remove a trailing scene/repack group (`-CODEX`, `-REPACK`) only when the
+ * token is a known release group. Subtitles like `- NEXUS` stay intact.
  *
  * @param {string} title - Title with a possible trailing group
  * @returns {string} - Title without the trailing group
  */
 function stripRetroSceneGroups(title) {
-  return title
-    .replace(/\s*[-–—]\s*(?:repack|proper|rip|p2p)\s*$/i, "")
-    .replace(/\s*[-–—]\s*[A-Z][A-Z0-9]{2,19}\s*$/, "")
-    .trim()
+  const stripped = title.replace(/\s*[-–—]\s*(?:repack|proper|rip|p2p)\s*$/i, "").trim()
+  const match = /\s*[-–—]\s*([\p{L}\p{N}!._]{2,24})\s*$/u.exec(stripped)
+  if (match && RETRO_RELEASE_GROUPS.has(match[1].toLowerCase())) {
+    return stripped.slice(0, match.index).trim()
+  }
+  return stripped
 }
 
 /**
@@ -527,7 +565,12 @@ function stripRetroLeadingArticle(title) {
 }
 
 /**
- * Rewrite unambiguous roman numeral tokens (1..50) as arabic numbers.
+ * Rewrite roman numeral tokens (1..50) as arabic numbers.
+ *
+ * Single letters I/V/X/L/C/D/M are intentionally left untouched: without
+ * platform context `Mega Man X` cannot be told apart from `Mega Man 10`, so
+ * merging them would send an offer to the wrong game. Multi-letter forms
+ * (`VII`, `XVI`) are unambiguous sequels and are rewritten.
  *
  * @param {string} title - Title with roman numerals
  * @returns {string} - Title with arabic numerals
@@ -535,10 +578,9 @@ function stripRetroLeadingArticle(title) {
 function romanizeRetroNumerals(title) {
   return title
     .split(" ")
-    .map((word, index) => {
+    .map((word) => {
       const roman = word.toUpperCase()
-      if (!/^[IVXLCDM]+$/.test(roman)) return word
-      if (roman.length < 2 && !(index > 0 && /^[IVX]$/.test(roman))) return word
+      if (roman.length < 2 || !/^[IVXLCDM]+$/.test(roman)) return word
       const value = RETRO_ROMAN_NUMERALS.get(roman)
       return value ? String(value) : word
     })
