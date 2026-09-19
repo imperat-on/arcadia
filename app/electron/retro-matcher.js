@@ -15,10 +15,39 @@ const SCORE_SERIAL_EXACT = 100           // Serial exato no mesmo sistema
 const SCORE_HASH_EXACT = 100             // SHA-1/MD5/CRC exato
 const SCORE_TITLE_CANONICAL_EXACT = 85   // Título canônico exato + sistema
 const SCORE_ALIAS_EXACT = 80             // Alias exato + sistema
-const SCORE_TITLE_STRONG = 75            // Título normalizado forte + sistema + região
-const SCORE_FUZZY_BASE = 50              // Base para fuzzy matching
+const SCORE_TITLE_STRONG = 80            // Título contém o canônico (ou tokens iguais) + sistema
+const SCORE_TITLE_FUZZY_MAX = 94         // Fuzzy nunca alcança "exact" (>=95)
 const SCORE_REGION_BONUS = 10            // Bônus quando região bate
 const SCORE_YEAR_BONUS = 5               // Bônus quando ano bate
+
+// Palavras vazias que não distinguem jogos ("The Legend of Zelda" == "Legend of Zelda, The")
+const STOPWORDS = new Set(["the", "a", "an", "of", "and", "or", "in", "on", "with", "for", "to", "vs"])
+// Numerais (palavra/romano/dígito) viram o mesmo valor: "Seven Blades" == "7 Blades",
+// mas "Ace Combat Zero" != "Ace Combat" e "God of War II" != "God of War".
+const NUMBER_WORDS = new Map([
+  ["zero", "0"], ["one", "1"], ["two", "2"], ["three", "3"], ["four", "4"],
+  ["five", "5"], ["six", "6"], ["seven", "7"], ["eight", "8"], ["nine", "9"], ["ten", "10"],
+])
+const ROMAN_NUMERALS = new Map([
+  ["i", "1"], ["ii", "2"], ["iii", "3"], ["iv", "4"], ["v", "5"], ["vi", "6"],
+  ["vii", "7"], ["viii", "8"], ["ix", "9"], ["x", "10"], ["xi", "11"], ["xii", "12"], ["xiii", "13"],
+])
+
+function numeralValue(token) {
+  if (/^\d+$/.test(token)) return String(Number(token))
+  return NUMBER_WORDS.get(token) || ROMAN_NUMERALS.get(token) || null
+}
+
+/**
+ * Tokeniza um título para comparação: sem acento, sem pontuação, sem palavras vazias.
+ * @param {string} title - Título original
+ * @returns {string[]} - Tokens significativos
+ */
+function titleTokens(title) {
+  return normalizeTitle(title)
+    .split(" ")
+    .filter((token) => token && !STOPWORDS.has(token))
+}
 
 /**
  * Normaliza um título para comparação (remove espaços extras, pontuação, case).
@@ -37,21 +66,12 @@ function normalizeTitle(title) {
 }
 
 /**
- * Calcula similaridade fuzzy entre dois títulos (0-100).
- * Usa Dice coefficient para bi-gramas.
- * @param {string} a - Primeiro título
- * @param {string} b - Segundo título
+ * Dice coefficient por bi-gramas (fallback para títulos de 1 token).
+ * @param {string} normA - Título normalizado A
+ * @param {string} normB - Título normalizado B
  * @returns {number} - Similaridade (0-100)
  */
-function fuzzyMatch(a, b) {
-  const normalize = (str) => normalizeTitle(str)
-  const normA = normalize(a)
-  const normB = normalize(b)
-
-  if (normA === normB) return 100
-  if (!normA || !normB) return 0
-
-  // Dice coefficient usando bi-gramas
+function bigramDice(normA, normB) {
   const bigrams = (str) => {
     const pairs = new Set()
     for (let i = 0; i < str.length - 1; i++) {
@@ -71,8 +91,73 @@ function fuzzyMatch(a, b) {
     if (bigramsB.has(bigram)) intersection++
   }
 
-  const dice = (2 * intersection) / (bigramsA.size + bigramsB.size)
-  return Math.round(dice * 100)
+  return Math.round(((2 * intersection) / (bigramsA.size + bigramsB.size)) * 100)
+}
+
+function sameTokenSet(a, b) {
+  if (a.size !== b.size) return false
+  for (const token of a) if (!b.has(token)) return false
+  return true
+}
+
+/**
+ * Calcula similaridade entre dois títulos (0-100).
+ *
+ * Regras (medidas nos dados reais do usuário):
+ * - números diferentes são jogos diferentes ("Spider-Man 2" != "Spider-Man 3");
+ * - a oferta conter o título canônico inteiro é sinal forte
+ *   ("James Bond 007: From Russia With Love" contém "007: From Russia with Love");
+ * - tokens iguais em outra ordem também contam ("Legend of Zelda, The");
+ * - título canônico de 1 token curto não vira associação automática.
+ *
+ * @param {string} a - Primeiro título
+ * @param {string} b - Segundo título
+ * @returns {number} - Similaridade (0-100)
+ */
+function fuzzyMatch(a, b) {
+  const normA = normalizeTitle(a)
+  const normB = normalizeTitle(b)
+
+  if (normA === normB) return 100
+  if (!normA || !normB) return 0
+
+  const tokensA = titleTokens(normA)
+  const tokensB = titleTokens(normB)
+  if (!tokensA.length || !tokensB.length) return bigramDice(normA, normB)
+
+  const digitsA = new Set(tokensA.filter((token) => /^\d+$/.test(token)).map((token) => String(Number(token))))
+  const digitsB = new Set(tokensB.filter((token) => /^\d+$/.test(token)).map((token) => String(Number(token))))
+  if (!sameTokenSet(digitsA, digitsB)) return 40
+
+  const setA = new Set(tokensA)
+  const setB = new Set(tokensB)
+  let shared = 0
+  for (const token of setA) if (setB.has(token)) shared++
+  const dice = Math.round(((2 * shared) / (setA.size + setB.size)) * 100)
+
+  const aInsideB = [...setA].every((token) => setB.has(token))
+  const bInsideA = [...setB].every((token) => setA.has(token))
+
+  let score
+  if (aInsideB && bInsideA) {
+    score = 95
+  } else if (aInsideB || bInsideA) {
+    // Um título contém o outro inteiro (com sufixos de release no meio).
+    const shorter = aInsideB ? setA : setB
+    const shorterTokens = aInsideB ? tokensA : tokensB
+    score = shorter.size >= 2 ? 90 : shorterTokens[0].length >= 4 ? 88 : 70
+  } else {
+    score = Math.min(dice, 88)
+  }
+
+  const numeralsA = new Set(tokensA.map(numeralValue).filter(Boolean))
+  const numeralsB = new Set(tokensB.map(numeralValue).filter(Boolean))
+  if (!sameTokenSet(numeralsA, numeralsB)) {
+    // Numeral faltando/sobrando não é associação automática.
+    score = Math.min(score, CONFIDENCE_THRESHOLD_PROBABLE - 1)
+  }
+
+  return score
 }
 
 /**
@@ -88,12 +173,13 @@ function extractAllSerials(text, systemId) {
   const direct = extractSerial(text, systemId)
   if (direct) serials.push(direct)
 
-  // Busca adicional por padrões comuns em títulos/descrições
+  // Busca adicional por padrões comuns em títulos/descrições (case-insensitive:
+  // feeds Hydra aparecem com serial em minúsculas)
   const patterns = [
-    /\b([A-Z]{4}[-_ ]?\d{5})\b/g,  // PlayStation, PSP
-    /\b([A-Z]{4}\d{5})\b/g,        // PS3
-    /\b(G[A-Z0-9]{3}\d{2})\b/g,    // GameCube
-    /\b(R[A-Z0-9]{3}\d{2})\b/g,    // Wii
+    /\b([A-Z]{4}[-_ ]?\d{5})\b/gi,  // PlayStation, PSP
+    /\b([A-Z]{4}\d{5})\b/gi,        // PS3
+    /\b(G[A-Z0-9]{3}\d{2})\b/gi,    // GameCube
+    /\b(R[A-Z0-9]{3}\d{2})\b/gi,    // Wii
   ]
 
   for (const pattern of patterns) {
@@ -199,33 +285,62 @@ function calculateMatchScore(offer, game) {
     }
   }
 
-  // 5. Título normalizado forte com região (75 pontos)
-  const similarity = fuzzyMatch(offerTitle, gameTitle)
-
-  if (similarity >= 90 && offer.systemId && game.systemId && offer.systemId === game.systemId) {
-    score = SCORE_TITLE_STRONG
-    method = "fuzzy"
-    evidence.push(`similarity:${similarity}`)
-
-    if (offer.region && game.regions && game.regions.includes(offer.region)) {
-      score += SCORE_REGION_BONUS
-      evidence.push(`region:${offer.region}`)
+  // 5. Similaridade de título (canônico e aliases) com regras de contenção.
+  // A similaridade é o melhor resultado entre o título do jogo e seus aliases.
+  let similarity = 0
+  let bestName = ""
+  for (const name of [game.title, ...(game.aliases || [])]) {
+    const value = fuzzyMatch(offerTitle, name)
+    if (value > similarity) {
+      similarity = value
+      bestName = name
     }
+  }
 
-    if (offer.releaseYear && game.releaseDate) {
-      const gameYear = new Date(game.releaseDate).getFullYear()
-      if (offer.releaseYear === gameYear) {
-        score += SCORE_YEAR_BONUS
-        evidence.push(`year:${gameYear}`)
+  // Oferta é subconjunto estrito do nome canônico (jogo mais específico que o
+  // título da oferta): pode ser o mesmo jogo, mas nunca associação automática.
+  const offerTokens = new Set(titleTokens(offerTitle))
+  const nameTokens = new Set(titleTokens(bestName))
+  const offerSubset =
+    offerTokens.size > 0 &&
+    offerTokens.size < nameTokens.size &&
+    [...offerTokens].every((token) => nameTokens.has(token))
+
+  // Sem plataforma na oferta: título sozinho não sustenta associação automática.
+  const noPlatform = !offer.systemId
+
+  if (similarity >= 90) {
+    // Título contém o canônico (ou tokens idênticos): forte.
+    score = noPlatform ? 45 : SCORE_TITLE_STRONG
+    method = "fuzzy"
+    evidence.push(`${noPlatform ? "no-platform," : ""}similarity:${similarity}`)
+
+    if (!noPlatform) {
+      if (offer.region && game.regions && game.regions.includes(offer.region)) {
+        score += SCORE_REGION_BONUS
+        evidence.push(`region:${offer.region}`)
+      }
+
+      if (offer.releaseYear && game.releaseDate) {
+        const gameYear = new Date(game.releaseDate).getFullYear()
+        if (offer.releaseYear === gameYear) {
+          score += SCORE_YEAR_BONUS
+          evidence.push(`year:${gameYear}`)
+        }
       }
     }
 
-    return { score, method, evidence: evidence.join(", ") }
+    if (offerSubset) {
+      score = Math.min(score, CONFIDENCE_THRESHOLD_AUTO - 1)
+      evidence.push("subset")
+    }
+
+    return { score: noPlatform ? score : Math.min(score, SCORE_TITLE_FUZZY_MAX), method, evidence: evidence.join(", ") }
   }
 
-  // 6. Fuzzy matching com limites (50-69 pontos)
-  if (similarity >= 80 && offer.systemId && game.systemId && offer.systemId === game.systemId) {
-    score = SCORE_FUZZY_BASE + Math.round((similarity - 80) / 2)
+  // 6. Fuzzy provável (65-69): título encurtado/variante, sujeito a auditoria.
+  if (similarity >= 80 && !noPlatform) {
+    score = CONFIDENCE_THRESHOLD_PROBABLE + Math.round((similarity - 80) / 3)
     method = "fuzzy"
     evidence.push(`similarity:${similarity}`)
 
@@ -234,15 +349,7 @@ function calculateMatchScore(offer, game) {
       evidence.push(`region:${offer.region}`)
     }
 
-    return { score, method, evidence: evidence.join(", ") }
-  }
-
-  // 7. Sem plataforma = baixa confiança máxima (45 pontos)
-  if (!offer.systemId && similarity >= 95) {
-    score = 45
-    method = "fuzzy"
-    evidence.push(`no-platform,similarity:${similarity}`)
-    return { score, method, evidence: evidence.join(", ") }
+    return { score: Math.min(score, CONFIDENCE_THRESHOLD_AUTO - 1), method, evidence: evidence.join(", ") }
   }
 
   return { score: 0, method: "none", evidence: "no match" }
@@ -269,38 +376,64 @@ function getMatchQuality(score) {
  */
 function findBestMatch(offer, games, options = {}) {
   const {
+    // Piso de aceitação: 80 (forte) para associação automática; 65-79 é
+    // "probable" e só entra com allowProbable (auditoria na UI).
     minConfidence = CONFIDENCE_THRESHOLD_PROBABLE,
-    allowProbable = true,
+    allowProbable = false,
   } = options
 
-  let bestMatch = null
-  let bestScore = 0
-
+  const offerTitle = offer.normalizedTitle || offer.title
+  const scored = []
   for (const game of games) {
     const result = calculateMatchScore(offer, game)
-
-    if (result.score > bestScore) {
-      bestScore = result.score
-      bestMatch = {
-        gameId: game.id,
-        game,
-        score: result.score,
-        method: result.method,
-        evidence: result.evidence,
-        quality: getMatchQuality(result.score),
-      }
+    if (result.score <= 0) continue
+    const sameSystem = Boolean(offer.systemId && game.systemId && offer.systemId === game.systemId)
+    let titleSimilarity = 0
+    for (const name of [game.title, ...(game.aliases || [])]) {
+      const value = fuzzyMatch(offerTitle, name)
+      if (value > titleSimilarity) titleSimilarity = value
     }
+    scored.push({ game, result, sameSystem, titleSimilarity })
   }
 
-  if (!bestMatch) return null
+  if (!scored.length) return null
 
-  // Aplicar limiar de confiança
-  if (bestMatch.score < minConfidence) return null
+  // Ordem estável: score desc, mesmo sistema, similaridade de título e, por fim,
+  // id. Um empate nunca vira "melhor" por acaso da ordem do catálogo.
+  scored.sort(
+    (a, b) =>
+      b.result.score - a.result.score ||
+      Number(b.sameSystem) - Number(a.sameSystem) ||
+      b.titleSimilarity - a.titleSimilarity ||
+      String(a.game.id).localeCompare(String(b.game.id)),
+  )
 
-  // Verificar se probable é permitido
-  if (!allowProbable && bestMatch.quality === "probable") return null
+  const top = scored[0]
+  const tieCount = scored.filter(
+    (entry) =>
+      entry.result.score === top.result.score &&
+      entry.sameSystem === top.sameSystem &&
+      entry.titleSimilarity === top.titleSimilarity,
+  ).length
+  const tied = tieCount > 1
 
-  return bestMatch
+  if (top.result.score < minConfidence) return null
+
+  let quality = getMatchQuality(top.result.score)
+  // Empate rebaixa para "probable": nunca associa automaticamente em silêncio.
+  if (tied && quality !== "unmatched") quality = "probable"
+  if (!allowProbable && quality === "probable") return null
+
+  return {
+    gameId: top.game.id,
+    game: top.game,
+    score: top.result.score,
+    confidence: top.result.score,
+    method: top.result.method,
+    evidence: tied ? `${top.result.evidence}, tie:${tieCount}` : top.result.evidence,
+    quality,
+    tied,
+  }
 }
 
 /**
@@ -338,12 +471,17 @@ function matchBatch(offers, games, options = {}) {
   const byTitle = new Map()
   const byAlias = new Map()
   const byPrefix = new Map()
+  const byFirstToken = new Map()
+  const firstTokenOf = (value) => titleTokens(value)[0] || ""
   for (const game of games) {
     const title = normalizeTitle(game.title)
     add(byTitle, scopedKey(game.systemId, title), game)
     add(byPrefix, scopedKey(game.systemId, title.slice(0, 3)), game)
-    for (const alias of game.aliases || [])
+    add(byFirstToken, scopedKey(game.systemId, firstTokenOf(title)), game)
+    for (const alias of game.aliases || []) {
       add(byAlias, scopedKey(game.systemId, normalizeTitle(alias)), game)
+      add(byFirstToken, scopedKey(game.systemId, firstTokenOf(alias)), game)
+    }
     for (const serial of game.serials || [])
       add(bySerial, scopedKey(game.systemId, normalizeSerial(serial)), game)
     for (const type of ["sha1", "md5", "crc32"])
@@ -364,8 +502,12 @@ function matchBatch(offers, games, options = {}) {
     const title = normalizeTitle(offer.normalizedTitle || offer.title)
     include(byTitle.get(scopedKey(offer.systemId, title)))
     include(byAlias.get(scopedKey(offer.systemId, title)))
-    // Fuzzy matching is deliberately bounded to a same-system title prefix.
-    // Exact identifiers above cover the normal hot path without an O(n²) scan.
+    // Fuzzy bounded por tokens: qualquer token da oferta que seja o primeiro
+    // token de um título/alias canônico entra como candidato. Cobre variações
+    // com prefixo diferente ("James Bond 007: ..." -> "007: ...") sem O(n²).
+    for (const token of titleTokens(title))
+      include(byFirstToken.get(scopedKey(offer.systemId, token)))
+    // Último recurso: prefixo de 3 caracteres (typos no começo do título).
     if (!found.size) include(byPrefix.get(scopedKey(offer.systemId, title.slice(0, 3))))
     return [...found.values()].slice(0, 2000)
   }
@@ -378,14 +520,17 @@ function matchBatch(offers, games, options = {}) {
         offerId: offer.id,
         gameId: match.gameId,
         score: match.score,
+        confidence: match.confidence,
         method: match.method,
         evidence: match.evidence,
         quality: match.quality,
+        tied: match.tied,
       })
 
       stats.matched++
       stats.byMethod[match.method] = (stats.byMethod[match.method] || 0) + 1
       stats.byQuality[match.quality] = (stats.byQuality[match.quality] || 0) + 1
+      if (match.tied) stats.tied = (stats.tied || 0) + 1
 
       if (match.score >= 95) stats.byConfidence.exact++
       else if (match.score >= 80) stats.byConfidence.strong++
