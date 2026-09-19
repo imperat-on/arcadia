@@ -232,7 +232,9 @@ async function construirIndex() {
       index.push({
         ref: `${src.id}:${i}`,
         title: String(d.title),
-        lower: String(d.title).toLowerCase(),
+        // Título já dobrado (acento vira letra, não some): a busca compara
+        // sem refoldar 134k títulos a cada consulta.
+        fold: foldTitulo(d.title),
         fileSize: String(d.fileSize || "").trim(),
         uploadDate: String(d.uploadDate || "").trim(),
         src: src.name || data.name || src.id,
@@ -285,29 +287,186 @@ async function loadIndex() {
   return _index
 }
 
-async function search(query, limit = 40) {
-  const q = String(query || "")
-    .trim()
+// Casamento de título da loja PC. A release ("Far Cry 3 Free Download
+// [Build-...]") e o título da loja ("Far Cry 3") casam por PALAVRA, não por
+// substring: "ark" não pode casar "dark"/"shark". Sequência/numeral tem de
+// bater (Far Cry 3 != Far Cry 2; Portal != Portal 2) e, quando o alvo é
+// DLC/pack, o sufixo do DLC é exigido (todas as palavras do alvo presentes).
+// Acento é dobrado (NFD: "Ragnarök" -> "ragnarok"), nunca removido, para
+// "Ragnarok" achar "Ragnarök".
+const STOPWORDS_TITULO = new Set([
+  "the", "a", "an", "of", "and", "or", "to", "in", "on", "at", "for", "with",
+  "from", "de", "da", "do", "das", "dos", "e", "y", "la", "el", "los", "las",
+  "del", "le", "les", "des", "du",
+])
+const ROMANOS_TITULO = {
+  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10,
+  xi: 11, xii: 12, xiii: 13,
+}
+const NUMEROS_TITULO = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10,
+}
+const MARCA_VERSAO_TITULO = /^(?:v|ver|versao|version|build|patch|update|hotfix|rev|revision)\d*$/
+const CONTEXTO_NUMERO_TITULO = /^(?:episode|ep|part|chapter|act|book|vol|volume|disc|disk)$/
+const ANO_TITULO = /^(?:19|20)\d{2}$/
+const UNIDADE_METADADO_TITULO = new Set(["gb", "mb", "kb", "tb", "gib", "mib", "kib", "tib", "bit", "bits"])
+
+function foldTitulo(value) {
+  return String(value || "")
     .toLowerCase()
-  if (!q) return []
-  const normalizado = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-  const qNormalizado = normalizado(q)
-  const tokens = q
-    .split(/\s+/)
-    .map(normalizado)
-    .filter((token) => token.length >= 3)
-  const out = []
-  for (const g of await loadIndex()) {
-    const tituloNormalizado = normalizado(g.title)
-    const tokensCoincidentes = tokens.filter((token) => tituloNormalizado.includes(token)).length
-    const mesmoJogo = tokens.length >= 2 && tokensCoincidentes >= Math.min(2, tokens.length)
-    if (g.lower.includes(q) || (qNormalizado && tituloNormalizado.includes(qNormalizado)) || mesmoJogo) {
-      const { lower, ...leve } = g
-      out.push(leve)
-      if (out.length >= limit) break
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u00f8]/g, "o")
+    .replace(/[\u00e6]/g, "ae")
+    .replace(/[\u0153]/g, "oe")
+    .replace(/[\u00df]/g, "ss")
+    .replace(/[\u0142]/g, "l")
+    .replace(/[\u0111]/g, "d")
+    .replace(/['\u2019`\u00b4]/g, "")
+}
+
+function palavrasTitulo(value) {
+  return foldTitulo(value)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+// Palavras exigidas + sequência do título. Numerais viram "#n" (romano e
+// por-extenso contam como o mesmo número), versões ("v1.0.6",
+// "(1.112.48699928)") são ignoradas e anos soltos seguem como palavra.
+function canonicoFolded(fold, palavrasPre) {
+  const palavras = palavrasPre || fold.split(/[^a-z0-9]+/).filter(Boolean)
+  const seq = new Set()
+  const exigidas = []
+  let versao = false
+  for (let i = 0; i < palavras.length; i++) {
+    const palavra = palavras[i]
+    const anterior = palavras[i - 1] || ""
+    const proxima = palavras[i + 1] || ""
+    // "v3.20" vira um token só ("v3" + "20"): marca de versão com dígitos
+    // dentro também engole os números seguintes. Exceção: "V (2018)" é o
+    // romano do título, não a versão "v2018".
+    if (MARCA_VERSAO_TITULO.test(palavra)) {
+      const romanoCurto = palavra === "v"
+      if (/\d$/.test(palavra) || (/^\d/.test(proxima) && !(romanoCurto && ANO_TITULO.test(proxima)))) {
+        versao = true
+        continue
+      }
     }
+    if (versao && /^\d/.test(palavra)) continue
+    versao = false
+    let numero = 0
+    if (/^\d+$/.test(palavra)) {
+      // Números vizinhos ("1.112.48699928") são versão, não sequência.
+      if (/^\d/.test(anterior) || /^\d/.test(proxima)) continue
+      // Metadado não é sequência do título: "(From 40 GB)", "+ 9 DLCs",
+      // "Alpha 16", "64 Bit".
+      if (
+        anterior === "from" ||
+        anterior === "alpha" ||
+        proxima === "dlc" ||
+        proxima === "dlcs" ||
+        UNIDADE_METADADO_TITULO.has(proxima)
+      )
+        continue
+      const n = Number(palavra)
+      if (n >= 1 && n <= 99) numero = n
+      else {
+        exigidas.push(palavra)
+        continue
+      }
+    } else if (ROMANOS_TITULO[palavra]) {
+      // "I" solto é pronome ("I am Bread"), não numeral; só conta com
+      // contexto de parte/episódio. "V"/"X" são sequência sempre.
+      if (palavra.length > 1 || palavra === "v" || palavra === "x" || CONTEXTO_NUMERO_TITULO.test(anterior))
+        numero = ROMANOS_TITULO[palavra]
+    } else if (NUMEROS_TITULO[palavra] && CONTEXTO_NUMERO_TITULO.test(anterior)) {
+      numero = NUMEROS_TITULO[palavra]
+    }
+    if (numero) {
+      seq.add(numero)
+      exigidas.push(`#${numero}`)
+      continue
+    }
+    if (palavra.length < 2 || STOPWORDS_TITULO.has(palavra)) continue
+    exigidas.push(palavra)
   }
-  return out
+  return { palavras, seq, exigidas, compacto: palavras.join("") }
+}
+
+function tituloCanonico(value) {
+  return canonicoFolded(foldTitulo(value))
+}
+
+// null = não é o mesmo jogo. score: 5 exato cru, 4 exato dobrado, 3 prefixo,
+// 2 contém a frase, 1 só as palavras; `extra` (palavras a mais) desempata.
+// `alvoCanon`/`candFold` opcionais evitam refoldar em loop de busca.
+function matchTitulo(alvo, candidato, alvoCanon, candFold) {
+  const a = alvoCanon || tituloCanonico(alvo)
+  const fold = candFold || foldTitulo(candidato)
+  const palavras = fold.split(/[^a-z0-9]+/).filter(Boolean)
+  if (!a.palavras.length || !palavras.length) return null
+  // Corte barato antes de montar sequência/exigidas: palavra real do alvo
+  // (#n é sequência) tem de existir como token no candidato; a maioria do
+  // índice morre aqui sem montar Set/sequência.
+  for (const exigida of a.exigidas) {
+    if (exigida.charCodeAt(0) !== 35 && exigida.length >= 3 && !palavras.includes(exigida)) return null
+  }
+  const c = canonicoFolded(fold, palavras)
+  if (!c.palavras.length) return null
+  if (a.seq.size !== c.seq.size) return null
+  for (const n of a.seq) if (!c.seq.has(n)) return null
+  const candidatas = new Set(c.exigidas)
+  for (const exigida of a.exigidas) if (!candidatas.has(exigida)) return null
+  const cru = String(alvo || "").trim().toLowerCase() === String(candidato || "").trim().toLowerCase()
+  let score = 1
+  if (cru) score = 5
+  else if (c.compacto === a.compacto) score = 4
+  else if (a.compacto && c.compacto.startsWith(a.compacto)) score = 3
+  else if (a.compacto && c.compacto.includes(a.compacto)) score = 2
+  return { score, extra: Math.max(0, c.palavras.length - a.palavras.length) }
+}
+
+// Busca no índice com ranking ANTES do corte: a release certa pode estar em
+// qualquer posição do índice (não depende do teto de resultados). Quem não é
+// match de verdade entra só como fallback da busca livre (aba Fontes).
+function buscarNoIndice(index, query, limit = 40) {
+  const q = String(query || "").trim()
+  if (!q) return []
+  const qFold = foldTitulo(q)
+  const qCompacto = qFold.replace(/[^a-z0-9]/g, "")
+  const qCanon = canonicoFolded(qFold)
+  const tokens = palavrasTitulo(q).filter((token) => token.length >= 3)
+  const casados = []
+  for (let i = 0; i < index.length; i++) {
+    const g = index[i]
+    // Índice antigo em disco ainda tem `lower` no lugar de `fold`.
+    const tituloFold = g.fold || foldTitulo(g.lower || g.title)
+    const match = matchTitulo(q, g.title, qCanon, tituloFold)
+    if (match) {
+      casados.push({ g, score: match.score, extra: match.extra, i })
+      continue
+    }
+    const tituloCompacto = tituloFold.replace(/[^a-z0-9]/g, "")
+    const coincidentes = tokens.filter((token) => tituloCompacto.includes(token)).length
+    const parcial =
+      tituloFold.includes(qFold) ||
+      (qCompacto && tituloCompacto.includes(qCompacto)) ||
+      (tokens.length >= 2 && coincidentes >= Math.min(2, tokens.length))
+    if (parcial) casados.push({ g, score: 0, extra: Number.MAX_SAFE_INTEGER, i })
+  }
+  casados.sort((a, b) => b.score - a.score || a.extra - b.extra || a.i - b.i)
+  return casados.slice(0, limit).map(({ g }) => {
+    const { lower, fold, ...leve } = g
+    return leve
+  })
+}
+
+async function search(query, limit = 40) {
+  const q = String(query || "").trim()
+  if (!q) return []
+  return buscarNoIndice(await loadIndex(), q, limit)
 }
 
 // Dados completos de um jogo (uris inclusas) — lê do disco só quando pedido.
@@ -347,4 +506,7 @@ module.exports = {
   getGame,
   list: readRegistry,
   _writeRegistryLocal,
+  _foldTitulo: foldTitulo,
+  _matchTitulo: matchTitulo,
+  _buscarNoIndice: buscarNoIndice,
 }
