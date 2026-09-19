@@ -93,6 +93,84 @@ const RETRO_FLAG_TAG_RE =
 // Release group patterns
 const RETRO_GROUP_TAG_RE = /^[\p{L}\p{N}][\p{L}\p{N}._'-]{1,31}$/u
 
+// Latin letters that NFD does not decompose into an ASCII equivalent
+const RETRO_LATIN_FOLD = {
+  ß: "ss",
+  æ: "ae",
+  œ: "oe",
+  ø: "o",
+  đ: "d",
+  ð: "d",
+  þ: "th",
+  ł: "l",
+}
+
+// Roman numerals restricted to 1..50, so English words that happen to be valid
+// roman forms (MIX, CIV, DIV) are never rewritten into numbers.
+const RETRO_ROMAN_NUMERALS = (() => {
+  const steps = [
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ]
+  const map = new Map()
+  for (let number = 1; number <= 50; number++) {
+    let rest = number
+    let roman = ""
+    for (const [value, symbol] of steps) {
+      while (rest >= value) {
+        roman += symbol
+        rest -= value
+      }
+    }
+    map.set(roman, number)
+  }
+  return map
+})()
+
+// Trailing version/update marker: `v1.1`, `v.92935+1300`, `- v1.0.4-43683 + DLC`
+const RETRO_VERSION_SUFFIX_RE =
+  /\s*(?:[,;–—-]\s*)?(?:update\s*)?v\.?\d[\w.-]*(?:\s*\+[^()]*)?$/i
+
+// Known scene/repack groups. A generic "trailing ALL-CAPS token" heuristic
+// would eat legitimate subtitles such as `Armored Core - NEXUS` or
+// `Sesame Street - ABC`, so only names listed here are stripped.
+const RETRO_RELEASE_GROUPS = new Set([
+  "codex",
+  "cpy",
+  "dauphong",
+  "dodi",
+  "elamigos",
+  "empress",
+  "fitgirl",
+  "flt",
+  "goldberg",
+  "hoodlum",
+  "kaoskrew",
+  "onlinefix",
+  "p2p",
+  "plaza",
+  "prophet",
+  "proper",
+  "razor",
+  "razor1911",
+  "reloaded",
+  "repack",
+  "rip",
+  "rld",
+  "rune",
+  "skidrow",
+  "steamgg",
+  "steamrip",
+  "tenoke",
+  "tinyiso",
+  "xatab",
+])
+
 // PlayStation serial patterns
 const PS1_SERIAL_RE = /\b([SB][CL][UE][SD])[-_ ]?(\d{5})\b/i
 const PS2_SERIAL_RE = /\b([SB][CL][UE][SD])[-_ ]?(\d{5})\b/i
@@ -269,6 +347,7 @@ function isRetroMetadataTag(value) {
   if (/^~?\d[\d\s.,~]*(?:шт|items?|games?)\.?$/iu.test(tag)) return true
   if (/^(?:all\s+)?region$|^non[-\s]?redump$/i.test(tag)) return true
   if (/\bdlc\b/i.test(tag)) return true
+  if (/\b(?:update|hotfix|patch|build|repack|install)\b/i.test(tag)) return true
 
   const words = retroTagWords(tag)
   if (!words.length) return true
@@ -357,11 +436,11 @@ function stripRetroGroups(title) {
     groups.unshift({ raw, value: raw.slice(1, -1).trim() })
     rest = rest.slice(0, match.index).trim()
   }
-  if (!groups.some((group) => isRetroMetadataTag(group.value))) return cleaned
+  // Each trailing group is evaluated on its own: a `[FitGirl Repack]` must be
+  // dropped even when no sibling group is metadata (previous all-or-nothing
+  // check left it glued to titles like `EMPYRE: ... [FitGirl Repack]`).
   const kept = groups.filter(
-    (group) =>
-      !isRetroMetadataTag(group.value) &&
-      !(group.raw.startsWith("[") && isRetroReleaseGroupTag(group.value)),
+    (group) => !isRetroMetadataTag(group.value) && !isRetroReleaseGroupTag(group.value),
   )
   return `${rest}${kept.map((group) => ` ${group.raw}`).join("")}`.trim()
 }
@@ -427,6 +506,85 @@ function stripRetroAliasParentheticals(title) {
     index = end
   }
   return output
+}
+
+/**
+ * Fold Latin diacritics and non-decomposable letters to ASCII.
+ *
+ * @param {string} value - Text to fold
+ * @returns {string} - ASCII-folded text
+ */
+function foldRetroDiacritics(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[ßæœøđðþł]/gi, (letter) => RETRO_LATIN_FOLD[letter.toLowerCase()] || letter)
+}
+
+/**
+ * Remove a trailing scene/repack group (`-CODEX`, `-REPACK`) only when the
+ * token is a known release group. Subtitles like `- NEXUS` stay intact.
+ *
+ * @param {string} title - Title with a possible trailing group
+ * @returns {string} - Title without the trailing group
+ */
+function stripRetroSceneGroups(title) {
+  const stripped = title.replace(/\s*[-–—]\s*(?:repack|proper|rip|p2p)\s*$/i, "").trim()
+  const match = /\s*[-–—]\s*([\p{L}\p{N}!._]{2,24})\s*$/u.exec(stripped)
+  if (match && RETRO_RELEASE_GROUPS.has(match[1].toLowerCase())) {
+    return stripped.slice(0, match.index).trim()
+  }
+  return stripped
+}
+
+/**
+ * Remove trailing version/update markers (`v1.1`, `v.92935+1300`, `+ DLC`).
+ *
+ * @param {string} title - Title with a possible version suffix
+ * @returns {string} - Title without the version suffix
+ */
+function stripRetroVersionSuffix(title) {
+  let previous
+  do {
+    previous = title
+    title = title.replace(RETRO_VERSION_SUFFIX_RE, "")
+  } while (title !== previous)
+  return title.trim()
+}
+
+/**
+ * Remove a leading English article so "The Legend of Zelda" and
+ * "Legend of Zelda" share the same canonical key.
+ *
+ * @param {string} title - Title to clean
+ * @returns {string} - Title without a leading article
+ */
+function stripRetroLeadingArticle(title) {
+  const stripped = title.replace(/^(?:the|an?)\s+/i, "").trim()
+  return stripped || title
+}
+
+/**
+ * Rewrite roman numeral tokens (1..50) as arabic numbers.
+ *
+ * Single letters I/V/X/L/C/D/M are intentionally left untouched: without
+ * platform context `Mega Man X` cannot be told apart from `Mega Man 10`, so
+ * merging them would send an offer to the wrong game. Multi-letter forms
+ * (`VII`, `XVI`) are unambiguous sequels and are rewritten.
+ *
+ * @param {string} title - Title with roman numerals
+ * @returns {string} - Title with arabic numerals
+ */
+function romanizeRetroNumerals(title) {
+  return title
+    .split(" ")
+    .map((word) => {
+      const roman = word.toUpperCase()
+      if (roman.length < 2 || !/^[IVXLCDM]+$/.test(roman)) return word
+      const value = RETRO_ROMAN_NUMERALS.get(roman)
+      return value ? String(value) : word
+    })
+    .join(" ")
 }
 
 /**
@@ -509,6 +667,23 @@ function normalizeRetroTitle(value, max = MAX_TITLE) {
     .replace(/\s+/g, " ")
     .replace(/^[\s_-]+|[\s_-]+$/g, "")
     .trim()
+
+  // Source noise and release/version suffixes: `Free Download`, `-RUNE`,
+  // `v.92935+1300`, `- v1.0.4 + 3 DLCs/Bonuses`.
+  title = title.replace(/\b(?:free\s+download|download\s+free)\b/gi, " ").trim()
+  title = stripRetroSceneGroups(title)
+  title = stripRetroVersionSuffix(title)
+  title = stripRetroLeadingArticle(title)
+
+  // Canonical comparison key: fold accents, unify `&`/`and` and `vs`/`versus`,
+  // and drop punctuation so raw offers meet canonical catalog titles.
+  title = foldRetroDiacritics(title)
+    .replace(/\s*&\s*/g, " and ")
+    .replace(/\bvs\.?\b/gi, " versus ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  title = romanizeRetroNumerals(title)
 
   return title.slice(0, max)
 }
