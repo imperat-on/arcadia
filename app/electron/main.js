@@ -1,4 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, screen } = require("electron")
+// Blindagem de rede: nenhum header com code point > 255 derruba o main (o undici
+// recusa ByteString; um dado externo corrompido virava "JavaScript error" em dialog).
+const { instalar: instalarNetGuard } = require("./net-guard")
+instalarNetGuard()
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
 const { refreshBootVideo, BOOT_VIDEO_CODECS } = require("./bootVideo")
 
