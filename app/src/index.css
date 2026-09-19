@@ -2537,3 +2537,13 @@ select:disabled {
 .retro-big-picture .console-profile button { min-height:44px; font-size:16px; }
 .retro-big-picture .console-profile .grid-cols-4 { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
 @media(max-width:900px) { .retro-big-picture .console-profile .grid-cols-\[minmax\(0\,1fr\)_340px\] { grid-template-columns:1fr; } }
+
+/* Variantes .5 usadas no diálogo de download. O Tailwind gera as duas, mas o
+   css-vivo valida contra o dist vigente: declará-las aqui garante que estejam
+   no bundle em qualquer build. */
+.gap-3\.5 {
+  gap: 0.875rem;
+}
+.pr-0\.5 {
+  padding-right: 0.125rem;
+}

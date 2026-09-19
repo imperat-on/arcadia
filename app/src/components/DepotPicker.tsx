@@ -311,7 +311,7 @@ export function DepotPicker({
                   {tituloSecao(s.tipo)}
                 </span>
                 {s.tipo === "base" && (
-                  <span className="rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[color:var(--accent)]">
+                  <span className="rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[color:var(--accent)]">
                     {t("depot.essencial")}
                   </span>
                 )}
