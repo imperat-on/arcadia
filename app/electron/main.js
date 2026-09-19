@@ -1943,6 +1943,182 @@ function steamComInjecao(cmd) {
   return { cmd: novo, env: steam.env, avisos }
 }
 
+// ── Aviso de Proton em jogo Windows baixado por depot ───────────────────────
+//
+// O download por depot grava os depots WINDOWS (o Arcadia roda no Proton). Se o
+// appid não tem compat tool no config.vdf e a máquina não tem Proton nenhum, a
+// Steam falha ao abrir com "Missing game executable" — mensagem enganosa: o
+// .exe está lá, o que falta é a ferramenta de compatibilidade. Detectamos isso
+// ANTES de entregar o lance e avisamos, sem nunca impedir o lançamento.
+
+// Cache por pasta: a varredura do disco é a parte cara e só muda com um novo
+// download. O config.vdf é relido a cada lance — é pequeno e o usuário pode
+// ligar o Proton com o app aberto.
+const cacheJogoWindows = new Map()
+
+// Extensões que denunciam binário nativo Linux (o jogo não é Windows-only).
+// ".bin" fica de fora de propósito: é extensão comum de dados, não de binário.
+const RE_BINARIO_NATIVO = /\.(x86_64|x86|sh|appimage)$/i
+
+// Varredura rasa (raiz + 2 níveis) e limitada: pasta de jogo grande tem
+// milhares de arquivos, e a resposta (tem .exe? tem binário Linux?) aparece
+// perto da raiz. Devolve { exe, nativo }.
+function varrerExecutaveis(dir, nivel = 0, estado = { vistos: 0 }) {
+  const achado = { exe: false, nativo: false }
+  if (nivel > 2 || estado.vistos > 4000) return achado
+  let entradas
+  try {
+    entradas = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return achado
+  }
+  for (const e of entradas) {
+    if (e.name.startsWith(".")) continue
+    if (e.isDirectory()) {
+      // Redists não dizem nada sobre o binário principal.
+      if (/^(_CommonRedist|DirectX|Redist|dotnet|vcredist)/i.test(e.name)) continue
+      const sub = varrerExecutaveis(path.join(dir, e.name), nivel + 1, estado)
+      achado.exe = achado.exe || sub.exe
+      achado.nativo = achado.nativo || sub.nativo
+    } else if (e.isFile()) {
+      estado.vistos++
+      if (RE_BINARIO_NATIVO.test(e.name)) achado.nativo = true
+      else if (/\.exe$/i.test(e.name)) achado.exe = true
+      else {
+        // Sem extensão conhecida, mas com bit de execução: binário nativo.
+        try {
+          if (fs.statSync(path.join(dir, e.name)).mode & 0o111) achado.nativo = true
+        } catch {}
+      }
+    }
+    if (achado.exe && achado.nativo) return achado
+  }
+  return achado
+}
+
+// Só Windows = tem .exe e nenhum binário nativo à vista. Sem .exe nenhum é
+// inconclusivo e fica em silêncio (evita falso positivo).
+function jogoSoWindows(dir) {
+  if (!dir) return false
+  const guardado = cacheJogoWindows.get(dir)
+  if (guardado !== undefined) return guardado
+  const r = varrerExecutaveis(dir)
+  const soWindows = r.exe && !r.nativo
+  cacheJogoWindows.set(dir, soWindows)
+  return soWindows
+}
+
+// Bloco de primeiro nível de uma chave VDF, com contagem de chaves — regex
+// sozinha não fecha a conta com aninhamento.
+function blocoVdf(txt, chave) {
+  const i = txt.indexOf(`"${chave}"`)
+  if (i < 0) return ""
+  const abre = txt.indexOf("{", i)
+  if (abre < 0) return ""
+  let nivel = 0
+  for (let j = abre; j < txt.length; j++) {
+    if (txt[j] === "{") nivel++
+    else if (txt[j] === "}" && --nivel === 0) return txt.slice(abre + 1, j)
+  }
+  return ""
+}
+
+// Compat tool definido para o appid (ou para o default "0", que vale para
+// todos os títulos). Entrada sem "name" não conta.
+function compatToolDefinido(vdf, appid) {
+  const bloco = blocoVdf(vdf, "CompatToolMapping")
+  if (!bloco) return false
+  for (const id of [String(appid), "0"]) {
+    const m = new RegExp(`"${id}"\\s*\\{([^{}]*)\\}`).exec(bloco)
+    if (!m) continue
+    const nome = /"name"\s+"([^"]*)"/.exec(m[1])
+    if (nome && nome[1].trim()) return true
+  }
+  return false
+}
+
+// Qualquer Proton instalado: ferramenta custom em compatibilitytools.d ou o
+// oficial em steamapps/common (Proton 9.0, Proton - Experimental, Hotfix…).
+function protonInstalado(base) {
+  try {
+    const tools = fs.readdirSync(path.join(base, "compatibilitytools.d"), { withFileTypes: true })
+    if (tools.some((e) => e.isDirectory())) return true
+  } catch {}
+  try {
+    const common = path.join(base, "steamapps", "common")
+    if (
+      fs
+        .readdirSync(common, { withFileTypes: true })
+        .some((e) => e.isDirectory() && /^proton/i.test(e.name))
+    )
+      return true
+  } catch {}
+  return false
+}
+
+// Abre o cliente Steam (com a injeção quando ela existe) sem passar pelo fluxo
+// de lançamento. Mesma limpeza de LD_* do lance normal: as libs do Chromium
+// herdadas quebram o startup da Steam.
+function abrirSteamCliente() {
+  try {
+    const { cmd, env } = require("./steamstore").comandoSteam()
+    const limpo = { ...process.env, ...env }
+    delete limpo.LD_LIBRARY_PATH
+    delete limpo.LD_PRELOAD
+    delete limpo.STEAM_RUNTIME_LIBRARY_PATH
+    const child = spawn(cmd, ["steam://open/main"], {
+      detached: true,
+      stdio: "ignore",
+      env: limpo,
+    })
+    child.on?.("error", (e) => console.warn("arcadia: falha ao abrir a Steam:", e.message || e))
+    child.unref?.()
+  } catch (e) {
+    console.warn("arcadia: falha ao abrir a Steam:", e.message || e)
+  }
+}
+
+// Silêncio total quando: não é Linux, o jogo não é Windows-only, o appid já
+// tem compat tool, ou existe Proton instalado. Caso contrário, pergunta.
+// "Abrir Steam" devolve { abrirSteam: true } e cancela este lance; qualquer
+// outra resposta (inclusive fechar o diálogo) segue com o lançamento.
+async function checarProtonNecessario(appid) {
+  if (process.platform === "win32") return null
+  const steamstore = require("./steamstore")
+  const dir = steamstore.gameInstallDir({ id: `steam:${appid}`, launcher: "steam" })
+  if (!jogoSoWindows(dir)) return null
+
+  const base = steamstore.findSteamDir()
+  let vdf = ""
+  try {
+    vdf = fs.readFileSync(path.join(base, "config", "config.vdf"), "utf-8")
+  } catch {}
+  if (compatToolDefinido(vdf, appid)) return null
+  if (protonInstalado(base)) return null
+
+  const opcoes = {
+    type: "warning",
+    title: "Precisa do Proton",
+    message:
+      "Este jogo foi baixado por depot e é de Windows — a Steam precisa do Proton para abri-lo.",
+    detail:
+      'Sem o Proton ligado, a Steam falha com "Missing game executable", mesmo com o .exe no lugar.\n\n' +
+      "Para ativar: Biblioteca → botão direito no jogo → Propriedades → Compatibilidade → " +
+      'marque "Forçar o uso de uma ferramenta de compatibilidade" e escolha um Proton.\n\n' +
+      "Depois é só jogar de novo.",
+    buttons: ["Abrir Steam", "Continuar assim mesmo"],
+    defaultId: 1,
+    cancelId: 1,
+  }
+  const pai = win && !win.isDestroyed() ? win : null
+  const { response } = pai
+    ? await dialog.showMessageBox(pai, opcoes)
+    : await dialog.showMessageBox(opcoes)
+  if (response !== 0) return null
+  abrirSteamCliente()
+  return { abrirSteam: true }
+}
+
 function applyGameSettings(cmd, s, gameId, launchTokenId = 0, extraEnvironmentKeys = []) {
   const warnings = []
   const env = { ...process.env }
@@ -3083,6 +3259,24 @@ app.whenReady().then(() => {
     }
     lancamentoAtual = launch
     launchInFlight = true
+    // Aviso de Proton (jogo Windows de depot sem compat tool): pergunta antes
+    // de entregar o lance à Steam. "Abrir Steam" cancela este lance para o
+    // usuário ligar o Proton; o resto segue normalmente.
+    if (process.platform !== "win32") {
+      const uri = (resolved.rawCmd || []).find((a) => /^steam:\/\/rungameid\//i.test(String(a)))
+      const appid = uri ? (String(uri).match(/rungameid\/(\d+)/i) || [])[1] : ""
+      if (appid) {
+        try {
+          const aviso = await checarProtonNecessario(appid)
+          if (aviso?.abrirSteam) {
+            releaseLaunch(launch)
+            return { ok: false, canceled: true }
+          }
+        } catch (e) {
+          console.warn("arcadia: checagem de Proton falhou:", e.message || e)
+        }
+      }
+    }
     // Nunca herda script pós-jogo de uma tentativa anterior que falhou antes
     // de criar a sessão acompanhada.
     postGameScript = ""
