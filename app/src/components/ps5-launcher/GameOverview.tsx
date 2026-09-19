@@ -256,17 +256,17 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     .filter(Boolean)
     .slice(0, 4)
 
-  const screenshots = useMemo(
-    () =>
-      unique([
-        ...(mediaGame.screenshots || []),
-        ...(mediaGame.titleScreens || []),
-        ...(meta?.screenshots || []).flatMap((shot) => [shot.full, shot.thumb]),
-      ])
-        .filter((image) => image !== backdrop)
-        .slice(0, 5),
-    [mediaGame.screenshots, mediaGame.titleScreens, meta?.screenshots, backdrop],
-  )
+  const screenshots = useMemo(() => {
+    const local = unique([
+      ...(mediaGame.screenshots || []),
+      ...(mediaGame.titleScreens || []),
+    ]).filter((image) => image !== backdrop)
+    const localFulls = new Set(local)
+    const remote = (meta?.screenshots || [])
+      .map((shot) => ({ src: shot.thumb || shot.full, full: shot.full || shot.thumb }))
+      .filter((shot) => shot.src && shot.full && shot.src !== backdrop && !localFulls.has(shot.full))
+    return [...local.map((image) => ({ src: image, full: image })), ...remote].slice(0, 5)
+  }, [mediaGame.screenshots, mediaGame.titleScreens, meta?.screenshots, backdrop])
 
   const mediaItems = useMemo<MediaItem[]>(
     () =>
@@ -282,8 +282,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
             ]
           : []),
         ...screenshots.map((image, index) => ({
-          src: image,
-          full: image,
+          src: image.src,
+          full: image.full,
           label: `Imagem ${index + 1}`,
         })),
       ].filter((item): item is MediaItem => Boolean(item.src)),
