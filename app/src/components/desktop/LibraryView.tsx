@@ -165,7 +165,13 @@ export function LibraryView({
           onRemover={() => {
             window.launcherAPI
               ?.storeRemoveFromLibrary(String(paginaLoja.id).replace(/^steam:/, ""))
-              .then(() => actions.refresh())
+              .then((r) => {
+                // O jogo já saiu da biblioteca; o aviso só aparece quando a
+                // limpeza na Steam falhou (ele pode continuar listado lá).
+                const aviso = (r as { aviso?: string } | undefined)?.aviso
+                if (aviso) window.alert(aviso)
+                void actions.refresh()
+              })
             setPaginaLoja(null)
           }}
           onConfig={() => setConfigurando(paginaLoja)}

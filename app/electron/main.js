@@ -4485,38 +4485,57 @@ app.whenReady().then(() => {
   })
   ipcMain.handle("store:libraries", () => steamstore.steamLibraries())
   ipcMain.handle("store:removeFromSteam", (_e, appid) => {
-    const r = steamstore.removeFromSteam(appid)
-    if (r?.ok) {
-      // Remover da Steam também tira o jogo da CONTA no servidor — a coleção
-      // sincroniza entre máquinas, então quem remove aqui não deve ver o jogo
-      // "possuído" em outro dispositivo.
-      ownedRemove("steam:" + String(appid || ""))
-      removerStubPendente(String(appid || ""))
-      setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
+    // A remoção na Steam é CONSEQUÊNCIA, nunca pré-requisito: o jogo sai da
+    // biblioteca do Arcadia mesmo quando a limpeza na Steam falha ou estoura.
+    // Antes tudo ficava atrás de `if (r?.ok)`: um remove que devolvia erro (ou
+    // rejeitava a promise) deixava o jogo preso na biblioteca, sem nada do lado
+    // do Arcadia rodar.
+    let r = { ok: true }
+    try {
+      r = steamstore.removeFromSteam(appid) || { ok: true }
+    } catch (e) {
+      r = { ok: false, error: String(e) }
       try {
-        require("./supabase/biblioteca").agendarPush()
+        require("./debug").log("store/removeFromSteam", String(e))
       } catch {}
-      avisarBiblioteca(win)
     }
+    // Remover da Steam também tira o jogo da CONTA no servidor — a coleção
+    // sincroniza entre máquinas, então quem remove aqui não deve ver o jogo
+    // "possuído" em outro dispositivo.
+    ownedRemove("steam:" + String(appid || ""))
+    removerStubPendente(String(appid || ""))
+    setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
+    try {
+      require("./supabase/biblioteca").agendarPush()
+    } catch {}
+    avisarBiblioteca(win)
     return r
   })
   ipcMain.handle("store:removeDownloaded", (_e, appid) => {
-    const r = steamstore.removeDownloaded(appid)
-    // Sem este aviso a aba Lojas continuava mostrando "Na biblioteca" depois de
-    // remover: o card se baseia na lista de jogos, que só recarrega neste
-    // evento. Todos os outros pontos que mexem na biblioteca já o emitiam.
-    if (r?.ok) {
-      // Remover o download também tira o jogo da CONTA no servidor (a coleção
-      // sincroniza entre máquinas): sem ownedRemove+push o jogo continuava
-      // "possuído" e aparecia em outras máquinas logadas na mesma conta.
-      ownedRemove("steam:" + String(appid || ""))
-      removerStubPendente(String(appid || ""))
-      setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
+    // Mesmo raciocínio do removeFromSteam: a remoção local não depende do que a
+    // Steam respondeu. Sem este aviso a aba Lojas continuava mostrando "Na
+    // biblioteca" depois de remover: o card se baseia na lista de jogos, que só
+    // recarrega neste evento. Todos os outros pontos que mexem na biblioteca já
+    // o emitiam.
+    let r = { ok: true }
+    try {
+      r = steamstore.removeDownloaded(appid) || { ok: true }
+    } catch (e) {
+      r = { ok: false, error: String(e) }
       try {
-        require("./supabase/biblioteca").agendarPush()
+        require("./debug").log("store/removeDownloaded", String(e))
       } catch {}
-      avisarBiblioteca(win)
     }
+    // Remover o download também tira o jogo da CONTA no servidor (a coleção
+    // sincroniza entre máquinas): sem ownedRemove+push o jogo continuava
+    // "possuído" e aparecia em outras máquinas logadas na mesma conta.
+    ownedRemove("steam:" + String(appid || ""))
+    removerStubPendente(String(appid || ""))
+    setOverride(caminhoConta(OVERRIDES), "steam:" + String(appid || ""), { hidden: true })
+    try {
+      require("./supabase/biblioteca").agendarPush()
+    } catch {}
+    avisarBiblioteca(win)
     return r
   })
   // --- Conta da Steam x conta do Arcadia (B1) + captura sob demanda (B2) ------
@@ -4682,6 +4701,21 @@ app.whenReady().then(() => {
     try {
       const janela = BrowserWindow.fromWebContents(_e.sender)
       const id = "steam:" + String(appid || "")
+      // Com o SLSsteam ativo o jogo também vive INJETADO na Steam (config.yaml
+      // + stplug-in). Sem esta limpeza ele continuava em status().adicionados
+      // ("Na biblioteca" nos cards) e o remove parecia não funcionar. Só limpa
+      // quem está injetado — jogo comprado na Steam não tem o que limpar — e
+      // falha aqui não impede a remoção local.
+      let aviso = ""
+      try {
+        if (steamstore.appidsInjetados().has(String(appid || ""))) {
+          const r = steamstore.removeFromSteam(appid)
+          if (!r?.ok)
+            aviso = `Removido da biblioteca, mas não deu para tirar o registro da Steam: ${r?.error || "erro desconhecido"}.`
+        }
+      } catch (e) {
+        aviso = `Removido da biblioteca, mas não deu para tirar o registro da Steam: ${String(e)}.`
+      }
       const removed = removerStubPendente(String(appid || ""))
       if (!removed && readLibrary().some((g) => g.id === id))
         setOverride(caminhoConta(OVERRIDES), id, { hidden: true })
@@ -4691,7 +4725,7 @@ app.whenReady().then(() => {
       try {
         require("./supabase/biblioteca").agendarPush()
       } catch {}
-      return { ok: true }
+      return aviso ? { ok: true, aviso } : { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
     }
