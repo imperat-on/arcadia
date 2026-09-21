@@ -26,6 +26,22 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
   const [msg, setMsg] = useState("")
   const [busy, setBusy] = useState(false)
   const [info, setInfo] = useState<UpdateInfo | null>(null)
+  // Canal git: estado real (bloqueio local ou atraso) para a linha.
+  const [gitEstado, setGitEstado] = useState("")
+  // Versão de reserva: o fallback do estado empacotado pode vir sem versão.
+  const [versaoDiag, setVersaoDiag] = useState("")
+
+  // Canal git: bloqueio local (updateState) ou atraso real (updateCheck).
+  // Devolve o UpdateInfo junto para o diálogo do botão.
+  const lerGit = async (): Promise<{ bloqueio?: string; erro?: string; info?: UpdateInfo }> => {
+    const st = await window.launcherAPI?.updateState()
+    if (st && !st.podeAtualizar) {
+      return { bloqueio: t(`update.bloqueado.${st.motivo}`, { detalhe: st.detalhe || "" }) }
+    }
+    const r = await window.launcherAPI?.updateCheck()
+    if (!r?.ok) return { erro: r?.error || t("update.erro_generico") }
+    return { info: r }
+  }
 
   useEffect(() => {
     let vivo = true
@@ -42,7 +58,40 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
     }
   }, [])
 
-  const versao = estado?.versaoAtual || "—"
+  // O fallback ESTADO_EMPACOTADO_FONTE vem com versaoAtual vazia; sem isto a
+  // tela ficaria num travessão. diagnostics() é o outro caminho com a versão.
+  useEffect(() => {
+    if (!estado || estado.versaoAtual) return
+    let vivo = true
+    window.launcherAPI
+      ?.diagnostics?.()
+      .then((d) => {
+        if (vivo && d?.app?.version) setVersaoDiag(d.app.version)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [estado?.versaoAtual])
+
+  // Canal fonte: sem isto a linha ficava "Em dia" num clone atrasado até o
+  // usuário apertar o botão. updateState/updateCheck dão o estado de verdade.
+  useEffect(() => {
+    if (estado?.canal !== "fonte") return
+    let vivo = true
+    void (async () => {
+      const g = await lerGit()
+      if (!vivo) return
+      if (g.bloqueio) setGitEstado(g.bloqueio)
+      else if (g.info?.atrasado) setGitEstado(t("update.subtitulo", { n: g.info.atrasado }))
+    })()
+    return () => {
+      vivo = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado?.canal])
+
+  const versao = estado?.versaoAtual || versaoDiag
   const canal = estado ? t(CANAIS[estado.canal] || "about.canal.sem_suporte") : "—"
 
   const linhaEstado = (e: UpdatePackagedState): string => {
@@ -77,16 +126,19 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
       if (!r.disponivel) return setMsg(t("update.packaged.em_dia"))
       return
     }
-    const st = await window.launcherAPI?.updateState()
-    if (st && !st.podeAtualizar) {
-      setBusy(false)
-      return setMsg(t(`update.bloqueado.${st.motivo}`, { detalhe: st.detalhe || "" }))
-    }
-    const r = await window.launcherAPI?.updateCheck()
+    const g = await lerGit()
     setBusy(false)
-    if (!r?.ok) return setMsg(r?.error || t("update.erro_generico"))
-    if (!r.atrasado) return setMsg(t("update.em_dia", { sha: r.local || "" }))
-    setInfo(r)
+    if (g.erro) return setMsg(g.erro)
+    if (g.bloqueio) {
+      setGitEstado(g.bloqueio)
+      return setMsg(g.bloqueio)
+    }
+    if (!g.info?.atrasado) {
+      setGitEstado("")
+      return setMsg(t("update.em_dia", { sha: g.info?.local || "" }))
+    }
+    setGitEstado(t("update.subtitulo", { n: g.info.atrasado }))
+    setInfo(g.info)
   }
 
   return (
@@ -102,13 +154,19 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
 
       <div className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="text-2xl font-light tracking-wide text-white">
-          {t("about.versao", { versao })}
+          {versao ? t("about.versao", { versao }) : t("about.versao_indisponivel")}
         </div>
         <div className="mt-1 text-sm text-[color:var(--text-2)]">
           {t("about.canal_label")}: {canal}
         </div>
         <div className="mt-5 flex items-center justify-between gap-3">
-          <span className="text-sm text-white/80">{estado ? linhaEstado(estado) : ""}</span>
+          <span className="text-sm text-white/80">
+            {estado
+              ? estado.canal === "fonte"
+                ? gitEstado || t("about.em_dia")
+                : linhaEstado(estado)
+              : ""}
+          </span>
           <button
             onClick={procurar}
             disabled={busy}
