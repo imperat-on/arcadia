@@ -4185,6 +4185,23 @@ app.whenReady().then(() => {
     return { ...r, reiniciou: true }
   })
 
+  // Canal empacotado (electron-updater) — separado dos update:* do git.
+  ipcMain.handle("update:packaged:state", () => atualizadorEmpacotado?.estado() || ESTADO_EMPACOTADO_FONTE)
+  ipcMain.handle(
+    "update:packaged:check",
+    async (_e, { manual = false } = {}) =>
+      atualizadorEmpacotado?.checar({ manual }) || { ok: false, disponivel: false, motivo: "fonte" },
+  )
+  ipcMain.handle(
+    "update:packaged:download",
+    async () => atualizadorEmpacotado?.baixar() || { ok: false, erro: "fonte" },
+  )
+  ipcMain.handle("update:packaged:install", () => atualizadorEmpacotado?.instalar() || { ok: false, erro: "fonte" })
+  ipcMain.handle(
+    "update:packaged:jaAvisado",
+    (_e, { versao } = {}) => atualizadorEmpacotado?.marcarJaAvisado(versao) || { ok: false },
+  )
+
   // Compatibilidade com versões antigas: ainda pode abrir o modo console via reinício.
   ipcMain.handle("app:enterConsole", () => {
     try {
