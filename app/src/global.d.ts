@@ -248,6 +248,10 @@ export interface AppConfig {
   steam_path?: string // instalação local da Steam
   epic_egs_prefix?: string // prefixo onde o EGS está instalado
   check_updates_on_start?: boolean
+  /** Versão do app empacotado sobre a qual o usuário já escolheu "Depois" (D7). */
+  update_ja_avisado?: string
+  /** Versão já baixada e pendente de instalação no cache do electron-updater (D6). */
+  update_pendente_versao?: string
   auto_update_games?: boolean
   hide_changelog_on_start?: boolean
   start_in_console_mode?: boolean

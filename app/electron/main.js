@@ -253,6 +253,26 @@ let focado = true
 // janela e precisam levantá-la quando o jogo termina.
 let win
 
+// Canal empacotado (electron-updater). A instância nasce SEMPRE no boot (o
+// botão manual e o aviso portable/zip não dependem do toggle); só o ciclo
+// automático de 30s/6h é gateado por check_updates_on_start.
+const ESTADO_EMPACOTADO_FONTE = {
+  canal: "fonte",
+  suportado: false,
+  versaoAtual: "",
+  versaoNova: null,
+  tamanho: null,
+  fase: "ocioso",
+  progresso: 0,
+  erro: null,
+  erroDeFundo: false,
+  erroAcao: null,
+  jaAvisado: false,
+  jogoRodando: false,
+}
+let atualizadorEmpacotado = null
+let cicloEmpacotado = null
+
 // Qual tamanho a escala deve considerar. O layout do Big Picture e do Desktop usa
 // 1920x1080 como referência lógica — a matemática vive em ./ui-scale; aqui só se
 // decide QUAL tamanho usar. No console, a tela inteira; no desktop maximizado, a
@@ -2973,6 +2993,30 @@ app.whenReady().then(() => {
   // ligada.
   process.env.ARCADIA_MODE = resolveLauncherMode(process.env, readConfig())
   configurarLojaSteam()
+  // Updater do app empacotado: a instância existe SEMPRE (mesmo com o toggle
+  // desligado). O canal git continua intocado — este é um segundo canal.
+  try {
+    const { createPackagedUpdater } = require("./updater-packaged")
+    atualizadorEmpacotado = createPackagedUpdater({
+      app,
+      autoUpdater: app.isPackaged ? require("electron-updater").autoUpdater : null,
+      env: process.env,
+      temAppUpdateYml: fs.existsSync(path.join(process.resourcesPath, "app-update.yml")),
+      isJogoRodando: () => jogoRodando,
+      jaAvisado: (versao) => readConfig().update_ja_avisado === versao,
+      salvarJaAvisado: (versao) => writeConfig({ update_ja_avisado: versao }),
+      pendente: () => readConfig().update_pendente_versao || null,
+      salvarPendente: (versao) =>
+        versao
+          ? writeConfig({ update_pendente_versao: versao })
+          : writeConfig({}, ["update_pendente_versao"]),
+      onChange: (estado) => {
+        if (win && !win.isDestroyed()) win.webContents.send("update:packaged:changed", estado)
+      },
+    })
+  } catch (e) {
+    console.error("[updater] canal empacotado indisponível:", e)
+  }
   // Instala o launcher UMU em segundo plano. O primeiro jogo Proton também
   // aguarda esta mesma operação caso seja aberto antes de ela terminar.
   ensureUmuLauncher().catch(() => {})
@@ -4234,6 +4278,7 @@ app.whenReady().then(() => {
         "no_click_outside", "no_smooth_scroll", "no_anim",
         // Config. Gerais (GeneralSection set()/pickFolder) — idem.
         "check_updates_on_start", "start_in_console_mode", "hide_changelog_on_start",
+        "update_ja_avisado",
         "minimize_on_game_launch", "frameless_window", "disable_playtime_tracking",
         "discord_rich_presence", "discord_client_id", "download_cpu_cores",
         "default_install_path",
