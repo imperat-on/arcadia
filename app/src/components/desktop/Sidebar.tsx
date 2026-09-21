@@ -18,7 +18,14 @@ export type DesktopView =
   | "amigos"
   | "perfil"
   | "config"
-export type ConfigSub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "controle" | "emulacao"
+export type ConfigSub =
+  | "gerais"
+  | "integracoes"
+  | "metadados"
+  | "acessibilidade"
+  | "controle"
+  | "emulacao"
+  | "sobre"
 
 const ITENS: { id: DesktopView; label: string; icon: React.ReactNode; labelKey: string }[] = [
   { id: "inicio", label: "Início", labelKey: "sidebar.inicio", icon: <IconHome /> },
@@ -38,6 +45,7 @@ const CONFIG_SUBS: { id: ConfigSub; label: string; labelKey: string; groupKey?: 
   { id: "acessibilidade", label: "Acessibilidade", labelKey: "sidebar.acessibilidade" },
   { id: "controle", label: "Controle", labelKey: "controller.titulo", icon: <IconGamepad /> },
   { id: "emulacao", label: "Emulação", labelKey: "settings.emulacao", groupKey: "settings.emulacao.grupo", icon: <IconGamepad />, badgeKey: "settings.emulacao.novo" },
+  { id: "sobre", label: "Sobre", labelKey: "about.titulo" },
 ]
 
 export function Sidebar({

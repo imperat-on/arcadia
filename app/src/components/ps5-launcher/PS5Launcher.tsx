@@ -23,6 +23,7 @@ import { useJogoRodando } from "../useJogoRodando"
 import { useLibraryState } from "../useLibraryState"
 import { fmtMiB } from "../tamanho"
 import { ProfilePage } from "./ProfilePage"
+import { AboutPanel } from "./SettingsPanel"
 import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
 import type { NewsItem } from "../../global"
@@ -150,6 +151,7 @@ export function PS5Launcher() {
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
   const [cardScale, setCardScale] = useState(1.6)
   // Abas: 0 Notícias · 1 Jogos (trilho)
   const [activeTab, setActiveTab] = useState(1) // abre em Jogos (Notícias é a aba 0)
@@ -361,6 +363,7 @@ export function PS5Launcher() {
     showEditProfile ||
     menuOpen ||
     showProfile ||
+    aboutOpen ||
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
@@ -464,6 +467,7 @@ export function PS5Launcher() {
       showEditProfile ||
       menuOpen ||
       showProfile ||
+      aboutOpen ||
       gameRunning ||
       ctxGame ||
       trailerPickGame
@@ -494,6 +498,7 @@ export function PS5Launcher() {
     showEditProfile,
     menuOpen,
     showProfile,
+    aboutOpen,
     gameRunning,
     ctxGame,
     trailerPickGame,
@@ -717,6 +722,7 @@ export function PS5Launcher() {
     !showEditProfile &&
     !menuOpen &&
     !showProfile &&
+    !aboutOpen &&
     !ctxGame &&
     !editGame &&
     !trailerPickGame &&
@@ -1257,6 +1263,7 @@ export function PS5Launcher() {
       onOpenDownloads={() => setShowDownloads(true)}
       onRefresh={_refresh_library}
       onOpenProfile={() => setShowProfile(true)}
+      onOpenAbout={() => setAboutOpen(true)}
       menuOpen={menuOpen}
       onToggleMenu={() => setMenuOpen((v) => !v)}
       onCloseMenu={() => setMenuOpen(false)}
@@ -1481,6 +1488,10 @@ export function PS5Launcher() {
         onClose={() => setShowEditProfile(false)}
         onChange={setProfile}
       />
+
+      {/* Sobre (versão, canal, updater, links): o Big Picture não tem painel de
+          Configurações — a seção abre pelo menu do perfil. */}
+      <AboutPanel open={aboutOpen && !gameRunning} onClose={() => setAboutOpen(false)} />
 
       {/* Perfil (mesma tela do desktop): modal sobre o Big Picture */}
       {showProfile && (

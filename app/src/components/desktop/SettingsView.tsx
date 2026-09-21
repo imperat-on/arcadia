@@ -9,8 +9,16 @@ import { StoreSetup } from "./StoreSetup"
 import { AccessibilityView } from "./AccessibilityView"
 import { ControllerView } from "./ControllerView"
 import { EmulationSection } from "./EmulationSection"
+import { AboutSection } from "./AboutSection"
 
-type Sub = "gerais" | "integracoes" | "metadados" | "acessibilidade" | "controle" | "emulacao"
+type Sub =
+  | "gerais"
+  | "integracoes"
+  | "metadados"
+  | "acessibilidade"
+  | "controle"
+  | "emulacao"
+  | "sobre"
 
 // Configurações do modo desktop: o conteúdo das seções reais; a sub-navegação
 // (Integrações/Metadados/Emulação) fica expandida na sidebar principal.
@@ -35,6 +43,7 @@ export function SettingsView({ sub, onSaved }: { sub: Sub; onSaved: () => void }
       {sub === "acessibilidade" && <AccessibilityView />}
       {sub === "controle" && <ControllerView />}
       {sub === "emulacao" && <EmulationSection />}
+      {sub === "sobre" && <AboutSection />}
     </div>
   )
 }
