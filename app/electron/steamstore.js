@@ -526,8 +526,11 @@ async function itensDaLoja(appids) {
 
 /**
  * Prepara uma página de resultados: completa a capa retrato, tira o que não é
- * jogo e sonda os manifestos. A ordem importa — sondar antes de filtrar
- * gastaria uma requisição de manifesto por DLC.
+ * jogo e sonda os manifestos. Itens (tipo/capa) e disponibilidade (sushi +
+ * manifests) são duas idas de rede independentes e rodam em paralelo; a batch
+ * de manifestos cobre todos os appids da página de uma vez (no caminho de
+ * busca a página já vem cortada em BUSCA_MAX), então incluir DLCs nela não
+ * gera requisição extra.
  *
  * Só remove quem a Steam classificou explicitamente como outra coisa. Se a
  * consulta falhar, a lista passa inteira.

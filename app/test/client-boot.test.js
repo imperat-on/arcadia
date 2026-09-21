@@ -65,3 +65,89 @@ test("restoreSession emite SIGNED_IN na hora e valida a sessão em background", 
   subscription.data.subscription.unsubscribe()
   assert.deepEqual(eventos, ["SIGNED_IN"])
 })
+
+test("validação 401 no /user e no refresh derruba a sessão (SIGNED_OUT)", async () => {
+  sessionStore.saveSession(SAVED_SESSION)
+  global.fetch = async () => ({
+    ok: false,
+    status: 401,
+    text: async () => JSON.stringify({ error: "token_invalido" }),
+  })
+
+  const eventos = []
+  const subscription = getClient().auth.onAuthStateChange((event) => eventos.push(event))
+  await restoreSession()
+  await getClient().auth._validacaoSessao
+  subscription.data.subscription.unsubscribe()
+
+  assert.deepEqual(eventos, ["SIGNED_IN", "SIGNED_OUT"])
+  assert.equal(getClient().auth._session, null)
+  assert.equal(sessionStore.loadSession(), null)
+})
+
+test("falha de rede na validação não desloga (offline mantém sessão e session.json)", async () => {
+  sessionStore.saveSession(SAVED_SESSION)
+  global.fetch = async () => {
+    throw new Error("ENETUNREACH")
+  }
+
+  const eventos = []
+  const subscription = getClient().auth.onAuthStateChange((event) => eventos.push(event))
+  await restoreSession()
+  await getClient().auth._validacaoSessao
+  subscription.data.subscription.unsubscribe()
+
+  assert.deepEqual(eventos, ["SIGNED_IN"])
+  assert.equal(getClient().auth._session?.user?.id, "user-boot")
+  assert.equal(sessionStore.loadSession()?.user?.id, "user-boot")
+})
+
+test("corrida: validação antiga não derruba login de outra conta", async () => {
+  sessionStore.saveSession(SAVED_SESSION)
+  let responderValidacaoAntiga
+  global.fetch = (url) => {
+    const alvo = String(url)
+    if (alvo.includes("/auth/v1/token?grant_type=password")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            access_token: "novo.access.token",
+            refresh_token: "novo.refresh.token",
+            user: { id: "user-novo", user_metadata: { username: "novo_user" } },
+          }),
+      })
+    }
+    if (alvo.includes("/auth/v1/token?grant_type=refresh_token")) {
+      return Promise.resolve({
+        ok: false,
+        status: 401,
+        text: async () => JSON.stringify({ error: "refresh_invalido" }),
+      })
+    }
+    // Validação da sessão antiga: fica pendente até o teste soltar.
+    return new Promise((resolve) => {
+      responderValidacaoAntiga = () =>
+        resolve({
+          ok: false,
+          status: 401,
+          text: async () => JSON.stringify({ error: "token_antigo_invalido" }),
+        })
+    })
+  }
+
+  const eventos = []
+  const subscription = getClient().auth.onAuthStateChange((event) => eventos.push(event))
+  await restoreSession()
+  await getClient().auth.signInWithPassword({ email: "novo@arcadia.test", password: "segredo" })
+
+  // A validação antiga responde 401 depois do login novo; a guarda de token
+  // impede que ela derrube a sessão que já não é mais dela.
+  responderValidacaoAntiga()
+  await getClient().auth._validacaoSessao
+  subscription.data.subscription.unsubscribe()
+
+  assert.equal(getClient().auth._session?.user?.id, "user-novo")
+  assert.ok(!eventos.includes("SIGNED_OUT"))
+})

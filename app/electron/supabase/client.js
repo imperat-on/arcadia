@@ -16,6 +16,7 @@
 const config = require("./config")
 const sessionStore = require("./session")
 const { fetchRede } = require("../httpfetch")
+const { log } = require("../debug")
 const dns = require("node:dns").promises
 const https = require("node:https")
 const WebSocket = require("ws")
@@ -450,8 +451,11 @@ class AuthClient {
     this._resetUserCache()
     if (optimistic) {
       if (emitSignedIn) this.emitter.emit("SIGNED_IN", this._session)
-      // O catch evita unhandled rejection: a validação é best-effort.
-      this._validacaoSessao = this._validarSessaoSalva().catch(() => {})
+      // O catch evita unhandled rejection: a validação é best-effort. Falha de
+      // rede já vira {error} dentro dela; um throw aqui é bug e fica no log.
+      this._validacaoSessao = this._validarSessaoSalva().catch((e) => {
+        log("supabase/validacao-sessao", e)
+      })
       return { data: { session: this._session }, error: null }
     }
     const { error } = await this._request("GET", "/auth/v1/user", null, {
