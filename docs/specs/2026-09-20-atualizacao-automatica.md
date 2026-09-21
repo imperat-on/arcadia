@@ -106,8 +106,8 @@ boot ──30s──▶ (isPackaged?)
 | Windows sem assinatura | o updater funciona; SmartScreen/Defender avisa na instalação **e** no update silencioso — limitação aceita e documentada |
 | Instalação NSIS por-máquina (`oneClick:false`, `allowToChangeInstallationDirectory:true`) | o update exige UAC; caso a documentar/testar |
 | Jogo rodando | o prompt é **adiado** (estado `jogoRodando`); reavalia no próximo ciclo |
-| Usuário escolhe "Depois" **antes** de baixar | nada baixa; reavisa no próximo boot/ciclo |
-| Usuário escolhe "Depois" **depois** de baixar | o update fica pendente no cache; o aviso "Pronto — Reiniciar agora" reaparece no próximo boot; o arquivo em cache é reaproveitado (download parcial retoma) |
+| Usuário escolhe "Depois" **antes** de baixar | nada baixa; o aviso automático não reabre para a mesma versão (D7: memória + config `update_ja_avisado`); a checagem manual em Configurações continua mostrando |
+| Usuário escolhe "Depois" **depois** de baixar | o update fica pendente no cache (`update_pendente_versao`); o aviso "Pronto — Reiniciar agora" reaparece no próximo boot; o arquivo **completo** em cache é reaproveitado (o electron-updater 6 descarta download parcial — não há retomada byte a byte; no NSIS o differential reduz o download) |
 | Falha no download | mensagem curta, o botão volta a "Baixar" |
 | Mensagem legada `update.bloqueado.sem-git` | hoje o usuário empacotado que clica em "Procurar atualizações" vê "não é um clone do Git, reinstale" — passa a apontar para o canal empacotado |
 
