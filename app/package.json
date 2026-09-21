@@ -26,7 +26,8 @@
       "dist/**/*",
       "electron/**/*",
       "public/logo-512.png",
-      "package.json"
+      "package.json",
+      "node_modules/**/*"
     ],
     "asarUnpack": [
       "electron/scripts/**"
