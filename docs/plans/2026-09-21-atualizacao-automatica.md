@@ -1,18 +1,20 @@
-# Atualização automática (canal empacotado) — plano de implementação (v2)
+# Atualização automática (canal empacotado) — plano de implementação (v3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `subagent-driven-development` (recomendado) ou `executing-plans` para implementar task por task. Passos em checkbox (`- [ ]`).
 >
 > **v2:** achados do review adversarial (`/tmp/review-plan/REVIEW.md`, veredito AJUSTES NECESSÁRIOS) aplicados: **B1–B5** e **M1–M8**. Cada step de código traz o **código real** que será copiado; sem placeholder e sem "similar à Task N".
+>
+> **v3:** achados do re-review (`/tmp/review-plan-2/REVIEW.md`) aplicados: **N1–N4** (obrigatórios) e **N5–N11** (recomendações). O núcleo (Tasks 1–4, 6) foi aprovado; o que mudou: checklist de release completo, resíduos do spec corrigidos, snippet do `AppConfig`, `Modal` no diálogo, retry do erro (`erroAcao`), `.blockmap` no release e teste do toggle desligado.
 
 **Goal:** o app empacotado (AppImage/NSIS) avisa que existe versão nova, baixa só se o usuário aceitar, e aplica no restart — sem tocar no updater git de quem roda da fonte.
 
-**Architecture:** um módulo novo (`app/electron/updater-packaged.js`) encapsula o `electron-updater` com dependências injetáveis (para testar sem Electron). O `main.js` cria a instância **sempre** no boot (empacotado ou não) e expõe IPC `update:packaged:*`; só o ciclo automático (30s + 6h) é gateado pelo toggle. No renderer, um hook novo (`useAtualizacaoEmpacotada`) assina o push `update:packaged:changed` e monta o `UpdateDialog` existente nos dois launchers. O build passa a gerar `app-update.yml` + `latest*.yml`, e o release passa a anexá-los.
+**Architecture:** um módulo novo (`app/electron/updater-packaged.js`) encapsula o `electron-updater` com dependências injetáveis (para testar sem Electron). O `main.js` cria a instância **sempre** no boot (empacotado ou não) e expõe IPC `update:packaged:*`; só o ciclo automático (30s + 6h) é gateado pelo toggle. No renderer, um hook novo (`useAtualizacaoEmpacotada`) assina o push `update:packaged:changed` e monta o `UpdatePackagedDialog` (sobre o primitivo `src/ui/Modal.tsx`) nos dois launchers. O build passa a gerar `app-update.yml` + `latest*.yml`, e o release passa a anexá-los.
 
 **Tech Stack:** Electron 33, electron-updater 6.x, electron-builder (NSIS/AppImage), React + TypeScript (Vite), `node --test` (sem Electron na suíte).
 
-**Spec:** `docs/specs/2026-09-20-atualizacao-automatica.md` — atualizado neste mesmo commit para remover a contradição D6/D7 da linha 109 (ver Task 2, "Depois antes de baixar") e a promessa de retomada byte a byte (o electron-updater 6 descarta download parcial; o cache reaproveitado é o do arquivo **completo**).
+**Spec:** `docs/specs/2026-09-20-atualizacao-automatica.md` — ajustado neste mesmo commit (v3): caminhos reais da UI, `procurarAtualizacao` em vez de "boot", status de implementação pendente, D6 sem "retomada byte a byte" (o electron-updater 6 descarta download parcial; o cache reaproveitado é o do arquivo **completo**) e o caso do toggle desligado no reaviso de "pronto".
 
-## Rastreio dos achados do review
+## Rastreio dos achados do review (v2)
 
 | Achado | Resolvido em |
 |---|---|
@@ -29,6 +31,22 @@
 | M6 — cobertura de testes | Task 2, testes 8–16 (jogo rodando, Depois antes/depois, `update-downloaded`, progresso com assert, `quitAndInstall`, comparação de versão, já avisei) |
 | M7 — Task 3 atômica | Tasks 3A, 3B, 3C, 3D (uma preocupação cada, commit próprio) |
 | M8 — nomes reais (`jogoRodando`, `win`, boot 2910/2959) | Tasks 3A/3D (código com `() => jogoRodando`, `win`, `did-finish-load`) |
+
+## Rastreio do re-review (v3)
+
+| Achado | Resolvido em |
+|---|---|
+| N1 — release publica portable/zip que o checklist não builda | Task 5 Step 1 (passo 3 com `dist:portable` e `dist:zip`) |
+| N2 — resíduos do spec (`:71` caminhos, `:129` retomada, `:30` boot, `:3` status) | spec ajustado neste commit + Task 2 Step 6 (verificação por `grep`) |
+| N3 — Task 2 Step 6 era no-op | Task 2 Step 6 reescrito como verificação; o spec sai do `git add` da Task 2 |
+| N4 — snippet do `AppConfig` duplicava a âncora | Task 3A Step 2 (só as 2 chaves novas; âncora em prosa) |
+| N5 — "pronto" pendente com o toggle desligado | documentado (spec:110, `docs/release.md`, Task 6): o toggle desliga a checagem de boot; a manual continua |
+| N6 — diálogo novo fora do `src/ui/Modal.tsx` | Task 4B monta o diálogo com `Modal` (portal/Esc/foco/scroll/gamepad) |
+| N7 — erro de instalação sem link | `erroAcao: "instalar"` + chave `erro_instalar` + botão "Abrir página" em todo `erro` (Tasks 2/4A/4B) |
+| N8 — "Baixar" repetia `sem_versao` no erro de check | `erroAcao` + botão "Tentar de novo" (`update.packaged.tentar`) (Tasks 2/4A/4B) |
+| N9 — texto do `release/` desatualizado | Task 1 Step 1, `docs/release.md` e spec:80 |
+| N10 — checklist sem `.blockmap` | Task 5 Step 1 (passos 4–6 com os dois blockmaps) |
+| N11 — sem teste do toggle desligado | Task 6 Step 3 (passo 6) |
 
 ## Global Constraints
 
@@ -63,7 +81,7 @@
 
 - [ ] **Step 1: Limpar yml velho e adicionar `repository` + `publish` ao package.json**
 
-O `app/release/` acumula yml de builds anteriores (1.2.3 a 1.4.1). Antes de qualquer coisa:
+O `app/release/` passa a acumular `latest*.yml` a partir do primeiro build com `publish` (hoje não há nenhum — só binários de 1.2.3 a 1.4.1). Apague antes de cada release:
 
 Run: `rm -f app/release/latest*.yml`
 
@@ -137,7 +155,7 @@ git commit -m "build: publish github + electron-updater 6 em dependencies + --pu
 - Consumes: nada das outras tasks.
 - Produces (contrato único — o mesmo da Task 3 e da Task 4; **nada** fora daqui):
   - `createPackagedUpdater({ app, autoUpdater, env, temAppUpdateYml, platform, isJogoRodando, jaAvisado, salvarJaAvisado, pendente, salvarPendente, onChange })` → `{ canal(), suportado(), estado(), checar(), baixar(), instalar(), marcarJaAvisado() }`
-  - `estado()` → `{ canal: "fonte"|"appimage"|"nsis"|"portable"|"zip"|"sem_suporte", suportado: boolean, versaoAtual: string, versaoNova: string|null, tamanho: number|null, fase: "ocioso"|"disponivel"|"baixando"|"pronto"|"erro"|"sem_suporte", progresso: number, erro: string|null, erroDeFundo: boolean, jaAvisado: boolean, jogoRodando: boolean }`
+  - `estado()` → `{ canal: "fonte"|"appimage"|"nsis"|"portable"|"zip"|"sem_suporte", suportado: boolean, versaoAtual: string, versaoNova: string|null, tamanho: number|null, fase: "ocioso"|"disponivel"|"baixando"|"pronto"|"erro"|"sem_suporte", progresso: number, erro: string|null, erroDeFundo: boolean, erroAcao: "checar"|"baixar"|"instalar"|null, jaAvisado: boolean, jogoRodando: boolean }`
   - `checar({ manual = false } = {})` → `Promise<{ ok: boolean, disponivel: boolean, versao?: string|null, tamanho?: number|null, motivo?: "canal_nao_suportado"|"jogo_rodando"|"erro", erro?: string }>` (NUNCA baixa sozinho)
   - `baixar()` → `Promise<{ ok: boolean, erro?: string }>` (só é chamado depois do "Baixar" do usuário)
   - `instalar()` → `{ ok: boolean, erro?: string }` (chama `quitAndInstall`)
@@ -146,7 +164,7 @@ git commit -m "build: publish github + electron-updater 6 em dependencies + --pu
 
 - [ ] **Step 1: Escrever o teste que falha**
 
-Crie `app/test/updater-packaged.test.js` exatamente com este conteúdo (17 casos cobrindo B4, D4, D6, D7, M3, M6, M8):
+Crie `app/test/updater-packaged.test.js` exatamente com este conteúdo (19 casos cobrindo B4, D4, D6, D7, M3, M6, M8, N7, N8):
 
 ```js
 import test from "node:test"
@@ -270,7 +288,7 @@ test("update-downloaded deixa pronto e persiste o pendente (D6)", () => {
   assert.deepEqual(salvos, ["9.9.9"])
 })
 
-test("erro de fundo nao abre dialogo; erro manual abre (M3)", async () => {
+test("erro de fundo nao abre dialogo; erro manual abre (M3/N8)", async () => {
   const up = fakeUpdater()
   up.checkForUpdates = async () => { throw new Error("sem rede") }
   const u = createPackagedUpdater(base({ autoUpdater: up }))
@@ -279,11 +297,14 @@ test("erro de fundo nao abre dialogo; erro manual abre (M3)", async () => {
   assert.equal(u.estado().fase, "erro")
   assert.match(String(u.estado().erro), /sem rede/)
   assert.equal(u.estado().erroDeFundo, true)
+  assert.equal(u.estado().erroAcao, null, "erro automatico nao tem retry de acao")
   const r2 = await u.checar({ manual: true })
   assert.equal(r2.ok, false)
   assert.equal(u.estado().erroDeFundo, false)
+  assert.equal(u.estado().erroAcao, "checar", "retry de check manual e' outro check")
   up.emitir("error", new Error("boom"))
   assert.equal(u.estado().erroDeFundo, true, "evento error fora de acao e' de fundo")
+  assert.equal(u.estado().erroAcao, null)
 })
 
 test("jogo rodando adia a checagem automatica; manual ignora (M6/M8)", async () => {
@@ -368,6 +389,31 @@ test("instalar so depois do pronto e chama quitAndInstall (M6)", async () => {
   assert.equal(u.estado().fase, "pronto")
   assert.deepEqual(u.instalar(), { ok: true })
   assert.equal(up.instalou, true)
+})
+
+test("falha no download vira erro de acao com retry Baixar (N8)", async () => {
+  const up = fakeUpdater()
+  const u = createPackagedUpdater(base({ autoUpdater: up }))
+  await u.checar()
+  up.downloadUpdate = async () => { throw new Error("caiu a rede") }
+  const r = await u.baixar()
+  assert.equal(r.ok, false)
+  assert.equal(u.estado().fase, "erro")
+  assert.equal(u.estado().erroAcao, "baixar")
+  assert.equal(u.estado().erroDeFundo, false)
+})
+
+test("falha no quitAndInstall vira erro de acao com link (N7)", async () => {
+  const up = fakeUpdater()
+  const u = createPackagedUpdater(base({ autoUpdater: up }))
+  await u.checar()
+  await u.baixar()
+  up.quitAndInstall = () => { throw new Error("sem permissao de escrita") }
+  const r = u.instalar()
+  assert.equal(r.ok, false)
+  assert.equal(u.estado().fase, "erro")
+  assert.equal(u.estado().erroAcao, "instalar")
+  assert.equal(u.estado().erroDeFundo, false)
 })
 
 test("canal nao suportado nao checa e nao quebra", async () => {
@@ -458,7 +504,7 @@ function detectarCanal({ app, env, temAppUpdateYml, platform }) {
  *   }) -> { canal(), suportado(), estado(), checar(), baixar(), instalar(), marcarJaAvisado() }
  *
  * estado(): { canal, suportado, versaoAtual, versaoNova, tamanho, fase,
- *             progresso, erro, erroDeFundo, jaAvisado, jogoRodando }
+ *             progresso, erro, erroDeFundo, erroAcao, jaAvisado, jogoRodando }
  * fases: ocioso | disponivel | baixando | pronto | erro | sem_suporte
  * checar({ manual }) -> { ok, disponivel, versao?, tamanho?, motivo?, erro? }
  * baixar() -> { ok, erro? }   instalar() -> { ok, erro? }
@@ -493,13 +539,16 @@ function createPackagedUpdater({
     progresso: 0,
     erro: null,
     erroDeFundo: false,
+    erroAcao: null,
     jaAvisado: false,
     jogoRodando: false,
   }
 
   // Separa erro de fundo (checagem automática → silêncio) de erro de ação do
-  // usuário (checagem manual/baixar → diálogo).
-  let emAcao = false
+  // usuário (checagem manual/baixar → diálogo). `erroAcao` diz ao diálogo qual
+  // retry oferecer (N8): "checar" → Tentar de novo; "baixar" → Baixar;
+  // "instalar" → Tentar de novo (o check revalida o cache e devolve "pronto").
+  let acaoUsuario = null
 
   const snapshot = () => ({ ...estadoAtual, jogoRodando: Boolean(isJogoRodando()) })
   const publicar = () => {
@@ -526,6 +575,7 @@ function createPackagedUpdater({
         progresso: 0,
         erro: null,
         erroDeFundo: false,
+        erroAcao: null,
         jaAvisado: Boolean(jaAvisado(versao)),
       })
     })
@@ -535,6 +585,7 @@ function createPackagedUpdater({
         fase: "baixando",
         progresso: Math.max(0, Math.min(100, Math.round(Number(p?.percent) || 0))),
         erro: null,
+        erroAcao: null,
       })
     })
 
@@ -551,6 +602,7 @@ function createPackagedUpdater({
         progresso: 100,
         erro: null,
         erroDeFundo: false,
+        erroAcao: null,
       })
     })
 
@@ -565,6 +617,7 @@ function createPackagedUpdater({
         progresso: 0,
         erro: null,
         erroDeFundo: false,
+        erroAcao: null,
         jaAvisado: false,
       })
     })
@@ -572,7 +625,7 @@ function createPackagedUpdater({
     // Sem este listener o EventEmitter lança e pode derrubar o processo. O
     // handler NUNCA re-lança: só registra o estado (erro de fundo não abre UI).
     autoUpdater.on("error", (e) => {
-      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: !emAcao })
+      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: !acaoUsuario, erroAcao: acaoUsuario })
     })
   }
 
@@ -587,7 +640,7 @@ function createPackagedUpdater({
       return { ok: true, disponivel: false, motivo: "jogo_rodando" }
     }
 
-    emAcao = manual
+    acaoUsuario = manual ? "checar" : null
     try {
       const r = await autoUpdater.checkForUpdates()
       const info = r?.updateInfo || null
@@ -602,6 +655,7 @@ function createPackagedUpdater({
           progresso: 0,
           erro: null,
           erroDeFundo: false,
+          erroAcao: null,
           jaAvisado: false,
         })
         return { ok: true, disponivel: false, versao: null }
@@ -611,7 +665,7 @@ function createPackagedUpdater({
       // por sha512 e reemite `update-downloaded` sem baixar de novo; se o cache
       // sumiu, baixa a MESMA versão que o usuário já aceitou.
       if (pendente() === versao) {
-        mudar({ fase: "baixando", progresso: 0, erro: null, erroDeFundo: false })
+        mudar({ fase: "baixando", progresso: 0, erro: null, erroDeFundo: false, erroAcao: null })
         await autoUpdater.downloadUpdate()
         if (estadoAtual.fase !== "pronto") mudar({ fase: "pronto", progresso: 100 })
         return { ok: true, disponivel: true, versao, tamanho: tamanhoDe(info) }
@@ -619,38 +673,52 @@ function createPackagedUpdater({
 
       if (manual) {
         // Checagem manual mostra mesmo com "já avisei" — foi o usuário quem pediu.
-        mudar({ fase: "disponivel", versaoNova: versao, tamanho: tamanhoDe(info), jaAvisado: false })
+        mudar({
+          fase: "disponivel",
+          versaoNova: versao,
+          tamanho: tamanhoDe(info),
+          erro: null,
+          erroAcao: null,
+          jaAvisado: false,
+        })
       } else if (estadoAtual.fase !== "disponivel" || estadoAtual.versaoNova !== versao) {
         mudar({
           fase: "disponivel",
           versaoNova: versao,
           tamanho: tamanhoDe(info),
+          erro: null,
+          erroAcao: null,
           jaAvisado: Boolean(jaAvisado(versao)),
         })
       }
       return { ok: true, disponivel: true, versao, tamanho: tamanhoDe(info) }
     } catch (e) {
-      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: !manual })
+      mudar({
+        fase: "erro",
+        erro: mensagem(e),
+        erroDeFundo: !manual,
+        erroAcao: manual ? "checar" : null,
+      })
       return { ok: false, disponivel: false, erro: mensagem(e), motivo: "erro" }
     } finally {
-      emAcao = false
+      acaoUsuario = null
     }
   }
 
   async function baixar() {
     if (!suportado) return { ok: false, erro: "canal_nao_suportado" }
     if (!estadoAtual.versaoNova) return { ok: false, erro: "sem_versao" }
-    emAcao = true
-    mudar({ fase: "baixando", progresso: 0, erro: null, erroDeFundo: false })
+    acaoUsuario = "baixar"
+    mudar({ fase: "baixando", progresso: 0, erro: null, erroDeFundo: false, erroAcao: null })
     try {
       await autoUpdater.downloadUpdate()
       if (estadoAtual.fase !== "pronto") mudar({ fase: "pronto", progresso: 100 })
       return { ok: true }
     } catch (e) {
-      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: false })
+      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: false, erroAcao: "baixar" })
       return { ok: false, erro: mensagem(e) }
     } finally {
-      emAcao = false
+      acaoUsuario = null
     }
   }
 
@@ -661,7 +729,7 @@ function createPackagedUpdater({
       autoUpdater.quitAndInstall()
       return { ok: true }
     } catch (e) {
-      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: false })
+      mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: false, erroAcao: "instalar" })
       return { ok: false, erro: mensagem(e) }
     }
   }
@@ -694,7 +762,7 @@ module.exports = { createPackagedUpdater, compararVersao, tamanhoDe, detectarCan
 
 Run: `cd app && node --test test/updater-packaged.test.js`
 
-Expected: PASS (17 testes).
+Expected: PASS (19 testes).
 
 - [ ] **Step 5: Suíte e tipos**
 
@@ -702,26 +770,18 @@ Run: `cd app && npx tsc --noEmit && npm test 2>&1 | tail -5`
 
 Expected: tsc limpo; suíte com a única falha pré-existente (`steam-path`).
 
-- [ ] **Step 6: Ajustar o spec (D6/D7 sem contradição)**
+- [ ] **Step 6: Conferir os resíduos do spec (já corrigidos no commit do plano v3)**
 
-Em `docs/specs/2026-09-20-atualizacao-automatica.md`, troque as duas linhas dos casos-limite:
+O spec foi ajustado no commit do plano v3 — **não há nada para trocar aqui** (o step antigo procurava linhas que já estavam no estado final). Confira que os pontos continuam corrigidos:
 
-De:
-```
-| Usuário escolhe "Depois" **antes** de baixar | nada baixa; reavisa no próximo boot/ciclo |
-| Usuário escolhe "Depois" **depois** de baixar | o update fica pendente no cache; o aviso "Pronto — Reiniciar agora" reaparece no próximo boot; o arquivo em cache é reaproveitado (download parcial retoma) |
-```
+Run: `grep -nE "components/(UpdateDialog|desktop/GeneralSection)|procurarAtualizacao|retomada byte a byte|implementação pendente" docs/specs/2026-09-20-atualizacao-automatica.md`
 
-Para:
-```
-| Usuário escolhe "Depois" **antes** de baixar | nada baixa; o aviso automático não reabre para a mesma versão (D7: memória + config `update_ja_avisado`); a checagem manual em Configurações continua mostrando |
-| Usuário escolhe "Depois" **depois** de baixar | o update fica pendente no cache (`update_pendente_versao`); o aviso "Pronto — Reiniciar agora" reaparece no próximo boot; o arquivo **completo** em cache é reaproveitado (o electron-updater 6 descarta download parcial — não há retomada byte a byte; no NSIS o differential reduz o download) |
-```
+Expected: os caminhos reais (`components/UpdateDialog.tsx`, `components/desktop/GeneralSection.tsx`) na linha ~71, `procurarAtualizacao` na ~30, "retomada byte a byte" na ~110/129 e o status de implementação pendente na ~3. Nenhum caminho com `ps5-launcher/UpdateDialog` ou `desktop/settings/GeneralSection`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add app/electron/updater-packaged.js app/test/updater-packaged.test.js docs/specs/2026-09-20-atualizacao-automatica.md
+git add app/electron/updater-packaged.js app/test/updater-packaged.test.js
 git commit -m "feat(updater): modulo do canal empacotado (electron-updater, pergunta antes de baixar)"
 ```
 
@@ -755,6 +815,7 @@ const ESTADO_EMPACOTADO_FONTE = {
   progresso: 0,
   erro: null,
   erroDeFundo: false,
+  erroAcao: null,
   jaAvisado: false,
   jogoRodando: false,
 }
@@ -764,10 +825,9 @@ let cicloEmpacotado = null
 
 - [ ] **Step 2: Tipar as chaves de config novas (`AppConfig`)**
 
-Em `app/src/global.d.ts`, no bloco de Config. Gerais (linha ~250, junto de `check_updates_on_start`), adicione:
+Em `app/src/global.d.ts`, no bloco de Config. Gerais, **logo abaixo** de `check_updates_on_start?: boolean` (linha 250 — a âncora já existe, não repita), adicione **somente** as duas chaves novas:
 
 ```ts
-  check_updates_on_start?: boolean
   /** Versão do app empacotado sobre a qual o usuário já escolheu "Depois" (D7). */
   update_ja_avisado?: string
   /** Versão já baixada e pendente de instalação no cache do electron-updater (D6). */
@@ -921,6 +981,8 @@ Em `app/src/global.d.ts`, logo depois de `export type UpdateEtapa = ...` (linha 
 ```ts
 export type UpdatePackagedCanal = "fonte" | "appimage" | "nsis" | "portable" | "zip" | "sem_suporte"
 export type UpdatePackagedFase = "ocioso" | "disponivel" | "baixando" | "pronto" | "erro" | "sem_suporte"
+/** Qual ação do usuário gerou o erro; define o retry do diálogo (N7/N8). */
+export type UpdatePackagedErroAcao = "checar" | "baixar" | "instalar"
 
 /** Snapshot do updater do app empacotado (electron-updater). */
 export interface UpdatePackagedState {
@@ -936,6 +998,8 @@ export interface UpdatePackagedState {
   erro: string | null
   /** true = erro da checagem automática; o diálogo não deve abrir (M3). */
   erroDeFundo: boolean
+  /** Ação que falhou; null quando o erro foi de fundo (N7/N8). */
+  erroAcao: UpdatePackagedErroAcao | null
   jaAvisado: boolean
   jogoRodando: boolean
 }
@@ -1016,6 +1080,9 @@ Em `main.js`, logo depois da função `procurarAtualizacao` (linha ~2518), adici
 // Canal empacotado: 30s depois da janela carregar e a cada 6h. Jogo rodando
 // adia (reavalia no próximo ciclo) e o toggle check_updates_on_start desliga o
 // ciclo automático — a instância e a checagem manual continuam funcionando.
+// Com o toggle desligado não há checagem de boot, então o reaviso de "pronto"
+// de um download pendente (D6) também não roda: o caminho é a checagem manual
+// em Configurações (decisão registrada no spec, caso-limite do D6).
 const INTERVALO_EMPACOTADO_MS = 6 * 60 * 60 * 1000
 function agendarCicloEmpacotado() {
   if (cicloEmpacotado) {
@@ -1076,7 +1143,7 @@ git commit -m "feat(updater): ciclo 30s/6h gateado pelo toggle + push de boot (p
 
 **Interfaces:**
 - Consumes: nada.
-- Produces: 12 chaves `update.packaged.*` idênticas nos 3 dicionários (o teste `i18n-sem-duplicatas.test.js:35` exige conjuntos iguais).
+- Produces: 14 chaves `update.packaged.*` idênticas nos 3 dicionários (o teste `i18n-sem-duplicatas.test.js:35` exige conjuntos iguais).
 
 - [ ] **Step 1: Adicionar as chaves**
 
@@ -1097,6 +1164,8 @@ Nos 3 arquivos, logo depois de `"update.etapa.pull"` (linha 1206 nos três), adi
   "update.packaged.sem_suporte": "Esta versão não se atualiza sozinha. Baixe a nova pela página de releases.",
   "update.packaged.abrir_release": "Abrir página",
   "update.packaged.em_dia": "Você já está na versão mais recente.",
+  "update.packaged.tentar": "Tentar de novo",
+  "update.packaged.erro_instalar": "Não foi possível instalar. Reinicie o app e tente de novo, ou baixe a versão nova.",
 ```
 
 `en-US.json`:
@@ -1114,6 +1183,8 @@ Nos 3 arquivos, logo depois de `"update.etapa.pull"` (linha 1206 nos três), adi
   "update.packaged.sem_suporte": "This build can't update itself. Download the new version from the releases page.",
   "update.packaged.abrir_release": "Open page",
   "update.packaged.em_dia": "You're on the latest version.",
+  "update.packaged.tentar": "Try again",
+  "update.packaged.erro_instalar": "Could not install. Restart the app and try again, or download the new version.",
 ```
 
 `es-ES.json`:
@@ -1131,6 +1202,8 @@ Nos 3 arquivos, logo depois de `"update.etapa.pull"` (linha 1206 nos três), adi
   "update.packaged.sem_suporte": "Esta versión no se actualiza sola. Descarga la nueva desde la página de releases.",
   "update.packaged.abrir_release": "Abrir página",
   "update.packaged.em_dia": "Ya estás en la última versión.",
+  "update.packaged.tentar": "Intentar de nuevo",
+  "update.packaged.erro_instalar": "No se pudo instalar. Reinicia la app e inténtalo de nuevo, o descarga la nueva versión.",
 ```
 
 - [ ] **Step 2: Verificar**
@@ -1154,12 +1227,12 @@ git commit -m "feat(updater): i18n do canal empacotado (disponivel/baixando/pron
 - Modify: `app/src/components/UpdateDialog.tsx`
 
 **Interfaces:**
-- Consumes: `window.launcherAPI.updatePackaged*`/`onUpdatePackagedChanged` (Task 3C) e as chaves da Task 4A.
+- Consumes: `window.launcherAPI.updatePackaged*`/`onUpdatePackagedChanged` (Task 3C), as chaves da Task 4A e o primitivo `app/src/ui/Modal.tsx`.
 - Produces:
-  - `UpdatePackagedDialog({ estado, console?, onBaixar, onInstalar, onDepois })`
-  - `useAtualizacaoEmpacotada()` → `{ estado, dispensar, baixar, instalar }` — abre por `disponivel` (se `!jaAvisado`), `pronto`, `sem_suporte` e erro de ação; **silencia** `ocioso`, `baixando` e erro de fundo.
+  - `UpdatePackagedDialog({ estado, console?, onBaixar, onInstalar, onTentar, onDepois })` — montado sobre `Modal` (portal, Esc, foco preso, scroll lock e gamepad por conta do primitivo).
+  - `useAtualizacaoEmpacotada()` → `{ estado, dispensar, baixar, instalar, tentar }` — abre por `disponivel` (se `!jaAvisado`), `pronto`, `sem_suporte` e erro de ação; **silencia** `ocioso`, `baixando` e erro de fundo.
 
-- [ ] **Step 1: Importar o tipo e o formatador de bytes**
+- [ ] **Step 1: Importar o tipo, o formatador de bytes e o `Modal`**
 
 Em `app/src/components/UpdateDialog.tsx`, troque as linhas 4-6:
 
@@ -1168,6 +1241,7 @@ import type { UpdateEtapa, UpdateInfo, UpdatePackagedState } from "../global"
 import { useI18n } from "../i18n/I18nContext"
 import { useGamepadNav } from "./ps5-launcher/useGamepadNav"
 import { fmtBytes } from "./tamanho"
+import { Modal } from "../ui/Modal"
 ```
 
 - [ ] **Step 2: Adicionar o diálogo e o hook no fim do arquivo**
@@ -1176,6 +1250,18 @@ No fim de `UpdateDialog.tsx` (depois de `useAtualizacao`), adicione:
 
 ```tsx
 const RELEASES_URL = "https://github.com/imperat-on/arcadia/releases"
+const BOTAO_PRIMARIO =
+  "rounded-lg px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
+const BOTAO_SECUNDARIO =
+  "rounded-lg border border-white/15 px-5 py-2.5 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+
+function BotaoPrimario({ onClick, children }: { onClick: () => void; children: string }) {
+  return (
+    <button onClick={onClick} className={BOTAO_PRIMARIO} style={{ background: "var(--accent)" }}>
+      {children}
+    </button>
+  )
+}
 
 interface UpdatePackagedDialogProps {
   estado: UpdatePackagedState
@@ -1183,102 +1269,108 @@ interface UpdatePackagedDialogProps {
   console?: boolean
   onBaixar: () => void
   onInstalar: () => void
+  onTentar: () => void
   onDepois: () => void
 }
 
-// Diálogo do canal empacotado. Mesmo visual do UpdateDialog do git, mas com as
-// fases do electron-updater (disponivel/baixando/pronto/erro/sem_suporte).
+// Diálogo do canal empacotado, montado sobre o primitivo `src/ui/Modal.tsx`
+// (portal, Esc, foco preso, scroll lock e gamepad saem de graça — N6). As fases
+// são as do electron-updater: disponivel/baixando/pronto/erro/sem_suporte.
 export function UpdatePackagedDialog({
   estado,
   console: modoConsole = false,
   onBaixar,
   onInstalar,
+  onTentar,
   onDepois,
 }: UpdatePackagedDialogProps) {
   const { t } = useI18n()
-  const ref = useRef<HTMLDivElement>(null)
   const baixando = estado.fase === "baixando"
-  useGamepadNav(ref, modoConsole && !baixando, onDepois)
+  const erro = estado.fase === "erro"
+  const semSuporte = estado.fase === "sem_suporte"
+  // N8: erro sem versão para baixar (ex.: checagem manual que falhou) não pode
+  // oferecer "Baixar" — `baixar()` devolveria `sem_versao` e repetiria o erro.
+  // N7: erro de instalação re-tenta o check (o cache pendente volta a "pronto"
+  // e o usuário escolhe Reiniciar de novo), com o link sempre à mão.
+  const retry =
+    erro && estado.erroAcao === "baixar"
+      ? "baixar"
+      : erro
+        ? "tentar"
+        : semSuporte
+          ? "release"
+          : estado.fase === "pronto"
+            ? "instalar"
+            : "baixar"
 
   const versao = estado.versaoNova || estado.versaoAtual
   const subtitulo =
-    estado.fase === "sem_suporte"
+    semSuporte
       ? t("update.packaged.sem_suporte")
       : estado.fase === "disponivel"
         ? estado.tamanho
           ? t("update.packaged.disponivel_tamanho", { versao, tamanho: fmtBytes(estado.tamanho) })
           : t("update.packaged.disponivel", { versao })
-        : estado.fase === "baixando"
+        : baixando
           ? t("update.packaged.baixando", { pct: estado.progresso })
           : estado.fase === "pronto"
             ? t("update.packaged.pronto")
-            : t("update.packaged.erro")
+            : estado.erroAcao === "instalar"
+              ? t("update.packaged.erro_instalar")
+              : t("update.packaged.erro")
+
+  const primario =
+    retry === "release" ? (
+      <BotaoPrimario onClick={() => window.launcherAPI?.openExternal(RELEASES_URL)}>
+        {t("update.packaged.abrir_release")}
+      </BotaoPrimario>
+    ) : retry === "instalar" ? (
+      <BotaoPrimario onClick={onInstalar}>{t("update.packaged.reiniciar")}</BotaoPrimario>
+    ) : retry === "tentar" ? (
+      <BotaoPrimario onClick={onTentar}>{t("update.packaged.tentar")}</BotaoPrimario>
+    ) : (
+      <BotaoPrimario onClick={onBaixar}>{t("update.packaged.baixar")}</BotaoPrimario>
+    )
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center backdrop-blur-sm"
-      style={{ background: modoConsole ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.6)" }}
-    >
-      <div
-        ref={ref}
-        className="gp-scope w-[460px] max-w-[92vw] rounded-2xl border border-white/[0.08] p-6 shadow-2xl"
-        style={{ background: modoConsole ? "rgba(10,12,20,0.98)" : "var(--surface-1)" }}
-        role="dialog"
-        aria-label={t("update.packaged.titulo")}
-      >
-        <h3 className="mb-1 text-lg font-semibold text-white">{t("update.packaged.titulo")}</h3>
-        <p className="mb-4 text-[13px] text-white/60">{subtitulo}</p>
-
-        {baixando && (
-          <div className="mb-4 h-2 overflow-hidden rounded-full bg-white/[0.08]">
-            <div
-              className="h-full rounded-full transition-[width] duration-300"
-              style={{ width: `${estado.progresso}%`, background: "var(--accent)" }}
-            />
-          </div>
-        )}
-
-        {estado.fase === "erro" && estado.erro && (
-          <p className="mb-3 text-[12px] text-white/40">{estado.erro}</p>
-        )}
-
-        {!baixando && (
+    <Modal
+      open
+      onClose={baixando ? () => {} : onDepois}
+      title={t("update.packaged.titulo")}
+      description={subtitulo}
+      size="sm"
+      gamepad={modoConsole}
+      closeOnBackdrop={!baixando}
+      showClose={!baixando}
+      footer={
+        baixando ? null : (
           <div className="flex justify-end gap-2.5">
-            <button
-              onClick={onDepois}
-              className="rounded-lg border border-white/15 px-5 py-2.5 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-            >
+            <button onClick={onDepois} className={BOTAO_SECUNDARIO}>
               {t("update.packaged.depois")}
             </button>
-            {estado.fase === "sem_suporte" ? (
+            {erro && (
               <button
                 onClick={() => window.launcherAPI?.openExternal(RELEASES_URL)}
-                className="rounded-lg px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
-                style={{ background: "var(--accent)" }}
+                className={BOTAO_SECUNDARIO}
               >
                 {t("update.packaged.abrir_release")}
               </button>
-            ) : estado.fase === "pronto" ? (
-              <button
-                onClick={onInstalar}
-                className="rounded-lg px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
-                style={{ background: "var(--accent)" }}
-              >
-                {t("update.packaged.reiniciar")}
-              </button>
-            ) : (
-              <button
-                onClick={onBaixar}
-                className="rounded-lg px-5 py-2.5 text-[12px] font-bold text-black transition-transform hover:scale-[1.03]"
-                style={{ background: "var(--accent)" }}
-              >
-                {t("update.packaged.baixar")}
-              </button>
             )}
+            {primario}
           </div>
-        )}
-      </div>
-    </div>
+        )
+      }
+    >
+      {baixando && (
+        <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+          <div
+            className="h-full rounded-full transition-[width] duration-300"
+            style={{ width: `${estado.progresso}%`, background: "var(--accent)" }}
+          />
+        </div>
+      )}
+      {erro && estado.erro && <p className="text-[12px] text-white/40">{estado.erro}</p>}
+    </Modal>
   )
 }
 
@@ -1340,11 +1432,15 @@ export function useAtualizacaoEmpacotada() {
   }
 
   const baixar = async () => {
-    setEstado((atual) => (atual ? { ...atual, fase: "baixando", progresso: 0, erro: null } : atual))
+    setEstado((atual) =>
+      atual ? { ...atual, fase: "baixando", progresso: 0, erro: null, erroAcao: null } : atual,
+    )
     const r = await window.launcherAPI?.updatePackagedDownload?.()
     if (!r?.ok) {
       setEstado((atual) =>
-        atual ? { ...atual, fase: "erro", erro: r?.erro || "erro", erroDeFundo: false } : atual,
+        atual
+          ? { ...atual, fase: "erro", erro: r?.erro || "erro", erroDeFundo: false, erroAcao: "baixar" }
+          : atual,
       )
     }
   }
@@ -1353,12 +1449,28 @@ export function useAtualizacaoEmpacotada() {
     const r = await window.launcherAPI?.updatePackagedInstall?.()
     if (!r?.ok) {
       setEstado((atual) =>
-        atual ? { ...atual, fase: "erro", erro: r?.erro || "erro", erroDeFundo: false } : atual,
+        atual
+          ? { ...atual, fase: "erro", erro: r?.erro || "erro", erroDeFundo: false, erroAcao: "instalar" }
+          : atual,
       )
     }
   }
 
-  return { estado, dispensar, baixar, instalar }
+  // "Tentar de novo" (N8): refaz a checagem manual. Se houver update, o push
+  // `disponivel` reabre o diálogo; se houver pendente, a revalidação do cache
+  // devolve "pronto" — o mesmo caminho vale para erro de instalação (N7).
+  const tentar = async () => {
+    const r = await window.launcherAPI?.updatePackagedCheck?.({ manual: true })
+    if (!r?.ok) {
+      setEstado((atual) =>
+        atual
+          ? { ...atual, fase: "erro", erro: r?.erro || "erro", erroDeFundo: false, erroAcao: "checar" }
+          : atual,
+      )
+    }
+  }
+
+  return { estado, dispensar, baixar, instalar, tentar }
 }
 ```
 
@@ -1410,6 +1522,7 @@ Linha 503, logo depois do bloco `{atualizacao.info && (<UpdateDialog ... />)}`, 
           estado={atualizacaoEmpacotada.estado}
           onBaixar={atualizacaoEmpacotada.baixar}
           onInstalar={atualizacaoEmpacotada.instalar}
+          onTentar={atualizacaoEmpacotada.tentar}
           onDepois={atualizacaoEmpacotada.dispensar}
         />
       )}
@@ -1439,6 +1552,7 @@ Linha 1772, logo depois do bloco `{atualizacao.info && (<UpdateDialog ... consol
           console
           onBaixar={atualizacaoEmpacotada.baixar}
           onInstalar={atualizacaoEmpacotada.instalar}
+          onTentar={atualizacaoEmpacotada.tentar}
           onDepois={atualizacaoEmpacotada.dispensar}
         />
       )}
@@ -1550,25 +1664,29 @@ siga a ordem.
 
 1. **Versão** — confira `"version"` em `app/package.json` (ex.: `1.4.2`).
 2. **Limpe os yml antigos** — `rm -f app/release/latest*.yml`. O `release/`
-   acumula builds anteriores (1.2.3 a 1.4.1) e reaproveitar um yml velho faz o
-   updater oferecer uma versão que não é a publicada.
-3. **Builds da MESMA versão**:
+   passa a acumular yml a partir do primeiro build com `publish`; reaproveitar
+   um yml velho faz o updater oferecer uma versão que não é a publicada.
+3. **Builds da MESMA versão** (os 4 assets que o passo 5 publica saem daqui):
 
    ```bash
    cd app
    npm run dist:appimage   # gera release/latest-linux.yml
    npm run dist:nsis       # gera release/latest.yml
+   npm run dist:portable   # gera Arcadia-<versao>-x64.exe
+   npm run dist:zip        # gera Arcadia-<versao>-x64.zip
    ```
 
-4. **Confira os yml gerados**:
+4. **Confira os yml e os blockmaps gerados**:
 
    ```bash
    grep -H '^version:' release/latest.yml release/latest-linux.yml
+   ls release/*.blockmap
    ```
 
-   As duas linhas têm que mostrar a versão do passo 1.
-5. **Publique os 4 assets + os 2 yml** (não-draft e não-prerelease: o
-   electron-updater ignora draft/prerelease):
+   As duas linhas têm que mostrar a versão do passo 1. Os `.blockmap` são o que
+   habilita o download diferencial — sem eles o updater baixa o arquivo inteiro.
+5. **Publique os 4 assets + os 2 yml + os 2 blockmaps** (não-draft e
+   não-prerelease: o electron-updater ignora draft/prerelease):
 
    ```bash
    gh release create v1.4.2 --title "Arcadia 1.4.2" \
@@ -1576,7 +1694,9 @@ siga a ordem.
      release/Arcadia-1.4.2-x64.exe \
      release/Arcadia-1.4.2-x64.zip \
      release/Arcadia-1.4.2-x86_64.AppImage \
-     release/latest.yml release/latest-linux.yml
+     release/latest.yml release/latest-linux.yml \
+     release/Arcadia-Setup-1.4.2-x64.exe.blockmap \
+     release/Arcadia-1.4.2-x86_64.AppImage.blockmap
    ```
 
 6. **Valide o release publicado**:
@@ -1586,12 +1706,13 @@ siga a ordem.
    ```
 
    Esperado: `Arcadia-1.4.2-x64.exe`, `Arcadia-1.4.2-x64.zip`,
-   `Arcadia-1.4.2-x86_64.AppImage`, `Arcadia-Setup-1.4.2-x64.exe`,
+   `Arcadia-1.4.2-x86_64.AppImage`, `Arcadia-1.4.2-x86_64.AppImage.blockmap`,
+   `Arcadia-Setup-1.4.2-x64.exe`, `Arcadia-Setup-1.4.2-x64.exe.blockmap`,
    `latest-linux.yml`, `latest.yml`.
 
-   > O `v1.4.1` foi publicado **antes** deste recurso e não tem yml nenhum —
-   > validar por ele não serve. A validação é sempre do release que acabou de
-   > ser publicado.
+   > O `v1.4.1` foi publicado **antes** deste recurso e não tem yml nem
+   > blockmap — validar por ele não serve. A validação é sempre do release que
+   > acabou de ser publicado.
 
 ## Limitações aceitas (documentadas)
 
@@ -1605,9 +1726,12 @@ siga a ordem.
   atualiza sozinha" com link para a página de releases.
 - **AppImage em pasta sem escrita** (`/opt`, montagem read-only): o
   `quitAndInstall` falha e o app mostra o aviso com link.
+- **Toggle `check_updates_on_start` desligado**: não há checagem de boot —
+  inclusive o reaviso de "pronto" de um download pendente (D6). O caminho é
+  "Procurar atualizações" em Configurações ou religar o toggle.
 - **Download parcial não retoma byte a byte** (electron-updater 6 descarta o
   temporário): o arquivo **completo** em cache é reaproveitado no próximo boot;
-  no NSIS o download diferencial reduz o volume quando há blockmap.
+  com os `.blockmap` anexados, NSIS e AppImage usam download diferencial.
 ```
 
 - [ ] **Step 2: Adicionar a seção "Releasing" no README**
@@ -1654,7 +1778,7 @@ git commit -m "docs: checklist de release com os yml do updater + bump 1.4.2 + l
 
 Run: `cd app && npx tsc --noEmit && npm test 2>&1 | tail -5 && npm run build 2>&1 | tail -1`
 
-Expected: 1 falha pré-existente (`steam-path`), resto verde; os 17 testes de `updater-packaged.test.js` passando.
+Expected: 1 falha pré-existente (`steam-path`), resto verde; os 19 testes de `updater-packaged.test.js` passando.
 
 - [ ] **Step 2: O canal da fonte não regrediu**
 
@@ -1662,13 +1786,14 @@ Run: `cd ~/Documents/projects/arcadia && ./arcadia.sh` (alguns segundos) e confi
 
 - [ ] **Step 3: Teste manual do canal empacotado (documentado no PR)**
 
-Siga `docs/release.md` para publicar 1.4.2 (builds + yml + assets). Depois:
+Siga `docs/release.md` para publicar 1.4.2 (4 builds + 2 yml + 2 blockmaps). Depois:
 1. rode o AppImage 1.4.1 e espere o diálogo (30s);
 2. escolha "Baixar" e confira o progresso;
 3. escolha "Depois" e feche; reabra: o diálogo "Pronto — Reiniciar agora" volta no boot (D6);
 4. escolha "Reiniciar agora" e valide a versão nova (1.4.2);
 5. rode o portable/zip: o diálogo "não se atualiza sozinha" com link aparece no boot (sem suporte);
-6. no Windows, se disponível: instale o NSIS e repita (1→4), registrando o comportamento do SmartScreen/Defender e do UAC (limitações do `docs/release.md`).
+6. **toggle desligado (D10/N5/N11)**: desligue `check_updates_on_start` em Configurações, feche e reabra o AppImage — nenhum diálogo automático abre (nem o "Pronto" pendente, porque o toggle desliga a checagem de boot). Clique em "Procurar atualizações" e confirme que o canal empacotado responde (disponível/em dia) e o diálogo abre;
+7. no Windows, se disponível: instale o NSIS e repita (1→4), registrando o comportamento do SmartScreen/Defender e do UAC (limitações do `docs/release.md`).
 
 - [ ] **Step 4: Reportar**
 
