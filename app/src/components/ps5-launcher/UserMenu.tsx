@@ -9,6 +9,7 @@ interface UserMenuProps {
   open: boolean
   onClose: () => void
   onOpenProfile: () => void
+  onOpenAbout: () => void
   onRefresh: () => void
   showHidden: boolean
   onToggleShowHidden: () => void
@@ -19,6 +20,7 @@ export function UserMenu({
   open,
   onClose,
   onOpenProfile,
+  onOpenAbout,
   onRefresh,
   showHidden,
   onToggleShowHidden,
@@ -94,6 +96,7 @@ export function UserMenu({
       {divider}
 
       {item(t("profile.meu_perfil"), onOpenProfile)}
+      {item(t("about.titulo"), onOpenAbout)}
       {item(t("profile.atualizar_biblioteca"), onRefresh)}
       {item(t("profile.mostrar_ocultos"), onToggleShowHidden, {
         hint: showHidden ? t("common.ligado") : t("common.desligado"),

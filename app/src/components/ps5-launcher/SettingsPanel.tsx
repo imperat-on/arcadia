@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import type { AppConfig } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
+import { Modal } from "../../ui/Modal"
+import { AboutSection as AboutSectionDesktop } from "../desktop/AboutSection"
 
 
 type Section = "temas"
@@ -357,6 +359,24 @@ export function MetadataSection({ onSaved }: { onSaved: () => void }) {
       </button>
       <p className="text-xs text-[color:var(--text-3)] mt-3">{t("settings.igdb.reconstruir_hint")}</p>
     </div>
+  )
+}
+
+/* --------------------------------------------------------------------- */
+/* Sobre                                                                 */
+/* --------------------------------------------------------------------- */
+// O Big Picture não tem painel de Configurações; a seção é montada como modal
+// a partir do menu do perfil (PS5Launcher).
+export function AboutSection() {
+  return <AboutSectionDesktop console />
+}
+
+export function AboutPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useI18n()
+  return (
+    <Modal open={open} onClose={onClose} title={t("about.titulo")} size="md">
+      <AboutSection />
+    </Modal>
   )
 }
 
