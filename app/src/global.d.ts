@@ -206,6 +206,41 @@ export interface UpdateInfo {
 
 export type UpdateEtapa = "pull" | "deps" | "build" | "pronto"
 
+export type UpdatePackagedCanal = "fonte" | "appimage" | "nsis" | "portable" | "zip" | "sem_suporte"
+export type UpdatePackagedFase = "ocioso" | "disponivel" | "baixando" | "pronto" | "erro" | "sem_suporte"
+/** Qual ação do usuário gerou o erro; define o retry do diálogo (N7/N8). */
+export type UpdatePackagedErroAcao = "checar" | "baixar" | "instalar"
+
+/** Snapshot do updater do app empacotado (electron-updater). */
+export interface UpdatePackagedState {
+  canal: UpdatePackagedCanal
+  suportado: boolean
+  versaoAtual: string
+  versaoNova: string | null
+  /** Bytes do arquivo oferecido (updateInfo.files[].size), quando o yml traz. */
+  tamanho: number | null
+  fase: UpdatePackagedFase
+  /** 0–100. */
+  progresso: number
+  erro: string | null
+  /** true = erro da checagem automática; o diálogo não deve abrir (M3). */
+  erroDeFundo: boolean
+  /** Ação que falhou; null quando o erro foi de fundo (N7/N8). */
+  erroAcao: UpdatePackagedErroAcao | null
+  jaAvisado: boolean
+  jogoRodando: boolean
+}
+
+/** Retorno de `updatePackagedCheck`; `motivo` é opcional por contrato. */
+export interface UpdatePackagedCheck {
+  ok: boolean
+  disponivel: boolean
+  versao?: string | null
+  tamanho?: number | null
+  motivo?: "canal_nao_suportado" | "jogo_rodando" | "erro" | "fonte"
+  erro?: string
+}
+
 export interface AppConfig {
   steam_api_key?: string
   steamgriddb_api_key?: string
@@ -248,6 +283,10 @@ export interface AppConfig {
   steam_path?: string // instalação local da Steam
   epic_egs_prefix?: string // prefixo onde o EGS está instalado
   check_updates_on_start?: boolean
+  /** Versão do app empacotado sobre a qual o usuário já escolheu "Depois" (D7). */
+  update_ja_avisado?: string
+  /** Versão já baixada e pendente de instalação no cache do electron-updater (D6). */
+  update_pendente_versao?: string
   auto_update_games?: boolean
   hide_changelog_on_start?: boolean
   start_in_console_mode?: boolean
@@ -1349,6 +1388,18 @@ declare global {
       onUpdateAvailable: (cb: (info: UpdateInfo) => void) => () => void
       /** Etapa atual da atualização em andamento. */
       onUpdateProgress: (cb: (p: { etapa: UpdateEtapa }) => void) => () => void
+      /** Estado do updater do app empacotado (AppImage/NSIS). */
+      updatePackagedState: () => Promise<UpdatePackagedState>
+      /** Checa agora; `manual` decide se o erro pode virar diálogo. */
+      updatePackagedCheck: (data?: { manual?: boolean }) => Promise<UpdatePackagedCheck>
+      /** Baixa o update oferecido (só depois do "Baixar" do usuário). */
+      updatePackagedDownload: () => Promise<{ ok: boolean; erro?: string }>
+      /** Reinicia e instala o update já baixado. */
+      updatePackagedInstall: () => Promise<{ ok: boolean; erro?: string }>
+      /** Marca "já avisei nesta versão" (persiste no config). */
+      updatePackagedJaAvisado: (versao: string) => Promise<{ ok: boolean }>
+      /** Estado do updater empacotado mudou (push do main). */
+      onUpdatePackagedChanged: (cb: (estado: UpdatePackagedState) => void) => () => void
       /** Download da loja concluído — oferecer restart da Steam. */
       onStoreDownloaded: (cb: (data: { appid: string; title: string }) => void) => () => void
       /** Estatísticas do perfil (jogos/horas jogadas), ou null se indisponível. */

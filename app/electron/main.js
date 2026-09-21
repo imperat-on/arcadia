@@ -253,6 +253,26 @@ let focado = true
 // janela e precisam levantá-la quando o jogo termina.
 let win
 
+// Canal empacotado (electron-updater). A instância nasce SEMPRE no boot (o
+// botão manual e o aviso portable/zip não dependem do toggle); só o ciclo
+// automático de 30s/6h é gateado por check_updates_on_start.
+const ESTADO_EMPACOTADO_FONTE = {
+  canal: "fonte",
+  suportado: false,
+  versaoAtual: "",
+  versaoNova: null,
+  tamanho: null,
+  fase: "ocioso",
+  progresso: 0,
+  erro: null,
+  erroDeFundo: false,
+  erroAcao: null,
+  jaAvisado: false,
+  jogoRodando: false,
+}
+let atualizadorEmpacotado = null
+let cicloEmpacotado = null
+
 // Qual tamanho a escala deve considerar. O layout do Big Picture e do Desktop usa
 // 1920x1080 como referência lógica — a matemática vive em ./ui-scale; aqui só se
 // decide QUAL tamanho usar. No console, a tela inteira; no desktop maximizado, a
@@ -2509,12 +2529,37 @@ function readLibrary() {
 // ver aviso nenhum.
 async function procurarAtualizacao(win) {
   try {
+    // O canal git é de quem roda da fonte; no pacote quem cuida é o updater
+    // empacotado. Ramo explícito — não depende do .git faltar por acaso.
+    if (app.isPackaged) return
     if (readConfig().check_updates_on_start === false) return
     if (!(await updater.estado()).podeAtualizar) return
     const r = await updater.verificar()
     if (!r.ok || !r.atrasado) return
     if (win && !win.isDestroyed()) win.webContents.send("update:available", r)
   } catch {}
+}
+
+// Canal empacotado: 30s depois da janela carregar e a cada 6h. Jogo rodando
+// adia (reavalia no próximo ciclo) e o toggle check_updates_on_start desliga o
+// ciclo automático — a instância e a checagem manual continuam funcionando.
+// Com o toggle desligado não há checagem de boot, então o reaviso de "pronto"
+// de um download pendente (D6) também não roda: o caminho é a checagem manual
+// em Configurações (decisão registrada no spec, caso-limite do D6).
+const INTERVALO_EMPACOTADO_MS = 6 * 60 * 60 * 1000
+function agendarCicloEmpacotado() {
+  if (cicloEmpacotado) {
+    clearTimeout(cicloEmpacotado)
+    cicloEmpacotado = null
+  }
+  if (!atualizadorEmpacotado || !atualizadorEmpacotado.suportado()) return
+  const rodar = async () => {
+    try {
+      if (readConfig().check_updates_on_start !== false) await atualizadorEmpacotado.checar()
+    } catch {}
+    cicloEmpacotado = setTimeout(rodar, INTERVALO_EMPACOTADO_MS)
+  }
+  cicloEmpacotado = setTimeout(rodar, 30_000)
 }
 
 function avisarBiblioteca(win) {
@@ -2908,6 +2953,15 @@ function createWindow() {
     // esperar — checar antes atrasaria a abertura por causa de uma ida à
     // rede que pode nem ter resposta.
     procurarAtualizacao(win)
+
+    // Canal empacotado: o push inicial cobre o aviso portable/zip (fase
+    // sem_suporte já no boot) e o ciclo automático começa aqui.
+    if (atualizadorEmpacotado && atualizadorEmpacotado.canal() !== "fonte") {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("update:packaged:changed", atualizadorEmpacotado.estado())
+      }
+      agendarCicloEmpacotado()
+    }
   })
   // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
   // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
@@ -2973,6 +3027,30 @@ app.whenReady().then(() => {
   // ligada.
   process.env.ARCADIA_MODE = resolveLauncherMode(process.env, readConfig())
   configurarLojaSteam()
+  // Updater do app empacotado: a instância existe SEMPRE (mesmo com o toggle
+  // desligado). O canal git continua intocado — este é um segundo canal.
+  try {
+    const { createPackagedUpdater } = require("./updater-packaged")
+    atualizadorEmpacotado = createPackagedUpdater({
+      app,
+      autoUpdater: app.isPackaged ? require("electron-updater").autoUpdater : null,
+      env: process.env,
+      temAppUpdateYml: fs.existsSync(path.join(process.resourcesPath, "app-update.yml")),
+      isJogoRodando: () => jogoRodando,
+      jaAvisado: (versao) => readConfig().update_ja_avisado === versao,
+      salvarJaAvisado: (versao) => writeConfig({ update_ja_avisado: versao }),
+      pendente: () => readConfig().update_pendente_versao || null,
+      salvarPendente: (versao) =>
+        versao
+          ? writeConfig({ update_pendente_versao: versao })
+          : writeConfig({}, ["update_pendente_versao"]),
+      onChange: (estado) => {
+        if (win && !win.isDestroyed()) win.webContents.send("update:packaged:changed", estado)
+      },
+    })
+  } catch (e) {
+    console.error("[updater] canal empacotado indisponível:", e)
+  }
   // Instala o launcher UMU em segundo plano. O primeiro jogo Proton também
   // aguarda esta mesma operação caso seja aberto antes de ela terminar.
   ensureUmuLauncher().catch(() => {})
@@ -4141,6 +4219,23 @@ app.whenReady().then(() => {
     return { ...r, reiniciou: true }
   })
 
+  // Canal empacotado (electron-updater) — separado dos update:* do git.
+  ipcMain.handle("update:packaged:state", () => atualizadorEmpacotado?.estado() || ESTADO_EMPACOTADO_FONTE)
+  ipcMain.handle(
+    "update:packaged:check",
+    async (_e, { manual = false } = {}) =>
+      atualizadorEmpacotado?.checar({ manual }) || { ok: false, disponivel: false, motivo: "fonte" },
+  )
+  ipcMain.handle(
+    "update:packaged:download",
+    async () => atualizadorEmpacotado?.baixar() || { ok: false, erro: "fonte" },
+  )
+  ipcMain.handle("update:packaged:install", () => atualizadorEmpacotado?.instalar() || { ok: false, erro: "fonte" })
+  ipcMain.handle(
+    "update:packaged:jaAvisado",
+    (_e, { versao } = {}) => atualizadorEmpacotado?.marcarJaAvisado(versao) || { ok: false },
+  )
+
   // Compatibilidade com versões antigas: ainda pode abrir o modo console via reinício.
   ipcMain.handle("app:enterConsole", () => {
     try {
@@ -4234,6 +4329,7 @@ app.whenReady().then(() => {
         "no_click_outside", "no_smooth_scroll", "no_anim",
         // Config. Gerais (GeneralSection set()/pickFolder) — idem.
         "check_updates_on_start", "start_in_console_mode", "hide_changelog_on_start",
+        "update_ja_avisado",
         "minimize_on_game_launch", "frameless_window", "disable_playtime_tracking",
         "discord_rich_presence", "discord_client_id", "download_cpu_cores",
         "default_install_path",
