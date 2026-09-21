@@ -29,6 +29,8 @@ siga a ordem.
 
    As duas linhas têm que mostrar a versão do passo 1. Os `.blockmap` são o que
    habilita o download diferencial — sem eles o updater baixa o arquivo inteiro.
+   No Linux o AppImage **embute** o blockmap (não gera `.blockmap` separado);
+   no Windows o arquivo é `Arcadia-Setup-<versao>-x64.exe.blockmap`.
 5. **Publique os 4 assets + os 2 yml + os 2 blockmaps** (não-draft e
    não-prerelease: o electron-updater ignora draft/prerelease):
 
@@ -39,8 +41,7 @@ siga a ordem.
      release/Arcadia-1.5.0-x64.zip \
      release/Arcadia-1.5.0-x86_64.AppImage \
      release/latest.yml release/latest-linux.yml \
-     release/Arcadia-Setup-1.5.0-x64.exe.blockmap \
-     release/Arcadia-1.5.0-x86_64.AppImage.blockmap
+     release/Arcadia-Setup-1.5.0-x64.exe.blockmap
    ```
 
 6. **Valide o release publicado**:
