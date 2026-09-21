@@ -3101,8 +3101,15 @@ app.whenReady().then(() => {
   // por eles — ~10 s de main process travado, janela aberta e sem resposta a
   // nenhum IPC (a "trava" relatada).
   const contaPronta = garantirSessao().catch(() => null)
+  // A varredura de schemas é síncrona e roda no event loop do main: disparada
+  // junto com a conta, ela segurava a PRIMEIRA resposta do library:get por
+  // ~350ms (medido). Só começa depois que a biblioteca já foi entregue (ou 3s,
+  // caso o renderer não peça biblioteca).
+  let liberarSchemas = null
+  const primeiraBiblioteca = new Promise((res) => { liberarSchemas = res })
   const posConta = contaPronta
     .then(async (r) => {
+      await Promise.race([primeiraBiblioteca, new Promise((res) => setTimeout(res, 3000))])
       // Reconstrói as conquistas dos schemas DA STEAM DEPOIS de a conta estar
       // ativa. Antes rodava no createWindow como guest e gravava na raiz, então
       // o painel (conta) ficava só com o que o watcher pegou ao vivo. Pro
@@ -3152,6 +3159,9 @@ app.whenReady().then(() => {
     await contaPronta
     bootProfile("libget-contaPronta-ok")
     const games = readLibrary()
+    // setImmediate: a resposta deste IPC sai antes de a varredura síncrona
+    // começar — sem isso ela ainda segurava o primeiro paint por ~380ms.
+    setImmediate(() => liberarSchemas?.())
     // Enriquecimento de capas/ícones NUNCA pode bloquear a resposta — se a
     // rede do Steam Store travar, o renderer ficaria com a lista vazia.
     // Devolve a lista NA HORA e cura as capas em background; só avisa o

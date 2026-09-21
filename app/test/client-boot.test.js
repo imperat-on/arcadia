@@ -32,25 +32,36 @@ test.after(() => {
   fs.rmSync(DATA_DIR, { recursive: true, force: true })
 })
 
-test("restoreSession emite SIGNED_IN uma vez para sessão salva válida", async () => {
+test("restoreSession emite SIGNED_IN na hora e valida a sessão em background", async () => {
   sessionStore.saveSession(SAVED_SESSION)
   const chamadas = []
-  global.fetch = async (url) => {
+  let responder
+  global.fetch = (url) => {
     chamadas.push(String(url))
-    return {
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ user: SAVED_SESSION.user }),
-    }
+    // Segura a resposta: o boot NÃO pode depender dela.
+    return new Promise((resolve) => {
+      responder = () =>
+        resolve({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ user: SAVED_SESSION.user }),
+        })
+    })
   }
 
   const eventos = []
   const subscription = getClient().auth.onAuthStateChange((event) => eventos.push(event))
   const result = await restoreSession()
-  subscription.data.subscription.unsubscribe()
 
+  // Resolve com a rede ainda pendente: a identidade sai do session.json.
   assert.equal(result.error, null)
   assert.equal(result.session.user.id, "user-boot")
   assert.deepEqual(eventos, ["SIGNED_IN"])
   assert.deepEqual(chamadas, ["https://arcadia.test/auth/v1/user"])
+
+  // A validação conclui atrás e não muda a identidade quando o token vale.
+  responder()
+  await getClient().auth._validacaoSessao
+  subscription.data.subscription.unsubscribe()
+  assert.deepEqual(eventos, ["SIGNED_IN"])
 })

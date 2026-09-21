@@ -305,6 +305,8 @@ class AuthClient {
     this._userValidatedAt = 0
     this._userInFlight = null
     this._refreshInFlight = null
+    // Validação da sessão restaurada, disparada pelo boot otimista.
+    this._validacaoSessao = null
   }
 
   _resetUserCache() {
@@ -418,10 +420,40 @@ class AuthClient {
     }
   }
 
-  async setSession(sessaoSalva, { emitSignedIn = false } = {}) {
+  // Valida a sessão restaurada SEM segurar o boot: a identidade sai do
+  // session.json e a UI pinta; a rede confirma (ou renova) atrás. Só derruba a
+  // sessão quando o backend responde 401 — falha de rede não pode deslogar
+  // quem está sem servidor. Medido: a validação em série custava 2,2s de capa
+  // preta nesta máquina (5-8s no AppImage).
+  _validarSessaoSalva() {
+    const token = this._session?.access_token
+    return (async () => {
+      const { error } = await this._request("GET", "/auth/v1/user", null, { json: true })
+      if (!error) {
+        if (this._session?.access_token === token) this._userValidatedAt = Date.now()
+        return
+      }
+      if (Number(error.status) !== 401) return
+      const refreshed = await this.refreshSession()
+      if (!refreshed.error) return
+      if (this._session?.access_token !== token) return
+      this._session = null
+      this._resetUserCache()
+      sessionStore.clearSession()
+      this.emitter.emit("SIGNED_OUT", null)
+    })()
+  }
+
+  async setSession(sessaoSalva, { emitSignedIn = false, optimistic = false } = {}) {
     // Valida o access_token e devolve o usuario. Se expirou, faz refresh.
     this._session = sessaoSalva
     this._resetUserCache()
+    if (optimistic) {
+      if (emitSignedIn) this.emitter.emit("SIGNED_IN", this._session)
+      // O catch evita unhandled rejection: a validação é best-effort.
+      this._validacaoSessao = this._validarSessaoSalva().catch(() => {})
+      return { data: { session: this._session }, error: null }
+    }
     const { error } = await this._request("GET", "/auth/v1/user", null, {
       json: true,
     })
@@ -823,7 +855,9 @@ async function restoreSession() {
   const auth = getClient().auth
   if (saved) {
     try {
-      const { error } = await auth.setSession(saved, { emitSignedIn: true })
+      // Otimista: emite SIGNED_IN já com a sessão do disco (o escopo da conta
+      // fica definido antes do primeiro library:get) e valida em background.
+      const { error } = await auth.setSession(saved, { emitSignedIn: true, optimistic: true })
       if (error) sessionStore.clearSession()
     } catch {
       sessionStore.clearSession()

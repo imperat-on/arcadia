@@ -533,7 +533,13 @@ async function itensDaLoja(appids) {
  * consulta falhar, a lista passa inteira.
  */
 async function preparar(jogos, jaTem = new Set()) {
-  const { mapa, respondidos } = await itensDaLoja(jogos.map((g) => g.appid))
+  // Tipo/capa (itens) e disponibilidade (sushi + manifests) são duas idas de
+  // rede independentes: em série custavam ~1,2s + ~1,1s com o servidor lento.
+  const appids = jogos.map((g) => g.appid)
+  const [{ mapa, respondidos }, disponibilidade] = await Promise.all([
+    itensDaLoja(appids),
+    carregarDisponibilidade(appids),
+  ])
   const filtrados = []
   for (const g of jogos) {
     const id = String(g.appid)
@@ -547,21 +553,29 @@ async function preparar(jogos, jaTem = new Set()) {
     }
     filtrados.push(g)
   }
-  await marcarDisponibilidade(filtrados, jaTem)
+  await marcarDisponibilidade(filtrados, jaTem, disponibilidade)
   return filtrados
+}
+
+// Busca da rede o que a disponibilidade precisa (índice Sushi + manifests em
+// lote), sem aplicar. Separado para poder rodar em paralelo com itensDaLoja.
+// Uma chamada batch de manifests para a página inteira (em vez de um por jogo
+// = N handshakes TLS). O servidor devolve { appid: { url: { ok } } }.
+async function carregarDisponibilidade(appids) {
+  const ids = (appids || []).filter(Boolean)
+  const [sushi, batch] = await Promise.all([
+    sushiIds(),
+    ids.length
+      ? catalogGet(`/catalog/v1/manifests?appids=${encodeURIComponent(ids.join(","))}`)
+      : Promise.resolve({ data: null }),
+  ])
+  return { sushi, geral: batch.data?.data || {} }
 }
 
 // Marca cada jogo com os provedores onde o manifesto existe.
 // `jaTem` traz os appids que o Hubcap já confirmou (não precisam de sonda).
-async function marcarDisponibilidade(jogos, jaTem = new Set()) {
-  const sushi = await sushiIds()
-  // Uma chamada batch de manifests para a página inteira (em vez de um por
-  // jogo = N handshakes TLS). O servidor devolve { appid: { url: { ok } } }.
-  const appids = jogos.map((g) => g.appid).filter(Boolean)
-  const batch = appids.length
-    ? await catalogGet(`/catalog/v1/manifests?appids=${encodeURIComponent(appids.join(","))}`)
-    : { data: null }
-  const disponibilidadeGeral = batch.data?.data || {}
+async function marcarDisponibilidade(jogos, jaTem = new Set(), pre = null) {
+  const { sushi, geral } = pre || (await carregarDisponibilidade(jogos.map((g) => g.appid)))
   // Sondagens novas (fallback local p/ appids que o batch nao cobriu),
   // acumuladas para UMA escrita em disco no final.
   const novasLocal = {}
@@ -569,7 +583,7 @@ async function marcarDisponibilidade(jogos, jaTem = new Set()) {
   for (const g of jogos) {
     const fontes = []
     if (jaTem.has(g.appid)) fontes.push("Morrenus")
-    const disponibilidade = disponibilidadeGeral[g.appid]
+    const disponibilidade = geral[g.appid]
     if (disponibilidade && typeof disponibilidade === "object") {
       if (disponibilidade[SUSHI_URL(g.appid)]?.ok) fontes.push("Sushi")
       if (disponibilidade[RYUU_URL(g.appid)]?.ok) fontes.push("Ryuu")
