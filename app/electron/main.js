@@ -2529,12 +2529,37 @@ function readLibrary() {
 // ver aviso nenhum.
 async function procurarAtualizacao(win) {
   try {
+    // O canal git é de quem roda da fonte; no pacote quem cuida é o updater
+    // empacotado. Ramo explícito — não depende do .git faltar por acaso.
+    if (app.isPackaged) return
     if (readConfig().check_updates_on_start === false) return
     if (!(await updater.estado()).podeAtualizar) return
     const r = await updater.verificar()
     if (!r.ok || !r.atrasado) return
     if (win && !win.isDestroyed()) win.webContents.send("update:available", r)
   } catch {}
+}
+
+// Canal empacotado: 30s depois da janela carregar e a cada 6h. Jogo rodando
+// adia (reavalia no próximo ciclo) e o toggle check_updates_on_start desliga o
+// ciclo automático — a instância e a checagem manual continuam funcionando.
+// Com o toggle desligado não há checagem de boot, então o reaviso de "pronto"
+// de um download pendente (D6) também não roda: o caminho é a checagem manual
+// em Configurações (decisão registrada no spec, caso-limite do D6).
+const INTERVALO_EMPACOTADO_MS = 6 * 60 * 60 * 1000
+function agendarCicloEmpacotado() {
+  if (cicloEmpacotado) {
+    clearTimeout(cicloEmpacotado)
+    cicloEmpacotado = null
+  }
+  if (!atualizadorEmpacotado || !atualizadorEmpacotado.suportado()) return
+  const rodar = async () => {
+    try {
+      if (readConfig().check_updates_on_start !== false) await atualizadorEmpacotado.checar()
+    } catch {}
+    cicloEmpacotado = setTimeout(rodar, INTERVALO_EMPACOTADO_MS)
+  }
+  cicloEmpacotado = setTimeout(rodar, 30_000)
 }
 
 function avisarBiblioteca(win) {
@@ -2928,6 +2953,15 @@ function createWindow() {
     // esperar — checar antes atrasaria a abertura por causa de uma ida à
     // rede que pode nem ter resposta.
     procurarAtualizacao(win)
+
+    // Canal empacotado: o push inicial cobre o aviso portable/zip (fase
+    // sem_suporte já no boot) e o ciclo automático começa aqui.
+    if (atualizadorEmpacotado && atualizadorEmpacotado.canal() !== "fonte") {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("update:packaged:changed", atualizadorEmpacotado.estado())
+      }
+      agendarCicloEmpacotado()
+    }
   })
   // Foco real da janela (no gamescope o Chromium acha que está focado mesmo
   // com o jogo por cima) — o renderer trava gamepad/trailer com isso.
