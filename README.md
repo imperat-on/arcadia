@@ -78,6 +78,12 @@ Download the latest build from the
 On first run the launcher prepares the local data directory, restores the
 session and uses the front-end that ships inside the package.
 
+## Releasing
+
+Releases are built and published manually. The packaged app auto-updates from
+the `latest*.yml` files attached to each release, so the checklist matters:
+see [docs/release.md](docs/release.md) before publishing.
+
 ## Uninstall
 
 ### Linux
