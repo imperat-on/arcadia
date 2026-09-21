@@ -267,6 +267,17 @@ contextBridge.exposeInMainWorld("launcherAPI", {
     ipcRenderer.on("update:progress", h)
     return () => ipcRenderer.removeListener("update:progress", h)
   },
+  // Canal empacotado (AppImage/NSIS) — não confundir com o updater git acima.
+  updatePackagedState: () => ipcRenderer.invoke("update:packaged:state"),
+  updatePackagedCheck: (data) => ipcRenderer.invoke("update:packaged:check", data),
+  updatePackagedDownload: () => ipcRenderer.invoke("update:packaged:download"),
+  updatePackagedInstall: () => ipcRenderer.invoke("update:packaged:install"),
+  updatePackagedJaAvisado: (versao) => ipcRenderer.invoke("update:packaged:jaAvisado", { versao }),
+  onUpdatePackagedChanged: (cb) => {
+    const h = (_e, data) => cb(data)
+    ipcRenderer.on("update:packaged:changed", h)
+    return () => ipcRenderer.removeListener("update:packaged:changed", h)
+  },
   onStoreDownloaded: (cb) => {
     const h = (_e, data) => cb(data)
     ipcRenderer.on("store:downloaded", h)
