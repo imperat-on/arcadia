@@ -195,6 +195,20 @@ function ProcurarAtualizacao() {
   const procurar = async () => {
     setBusy(true)
     setMsg("")
+    // M4: o renderer não tem `isPackaged`; o canal do estado novo decide.
+    // No app empacotado não existe `.git` — a mensagem "não é um clone do
+    // Git" não se aplica e some.
+    const canal = (await window.launcherAPI?.updatePackagedState())?.canal
+    if (canal && canal !== "fonte") {
+      const r = await window.launcherAPI?.updatePackagedCheck({ manual: true })
+      setBusy(false)
+      if (r?.motivo === "canal_nao_suportado") return setMsg(t("update.packaged.sem_suporte"))
+      if (!r?.ok) return setMsg(r?.erro || t("update.erro_generico"))
+      if (!r.disponivel) return setMsg(t("update.packaged.em_dia"))
+      // A checagem manual zera o "já avisei" no módulo; o diálogo do launcher
+      // abre pelo push `update:packaged:changed` — nada a fazer aqui.
+      return
+    }
     const st = await window.launcherAPI?.updateState()
     if (st && !st.podeAtualizar) {
       setBusy(false)

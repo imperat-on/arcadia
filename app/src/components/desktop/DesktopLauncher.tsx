@@ -18,7 +18,7 @@ import { GameSettingsDialog } from "./GameSettingsDialog"
 import { LaunchModeDialog } from "./LaunchModeDialog"
 import { AddGameDialog } from "./AddGameDialog"
 import { useI18n } from "../../i18n/I18nContext"
-import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
+import { UpdateDialog, UpdatePackagedDialog, useAtualizacao, useAtualizacaoEmpacotada } from "../UpdateDialog"
 import { ProfilePage } from "../ps5-launcher/ProfilePage"
 import { ProfileBridge } from "./ProfileBridge"
 import { EditProfile } from "../ps5-launcher/EditProfile"
@@ -226,6 +226,7 @@ export function DesktopLauncher() {
     [baseGameActions, launchDesktopGame, launchDesktopCommand],
   )
   const atualizacao = useAtualizacao()
+  const atualizacaoEmpacotada = useAtualizacaoEmpacotada()
   const retroPaginaSeed = useMemo(
     () => (retroPaginaJogo ? retroGameFromLibrary(retroPaginaJogo) : undefined),
     [retroPaginaJogo],
@@ -501,6 +502,16 @@ export function DesktopLauncher() {
 
       {atualizacao.info && (
         <UpdateDialog info={atualizacao.info} onDepois={atualizacao.dispensar} />
+      )}
+
+      {atualizacaoEmpacotada.estado && (
+        <UpdatePackagedDialog
+          estado={atualizacaoEmpacotada.estado}
+          onBaixar={atualizacaoEmpacotada.baixar}
+          onInstalar={atualizacaoEmpacotada.instalar}
+          onTentar={atualizacaoEmpacotada.tentar}
+          onDepois={atualizacaoEmpacotada.dispensar}
+        />
       )}
 
       {baixado && (
