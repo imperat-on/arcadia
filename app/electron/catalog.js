@@ -110,10 +110,14 @@ async function catalogGet(pathname, opts = {}) {
     const etag = opts.noMirror ? null : catalogGetEtag(caminho)
     if (etag) headers["if-none-match"] = etag
 
+    // Com espelho em disco, o timeout cheio (30s) não se paga: um servidor
+    // lento segurava a tela por dezenas de segundos quando o dado local já
+    // estava ali. Sem espelho (primeira instalação) mantém o prazo longo.
+    const temEspelho = !opts.noMirror && fs.existsSync(espelhoPath(caminho))
     const res = await fetchRede(url, {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(opts.timeoutMs || 30000),
+      signal: AbortSignal.timeout(opts.timeoutMs || (temEspelho ? 5000 : 30000)),
     })
 
     // 304: nada mudou — usa o espelho local (sem re-baixar).

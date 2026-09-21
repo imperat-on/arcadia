@@ -254,7 +254,12 @@ async function loadAllSchemas() {
     log("achievements/listar-bins-progresso", e)
   }
 
+  let processados = 0
   for (const appid of appids) {
+    // Cede o event loop a cada poucos appids: a varredura é síncrona e,
+    // disparada no boot, segurava IPC e leituras file:// do renderer por
+    // centenas de ms (medido: ~380ms de bloqueio contínuo atrasando o paint).
+    if (++processados % 4 === 0) await new Promise((r) => setImmediate(r))
     let idx = loadSchemaForAppid(appid)
     // Sem bin do Steam (crackeado/repack): o índice pode já estar SALVO no
     // achievements.json de um boot anterior. O fallback da API pública custa

@@ -13,14 +13,20 @@ export function useLibraryState(initialGames: Game[] = []) {
   const [configLoaded, setConfigLoaded] = useState(false)
 
   const reloadLibrary = useCallback(async () => {
+    // Biblioteca e config são independentes: pedir em paralelo tira um
+    // round-trip IPC do caminho crítico do primeiro paint.
+    const [libRes, cfgRes] = await Promise.allSettled([
+      window.launcherAPI?.getLibrary(),
+      window.launcherAPI?.getConfig(),
+    ])
     try {
-      const next = await window.launcherAPI?.getLibrary()
+      const next = libRes.status === "fulfilled" ? libRes.value : undefined
       if (Array.isArray(next)) setGames(next)
     } catch {
       // A biblioteca anterior continua visível enquanto o backend se recupera.
     }
     try {
-      const cfg = await window.launcherAPI?.getConfig()
+      const cfg = cfgRes.status === "fulfilled" ? cfgRes.value : undefined
       if (cfg) {
         setConfig(cfg)
         setProfile(cfg.profile || {})
