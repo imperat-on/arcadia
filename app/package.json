@@ -1,6 +1,10 @@
 {
   "name": "arcadia",
   "version": "1.4.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imperat-on/arcadia.git"
+  },
   "description": "A game launcher for Linux and Windows with desktop and Big Picture UIs",
   "author": "Davi Kolansinsky <imperat-on@users.noreply.github.com>",
   "desktopName": "arcadia.desktop",
@@ -9,6 +13,11 @@
   "build": {
     "appId": "io.github.imperat-on.arcadia",
     "productName": "Arcadia",
+    "publish": {
+      "provider": "github",
+      "owner": "imperat-on",
+      "repo": "arcadia"
+    },
     "asar": false,
     "directories": {
       "output": "release"
@@ -73,16 +82,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "dist:appimage": "vite build && electron-builder --linux AppImage --x64",
-    "dist:nsis": "vite build && electron-builder --win nsis --x64",
-    "dist:portable": "vite build && electron-builder --win portable --x64",
-    "dist:zip": "vite build && electron-builder --win zip --x64",
+    "dist:appimage": "vite build && electron-builder --linux AppImage --x64 --publish never",
+    "dist:nsis": "vite build && electron-builder --win nsis --x64 --publish never",
+    "dist:portable": "vite build && electron-builder --win portable --x64 --publish never",
+    "dist:zip": "vite build && electron-builder --win zip --x64 --publish never",
     "test": "NODE_ENV=test node --test",
     "electron": "electron .",
     "start": "vite build && electron ."
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
+    "electron-updater": "^6.8.9",
     "hls.js": "^1.6.16",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
