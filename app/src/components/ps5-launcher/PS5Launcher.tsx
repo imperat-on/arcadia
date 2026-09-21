@@ -27,7 +27,7 @@ import { ProfileBridge } from "../desktop/ProfileBridge"
 import { EditProfile } from "./EditProfile"
 import type { NewsItem } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
-import { UpdateDialog, useAtualizacao } from "../UpdateDialog"
+import { UpdateDialog, UpdatePackagedDialog, useAtualizacao, useAtualizacaoEmpacotada } from "../UpdateDialog"
 import { LaunchModeDialog } from "../desktop/LaunchModeDialog"
 import { AchievementToast } from "../desktop/AchievementToast"
 import { useGameActions } from "../useGameActions"
@@ -171,6 +171,7 @@ export function PS5Launcher() {
   // virar "Parar" só naquele.
   const jogoAtivo = useJogoRodando(games)
   const atualizacao = useAtualizacao()
+  const atualizacaoEmpacotada = useAtualizacaoEmpacotada()
   // Para pausar trailer de fundo e vídeo da loja, "abrindo" já conta como
   // jogo em cena.
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
@@ -1770,6 +1771,18 @@ export function PS5Launcher() {
       {/* Atualização do Arcadia: A confirma, B adia. */}
       {atualizacao.info && (
         <UpdateDialog info={atualizacao.info} console onDepois={atualizacao.dispensar} />
+      )}
+
+      {/* Canal empacotado: A baixa/reinicia, B adia. */}
+      {atualizacaoEmpacotada.estado && (
+        <UpdatePackagedDialog
+          estado={atualizacaoEmpacotada.estado}
+          console
+          onBaixar={atualizacaoEmpacotada.baixar}
+          onInstalar={atualizacaoEmpacotada.instalar}
+          onTentar={atualizacaoEmpacotada.tentar}
+          onDepois={atualizacaoEmpacotada.dispensar}
+        />
       )}
 
       {escolhendoLaunch && (
