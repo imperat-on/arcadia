@@ -674,6 +674,10 @@ pub fn dispatch(
 ) -> Result<Value, IpcError> {
     match channel {
         // ── Biblioteca e config ──────────────────────────────────────────
+        "library:refresh" => {
+            let games = read_games(&state.data_dir, state.account().as_deref());
+            Ok(json_array(games))
+        }
         "library:get" => {
             let games = read_games(&state.data_dir, state.account().as_deref());
             Ok(json_array(games))
