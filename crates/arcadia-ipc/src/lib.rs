@@ -6,7 +6,7 @@ pub mod channels;
 pub mod launch_runtime;
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
@@ -15,7 +15,7 @@ use tokio::sync::OnceCell;
 
 use arcadia_api::auth::Session;
 use arcadia_api::{ApiClient, Error as ApiFailure};
-use arcadia_store::accounts::AccountScope;
+use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_social::community::{CommunityService, PageOptions};
@@ -507,6 +507,88 @@ pub fn dispatch(
             Ok(json!({ "ok": true, "config": redact_config(&next) }))
         }
 
+        // ── Settings por jogo / overrides / jogos custom ─────────────────
+        "gamesettings:get" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let all = read_json_object(&game_settings_path(state, id));
+            let settings = all.get(id).cloned().unwrap_or_else(|| json!({}));
+            Ok(json!({
+                "settings": settings,
+                "defaultPrefix": if id.is_empty() { String::new() } else { game_default_prefix(state, id) }
+            }))
+        }
+        "gamesettings:set" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+            if id.is_empty() {
+                return Ok(json!({}));
+            }
+            let patch = payload.get("patch").and_then(Value::as_object);
+            let path = game_settings_path(state, id);
+            let mut all = read_json_object(&path);
+            let mut entry = all
+                .get(id)
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            if let Some(patch) = patch {
+                for (key, value) in patch {
+                    if ALLOWED_GAME_SETTINGS.contains(&key.as_str()) {
+                        entry.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            let entry = Value::Object(entry);
+            all.insert(id.to_string(), entry.clone());
+            write_json_object(&path, &Value::Object(all), "gamesettings:set")?;
+            Ok(entry)
+        }
+        "overrides:set" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+            if id.is_empty() {
+                return Ok(json_array(read_games(
+                    &state.data_dir,
+                    state.account().as_deref(),
+                )));
+            }
+            let path = account_file(
+                &state.data_dir,
+                state.account().as_deref(),
+                "overrides.json",
+            );
+            let all = read_json_object(&path);
+            let mut next = all
+                .get(id)
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            if let Some(patch) = payload.get("patch").and_then(Value::as_object) {
+                for (key, value) in patch {
+                    if value.is_null() {
+                        next.remove(key);
+                    } else {
+                        next.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            let mut all = all;
+            if next.is_empty() {
+                all.remove(id);
+            } else {
+                all.insert(id.to_string(), Value::Object(next));
+            }
+            write_json_object(&path, &Value::Object(all), "overrides:set")?;
+            Ok(json_array(read_games(
+                &state.data_dir,
+                state.account().as_deref(),
+            )))
+        }
+        "customgame:add" => custom_game_add(state, args.first().cloned().unwrap_or_else(|| json!({}))),
+        "customgame:update" => {
+            custom_game_update(state, args.first().cloned().unwrap_or_else(|| json!({})))
+        }
+
         // ── Janela e ciclo de vida ───────────────────────────────────────
         "win:minimize" => {
             shell.minimize();
@@ -886,6 +968,239 @@ async fn community_channel(state: &AppState, channel: &str, args: Vec<Value>) ->
     }
 }
 
+const ALLOWED_GAME_SETTINGS: &[&str] = &[
+    "wineVersion",
+    "prefixPath",
+    "uplayId",
+    "upcId",
+    "autoDXVK",
+    "autoNVAPI",
+    "autoVKD3D",
+    "esync",
+    "fsync",
+    "wineWayland",
+    "wow64",
+    "fsrHack",
+    "gamescope",
+    "gsHdr",
+    "gsWidth",
+    "gsHeight",
+    "gsFps",
+    "gsWindowMode",
+    "gsFramerateLimit",
+    "dxvkHud",
+    "mangohud",
+    "gamemode",
+    "verboseLogs",
+    "gameArgs",
+    "exePath",
+    "scriptPre",
+    "scriptPost",
+    "wrappers",
+    "envVars",
+    "emulatorId",
+    "romPath",
+    "emulatorArgs",
+    "emulatorCorePath",
+];
+
+fn game_settings_path(state: &AppState, _id: &str) -> PathBuf {
+    account_file(
+        &state.data_dir,
+        state.account().as_deref(),
+        "game_settings.json",
+    )
+}
+
+fn game_default_prefix(state: &AppState, id: &str) -> String {
+    let config = read_config(&state.data_dir);
+    let base = config
+        .get("default_wine_prefix_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            arcadia_store::paths::home_dir()
+                .join("Games")
+                .join("Arcadia")
+                .join("Prefixes")
+                .to_string_lossy()
+                .into_owned()
+        });
+    let safe: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Path::new(&base).join(safe).to_string_lossy().into_owned()
+}
+
+fn read_json_object(path: &std::path::Path) -> Map<String, Value> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Map::new();
+    };
+    match serde_json::from_str::<Value>(&raw) {
+        Ok(Value::Object(map)) => map,
+        _ => Map::new(),
+    }
+}
+
+fn write_json_object(
+    path: &std::path::Path,
+    value: &Value,
+    channel: &str,
+) -> Result<(), IpcError> {
+    let text = serde_json::to_string_pretty(value)
+        .map_err(|error| IpcError::new("serialize", error.to_string(), channel))?;
+    arcadia_store::atomic::write_atomic_text(path, &text)
+        .map_err(|error| IpcError::new("io", error.to_string(), channel))
+}
+
+fn valid_custom_id(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix("custom:") else {
+        return false;
+    };
+    let mut chars = rest.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    let first_ok = first.is_ascii_lowercase() || first.is_ascii_digit();
+    first_ok
+        && rest.chars().count() <= 101
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+fn custom_games_result(state: &AppState) -> Value {
+    json!({
+        "ok": true,
+        "games": read_games(&state.data_dir, state.account().as_deref())
+    })
+}
+
+fn custom_game_add(state: &AppState, payload: Value) -> Result<Value, IpcError> {
+    let id = payload.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+    let title = payload
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let platform = payload
+        .get("platform")
+        .and_then(Value::as_str)
+        .unwrap_or("windows");
+    let is_emulator = platform == "emulator";
+
+    if !valid_custom_id(id) || title.is_empty() || title.chars().count() > 200 {
+        return Ok(json!({ "ok": false, "error": "título ou identificador inválido" }));
+    }
+    if is_emulator {
+        let emulator = payload.get("emulatorId").and_then(Value::as_str).unwrap_or_default();
+        let rom = payload.get("romPath").and_then(Value::as_str).unwrap_or_default();
+        if emulator.is_empty() || rom.is_empty() {
+            return Ok(json!({ "ok": false, "error": "configuração do emulador inválida" }));
+        }
+    } else {
+        let exe = payload.get("exe").and_then(Value::as_str).unwrap_or_default();
+        if exe.trim().is_empty() || exe.contains('\0') {
+            return Ok(json!({ "ok": false, "error": "título e executável são obrigatórios" }));
+        }
+    }
+
+    let path = account_file(
+        &state.data_dir,
+        state.account().as_deref(),
+        "custom_games.json",
+    );
+    let mut games = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+    {
+        Some(Value::Array(items)) => items,
+        _ => Vec::new(),
+    };
+    if games
+        .iter()
+        .any(|game| game.get("id").and_then(Value::as_str) == Some(id))
+    {
+        return Ok(json!({ "ok": false, "error": "já existe um jogo com esse nome" }));
+    }
+
+    let mut entry = Map::new();
+    entry.insert("id".into(), json!(id));
+    entry.insert("title".into(), json!(title));
+    entry.insert("launcher".into(), json!("custom"));
+    entry.insert("platform".into(), json!(platform));
+    entry.insert("installed".into(), json!(true));
+    if !is_emulator {
+        entry.insert(
+            "exe".into(),
+            payload.get("exe").cloned().unwrap_or(Value::Null),
+        );
+    }
+    games.push(Value::Object(entry));
+    write_json_object(&path, &Value::Array(games), "customgame:add")?;
+    Ok(custom_games_result(state))
+}
+
+fn custom_game_update(state: &AppState, payload: Value) -> Result<Value, IpcError> {
+    let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+    let path = account_file(
+        &state.data_dir,
+        state.account().as_deref(),
+        "custom_games.json",
+    );
+    let mut games = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+    {
+        Some(Value::Array(items)) => items,
+        _ => Vec::new(),
+    };
+    let Some(game) = games
+        .iter_mut()
+        .find(|game| game.get("id").and_then(Value::as_str) == Some(id))
+    else {
+        return Ok(json!({ "ok": false, "error": "jogo não encontrado" }));
+    };
+    let Some(object) = game.as_object_mut() else {
+        return Ok(json!({ "ok": false, "error": "jogo inválido" }));
+    };
+
+    if let Some(title) = payload.get("title").and_then(Value::as_str) {
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 200 {
+            return Ok(json!({ "ok": false, "error": "título inválido" }));
+        }
+        object.insert("title".into(), json!(title));
+    }
+    if let Some(platform) = payload.get("platform").and_then(Value::as_str) {
+        if matches!(platform, "emulator" | "windows" | "linux") {
+            object.insert("platform".into(), json!(platform));
+        }
+    }
+    if let Some(exe) = payload.get("exe").and_then(Value::as_str) {
+        if exe.contains('\0') {
+            return Ok(json!({ "ok": false, "error": "executável inválido" }));
+        }
+        if !exe.is_empty() {
+            object.insert("exe".into(), json!(exe));
+        }
+    }
+    if object.get("platform").and_then(Value::as_str) == Some("emulator") {
+        object.remove("exe");
+    }
+
+    write_json_object(&path, &Value::Array(games), "customgame:update")?;
+    Ok(custom_games_result(state))
+}
+
 async fn sync_delete_achievement(
     state: &AppState,
     channel: &str,
@@ -1224,6 +1539,71 @@ mod tests {
         assert_eq!(stored["language"], "en-US");
         assert_eq!(stored["wine_arch"], "x32");
         assert!(stored.get("evil_path").is_none(), "chave fora do allowlist não pode ser gravada");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn game_settings_set_filters_allowlist_and_persists() {
+        let dir = std::env::temp_dir().join(format!("arcadia-gamesettings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        dispatch(
+            &state,
+            &MockShell,
+            "gamesettings:set",
+            vec![json!({
+                "id": "steam:10",
+                "patch": { "wineVersion": "GE-Proton9", "prefixPath": "C:/pfx", "evil": "x" }
+            })],
+        )
+        .unwrap();
+        let stored = read_json_object(&dir.join("game_settings.json"));
+        assert_eq!(stored["steam:10"]["wineVersion"], "GE-Proton9");
+        assert_eq!(stored["steam:10"]["prefixPath"], "C:/pfx");
+        assert!(stored["steam:10"].get("evil").is_none());
+
+        let got = dispatch(
+            &state,
+            &MockShell,
+            "gamesettings:get",
+            vec![json!("steam:10")],
+        )
+        .unwrap();
+        assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
+        assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn custom_game_add_validates_and_returns_library() {
+        let dir = std::env::temp_dir().join(format!("arcadia-custom-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+
+        let bad = dispatch(
+            &state,
+            &MockShell,
+            "customgame:add",
+            vec![json!({ "id": "Errado", "title": "x", "exe": "C:/g.exe" })],
+        )
+        .unwrap();
+        assert_eq!(bad["ok"], false);
+
+        let good = dispatch(
+            &state,
+            &MockShell,
+            "customgame:add",
+            vec![json!({
+                "id": "custom:meu-jogo",
+                "title": "Meu Jogo",
+                "platform": "windows",
+                "exe": "C:/Games/meu.exe"
+            })],
+        )
+        .unwrap();
+        assert_eq!(good["ok"], true);
+        assert_eq!(good["games"][0]["id"], "custom:meu-jogo");
+        assert_eq!(good["games"][0]["installed"], true);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

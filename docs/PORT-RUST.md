@@ -393,8 +393,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime plugados, máscara de segredos, allowlist, cobertura de canais | 14 |
-| **Total** | | **412** |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado (gamesettings/overrides/custom), máscara de segredos, allowlist, cobertura de canais | 16 |
+| **Total** | | **414** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
