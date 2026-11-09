@@ -462,6 +462,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - 110 testes. Watcher ao vivo, toasts e scrape público ficam para a borda de runtime.
 - IPC `achievements:get` lê os itens da conta; `achievements:schemas:load` chama o runtime; `steam:capturarAgora` força uma passada + catch-up.
 - Watcher ao vivo: poll de 15 s no shell, gate por `achievements_auto_capture`, primeiro tick silencioso e `achievement:unlocked`/`achievement:revoked` emitidos com payload de toast.
+- `test:toast` emite um unlock de teste; `slssteam:launchSteam` abre `steam://open/main`.
 
 ### Marco 17 — emuladores (concluído)
 

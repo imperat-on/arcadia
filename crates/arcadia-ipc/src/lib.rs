@@ -1417,6 +1417,28 @@ pub fn dispatch(
             }
             Ok(Value::Array(items))
         }
+        "test:toast" => {
+            let platinum = args
+                .first()
+                .and_then(|value| value.get("platinum"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            state.emit_background(
+                "achievement:unlocked",
+                json!({
+                    "appid": "0",
+                    "apiname": "TEST_TOAST",
+                    "title": if platinum { "Platina de teste" } else { "Conquista de teste" },
+                    "desc": "Toque de conquista do Arcadia.",
+                    "icon": "",
+                    "percent": 100,
+                    "unlock": chrono::Utc::now().timestamp(),
+                    "done": if platinum { 10 } else { 1 },
+                    "total": 10
+                }),
+            );
+            Ok(json!({ "ok": true }))
+        }
         "gamepadStatus" => Ok(json!({
             "ok": true,
             "emulator": "uinput",

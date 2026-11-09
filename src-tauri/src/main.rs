@@ -120,6 +120,10 @@ fn handle_shell_channel(
         ))),
         "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
         "art:pick" => Some(Ok(pick_art(window, state, args))),
+        "slssteam:launchSteam" => {
+            let _ = window.opener().open_url("steam://open/main", None::<&str>);
+            Some(Ok(json!({ "ok": true })))
+        }
         "trailer:pickCookies" => {
             let Some(picked) = window
                 .dialog()
