@@ -6,6 +6,7 @@ members = [
     "crates/arcadia-download",
     "crates/arcadia-api",
     "crates/arcadia-retro",
+    "crates/arcadia-sync",
     "crates/arcadia-ipc",
     "src-tauri",
 ]

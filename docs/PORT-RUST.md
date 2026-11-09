@@ -351,6 +351,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 **Prova visual:** desktop launcher rodando no Tauri, sessão restaurada, usuário `zyon`, biblioteca com **Conta Game** (custom da conta) e **Global Game** (snapshot global).
 
+### Marco 2 — sync pull-only plugado (concluído)
+
+- `arcadia-sync`: biblioteca, playtime, conquistas e sources contra os RPCs reais; reconciliação usa `contracts/sync.js`; todo push é bloqueado por padrão (`pull_only = true`) sem tocar a rede.
+- Persistência por conta via `arcadia-store`: `custom_games`, `pending_games`, `overrides`, `owned_games`, `achievements`, `sync_queue`, `sources`, `sync_state`; escrita atômica, campos desconhecidos preservados.
+- IPC plugado: `sync:state`, `sync:now`, `sync:full`, `sync:all`, `sync:deleteAchievement`. Eventos `sync:state` e `library:changed` emitidos pelo shell.
+- Engine criado sob demanda com `AccountScope::with_active`; troca de sessão invalida o engine.
+- **Prova de boot:** `sync:state` leu `lastPullAt=111 / lastSyncAt=222` do `contas/zyon/sync_state.json`; `library:get` devolveu global + conta; `account:status` devolveu sessão segura sem tokens.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -359,9 +367,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust | 42 |
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
+| `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth plugada, máscara de segredos, cobertura de canais | 8 |
-| **Total** | | **240** |
+| `arcadia-ipc` | dispatcher, auth + sync plugados, máscara de segredos, allowlist, cobertura de canais | 11 |
+| **Total** | | **278** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

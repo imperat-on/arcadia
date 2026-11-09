@@ -100,6 +100,7 @@ dependencies = [
  "arcadia-api",
  "arcadia-contracts",
  "arcadia-store",
+ "arcadia-sync",
  "serde",
  "serde_json",
  "tokio",
@@ -109,6 +110,7 @@ dependencies = [
 name = "arcadia-retro"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "regex",
  "serde",
  "serde_json",
@@ -124,6 +126,21 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "arcadia-sync"
+version = "0.1.0"
+dependencies = [
+ "arcadia-api",
+ "arcadia-contracts",
+ "arcadia-store",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "unicode-normalization",
+ "wiremock",
 ]
 
 [[package]]

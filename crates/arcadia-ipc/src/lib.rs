@@ -14,8 +14,10 @@ use tokio::sync::OnceCell;
 
 use arcadia_api::auth::Session;
 use arcadia_api::{ApiClient, Error as ApiFailure};
+use arcadia_store::accounts::AccountScope;
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
+use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -65,6 +67,7 @@ pub struct AppState {
     api: Option<Arc<ApiClient>>,
     session: Mutex<Option<Session>>,
     account: Mutex<Option<String>>,
+    sync: Mutex<Option<SyncEngine>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -91,6 +94,7 @@ impl AppState {
             api,
             session: Mutex::new(None),
             account: Mutex::new(None),
+            sync: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -123,8 +127,27 @@ impl AppState {
     }
 
     fn install_session_memory(&self, session: &Session) {
+        // Troca de conta invalida o engine: o escopo é imutável por sessão.
+        *lock(&self.sync) = None;
         *lock(&self.account) = account_from_session(session);
         *lock(&self.session) = Some(session.clone());
+    }
+
+    /// Engine de sync do usuário ativo. Criado sob demanda e em pull-only.
+    fn sync_engine(&self, channel: &str) -> Result<SyncEngine, IpcError> {
+        if let Some(engine) = lock(&self.sync).clone() {
+            return Ok(engine);
+        }
+        let api = self.api().ok_or_else(|| {
+            IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+        })?;
+        let account = self
+            .account()
+            .ok_or_else(|| IpcError::new("nao_logado", "sessão ausente", channel))?;
+        let scope = AccountScope::with_active(self.data_dir.clone(), Some(&account));
+        let engine = SyncEngine::new((**api).clone(), scope);
+        *lock(&self.sync) = Some(engine.clone());
+        Ok(engine)
     }
 
     /// Instala a sessão salva no cliente HTTP uma única vez por boot.
@@ -164,6 +187,7 @@ impl AppState {
 
     fn forget_session(&self) {
         let _ = arcadia_store::session::clear_session(&self.data_dir);
+        *lock(&self.sync) = None;
         *lock(&self.session) = None;
         *lock(&self.account) = None;
     }
@@ -412,19 +436,6 @@ pub fn dispatch(
     channel: &str,
     args: Vec<Value>,
 ) -> Result<Value, IpcError> {
-    // Instrumentação opt-in para validar o caminho renderer → Tauri → Rust
-    // durante o port. Não escreve nada sem ARCADIA_IPC_LOG.
-    if let Ok(path) = std::env::var("ARCADIA_IPC_LOG") {
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let _ = writeln!(file, "{channel} args={}", args.len());
-        }
-    }
-
     match channel {
         // ── Biblioteca e config ──────────────────────────────────────────
         "library:get" => {
@@ -535,6 +546,34 @@ pub async fn dispatch_async(
     channel: &str,
     args: Vec<Value>,
 ) -> Result<Value, IpcError> {
+    let result = dispatch_async_inner(state, shell, channel, args).await;
+    if let Ok(path) = std::env::var("ARCADIA_IPC_LOG") {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let outcome = match &result {
+                Ok(value) => {
+                    let text = value.to_string();
+                    let head: String = text.chars().take(160).collect();
+                    format!("ok {head}")
+                }
+                Err(error) => format!("err {}", error.code),
+            };
+            let _ = writeln!(file, "{channel} -> {outcome}");
+        }
+    }
+    result
+}
+
+async fn dispatch_async_inner(
+    state: &AppState,
+    shell: &impl Shell,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
     // Garante a sessão restaurada antes de qualquer leitura escopada por conta
     // (o boot do renderer pede account:status e library:get em paralelo).
     state.ensure_boot_session().await;
@@ -551,7 +590,121 @@ pub async fn dispatch_async(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "sync:state" => Ok(match state.sync_engine(channel) {
+            Ok(engine) => sync_state_json(&engine.state()),
+            Err(_) => sync_state_json(&SyncState::default()),
+        }),
+        "sync:now" => run_sync(state, shell, channel, SyncMode::Now).await,
+        "sync:full" => run_sync(state, shell, channel, SyncMode::All).await,
+        "sync:all" => sync_all_local(state, shell, channel).await,
+        "sync:deleteAchievement" => sync_delete_achievement(state, channel, args).await,
         _ => dispatch(state, shell, channel, args),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SyncMode {
+    Now,
+    All,
+}
+
+fn sync_state_json(state: &SyncState) -> Value {
+    json!({
+        "lastPullAt": state.last_pull_at,
+        "lastSyncAt": state.last_sync_at,
+        "lastError": state.last_error,
+        "queueLen": state.queue_len
+    })
+}
+
+fn sync_error_json(error: &SyncError) -> Value {
+    json!({
+        "ok": false,
+        "error": error.code(),
+        "retryable": error.is_retryable()
+    })
+}
+
+fn sync_report_json(report: &SyncReport) -> Value {
+    json!({
+        "ok": true,
+        "pushed": report.achievements_pushed,
+        "pulled": report.achievements_pulled,
+        "libraryPulled": report.library_pulled,
+        "libraryPushed": report.library_pushed,
+        "sourcesPulled": report.sources_pulled,
+        "full": report.full
+    })
+}
+
+fn emit_sync_state(shell: &impl Shell, engine: &SyncEngine) {
+    shell.emit("sync:state", sync_state_json(&engine.state()));
+}
+
+async fn run_sync(
+    state: &AppState,
+    shell: &impl Shell,
+    channel: &str,
+    mode: SyncMode,
+) -> Result<Value, IpcError> {
+    let engine = match state.sync_engine(channel) {
+        Ok(engine) => engine,
+        Err(_) => return Ok(json!({ "ok": false, "error": "nao_logado", "retryable": false })),
+    };
+    let result = match mode {
+        SyncMode::Now => engine.sync_now().await,
+        SyncMode::All => engine.sync_all().await,
+    };
+    emit_sync_state(shell, &engine);
+    match result {
+        Ok(report) => {
+            if report.library_changed {
+                shell.emit("library:changed", json!({ "source": "biblioteca" }));
+            }
+            Ok(sync_report_json(&report))
+        }
+        Err(error) => Ok(sync_error_json(&error)),
+    }
+}
+
+async fn sync_all_local(
+    state: &AppState,
+    shell: &impl Shell,
+    channel: &str,
+) -> Result<Value, IpcError> {
+    let engine = match state.sync_engine(channel) {
+        Ok(engine) => engine,
+        Err(_) => return Ok(json!({ "ok": false, "error": "nao_logado", "retryable": false })),
+    };
+    let result = engine.push_achievements_all().await;
+    emit_sync_state(shell, &engine);
+    match result {
+        Ok(outcome) => Ok(json!({ "ok": true, "pushed": outcome.pushed, "synced": outcome.pushed })),
+        Err(error) => Ok(sync_error_json(&error)),
+    }
+}
+
+async fn sync_delete_achievement(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let appid = payload.get("appid").and_then(Value::as_str).unwrap_or_default();
+    let apiname = payload
+        .get("apiname")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if appid.is_empty() || apiname.is_empty() {
+        return Ok(json!({ "ok": false, "error": "parametros_invalidos" }));
+    }
+    let engine = match state.sync_engine(channel) {
+        Ok(engine) => engine,
+        Err(_) => return Ok(json!({ "ok": false, "error": "nao_logado", "retryable": false })),
+    };
+    match engine.delete_achievement(appid, apiname).await {
+        Ok(()) => Ok(json!({ "ok": true })),
+        Err(error) => Ok(sync_error_json(&error)),
     }
 }
 
@@ -870,6 +1023,28 @@ mod tests {
         assert_eq!(stored["wine_arch"], "x32");
         assert!(stored.get("evil_path").is_none(), "chave fora do allowlist não pode ser gravada");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn sync_state_signed_out_is_zeroed() {
+        let state = state();
+        let value = dispatch_async(&state, &MockShell, "sync:state", Vec::new())
+            .await
+            .unwrap();
+        assert!(value["lastPullAt"].is_null());
+        assert!(value["lastSyncAt"].is_null());
+        assert!(value["lastError"].is_null());
+        assert_eq!(value["queueLen"], 0);
+    }
+
+    #[tokio::test]
+    async fn sync_now_signed_out_reports_nao_logado() {
+        let state = state();
+        let value = dispatch_async(&state, &MockShell, "sync:now", Vec::new())
+            .await
+            .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"], "nao_logado");
     }
 
     #[tokio::test]

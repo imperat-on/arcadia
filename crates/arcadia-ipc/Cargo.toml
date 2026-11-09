@@ -10,6 +10,7 @@ serde_json.workspace = true
 arcadia-contracts = { path = "../arcadia-contracts" }
 arcadia-store = { path = "../arcadia-store" }
 arcadia-api = { path = "../arcadia-api" }
+arcadia-sync = { path = "../arcadia-sync" }
 tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
