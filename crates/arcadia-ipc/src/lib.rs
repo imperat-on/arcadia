@@ -991,6 +991,8 @@ async fn dispatch_async_inner(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "account:updateProfile" => account_update_profile(state, channel, args).await,
+        "account:setAvatarBytes" => account_set_avatar_bytes(state, channel, args).await,
         "art:download" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
             let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -1758,6 +1760,166 @@ async fn account_profile(state: &AppState, channel: &str) -> Result<Value, IpcEr
     }))
 }
 
+const PROFILE_FIELDS: [&str; 7] = [
+    "display_name",
+    "summary",
+    "country",
+    "city",
+    "showcase",
+    "background_url",
+    "banner_url",
+];
+
+async fn account_update_profile(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let Some(session) = state.current_session() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(api) = state.api() else {
+        return Err(IpcError::new(
+            "api_unavailable",
+            "cliente do backend indisponível",
+            channel,
+        ));
+    };
+    let Some(user_id) = session.user_id() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let mut patch = Map::new();
+    for field in PROFILE_FIELDS {
+        if let Some(value) = payload.get(field) {
+            patch.insert(field.to_string(), value.clone());
+        }
+    }
+    if patch.is_empty() {
+        return Ok(json!({ "ok": false, "error": "sem_campos" }));
+    }
+    match api
+        .from("profiles")
+        .update(Value::Object(patch))
+        .eq("id", user_id)
+        .execute()
+        .await
+    {
+        Ok(_) => Ok(json!({ "ok": true })),
+        Err(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
+    }
+}
+
+fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() < 12 {
+        return None;
+    }
+    if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Some(".png");
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some(".jpg");
+    }
+    if bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some(".webp");
+    }
+    if bytes.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
+        return Some(".gif");
+    }
+    None
+}
+
+async fn account_set_avatar_bytes(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let Some(session) = state.current_session() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(api) = state.api() else {
+        return Err(IpcError::new(
+            "api_unavailable",
+            "cliente do backend indisponível",
+            channel,
+        ));
+    };
+    let Some(user_id) = session.user_id() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(bytes) = args
+        .first()
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_u64)
+                .filter(|value| *value <= 255)
+                .map(|value| value as u8)
+                .collect::<Vec<u8>>()
+        })
+    else {
+        return Ok(json!({ "ok": false, "error": "avatar_ilegivel" }));
+    };
+    if bytes.is_empty() {
+        return Ok(json!({ "ok": false, "error": "avatar_ilegivel" }));
+    }
+    if bytes.len() > 5 * 1024 * 1024 {
+        return Ok(json!({ "ok": false, "error": "avatar_grande" }));
+    }
+    let Some(extension) = image_extension(&bytes) else {
+        return Ok(json!({ "ok": false, "error": "avatar_nao_imagem" }));
+    };
+    let mime = args
+        .get(1)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(match extension {
+            ".png" => "image/png",
+            ".jpg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => "image/gif",
+        });
+    let name = format!("{user_id}/{}{}", chrono::Utc::now().timestamp_millis(), extension);
+    let base = api.config().url.trim_end_matches('/');
+    let old = api
+        .from("profiles")
+        .select("avatar_url")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .await
+        .ok()
+        .and_then(|row| row.get("avatar_url").and_then(Value::as_str).map(str::to_string));
+
+    if let Err(error) = api
+        .storage_from("avatars")
+        .upload(&name, bytes, mime, false)
+        .await
+    {
+        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
+    }
+    let avatar_url = format!("{base}/storage/v1/object/public/avatars/{name}");
+    if let Err(error) = api
+        .from("profiles")
+        .update(json!({ "avatar_url": avatar_url }))
+        .eq("id", user_id)
+        .execute()
+        .await
+    {
+        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
+    }
+    if let Some(old) = old {
+        let prefix = format!("{base}/storage/v1/object/public/avatars/");
+        if let Some(previous) = old.strip_prefix(&prefix) {
+            if previous != name {
+                let _ = api.storage_from("avatars").remove(&[previous]).await;
+            }
+        }
+    }
+    Ok(json!({ "ok": true, "avatar_url": avatar_url }))
+}
+
 async fn profile_username(api: &ApiClient, session: &Session) -> Option<String> {
     let user_id = session.user_id()?;
     let row = api
@@ -2016,6 +2178,31 @@ mod tests {
         assert_eq!(good["games"][0]["id"], "custom:meu-jogo");
         assert_eq!(good["games"][0]["installed"], true);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn profile_edits_require_session() {
+        let state = state();
+        let update = dispatch_async(
+            &state,
+            &MockShell,
+            "account:updateProfile",
+            vec![json!({ "display_name": "Zyon" })],
+        )
+        .await
+        .unwrap();
+        assert_eq!(update["ok"], false);
+        assert_eq!(update["error"], "nao_logado");
+        let avatar = dispatch_async(
+            &state,
+            &MockShell,
+            "account:setAvatarBytes",
+            vec![json!([1, 2, 3]), json!("image/png"), json!(".png")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(avatar["ok"], false);
+        assert_eq!(avatar["error"], "nao_logado");
     }
 
     #[tokio::test]
