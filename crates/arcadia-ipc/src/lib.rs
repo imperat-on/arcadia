@@ -28,6 +28,8 @@ use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
+use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
+use arcadia_plugins::registry::PluginRegistry;
 use arcadia_media::HltbClient;
 use arcadia_social::community::{CommunityService, PageOptions};
 use arcadia_social::friends::FriendsService;
@@ -88,6 +90,7 @@ pub struct AppState {
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
     pub news: news::NewsCache,
+    plugins: Option<PluginRegistry>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -118,6 +121,7 @@ impl AppState {
                     "desktop".to_string()
                 }
             });
+        let plugins = PluginRegistry::with_standard_builtins(&data_dir, false, false).ok();
         Self {
             data_dir,
             mode: Mutex::new(mode),
@@ -129,6 +133,7 @@ impl AppState {
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
             news: news::NewsCache::default(),
+            plugins,
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -144,6 +149,12 @@ impl AppState {
 
     pub fn api(&self) -> Option<&Arc<ApiClient>> {
         self.api.as_ref()
+    }
+
+    fn plugin_registry(&self, channel: &str) -> Result<&PluginRegistry, IpcError> {
+        self.plugins.as_ref().ok_or_else(|| {
+            IpcError::new("plugins_unavailable", "registro de plugins indisponível", channel)
+        })
     }
 
     /// Eventos de background (launch/monitor) vão para a janela via este sink.
@@ -727,6 +738,55 @@ pub fn dispatch(
         "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
             args.first().and_then(Value::as_str).unwrap_or_default(),
         )),
+        "plugins:list" => {
+            let registry = state.plugin_registry(channel)?;
+            Ok(serde_json::to_value(PluginIpc::new(registry).list())
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:details" => {
+            let registry = state.plugin_registry(channel)?;
+            Ok(serde_json::to_value(PluginIpc::new(registry).details())
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:get" => {
+            let registry = state.plugin_registry(channel)?;
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(serde_json::to_value(PluginIpc::new(registry).get_value(&value))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:register" => {
+            let registry = state.plugin_registry(channel)?;
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(serde_json::to_value(PluginIpc::new(registry).register_value(&value))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:unregister" => {
+            let registry = state.plugin_registry(channel)?;
+            let id = plugin_id_from_ipc(&args.first().cloned().unwrap_or(Value::Null));
+            Ok(serde_json::to_value(registry.unregister(&id))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:enable" => {
+            let registry = state.plugin_registry(channel)?;
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(serde_json::to_value(PluginIpc::new(registry).enable_value(&value))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:disable" => {
+            let registry = state.plugin_registry(channel)?;
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(serde_json::to_value(PluginIpc::new(registry).disable_value(&value))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:verify" => {
+            let registry = state.plugin_registry(channel)?;
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(serde_json::to_value(PluginIpc::new(registry).verify_value(&value))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "plugins:install" | "plugins:remove" => {
+            Ok(json!({ "ok": false, "error": "nao_suportado" }))
+        }
         "integrations:status" => {
             let config = read_config(&state.data_dir);
             Ok(json!({
@@ -1872,6 +1932,25 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn plugins_list_and_invalid_register_use_envelopes() {
+        let dir = std::env::temp_dir().join(format!("arcadia-plugins-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        let list = dispatch(&state, &MockShell, "plugins:list", Vec::new()).unwrap();
+        assert_eq!(list["ok"], true);
+        assert!(list["plugins"].is_array());
+        let registered = dispatch(
+            &state,
+            &MockShell,
+            "plugins:register",
+            vec![json!("C:/nao-existe-arcadia")],
+        )
+        .unwrap();
+        assert_eq!(registered["ok"], false);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

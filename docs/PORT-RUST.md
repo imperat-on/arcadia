@@ -440,6 +440,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Progresso ao vivo de download ainda não é repassado (o arquivo baixa e o caminho é devolvido).
 - `trailer:pickCookies` escolhe o `cookies.txt` e grava `youtube_cookies` no config.
 
+### Marco 14 — plugins (concluído)
+
+- Manifest v1 (id/semver/entry/digest/permissões/aliases), trust Ed25519 (import PEM/DER, canonical payload, verify), registry com digest/tamper/enable/disable/verify e built-ins como flags.
+- IPC `plugins:list/details/get/register/unregister/enable/disable/verify`; `install/remove` legados respondem `nao_suportado`. Nenhum entrypoint é executado.
+- Estado do registry preserva campos desconhecidos e escreve atômico.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -454,9 +460,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB, máscara de segredos, allowlist, cobertura de canais | 31 |
+| `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins, máscara de segredos, allowlist, cobertura de canais | 32 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **715** |
+| **Total** | | **762** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
