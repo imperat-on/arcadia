@@ -433,7 +433,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - IPC: `meta:art` e `meta:text` plugados na composição `MediaService` (Steam → SGDB → IGDB → Xbox → Wallhaven → PSN), `hltb:get` no `HltbClient`, `arte:quadrada`/`arte:logo` com cascata e cache de 30 dias, `art:download` (https-only, remove arte antiga só dentro de `art/`) e `art:pick` (diálogo + cópia para `art/`).
 - `integrations:status` reporta chaves de config reais (Steam/SLSsteam/Heroic).
 - `game:protondb` consulta o resumo público com cache de 24 h (tier/score/deck/url); `profile:stats` usa o maior entre horas da Steam e playtime local.
-- Perfil online: `account:updateProfile` com whitelist e `account:setAvatarBytes` com validação de magic bytes, upload por `<uid>/<ts>.<ext>` e limpeza do avatar antigo.
+- Perfil online: `account:updateProfile` com whitelist; `account:setAvatarBytes`/`account:setAvatar` com magic bytes, upload por `<uid>/<ts>.<ext>` e limpeza do antigo; `account:setBackground` para background/banner (até 25 MiB).
 
 ### Marco 13 — trailers em runtime (concluído)
 

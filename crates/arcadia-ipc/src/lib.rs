@@ -993,6 +993,8 @@ async fn dispatch_async_inner(
         "account:profile" => account_profile(state, channel).await,
         "account:updateProfile" => account_update_profile(state, channel, args).await,
         "account:setAvatarBytes" => account_set_avatar_bytes(state, channel, args).await,
+        "account:setAvatar" => account_set_avatar_path(state, channel, args).await,
+        "account:setBackground" => account_set_background(state, channel, args).await,
         "art:download" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
             let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -1848,6 +1850,173 @@ fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+async fn upload_avatar(
+    api: &ApiClient,
+    user_id: &str,
+    bytes: Vec<u8>,
+    mime: &str,
+    extension: &str,
+) -> Value {
+    let name = format!(
+        "{user_id}/{}{}",
+        chrono::Utc::now().timestamp_millis(),
+        extension
+    );
+    let base = api.config().url.trim_end_matches('/');
+    let old = api
+        .from("profiles")
+        .select("avatar_url")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .await
+        .ok()
+        .and_then(|row| row.get("avatar_url").and_then(Value::as_str).map(str::to_string));
+
+    if let Err(error) = api
+        .storage_from("avatars")
+        .upload(&name, bytes, mime, false)
+        .await
+    {
+        return json!({ "ok": false, "error": api_failure_message(&error) });
+    }
+    let avatar_url = format!("{base}/storage/v1/object/public/avatars/{name}");
+    if let Err(error) = api
+        .from("profiles")
+        .update(json!({ "avatar_url": avatar_url }))
+        .eq("id", user_id)
+        .execute()
+        .await
+    {
+        return json!({ "ok": false, "error": api_failure_message(&error) });
+    }
+    if let Some(old) = old {
+        let prefix = format!("{base}/storage/v1/object/public/avatars/");
+        if let Some(previous) = old.strip_prefix(&prefix) {
+            if previous != name {
+                let _ = api.storage_from("avatars").remove(&[previous]).await;
+            }
+        }
+    }
+    json!({ "ok": true, "avatar_url": avatar_url })
+}
+
+async fn account_set_avatar_path(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let Some(session) = state.current_session() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(api) = state.api() else {
+        return Err(IpcError::new(
+            "api_unavailable",
+            "cliente do backend indisponível",
+            channel,
+        ));
+    };
+    let Some(user_id) = session.user_id() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let raw = args.first().and_then(Value::as_str).unwrap_or_default();
+    let path = raw.strip_prefix("file://").unwrap_or(raw);
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ok(json!({ "ok": false, "error": "avatar_ilegivel" }));
+    };
+    if bytes.len() > 5 * 1024 * 1024 {
+        return Ok(json!({ "ok": false, "error": "avatar_grande" }));
+    }
+    let Some(extension) = image_extension(&bytes) else {
+        return Ok(json!({ "ok": false, "error": "avatar_nao_imagem" }));
+    };
+    let mime = match extension {
+        ".png" => "image/png",
+        ".jpg" => "image/jpeg",
+        ".webp" => "image/webp",
+        _ => "image/gif",
+    };
+    Ok(upload_avatar(api, user_id, bytes, mime, extension).await)
+}
+
+fn mime_for_extension(extension: &str) -> &'static str {
+    match extension {
+        ".png" => "image/png",
+        ".jpg" | ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".mp4" | ".m4v" => "video/mp4",
+        ".webm" => "video/webm",
+        ".mov" => "video/quicktime",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn account_set_background(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let Some(session) = state.current_session() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(api) = state.api() else {
+        return Err(IpcError::new(
+            "api_unavailable",
+            "cliente do backend indisponível",
+            channel,
+        ));
+    };
+    let Some(user_id) = session.user_id() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let raw = args.first().and_then(Value::as_str).unwrap_or_default();
+    let path = raw.strip_prefix("file://").unwrap_or(raw);
+    let kind = args.get(1).and_then(Value::as_str).unwrap_or("background");
+    let field = if kind == "banner" {
+        "banner_url"
+    } else {
+        "background_url"
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ok(json!({ "ok": false, "error": "arquivo_ilegivel" }));
+    };
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Ok(json!({ "ok": false, "error": "arquivo_grande" }));
+    }
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!(".{}", value.to_ascii_lowercase()))
+        .unwrap_or_else(|| ".png".to_string());
+    let mime = mime_for_extension(&extension);
+    let name = format!(
+        "{user_id}/{}-{}{}",
+        if kind == "banner" { "banner" } else { "background" },
+        chrono::Utc::now().timestamp_millis(),
+        extension
+    );
+    let base = api.config().url.trim_end_matches('/');
+    if let Err(error) = api
+        .storage_from("avatars")
+        .upload(&name, bytes, mime, false)
+        .await
+    {
+        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
+    }
+    let url = format!("{base}/storage/v1/object/public/avatars/{name}");
+    if let Err(error) = api
+        .from("profiles")
+        .update(json!({ field: url }))
+        .eq("id", user_id)
+        .execute()
+        .await
+    {
+        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
+    }
+    Ok(json!({ "ok": true, "url": url }))
+}
+
 async fn account_set_avatar_bytes(
     state: &AppState,
     channel: &str,
@@ -1899,44 +2068,7 @@ async fn account_set_avatar_bytes(
             ".webp" => "image/webp",
             _ => "image/gif",
         });
-    let name = format!("{user_id}/{}{}", chrono::Utc::now().timestamp_millis(), extension);
-    let base = api.config().url.trim_end_matches('/');
-    let old = api
-        .from("profiles")
-        .select("avatar_url")
-        .eq("id", user_id)
-        .maybe_single()
-        .execute()
-        .await
-        .ok()
-        .and_then(|row| row.get("avatar_url").and_then(Value::as_str).map(str::to_string));
-
-    if let Err(error) = api
-        .storage_from("avatars")
-        .upload(&name, bytes, mime, false)
-        .await
-    {
-        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
-    }
-    let avatar_url = format!("{base}/storage/v1/object/public/avatars/{name}");
-    if let Err(error) = api
-        .from("profiles")
-        .update(json!({ "avatar_url": avatar_url }))
-        .eq("id", user_id)
-        .execute()
-        .await
-    {
-        return Ok(json!({ "ok": false, "error": api_failure_message(&error) }));
-    }
-    if let Some(old) = old {
-        let prefix = format!("{base}/storage/v1/object/public/avatars/");
-        if let Some(previous) = old.strip_prefix(&prefix) {
-            if previous != name {
-                let _ = api.storage_from("avatars").remove(&[previous]).await;
-            }
-        }
-    }
-    Ok(json!({ "ok": true, "avatar_url": avatar_url }))
+    Ok(upload_avatar(api, user_id, bytes, mime, extension).await)
 }
 
 async fn profile_username(api: &ApiClient, session: &Session) -> Option<String> {
@@ -2222,6 +2354,24 @@ mod tests {
         .unwrap();
         assert_eq!(avatar["ok"], false);
         assert_eq!(avatar["error"], "nao_logado");
+        let avatar_path = dispatch_async(
+            &state,
+            &MockShell,
+            "account:setAvatar",
+            vec![json!("C:/nao-existe.png")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(avatar_path["ok"], false);
+        let background = dispatch_async(
+            &state,
+            &MockShell,
+            "account:setBackground",
+            vec![json!("C:/nao-existe.png"), json!("banner")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(background["ok"], false);
     }
 
     #[tokio::test]
