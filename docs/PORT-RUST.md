@@ -400,6 +400,11 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `news:game` devolve vazio até o Steam news ser portado.
 - Testes cobrem parser, filtro anti-hardware/oferta, imagens e estabilidade do id.
 
+### Marco 9 — escala automática e estado de updater (concluído)
+
+- Fórmula do `ui-scale.js` portada: menor dimensão lógica contra 1920×1080, clamp 1..1.7, `ARCADIA_UI_SCALE` como override (0.7..2), zoom `base da skin × escala` (0.7..2.4), `ui:escala {escala, capa}` reemitido no boot, no resize e na troca de modo.
+- Canais de update respondem estado honesto "sem suporte" enquanto o updater não é portado, em vez de erro de canal.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -413,7 +418,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias, máscara de segredos, allowlist, cobertura de canais | 24 |
-| **Total** | | **425** |
+| `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
+| **Total** | | **427** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

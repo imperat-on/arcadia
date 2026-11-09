@@ -592,6 +592,36 @@ pub fn dispatch(
             )))
         }
         "app:diagnostics" => Ok(diagnostics::collect(&state.data_dir, APP_VERSION)),
+        // Updater ainda não portado: a UI recebe o estado "sem suporte" em vez
+        // de um erro de canal, e não oferece um download que não existe.
+        "update:packaged:state" => Ok(json!({
+            "canal": "fonte",
+            "suportado": false,
+            "versaoAtual": APP_VERSION,
+            "versaoNova": null,
+            "tamanho": null,
+            "fase": "ocioso",
+            "progresso": 0,
+            "erro": null,
+            "erroDeFundo": false,
+            "erroAcao": null,
+            "jaAvisado": false,
+            "jogoRodando": false
+        })),
+        "update:state" => Ok(json!({
+            "canal": "fonte",
+            "suportado": false,
+            "versao": APP_VERSION,
+            "disponivel": false
+        })),
+        "update:check" => Ok(json!({ "ok": false, "error": "nao_suportado" })),
+        "update:apply" => Ok(json!({ "ok": false, "error": "nao_suportado" })),
+        "update:packaged:check" => Ok(json!({
+            "ok": false, "disponivel": false, "motivo": "fonte"
+        })),
+        "update:packaged:download" => Ok(json!({ "ok": false, "erro": "fonte" })),
+        "update:packaged:install" => Ok(json!({ "ok": false, "erro": "fonte" })),
+        "update:packaged:jaAvisado" => Ok(json!({ "ok": false })),
         "app:diagnostico" => {
             let read_state = |name: &str| {
                 std::fs::read_to_string(

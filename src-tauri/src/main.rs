@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -167,6 +167,50 @@ fn dialog_result(path: Option<tauri_plugin_dialog::FilePath>) -> Value {
     }
 }
 
+/// Fator automático do `ui-scale.js`: menor dimensão lógica contra 1920×1080,
+/// limitado a 1..1.7. `ARCADIA_UI_SCALE` sobrepõe (0.7..2).
+fn automatic_scale(width: f64, height: f64) -> f64 {
+    let ratio = (width / 1920.0).min(height / 1080.0);
+    if !ratio.is_finite() || ratio <= 0.0 {
+        return 1.0;
+    }
+    ratio.clamp(1.0, 1.7)
+}
+
+fn effective_scale(width: f64, height: f64) -> f64 {
+    if let Ok(value) = std::env::var("ARCADIA_UI_SCALE") {
+        let text = value.trim().to_ascii_lowercase();
+        if !text.is_empty() && text != "auto" {
+            if let Ok(number) = text.parse::<f64>() {
+                if number > 0.0 {
+                    return number.clamp(0.7, 2.0);
+                }
+            }
+        }
+    }
+    automatic_scale(width, height)
+}
+
+fn apply_ui_scale(window: &WebviewWindow) {
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let factor = window.scale_factor().unwrap_or(1.0);
+    let width = size.width as f64 / factor;
+    let height = size.height as f64 / factor;
+    let scale = effective_scale(width, height);
+    let mode = window
+        .app_handle()
+        .try_state::<AppState>()
+        .map(|state| state.mode())
+        .unwrap_or_else(|| "desktop".to_string());
+    let base = if mode == "console" { 1.3 } else { 1.2 };
+    let zoom = (base * scale).clamp(0.7, 2.4);
+    let _ = window.set_zoom(zoom);
+    let capa = (1.6 * scale).clamp(0.9, 1.9);
+    let _ = window.emit("ui:escala", json!({ "escala": scale, "capa": capa }));
+}
+
 fn pick_profile_image(window: &WebviewWindow, state: &AppState, args: &[Value]) -> Value {
     let kind = args.first().and_then(Value::as_str).unwrap_or("avatar");
     let is_background = kind == "background" || kind == "banner";
@@ -214,6 +258,27 @@ fn pick_profile_image(window: &WebviewWindow, state: &AppState, args: &[Value]) 
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
     json!({ "ok": true, "path": format!("{clean}?t={stamp}") })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{automatic_scale, effective_scale};
+
+    #[test]
+    fn automatic_scale_clamps_to_reference_range() {
+        assert_eq!(automatic_scale(1920.0, 1080.0), 1.0);
+        assert_eq!(automatic_scale(960.0, 540.0), 1.0);
+        assert!((automatic_scale(2560.0, 1440.0) - 1.333).abs() < 0.01);
+        assert_eq!(automatic_scale(3840.0, 2160.0), 1.7);
+    }
+
+    #[test]
+    fn effective_scale_uses_automatic_without_env() {
+        // Sem ARCADIA_UI_SCALE no ambiente de teste.
+        if std::env::var_os("ARCADIA_UI_SCALE").is_none() {
+            assert_eq!(effective_scale(1920.0, 1080.0), 1.0);
+        }
+    }
 }
 
 fn main() {
@@ -299,7 +364,7 @@ fn main() {
             });
             let init_script = format!("globalThis.__ARCADIA_BOOT__ = {boot};");
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("Arcadia")
             .inner_size(1600.0, 900.0)
             .min_inner_size(960.0, 540.0)
@@ -314,6 +379,24 @@ fn main() {
                 }
             })
             .build()?;
+
+            let scale_window = window.clone();
+            window.on_window_event(move |event| {
+                if matches!(
+                    event,
+                    WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+                ) {
+                    apply_ui_scale(&scale_window);
+                }
+            });
+            apply_ui_scale(&window);
+            // O React lazy pode montar depois do primeiro Finished; reemite uma
+            // vez com a janela estável para o console receber capa/escala.
+            let late_window = window.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+                apply_ui_scale(&late_window);
+            });
 
             Ok(())
         })
