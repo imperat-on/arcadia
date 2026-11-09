@@ -6,6 +6,7 @@ pub mod catalog_service;
 pub mod channels;
 pub mod diagnostics;
 pub mod download_service;
+pub mod fixes_service;
 pub mod launch_runtime;
 pub mod media_service;
 pub mod news;
@@ -1214,6 +1215,81 @@ pub fn dispatch(
                 Err(error) => Ok(error.to_value()),
             }
         }
+        "fixes:status" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.status(appid)).unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:installed" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let appid = payload.get("appid").and_then(Value::as_str).unwrap_or_default();
+            let install_path = payload
+                .get("installPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if install_path.is_empty() {
+                return Ok(json!({ "ok": true, "installed": false }));
+            }
+            if let Err(error) = fixes_service::require_install_path(&payload) {
+                return Ok(error);
+            }
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.installed(appid, Some(install_path)))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:launcherRedirect" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            if let Err(error) = fixes_service::require_install_path(&payload) {
+                return Ok(error);
+            }
+            let install_path = payload
+                .get("installPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.launcher_redirect(Some(install_path)))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:setRyuuAuth" => {
+            let key = args.first().and_then(Value::as_str).unwrap_or_default();
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.set_ryuu_auth(key))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:ryuuAuthStatus" => {
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.ryuu_auth_status())
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:clearRyuuAuth" => {
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.clear_ryuu_auth())
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:cancel" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.cancel(appid))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:unfix" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            if let Err(error) = fixes_service::require_install_path(&payload) {
+                return Ok(error);
+            }
+            let appid = payload.get("appid").and_then(Value::as_str).unwrap_or_default();
+            let install_path = payload
+                .get("installPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let engine = fixes_service::empty_engine(state);
+            Ok(serde_json::to_value(engine.unfix(appid, Some(install_path)))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "fixes:apply" => Ok(json!({
+            "ok": false,
+            "error": "executor_nao_portado"
+        })),
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
             let appid = steam_service::normalize_appid(raw);
@@ -1506,6 +1582,20 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "fixes:check" => {
+            let appid = steam_service::normalize_appid(
+                args.first().and_then(Value::as_str).unwrap_or_default(),
+            );
+            if appid.is_empty() {
+                return Ok(json!({ "ok": false }));
+            }
+            let Some(catalog) = fixes_service::catalog(state).await else {
+                return Ok(json!({ "ok": false, "error": "catalogo_indisponivel" }));
+            };
+            let engine = fixes_service::engine(state, catalog);
+            Ok(serde_json::to_value(engine.check(&appid))
+                .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "retroachievements:login" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));

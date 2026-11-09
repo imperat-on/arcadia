@@ -21,6 +21,7 @@ arcadia-achievements = { path = "../arcadia-achievements" }
 arcadia-emulators = { path = "../arcadia-emulators" }
 arcadia-retro = { path = "../arcadia-retro" }
 arcadia-steamstore = { path = "../arcadia-steamstore" }
+arcadia-fixes = { path = "../arcadia-fixes" }
 arcadia-download = { path = "../arcadia-download" }
 arcadia-ra = { path = "../arcadia-ra" }
 fs2 = "0.4"

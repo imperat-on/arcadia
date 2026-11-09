@@ -503,7 +503,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - Catálogo de fixes/ryuu, engine de check/apply/status/cancel/unfix, launcher redirect, auth Ryuu mascarada e downloads (planos/executor injetável).
 - Instalação transacional com backup/rollback/idempotência, extração de arquivos com rejeição de traversal/ADS/reservados e manifests de estado.
-- 96 testes de segurança e contrato. O executor real (download/7z) e o fetch de catálogo ficam para o IPC.
+- 96 testes de segurança e contrato. IPC: `fixes:check/status/installed/launcherRedirect/setRyuuAuth/ryuuAuthStatus/clearRyuuAuth/cancel/unfix` plugados; `fixes:apply` responde `executor_nao_portado` até o executor de download/7z.
 
 ### Portes puros já verdes
 
