@@ -139,6 +139,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -160,6 +161,7 @@ dependencies = [
  "arcadia-steamstore",
  "arcadia-store",
  "arcadia-sync",
+ "base64 0.23.1",
  "chrono",
  "fs2",
  "regex",

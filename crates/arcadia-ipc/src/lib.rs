@@ -1543,6 +1543,46 @@ async fn dispatch_async_inner(
                 Err(error) => Ok(json!({ "ok": false, "error": error })),
             }
         }
+        "avatar:load" => {
+            let url = args.first().and_then(Value::as_str).unwrap_or_default();
+            if !(url.starts_with("http://") || url.starts_with("https://")) {
+                return Ok(json!({ "ok": false }));
+            }
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build();
+            let Ok(client) = client else {
+                return Ok(json!({ "ok": false }));
+            };
+            let response = match client
+                .get(url)
+                .header(reqwest::header::ACCEPT, "image/*")
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => return Ok(json!({ "ok": false, "error": error.to_string() })),
+            };
+            if !response.status().is_success() {
+                return Ok(json!({ "ok": false, "error": format!("HTTP {}", response.status()) }));
+            }
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.split(';').next().unwrap_or("image/gif").to_string())
+                .unwrap_or_else(|| "image/gif".to_string());
+            let bytes = match response.bytes().await {
+                Ok(bytes) => bytes,
+                Err(error) => return Ok(json!({ "ok": false, "error": error.to_string() })),
+            };
+            if bytes.len() > 5 * 1024 * 1024 {
+                return Ok(json!({ "ok": false, "error": "avatar_grande" }));
+            }
+            use base64::Engine;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            Ok(json!({ "ok": true, "src": format!("data:{content_type};base64,{encoded}") }))
+        }
         "store:search" => {
             let query = args.first().and_then(Value::as_str).unwrap_or_default();
             let client = state.store_client(channel)?;
@@ -3081,6 +3121,20 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(background["ok"], false);
+    }
+
+    #[tokio::test]
+    async fn avatar_load_rejects_non_http() {
+        let state = state();
+        let value = dispatch_async(
+            &state,
+            &MockShell,
+            "avatar:load",
+            vec![json!("file:///etc/passwd")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
     }
 
     #[tokio::test]
