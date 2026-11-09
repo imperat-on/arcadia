@@ -436,6 +436,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `yt-dlp` descoberto por `YTDLP_PATH`/PATH; `trailer:search`, `trailer:streamUrl`, `trailer:download`, `trailer:downloadUrl` e `trailer:downloadAll` executam com os argv do crate de mídia.
 - Cookies vêm de `youtube_cookies` (config) ou `youtube_cookies.txt`; caminho local devolve `file://`; ausência de `yt-dlp` vira erro claro, sem processo fantasma.
 - Progresso ao vivo de download ainda não é repassado (o arquivo baixa e o caminho é devolvido).
+- `trailer:pickCookies` escolhe o `cookies.txt` e grava `youtube_cookies` no config.
 
 ### Portes puros já verdes
 

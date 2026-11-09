@@ -120,6 +120,25 @@ fn handle_shell_channel(
         ))),
         "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
         "art:pick" => Some(Ok(pick_art(window, state, args))),
+        "trailer:pickCookies" => {
+            let Some(picked) = window
+                .dialog()
+                .file()
+                .add_filter("Cookies", &["txt"])
+                .blocking_pick_file()
+            else {
+                return Some(Ok(json!({ "ok": false })));
+            };
+            let Ok(path) = picked.into_path() else {
+                return Some(Ok(json!({ "ok": false })));
+            };
+            let text = path.to_string_lossy().into_owned();
+            let _ = arcadia_store::config::write_config_patch(
+                &state.data_dir,
+                &json!({ "youtube_cookies": text }),
+            );
+            Some(Ok(json!({ "ok": true, "path": path.to_string_lossy() })))
+        }
         "app:diagnosticsExport" => {
             let Some(directory) = window.dialog().file().blocking_pick_folder() else {
                 return Some(Ok(json!({ "ok": false, "canceled": true })));
