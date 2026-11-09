@@ -453,7 +453,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `CatalogClient` com espelho em disco, ETag/304, dedupe, timeouts 5/30 s, 401→refresh→retry e fallback exato.
 - `DebridClient` para Real-Debrid/TorBox/AllDebrid/Premiumize + resolvers livres, seleção de maior arquivo, magnet/webdl e tokens redigidos.
 - `SourceRegistry`: CRUD com ETag/cache, índice, matcher completo de títulos, `getGame`, envelopes e helpers de `push/pull_sources`.
-- 71 testes (unit + wiremock). IPC de sources/debrid é o próximo passo.
+- 71 testes (unit + wiremock). IPC plugado: `sources:list/add/remove/sync/search/game` e `debrid:status` (token configurado), com registry por conta e cache global.
 
 ### Portes puros já verdes
 

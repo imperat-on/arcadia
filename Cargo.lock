@@ -138,6 +138,7 @@ name = "arcadia-ipc"
 version = "0.1.0"
 dependencies = [
  "arcadia-api",
+ "arcadia-catalog",
  "arcadia-contracts",
  "arcadia-launch",
  "arcadia-media",

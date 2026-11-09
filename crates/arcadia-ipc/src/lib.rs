@@ -28,6 +28,9 @@ use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
+use arcadia_catalog::hosters::DebridClient;
+use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
+use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
 use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
 use arcadia_plugins::registry::PluginRegistry;
 use arcadia_media::HltbClient;
@@ -91,6 +94,7 @@ pub struct AppState {
     pub launch: LaunchRuntime,
     pub news: news::NewsCache,
     plugins: Option<PluginRegistry>,
+    sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -134,6 +138,7 @@ impl AppState {
             launch: LaunchRuntime::new(),
             news: news::NewsCache::default(),
             plugins,
+            sources: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -149,6 +154,30 @@ impl AppState {
 
     pub fn api(&self) -> Option<&Arc<ApiClient>> {
         self.api.as_ref()
+    }
+
+    fn source_registry(&self, channel: &str) -> Result<Arc<SourceRegistry>, IpcError> {
+        let account = self.account().unwrap_or_default();
+        if let Some((cached, registry)) = lock(&self.sources).as_ref() {
+            if cached == &account {
+                return Ok(Arc::clone(registry));
+            }
+        }
+        let api = self.api().ok_or_else(|| {
+            IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+        })?;
+        let registry_dir = match self.account() {
+            Some(user) => arcadia_store::accounts::account_dir(&self.data_dir, &user),
+            None => self.data_dir.clone(),
+        };
+        let storage = FsSourceStorage::with_registry(&self.data_dir, registry_dir);
+        let fetcher = CatalogFetcher::new(api.http().clone());
+        let registry = Arc::new(SourceRegistry::new(
+            Arc::new(storage),
+            Arc::new(fetcher),
+        ));
+        *lock(&self.sources) = Some((account, Arc::clone(&registry)));
+        Ok(registry)
     }
 
     fn plugin_registry(&self, channel: &str) -> Result<&PluginRegistry, IpcError> {
@@ -738,6 +767,24 @@ pub fn dispatch(
         "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
             args.first().and_then(Value::as_str).unwrap_or_default(),
         )),
+        "debrid:status" => {
+            let Some(api) = state.api() else {
+                return Ok(json!({ "ok": true, "configured": false }));
+            };
+            let client = DebridClient::new(Arc::new(CatalogFetcher::new(api.http().clone())));
+            client.set_config_json(&read_config(&state.data_dir));
+            Ok(json!({ "ok": true, "configured": client.configured() }))
+        }
+        "sources:list" => {
+            let registry = state.source_registry(channel)?;
+            Ok(json!({ "ok": true, "sources": registry.list() }))
+        }
+        "sources:remove" => {
+            let registry = state.source_registry(channel)?;
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(serde_json::to_value(registry.remove_source(id))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
         "plugins:list" => {
             let registry = state.plugin_registry(channel)?;
             Ok(serde_json::to_value(PluginIpc::new(registry).list())
@@ -1040,6 +1087,38 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "sources:add" => {
+            let registry = state.source_registry(channel)?;
+            let url = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(serde_json::to_value(registry.add_source(url).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "sources:sync" => {
+            let registry = state.source_registry(channel)?;
+            Ok(serde_json::to_value(registry.sync_sources().await)
+                .unwrap_or_else(|_| json!({ "ok": false, "results": [] })))
+        }
+        "sources:search" => {
+            let registry = state.source_registry(channel)?;
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let query = payload.get("query").and_then(Value::as_str).unwrap_or_default();
+            let limit = payload
+                .get("limit")
+                .and_then(Value::as_f64)
+                .filter(|value| *value > 0.0)
+                .map(|value| value as usize)
+                .unwrap_or(40);
+            Ok(json!({
+                "ok": true,
+                "results": registry.search(query, limit).await
+            }))
+        }
+        "sources:game" => {
+            let registry = state.source_registry(channel)?;
+            let reference = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(serde_json::to_value(registry.get_game(reference).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "game:protondb" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
