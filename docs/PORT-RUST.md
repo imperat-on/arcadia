@@ -365,6 +365,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
+### Build de produção
+
+`cargo build --release --features custom-protocol` (ou `tauri build`). O Tauri só embarca os assets da UI e ignora o `devUrl` com essa feature — sem ela, o release abre `ERR_CONNECTION_REFUSED` em `localhost:1420`. Verificado nesta máquina: binário release abriu o desktop launcher logado, com assets embarcados e o Vite desligado.
+
 ### Pendências conhecidas da camada de rede
 
 - Realtime WebSocket (`channel()`/`phx_join`) ainda não portado — biblioteca/friends/sync vão precisar de um componente próprio.
