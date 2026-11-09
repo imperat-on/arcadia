@@ -359,6 +359,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Engine criado sob demanda com `AccountScope::with_active`; troca de sessão invalida o engine.
 - **Prova de boot:** `sync:state` leu `lastPullAt=111 / lastSyncAt=222` do `contas/zyon/sync_state.json`; `library:get` devolveu global + conta; `account:status` devolveu sessão segura sem tokens.
 
+### Marco 3 — amigos e comunidade (concluído)
+
+- `arcadia-social`: busca/pedidos/lista/perfil/conquistas/remoção de amigos e reviews/coleções da comunidade, com os mesmos paths, queries, bodies e envelopes do cliente Node.
+- Cache por conta: `friends_cache.json`, `friend_achievements_cache.json`, `community_cache.json`, com TTLs e fallback offline.
+- IPC plugado: 8 canais `friends:*` e 17 canais `community:*`; erros saem como envelope seguro, não como erro de transporte.
+- **Prova de boot:** `friends:list` chamou o backend real com sessão de teste e devolveu `{ok:false,error:"Invalid Refresh Token...",deCache:false}` — caminho de rede/auth/envelope comprovado sem escrita.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -368,9 +375,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
+| `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync plugados, máscara de segredos, allowlist, cobertura de canais | 11 |
-| **Total** | | **278** |
+| `arcadia-ipc` | dispatcher, auth + sync + social plugados, máscara de segredos, allowlist, cobertura de canais | 11 |
+| **Total** | | **316** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

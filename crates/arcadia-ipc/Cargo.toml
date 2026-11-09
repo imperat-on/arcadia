@@ -11,6 +11,7 @@ arcadia-contracts = { path = "../arcadia-contracts" }
 arcadia-store = { path = "../arcadia-store" }
 arcadia-api = { path = "../arcadia-api" }
 arcadia-sync = { path = "../arcadia-sync" }
+arcadia-social = { path = "../arcadia-social" }
 tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]

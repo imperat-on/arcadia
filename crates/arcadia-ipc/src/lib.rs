@@ -17,6 +17,8 @@ use arcadia_api::{ApiClient, Error as ApiFailure};
 use arcadia_store::accounts::AccountScope;
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
+use arcadia_social::community::{CommunityService, PageOptions};
+use arcadia_social::friends::FriendsService;
 use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -68,6 +70,8 @@ pub struct AppState {
     session: Mutex<Option<Session>>,
     account: Mutex<Option<String>>,
     sync: Mutex<Option<SyncEngine>>,
+    friends: Mutex<Option<FriendsService>>,
+    community: Mutex<Option<CommunityService>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -95,6 +99,8 @@ impl AppState {
             session: Mutex::new(None),
             account: Mutex::new(None),
             sync: Mutex::new(None),
+            friends: Mutex::new(None),
+            community: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -127,8 +133,10 @@ impl AppState {
     }
 
     fn install_session_memory(&self, session: &Session) {
-        // Troca de conta invalida o engine: o escopo é imutável por sessão.
+        // Troca de conta invalida engines/serviços: escopo é imutável por sessão.
         *lock(&self.sync) = None;
+        *lock(&self.friends) = None;
+        *lock(&self.community) = None;
         *lock(&self.account) = account_from_session(session);
         *lock(&self.session) = Some(session.clone());
     }
@@ -148,6 +156,38 @@ impl AppState {
         let engine = SyncEngine::new((**api).clone(), scope);
         *lock(&self.sync) = Some(engine.clone());
         Ok(engine)
+    }
+
+    fn friends_service(&self, channel: &str) -> Result<FriendsService, IpcError> {
+        if let Some(service) = lock(&self.friends).clone() {
+            return Ok(service);
+        }
+        let api = self.api().ok_or_else(|| {
+            IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+        })?;
+        let account = self
+            .account()
+            .ok_or_else(|| IpcError::new("nao_logado", "sessão ausente", channel))?;
+        let scope = AccountScope::with_active(self.data_dir.clone(), Some(account.as_str()));
+        let service = FriendsService::new((**api).clone(), scope);
+        *lock(&self.friends) = Some(service.clone());
+        Ok(service)
+    }
+
+    fn community_service(&self, channel: &str) -> Result<CommunityService, IpcError> {
+        if let Some(service) = lock(&self.community).clone() {
+            return Ok(service);
+        }
+        let api = self.api().ok_or_else(|| {
+            IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+        })?;
+        let account = self
+            .account()
+            .ok_or_else(|| IpcError::new("nao_logado", "sessão ausente", channel))?;
+        let scope = AccountScope::with_active(self.data_dir.clone(), Some(account.as_str()));
+        let service = CommunityService::new((**api).clone(), scope);
+        *lock(&self.community) = Some(service.clone());
+        Ok(service)
     }
 
     /// Instala a sessão salva no cliente HTTP uma única vez por boot.
@@ -188,6 +228,8 @@ impl AppState {
     fn forget_session(&self) {
         let _ = arcadia_store::session::clear_session(&self.data_dir);
         *lock(&self.sync) = None;
+        *lock(&self.friends) = None;
+        *lock(&self.community) = None;
         *lock(&self.session) = None;
         *lock(&self.account) = None;
     }
@@ -590,6 +632,28 @@ async fn dispatch_async_inner(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "friends:search"
+        | "friends:send"
+        | "friends:accept"
+        | "friends:cancel"
+        | "friends:list"
+        | "friends:achievements"
+        | "friends:profile"
+        | "friends:remove" => Ok(friends_channel(state, channel, args).await),
+        "community:reviews"
+        | "community:review:create"
+        | "community:review:update"
+        | "community:review:remove"
+        | "community:review:report"
+        | "community:collections"
+        | "community:collection:get"
+        | "community:collection:create"
+        | "community:collection:update"
+        | "community:collection:remove"
+        | "community:collection:item:add"
+        | "community:collection:item:replace"
+        | "community:collection:item:remove"
+        | "community:collection:report" => Ok(community_channel(state, channel, args).await),
         "sync:state" => Ok(match state.sync_engine(channel) {
             Ok(engine) => sync_state_json(&engine.state()),
             Err(_) => sync_state_json(&SyncState::default()),
@@ -681,6 +745,127 @@ async fn sync_all_local(
     match result {
         Ok(outcome) => Ok(json!({ "ok": true, "pushed": outcome.pushed, "synced": outcome.pushed })),
         Err(error) => Ok(sync_error_json(&error)),
+    }
+}
+
+fn arg_string(args: &[Value], index: usize) -> String {
+    args.get(index)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn arg_value(args: &[Value], index: usize) -> Value {
+    args.get(index).cloned().unwrap_or_else(|| json!({}))
+}
+
+async fn friends_channel(state: &AppState, channel: &str, args: Vec<Value>) -> Value {
+    let service = match state.friends_service(channel) {
+        Ok(service) => service,
+        Err(_) => return json!({ "ok": false, "error": "nao_logado" }),
+    };
+    let result = match channel {
+        "friends:search" => service.search(&arg_string(&args, 0)).await,
+        "friends:send" => service.send(&arg_string(&args, 0)).await,
+        "friends:accept" => service.accept(&arg_string(&args, 0)).await,
+        "friends:cancel" => service.cancel(&arg_string(&args, 0)).await,
+        "friends:list" => {
+            let forcar = arg_value(&args, 0)
+                .get("forcar")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            service.list(forcar).await
+        }
+        "friends:achievements" => {
+            service.friend_achievements_cached(&arg_string(&args, 0)).await
+        }
+        "friends:profile" => service.friend_profile(&arg_string(&args, 0)).await,
+        "friends:remove" => service.remove_friend(&arg_string(&args, 0)).await,
+        _ => return json!({ "ok": false, "error": "canal_desconhecido" }),
+    };
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            let mut envelope = error.to_friends_envelope();
+            if channel == "friends:list" {
+                if let Some(object) = envelope.as_object_mut() {
+                    object.insert("deCache".into(), Value::Bool(false));
+                }
+            }
+            envelope
+        }
+    }
+}
+
+async fn community_channel(state: &AppState, channel: &str, args: Vec<Value>) -> Value {
+    let service = match state.community_service(channel) {
+        Ok(service) => service,
+        Err(_) => {
+            return json!({
+                "ok": false,
+                "error": "nao_logado",
+                "code": "nao_logado"
+            })
+        }
+    };
+    let result = match channel {
+        "community:reviews" => {
+            let appid = arg_string(&args, 0);
+            let options = PageOptions::from_value(&arg_value(&args, 1));
+            service.list_reviews(&appid, &options).await
+        }
+        "community:review:create" => service.create_review(&arg_value(&args, 0)).await,
+        "community:review:update" => {
+            service
+                .update_review(&arg_string(&args, 0), &arg_value(&args, 1))
+                .await
+        }
+        "community:review:remove" => service.remove_review(&arg_string(&args, 0)).await,
+        "community:review:report" => {
+            service
+                .report_review(&arg_string(&args, 0), &arg_value(&args, 1))
+                .await
+        }
+        "community:collections" => {
+            let options = PageOptions::from_value(&arg_value(&args, 0));
+            service.list_collections(&options).await
+        }
+        "community:collection:get" => service.get_collection(&arg_string(&args, 0)).await,
+        "community:collection:create" => service.create_collection(&arg_value(&args, 0)).await,
+        "community:collection:update" => {
+            service
+                .update_collection(&arg_string(&args, 0), &arg_value(&args, 1))
+                .await
+        }
+        "community:collection:remove" => service.remove_collection(&arg_string(&args, 0)).await,
+        "community:collection:item:add" => {
+            service
+                .add_collection_item(&arg_string(&args, 0), &arg_string(&args, 1))
+                .await
+        }
+        "community:collection:item:replace" => {
+            let id = arg_string(&args, 0);
+            let items = arg_value(&args, 1)
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            service.replace_collection_items(&id, &items).await
+        }
+        "community:collection:item:remove" => {
+            service
+                .remove_collection_item(&arg_string(&args, 0), &arg_string(&args, 1))
+                .await
+        }
+        "community:collection:report" => {
+            service
+                .report_collection(&arg_string(&args, 0), &arg_value(&args, 1))
+                .await
+        }
+        _ => return json!({ "ok": false, "error": "canal_desconhecido" }),
+    };
+    match result {
+        Ok(value) => value,
+        Err(error) => error.to_community_envelope(),
     }
 }
 

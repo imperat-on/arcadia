@@ -99,6 +99,7 @@ version = "0.1.0"
 dependencies = [
  "arcadia-api",
  "arcadia-contracts",
+ "arcadia-social",
  "arcadia-store",
  "arcadia-sync",
  "serde",
@@ -115,6 +116,21 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "arcadia-social"
+version = "0.1.0"
+dependencies = [
+ "arcadia-api",
+ "arcadia-contracts",
+ "arcadia-store",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "wiremock",
 ]
 
 [[package]]
