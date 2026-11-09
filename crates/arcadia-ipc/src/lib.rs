@@ -779,6 +779,13 @@ pub fn dispatch(
 ) -> Result<Value, IpcError> {
     match channel {
         // ── Biblioteca e config ──────────────────────────────────────────
+        "meta:rebuild" => {
+            let _ = std::fs::remove_file(state.data_dir.join("meta_cache.json"));
+            Ok(json_array(read_games(
+                &state.data_dir,
+                state.account().as_deref(),
+            )))
+        }
         "library:refresh" => {
             let games = read_games(&state.data_dir, state.account().as_deref());
             Ok(json_array(games))
