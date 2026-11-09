@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod download_service;
 pub mod fixes_service;
 pub mod launch_runtime;
+pub mod legendary_service;
 pub mod media_service;
 pub mod news;
 pub mod protondb;
@@ -1418,6 +1419,8 @@ pub fn dispatch(
             }
             Ok(Value::Array(items))
         }
+        "runner:legendary:status" => Ok(legendary_service::status(state)),
+        "runner:legendary:setup" => Ok(legendary_service::setup_not_ported()),
         "wine:list" => Ok(wine_service::wine_list(state)),
         "test:toast" => {
             let platinum = args
@@ -1716,6 +1719,7 @@ async fn dispatch_async_inner(
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
         }
+        "runner:legendary:library" => Ok(legendary_service::library(state).await),
         "fixes:apply" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
             let appid = steam_service::normalize_appid(
