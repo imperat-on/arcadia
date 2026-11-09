@@ -503,7 +503,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - Catálogo de fixes/ryuu, engine de check/apply/status/cancel/unfix, launcher redirect, auth Ryuu mascarada e downloads (planos/executor injetável).
 - Instalação transacional com backup/rollback/idempotência, extração de arquivos com rejeição de traversal/ADS/reservados e manifests de estado.
-- 96 testes de segurança e contrato. IPC: `fixes:check/status/installed/launcherRedirect/setRyuuAuth/ryuuAuthStatus/clearRyuuAuth/cancel/unfix` plugados; `fixes:apply` responde `executor_nao_portado` até o executor de download/7z.
+- 118 testes após o executor: HTTP streaming com size/SHA-256, cancelamento e extração ZIP/7z com pré-validação de paths, symlinks e aninhados.
+- IPC: `fixes:check/status/installed/launcherRedirect/setRyuuAuth/ryuuAuthStatus/clearRyuuAuth/cancel/unfix/apply` plugados; apply roda em blocking task com `FixExecutors::production`.
 
 ### Portes puros já verdes
 
@@ -526,10 +527,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
 | `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
 | `arcadia-updater` | canais git e empacotado, manifests e estados | 93 |
-| `arcadia-fixes` | catálogo/engine, instalação transacional, redirect e Ryuu | 96 |
+| `arcadia-fixes` | catálogo/engine, instalação transacional, redirect, Ryuu e executores HTTP/zip/7z | 118 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + fixes + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 56 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1427** |
+| **Total** | | **1449** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

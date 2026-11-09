@@ -36,6 +36,9 @@ use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
 use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
+use arcadia_fixes::catalog::FixType;
+use arcadia_fixes::exec::FixExecutors;
+use arcadia_fixes::plan::ApplyRequest;
 use arcadia_ra::client::RetroAchievementsClient;
 use arcadia_ra::session::{RaConfigStorage, RaSession};
 use arcadia_retro::repository::RetroLibrary;
@@ -118,6 +121,7 @@ pub struct AppState {
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
     emulators: Mutex<Option<EmulatorRegistry>>,
     retro: Mutex<Option<Arc<RetroCatalogV2>>>,
+    fixes_exec: Mutex<Option<FixExecutors>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -169,6 +173,7 @@ impl AppState {
             sources: Mutex::new(None),
             emulators: Mutex::new(None),
             retro: Mutex::new(None),
+            fixes_exec: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -1268,6 +1273,9 @@ pub fn dispatch(
         }
         "fixes:cancel" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            if let Some(executors) = lock(&state.fixes_exec).clone() {
+                executors.cancel();
+            }
             let engine = fixes_service::empty_engine(state);
             Ok(serde_json::to_value(engine.cancel(appid))
                 .unwrap_or_else(|_| json!({ "ok": false })))
@@ -1286,10 +1294,6 @@ pub fn dispatch(
             Ok(serde_json::to_value(engine.unfix(appid, Some(install_path)))
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
-        "fixes:apply" => Ok(json!({
-            "ok": false,
-            "error": "executor_nao_portado"
-        })),
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
             let appid = steam_service::normalize_appid(raw);
@@ -1582,6 +1586,50 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "fixes:apply" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let appid = steam_service::normalize_appid(
+                payload.get("appid").and_then(Value::as_str).unwrap_or_default(),
+            );
+            let url = payload.get("url").and_then(Value::as_str).unwrap_or_default();
+            let install_path = payload
+                .get("installPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if appid.is_empty() || url.is_empty() || install_path.is_empty() {
+                return Ok(json!({ "ok": false, "error": "missing_args" }));
+            }
+            if let Err(error) = fixes_service::require_install_path(&payload) {
+                return Ok(error);
+            }
+            if !(url.starts_with("https://") || url.starts_with("magnet:")) {
+                return Ok(json!({ "ok": false, "error": "url rejeitada" }));
+            }
+            let fix_type = payload
+                .get("type")
+                .and_then(Value::as_str)
+                .and_then(FixType::parse)
+                .unwrap_or_default();
+            let request = ApplyRequest {
+                appid: appid.clone(),
+                fix_type,
+                url: url.to_string(),
+                install_path: install_path.to_string(),
+            };
+            let Some(catalog) = fixes_service::catalog(state).await else {
+                return Ok(json!({ "ok": false, "error": "catalogo_indisponivel" }));
+            };
+            let engine = fixes_service::engine(state, catalog);
+            let executors = FixExecutors::production(&fixes_service::roots(state));
+            *lock(&state.fixes_exec) = Some(executors.clone());
+            let result = tokio::task::spawn_blocking(move || {
+                let response = executors.apply(&engine, &request);
+                serde_json::to_value(response).unwrap_or_else(|_| json!({ "ok": false }))
+            })
+            .await
+            .unwrap_or_else(|error| json!({ "ok": false, "error": error.to_string() }));
+            Ok(result)
         }
         "fixes:check" => {
             let appid = steam_service::normalize_appid(

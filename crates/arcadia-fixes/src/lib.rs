@@ -2,8 +2,9 @@
 //! redirect do launcher e credencial do Ryuu.
 //!
 //! Port 1:1 de `app/electron/fixes.js` (e dos shapes de `hosters.js`/
-//! `catalog.js`), sem rede nem spawn: filesystem, downloader e extrator são
-//! traits injetados. Os envelopes `fixes:check/apply/status/cancel/installed/
+//! `catalog.js`). O núcleo é puro: filesystem, downloader e extrator são traits
+//! injetados; rede/processos ficam nos executores de produção. Os envelopes
+//! `fixes:check/apply/status/cancel/installed/
 //! unfix/launcherRedirect/setRyuuAuth/ryuuAuthStatus/clearRyuuAuth` preservam
 //! os nomes de campo consumidos pelo IPC e pela `FixesPanel`.
 //!
@@ -13,12 +14,19 @@
 //! - [`install`]: manifests `.slssteam_fix_*`, backups, rollback, idempotência
 //!   e rejeição de path traversal;
 //! - [`redirect`]: `"<abs>" %command%` e auth Ryuu (X-Auth-Key/session);
-//! - [`download`]: classificação direta/hoster/magnet e plano do worker.
+//! - [`download`]: classificação direta/hoster/magnet e plano do worker;
+//! - [`exec_http`]: executor HTTP de produção com transporte injetável;
+//! - [`exec_archive`]: extratores ZIP e 7z/unzip com runner injetável;
+//! - [`exec`]: bundle [`FixExecutors`] usado pelo `fixes:apply` da borda.
 //!
-//! Nenhum teste toca a rede ou spawna processos.
+//! Nenhum teste acessa a rede externa ou spawna processos: o executor HTTP é
+//! exercitado contra um servidor TCP local e os extratores usam runners falsos.
 
 pub mod catalog;
 pub mod download;
+pub mod exec;
+pub mod exec_archive;
+pub mod exec_http;
 pub mod install;
 pub mod plan;
 pub mod redirect;
@@ -37,6 +45,17 @@ pub use download::{
     IdentitySourceResolver, MagnetLink, ResolvedDownloadSource, SourceKind, SourceResolver,
     CONNECT_TIMEOUT, DEFAULT_USER_AGENT, ERROR_AUTHENTICATION, ERROR_BAD_URL, ERROR_STALLED,
     FIX_TMP_PREFIX, SPEED_LIMIT_KBPS, SPEED_TIME_SECS,
+};
+pub use exec::FixExecutors;
+pub use exec_archive::{
+    find_seven_zip, find_unzip, ArchiveTool, ProcessOutcome, ProcessRunner, ProcessSpec,
+    SevenZipArchiveExtractor, SystemProcessRunner, ZipArchiveExtractor, ARCHIVE_DEPTH_EXCEEDED,
+    ARCHIVE_ENTRY_UNSUPPORTED, ARCHIVE_OPEN_FAILED, ARCHIVE_SYMLINK_REJECTED, EXTRACT_TMP_PREFIX,
+    MAX_NESTED_DEPTH, NESTED_ARCHIVE_UNSUPPORTED,
+};
+pub use exec_http::{
+    CancelHandle, HttpDownloadExecutor, HttpRequest, HttpStream, HttpTransport, ReqwestTransport,
+    ERROR_CANCELLED, HTTP_CHUNK_SIZE,
 };
 pub use install::{
     apply, dll_basename, dll_manifest_path, is_archive_file, is_fixed, is_launcher,
