@@ -241,6 +241,91 @@ pub trait Shell: Send + Sync {
     fn emit(&self, event: &str, payload: Value);
 }
 
+/// Chaves que o renderer pode gravar (espelho da allowlist F3 do main.js).
+/// Sem esta guarda, um XSS no renderer poderia injetar caminhos/args arbitrários.
+const ALLOWED_CONFIG: &[&str] = &[
+    "language",
+    "ui_scale",
+    "card_scale",
+    "accent",
+    "default_wine_prefix_path",
+    "steam_api_key",
+    "steamgriddb_api_key",
+    "hubcap_api_key",
+    "realdebrid_token",
+    "torbox_token",
+    "alldebrid_token",
+    "premiumize_token",
+    "retroachievements_username",
+    "retroachievements_token",
+    "retroachievements_web_api_key",
+    "slssteam_path",
+    "profile",
+    "steam_path",
+    "theme",
+    "console_wallpaper",
+    "desktop_wallpaper",
+    "accent_color",
+    "bg_color",
+    "font_size",
+    "show_fps",
+    "title",
+    "bio",
+    "avatar",
+    "background",
+    "hubcap_enabled",
+    "hubcap_auto_connect",
+    "region",
+    "download_limit",
+    "max_concurrent_downloads",
+    "minimize_to_tray",
+    "close_to_tray",
+    "start_minimized",
+    "launch_in_console_mode",
+    "show_console_on_startup",
+    "enable_controller_navigation",
+    "controller_deadzone",
+    "music_enabled",
+    "music_volume",
+    "music_auto_play",
+    "system_theme",
+    "notifications_enabled",
+    "notification_volume",
+    "trailer_auto",
+    "youtube_cookies",
+    "library_sidebar",
+    "achievements_auto_capture",
+    "theme_name",
+    "content_font",
+    "actions_font",
+    "custom_css_path",
+    "tiles_color",
+    "always_titles",
+    "no_click_outside",
+    "no_smooth_scroll",
+    "no_anim",
+    "check_updates_on_start",
+    "start_in_console_mode",
+    "hide_changelog_on_start",
+    "update_ja_avisado",
+    "minimize_on_game_launch",
+    "frameless_window",
+    "disable_playtime_tracking",
+    "discord_rich_presence",
+    "discord_client_id",
+    "download_cpu_cores",
+    "default_install_path",
+    "compatibility",
+    "wine_arch",
+    "wine_version",
+    "steamcmd_path",
+    "steam_auto_login",
+    "steam_auto_launch",
+    "epic_auto_login",
+    "gog_auto_login",
+    "sources",
+];
+
 const SEGREDOS: [&str; 9] = [
     "steam_api_key",
     "steamgriddb_api_key",
@@ -311,6 +396,8 @@ fn prepare_patch(current: &Value, patch: &Value, channel: &str) -> Result<Value,
             }
         }
     }
+    // Drift UI ↔ allowlist é descartado em silêncio, como no Electron.
+    next.retain(|key, _| ALLOWED_CONFIG.contains(&key.as_str()));
     Ok(Value::Object(next))
 }
 
@@ -763,6 +850,25 @@ mod tests {
         let stored = read_config(&dir);
         assert_eq!(stored["steam_api_key"], "ABCDEF1234567890");
         assert_eq!(stored["language"], "en-US");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_set_drops_keys_outside_allowlist() {
+        let dir = std::env::temp_dir().join(format!("arcadia-ipc-allow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        dispatch(
+            &state,
+            &MockShell,
+            "config:set",
+            vec![json!({ "language": "en-US", "evil_path": "C:/tmp/evil", "wine_arch": "x32" })],
+        )
+        .unwrap();
+        let stored = read_config(&dir);
+        assert_eq!(stored["language"], "en-US");
+        assert_eq!(stored["wine_arch"], "x32");
+        assert!(stored.get("evil_path").is_none(), "chave fora do allowlist não pode ser gravada");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
