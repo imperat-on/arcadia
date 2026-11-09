@@ -93,7 +93,7 @@ pub struct AppState {
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
     pub news: news::NewsCache,
-    plugins: Option<PluginRegistry>,
+    plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
@@ -137,7 +137,7 @@ impl AppState {
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
             news: news::NewsCache::default(),
-            plugins,
+            plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
@@ -180,10 +180,16 @@ impl AppState {
         Ok(registry)
     }
 
-    fn plugin_registry(&self, channel: &str) -> Result<&PluginRegistry, IpcError> {
-        self.plugins.as_ref().ok_or_else(|| {
+    fn with_plugins<T>(
+        &self,
+        channel: &str,
+        action: impl FnOnce(&PluginRegistry) -> T,
+    ) -> Result<T, IpcError> {
+        let guard = lock(&self.plugins);
+        let registry = guard.as_ref().ok_or_else(|| {
             IpcError::new("plugins_unavailable", "registro de plugins indisponível", channel)
-        })
+        })?;
+        Ok(action(registry))
     }
 
     /// Eventos de background (launch/monitor) vão para a janela via este sink.
@@ -785,51 +791,56 @@ pub fn dispatch(
             Ok(serde_json::to_value(registry.remove_source(id))
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
-        "plugins:list" => {
-            let registry = state.plugin_registry(channel)?;
-            Ok(serde_json::to_value(PluginIpc::new(registry).list())
-                .unwrap_or_else(|_| json!({ "ok": false })))
-        }
-        "plugins:details" => {
-            let registry = state.plugin_registry(channel)?;
-            Ok(serde_json::to_value(PluginIpc::new(registry).details())
-                .unwrap_or_else(|_| json!({ "ok": false })))
-        }
+        "plugins:list" => Ok(state.with_plugins(channel, |registry| {
+            serde_json::to_value(PluginIpc::new(registry).list())
+                .unwrap_or_else(|_| json!({ "ok": false }))
+        })?),
+        "plugins:details" => Ok(state.with_plugins(channel, |registry| {
+            serde_json::to_value(PluginIpc::new(registry).details())
+                .unwrap_or_else(|_| json!({ "ok": false }))
+        })?),
         "plugins:get" => {
-            let registry = state.plugin_registry(channel)?;
             let value = args.first().cloned().unwrap_or(Value::Null);
-            Ok(serde_json::to_value(PluginIpc::new(registry).get_value(&value))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            Ok(state.with_plugins(channel, |registry| {
+                serde_json::to_value(PluginIpc::new(registry).get_value(&value))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:register" => {
-            let registry = state.plugin_registry(channel)?;
             let value = args.first().cloned().unwrap_or(Value::Null);
-            Ok(serde_json::to_value(PluginIpc::new(registry).register_value(&value))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            Ok(state.with_plugins(channel, |registry| {
+                serde_json::to_value(PluginIpc::new(registry).register_value(&value))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:unregister" => {
-            let registry = state.plugin_registry(channel)?;
-            let id = plugin_id_from_ipc(&args.first().cloned().unwrap_or(Value::Null));
-            Ok(serde_json::to_value(registry.unregister(&id))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            let value = args.first().cloned().unwrap_or(Value::Null);
+            Ok(state.with_plugins(channel, |registry| {
+                let id = plugin_id_from_ipc(&value);
+                serde_json::to_value(registry.unregister(&id))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:enable" => {
-            let registry = state.plugin_registry(channel)?;
             let value = args.first().cloned().unwrap_or(Value::Null);
-            Ok(serde_json::to_value(PluginIpc::new(registry).enable_value(&value))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            Ok(state.with_plugins(channel, |registry| {
+                serde_json::to_value(PluginIpc::new(registry).enable_value(&value))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:disable" => {
-            let registry = state.plugin_registry(channel)?;
             let value = args.first().cloned().unwrap_or(Value::Null);
-            Ok(serde_json::to_value(PluginIpc::new(registry).disable_value(&value))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            Ok(state.with_plugins(channel, |registry| {
+                serde_json::to_value(PluginIpc::new(registry).disable_value(&value))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:verify" => {
-            let registry = state.plugin_registry(channel)?;
             let value = args.first().cloned().unwrap_or(Value::Null);
-            Ok(serde_json::to_value(PluginIpc::new(registry).verify_value(&value))
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            Ok(state.with_plugins(channel, |registry| {
+                serde_json::to_value(PluginIpc::new(registry).verify_value(&value))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "plugins:install" | "plugins:remove" => {
             Ok(json!({ "ok": false, "error": "nao_suportado" }))
