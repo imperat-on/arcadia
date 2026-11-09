@@ -7,6 +7,7 @@ pub mod diagnostics;
 pub mod launch_runtime;
 pub mod media_service;
 pub mod news;
+pub mod protondb;
 pub mod steam_service;
 pub mod trailer_service;
 
@@ -764,12 +765,25 @@ pub fn dispatch(
         }
         "profile:stats" => {
             let games = read_games(&state.data_dir, state.account().as_deref());
+            let steam_hours = steam_service::hours_by_appid()
+                .map(|(hours, _)| hours)
+                .unwrap_or_default();
             let minutes: i64 = games
                 .iter()
                 .map(|game| {
-                    game.get("playtime_minutes")
+                    let id = game
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let steam = steam_hours
+                        .get(&steam_service::normalize_appid(id))
+                        .copied()
+                        .unwrap_or(0) as i64;
+                    let local = game
+                        .get("playtime_minutes")
                         .and_then(Value::as_i64)
-                        .unwrap_or(0)
+                        .unwrap_or(0);
+                    steam.max(local)
                 })
                 .sum();
             Ok(json!({
@@ -962,6 +976,13 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "game:protondb" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(json!({
+                "ok": true,
+                "info": protondb::info(appid).await
+            }))
         }
         "trailer:search" => Ok(trailer_service::search(state, &args).await),
         "trailer:streamUrl" => Ok(trailer_service::stream_url(state, &args).await),

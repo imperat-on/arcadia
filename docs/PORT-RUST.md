@@ -431,6 +431,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Texto/HTML, normalização de título, scoring e circuit breaker/LRU com relógio injetável.
 - IPC: `meta:art` e `meta:text` plugados na composição `MediaService` (Steam → SGDB → IGDB → Xbox → Wallhaven → PSN), `hltb:get` no `HltbClient`, `arte:quadrada`/`arte:logo` com cascata e cache de 30 dias, `art:download` (https-only, remove arte antiga só dentro de `art/`) e `art:pick` (diálogo + cópia para `art/`).
 - `integrations:status` reporta chaves de config reais (Steam/SLSsteam/Heroic).
+- `game:protondb` consulta o resumo público com cache de 24 h (tier/score/deck/url); `profile:stats` usa o maior entre horas da Steam e playtime local.
 
 ### Marco 13 — trailers em runtime (concluído)
 
@@ -453,9 +454,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers, máscara de segredos, allowlist, cobertura de canais | 30 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB, máscara de segredos, allowlist, cobertura de canais | 31 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **714** |
+| **Total** | | **715** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
