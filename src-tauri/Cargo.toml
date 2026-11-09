@@ -12,5 +12,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 serde.workspace = true
 serde_json.workspace = true
+arcadia-api = { path = "../crates/arcadia-api" }
+arcadia-contracts = { path = "../crates/arcadia-contracts" }
 arcadia-ipc = { path = "../crates/arcadia-ipc" }
 arcadia-store = { path = "../crates/arcadia-store" }
+tokio = { version = "1", features = ["sync"] }

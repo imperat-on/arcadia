@@ -4,11 +4,13 @@
 //! processo principal do Electron.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use arcadia_ipc::{dispatch, AppState, IpcError, Shell};
+use arcadia_api::auth::AuthEvent;
+use arcadia_ipc::{AppState, IpcError, Shell};
 
 struct TauriShell {
     window: WebviewWindow,
@@ -84,11 +86,25 @@ async fn arcadia_ipc(
     args: Option<Vec<Value>>,
 ) -> Result<Value, IpcError> {
     let shell = TauriShell { window };
-    dispatch(state.inner(), &shell, &channel, args.unwrap_or_default())
+    arcadia_ipc::dispatch_async(state.inner(), &shell, &channel, args.unwrap_or_default()).await
 }
 
 fn main() {
     let data_dir = arcadia_store::paths::resolve_data_dir();
+    let api = match arcadia_api::ApiClient::from_env() {
+        Ok(api) => Some(Arc::new(api)),
+        Err(error) => {
+            eprintln!("[boot] cliente do backend indisponível: {error}");
+            None
+        }
+    };
+    let state = match api.clone() {
+        Some(api) => AppState::with_api(data_dir.clone(), api),
+        None => AppState::new(data_dir.clone()),
+    };
+    let data_dir_for_events = data_dir.clone();
+    let api_for_events = api.clone();
+
     tauri::Builder::default()
         // Duas instâncias gravando o mesmo config/library corrompem dados.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -97,9 +113,42 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(AppState::new(data_dir))
+        .manage(state)
         .invoke_handler(tauri::generate_handler![arcadia_ipc])
-        .setup(|app| {
+        .setup(move |app| {
+            // Persiste sessão criada/renovada e espelha account:changed para a UI.
+            if let Some(api) = api_for_events.clone() {
+                let app_handle = app.handle().clone();
+                let dir = data_dir_for_events.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut eventos = api.auth().on_auth_state_change();
+                    loop {
+                        let change = match eventos.recv().await {
+                            Ok(change) => change,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(_) => break,
+                        };
+                        if let Some(session) = &change.session {
+                            if let Ok(value) = serde_json::to_value(session) {
+                                let _ = arcadia_store::session::save_session(&dir, &value);
+                            }
+                        }
+                        if matches!(change.event, AuthEvent::SignedOut | AuthEvent::UserDeleted) {
+                            let _ = arcadia_store::session::clear_session(&dir);
+                        }
+                        let safe = change
+                            .session
+                            .as_ref()
+                            .and_then(|session| serde_json::to_value(session).ok())
+                            .and_then(|value| arcadia_contracts::safe_account_session(&value));
+                        let _ = app_handle.emit(
+                            "account:changed",
+                            json!({ "event": change.event.as_str(), "session": safe }),
+                        );
+                    }
+                });
+            }
+
             let state = app.state::<AppState>();
             let mode = state.mode();
             let boot = json!({

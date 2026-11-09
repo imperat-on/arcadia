@@ -6,13 +6,20 @@ pub mod channels;
 
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use tokio::sync::OnceCell;
 
+use arcadia_api::auth::Session;
+use arcadia_api::{ApiClient, Error as ApiFailure};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IpcError {
@@ -55,10 +62,25 @@ impl std::error::Error for IpcError {}
 pub struct AppState {
     pub data_dir: PathBuf,
     pub mode: Mutex<String>,
+    api: Option<Arc<ApiClient>>,
+    session: Mutex<Option<Session>>,
+    account: Mutex<Option<String>>,
+    boot_session: Mutex<Option<Session>>,
+    boot_restored: OnceCell<()>,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
+        Self::build(data_dir, None)
+    }
+
+    pub fn with_api(data_dir: PathBuf, api: Arc<ApiClient>) -> Self {
+        let state = Self::build(data_dir, Some(api));
+        state.load_boot_session();
+        state
+    }
+
+    fn build(data_dir: PathBuf, api: Option<Arc<ApiClient>>) -> Self {
         let mode = std::env::var("ARCADIA_MODE")
             .ok()
             .filter(|mode| mode == "console" || mode == "desktop")
@@ -66,15 +88,143 @@ impl AppState {
         Self {
             data_dir,
             mode: Mutex::new(mode),
+            api,
+            session: Mutex::new(None),
+            account: Mutex::new(None),
+            boot_session: Mutex::new(None),
+            boot_restored: OnceCell::new(),
         }
     }
 
     pub fn mode(&self) -> String {
-        self.mode
-            .lock()
-            .map(|mode| mode.clone())
-            .unwrap_or_else(|_| "desktop".to_string())
+        lock(&self.mode).clone()
     }
+
+    pub fn account(&self) -> Option<String> {
+        lock(&self.account).clone()
+    }
+
+    pub fn api(&self) -> Option<&Arc<ApiClient>> {
+        self.api.as_ref()
+    }
+
+    fn load_boot_session(&self) {
+        match arcadia_store::session::load_session(&self.data_dir) {
+            Ok(Some(value)) => match serde_json::from_value::<Session>(value) {
+                Ok(session) => {
+                    self.install_session_memory(&session);
+                    *lock(&self.boot_session) = Some(session);
+                }
+                Err(error) => eprintln!("[boot] session.json ilegível: {error}"),
+            },
+            Ok(None) => {}
+            Err(error) => eprintln!("[boot] sessão não restaurada: {error}"),
+        }
+    }
+
+    fn install_session_memory(&self, session: &Session) {
+        *lock(&self.account) = account_from_session(session);
+        *lock(&self.session) = Some(session.clone());
+    }
+
+    /// Instala a sessão salva no cliente HTTP uma única vez por boot.
+    pub async fn ensure_boot_session(&self) {
+        let Some(api) = self.api.clone() else {
+            return;
+        };
+        self.boot_restored
+            .get_or_init(|| async move {
+                let session = lock(&self.boot_session).take();
+                if let Some(session) = session {
+                    api.auth().set_session_optimistic(session, false).await;
+                }
+            })
+            .await;
+    }
+
+    fn current_session(&self) -> Option<Session> {
+        lock(&self.session).clone()
+    }
+
+    fn install_session(&self, session: &Session) {
+        let value = match serde_json::to_value(session) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("[session] serialização falhou: {error}");
+                self.install_session_memory(session);
+                return;
+            }
+        };
+        if let Err(error) = arcadia_store::session::save_session(&self.data_dir, &value) {
+            // Keyring indisponível não pode deslogar ninguém (mesma política do JS).
+            eprintln!("[session] não foi possível persistir: {error}");
+        }
+        self.install_session_memory(session);
+    }
+
+    fn forget_session(&self) {
+        let _ = arcadia_store::session::clear_session(&self.data_dir);
+        *lock(&self.session) = None;
+        *lock(&self.account) = None;
+    }
+}
+
+fn account_from_session(session: &Session) -> Option<String> {
+    session
+        .user
+        .get("user_metadata")
+        .and_then(|metadata| metadata.get("username"))
+        .and_then(Value::as_str)
+        .or_else(|| session.user.get("username").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|username| !username.is_empty())
+        .map(str::to_string)
+}
+
+fn safe_session_value(session: &Session) -> Value {
+    serde_json::to_value(session)
+        .ok()
+        .and_then(|value| arcadia_contracts::safe_account_session(&value))
+        .unwrap_or(Value::Null)
+}
+
+fn api_failure_message(error: &ApiFailure) -> String {
+    match error {
+        ApiFailure::Api(api) => {
+            if api
+                .message
+                .to_ascii_lowercase()
+                .contains("invalid login credentials")
+            {
+                "credenciais_invalidas".to_string()
+            } else {
+                api.message.clone()
+            }
+        }
+        ApiFailure::Transport(_) => "rede_indisponivel".to_string(),
+        ApiFailure::Decode(_) => "resposta_invalida".to_string(),
+    }
+}
+
+fn valid_username(username: &str) -> bool {
+    let chars: Vec<char> = username.chars().collect();
+    (3..=20).contains(&chars.len())
+        && chars
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+}
+
+fn valid_email(email: &str) -> bool {
+    let mut parts = email.split('@');
+    let (Some(user), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !user.is_empty()
+        && !user.contains(char::is_whitespace)
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !domain.contains(char::is_whitespace)
 }
 
 /// Superfície mínima que o IPC precisa da janela. Mantém o crate testável
@@ -191,7 +341,7 @@ pub fn dispatch(
     match channel {
         // ── Biblioteca e config ──────────────────────────────────────────
         "library:get" => {
-            let games = read_games(&state.data_dir, None);
+            let games = read_games(&state.data_dir, state.account().as_deref());
             Ok(json_array(games))
         }
         "config:get" => Ok(redact_config(&read_config(&state.data_dir))),
@@ -288,6 +438,221 @@ pub fn dispatch(
         other if channels::INVOKE_CHANNELS.contains(&other) => Err(IpcError::not_ported(other)),
         other => Err(IpcError::unknown(other)),
     }
+}
+
+/// Roteia os canais que precisam de rede/sessão. Os demais caem no dispatcher
+/// síncrono local, mantendo a mesma superfície de 202 canais.
+pub async fn dispatch_async(
+    state: &AppState,
+    shell: &impl Shell,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    // Garante a sessão restaurada antes de qualquer leitura escopada por conta
+    // (o boot do renderer pede account:status e library:get em paralelo).
+    state.ensure_boot_session().await;
+
+    match channel {
+        "account:status" => {
+            let session = state.current_session();
+            Ok(json!({
+                "session": session.as_ref().map(safe_session_value),
+                "error": null
+            }))
+        }
+        "account:signIn" => account_sign_in(state, channel, args).await,
+        "account:signUp" => account_sign_up(state, channel, args).await,
+        "account:signOut" => account_sign_out(state, channel).await,
+        "account:profile" => account_profile(state, channel).await,
+        _ => dispatch(state, shell, channel, args),
+    }
+}
+
+async fn account_sign_in(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let username = payload
+        .get("username")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    let password = payload
+        .get("password")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if !valid_username(&username) {
+        return Ok(json!({ "ok": false, "error": "username_invalido" }));
+    }
+    if password.is_empty() {
+        return Ok(json!({ "ok": false, "error": "senha_curta" }));
+    }
+
+    let api = state.api().ok_or_else(|| {
+        IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+    })?;
+    match api.sign_in_with_username(&username, password).await {
+        Ok(response) => {
+            state.install_session(&response.session);
+            Ok(json!({ "ok": true }))
+        }
+        Err(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
+    }
+}
+
+async fn account_sign_up(
+    state: &AppState,
+    channel: &str,
+    args: Vec<Value>,
+) -> Result<Value, IpcError> {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let email = payload
+        .get("email")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    let username = payload
+        .get("username")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    let password = payload
+        .get("password")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if !valid_email(&email) {
+        return Ok(json!({ "ok": false, "error": "email_invalido" }));
+    }
+    if !valid_username(&username) {
+        return Ok(json!({ "ok": false, "error": "username_invalido" }));
+    }
+    if password.chars().count() < 6 {
+        return Ok(json!({ "ok": false, "error": "senha_curta" }));
+    }
+
+    let api = state.api().ok_or_else(|| {
+        IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+    })?;
+
+    match api
+        .rpc("username_available", json!({ "p_username": username }))
+        .await
+    {
+        Ok(Value::Bool(true)) => {}
+        Ok(_) => return Ok(json!({ "ok": false, "error": "username_ocupado" })),
+        Err(error) => {
+            return Ok(json!({ "ok": false, "error": api_failure_message(&error) }))
+        }
+    }
+
+    match api
+        .auth()
+        .sign_up(
+            &email,
+            password,
+            Some(json!({ "data": { "username": username } })),
+        )
+        .await
+    {
+        Ok(response) => {
+            let Some(session) = response.session else {
+                return Ok(json!({ "ok": false, "error": "confirmacao_necessaria" }));
+            };
+            state.install_session(&session);
+            let username_real = profile_username(api, &session)
+                .await
+                .unwrap_or_else(|| username.clone());
+            Ok(json!({ "ok": true, "usernameReal": username_real }))
+        }
+        Err(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
+    }
+}
+
+async fn account_sign_out(
+    state: &AppState,
+    _channel: &str,
+) -> Result<Value, IpcError> {
+    let network_error = match state.api() {
+        Some(api) => api.auth().sign_out().await.err(),
+        None => None,
+    };
+    state.forget_session();
+    match network_error {
+        Some(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
+        None => Ok(json!({ "ok": true })),
+    }
+}
+
+async fn account_profile(state: &AppState, channel: &str) -> Result<Value, IpcError> {
+    let Some(session) = state.current_session() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+    let Some(api) = state.api() else {
+        return Err(IpcError::new(
+            "api_unavailable",
+            "cliente do backend indisponível",
+            channel,
+        ));
+    };
+    let Some(user_id) = session.user_id() else {
+        return Ok(json!({ "ok": false, "error": "nao_logado" }));
+    };
+
+    let row = match api
+        .from("profiles")
+        .select(
+            "username, avatar_url, display_name, summary, country, city, showcase, background_url, banner_url",
+        )
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .await
+    {
+        Ok(row) => row,
+        Err(error) => return Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
+    };
+
+    let text = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
+    let showcase = match row.get("showcase") {
+        Some(Value::Array(items)) => Value::Array(items.clone()),
+        _ => json!([]),
+    };
+    Ok(json!({
+        "ok": true,
+        "profile": {
+            "username": text("username"),
+            "avatar_url": text("avatar_url"),
+            "display_name": text("display_name"),
+            "summary": text("summary"),
+            "country": text("country"),
+            "city": text("city"),
+            "showcase": showcase,
+            "background_url": text("background_url"),
+            "banner_url": text("banner_url"),
+        }
+    }))
+}
+
+async fn profile_username(api: &ApiClient, session: &Session) -> Option<String> {
+    let user_id = session.user_id()?;
+    let row = api
+        .from("profiles")
+        .select("username")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .await
+        .ok()?;
+    row.get("username")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -399,6 +764,30 @@ mod tests {
         assert_eq!(stored["steam_api_key"], "ABCDEF1234567890");
         assert_eq!(stored["language"], "en-US");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn account_status_signed_out_is_safe() {
+        let state = state();
+        let value = dispatch_async(&state, &MockShell, "account:status", Vec::new())
+            .await
+            .unwrap();
+        assert!(value["session"].is_null());
+        assert!(value["error"].is_null());
+    }
+
+    #[tokio::test]
+    async fn sign_in_without_api_is_typed_error() {
+        let state = state();
+        let error = dispatch_async(
+            &state,
+            &MockShell,
+            "account:signIn",
+            vec![json!({ "username": "zyon", "password": "segredo" })],
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "api_unavailable");
     }
 
     #[test]

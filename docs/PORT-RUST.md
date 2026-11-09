@@ -342,22 +342,37 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `library:get` e `config:get` comprovados renderer → Tauri → Rust via `ARCADIA_IPC_LOG` (11 canais no boot).
 - Instância única (`tauri-plugin-single-instance`): segunda execução sai em ~70 ms e foca a existente.
 
+### Marco 1 — sessão, auth e conta (concluído)
+
+- `arcadia-api`: cliente completo de auth (signup, grant de senha, refresh, logout, `/user`, health), REST PostgREST (`profiles`, `friendships`, `avatars`), RPCs e storage; 401 → refresh → retry; fallback de endpoint só em erro de transporte; headers tipados (sem o crash de ByteString do Node).
+- Boot restaura `session.json` (envelope v2, DPAPI/plaintext), instala a sessão no cliente HTTP e ativa o escopo de conta antes de qualquer `library:get`.
+- Canais plugados: `account:status`, `account:signIn`, `account:signUp` (validação + `username_available` + username real do perfil), `account:signOut`, `account:profile`. Eventos de auth persistem/limpam a sessão e espelham `account:changed` com envelope seguro.
+- `library:get` escopado: snapshot global + `contas/<user>/` + overrides.
+
+**Prova visual:** desktop launcher rodando no Tauri, sessão restaurada, usuário `zyon`, biblioteca com **Conta Game** (custom da conta) e **Global Game** (snapshot global).
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
 |---|---|---|
 | `arcadia-contracts` | index.js + sync.js completos, com 1.304 casos diferenciais contra o JS | 43 |
 | `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust | 42 |
+| `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, máscara de segredos, cobertura de canais | 6 |
-| **Total** | | **116** |
+| `arcadia-ipc` | dispatcher, auth plugada, máscara de segredos, cobertura de canais | 8 |
+| **Total** | | **156** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
-### Próximo marco — Fase 2
+### Pendências conhecidas da camada de rede
 
-- `arcadia-api`: auth (`signup/login/refresh/logout`), REST (`profiles`, `friendships`, `avatars`), RPCs, storage, DoH + IPv4 + fallback de endpoint.
-- Sessão restaurada do `session.json` real, `conta` ativa e `library:get` escopado por conta.
-- `biblioteca`/`sync`: pull/push com resolução de conflito já portada, primeiro em modo pull-only.
+- Realtime WebSocket (`channel()`/`phx_join`) ainda não portado — biblioteca/friends/sync vão precisar de um componente próprio.
+- DoH + pinning IPv4 + deadline único do `httpfetch.js` ainda não implementados; o cliente usa o resolver do sistema e fallback entre endpoints.
+
+### Próximo marco — Fase 2 (continuação)
+
+- `biblioteca`/`sync`: pull/push de biblioteca, playtime, conquistas e sources, com a resolução de conflito já portada; primeiro em modo pull-only.
+- `friends`/`community`: busca, pedidos, listas e reviews com envelopes seguros.
+- UI de configurações: `config:set` com allowlist de chaves e máscara de segredos.
 - Smoke de dados: login com conta existente e `GET /auth/v1/user` idêntico ao Electron.
 
