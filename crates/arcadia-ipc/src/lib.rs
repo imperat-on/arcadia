@@ -24,6 +24,8 @@ use arcadia_api::{ApiClient, Error as ApiFailure};
 use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
+use arcadia_media::http::{Fetcher, HttpClientFetcher};
+use arcadia_media::HltbClient;
 use arcadia_social::community::{CommunityService, PageOptions};
 use arcadia_social::friends::FriendsService;
 use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
@@ -887,6 +889,23 @@ async fn dispatch_async_inner(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "hltb:get" => {
+            let title = args.first().and_then(Value::as_str).unwrap_or_default();
+            if title.trim().is_empty() {
+                return Ok(Value::Null);
+            }
+            let Some(api) = state.api() else {
+                return Ok(Value::Null);
+            };
+            let fetcher: Arc<dyn Fetcher> =
+                Arc::new(HttpClientFetcher::new(api.http().clone()));
+            let client = HltbClient::new(fetcher);
+            Ok(client
+                .search(title)
+                .await
+                .and_then(|times| serde_json::to_value(times).ok())
+                .unwrap_or(Value::Null))
+        }
         "news:get" => Ok(Value::Array(state.news.get(40).await)),
         "news:game" => {
             let appid = steam_service::normalize_appid(
@@ -1814,6 +1833,15 @@ mod tests {
         assert_eq!(good["games"][0]["id"], "custom:meu-jogo");
         assert_eq!(good["games"][0]["installed"], true);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn hltb_without_api_returns_null() {
+        let state = state();
+        let value = dispatch_async(&state, &MockShell, "hltb:get", vec![json!("Half-Life")])
+            .await
+            .unwrap();
+        assert!(value.is_null());
     }
 
     #[tokio::test]
