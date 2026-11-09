@@ -511,6 +511,18 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - 118 testes após o executor: HTTP streaming com size/SHA-256, cancelamento e extração ZIP/7z com pré-validação de paths, symlinks e aninhados.
 - IPC: `fixes:check/status/installed/launcherRedirect/setRyuuAuth/ryuuAuthStatus/clearRyuuAuth/cancel/unfix/apply` plugados; apply roda em blocking task com `FixExecutors::production`.
 
+### Marco 24 — validação final do release (concluído)
+
+- `cargo test --workspace`: **57 blocos de teste, 0 falhas** (1.476 testes somados).
+- Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
+- Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
+
+**Pendências conhecidas (fora do caminho crítico):**
+- `game:uninstall`, `game:import`, `customgame:runInstaller`, `wine:prefixTool`/`wine:runExe` ainda respondem `not_ported` (operações destrutivas/spawn de Wine).
+- `runner:legendary:setup` responde `legendary_setup_nao_portado` (download interativo).
+- Updater ainda usa o estado honesto “sem suporte”; o adaptador Tauri do canal empacotado não foi ligado.
+- Push do sync permanece desligado; Linux/WebKitGTK e empacotamento NSIS/AppImage não foram validados nesta máquina.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
