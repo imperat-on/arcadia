@@ -153,6 +153,7 @@ dependencies = [
  "arcadia-launch",
  "arcadia-media",
  "arcadia-plugins",
+ "arcadia-ra",
  "arcadia-retro",
  "arcadia-social",
  "arcadia-steam",
@@ -314,8 +315,10 @@ dependencies = [
 name = "arcadia-updater"
 version = "0.1.0"
 dependencies = [
+ "semver",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

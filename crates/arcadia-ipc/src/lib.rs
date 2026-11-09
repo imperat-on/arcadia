@@ -34,6 +34,8 @@ use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
 use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
+use arcadia_ra::client::RetroAchievementsClient;
+use arcadia_ra::session::{RaConfigStorage, RaSession};
 use arcadia_retro::repository::RetroLibrary;
 use arcadia_steamstore::depot::DepotClient;
 use arcadia_steamstore::library::{
@@ -195,6 +197,15 @@ impl AppState {
         ));
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    fn ra_session(&self) -> RaSession {
+        RaSession::new(
+            RetroAchievementsClient::new(),
+            RaFileStorage {
+                data_dir: self.data_dir.clone(),
+            },
+        )
     }
 
     fn store_client(&self, channel: &str) -> Result<StoreClient, IpcError> {
@@ -1179,6 +1190,14 @@ pub fn dispatch(
                 "games": read_games(&state.data_dir, account.as_deref())
             }))
         }
+        "retroachievements:status" => Ok(state.ra_session().status().to_value()),
+        "retroachievements:logout" => {
+            let session = state.ra_session();
+            match session.logout() {
+                Ok(()) => Ok(json!({ "ok": true })),
+                Err(error) => Ok(error.to_value()),
+            }
+        }
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
             let appid = steam_service::normalize_appid(raw);
@@ -1454,6 +1473,74 @@ async fn dispatch_async_inner(
                     Ok(json!({ "ok": true, "path": downloaded.path.to_string_lossy() }))
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
+            }
+        }
+        "retroachievements:login" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let password = payload
+                .get("password")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            match state.ra_session().login(username, password).await {
+                Ok(login) => Ok(json!({ "ok": true, "username": login.username, "score": login.score })),
+                Err(error) => Ok(error.to_value()),
+            }
+        }
+        "retroachievements:setApiKey" => {
+            let key = args.first().and_then(Value::as_str).unwrap_or_default();
+            match state.ra_session().set_api_key(key).await {
+                Ok(()) => Ok(json!({ "ok": true })),
+                Err(error) => Ok(error.to_value()),
+            }
+        }
+        "retroachievements:gameProgress" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let title = payload
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let system = payload
+                .get("systemId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            match state.ra_session().game_progress(title, system).await {
+                Ok(Some(progress)) => Ok(json!({
+                    "ok": true,
+                    "game": progress.game,
+                    "achievements": progress.achievements
+                })),
+                Ok(None) => Ok(json!({ "ok": true, "game": null, "achievements": [] })),
+                Err(error) => Ok(error.to_value()),
+            }
+        }
+        "retroachievements:applyToEmulator" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let emulator_id = payload
+                .get("emulatorId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let session = state.ra_session();
+            let Some(credentials) = session.credentials() else {
+                return Ok(json!({ "ok": false, "error": "nao_logado" }));
+            };
+            let options = arcadia_emulators::ra_config::RaConfigOptions::new(
+                credentials.username,
+                credentials.token,
+            );
+            let result = arcadia_emulators::ra_config::configure_emulator_credentials(
+                emulator_id,
+                &options,
+                &arcadia_emulators::fs::SystemFs,
+                &arcadia_emulators::fs::SystemClock,
+            );
+            match result {
+                Ok(value) => Ok(serde_json::to_value(value)
+                    .unwrap_or_else(|_| json!({ "ok": true }))),
+                Err(error) => Ok(json!({ "ok": false, "error": error })),
             }
         }
         "store:search" => {
@@ -1855,6 +1942,21 @@ async fn community_channel(state: &AppState, channel: &str, args: Vec<Value>) ->
     match result {
         Ok(value) => value,
         Err(error) => error.to_community_envelope(),
+    }
+}
+
+struct RaFileStorage {
+    data_dir: PathBuf,
+}
+
+impl RaConfigStorage for RaFileStorage {
+    fn read_config(&self) -> Value {
+        read_config(&self.data_dir)
+    }
+
+    fn write_config_patch(&self, patch: &Value) -> Result<Value, String> {
+        arcadia_store::config::write_config_patch(&self.data_dir, patch)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2770,6 +2872,16 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retroachievements_status_is_local() {
+        let dir = std::env::temp_dir().join(format!("arcadia-ra-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        let value = dispatch(&state, &MockShell, "retroachievements:status", Vec::new()).unwrap();
+        assert!(value.is_object());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -480,6 +480,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - 76 testes + clippy/doc limpos, com fetcher/fs injetados; zips e manifests são injetados (executor fará download/extração).
 - IPC plugado: `store:search/suggest/recent/warm/validarChaveHubcap/installInfo/libraries/installDir/status`, `store:addToLibrary/removeFromLibrary` (pending + owned + `library:changed`) e `store:removeFromSteam/removeDownloaded` (path-safe). `store:addToSteam` respeita o gate SLSsteam; install/ensure ficam para o executor.
 
+### Marco 20 — RetroAchievements (concluído)
+
+- Cliente RA (login2, user summary, game list, progresso), sessão com token/usuário/chave persistidos e senha nunca armazenada.
+- Progresso normalizado (percentuais/datas/badges) e console id via `arcadia-retro`.
+- IPC `retroachievements:login/logout/status/setApiKey/gameProgress/applyToEmulator` plugado; aplicar credenciais usa o gravador PCSX2/DuckStation/PPSSPP do crate de emuladores.
+- 69 testes.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -499,9 +506,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
 | `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
 | `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + game stats + store, máscara de segredos, allowlist, cobertura de canais | 38 |
+| `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + game stats + store + RA, máscara de segredos, allowlist, cobertura de canais | 39 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1151** |
+| **Total** | | **1152** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
