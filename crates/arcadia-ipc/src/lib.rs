@@ -3,6 +3,7 @@
 //! respondem `not_ported`; canais fora do contrato respondem `unknown_channel`.
 
 pub mod channels;
+pub mod launch_runtime;
 
 use std::fmt;
 use std::path::PathBuf;
@@ -20,6 +21,8 @@ use arcadia_store::library::read_games;
 use arcadia_social::community::{CommunityService, PageOptions};
 use arcadia_social::friends::FriendsService;
 use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
+
+use crate::launch_runtime::{EventSink, LaunchRuntime};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -72,6 +75,7 @@ pub struct AppState {
     sync: Mutex<Option<SyncEngine>>,
     friends: Mutex<Option<FriendsService>>,
     community: Mutex<Option<CommunityService>>,
+    pub launch: LaunchRuntime,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -101,6 +105,7 @@ impl AppState {
             sync: Mutex::new(None),
             friends: Mutex::new(None),
             community: Mutex::new(None),
+            launch: LaunchRuntime::new(),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -116,6 +121,11 @@ impl AppState {
 
     pub fn api(&self) -> Option<&Arc<ApiClient>> {
         self.api.as_ref()
+    }
+
+    /// Eventos de background (launch/monitor) vão para a janela via este sink.
+    pub fn set_event_sink(&self, sink: EventSink) {
+        self.launch.set_event_sink(sink);
     }
 
     fn load_boot_session(&self) {
@@ -654,6 +664,13 @@ async fn dispatch_async_inner(
         | "community:collection:item:replace"
         | "community:collection:item:remove"
         | "community:collection:report" => Ok(community_channel(state, channel, args).await),
+        "game:launch" => {
+            let payload = args.first().cloned().unwrap_or(Value::Null);
+            Ok(state
+                .launch
+                .launch(&state.data_dir, state.account().as_deref(), &payload))
+        }
+        "game:close" => Ok(state.launch.close()),
         "sync:state" => Ok(match state.sync_engine(channel) {
             Ok(engine) => sync_state_json(&engine.state()),
             Err(_) => sync_state_json(&SyncState::default()),

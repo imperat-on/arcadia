@@ -99,6 +99,7 @@ version = "0.1.0"
 dependencies = [
  "arcadia-api",
  "arcadia-contracts",
+ "arcadia-launch",
  "arcadia-social",
  "arcadia-store",
  "arcadia-sync",

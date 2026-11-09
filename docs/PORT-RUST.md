@@ -374,6 +374,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Gamescope/systemd, umu (tar/sha256), Steam path/registry/Flatpak, gamepad sysfs, log com rotação.
 - **Deferido conscientemente:** download/install do Wine/Proton, cópia real de DLLs gráficas, spawn real e wiring de IPC — o planner devolve `GraphicsLibsRequest` e o spawn fica para a camada de runtime.
 
+### Marco 5 — runtime de launch ligado (concluído)
+
+- `game:launch` agora resolve pelo `arcadia-launch`, spawna o processo real, guarda PID/token e emite `game:launchState`, `game:running`, `game:active` e warnings via sink de eventos do AppHandle.
+- `game:close` mata a árvore (taskkill `/T /F` no Windows, `kill -TERM` no Unix) e o monitor emite `idle`.
+- Teste de integração spawna um processo inofensivo real, valida o evento `game:running`, fecha e confirma que o estado volta a idle.
+- `game_settings.json` por conta alimenta o resolver; emulador ainda retorna `None` (registro não portado) e cai no erro claro do resolver.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -386,8 +393,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync + social plugados, máscara de segredos, allowlist, cobertura de canais | 11 |
-| **Total** | | **409** |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime plugados, máscara de segredos, allowlist, cobertura de canais | 14 |
+| **Total** | | **412** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

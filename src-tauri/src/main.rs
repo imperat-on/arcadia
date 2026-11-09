@@ -116,6 +116,16 @@ fn main() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![arcadia_ipc])
         .setup(move |app| {
+            // Eventos de background do launch (game:running/active/launchState)
+            // saem pelo AppHandle, fora do ciclo request/response do IPC.
+            {
+                let state = app.state::<AppState>();
+                let handle = app.handle().clone();
+                state.set_event_sink(Arc::new(move |event, payload| {
+                    let _ = handle.emit(event, payload);
+                }));
+            }
+
             // Persiste sessão criada/renovada e espelha account:changed para a UI.
             if let Some(api) = api_for_events.clone() {
                 let app_handle = app.handle().clone();
