@@ -474,6 +474,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Biblioteca retrô (`retro:libraryAdd/Remove`) com validação e projeção de campos.
 - IPC `retro:list/game/offer/stats/audit/migrate/libraryAdd/libraryRemove` plugado no catálogo local; o wrapper remoto pode ser ligado ao `CatalogClient` depois.
 
+### Marco 19 — Steam store (concluído)
+
+- StoreClient (search/suggest/recent/warm/hubcap/appdetails com TTL/cache), DepotClient (install info/manifests/depots), library (ACF/libraries/install dirs/add/remove/SLSsteam/pending) e update report.
+- 76 testes + clippy/doc limpos, com fetcher/fs injetados; zips e manifests são injetados (executor fará download/extração).
+- IPC `store:*` é o próximo passo.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -492,9 +498,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
 | `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
 | `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
+| `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + game stats, máscara de segredos, allowlist, cobertura de canais | 36 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1073** |
+| **Total** | | **1149** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
