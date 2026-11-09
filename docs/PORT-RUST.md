@@ -466,6 +466,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - Registry de 8 emuladores com detecção PATH/Flatpak/AppImage, perfis, resolve Hydra, status/preflight, ROM index com sidecars/M3U e configuração RetroAchievements (PCSX2/DuckStation/PPSSPP) byte-a-byte validada contra o Node.
 - 66 testes + comparação lado a lado com o Electron. Spawn/processo real fica na borda de runtime.
+- IPC `emulators:list/detect/profiles/profile:set/profile:remove/resolve/status/roms/roms:index` plugado; o `LaunchResolverDeps` agora resolve emuladores (Hydra) dentro do `game:launch`.
 
 ### Portes puros já verdes
 

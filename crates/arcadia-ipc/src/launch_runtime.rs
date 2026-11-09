@@ -408,11 +408,43 @@ impl LaunchResolverDeps for RuntimeDeps {
         &self,
         _id: &str,
         _game: &GameEntry,
-        _settings: &GameSettings,
+        settings: &GameSettings,
     ) -> Option<arcadia_launch::resolver::EmulatorLaunchResult> {
-        // O registro de emuladores ainda não foi portado; o resolver recebe
-        // `None` e devolve o erro claro de "sem comando" em vez de adivinhar.
-        None
+        use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
+        use arcadia_emulators::resolve::ResolveLaunchRequest;
+        use arcadia_launch::resolver::EmulatorLaunchResult;
+
+        let emulator_id = settings.emulator_id.as_ref()?.trim().to_string();
+        if emulator_id.is_empty() {
+            return None;
+        }
+        let mut options = RegistryOptions::default();
+        options.data_dir = self.data_dir.clone();
+        let registry = EmulatorRegistry::new(options);
+        let request = ResolveLaunchRequest {
+            emulator_id: Some(emulator_id),
+            rom_path: settings.rom_path.clone(),
+            extra_args: settings
+                .emulator_args
+                .as_deref()
+                .map(|args| args.split_whitespace().map(str::to_string).collect()),
+            core_path: settings.emulator_core_path.clone(),
+            launch_mode: Some("hydra".to_string()),
+        };
+        let resolved = registry.resolve_launch_typed(&request);
+        if !resolved.ok {
+            return Some(EmulatorLaunchResult::Failed {
+                error: resolved
+                    .error
+                    .unwrap_or_else(|| "configuração do emulador inválida".to_string()),
+            });
+        }
+        let command = resolved.command()?;
+        Some(EmulatorLaunchResult::Command(BuiltCommand {
+            cmd: command.cmd,
+            env: command.env.into_iter().collect(),
+            cwd: command.cwd,
+        }))
     }
 }
 

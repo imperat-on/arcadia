@@ -30,6 +30,8 @@ use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
 use arcadia_achievements::loader::AchievementsStore;
 use arcadia_catalog::hosters::DebridClient;
+use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
+use arcadia_emulators::resolve::ResolveLaunchRequest;
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
 use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
 use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
@@ -96,6 +98,7 @@ pub struct AppState {
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
+    emulators: Mutex<Option<EmulatorRegistry>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -140,6 +143,7 @@ impl AppState {
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
+            emulators: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -179,6 +183,23 @@ impl AppState {
         ));
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    fn with_emulators<T>(
+        &self,
+        channel: &str,
+        action: impl FnOnce(&EmulatorRegistry) -> T,
+    ) -> Result<T, IpcError> {
+        let mut guard = lock(&self.emulators);
+        if guard.is_none() {
+            let mut options = RegistryOptions::default();
+            options.data_dir = self.data_dir.clone();
+            *guard = Some(EmulatorRegistry::new(options));
+        }
+        let registry = guard.as_ref().ok_or_else(|| {
+            IpcError::new("emulators_unavailable", "registry indisponível", channel)
+        })?;
+        Ok(action(registry))
     }
 
     fn with_plugins<T>(
@@ -845,6 +866,70 @@ pub fn dispatch(
         }
         "plugins:install" | "plugins:remove" => {
             Ok(json!({ "ok": false, "error": "nao_suportado" }))
+        }
+        "emulators:list" => Ok(state.with_emulators(channel, |registry| registry.list_envelope())?),
+        "emulators:detect" => Ok(state.with_emulators(channel, |registry| registry.detect())?),
+        "emulators:profiles" => {
+            Ok(state.with_emulators(channel, |registry| registry.profiles_envelope())?)
+        }
+        "emulators:profile:set" => {
+            let value = args.first().cloned().unwrap_or_else(|| json!({}));
+            Ok(state.with_emulators(channel, |registry| registry.set_profile(&value))?)
+        }
+        "emulators:profile:remove" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(state.with_emulators(channel, |registry| registry.remove_profile(id))?)
+        }
+        "emulators:resolve" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let request = ResolveLaunchRequest {
+                emulator_id: payload
+                    .get("emulatorId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                rom_path: payload
+                    .get("romPath")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                extra_args: payload.get("extraArgs").and_then(Value::as_array).map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                }),
+                core_path: payload
+                    .get("corePath")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                launch_mode: payload
+                    .get("launchMode")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            };
+            Ok(state.with_emulators(channel, |registry| {
+                serde_json::to_value(registry.resolve_launch_typed(&request))
+                    .unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
+        }
+        "emulators:status" => {
+            let home = arcadia_store::paths::home_dir();
+            Ok(state.with_emulators(channel, |registry| {
+                arcadia_emulators::runtime::emulator_statuses(
+                    registry,
+                    &home,
+                    std::path::Path::new("/proc"),
+                )
+            })?)
+        }
+        "emulators:roms" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            Ok(state.with_emulators(channel, |registry| {
+                registry.scan_configured_roms(&payload)
+            })?)
+        }
+        "emulators:roms:index" => {
+            Ok(state.with_emulators(channel, |registry| registry.roms_value())?)
         }
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
@@ -2359,6 +2444,17 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn emulators_list_returns_envelope() {
+        let dir = std::env::temp_dir().join(format!("arcadia-emu-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        let value = dispatch(&state, &MockShell, "emulators:list", Vec::new()).unwrap();
+        assert_eq!(value["ok"], true);
+        assert!(value["emulators"].is_array());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

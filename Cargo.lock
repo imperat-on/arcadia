@@ -141,6 +141,7 @@ dependencies = [
  "arcadia-api",
  "arcadia-catalog",
  "arcadia-contracts",
+ "arcadia-emulators",
  "arcadia-launch",
  "arcadia-media",
  "arcadia-plugins",
