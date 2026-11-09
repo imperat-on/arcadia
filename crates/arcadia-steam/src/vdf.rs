@@ -17,6 +17,10 @@
 
 use std::fmt;
 
+/// Limite de aninhamento para entrada maliciosa não estourar a pilha. Os
+/// arquivos reais da Steam ficam muito abaixo disso.
+const MAX_DEPTH: usize = 512;
+
 /// Erro de sintaxe com a posição (offset em bytes) onde o parser parou.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VdfError {
@@ -268,10 +272,13 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn parse_root(mut self) -> Result<VdfObject, VdfError> {
-        self.parse_block()
+        self.parse_block(0)
     }
 
-    fn parse_block(&mut self) -> Result<VdfObject, VdfError> {
+    fn parse_block(&mut self, depth: usize) -> Result<VdfObject, VdfError> {
+        if depth > MAX_DEPTH {
+            return Err(self.error("aninhamento profundo demais"));
+        }
         let mut object = VdfObject::new();
         loop {
             self.skip_space();
@@ -290,7 +297,7 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some('{') => {
                     self.bump();
-                    let child = self.parse_block()?;
+                    let child = self.parse_block(depth + 1)?;
                     object.push_value(key, VdfValue::Object(child));
                 }
                 Some('"') => {
@@ -595,6 +602,16 @@ mod tests {
         assert_eq!(parsed.get_object("r").unwrap().get_str("k"), Some("v }"));
         let parsed = parse("\"r\" { \"k\" \"v\" } }").unwrap();
         assert_eq!(parsed.get_object("r").unwrap().get_str("k"), Some("v"));
+    }
+
+    #[test]
+    fn absurd_nesting_is_a_clear_error_instead_of_a_stack_overflow() {
+        let mut text = String::new();
+        for index in 0..(MAX_DEPTH + 10) {
+            text.push_str(&format!("\"k{index}\" {{"));
+        }
+        let error = parse(&text).unwrap_err();
+        assert!(error.to_string().contains("aninhamento profundo demais"));
     }
 
     #[test]

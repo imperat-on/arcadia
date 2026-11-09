@@ -12,14 +12,16 @@
 //! apaga o que já subiu de outra máquina.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::account::{active_from_roots, local_config_path, SteamAccount};
 use crate::js::{js_number_value, js_string_value, js_truthy_value};
-use crate::vdf::{parse, VdfError, VdfObject, VdfValue};
+use crate::vdf::{parse, parse_bytes, VdfError, VdfObject, VdfValue};
 
 /// Minutos por appid (chave é o número do appid, sem prefixo).
 pub type PlaytimeMap = BTreeMap<String, f64>;
@@ -37,8 +39,9 @@ pub struct LocalPlaytime {
 
 /// Leitura de UMA conta Steam, no formato que o cliente chama de `{horas,
 /// persona, steamid}`.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PlaytimeReading {
+    #[serde(serialize_with = "serialize_playtime_map")]
     pub horas: PlaytimeMap,
     pub persona: String,
     pub steamid: String,
@@ -104,23 +107,35 @@ fn minutes_from_value(value: &Value) -> f64 {
     }
 }
 
-/// Serializa minutos como o `JSON.stringify` do JS: inteiros sem `.0`,
+/// Minutos como número JSON no formato do JS: inteiros sem `.0`,
 /// fracionários como número decimal.
+fn minutes_value(minutes: f64) -> Value {
+    if minutes.is_finite() && minutes.fract() == 0.0 && minutes >= 0.0 && minutes <= u64::MAX as f64
+    {
+        Value::from(minutes as u64)
+    } else {
+        Value::from(minutes)
+    }
+}
+
 fn serialize_minutes<S>(minutes: &f64, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     use serde::Serialize as _;
-    let value = if minutes.is_finite()
-        && minutes.fract() == 0.0
-        && *minutes >= 0.0
-        && *minutes <= u64::MAX as f64
-    {
-        serde_json::Value::from(*minutes as u64)
-    } else {
-        serde_json::Value::from(*minutes)
-    };
-    value.serialize(serializer)
+    minutes_value(*minutes).serialize(serializer)
+}
+
+fn serialize_playtime_map<S>(map: &PlaytimeMap, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut output = serializer.serialize_map(Some(map.len()))?;
+    for (appid, minutes) in map {
+        output.serialize_entry(appid, &minutes_value(*minutes))?;
+    }
+    output.end()
 }
 
 /// `acharApps`: caminho completo e, por compatibilidade, o curto.
@@ -210,6 +225,78 @@ pub fn parse_reading(
     persona: &str,
 ) -> Result<PlaytimeReading, VdfError> {
     Ok(reading_from_root(&parse(text)?, steamid, persona))
+}
+
+/// Lê o `localconfig.vdf` de UMA raiz para UMA conta. Mesmo shape de
+/// `lerHorasDaConta`; ausência/arquivo vazio/VDF malformado -> horas vazias
+/// (a leitura do app é tolerante).
+pub fn reading_from_path(steam_root: &Path, steamid: &str, persona: &str) -> PlaytimeReading {
+    if steamid.is_empty() {
+        return PlaytimeReading {
+            horas: PlaytimeMap::new(),
+            persona: persona.to_string(),
+            steamid: String::new(),
+        };
+    }
+    let Some(path) = local_config_path(steam_root, steamid) else {
+        return PlaytimeReading {
+            horas: PlaytimeMap::new(),
+            persona: persona.to_string(),
+            steamid: steamid.to_string(),
+        };
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return PlaytimeReading {
+            horas: PlaytimeMap::new(),
+            persona: persona.to_string(),
+            steamid: steamid.to_string(),
+        };
+    };
+    let Ok(root) = parse_bytes(&bytes) else {
+        return PlaytimeReading {
+            horas: PlaytimeMap::new(),
+            persona: persona.to_string(),
+            steamid: steamid.to_string(),
+        };
+    };
+    reading_from_root(&root, steamid, persona)
+}
+
+/// `lerHorasDaConta` sobre VÁRIAS raízes: a primeira com horas vence.
+pub fn reading_from_roots(roots: &[PathBuf], steamid: &str, persona: &str) -> PlaytimeReading {
+    for root in roots {
+        let reading = reading_from_path(root, steamid, persona);
+        if !reading.is_empty() {
+            return reading;
+        }
+    }
+    PlaytimeReading {
+        horas: PlaytimeMap::new(),
+        persona: persona.to_string(),
+        steamid: steamid.to_string(),
+    }
+}
+
+/// `lerHorasDeTodasAsContas`: horas de todas as contas; sem nenhuma leitura,
+/// cai na conta ativa (com o fallback de `MostRecent`).
+pub fn readings_from_roots(roots: &[PathBuf], accounts: &[SteamAccount]) -> Vec<PlaytimeReading> {
+    let mut readings = Vec::new();
+    for account in accounts {
+        let reading = reading_from_roots(roots, &account.steamid, &account.persona);
+        if !reading.is_empty() {
+            readings.push(reading);
+        }
+    }
+    if readings.is_empty() {
+        if let Some(active) = active_from_roots(roots) {
+            let reading =
+                reading_from_roots(roots, &active.account.steamid, &active.account.persona);
+            if !reading.is_empty() {
+                readings.push(reading);
+            }
+        }
+    }
+    readings
 }
 
 /// `chaveAppid`: primeiro número de 2+ dígitos dentro do id (`steam:990080` →
@@ -303,7 +390,11 @@ pub fn somar_por_appid(mapa: &PlaytimeByAccount) -> PlaytimeMap {
     let mut output = PlaytimeMap::new();
     for (appid, contas) in mapa {
         // O JS soma os números como vieram; não há saturação/arredondamento.
-        let total: f64 = contas.values().copied().filter(|value| value.is_finite()).sum();
+        let total: f64 = contas
+            .values()
+            .copied()
+            .filter(|value| value.is_finite())
+            .sum();
         if total > 0.0 {
             output.insert(appid.clone(), total);
         }
@@ -350,7 +441,10 @@ pub fn parse_server_rows(value: &Value) -> Vec<ServerPlaytime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::TestDir;
     use serde_json::json;
+
+    const CONTA_B: &str = "76561198000004541";
 
     const LOCAL_CONFIG: &str = "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n\t\t\t\t\t\"990080\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LastPlayed\"\t\t\"1750000000\"\n\t\t\t\t\t\t\"Playtime\"\t\t\"4907\"\n\t\t\t\t\t\t\"Playtime2wks\"\t\t\"0\"\n\t\t\t\t\t}\n\t\t\t\t\t\"1091500\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"Playtime\"\t\t\"120\"\n\t\t\t\t\t}\n\t\t\t\t\t\"0\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"Playtime\"\t\t\"999\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
 
@@ -422,6 +516,23 @@ mod tests {
         assert_eq!(reading.persona, "Kk");
         assert_eq!(reading.horas.get("990080"), Some(&4907.0));
         assert!(!reading.is_empty());
+    }
+
+    #[test]
+    fn reading_serializes_like_the_electron_payload() {
+        let reading = PlaytimeReading {
+            horas: BTreeMap::from([("990080".to_string(), 4907.0)]),
+            persona: "Kk".into(),
+            steamid: CONTA_B.into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&reading).unwrap(),
+            json!({
+                "horas": { "990080": 4907 },
+                "persona": "Kk",
+                "steamid": CONTA_B
+            })
+        );
     }
 
     #[test]
@@ -556,10 +667,12 @@ mod tests {
                 persona: "Kk".into(),
             }]
         );
-        assert!(
-            itens_para_enviar(&BTreeMap::from([("steam:990080".to_string(), 10.0)]), "", "")
-                .is_empty()
-        );
+        assert!(itens_para_enviar(
+            &BTreeMap::from([("steam:990080".to_string(), 10.0)]),
+            "",
+            ""
+        )
+        .is_empty());
 
         let json = serde_json::to_value(&items[0]).unwrap();
         assert_eq!(
@@ -602,5 +715,56 @@ mod tests {
         let somado = somar_por_appid(&mesclar_horas(&do_servidor, &locais));
         assert_eq!(somado.get("990080"), Some(&6767.0));
         assert_eq!(somado.get("220"), Some(&120.0));
+    }
+    fn write_account_config(root: &Path, account_id: &str, text: &str) {
+        let path = root
+            .join("userdata")
+            .join(account_id)
+            .join("config")
+            .join("localconfig.vdf");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn reads_playtime_from_a_fake_steam_root_and_falls_back_to_active() {
+        let temp = TestDir::new("playtime-files");
+        let root = temp.path().join("Steam");
+        write_account_config(&root, "39738813", LOCAL_CONFIG);
+
+        let reading = reading_from_path(&root, CONTA_B, "Kk");
+        assert_eq!(reading.steamid, CONTA_B);
+        assert_eq!(reading.persona, "Kk");
+        assert_eq!(reading.horas.get("990080"), Some(&4907.0));
+
+        let missing = reading_from_roots(&[temp.path().join("Outra")], CONTA_B, "Kk");
+        assert!(missing.is_empty());
+        assert_eq!(missing.steamid, CONTA_B);
+
+        // A primeira raiz sem arquivo não impede a segunda.
+        let found = reading_from_roots(&[temp.path().join("Outra"), root.clone()], CONTA_B, "Kk");
+        assert_eq!(found.horas.get("990080"), Some(&4907.0));
+
+        // Sem lista de contas, `lerHorasDeTodasAsContas` usa a ativa.
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(
+            root.join("config").join("loginusers.vdf"),
+            "\"users\" { \"76561198000004541\" { \"PersonaName\" \"Kk\" \"MostRecent\" \"1\" } }",
+        )
+        .unwrap();
+        let readings = readings_from_roots(&[root], &[]);
+        assert_eq!(readings.len(), 1);
+        assert_eq!(readings[0].steamid, CONTA_B);
+        assert_eq!(readings[0].persona, "Kk");
+    }
+
+    #[test]
+    fn malformed_local_config_reads_as_empty_instead_of_panicking() {
+        let temp = TestDir::new("playtime-malformed");
+        let root = temp.path().join("Steam");
+        write_account_config(&root, "39738813", "\"apps\" { x }");
+        let reading = reading_from_path(&root, CONTA_B, "Kk");
+        assert!(reading.is_empty());
+        assert_eq!(reading.persona, "Kk");
     }
 }

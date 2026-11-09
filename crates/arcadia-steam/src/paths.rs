@@ -89,15 +89,14 @@ pub fn candidate_roots(env: &SteamPathEnv) -> Vec<String> {
         for root in &env.registry_roots {
             push_unique(&mut candidates, &mut seen, root);
         }
-        for base in [env.program_files_x86.as_deref(), env.program_files.as_deref()]
-            .into_iter()
-            .flatten()
+        for base in [
+            env.program_files_x86.as_deref(),
+            env.program_files.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
         {
-            push_unique(
-                &mut candidates,
-                &mut seen,
-                &join_windows(base, "Steam"),
-            );
+            push_unique(&mut candidates, &mut seen, &join_windows(base, "Steam"));
         }
         for letter in 'C'..='Z' {
             let drive = format!("{letter}:\\");
@@ -128,7 +127,9 @@ pub fn candidate_roots(env: &SteamPathEnv) -> Vec<String> {
 
 /// Uma pasta é raiz da Steam se tem o executável, a appcache ou a steamapps.
 pub fn is_steam_root(dir: &Path) -> bool {
-    dir.join("steam.exe").exists() || dir.join("appcache").exists() || dir.join("steamapps").exists()
+    dir.join("steam.exe").exists()
+        || dir.join("appcache").exists()
+        || dir.join("steamapps").exists()
 }
 
 /// Primeira raiz válida da lista.
@@ -216,10 +217,7 @@ mod tests {
             program_files_x86: Some("C:\\Program Files (x86)".into()),
             program_files: Some("C:\\Program Files\\".into()),
             home: Some("C:\\Users\\zes".into()),
-            registry_roots: vec![
-                "E:\\Steam".into(),
-                "C:\\Program Files (x86)\\Steam".into(),
-            ],
+            registry_roots: vec!["E:\\Steam".into(), "C:\\Program Files (x86)\\Steam".into()],
         };
         let candidates = candidate_roots(&env);
         assert_eq!(candidates[0], "D:\\MeuSteam");
@@ -338,7 +336,9 @@ mod tests {
     fn convenience_paths_match_the_steam_layout() {
         assert_eq!(
             login_users_path("D:\\Steam"),
-            PathBuf::from("D:\\Steam").join("config").join("loginusers.vdf")
+            PathBuf::from("D:\\Steam")
+                .join("config")
+                .join("loginusers.vdf")
         );
         assert_eq!(
             config_vdf_path("D:\\Steam"),

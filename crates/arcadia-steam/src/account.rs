@@ -161,9 +161,13 @@ pub struct ConfigAccounts {
 }
 
 pub fn config_accounts_from_root(root: &VdfObject) -> ConfigAccounts {
-    let Some(steam) = root
+    // O arquivo real começa em InstallConfigStore; aceitar Software na raiz
+    // mantém compatibilidade com fixtures/ferramentas que omitem o wrapper.
+    let software = root
         .get_object("InstallConfigStore")
         .and_then(|store| store.get_object("Software"))
+        .or_else(|| root.get_object("Software"));
+    let Some(steam) = software
         .and_then(|software| software.get_object("Valve"))
         .and_then(|valve| valve.get_object("Steam"))
     else {
@@ -746,12 +750,18 @@ mod tests {
         assert!(config.remember_password);
         assert_eq!(config.accounts.len(), 2);
         assert_eq!(config.accounts[0].account_name, "conta1");
-        assert_eq!(config.accounts[0].steamid, CONTA_B, "id 32-bit vira SteamID64");
+        assert_eq!(
+            config.accounts[0].steamid, CONTA_B,
+            "id 32-bit vira SteamID64"
+        );
         assert_eq!(config.accounts[0].account_id(), "39744404");
         assert!(!config.accounts[0].most_recent);
         assert_eq!(config.accounts[1].steamid, CONTA_A);
         assert_eq!(config.accounts[1].persona, "Kk");
-        assert!(config.accounts[1].most_recent, "AutoLoginUser marca a conta");
+        assert!(
+            config.accounts[1].most_recent,
+            "AutoLoginUser marca a conta"
+        );
     }
 
     #[test]
@@ -769,6 +779,12 @@ mod tests {
             parse_config_accounts("\"outra\" { \"x\" \"1\" }").unwrap(),
             ConfigAccounts::default()
         );
+
+        let root_software = parse_config_accounts(
+            "\"Software\" { \"Valve\" { \"Steam\" { \"AutoLoginUser\" \"zes\" } } }",
+        )
+        .unwrap();
+        assert_eq!(root_software.auto_login_user.as_deref(), Some("zes"));
     }
 
     #[test]
@@ -983,13 +999,15 @@ mod tests {
 
         std::fs::write(
             login_users_path(&second),
-            &LOGIN_USERS.replace("\"MostRecent\"		\"1\"", "\"MostRecent\"		\"0\""),
+            LOGIN_USERS.replace("\"MostRecent\"		\"1\"", "\"MostRecent\"		\"0\""),
         )
         .unwrap();
         let active = active_from_roots(&[first.clone(), second]).unwrap();
-        assert_eq!(active.account.steamid, CONTA_B, "primeira conta da primeira raiz");
+        assert_eq!(
+            active.account.steamid, CONTA_B,
+            "primeira conta da primeira raiz"
+        );
         assert_eq!(active.root, first);
         assert!(active.sem_most_recent);
     }
-
 }
