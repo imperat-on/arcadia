@@ -462,6 +462,11 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - 110 testes. Watcher ao vivo, toasts e scrape público ficam para a borda de runtime.
 - IPC `achievements:get` lê os itens da conta (`achievements.json`) e devolve o array da UI; `schemas:load`/watcher ao vivo ainda pendentes.
 
+### Marco 17 — emuladores (concluído)
+
+- Registry de 8 emuladores com detecção PATH/Flatpak/AppImage, perfis, resolve Hydra, status/preflight, ROM index com sidecars/M3U e configuração RetroAchievements (PCSX2/DuckStation/PPSSPP) byte-a-byte validada contra o Node.
+- 66 testes + comparação lado a lado com o Electron. Spawn/processo real fica na borda de runtime.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -479,9 +484,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
 | `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
 | `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
+| `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements, máscara de segredos, allowlist, cobertura de canais | 34 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **945** |
+| **Total** | | **1011** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
