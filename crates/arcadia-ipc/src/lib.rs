@@ -1992,6 +1992,11 @@ async fn dispatch_async_inner(
             Ok(serde_json::to_value(registry.get_game(reference).await)
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
+        "game:sysinfo" => {
+            let game = args.first().cloned().unwrap_or_else(|| json!({}));
+            let store = state.store_client(channel).ok();
+            Ok(catalog_service::game_sysinfo(state, store.as_ref(), &game).await)
+        }
         "game:stats" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
             Ok(catalog_service::game_stats(state, appid).await)
@@ -3424,6 +3429,21 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(background["ok"], false);
+    }
+
+    #[tokio::test]
+    async fn game_sysinfo_without_api_is_safe() {
+        let state = state();
+        let value = dispatch_async(
+            &state,
+            &MockShell,
+            "game:sysinfo",
+            vec![json!({ "id": "custom:x", "title": "Sem API" })],
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], true);
+        assert!(value.get("info").is_some());
     }
 
     #[tokio::test]

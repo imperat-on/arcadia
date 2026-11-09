@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use arcadia_catalog::catalog::{CatalogClient, FsMirrorStore, NoAuth};
+use arcadia_steamstore::store::StoreClient;
 
 use crate::AppState;
 
@@ -79,6 +80,66 @@ async fn steam_reviews(appid: &str) -> Option<Value> {
         "totalReviews": total,
         "comments": comments
     }))
+}
+
+/// `game:sysinfo`: requisitos/tamanhos/descrição do catálogo + appdetails.
+pub async fn game_sysinfo(
+    state: &AppState,
+    store: Option<&StoreClient>,
+    game: &Value,
+) -> Value {
+    let id = game.get("id").and_then(Value::as_str).unwrap_or_default();
+    let title = game.get("title").and_then(Value::as_str).unwrap_or_default();
+    let mut appid = id
+        .strip_prefix("steam:")
+        .unwrap_or_default()
+        .to_string();
+    if appid.is_empty() {
+        if let Some(store) = store {
+            if !title.is_empty() {
+                let response = store.suggest(title).await;
+                if let Some(jogos) = response.jogos {
+                    if let Some(first) = jogos.first() {
+                        appid = first.appid.clone();
+                    }
+                }
+            }
+        }
+    }
+    if appid.is_empty() {
+        return json!({ "ok": true, "info": null });
+    }
+
+    let mut info = serde_json::Map::new();
+    if let Some(client) = client(state) {
+        if let Some(body) = client
+            .get(&format!("/catalog/v1/sysinfo/{appid}"))
+            .await
+            .data
+        {
+            let data = body.get("data").cloned().unwrap_or(body);
+            if let Some(object) = data.as_object() {
+                for (key, value) in object {
+                    info.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+    if let Some(store) = store {
+        if let Ok(Some(details)) = store.app_details(&appid).await {
+            if let Ok(Value::Object(object)) = serde_json::to_value(details) {
+                for (key, value) in object {
+                    info.entry(key).or_insert(value);
+                }
+            }
+        }
+    }
+    if info.is_empty() {
+        json!({ "ok": true, "info": null })
+    } else {
+        info.insert("appid".into(), json!(appid));
+        json!({ "ok": true, "info": Value::Object(info) })
+    }
 }
 
 pub async fn game_stats(state: &AppState, appid: &str) -> Value {
