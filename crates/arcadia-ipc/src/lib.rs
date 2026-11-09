@@ -834,6 +834,11 @@ pub fn dispatch(
         "plugins:install" | "plugins:remove" => {
             Ok(json!({ "ok": false, "error": "nao_suportado" }))
         }
+        "gamepadStatus" => Ok(json!({
+            "ok": true,
+            "emulator": "uinput",
+            "running": false
+        })),
         "integrations:status" => {
             let config = read_config(&state.data_dir);
             Ok(json!({
