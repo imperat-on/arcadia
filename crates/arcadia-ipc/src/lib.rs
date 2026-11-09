@@ -685,6 +685,25 @@ pub fn dispatch(
                 arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
             Ok(service.remove(game_id, snapshot_id))
         }
+        "steam:contaStatus" => {
+            let auto = read_config(&state.data_dir)
+                .get("achievements_auto_capture")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            Ok(steam_service::status(
+                &state.data_dir,
+                state.account().as_deref(),
+                auto,
+            ))
+        }
+        "steam:vincularConta" => Ok(steam_service::link_now(
+            &state.data_dir,
+            state.account().as_deref(),
+        )),
+        "steam:capturarAgora" => Ok(json!({
+            "ok": false,
+            "motivo": "captura_nao_portada"
+        })),
         "steam:horasTodas" => Ok(steam_service::hours_json()),
         "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
             args.first().and_then(Value::as_str).unwrap_or_default(),

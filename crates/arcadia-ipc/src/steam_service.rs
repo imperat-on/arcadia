@@ -10,7 +10,10 @@ use arcadia_launch::steam_path::{RegistryProbe, SteamPathResolver, SystemPathFs}
 use arcadia_launch::steam_path::NullRegistryProbe;
 #[cfg(windows)]
 use arcadia_launch::steam_path::WindowsRegistryProbe;
-use arcadia_steam::account::{local_config_path, parse_login_users, select_active_login_user};
+use arcadia_steam::account::{
+    local_config_path, parse_login_users, select_active_login_user, SteamAccount,
+};
+use serde_json::{json, Value};
 use arcadia_steam::playtime::{locais_de_contas, playtime_map, PlaytimeReading};
 
 /// Resolve a raiz da Steam com o mesmo resolver do launch.
@@ -87,6 +90,131 @@ pub fn hours_from_root(root: &Path) -> Result<(BTreeMap<String, u64>, String), S
     Ok((totals, persona))
 }
 
+const LINK_FILE: &str = "steam_account.json";
+
+fn read_link(data_dir: &Path, account: Option<&str>) -> Option<Value> {
+    let raw = std::fs::read_to_string(arcadia_store::accounts::account_file(
+        data_dir, account, LINK_FILE,
+    ))
+    .ok()?;
+    serde_json::from_str::<Value>(&raw).ok().filter(|value| {
+        value.get("steamid").and_then(Value::as_str).is_some()
+    })
+}
+
+fn write_link(data_dir: &Path, account: Option<&str>, value: &Value) -> bool {
+    let path = arcadia_store::accounts::account_file(data_dir, account, LINK_FILE);
+    let text = match serde_json::to_string_pretty(value) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+    arcadia_store::atomic::write_atomic_text(&path, &text).is_ok()
+}
+
+fn accounts_json(accounts: &[SteamAccount]) -> Value {
+    Value::Array(
+        accounts
+            .iter()
+            .map(|account| json!({
+                "steamid": account.steamid,
+                "persona": account.persona
+            }))
+            .collect(),
+    )
+}
+
+/// Status de vínculo/captura, com a mesma regra do `steam-account.js`.
+pub fn status_from_root(
+    root: &Path,
+    data_dir: &Path,
+    account: Option<&str>,
+    auto: bool,
+) -> Value {
+    let login_path = root.join("config").join("loginusers.vdf");
+    let Ok(login_text) = std::fs::read_to_string(login_path) else {
+        return json!({
+            "vinculo": null,
+            "contaAtual": null,
+            "permitido": auto,
+            "forcado": false,
+            "vinculoOk": false,
+            "semSteam": true,
+            "auto": auto,
+            "contasSteam": []
+        });
+    };
+    let accounts = parse_login_users(&login_text).unwrap_or_default();
+    let active = select_active_login_user(&login_text)
+        .ok()
+        .flatten()
+        .map(|selected| selected.account);
+    let mut link = read_link(data_dir, account);
+    if link.is_none() {
+        if let Some(active) = active.as_ref() {
+            let value = json!({
+                "steamid": active.steamid,
+                "persona": active.persona,
+                "vinculadoEm": chrono::Utc::now().timestamp_millis()
+            });
+            if write_link(data_dir, account, &value) {
+                link = Some(value);
+            }
+        }
+    }
+    let conta_atual = active.as_ref().map(|active| json!({
+        "steamid": active.steamid,
+        "persona": active.persona
+    }));
+    let bate = match (active.as_ref(), link.as_ref()) {
+        (Some(active), Some(link)) => {
+            link.get("steamid").and_then(Value::as_str) == Some(active.steamid.as_str())
+        }
+        _ => false,
+    };
+    let sem_steam = active.is_none();
+    json!({
+        "vinculo": link.map(|value| json!({
+            "steamid": value.get("steamid").cloned().unwrap_or(Value::Null),
+            "persona": value.get("persona").cloned().unwrap_or(Value::Null)
+        })),
+        "contaAtual": conta_atual,
+        "permitido": auto && (sem_steam || bate),
+        "forcado": false,
+        "vinculoOk": bate,
+        "semSteam": sem_steam,
+        "auto": auto,
+        "contasSteam": accounts_json(&accounts)
+    })
+}
+
+pub fn status(data_dir: &Path, account: Option<&str>, auto: bool) -> Value {
+    let root = steam_root();
+    if root.trim().is_empty() {
+        return status_from_root(Path::new(""), data_dir, account, auto);
+    }
+    status_from_root(Path::new(&root), data_dir, account, auto)
+}
+
+pub fn link_now(data_dir: &Path, account: Option<&str>) -> Value {
+    let root = steam_root();
+    let login_path = Path::new(&root).join("config").join("loginusers.vdf");
+    let Ok(text) = std::fs::read_to_string(login_path) else {
+        return json!({ "ok": false, "motivo": "steam_ausente" });
+    };
+    let Some(active) = select_active_login_user(&text).ok().flatten() else {
+        return json!({ "ok": false, "motivo": "sem_conta_steam" });
+    };
+    let value = json!({
+        "steamid": active.account.steamid,
+        "persona": active.account.persona,
+        "vinculadoEm": chrono::Utc::now().timestamp_millis()
+    });
+    if !write_link(data_dir, account, &value) {
+        return json!({ "ok": false, "motivo": "falha_ao_gravar" });
+    }
+    json!({ "ok": true, "vinculo": value })
+}
+
 pub fn hours_json() -> serde_json::Value {
     match hours_by_appid() {
         Ok((hours, persona)) => {
@@ -114,7 +242,7 @@ pub fn game_hours_json(appid: &str) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{hours_from_root, normalize_appid};
+    use super::{hours_from_root, normalize_appid, status_from_root};
     use std::path::PathBuf;
 
     #[test]
@@ -181,6 +309,14 @@ mod tests {
         assert_eq!(persona, "Zyon");
         assert_eq!(hours.get("440"), Some(&120));
         assert_eq!(hours.get("570"), Some(&45));
+
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let status = status_from_root(&root, &data, None, true);
+        assert_eq!(status["contaAtual"]["persona"], "Zyon");
+        assert_eq!(status["vinculoOk"], true);
+        assert_eq!(status["permitido"], true);
+        assert!(data.join("steam_account.json").is_file());
         let _ = std::fs::remove_dir_all(PathBuf::from(root));
     }
 }

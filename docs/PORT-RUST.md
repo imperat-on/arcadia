@@ -413,7 +413,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Playtime do `localconfig.vdf`, merge local/servidor e payload `{appid,steamid,minutes,persona}`.
 - Steam news (`GetNewsForApp`) com extração de imagem, allowlist HTTPS e cache de 6 h.
 - Detecção de raiz Steam portada junto (`paths.rs`), sem consultar registro — a borda do Windows fica no launch.
-- IPC: `steam:horasTodas`, `steam:horasDoJogo` e `news:game` (Steam news) plugados; horas somam as contas locais e usam a persona ativa. Teste de integração monta raiz Steam fake (`loginusers.vdf` + `localconfig.vdf`) e valida a soma por appid.
+- IPC: `steam:contaStatus` (vínculo + captura permitida), `steam:vincularConta`, `steam:horasTodas`, `steam:horasDoJogo` e `news:game` (Steam news) plugados; horas somam as contas locais e usam a persona ativa. Teste de integração monta raiz Steam fake (`loginusers.vdf` + `localconfig.vdf`) e valida vínculo inicial + soma por appid. `capturarAgora` responde `captura_nao_portada` até o watcher de conquistas ser portado.
 
 ### Marco 11 — runtime de downloads (concluído)
 
