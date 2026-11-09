@@ -103,10 +103,20 @@ impl AppState {
     }
 
     fn build(data_dir: PathBuf, api: Option<Arc<ApiClient>>) -> Self {
+        let config = arcadia_store::config::read_config(&data_dir);
+        let config_console = ["start_in_console_mode", "launch_in_console_mode"]
+            .iter()
+            .any(|key| config.get(key).and_then(Value::as_bool) == Some(true));
         let mode = std::env::var("ARCADIA_MODE")
             .ok()
             .filter(|mode| mode == "console" || mode == "desktop")
-            .unwrap_or_else(|| "desktop".to_string());
+            .unwrap_or_else(|| {
+                if config_console {
+                    "console".to_string()
+                } else {
+                    "desktop".to_string()
+                }
+            });
         Self {
             data_dir,
             mode: Mutex::new(mode),

@@ -189,14 +189,18 @@ fn dialog_result(path: Option<tauri_plugin_dialog::FilePath>) -> Value {
     }
 }
 
-fn close_to_tray(window: &WebviewWindow) -> bool {
+fn config_flag(window: &WebviewWindow, key: &str) -> bool {
     let Some(state) = window.app_handle().try_state::<AppState>() else {
         return false;
     };
     arcadia_store::config::read_config(&state.data_dir)
-        .get("close_to_tray")
+        .get(key)
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn close_to_tray(window: &WebviewWindow) -> bool {
+    config_flag(window, "close_to_tray")
 }
 
 fn install_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -486,7 +490,9 @@ fn main() {
             .initialization_script(init_script)
             // Mesma ideia do ready-to-show: só aparece depois do primeiro paint.
             .on_page_load(|window, payload| {
-                if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                    && !config_flag(&window, "start_minimized")
+                {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -497,6 +503,11 @@ fn main() {
             window.on_window_event(move |event| match event {
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     apply_ui_scale(&scale_window);
+                    if config_flag(&scale_window, "minimize_to_tray")
+                        && scale_window.is_minimized().unwrap_or(false)
+                    {
+                        let _ = scale_window.hide();
+                    }
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     if close_to_tray(&scale_window) {
