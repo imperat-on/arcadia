@@ -9,6 +9,8 @@ members = [
     "crates/arcadia-sync",
     "crates/arcadia-social",
     "crates/arcadia-launch",
+    "crates/arcadia-steam",
+    "crates/arcadia-media",
     "crates/arcadia-ipc",
     "src-tauri",
 ]

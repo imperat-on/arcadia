@@ -117,6 +117,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "arcadia-media"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "arcadia-retro"
 version = "0.1.0"
 dependencies = [
@@ -140,6 +148,14 @@ dependencies = [
  "tokio",
  "url",
  "wiremock",
+]
+
+[[package]]
+name = "arcadia-steam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
