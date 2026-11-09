@@ -104,6 +104,7 @@ dependencies = [
  "arcadia-contracts",
  "arcadia-launch",
  "arcadia-social",
+ "arcadia-steam",
  "arcadia-store",
  "arcadia-sync",
  "chrono",

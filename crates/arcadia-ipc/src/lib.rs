@@ -6,6 +6,7 @@ pub mod channels;
 pub mod diagnostics;
 pub mod launch_runtime;
 pub mod news;
+pub mod steam_service;
 
 /// Versão-base do cliente Electron que este port substitui.
 pub const APP_VERSION: &str = "1.5.5";
@@ -684,6 +685,10 @@ pub fn dispatch(
                 arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
             Ok(service.remove(game_id, snapshot_id))
         }
+        "steam:horasTodas" => Ok(steam_service::hours_json()),
+        "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
+            args.first().and_then(Value::as_str).unwrap_or_default(),
+        )),
         "app:diskSpace" => {
             let target = args
                 .first()
@@ -864,9 +869,20 @@ async fn dispatch_async_inner(
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
         "news:get" => Ok(Value::Array(state.news.get(40).await)),
-        "news:game" => Ok(news::game_news(
-            args.first().and_then(Value::as_str).unwrap_or_default(),
-        )),
+        "news:game" => {
+            let appid = steam_service::normalize_appid(
+                args.first().and_then(Value::as_str).unwrap_or_default(),
+            );
+            if appid.is_empty() {
+                return Ok(json!([]));
+            }
+            let Some(api) = state.api() else {
+                return Ok(json!([]));
+            };
+            let client = arcadia_steam::news::NewsClient::new(api.http().clone());
+            let items = client.game_news(&appid).await;
+            Ok(serde_json::to_value(items).unwrap_or_else(|_| json!([])))
+        }
         "friends:search"
         | "friends:send"
         | "friends:accept"

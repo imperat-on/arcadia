@@ -412,6 +412,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Playtime do `localconfig.vdf`, merge local/servidor e payload `{appid,steamid,minutes,persona}`.
 - Steam news (`GetNewsForApp`) com extração de imagem, allowlist HTTPS e cache de 6 h.
 - Detecção de raiz Steam portada junto (`paths.rs`), sem consultar registro — a borda do Windows fica no launch.
+- IPC: `steam:horasTodas`, `steam:horasDoJogo` e `news:game` (Steam news) plugados; horas somam as contas locais e usam a persona ativa.
 
 ### Marco 11 — runtime de downloads (concluído)
 
@@ -433,9 +434,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias, máscara de segredos, allowlist, cobertura de canais | 24 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news, máscara de segredos, allowlist, cobertura de canais | 25 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **572** |
+| **Total** | | **573** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
