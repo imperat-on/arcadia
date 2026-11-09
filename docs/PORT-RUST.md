@@ -455,6 +455,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `SourceRegistry`: CRUD com ETag/cache, índice, matcher completo de títulos, `getGame`, envelopes e helpers de `push/pull_sources`.
 - 71 testes (unit + wiremock). IPC plugado: `sources:list/add/remove/sync/search/game` e `debrid:status` (token configurado), com registry por conta e cache global.
 
+### Marco 16 — conquistas (concluído)
+
+- Parser binário Valve KV (schema/progress), normalização de schema, matching/aliases, loader local, consolidação, Uplay e decisões de cracked watcher com fs/clock injetáveis.
+- Cobertura de truncamento/fuzz no parser binário; payloads de unlock e fila de sync puros.
+- 110 testes. Watcher ao vivo, toasts e scrape público ficam para a borda de runtime.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -471,9 +477,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
 | `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
+| `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online, máscara de segredos, allowlist, cobertura de canais | 33 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **834** |
+| **Total** | | **944** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

@@ -198,11 +198,19 @@ dependencies = [
 name = "arcadia-retro"
 version = "0.1.0"
 dependencies = [
+ "arcadia-catalog",
+ "arcadia-store",
+ "async-trait",
  "chrono",
  "regex",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
  "unicode-normalization",
+ "url",
 ]
 
 [[package]]
@@ -231,6 +239,22 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "url",
+ "wiremock",
+]
+
+[[package]]
+name = "arcadia-steamstore"
+version = "0.1.0"
+dependencies = [
+ "arcadia-catalog",
+ "arcadia-steam",
+ "async-trait",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
  "wiremock",
 ]
 
