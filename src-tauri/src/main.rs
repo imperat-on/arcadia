@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -165,6 +167,43 @@ fn dialog_result(path: Option<tauri_plugin_dialog::FilePath>) -> Value {
         Ok(path) => json!({ "ok": true, "path": path.to_string_lossy() }),
         Err(error) => json!({ "ok": false, "error": error.to_string() }),
     }
+}
+
+fn close_to_tray(window: &WebviewWindow) -> bool {
+    let Some(state) = window.app_handle().try_state::<AppState>() else {
+        return false;
+    };
+    arcadia_store::config::read_config(&state.data_dir)
+        .get("close_to_tray")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Mostrar Arcadia", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let mut builder = TrayIconBuilder::new()
+        .tooltip("Arcadia")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    } else if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
+    Ok(())
 }
 
 /// Fator automático do `ui-scale.js`: menor dimensão lógica contra 1920×1080,
@@ -381,14 +420,19 @@ fn main() {
             .build()?;
 
             let scale_window = window.clone();
-            window.on_window_event(move |event| {
-                if matches!(
-                    event,
-                    WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
-                ) {
+            window.on_window_event(move |event| match event {
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     apply_ui_scale(&scale_window);
                 }
+                WindowEvent::CloseRequested { api, .. } => {
+                    if close_to_tray(&scale_window) {
+                        api.prevent_close();
+                        let _ = scale_window.hide();
+                    }
+                }
+                _ => {}
             });
+            install_tray(app)?;
             apply_ui_scale(&window);
             // O React lazy pode montar depois do primeiro Finished; reemite uma
             // vez com a janela estável para o console receber capa/escala.

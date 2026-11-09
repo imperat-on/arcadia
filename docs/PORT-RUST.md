@@ -404,6 +404,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - Fórmula do `ui-scale.js` portada: menor dimensão lógica contra 1920×1080, clamp 1..1.7, `ARCADIA_UI_SCALE` como override (0.7..2), zoom `base da skin × escala` (0.7..2.4), `ui:escala {escala, capa}` reemitido no boot, no resize e na troca de modo.
 - Canais de update respondem estado honesto "sem suporte" enquanto o updater não é portado, em vez de erro de canal.
+- Bandeja do sistema com menu Mostrar/Sair; `close_to_tray` intercepta o fechamento e esconde a janela. Boot real validado com tray ativo.
 
 ### Marco 10 — Steam (concluído)
 
