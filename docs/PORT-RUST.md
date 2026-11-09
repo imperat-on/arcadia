@@ -406,6 +406,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Canais de update respondem estado honesto "sem suporte" enquanto o updater não é portado, em vez de erro de canal.
 - Bandeja do sistema com menu Mostrar/Sair; `close_to_tray` intercepta o fechamento e esconde a janela. Boot real validado com tray ativo.
 - `start_minimized` inicia escondido na bandeja, `minimize_to_tray` esconde ao minimizar, e o modo inicial respeita `start_in_console_mode`/`launch_in_console_mode` quando `ARCADIA_MODE` não está setado.
+- `wine:list` detecta Protons em `steamapps/common` e `compatibilitytools.d` com o shape do seletor.
 
 ### Marco 10 — Steam (concluído)
 
@@ -530,9 +531,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
 | `arcadia-updater` | canais git e empacotado, manifests e estados | 93 |
 | `arcadia-fixes` | catálogo/engine, instalação transacional, redirect, Ryuu e executores HTTP/zip/7z | 118 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + fixes + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 56 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + fixes + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar + wine, máscara de segredos, allowlist, cobertura de canais | 57 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1473** |
+| **Total** | | **1474** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

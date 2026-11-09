@@ -13,6 +13,7 @@ pub mod news;
 pub mod protondb;
 pub mod steam_service;
 pub mod trailer_service;
+pub mod wine_service;
 
 /// Versão-base do cliente Electron que este port substitui.
 pub const APP_VERSION: &str = "1.5.5";
@@ -1417,6 +1418,7 @@ pub fn dispatch(
             }
             Ok(Value::Array(items))
         }
+        "wine:list" => Ok(wine_service::wine_list(state)),
         "test:toast" => {
             let platinum = args
                 .first()

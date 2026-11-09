@@ -39,8 +39,7 @@ use arcadia_download::manager::{
     StartOutcome,
 };
 use arcadia_download::queue::{
-    next_queued, normalize_priority, PauseOutcome, ResumeOutcome, STATUS_DONE, STATUS_DOWNLOADING,
-    STATUS_ERROR, STATUS_PAUSED, STATUS_QUEUED,
+    next_queued, normalize_priority, PauseOutcome, ResumeOutcome, STATUS_ERROR, STATUS_QUEUED,
 };
 use arcadia_download::torrent::{
     merge_progress, normalize_download_uri, normalize_torrent_id, parse_state, serialize_state,
