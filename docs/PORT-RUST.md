@@ -421,6 +421,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Bridge torrent: protocolo de linhas, ready/erros, start/pause/resume/cancel/files/list, worker Python e transporte stdio/TCP.
 - `DownloadManager` persistido com `FilePersistence` atômica, `DownloadExecutor` injetável, transições pause/resume/cancel/retry/dismiss e campos desconhecidos preservados.
 
+### Marco 12 — mídia e metadados (concluído)
+
+- Providers SGDB, Steam (CDN/store), IGDB (proxy Playnite), Xbox, PSN (search/telemetry/GraphQL), Wallhaven.
+- Cascata de arte PSN → Worker → Xbox → SGDB, logos com cap de 4096 px, nomes de arquivo e cache `art/`.
+- HLTB com descoberta de hash/seek, cache de 30 dias; trailer com argv/parse de `yt-dlp` sem spawn.
+- Texto/HTML, normalização de título, scoring e circuit breaker/LRU com relógio injetável.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -430,13 +437,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
 | `arcadia-steam` | VDF, conta, playtime, steam news e descoberta de raiz | 78 |
+| `arcadia-media` | SGDB/Steam/IGDB/Xbox/PSN/Wallhaven, artes, HLTB e trailer | 116 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news, máscara de segredos, allowlist, cobertura de canais | 26 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **574** |
+| **Total** | | **690** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
