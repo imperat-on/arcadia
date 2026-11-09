@@ -448,6 +448,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - IPC `plugins:list/details/get/register/unregister/enable/disable/verify`; `install/remove` legados respondem `nao_suportado`. Nenhum entrypoint é executado.
 - Estado do registry preserva campos desconhecidos e escreve atômico.
 
+### Marco 15 — catálogo, hosters e sources (concluído)
+
+- `CatalogClient` com espelho em disco, ETag/304, dedupe, timeouts 5/30 s, 401→refresh→retry e fallback exato.
+- `DebridClient` para Real-Debrid/TorBox/AllDebrid/Premiumize + resolvers livres, seleção de maior arquivo, magnet/webdl e tokens redigidos.
+- `SourceRegistry`: CRUD com ETag/cache, índice, matcher completo de títulos, `getGame`, envelopes e helpers de `push/pull_sources`.
+- 71 testes (unit + wiremock). IPC de sources/debrid é o próximo passo.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -463,9 +470,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
+| `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online, máscara de segredos, allowlist, cobertura de canais | 33 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **763** |
+| **Total** | | **834** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
