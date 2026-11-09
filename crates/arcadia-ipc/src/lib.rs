@@ -711,6 +711,18 @@ pub fn dispatch(
         "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
             args.first().and_then(Value::as_str).unwrap_or_default(),
         )),
+        "integrations:status" => {
+            let config = read_config(&state.data_dir);
+            Ok(json!({
+                "steam": config
+                    .get("steam_api_key")
+                    .and_then(Value::as_str)
+                    .map(|value| !value.is_empty())
+                    .unwrap_or(false),
+                "slssteam": 0,
+                "heroic": false
+            }))
+        }
         "app:diskSpace" => {
             let target = args
                 .first()

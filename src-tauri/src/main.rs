@@ -119,6 +119,7 @@ fn handle_shell_channel(
             window.dialog().file().blocking_pick_file(),
         ))),
         "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
+        "art:pick" => Some(Ok(pick_art(window, state, args))),
         "app:diagnosticsExport" => {
             let Some(directory) = window.dialog().file().blocking_pick_folder() else {
                 return Some(Ok(json!({ "ok": false, "canceled": true })));
@@ -248,6 +249,60 @@ fn apply_ui_scale(window: &WebviewWindow) {
     let _ = window.set_zoom(zoom);
     let capa = (1.6 * scale).clamp(0.9, 1.9);
     let _ = window.emit("ui:escala", json!({ "escala": scale, "capa": capa }));
+}
+
+fn pick_art(window: &WebviewWindow, state: &AppState, args: &[Value]) -> Value {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+    let kind = payload.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if id.is_empty() || !matches!(kind, "cover" | "hero" | "logo") {
+        return json!({ "ok": false });
+    }
+    let mut dialog = window.dialog().file();
+    dialog = if kind == "hero" {
+        dialog
+            .add_filter(
+                "Imagens e vídeos",
+                &["png", "jpg", "jpeg", "gif", "webp", "webm", "mp4", "m4v", "mov"],
+            )
+            .add_filter("Vídeos (fundo animado)", &["webm", "mp4", "m4v", "mov"])
+    } else {
+        dialog.add_filter("Imagens", &["png", "jpg", "jpeg", "gif", "webp"])
+    };
+    let Some(picked) = dialog.blocking_pick_file() else {
+        return json!({ "ok": false });
+    };
+    let Ok(source) = picked.into_path() else {
+        return json!({ "ok": false });
+    };
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!(".{value}"))
+        .unwrap_or_else(|| ".png".to_string());
+    let safe: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let directory = arcadia_media::art::art_dir(&state.data_dir);
+    if let Err(error) = std::fs::create_dir_all(&directory) {
+        return json!({ "ok": false, "error": error.to_string() });
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let destination = directory.join(format!("{safe}-{kind}-{stamp}{extension}"));
+    match std::fs::copy(&source, &destination) {
+        Ok(_) => json!({ "ok": true, "path": destination.to_string_lossy() }),
+        Err(error) => json!({ "ok": false, "error": error.to_string() }),
+    }
 }
 
 fn pick_profile_image(window: &WebviewWindow, state: &AppState, args: &[Value]) -> Value {

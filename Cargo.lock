@@ -54,6 +54,7 @@ dependencies = [
  "arcadia-api",
  "arcadia-contracts",
  "arcadia-ipc",
+ "arcadia-media",
  "arcadia-store",
  "serde",
  "serde_json",
@@ -63,6 +64,14 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+]
+
+[[package]]
+name = "arcadia-achievements"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -111,6 +120,14 @@ name = "arcadia-download"
 version = "0.1.0"
 dependencies = [
  "arcadia-store",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "arcadia-emulators"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
