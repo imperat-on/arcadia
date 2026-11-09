@@ -413,6 +413,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Steam news (`GetNewsForApp`) com extração de imagem, allowlist HTTPS e cache de 6 h.
 - Detecção de raiz Steam portada junto (`paths.rs`), sem consultar registro — a borda do Windows fica no launch.
 
+### Marco 11 — runtime de downloads (concluído)
+
+- aria2 JSON-RPC completo (add/remove/pause/unpause/tell*), magnet/trackers, `TellSnapshot` e transporte HTTP loopback.
+- DepotDownloader: preparação de argv por depot, manifest/keys, gate de .NET e probe de fs injetável.
+- Bridge torrent: protocolo de linhas, ready/erros, start/pause/resume/cancel/files/list, worker Python e transporte stdio/TCP.
+- `DownloadManager` persistido com `FilePersistence` atômica, `DownloadExecutor` injetável, transições pause/resume/cancel/retry/dismiss e campos desconhecidos preservados.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -425,10 +432,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
-| `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
+| `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias, máscara de segredos, allowlist, cobertura de canais | 24 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **505** |
+| **Total** | | **572** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

@@ -350,6 +350,34 @@ impl DownloadQueue {
             .find(|item| item.get("appid").and_then(Value::as_str) == Some(appid))
     }
 
+    /// `Object.assign(item, patch)` do manager: atualiza campos (inclusive
+    /// desconhecidos) sem trocar o restante do item.
+    pub fn update(&mut self, appid: &str, patch: &Value) -> bool {
+        let Some(patch) = patch.as_object() else {
+            return false;
+        };
+        let Some(item) = self.get_mut(appid) else {
+            return false;
+        };
+        let Some(object) = item.as_object_mut() else {
+            return false;
+        };
+        for (key, value) in patch {
+            object.insert(key.clone(), value.clone());
+        }
+        true
+    }
+
+    /// Remove um item em qualquer estado, sem inventar plano de limpeza. É a
+    /// operação que o manager usa ao descartar um `done` já notificado.
+    pub fn remove(&mut self, appid: &str) -> Option<Value> {
+        let index = self
+            .items
+            .iter()
+            .position(|item| item.get("appid").and_then(Value::as_str) == Some(appid))?;
+        Some(self.items.remove(index))
+    }
+
     /// Instala/recoloca um item. Duplicata ativa é ignorada; item terminal do
     /// mesmo appid é removido antes (mesma regra de `install`/`installSteam`).
     pub fn enqueue(&mut self, item: Value) -> EnqueueOutcome {
