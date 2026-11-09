@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::js::js_trim;
-use crate::vdf::{parse, VdfError, VdfObject};
+use crate::vdf::{parse, parse_bytes, VdfError, VdfObject};
 
 /// `76561197960265728n`: base do SteamID64 para o id de conta (pasta em
 /// `userdata/`).
@@ -179,14 +179,17 @@ pub fn config_accounts_from_root(root: &VdfObject) -> ConfigAccounts {
         .map(|value| value.js_string() == "1")
         .unwrap_or(false);
 
+    // O arquivo real da Valve usa `accounts` minúsculo; `Accounts` aparece em
+    // versões/ferramentas antigas e continua aceito.
     let accounts = steam
-        .get_object("Accounts")
+        .get_object("accounts")
+        .or_else(|| steam.get_object("Accounts"))
         .map(|accounts| {
             accounts
                 .iter()
                 .filter_map(|(name, value)| {
                     let block = value.as_object()?;
-                    let steamid = ["SteamID", "SteamID64", "SteamId"]
+                    let raw_steamid = ["SteamID64", "SteamID", "SteamId"]
                         .iter()
                         .find_map(|key| {
                             block
@@ -195,9 +198,32 @@ pub fn config_accounts_from_root(root: &VdfObject) -> ConfigAccounts {
                                 .filter(|value| !value.is_empty())
                         })
                         .unwrap_or_default();
+                    // `SteamID` no config.vdf é o id de 32 bits (pasta em
+                    // userdata/), não o SteamID64. `SteamID64` já vem pronto.
+                    let steamid = if is_steamid64(&raw_steamid) || raw_steamid.is_empty() {
+                        raw_steamid
+                    } else {
+                        let converted = account_id_to_steamid(&raw_steamid);
+                        if converted.is_empty() {
+                            raw_steamid
+                        } else {
+                            converted
+                        }
+                    };
                     let mut account = SteamAccount::from_block(&steamid, block);
                     // A chave do bloco é o nome canônico da conta.
                     account.account_name = name.to_string();
+                    // `AutoLoginUser` é quem a Steam abriria agora; serve como
+                    // "mais recente" quando o config.vdf é a única fonte.
+                    if auto_login_user.as_deref() == Some(name) {
+                        account.most_recent = true;
+                    }
+                    if account.persona.is_empty() {
+                        account.persona = block
+                            .get("PseudoName")
+                            .map(|value| value.js_string())
+                            .unwrap_or_default();
+                    }
                     // O bloco pode omitir a flag; aí vale a do nível de Steam.
                     if !block.contains_key("RememberPassword") {
                         account.remember_password = remember_password;
@@ -245,6 +271,73 @@ pub fn local_config_path(steam_root: &Path, steamid: &str) -> Option<PathBuf> {
             .join("config")
             .join("localconfig.vdf"),
     )
+}
+
+/// Lê `config/loginusers.vdf` de uma raiz. Arquivo ausente, ilegível ou VDF
+/// malformado -> lista vazia (a leitura do app não deve derrubar a tela).
+pub fn login_users_from_path(steam_root: &Path) -> Vec<SteamAccount> {
+    let Ok(bytes) = std::fs::read(login_users_path(steam_root)) else {
+        return Vec::new();
+    };
+    let Ok(root) = parse_bytes(&bytes) else {
+        return Vec::new();
+    };
+    login_users_from_root(&root)
+}
+
+/// Lê `config/config.vdf` de uma raiz.
+pub fn config_accounts_from_path(steam_root: &Path) -> ConfigAccounts {
+    let Ok(bytes) = std::fs::read(config_vdf_path(steam_root)) else {
+        return ConfigAccounts::default();
+    };
+    let Ok(root) = parse_bytes(&bytes) else {
+        return ConfigAccounts::default();
+    };
+    config_accounts_from_root(&root)
+}
+
+/// Conta ativa e a raiz onde ela foi encontrada.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootedAccount {
+    pub account: SteamAccount,
+    pub root: PathBuf,
+    /// `true` quando nenhuma raiz tinha `MostRecent=1` e valeu a primeira
+    /// conta conhecida.
+    pub sem_most_recent: bool,
+}
+
+/// `contaSteamAtiva()`: procura `MostRecent=1` em todas as raízes; só então
+/// cai na primeira conta da primeira raiz legível (exatamente as duas
+/// passadas do JS).
+pub fn active_from_roots(roots: &[PathBuf]) -> Option<RootedAccount> {
+    let mut fallback = None;
+    for root in roots {
+        let accounts = login_users_from_path(root);
+        if accounts.is_empty() {
+            continue;
+        }
+        if let Some(account) = accounts.iter().find(|account| account.most_recent) {
+            return Some(RootedAccount {
+                account: account.clone(),
+                root: root.clone(),
+                sem_most_recent: false,
+            });
+        }
+        if fallback.is_none() {
+            fallback = accounts.first().cloned().map(|account| RootedAccount {
+                account,
+                root: root.clone(),
+                sem_most_recent: true,
+            });
+        }
+    }
+    fallback
+}
+
+/// Lê o `steam_account.json` da conta do Arcadia (somente leitura).
+pub fn read_link_file(path: &Path) -> Option<Link> {
+    let bytes = std::fs::read(path).ok()?;
+    parse_link_json(&String::from_utf8_lossy(&bytes))
 }
 
 /// SteamID64 → id de conta (`BigInt(steamid) - BASE_STEAM_ID`).
@@ -326,6 +419,7 @@ impl From<&SteamAccount> for AccountRef {
 #[serde(rename_all = "camelCase")]
 pub struct Link {
     pub steamid: String,
+    #[serde(default)]
     pub persona: String,
     #[serde(default)]
     pub vinculado_em: i64,
@@ -460,7 +554,7 @@ impl ForceWindow {
 
     pub fn force_next(&mut self, now_ms: i64) {
         self.pending = true;
-        self.expires_ms = now_ms + JANELA_FORCA_MS;
+        self.expires_ms = now_ms.saturating_add(JANELA_FORCA_MS);
         self.consumed.clear();
     }
 
@@ -547,6 +641,7 @@ pub fn previous_account<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::TestDir;
 
     const CONTA_A: &str = "76561198000004541";
     const CONTA_B: &str = "76561198000010132";
@@ -644,14 +739,28 @@ mod tests {
 
     #[test]
     fn config_vdf_extracts_accounts_and_auto_login() {
-        let text = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"AutoLoginUser\"\t\t\"conta2\"\n\t\t\t\t\"RememberPassword\"\t\t\"1\"\n\t\t\t\t\"Accounts\"\n\t\t\t\t{\n\t\t\t\t\t\"conta1\" { \"SteamID\" \"76561198000010132\" }\n\t\t\t\t\t\"conta2\" { \"SteamID\" \"76561198000004541\" \"PersonaName\" \"Kk\" }\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+        // Formato real: `accounts` minúsculo e `SteamID` de 32 bits.
+        let text = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"AutoLoginUser\"\t\t\"conta2\"\n\t\t\t\t\"RememberPassword\"\t\t\"1\"\n\t\t\t\t\"accounts\"\n\t\t\t\t{\n\t\t\t\t\t\"conta1\" { \"SteamID\" \"39744404\" }\n\t\t\t\t\t\"conta2\" { \"SteamID\" \"39738813\" \"PersonaName\" \"Kk\" }\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
         let config = parse_config_accounts(text).unwrap();
         assert_eq!(config.auto_login_user.as_deref(), Some("conta2"));
         assert!(config.remember_password);
         assert_eq!(config.accounts.len(), 2);
         assert_eq!(config.accounts[0].account_name, "conta1");
-        assert_eq!(config.accounts[0].steamid, CONTA_B);
+        assert_eq!(config.accounts[0].steamid, CONTA_B, "id 32-bit vira SteamID64");
+        assert_eq!(config.accounts[0].account_id(), "39744404");
+        assert!(!config.accounts[0].most_recent);
+        assert_eq!(config.accounts[1].steamid, CONTA_A);
         assert_eq!(config.accounts[1].persona, "Kk");
+        assert!(config.accounts[1].most_recent, "AutoLoginUser marca a conta");
+    }
+
+    #[test]
+    fn config_vdf_accepts_uppercase_accounts_steamid64_and_pseudoname() {
+        let text = "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"Accounts\" { \"conta\" { \"SteamID64\" \"76561198000004541\" \"PseudoName\" \"Apelido\" } } } } } }";
+        let config = parse_config_accounts(text).unwrap();
+        assert_eq!(config.accounts.len(), 1);
+        assert_eq!(config.accounts[0].steamid, CONTA_A);
+        assert_eq!(config.accounts[0].persona, "Apelido");
     }
 
     #[test]
@@ -675,6 +784,11 @@ mod tests {
         assert_eq!(parse_link_json("{}"), None);
         assert_eq!(parse_link_json("{\"steamid\":\"\"}"), None);
         assert_eq!(parse_link_json("lixo"), None);
+
+        // O JS só exige `steamid`; persona/vinculadoEm ausentes são tolerados.
+        let sparse = parse_link_json("{\"steamid\":\"76561198000004541\"}").unwrap();
+        assert_eq!(sparse.persona, "");
+        assert_eq!(sparse.vinculado_em, 0);
     }
 
     fn accounts() -> Vec<SteamAccount> {
@@ -814,4 +928,68 @@ mod tests {
             Link::from_account(&all[0], 42)
         );
     }
+    fn write_login_users(root: &Path, text: &str) {
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(login_users_path(root), text).unwrap();
+    }
+
+    #[test]
+    fn reads_login_users_config_and_link_from_a_fake_root() {
+        let temp = TestDir::new("account-files");
+        let root = temp.path().join("Steam");
+        write_login_users(&root, LOGIN_USERS);
+        std::fs::write(config_vdf_path(&root), "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"accounts\" { \"conta2\" { \"SteamID\" \"39738813\" } } } } } }").unwrap();
+
+        let accounts = login_users_from_path(&root);
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[1].steamid, CONTA_A);
+
+        let config = config_accounts_from_path(&root);
+        assert_eq!(config.accounts.len(), 1);
+        assert_eq!(config.accounts[0].steamid, CONTA_A);
+
+        let link_path = temp.path().join(VINCULO);
+        std::fs::write(
+            &link_path,
+            "{\"steamid\":\"76561198000004541\",\"persona\":\"Kk\"}",
+        )
+        .unwrap();
+        assert_eq!(read_link_file(&link_path).unwrap().persona, "Kk");
+        assert!(read_link_file(&temp.path().join("sem.json")).is_none());
+
+        // Raiz vazia/malformada não estoura.
+        let empty = temp.path().join("Vazia");
+        std::fs::create_dir_all(empty.join("config")).unwrap();
+        std::fs::write(login_users_path(&empty), "\"users\" { x }").unwrap();
+        assert!(login_users_from_path(&empty).is_empty());
+        assert_eq!(config_accounts_from_path(&empty), ConfigAccounts::default());
+    }
+
+    #[test]
+    fn active_from_roots_prefers_most_recent_anywhere_then_first() {
+        let temp = TestDir::new("account-active-roots");
+        let first = temp.path().join("A");
+        let second = temp.path().join("B");
+        write_login_users(
+            &first,
+            &LOGIN_USERS.replace("\"MostRecent\"		\"1\"", "\"MostRecent\"		\"0\""),
+        );
+        write_login_users(&second, LOGIN_USERS);
+
+        let active = active_from_roots(&[first.clone(), second.clone()]).unwrap();
+        assert_eq!(active.account.steamid, CONTA_A);
+        assert_eq!(active.root, second);
+        assert!(!active.sem_most_recent);
+
+        std::fs::write(
+            login_users_path(&second),
+            &LOGIN_USERS.replace("\"MostRecent\"		\"1\"", "\"MostRecent\"		\"0\""),
+        )
+        .unwrap();
+        let active = active_from_roots(&[first.clone(), second]).unwrap();
+        assert_eq!(active.account.steamid, CONTA_B, "primeira conta da primeira raiz");
+        assert_eq!(active.root, first);
+        assert!(active.sem_most_recent);
+    }
+
 }

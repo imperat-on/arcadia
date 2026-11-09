@@ -50,6 +50,11 @@ pub(crate) fn js_number_str(value: &str) -> Option<f64> {
         }
     }
 
+    // "." / "+." / "-." são NaN no JS; inserir o zero os transformaria em 0.
+    if matches!(trimmed, "." | "+." | "-.") {
+        return None;
+    }
+
     let mut normalized = trimmed.to_string();
     if normalized.starts_with('.') {
         normalized.insert(0, '0');
@@ -139,6 +144,12 @@ mod tests {
         assert_eq!(js_number_str("abc"), None);
         assert_eq!(js_number_str("0x"), None);
         assert_eq!(js_number_str("NaN"), None);
+        assert_eq!(js_number_str("."), None);
+        assert_eq!(js_number_str("+."), None);
+        assert_eq!(js_number_str("-."), None);
+        assert_eq!(js_number_str("inf"), None);
+        assert_eq!(js_number_str("infinity"), None);
+        assert_eq!(js_number_str("+inf"), None);
     }
 
     #[test]

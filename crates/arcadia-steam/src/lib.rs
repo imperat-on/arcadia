@@ -13,7 +13,8 @@ mod js;
 pub mod news;
 pub mod paths;
 pub mod playtime;
-pub mod util;
+#[cfg(test)]
+mod util;
 pub mod vdf;
 
 pub use account::{

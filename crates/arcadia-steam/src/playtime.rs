@@ -11,7 +11,6 @@
 //! diferentes somam. Assim reenviar não infla e um total menor lido agora não
 //! apaga o que já subiu de outra máquina.
 
-use std::cmp::max;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -23,22 +22,22 @@ use crate::js::{js_number_value, js_string_value, js_truthy_value};
 use crate::vdf::{parse, VdfError, VdfObject, VdfValue};
 
 /// Minutos por appid (chave é o número do appid, sem prefixo).
-pub type PlaytimeMap = BTreeMap<String, u64>;
+pub type PlaytimeMap = BTreeMap<String, f64>;
 /// `{ appid: { steamid: minutos } }`.
-pub type PlaytimeByAccount = BTreeMap<String, BTreeMap<String, u64>>;
+pub type PlaytimeByAccount = BTreeMap<String, BTreeMap<String, f64>>;
 
 /// Uma entrada de `apps` no `localconfig.vdf`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlaytime {
     pub appid: String,
-    pub minutes: u64,
+    pub minutes: f64,
     /// `LastPlayed` em segundos, quando presente.
     pub last_played: Option<i64>,
 }
 
 /// Leitura de UMA conta Steam, no formato que o cliente chama de `{horas,
 /// persona, steamid}`.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlaytimeReading {
     pub horas: PlaytimeMap,
     pub persona: String,
@@ -52,23 +51,24 @@ impl PlaytimeReading {
 }
 
 /// Item enviado ao RPC `push_steam_playtime`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
 pub struct SteamPlaytimeItem {
     pub appid: String,
     pub steamid: String,
-    pub minutes: u64,
+    #[serde(serialize_with = "serialize_minutes")]
+    pub minutes: f64,
     pub persona: String,
 }
 
 /// Linha devolvida por `pull_steam_playtime`.
 ///
 /// `minutes` aceita número ou string (o JS faz `Number(minutos) || 0`).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(from = "ServerPlaytimeRaw")]
 pub struct ServerPlaytime {
     pub appid: String,
     pub steamid: String,
-    pub minutes: u64,
+    pub minutes: f64,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -95,18 +95,32 @@ impl From<ServerPlaytimeRaw> for ServerPlaytime {
     }
 }
 
-fn minutes_from_value(value: &Value) -> u64 {
+fn minutes_from_value(value: &Value) -> f64 {
     match js_number_value(value) {
-        Some(number) if number.is_finite() && number > 0.0 => {
-            let rounded = number.round();
-            if rounded <= 0.0 {
-                0
-            } else {
-                rounded as u64
-            }
-        }
-        _ => 0,
+        // O JS guarda `Number(...)` exatamente como veio; zero, negativo,
+        // NaN e infinito são descartados pelo filtro `isFinite && > 0`.
+        Some(number) if number.is_finite() && number > 0.0 => number,
+        _ => 0.0,
     }
+}
+
+/// Serializa minutos como o `JSON.stringify` do JS: inteiros sem `.0`,
+/// fracionários como número decimal.
+fn serialize_minutes<S>(minutes: &f64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::Serialize as _;
+    let value = if minutes.is_finite()
+        && minutes.fract() == 0.0
+        && *minutes >= 0.0
+        && *minutes <= u64::MAX as f64
+    {
+        serde_json::Value::from(*minutes as u64)
+    } else {
+        serde_json::Value::from(*minutes)
+    };
+    value.serialize(serializer)
 }
 
 /// `acharApps`: caminho completo e, por compatibilidade, o curto.
@@ -129,16 +143,12 @@ fn is_appid(value: &str) -> bool {
         && value.bytes().any(|byte| byte != b'0')
 }
 
-fn minutes_from_vdf(value: &VdfValue) -> Option<u64> {
+fn minutes_from_vdf(value: &VdfValue) -> Option<f64> {
     let number = value.js_number()?;
     if !number.is_finite() || number <= 0.0 {
         return None;
     }
-    let rounded = number.round();
-    if rounded <= 0.0 {
-        return None;
-    }
-    Some(rounded as u64)
+    Some(number)
 }
 
 fn timestamp_from_vdf(value: &VdfValue) -> Option<i64> {
@@ -221,7 +231,7 @@ pub fn locais_por_conta(locais: &PlaytimeMap, steamid: &str) -> PlaytimeByAccoun
     }
     for (appid, minutes) in locais {
         let key = appid_key(appid);
-        if key.is_empty() || *minutes == 0 {
+        if key.is_empty() || !minutes.is_finite() || *minutes <= 0.0 {
             continue;
         }
         output
@@ -241,7 +251,11 @@ pub fn locais_de_contas(leituras: &[PlaytimeReading]) -> PlaytimeByAccount {
             for (steamid, minutes) in contas {
                 target
                     .entry(steamid)
-                    .and_modify(|current| *current = max(*current, minutes))
+                    .and_modify(|current| {
+                        if *current < minutes {
+                            *current = minutes;
+                        }
+                    })
                     .or_insert(minutes);
             }
         }
@@ -249,16 +263,20 @@ pub fn locais_de_contas(leituras: &[PlaytimeReading]) -> PlaytimeByAccount {
     output
 }
 
-fn guardar(output: &mut PlaytimeByAccount, appid: &str, steamid: &str, minutes: u64) {
+fn guardar(output: &mut PlaytimeByAccount, appid: &str, steamid: &str, minutes: f64) {
     let key = appid_key(appid);
-    if key.is_empty() || steamid.is_empty() || minutes == 0 {
+    if key.is_empty() || steamid.is_empty() || !minutes.is_finite() || minutes <= 0.0 {
         return;
     }
     output
         .entry(key)
         .or_default()
         .entry(steamid.to_string())
-        .and_modify(|current| *current = max(*current, minutes))
+        .and_modify(|current| {
+            if *current < minutes {
+                *current = minutes;
+            }
+        })
         .or_insert(minutes);
 }
 
@@ -284,10 +302,9 @@ pub fn mesclar_horas(
 pub fn somar_por_appid(mapa: &PlaytimeByAccount) -> PlaytimeMap {
     let mut output = PlaytimeMap::new();
     for (appid, contas) in mapa {
-        let total = contas
-            .values()
-            .fold(0u64, |total, minutes| total.saturating_add(*minutes));
-        if total > 0 {
+        // O JS soma os números como vieram; não há saturação/arredondamento.
+        let total: f64 = contas.values().copied().filter(|value| value.is_finite()).sum();
+        if total > 0.0 {
             output.insert(appid.clone(), total);
         }
     }
@@ -306,7 +323,7 @@ pub fn itens_para_enviar(
     let mut items = Vec::new();
     for (appid, minutes) in locais {
         let key = appid_key(appid);
-        if key.is_empty() || *minutes == 0 {
+        if key.is_empty() || !minutes.is_finite() || *minutes <= 0.0 {
             continue;
         }
         items.push(SteamPlaytimeItem {
@@ -342,15 +359,15 @@ mod tests {
         let entries = parse_local_config(LOCAL_CONFIG).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].appid, "990080");
-        assert_eq!(entries[0].minutes, 4907);
+        assert_eq!(entries[0].minutes, 4907.0);
         assert_eq!(entries[0].last_played, Some(1_750_000_000));
         assert_eq!(entries[1].appid, "1091500");
-        assert_eq!(entries[1].minutes, 120);
+        assert_eq!(entries[1].minutes, 120.0);
         assert_eq!(entries[1].last_played, None);
 
         let map = playtime_map(LOCAL_CONFIG).unwrap();
-        assert_eq!(map.get("990080"), Some(&4907));
-        assert_eq!(map.get("1091500"), Some(&120));
+        assert_eq!(map.get("990080"), Some(&4907.0));
+        assert_eq!(map.get("1091500"), Some(&120.0));
         assert!(!map.contains_key("0"), "appid 0 não é jogo");
     }
 
@@ -358,7 +375,7 @@ mod tests {
     fn short_apps_path_is_accepted_for_compatibility() {
         let text = "\"UserLocalConfigStore\" { \"apps\" { \"220\" { \"Playtime\" \"60\" } } }";
         let map = playtime_map(text).unwrap();
-        assert_eq!(map.get("220"), Some(&60));
+        assert_eq!(map.get("220"), Some(&60.0));
     }
 
     #[test]
@@ -377,15 +394,15 @@ mod tests {
     fn playtime_uses_javascript_number_coercion() {
         let text = "\"UserLocalConfigStore\" { \"apps\" { \"1\" { \"Playtime\" \" 42 \" } \"2\" { \"Playtime\" \"+7\" } \"3\" { \"Playtime\" \"0x10\" } \"4\" { \"Playtime\" \"1e3\" } \"5\" { \"Playtime\" \"Infinity\" } \"6\" { \"Playtime\" \"0.4\" } \"7\" { \"Playtime\" \"4907.6\" } } }";
         let map = playtime_map(text).unwrap();
-        assert_eq!(map.get("1"), Some(&42));
-        assert_eq!(map.get("2"), Some(&7));
-        assert_eq!(map.get("3"), Some(&16));
-        assert_eq!(map.get("4"), Some(&1000));
+        assert_eq!(map.get("1"), Some(&42.0));
+        assert_eq!(map.get("2"), Some(&7.0));
+        assert_eq!(map.get("3"), Some(&16.0));
+        assert_eq!(map.get("4"), Some(&1000.0));
         assert!(!map.contains_key("5"));
-        // Minutos inteiros: 0.4 arredonda para 0 e fica fora (contrato do
-        // servidor só aceita > 0); 4907.6 arredonda para 4908.
-        assert!(!map.contains_key("6"));
-        assert_eq!(map.get("7"), Some(&4908));
+        // O JS guarda Number(...) exatamente: 0.4 continua 0.4 (não arredonda)
+        // e 4907.6 continua 4907.6.
+        assert_eq!(map.get("6"), Some(&0.4));
+        assert_eq!(map.get("7"), Some(&4907.6));
     }
 
     #[test]
@@ -395,7 +412,7 @@ mod tests {
         assert!(playtime_map(one).unwrap().is_empty());
 
         let single = "\"UserLocalConfigStore\" { \"apps\" { \"220\" { \"Playtime\" \"60\" } } }";
-        assert_eq!(playtime_map(single).unwrap().get("220"), Some(&60));
+        assert_eq!(playtime_map(single).unwrap().get("220"), Some(&60.0));
     }
 
     #[test]
@@ -403,7 +420,7 @@ mod tests {
         let reading = parse_reading(LOCAL_CONFIG, "76561198000004541", "Kk").unwrap();
         assert_eq!(reading.steamid, "76561198000004541");
         assert_eq!(reading.persona, "Kk");
-        assert_eq!(reading.horas.get("990080"), Some(&4907));
+        assert_eq!(reading.horas.get("990080"), Some(&4907.0));
         assert!(!reading.is_empty());
     }
 
@@ -423,54 +440,54 @@ mod tests {
                 steamid: "76561197960265728".into(),
                 persona: "NEGO EJACULADO".into(),
                 horas: BTreeMap::from([
-                    ("steam:990080".to_string(), 4907),
-                    ("steam:220".to_string(), 120),
+                    ("steam:990080".to_string(), 4907.0),
+                    ("steam:220".to_string(), 120.0),
                 ]),
             },
             PlaytimeReading {
                 steamid: "76561198000004541".into(),
                 persona: "Kk".into(),
                 horas: BTreeMap::from([
-                    ("steam:990080".to_string(), 1800),
-                    ("steam:730".to_string(), 5000),
+                    ("steam:990080".to_string(), 1800.0),
+                    ("steam:730".to_string(), 5000.0),
                 ]),
             },
         ];
         let somado = somar_por_appid(&mesclar_horas(&[], &locais_de_contas(&leituras)));
-        assert_eq!(somado.get("990080"), Some(&6707));
-        assert_eq!(somado.get("220"), Some(&120));
-        assert_eq!(somado.get("730"), Some(&5000));
+        assert_eq!(somado.get("990080"), Some(&6707.0));
+        assert_eq!(somado.get("220"), Some(&120.0));
+        assert_eq!(somado.get("730"), Some(&5000.0));
 
         let locais = locais_por_conta(
-            &BTreeMap::from([("steam:990080".to_string(), 4907)]),
+            &BTreeMap::from([("steam:990080".to_string(), 4907.0)]),
             "76561198000004541",
         );
         let mapa = mesclar_horas(
             &[ServerPlaytime {
                 appid: "990080".into(),
                 steamid: "76561198000004541".into(),
-                minutes: 5000,
+                minutes: 5000.0,
             }],
             &locais,
         );
-        assert_eq!(somar_por_appid(&mapa).get("990080"), Some(&5000));
+        assert_eq!(somar_por_appid(&mapa).get("990080"), Some(&5000.0));
     }
 
     #[test]
     fn smaller_local_total_does_not_erase_what_already_uploaded() {
         let locais = locais_por_conta(
-            &BTreeMap::from([("steam:990080".to_string(), 100)]),
+            &BTreeMap::from([("steam:990080".to_string(), 100.0)]),
             "76561198000004541",
         );
         let mapa = mesclar_horas(
             &[ServerPlaytime {
                 appid: "990080".into(),
                 steamid: "76561198000004541".into(),
-                minutes: 4907,
+                minutes: 4907.0,
             }],
             &locais,
         );
-        assert_eq!(somar_por_appid(&mapa).get("990080"), Some(&4907));
+        assert_eq!(somar_por_appid(&mapa).get("990080"), Some(&4907.0));
     }
 
     #[test]
@@ -480,22 +497,22 @@ mod tests {
                 ServerPlaytime {
                     appid: "990080".into(),
                     steamid: "76561198000004541".into(),
-                    minutes: 0,
+                    minutes: 0.0,
                 },
                 ServerPlaytime {
                     appid: "990080".into(),
                     steamid: "76561198000004542".into(),
-                    minutes: 0, // linha negativa vira 0 na desserialização
+                    minutes: 0.0, // linha negativa vira 0 na desserialização
                 },
                 ServerPlaytime {
                     appid: "990080".into(),
                     steamid: String::new(),
-                    minutes: 60,
+                    minutes: 60.0,
                 },
                 ServerPlaytime {
                     appid: "lixo".into(),
                     steamid: "76561198000004541".into(),
-                    minutes: 60,
+                    minutes: 60.0,
                 },
             ],
             &PlaytimeByAccount::new(),
@@ -512,11 +529,11 @@ mod tests {
             { "appid": "400", "steamid": "76561198000004541", "minutes": "ruim" },
             { "appid": null, "steamid": null, "minutes": null },
         ]));
-        assert_eq!(rows[0].minutes, 4907);
+        assert_eq!(rows[0].minutes, 4907.0);
         assert_eq!(rows[1].appid, "220");
-        assert_eq!(rows[1].minutes, 120);
-        assert_eq!(rows[2].minutes, 0);
-        assert_eq!(rows[3].minutes, 0);
+        assert_eq!(rows[1].minutes, 120.0);
+        assert_eq!(rows[2].minutes, 0.0);
+        assert_eq!(rows[3].minutes, 0.0);
         assert_eq!(rows[4].appid, "");
     }
 
@@ -524,8 +541,8 @@ mod tests {
     fn upload_items_are_absolute_totals_with_the_numeric_key() {
         let items = itens_para_enviar(
             &BTreeMap::from([
-                ("steam:990080".to_string(), 4907),
-                ("steam:400".to_string(), 0),
+                ("steam:990080".to_string(), 4907.0),
+                ("steam:400".to_string(), 0.0),
             ]),
             "76561198000004541",
             "Kk",
@@ -535,12 +552,12 @@ mod tests {
             vec![SteamPlaytimeItem {
                 appid: "990080".into(),
                 steamid: "76561198000004541".into(),
-                minutes: 4907,
+                minutes: 4907.0,
                 persona: "Kk".into(),
             }]
         );
         assert!(
-            itens_para_enviar(&BTreeMap::from([("steam:990080".to_string(), 10)]), "", "")
+            itens_para_enviar(&BTreeMap::from([("steam:990080".to_string(), 10.0)]), "", "")
                 .is_empty()
         );
 
@@ -560,8 +577,8 @@ mod tests {
     fn final_sum_matches_the_server_rule() {
         let locais = locais_por_conta(
             &BTreeMap::from([
-                ("steam:990080".to_string(), 4907),
-                ("steam:220".to_string(), 120),
+                ("steam:990080".to_string(), 4907.0),
+                ("steam:220".to_string(), 120.0),
             ]),
             "76561198000004541",
         );
@@ -569,21 +586,21 @@ mod tests {
             ServerPlaytime {
                 appid: "990080".into(),
                 steamid: "76561198000004541".into(),
-                minutes: 4907,
+                minutes: 4907.0,
             },
             ServerPlaytime {
                 appid: "990080".into(),
                 steamid: "76561198000004542".into(),
-                minutes: 1800,
+                minutes: 1800.0,
             },
             ServerPlaytime {
                 appid: "990080".into(),
                 steamid: "76561198000009999".into(),
-                minutes: 60,
+                minutes: 60.0,
             },
         ];
         let somado = somar_por_appid(&mesclar_horas(&do_servidor, &locais));
-        assert_eq!(somado.get("990080"), Some(&(4907 + 1800 + 60)));
-        assert_eq!(somado.get("220"), Some(&120));
+        assert_eq!(somado.get("990080"), Some(&6767.0));
+        assert_eq!(somado.get("220"), Some(&120.0));
     }
 }
