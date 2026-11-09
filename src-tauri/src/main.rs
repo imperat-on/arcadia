@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
 use arcadia_api::auth::AuthEvent;
 use arcadia_ipc::{AppState, IpcError, Shell};
@@ -85,8 +87,97 @@ async fn arcadia_ipc(
     channel: String,
     args: Option<Vec<Value>>,
 ) -> Result<Value, IpcError> {
+    let args = args.unwrap_or_default();
+    if let Some(result) = handle_shell_channel(&window, state.inner(), &channel, &args) {
+        return result;
+    }
     let shell = TauriShell { window };
-    arcadia_ipc::dispatch_async(state.inner(), &shell, &channel, args.unwrap_or_default()).await
+    arcadia_ipc::dispatch_async(state.inner(), &shell, &channel, args).await
+}
+
+/// Canais que dependem de janela/SO e não pertencem ao dispatcher puro.
+fn handle_shell_channel(
+    window: &WebviewWindow,
+    state: &AppState,
+    channel: &str,
+    args: &[Value],
+) -> Option<Result<Value, IpcError>> {
+    match channel {
+        "app:openExternal" => {
+            let target = args.first().and_then(Value::as_str).unwrap_or_default();
+            if target.starts_with("http://") || target.starts_with("https://") {
+                let _ = window.opener().open_url(target, None::<&str>);
+            }
+            Some(Ok(Value::Null))
+        }
+        "app:pickFolder" => Some(Ok(dialog_result(
+            window.dialog().file().blocking_pick_folder(),
+        ))),
+        "app:pickFile" => Some(Ok(dialog_result(
+            window.dialog().file().blocking_pick_file(),
+        ))),
+        "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
+        _ => None,
+    }
+}
+
+fn dialog_result(path: Option<tauri_plugin_dialog::FilePath>) -> Value {
+    let Some(path) = path else {
+        return json!({ "ok": false });
+    };
+    match path.into_path() {
+        Ok(path) => json!({ "ok": true, "path": path.to_string_lossy() }),
+        Err(error) => json!({ "ok": false, "error": error.to_string() }),
+    }
+}
+
+fn pick_profile_image(window: &WebviewWindow, state: &AppState, args: &[Value]) -> Value {
+    let kind = args.first().and_then(Value::as_str).unwrap_or("avatar");
+    let is_background = kind == "background" || kind == "banner";
+    let mut dialog = window.dialog().file();
+    if is_background {
+        dialog = dialog
+            .add_filter(
+                "Imagens e vídeos",
+                &["png", "jpg", "jpeg", "gif", "webp", "webm", "mp4", "m4v", "mov"],
+            )
+            .add_filter("Vídeos (fundo animado)", &["webm", "mp4", "m4v", "mov"])
+            .add_filter("Imagens", &["png", "jpg", "jpeg", "gif", "webp"]);
+    } else {
+        dialog = dialog.add_filter("Imagens", &["png", "jpg", "jpeg", "gif", "webp"]);
+    }
+    let Some(picked) = dialog.blocking_pick_file() else {
+        return json!({ "ok": false });
+    };
+    let Ok(source) = picked.into_path() else {
+        return json!({ "ok": false, "error": "arquivo inválido" });
+    };
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!(".{value}"))
+        .unwrap_or_else(|| ".png".to_string());
+    let name = if kind == "banner" {
+        "banner"
+    } else if is_background {
+        "background"
+    } else {
+        "avatar"
+    };
+    let destination = state.data_dir.join(format!("{name}{extension}"));
+    if let Err(error) = std::fs::copy(&source, &destination) {
+        return json!({ "ok": false, "error": error.to_string() });
+    }
+    let clean = format!("file://{}", destination.to_string_lossy());
+    let _ = arcadia_store::config::write_config_patch(
+        &state.data_dir,
+        &json!({ "profile": { name: clean } }),
+    );
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    json!({ "ok": true, "path": format!("{clean}?t={stamp}") })
 }
 
 fn main() {
@@ -113,6 +204,8 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![arcadia_ipc])
         .setup(move |app| {

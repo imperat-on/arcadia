@@ -2,5 +2,5 @@
   "identifier": "default",
   "description": "Janela principal do Arcadia",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:default", "opener:default"]
 }

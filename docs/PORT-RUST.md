@@ -374,9 +374,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Gamescope/systemd, umu (tar/sha256), Steam path/registry/Flatpak, gamepad sysfs, log com rotação.
 - **Deferido conscientemente:** download/install do Wine/Proton, cópia real de DLLs gráficas, spawn real e wiring de IPC — o planner devolve `GraphicsLibsRequest` e o spawn fica para a camada de runtime.
 
-### Marco 5 — runtime de launch ligado (concluído)
+### Marco 5 — borda de SO e launch runtime (concluído)
 
-- `game:launch` agora resolve pelo `arcadia-launch`, spawna o processo real, guarda PID/token e emite `game:launchState`, `game:running`, `game:active` e warnings via sink de eventos do AppHandle.
+- `app:openExternal` (http/https), `app:pickFolder`, `app:pickFile` e `profile:pickImage` portados via plugins Tauri de dialog/opener; avatar/background/banner copiados para o `dataDir` e gravados no config.
+- `game:launch` resolve pelo `arcadia-launch`, spawna o processo real, guarda PID/token e emite `game:launchState`, `game:running`, `game:active` e warnings via sink de eventos do AppHandle.
 - `game:close` mata a árvore (taskkill `/T /F` no Windows, `kill -TERM` no Unix) e o monitor emite `idle`.
 - Teste de integração spawna um processo inofensivo real, valida o evento `game:running`, fecha e confirma que o estado volta a idle.
 - `game_settings.json` por conta alimenta o resolver; emulador ainda retorna `None` (registro não portado) e cai no erro claro do resolver.
