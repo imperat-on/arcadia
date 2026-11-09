@@ -35,6 +35,12 @@ use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
 use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
 use arcadia_retro::repository::RetroLibrary;
+use arcadia_steamstore::depot::DepotClient;
+use arcadia_steamstore::library::{
+    find_steam_base, game_install_dir_or, steam_base_candidates, steam_libraries, GameRef,
+    SystemFs,
+};
+use arcadia_steamstore::store::{StoreClient, StoreConfig};
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
 use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
 use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
@@ -188,6 +194,38 @@ impl AppState {
         ));
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    fn store_client(&self, channel: &str) -> Result<StoreClient, IpcError> {
+        let api = self.api().ok_or_else(|| {
+            IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+        })?;
+        let config = arcadia_store::config::read_config(&self.data_dir);
+        let language = config
+            .get("language")
+            .and_then(Value::as_str)
+            .unwrap_or("pt-BR");
+        let country = config
+            .get("region")
+            .and_then(Value::as_str)
+            .unwrap_or("BR")
+            .to_lowercase();
+        let settings = StoreConfig::new()
+            .with_language(language)
+            .with_country(country)
+            .with_hubcap_key(
+                config
+                    .get("hubcap_api_key")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            );
+        let fetcher: Arc<dyn arcadia_catalog::http::Fetcher> =
+            Arc::new(CatalogFetcher::new(api.http().clone()));
+        let mut client = StoreClient::new(fetcher, settings);
+        if let Some(catalog) = catalog_service::client(self) {
+            client = client.with_catalog(catalog);
+        }
+        Ok(client)
     }
 
     fn retro_catalog(&self, channel: &str) -> Result<Arc<RetroCatalogV2>, IpcError> {
@@ -981,6 +1019,56 @@ pub fn dispatch(
         "emulators:roms:index" => {
             Ok(state.with_emulators(channel, |registry| registry.roms_value())?)
         }
+        "store:libraries" => {
+            let home = arcadia_store::paths::home_dir();
+            Ok(serde_json::to_value(steam_libraries(&home, &SystemFs, None))
+                .unwrap_or_else(|_| json!([])))
+        }
+        "store:installDir" => {
+            let game = args.first().cloned().unwrap_or_else(|| json!({}));
+            let id = game.get("id").and_then(Value::as_str).unwrap_or_default();
+            let launcher = game
+                .get("launcher")
+                .and_then(Value::as_str)
+                .unwrap_or("custom");
+            let exe = game.get("exe").and_then(Value::as_str);
+            let reference = GameRef {
+                id: id.to_string(),
+                launcher: launcher.to_string(),
+                exe: exe.map(str::to_string),
+            };
+            let home = arcadia_store::paths::home_dir();
+            let roots = steam_base_candidates(&home);
+            let path = game_install_dir_or(
+                &reference,
+                &roots,
+                None,
+                exe,
+                &SystemFs,
+            );
+            Ok(json!({ "path": path }))
+        }
+        "store:status" => {
+            let home = arcadia_store::paths::home_dir();
+            let roots = steam_base_candidates(&home);
+            let base = find_steam_base(&roots, &SystemFs);
+            let config = read_config(&state.data_dir);
+            Ok(json!({
+                "dotnet": false,
+                "depotdownloader": false,
+                "hubcap_key": config
+                    .get("hubcap_api_key")
+                    .and_then(Value::as_str)
+                    .map(|key| !key.is_empty())
+                    .unwrap_or(false),
+                "slssteam": false,
+                "luatools": false,
+                "steamDir": base
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                "adicionados": []
+            }))
+        }
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
             let appid = steam_service::normalize_appid(raw);
@@ -1257,6 +1345,61 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "store:search" => {
+            let query = args.first().and_then(Value::as_str).unwrap_or_default();
+            let client = state.store_client(channel)?;
+            Ok(serde_json::to_value(client.search(query).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "store:suggest" => {
+            let query = args.first().and_then(Value::as_str).unwrap_or_default();
+            let client = state.store_client(channel)?;
+            Ok(serde_json::to_value(client.suggest(query).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "store:recent" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let lista = payload.get("lista").and_then(Value::as_str);
+            let limit = payload
+                .get("limite")
+                .and_then(Value::as_f64)
+                .filter(|value| *value > 0.0)
+                .map(|value| value as usize)
+                .unwrap_or(20);
+            let offset = payload
+                .get("offset")
+                .and_then(Value::as_f64)
+                .filter(|value| *value >= 0.0)
+                .map(|value| value as usize)
+                .unwrap_or(0);
+            let client = state.store_client(channel)?;
+            Ok(serde_json::to_value(client.recent(lista, limit, offset).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "store:warm" => {
+            let client = state.store_client(channel)?;
+            match client.warm().await {
+                Ok(()) => Ok(json!({ "ok": true })),
+                Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
+            }
+        }
+        "store:validarChaveHubcap" => {
+            let key = args.first().and_then(Value::as_str).unwrap_or_default();
+            let client = state.store_client(channel)?;
+            Ok(serde_json::to_value(client.validate_hubcap_key(key).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "store:installInfo" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            let api = state.api().ok_or_else(|| {
+                IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+            })?;
+            let fetcher: Arc<dyn arcadia_catalog::http::Fetcher> =
+                Arc::new(CatalogFetcher::new(api.http().clone()));
+            let client = DepotClient::new(fetcher);
+            Ok(serde_json::to_value(client.install_info(appid, &[]).await)
+                .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "retro:list" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
@@ -2517,6 +2660,19 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_libraries_and_status_are_local() {
+        let dir = std::env::temp_dir().join(format!("arcadia-store-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        let libraries = dispatch(&state, &MockShell, "store:libraries", Vec::new()).unwrap();
+        assert!(libraries.is_array());
+        let status = dispatch(&state, &MockShell, "store:status", Vec::new()).unwrap();
+        assert_eq!(status["hubcap_key"], false);
+        assert!(status.get("steamDir").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

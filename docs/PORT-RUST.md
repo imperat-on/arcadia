@@ -478,7 +478,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - StoreClient (search/suggest/recent/warm/hubcap/appdetails com TTL/cache), DepotClient (install info/manifests/depots), library (ACF/libraries/install dirs/add/remove/SLSsteam/pending) e update report.
 - 76 testes + clippy/doc limpos, com fetcher/fs injetados; zips e manifests são injetados (executor fará download/extração).
-- IPC `store:*` é o próximo passo.
+- IPC plugado: `store:search/suggest/recent/warm/validarChaveHubcap/installInfo/libraries/installDir/status`. `store:install` e ensure/dotnet ficam para o executor.
 
 ### Portes puros já verdes
 
@@ -499,9 +499,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
 | `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
 | `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + game stats, máscara de segredos, allowlist, cobertura de canais | 36 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + game stats + store, máscara de segredos, allowlist, cobertura de canais | 37 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1149** |
+| **Total** | | **1150** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
@@ -519,5 +519,4 @@ O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `ses
 - `biblioteca`/`sync`: pull/push de biblioteca, playtime, conquistas e sources, com a resolução de conflito já portada; primeiro em modo pull-only.
 - `friends`/`community`: busca, pedidos, listas e reviews com envelopes seguros.
 - UI de configurações: `config:set` com allowlist de chaves e máscara de segredos.
-- Smoke de dados: login com conta existente e `GET /auth/v1/user` idêntico ao Electron.
-
+- Smoke de dados: login com conta existente e `GET /auth/v1/user` idêntico ao Ele
