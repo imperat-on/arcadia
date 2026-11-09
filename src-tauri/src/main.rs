@@ -117,6 +117,21 @@ fn handle_shell_channel(
             window.dialog().file().blocking_pick_file(),
         ))),
         "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
+        "app:diagnosticsExport" => {
+            let Some(directory) = window.dialog().file().blocking_pick_folder() else {
+                return Some(Ok(json!({ "ok": false, "canceled": true })));
+            };
+            let Ok(directory) = directory.into_path() else {
+                return Some(Ok(json!({ "ok": false, "error": "destino_invalido" })));
+            };
+            let report =
+                arcadia_ipc::diagnostics::collect(&state.data_dir, arcadia_ipc::APP_VERSION);
+            Some(Ok(arcadia_ipc::diagnostics::create_support_bundle(
+                &state.data_dir,
+                &directory,
+                &report,
+            )))
+        }
         "gamelog:open" => {
             let id = args.first().and_then(Value::as_str).unwrap_or_default();
             let safe: String = id

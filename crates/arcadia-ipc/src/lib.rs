@@ -3,7 +3,11 @@
 //! respondem `not_ported`; canais fora do contrato respondem `unknown_channel`.
 
 pub mod channels;
+pub mod diagnostics;
 pub mod launch_runtime;
+
+/// Versão-base do cliente Electron que este port substitui.
+pub const APP_VERSION: &str = "1.5.5";
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -583,6 +587,27 @@ pub fn dispatch(
                 &state.data_dir,
                 state.account().as_deref(),
             )))
+        }
+        "app:diagnostics" => Ok(diagnostics::collect(&state.data_dir, APP_VERSION)),
+        "app:diagnostico" => {
+            let read_state = |name: &str| {
+                std::fs::read_to_string(
+                    account_file(&state.data_dir, state.account().as_deref(), name),
+                )
+                .ok()
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .unwrap_or(Value::Null)
+            };
+            Ok(json!({
+                "contaAtiva": state.account().unwrap_or_else(|| "guest (raiz)".to_string()),
+                "dataDir": state.data_dir.to_string_lossy(),
+                "sessionExiste": state.data_dir.join("session.json").exists(),
+                "sync": {
+                    "estado": read_state("sync_state.json"),
+                    "fila": read_state("sync_queue.json")
+                },
+                "report": diagnostics::collect(&state.data_dir, APP_VERSION)
+            }))
         }
         "saves:list" => {
             let game_id = args.first().and_then(Value::as_str).unwrap_or_default();

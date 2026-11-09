@@ -388,6 +388,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `saves:*` plugados no IPC com os mesmos payloads do Electron.
 - `app:diskSpace` via `fs2` (GiB), `profile:stats` (jogos/horas locais) e `gamelog:open` (abre o log do jogo pelo opener).
 
+### Marco 7 — diagnóstico e support bundle (concluído)
+
+- `app:diagnostics`: relatório com app, runtime, storage, biblioteca e downloads; `app:diagnostico` expõe conta, dataDir, sessão, sync e o relatório.
+- `app:diagnosticsExport`: escolhe pasta e grava `arcadia-support-<id>/` com `diagnostics.json` redigido, até 24 logs (512 KiB cada) e manifest.
+- Redaction cobre caminho do usuário, data dir, tokens, Authorization/Bearer, cookies e secrets; testes garantem que o token não sobrevive no bundle.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -400,8 +406,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil, máscara de segredos, allowlist, cobertura de canais | 18 |
-| **Total** | | **419** |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle, máscara de segredos, allowlist, cobertura de canais | 21 |
+| **Total** | | **422** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
