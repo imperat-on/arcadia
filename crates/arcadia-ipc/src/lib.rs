@@ -1618,10 +1618,28 @@ async fn account_sign_in(
     match api.sign_in_with_username(&username, password).await {
         Ok(response) => {
             state.install_session(&response.session);
+            trigger_reconcile(state, &response.session);
             Ok(json!({ "ok": true }))
         }
         Err(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
     }
+}
+
+/// Pull/reconcile em background após login, como o `setImmediate` do Electron.
+/// Fire-and-forget: a resposta de login não espera a rede.
+fn trigger_reconcile(state: &AppState, session: &Session) {
+    let Some(api) = state.api().cloned() else {
+        return;
+    };
+    let Some(account) = account_from_session(session) else {
+        return;
+    };
+    let data_dir = state.data_dir.clone();
+    tokio::spawn(async move {
+        let scope = AccountScope::with_active(data_dir, Some(account.as_str()));
+        let engine = SyncEngine::new((*api).clone(), scope);
+        let _ = engine.reconcile().await;
+    });
 }
 
 async fn account_sign_up(
@@ -1686,6 +1704,7 @@ async fn account_sign_up(
                 return Ok(json!({ "ok": false, "error": "confirmacao_necessaria" }));
             };
             state.install_session(&session);
+            trigger_reconcile(state, &session);
             let username_real = profile_username(api, &session)
                 .await
                 .unwrap_or_else(|| username.clone());
