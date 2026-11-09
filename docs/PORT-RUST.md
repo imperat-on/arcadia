@@ -394,6 +394,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - `app:diagnosticsExport`: escolhe pasta e grava `arcadia-support-<id>/` com `diagnostics.json` redigido, até 24 logs (512 KiB cada) e manifest.
 - Redaction cobre caminho do usuário, data dir, tokens, Authorization/Bearer, cookies e secrets; testes garantem que o token não sobrevive no bundle.
 
+### Marco 8 — notícias RSS (concluído)
+
+- `news:get` busca os 6 feeds do cliente Node, parseia RSS por regex, limpa HTML/entidades, melhora imagens dos CDNs conhecidos, remove duplicados/ofertas/hardware e ordena por data; cache de 30 min.
+- `news:game` devolve vazio até o Steam news ser portado.
+- Testes cobrem parser, filtro anti-hardware/oferta, imagens e estabilidade do id.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -406,8 +412,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle, máscara de segredos, allowlist, cobertura de canais | 21 |
-| **Total** | | **422** |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias, máscara de segredos, allowlist, cobertura de canais | 24 |
+| **Total** | | **425** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

@@ -5,6 +5,7 @@
 pub mod channels;
 pub mod diagnostics;
 pub mod launch_runtime;
+pub mod news;
 
 /// Versão-base do cliente Electron que este port substitui.
 pub const APP_VERSION: &str = "1.5.5";
@@ -80,6 +81,7 @@ pub struct AppState {
     friends: Mutex<Option<FriendsService>>,
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
+    pub news: news::NewsCache,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -110,6 +112,7 @@ impl AppState {
             friends: Mutex::new(None),
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
+            news: news::NewsCache::default(),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -830,6 +833,10 @@ async fn dispatch_async_inner(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "news:get" => Ok(Value::Array(state.news.get(40).await)),
+        "news:game" => Ok(news::game_news(
+            args.first().and_then(Value::as_str).unwrap_or_default(),
+        )),
         "friends:search"
         | "friends:send"
         | "friends:accept"
