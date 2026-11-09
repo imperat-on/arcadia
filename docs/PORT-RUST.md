@@ -527,9 +527,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
 | `arcadia-updater` | canais git e empacotado, manifests e estados | 93 |
 | `arcadia-fixes` | catálogo/engine, instalação transacional, redirect e Ryuu | 96 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 55 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + fixes + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 56 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1426** |
+| **Total** | | **1427** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
