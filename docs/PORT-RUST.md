@@ -468,6 +468,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - 66 testes + comparação lado a lado com o Electron. Spawn/processo real fica na borda de runtime.
 - IPC `emulators:list/detect/profiles/profile:set/profile:remove/resolve/status/roms/roms:index` plugado; o `LaunchResolverDeps` agora resolve emuladores (Hydra) dentro do `game:launch`.
 
+### Marco 18 — retrô store (concluído)
+
+- Catálogo V1/V2, builder canônico, migração, repositório persistido com audit, ofertas com fingerprint/regiões/idiomas, enriquecimento IGDB com cache.
+- Biblioteca retrô (`retro:libraryAdd/Remove`) com validação e projeção de campos.
+- IPC `retro:list/game/offer/stats/audit/migrate/libraryAdd/libraryRemove` plugado no catálogo local; o wrapper remoto pode ser ligado ao `CatalogClient` depois.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -475,7 +481,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-contracts` | index.js + sync.js completos, com 1.304 casos diferenciais contra o JS | 43 |
 | `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust, snapshots de saves | 45 |
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
-| `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
+| `arcadia-retro` | parser de título, sistemas, matcher, catálogo V1/V2, repositório, ofertas e metadata IGDB | 144 |
 | `arcadia-steam` | VDF, conta, playtime, steam news e descoberta de raiz | 82 |
 | `arcadia-media` | SGDB/Steam/IGDB/Xbox/PSN/Wallhaven, composição meta:art/meta:text, artes, HLTB e trailer | 132 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
@@ -488,7 +494,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores, máscara de segredos, allowlist, cobertura de canais | 35 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1012** |
+| **Total** | | **1072** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

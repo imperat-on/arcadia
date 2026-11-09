@@ -514,7 +514,7 @@ fn locale_primary(character: char) -> char {
 /// Aproxima `String#localeCompare` (locale padrão do Node) para IDs de
 /// catálogo: comparação primária sem caixa/acento e, no empate, minúsculas
 /// antes de maiúsculas. Pontuação exótica pode divergir da ICU.
-fn js_locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn js_locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
     let mut left = a.chars();

@@ -792,6 +792,16 @@ fn romanize_retro_numerals(title: &str) -> String {
         .join(" ")
 }
 
+/// `cleanText` do cliente Electron: decodifica entidades, remove tags/controle,
+/// colapsa espaços e corta em `max` unidades UTF-16.
+pub fn clean_text(value: &str, max: usize) -> String {
+    let mut output = decode_entities(value);
+    output = RE_CONTROL.replace_all(&output, " ").into_owned();
+    output = RE_WHITESPACE.replace_all(&output, " ").into_owned();
+    let trimmed = js_trim(&output);
+    js_slice_utf16(trimmed, max).to_string()
+}
+
 /// Normaliza um título retrô para exibição/busca (limite padrão de 300).
 pub fn normalize_retro_title(value: &str) -> String {
     normalize_retro_title_with_max(value, MAX_TITLE)

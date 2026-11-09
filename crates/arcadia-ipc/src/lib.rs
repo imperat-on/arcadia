@@ -32,6 +32,8 @@ use arcadia_achievements::loader::AchievementsStore;
 use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
+use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
+use arcadia_retro::repository::RetroLibrary;
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
 use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
 use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
@@ -99,6 +101,7 @@ pub struct AppState {
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
     emulators: Mutex<Option<EmulatorRegistry>>,
+    retro: Mutex<Option<Arc<RetroCatalogV2>>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -144,6 +147,7 @@ impl AppState {
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
             emulators: Mutex::new(None),
+            retro: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -183,6 +187,22 @@ impl AppState {
         ));
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    fn retro_catalog(&self, channel: &str) -> Result<Arc<RetroCatalogV2>, IpcError> {
+        let mut guard = lock(&self.retro);
+        if guard.is_none() {
+            let api = self.api().ok_or_else(|| {
+                IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
+            })?;
+            let fetcher: Arc<dyn arcadia_catalog::http::Fetcher> =
+                Arc::new(CatalogFetcher::new(api.http().clone()));
+            let v1 = Arc::new(RetroCatalog::new(&self.data_dir, fetcher));
+            *guard = Some(Arc::new(RetroCatalogV2::new(&self.data_dir, v1)));
+        }
+        guard.as_ref().cloned().ok_or_else(|| {
+            IpcError::new("retro_unavailable", "catálogo retrô indisponível", channel)
+        })
     }
 
     fn with_emulators<T>(
@@ -867,6 +887,35 @@ pub fn dispatch(
         "plugins:install" | "plugins:remove" => {
             Ok(json!({ "ok": false, "error": "nao_suportado" }))
         }
+        "retro:stats" => {
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.stats_envelope())
+        }
+        "retro:audit" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.audit(&payload))
+        }
+        "retro:libraryAdd" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let path = account_file(
+                &state.data_dir,
+                state.account().as_deref(),
+                "custom_games.json",
+            );
+            Ok(serde_json::to_value(RetroLibrary::new(path).add(&payload))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "retro:libraryRemove" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let path = account_file(
+                &state.data_dir,
+                state.account().as_deref(),
+                "custom_games.json",
+            );
+            Ok(serde_json::to_value(RetroLibrary::new(path).remove(id))
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
         "emulators:list" => Ok(state.with_emulators(channel, |registry| registry.list_envelope())?),
         "emulators:detect" => Ok(state.with_emulators(channel, |registry| registry.detect())?),
         "emulators:profiles" => {
@@ -1207,6 +1256,25 @@ async fn dispatch_async_inner(
                 }
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "retro:list" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.list(&payload).await)
+        }
+        "retro:game" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.get_game(id).await)
+        }
+        "retro:offer" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.get_offer(id).await)
+        }
+        "retro:migrate" => {
+            let catalog = state.retro_catalog(channel)?;
+            Ok(catalog.migrate_envelope().await)
         }
         "sources:add" => {
             let registry = state.source_registry(channel)?;

@@ -145,6 +145,7 @@ dependencies = [
  "arcadia-launch",
  "arcadia-media",
  "arcadia-plugins",
+ "arcadia-retro",
  "arcadia-social",
  "arcadia-steam",
  "arcadia-store",
@@ -194,6 +195,19 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "arcadia-ra"
+version = "0.1.0"
+dependencies = [
+ "arcadia-retro",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "wiremock",
 ]
 
 [[package]]
