@@ -4,6 +4,8 @@ members = [
     "crates/arcadia-contracts",
     "crates/arcadia-store",
     "crates/arcadia-download",
+    "crates/arcadia-api",
+    "crates/arcadia-retro",
     "crates/arcadia-ipc",
     "src-tauri",
 ]

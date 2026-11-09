@@ -59,6 +59,8 @@ pub fn merge_config(current: &Value, patch: &Value) -> Value {
 }
 
 pub fn write_config_patch(data_dir: &Path, patch: &Value) -> io::Result<Value> {
+    // Primeira escrita do Rust neste perfil: preserva o estado do Electron.
+    crate::backup::ensure_pre_rust_backup(data_dir)?;
     let current = read_config(data_dir);
     let next = merge_config(&current, patch);
     let serialized = serde_json::to_string_pretty(&next)

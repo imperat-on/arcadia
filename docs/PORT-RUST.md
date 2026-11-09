@@ -347,10 +347,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | Crate | Conteúdo | Testes |
 |---|---|---|
 | `arcadia-contracts` | index.js + sync.js completos, com 1.304 casos diferenciais contra o JS | 43 |
-| `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned | 39 |
+| `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust | 42 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
 | `arcadia-ipc` | dispatcher, máscara de segredos, cobertura de canais | 6 |
-| **Total** | | **113** |
+| **Total** | | **116** |
+
+O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
 ### Próximo marco — Fase 2
 

@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod atomic;
+pub mod backup;
 pub mod config;
 pub mod library;
 pub mod owned;
