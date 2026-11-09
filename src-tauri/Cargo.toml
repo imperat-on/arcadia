@@ -1,0 +1,16 @@
+[package]
+name = "arcadia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde.workspace = true
+serde_json.workspace = true
+arcadia-ipc = { path = "../crates/arcadia-ipc" }
+arcadia-store = { path = "../crates/arcadia-store" }

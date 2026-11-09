@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR" class="bg-[#000000]">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP (auditoria A-06): script só do próprio bundle — sem inline, sem
+         eval. Imagens/media https amplos (capas Steam, avatares Supabase,
+         thumbnails de notícias). Conexões https+wss (Supabase REST/realtime). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: file: https:; media-src 'self' blob: file: https:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https: wss: ws://localhost:1420; frame-src 'self' https://store.steampowered.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <link rel="icon" type="image/svg+xml" href="./logo.svg" />
+    <link
+      rel="preload"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      as="style"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <title>Arcadia</title>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

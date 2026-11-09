@@ -1,0 +1,116 @@
+"use client"
+
+// Indicador de sincronização de conquistas (canto inferior direito).
+// Só aparece logado. Mostra: sincronizando (spin), ok, fila pendente ou erro,
+// com botão "Sincronizar agora".
+import { useEffect, useState } from "react"
+import { useI18n } from "../../i18n/I18nContext"
+import { useAccount } from "../account/AccountContext"
+
+export function SyncStatusIndicator() {
+  const { t } = useI18n()
+  const { status } = useAccount()
+  const [st, setSt] = useState<SyncState | null>(null)
+  const [sincronizando, setSincronizando] = useState(false)
+
+  useEffect(() => {
+    if (status !== "logado") {
+      setSt(null)
+      return
+    }
+    let vivo = true
+    window.launcherAPI?.syncState().then((s) => vivo && setSt(s))
+    const off = window.launcherAPI?.onSyncState((s) => vivo && setSt(s))
+    return () => {
+      vivo = false
+      off?.()
+    }
+  }, [status])
+
+  if (status !== "logado" || !st) return null
+
+  const sincronizar = async () => {
+    setSincronizando(true)
+    try {
+      // First, push all local achievements (catch-up)
+      const allResult = await window.launcherAPI?.syncAll()
+      console.log("[sync] syncAll result:", allResult)
+
+      // Then do normal sync (pull from server)
+      const result = await window.launcherAPI?.syncNow()
+      console.log("[sync] syncNow result:", result)
+
+      if (result && !result.ok) {
+        setSt((current) =>
+          current ? { ...current, lastError: result.error || "falha_no_sync" } : current,
+        )
+      } else {
+        setSt((current) => current ? { ...current, lastError: null } : current)
+      }
+    } catch (error) {
+      console.error("[sync] sync error:", error)
+      setSt((current) =>
+        current
+          ? { ...current, lastError: String(error?.message || error || "falha_no_sync") }
+          : current,
+      )
+    } finally {
+      setSincronizando(false)
+    }
+  }
+
+  const fullSync = async () => {
+    setSincronizando(true)
+    try {
+      const result = await window.launcherAPI?.syncFull()
+      if (result && result.ok) {
+        setSt((current) => current ? { ...current, lastError: null } : current)
+      } else if (result && !result.ok) {
+        setSt((current) =>
+          current ? { ...current, lastError: result.error || "falha_no_sync" } : current,
+        )
+      }
+    } catch (error) {
+      setSt((current) =>
+        current
+          ? { ...current, lastError: String(error?.message || error || "falha_no_sync") }
+          : current,
+      )
+    } finally {
+      setSincronizando(false)
+    }
+  }
+
+  const temErro = !!st.lastError
+  const temFila = st.queueLen > 0
+  const cor = temErro ? "var(--state-danger)" : temFila ? "var(--state-warn)" : "#4ade80"
+  const texto = temErro
+    ? t("sync.erro")
+    : sincronizando
+      ? t("sync.sincronizando")
+      : temFila
+        ? t("sync.fila", { n: String(st.queueLen) })
+        : t("sync.ok")
+
+  const forcarLogout = async () => {
+    if (window.confirm(t("auth.confirm_relogin"))) {
+      await window.launcherAPI?.accountSignOut()
+    }
+  }
+
+  return (
+    <button
+      onClick={sincronizar}
+      onContextMenu={(e) => { e.preventDefault(); forcarLogout() }}
+      title={st.lastError || "Clique direito = logout"}
+      className="desktop-sync-status fixed bottom-[56px] right-4 z-[80] flex items-center gap-2 rounded-full border border-white/10 bg-[color:var(--surface-2)]/90 px-3 py-1.5 text-xs font-medium text-white/80 shadow-lg backdrop-blur transition-colors hover:bg-[color:var(--surface-3)]"
+    >
+      <span
+        className={`h-2 w-2 rounded-full ${sincronizando ? "animate-pulse" : ""}`}
+        style={{ background: cor }}
+      />
+      {sincronizando ? t("sync.sincronizando") : texto}
+      {temFila && !sincronizando && <span className="text-white/40">↻</span>}
+    </button>
+  )
+}

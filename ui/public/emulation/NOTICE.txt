@@ -1,0 +1,9 @@
+Arcadia's original SVG artwork in this directory (dolphin.svg, ppsspp.svg,
+melonds.svg, desmume.svg, and retroarch.svg) was authored for Arcadia and
+contains no third-party artwork or external resources. It is distributed under
+the repository's MIT License.
+
+The PS1/PS2/PS3 PNG artwork (ps1.png, ps2.png, and ps3.png) was adapted from
+HydraLauncher (https://github.com/hydralauncher/hydra), licensed under the MIT
+License. See HYDRA-LICENSE.txt for the required copyright and permission
+notice.

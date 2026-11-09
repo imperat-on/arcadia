@@ -1,0 +1,4 @@
+# Toolchain desta máquina: MSVC sem vcvars no shell (Git Bash).
+# O tauri-winres procura RC.EXE; apontamos direto para o SDK instalado.
+[env]
+RC = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\rc.exe'

@@ -94,3 +94,14 @@ logs/
 
 # Estado de conta (vínculo com a Steam): nunca versionar
 steam_account.json
+
+# Rust / Tauri
+/target
+src-tauri/gen
+
+# UI
+ui/node_modules
+ui/dist
+
+# logs
+*.log

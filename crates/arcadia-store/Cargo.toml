@@ -1,0 +1,17 @@
+[package]
+name = "arcadia-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.23"
+serde.workspace = true
+serde_json.workspace = true
+arcadia-contracts = { path = "../arcadia-contracts" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }

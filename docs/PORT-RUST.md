@@ -325,3 +325,37 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 1. Fase 0: workspace Cargo + `ui/` + shim gerado + `arcadia-contracts` com fixtures.
 2. Provar o caminho crítico em uma spike de 1 dia: janela Tauri carregando o React atual, `library:get` respondendo pelo Rust com o `library.json` real, e imagem local renderizando.
 3. Só então abrir a Fase 1 completa.
+
+---
+
+## 12. Estado da execução
+
+### Marco 0 — shell + contrato + ponte (concluído)
+
+- Workspace Cargo (`arcadia-store`, `arcadia-contracts`, `arcadia-download`, `arcadia-ipc`, `src-tauri`) compilando com MSVC.
+- Toolchain desta máquina: Rust 1.99 MSVC + VS Build Tools 2022 + Windows SDK; `rc.exe` fixado em `.cargo/config.toml`. WebView2 Evergreen 157 instalado.
+- `ui/` é a cópia do renderer React; alterações: import da ponte em `main.tsx`, porta 1420 no Vite e CSP com `ipc:`/`ws://localhost:1420`. Nenhuma mudança visual.
+- Ponte gerada do preload congelado (`tools/gen-ipc.mjs`): **202 canais invoke + 22 eventos**, com `shim/ipc-manifest.json` e `crates/arcadia-ipc/src/channels.rs` derivados da mesma fonte.
+- Teste estático da ponte (`tools/test-bridge.mjs`) executa o bridge gerado contra um mock do Tauri: 202 + 22, invoke/event/unsubscribe provados.
+- Dispatcher Rust com `arcadia_ipc`: `library:get`, `config:get/set` (com máscara de segredos), janela, modo, boot vídeo e leituras de boot com estado vazio seguro. Canais ainda não portados respondem `not_ported`.
+- Janela Tauri frameless 1600×900 abrindo a UI React real no WebView2, com boot comprovado por screenshot.
+- `library:get` e `config:get` comprovados renderer → Tauri → Rust via `ARCADIA_IPC_LOG` (11 canais no boot).
+- Instância única (`tauri-plugin-single-instance`): segunda execução sai em ~70 ms e foca a existente.
+
+### Portes puros já verdes
+
+| Crate | Conteúdo | Testes |
+|---|---|---|
+| `arcadia-contracts` | index.js + sync.js completos, com 1.304 casos diferenciais contra o JS | 43 |
+| `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned | 39 |
+| `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
+| `arcadia-ipc` | dispatcher, máscara de segredos, cobertura de canais | 6 |
+| **Total** | | **113** |
+
+### Próximo marco — Fase 2
+
+- `arcadia-api`: auth (`signup/login/refresh/logout`), REST (`profiles`, `friendships`, `avatars`), RPCs, storage, DoH + IPv4 + fallback de endpoint.
+- Sessão restaurada do `session.json` real, `conta` ativa e `library:get` escopado por conta.
+- `biblioteca`/`sync`: pull/push com resolução de conflito já portada, primeiro em modo pull-only.
+- Smoke de dados: login com conta existente e `GET /auth/v1/user` idêntico ao Electron.
+
