@@ -8,6 +8,7 @@ members = [
     "crates/arcadia-retro",
     "crates/arcadia-sync",
     "crates/arcadia-social",
+    "crates/arcadia-launch",
     "crates/arcadia-ipc",
     "src-tauri",
 ]

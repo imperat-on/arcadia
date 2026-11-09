@@ -366,6 +366,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - IPC plugado: 8 canais `friends:*` e 17 canais `community:*`; erros saem como envelope seguro, não como erro de transporte.
 - **Prova de boot:** `friends:list` chamou o backend real com sessão de teste e devolveu `{ok:false,error:"Invalid Refresh Token...",deCache:false}` — caminho de rede/auth/envelope comprovado sem escrita.
 
+### Marco 4 — núcleo de launch (concluído)
+
+- `arcadia-launch`: resolução completa de comando (Steam/Proton/umu/Wine/nativo/emulador), env (DXVK/NVAPI/VKD3D/Esync/Fsync/Wayland/FSR/MangoHud/verbose), wrappers (gamescope → gamemode → MangoHud → custom), prefixo, args e scripts.
+- Processos: probe injetável, árvore de kill, detecção de Steam/jogo, ownership/start-time.
+- Sessão: máquina `starting/running/stopping/idle`, token de geração, graça de 60 s, teardown por dois ticks, playtime.
+- Gamescope/systemd, umu (tar/sha256), Steam path/registry/Flatpak, gamepad sysfs, log com rotação.
+- **Deferido conscientemente:** download/install do Wine/Proton, cópia real de DLLs gráficas, spawn real e wiring de IPC — o planner devolve `GraphicsLibsRequest` e o spawn fica para a camada de runtime.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -376,9 +384,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
+| `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
 | `arcadia-ipc` | dispatcher, auth + sync + social plugados, máscara de segredos, allowlist, cobertura de canais | 11 |
-| **Total** | | **316** |
+| **Total** | | **409** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
