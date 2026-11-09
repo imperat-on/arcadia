@@ -460,7 +460,8 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Parser binário Valve KV (schema/progress), normalização de schema, matching/aliases, loader local, consolidação, Uplay e decisões de cracked watcher com fs/clock injetáveis.
 - Cobertura de truncamento/fuzz no parser binário; payloads de unlock e fila de sync puros.
 - 110 testes. Watcher ao vivo, toasts e scrape público ficam para a borda de runtime.
-- IPC `achievements:get` lê os itens da conta (`achievements.json`) e devolve o array da UI; `schemas:load`/watcher ao vivo ainda pendentes.
+- IPC `achievements:get` lê os itens da conta; `achievements:schemas:load` chama o runtime; `steam:capturarAgora` força uma passada + catch-up.
+- Watcher ao vivo: poll de 15 s no shell, gate por `achievements_auto_capture`, primeiro tick silencioso e `achievement:unlocked`/`achievement:revoked` emitidos com payload de toast.
 
 ### Marco 17 — emuladores (concluído)
 
@@ -522,7 +523,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
 | `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
-| `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
+| `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay, watcher decisions e runtime de poll/toast | 134 |
 | `arcadia-emulators` | registry, profiles, resolve Hydra, ROM index e RA config | 66 |
 | `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
 | `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
@@ -530,7 +531,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-fixes` | catálogo/engine, instalação transacional, redirect, Ryuu e executores HTTP/zip/7z | 118 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + fixes + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 56 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1449** |
+| **Total** | | **1473** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

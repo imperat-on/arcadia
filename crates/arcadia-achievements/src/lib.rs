@@ -17,17 +17,26 @@
 //! - [`uplay`]: UPC/voices38, IDs, runtime e schema.
 //! - [`manager`]: máquina de estados pending/reconciled/revoked e fila com
 //!   dedupe/earliest-wins.
+//! - [`events`]: payloads de `achievement:unlocked`/toast e revogação.
+//! - [`runtime`]: a passada viva (snapshot do bin, unlock/revoke, gate de
+//!   captura e fila) com filesystem/relógio injetados.
 //!
 //! A crate é pura: não faz rede, não inicia watchers, não cria threads e não
-//! dorme. O cliente real injeta `SystemFs`/`SystemClock` e chama os decisores.
+//! dorme. O cliente real injeta `SystemFs`/`SystemClock` e chama os decisores;
+//! [`runtime::AchievementsRuntime`] junta as decisões numa passada que o host
+//! agenda.
 
 pub mod consolidar;
 pub mod cracked_watcher;
+pub mod events;
 pub mod fsx;
 mod js;
 pub mod loader;
 pub mod manager;
 pub mod r#match;
+pub mod runtime;
+#[cfg(test)]
+mod runtime_tests;
 pub mod schema;
 pub mod steam_bin;
 #[cfg(test)]
@@ -48,10 +57,15 @@ pub use cracked_watcher::{
     EmulatorTitles, IniFile, IniSection, Revocation, ScanGameOptions, UnlockPayload,
     IDIOMAS_SCHEMA, INTERVALO_POLL, ROOT_SECTION,
 };
+pub use events::{
+    AchievementEvent, RevokeEvent, UnlockEvent, ACHIEVEMENT_REVOKED_CHANNEL,
+    ACHIEVEMENT_UNLOCKED_CHANNEL, TOAST_WINDOW_SECONDS,
+};
 pub use fsx::{Clock, Platform, SystemClock, SystemFs, WatcherFs};
 pub use loader::{
-    collect_appids, configured_appids, copy_icon_to_cache, first_text, load_achievements,
-    load_all_schemas, load_item_index, load_item_index_from_path, resolve_schema_for_appid,
+    collect_appids, collect_appids_with_fs, configured_appids, copy_icon_to_cache, first_text,
+    list_progress_files, list_progress_files_with_fs, load_achievements, load_all_schemas,
+    load_all_schemas_with_fs, load_item_index, load_item_index_from_path, resolve_schema_for_appid,
     save_achievements, schema_item_view, sort_items, steam_icon_url, AchievementsStore, CdnIcons,
     IconResolver, ItemIndex, LoadOptions, LoadReport, NoScrapeProvider, RebuildReport,
     ResolvedAppSchema, SchemaOrigin, ScrapeSchemaProvider, SteamIcons, SyncRecord, STEAM_ICON_HOST,
@@ -66,6 +80,7 @@ pub use r#match::{
     normalize_title, normalize_title_value, numeric_achievement_id, numeric_achievement_id_value,
     remember_alias, resolve_appid, AchievementIndex,
 };
+pub use runtime::{AchievementsRuntime, CaptureGate, CatchUpReport, TickReport, UnindexedUnlock};
 pub use schema::{
     appid_from_schema_filename, list_schema_files, load_schema_catalog, load_schema_for_appid,
     parse_progress_filename, pick_localized, schema_filename, schema_from_bytes, schema_from_kv,

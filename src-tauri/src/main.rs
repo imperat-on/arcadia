@@ -438,6 +438,18 @@ fn main() {
                 state.downloads.start_monitor();
             }
 
+            // Poll de conquistas a cada 15 s; o runtime é silencioso no primeiro
+            // tick e só emite unlocks realmente novos.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(15));
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        let _ = state.achievements_tick();
+                    }
+                });
+            }
+
             // Persiste sessão criada/renovada e espelha account:changed para a UI.
             if let Some(api) = api_for_events.clone() {
                 let app_handle = app.handle().clone();

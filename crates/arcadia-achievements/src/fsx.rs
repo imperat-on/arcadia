@@ -30,11 +30,17 @@ impl Platform {
 }
 
 /// Operações de filesystem que os decisores de watcher precisam.
-pub trait WatcherFs {
+pub trait WatcherFs: Send + Sync {
     fn exists(&self, path: &Path) -> bool;
     fn is_file(&self, path: &Path) -> bool;
     fn is_dir(&self, path: &Path) -> bool;
     fn read_to_string(&self, path: &Path) -> Option<String>;
+    /// Bytes crus (bins KeyValues da Steam). Implementações antigas podem não
+    /// sobrescrever: o padrão devolve `None` e o chamador trata como ausente.
+    fn read_bytes(&self, path: &Path) -> Option<Vec<u8>> {
+        let _ = path;
+        None
+    }
     /// Nomes dos filhos (só o nome, sem o diretório pai).
     fn read_dir(&self, path: &Path) -> Option<Vec<String>>;
     /// `mtimeMs` truncado em milissegundos.
@@ -66,6 +72,10 @@ impl WatcherFs for SystemFs {
         fs::read_to_string(path).ok()
     }
 
+    fn read_bytes(&self, path: &Path) -> Option<Vec<u8>> {
+        fs::read(path).ok()
+    }
+
     fn read_dir(&self, path: &Path) -> Option<Vec<String>> {
         let mut names: Vec<String> = fs::read_dir(path)
             .ok()?
@@ -90,7 +100,7 @@ fn millis_since_epoch(time: SystemTime) -> i64 {
 }
 
 /// Relógio injetável (`Date.now()`).
-pub trait Clock {
+pub trait Clock: Send + Sync {
     fn now_ms(&self) -> i64;
 }
 

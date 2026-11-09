@@ -32,6 +32,7 @@ use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
 use arcadia_achievements::loader::AchievementsStore;
+use arcadia_achievements::runtime::{AchievementsRuntime, CaptureGate};
 use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
@@ -122,6 +123,8 @@ pub struct AppState {
     emulators: Mutex<Option<EmulatorRegistry>>,
     retro: Mutex<Option<Arc<RetroCatalogV2>>>,
     fixes_exec: Mutex<Option<FixExecutors>>,
+    achievements_runtime: Mutex<Option<AchievementsRuntime>>,
+    background_events: Mutex<Option<EventSink>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
 }
@@ -174,6 +177,8 @@ impl AppState {
             emulators: Mutex::new(None),
             retro: Mutex::new(None),
             fixes_exec: Mutex::new(None),
+            achievements_runtime: Mutex::new(None),
+            background_events: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
         }
@@ -213,6 +218,103 @@ impl AppState {
         ));
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    fn emit_background(&self, event: &str, payload: Value) {
+        if let Some(sink) = lock(&self.background_events).clone() {
+            sink(event, payload);
+        }
+    }
+
+    fn with_achievements<T>(
+        &self,
+        action: impl FnOnce(&mut AchievementsRuntime) -> T,
+    ) -> Option<T> {
+        let mut guard = lock(&self.achievements_runtime);
+        if guard.is_none() {
+            let steam_root = steam_service::steam_root();
+            let appids: Vec<String> =
+                read_games(&self.data_dir, self.account().as_deref())
+                    .iter()
+                    .filter_map(|game| {
+                        game.get("id")
+                            .and_then(Value::as_str)
+                            .and_then(|id| id.strip_prefix("steam:"))
+                            .map(str::to_string)
+                    })
+                    .collect();
+            *guard = Some(AchievementsRuntime::system(
+                &self.data_dir,
+                self.account().unwrap_or_default(),
+                steam_root,
+                appids,
+            ));
+        }
+        guard.as_mut().map(action)
+    }
+
+    fn capture_gate(&self) -> bool {
+        read_config(&self.data_dir)
+            .get("achievements_auto_capture")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    }
+
+    /// `achievements:schemas:load` — rebuild de schemas sem rede.
+    pub fn achievements_schemas_load(&self) -> Value {
+        let gate = self.capture_gate();
+        let result = self.with_achievements(|runtime| {
+            let report = runtime.catch_up_with_gate(CaptureGate::from(gate));
+            json!({
+                "ok": true,
+                "updated": report.updated,
+                "total": report.total,
+                "totalAppids": report.total_appids,
+                "errors": report.errors.len()
+            })
+        });
+        result.unwrap_or_else(|| json!({ "ok": false, "error": "steam_ausente" }))
+    }
+
+    /// Poll de 15 s: persiste novos unlocks e emite o evento de toast.
+    pub fn achievements_tick(&self) -> usize {
+        let gate = self.capture_gate();
+        let result = self.with_achievements(|runtime| {
+            let report = runtime.tick_with_gate(CaptureGate::from(gate));
+            if report.skipped {
+                return 0;
+            }
+            let mut emitted = 0;
+            for unlock in report.unlocks() {
+                self.emit_background("achievement:unlocked", unlock.toast_value());
+                emitted += 1;
+            }
+            for revoke in report.revocations() {
+                self.emit_background("achievement:revoked", revoke.to_value());
+            }
+            emitted
+        });
+        result.unwrap_or(0)
+    }
+
+    /// `steam:capturarAgora`: força uma passada e faz catch-up imediato.
+    pub fn achievements_capture_now(&self) -> Value {
+        let result = self.with_achievements(|runtime| {
+            runtime.force_next_capture();
+            let catch_up = runtime.catch_up_with_gate(CaptureGate::forced());
+            let report = runtime.tick_with_gate(CaptureGate::forced());
+            let mut emitted = 0;
+            for unlock in report.unlocks() {
+                self.emit_background("achievement:unlocked", unlock.toast_value());
+                emitted += 1;
+            }
+            json!({
+                "ok": true,
+                "updated": catch_up.updated,
+                "unlocked": emitted
+            })
+        });
+        result.unwrap_or_else(|| json!({ "ok": false, "motivo": "steam_ausente" }))
     }
 
     fn ra_session(&self) -> RaSession {
@@ -303,6 +405,7 @@ impl AppState {
 
     /// Eventos de background (launch/monitor) vão para a janela via este sink.
     pub fn set_event_sink(&self, sink: EventSink) {
+        *lock(&self.background_events) = Some(Arc::clone(&sink));
         self.downloads.set_event_sink(Arc::clone(&sink));
         let done_sink = Arc::clone(&sink);
         self.downloads.set_done_sink(Arc::new(move |item| {
@@ -884,10 +987,8 @@ pub fn dispatch(
             &state.data_dir,
             state.account().as_deref(),
         )),
-        "steam:capturarAgora" => Ok(json!({
-            "ok": false,
-            "motivo": "captura_nao_portada"
-        })),
+        "steam:capturarAgora" => Ok(state.achievements_capture_now()),
+        "achievements:schemas:load" => Ok(state.achievements_schemas_load()),
         "steam:horasTodas" => Ok(steam_service::hours_json()),
         "steam:horasDoJogo" => Ok(steam_service::game_hours_json(
             args.first().and_then(Value::as_str).unwrap_or_default(),

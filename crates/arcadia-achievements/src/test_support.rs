@@ -31,11 +31,17 @@ pub type SchemaItem<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, &'a str)]);
 
 /// Monta um `UserGameStatsSchema_*.bin` mínimo.
 pub fn schema_bin(items: &[SchemaItem<'_>]) -> Vec<u8> {
+    schema_bin_hidden(items, &[])
+}
+
+/// Igual a [`schema_bin`], marcando `hidden=1` nas chaves `(block, bit)`
+/// listadas (usado para o payload do evento carregar `hidden`).
+pub fn schema_bin_hidden(items: &[SchemaItem<'_>], hidden: &[(&str, &str)]) -> Vec<u8> {
     let mut blocks: Vec<(&str, Vec<Vec<u8>>)> = Vec::new();
     for (block, bit, apiname, titles) in items {
-        let bit_children = [
-            vec![string("name", apiname)],
-            vec![object(
+        let mut bit_children = vec![
+            string("name", apiname),
+            object(
                 "display",
                 &[object(
                     "name",
@@ -44,9 +50,14 @@ pub fn schema_bin(items: &[SchemaItem<'_>]) -> Vec<u8> {
                         .map(|(language, title)| string(language, title))
                         .collect::<Vec<_>>(),
                 )],
-            )],
-        ]
-        .concat();
+            ),
+        ];
+        if hidden
+            .iter()
+            .any(|(hidden_block, hidden_bit)| hidden_block == block && hidden_bit == bit)
+        {
+            bit_children.push(string("hidden", "1"));
+        }
         let bit_object = object(bit, &bit_children);
         match blocks.iter_mut().find(|(candidate, _)| candidate == block) {
             Some((_, children)) => children.push(bit_object),

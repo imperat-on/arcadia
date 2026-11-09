@@ -19,12 +19,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Number, Value};
 
+use crate::fsx::{SystemFs, WatcherFs};
 use crate::js::{js_number_value, js_string_value, js_trim, js_truthy_value};
 use crate::r#match::{aliases_of, build_index, find_item_index, remember_alias};
 use crate::schema::{
-    load_schema_for_appid, schema_from_saved_items, AchievementSchema, SchemaAchievement,
+    appid_from_schema_filename, load_schema_for_appid, schema_from_bytes, schema_from_saved_items,
+    schema_path, AchievementSchema, SchemaAchievement,
 };
-use crate::steam_bin::{json_block_bit_key, load_progress_map};
+use crate::steam_bin::{json_block_bit_key, load_progress_map, progress_map_bytes};
 
 /// Store completo de `achievements.json`: `{ appid: { items: [...] } }`.
 ///
@@ -242,14 +244,22 @@ impl ScrapeSchemaProvider for NoScrapeProvider {
 /// `UserGameStats_<steamid>_<appid>.bin` por appid (último arquivo vence, como
 /// o `Map.set` do JS).
 pub fn list_progress_files(stats_dir: impl AsRef<Path>) -> BTreeMap<String, PathBuf> {
-    let Ok(entries) = fs::read_dir(stats_dir) else {
+    list_progress_files_with_fs(stats_dir, &SystemFs)
+}
+
+/// [`list_progress_files`] lendo os nomes pelo filesystem injetado.
+pub fn list_progress_files_with_fs(
+    stats_dir: impl AsRef<Path>,
+    fs: &dyn WatcherFs,
+) -> BTreeMap<String, PathBuf> {
+    let stats_dir = stats_dir.as_ref();
+    let Some(names) = fs.read_dir(stats_dir) else {
         return BTreeMap::new();
     };
     let mut output = BTreeMap::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
+    for name in names {
         if let Some((_, appid)) = crate::schema::parse_progress_filename(&name) {
-            output.insert(appid.to_string(), entry.path());
+            output.insert(appid.to_string(), stats_dir.join(name));
         }
     }
     output
@@ -763,6 +773,16 @@ pub fn collect_appids(
     stats_dir: &Path,
     extra: &[String],
 ) -> Vec<String> {
+    collect_appids_with_fs(store, stats_dir, extra, &SystemFs)
+}
+
+/// [`collect_appids`] listando os schemas pelo filesystem injetado.
+pub fn collect_appids_with_fs(
+    store: &AchievementsStore,
+    stats_dir: &Path,
+    extra: &[String],
+    fs: &dyn WatcherFs,
+) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut output = Vec::new();
     let mut push = |appid: String| {
@@ -773,7 +793,14 @@ pub fn collect_appids(
     for appid in store.appids() {
         push(appid);
     }
-    for (appid, _) in crate::schema::list_schema_files(stats_dir) {
+    let mut schema_appids: Vec<String> = fs
+        .read_dir(stats_dir)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|name| appid_from_schema_filename(name).map(str::to_string))
+        .collect();
+    schema_appids.sort();
+    for appid in schema_appids {
         push(appid);
     }
     for appid in extra {
@@ -786,14 +813,28 @@ pub fn collect_appids(
 
 /// Rebuild de TODOS os appids com schema local/salvo/fallback injetado.
 pub fn load_all_schemas(store: &mut AchievementsStore, options: &LoadOptions<'_>) -> LoadReport {
-    let appids = collect_appids(store, options.stats_dir, options.extra_appids);
-    let progress_files = list_progress_files(options.stats_dir);
+    load_all_schemas_with_fs(store, options, &SystemFs)
+}
+
+/// [`load_all_schemas`] lendo schemas/progresso pelo filesystem injetado.
+/// A cópia de ícones continua usando os caminhos reais (é escrita de cache,
+/// não leitura do estado da Steam).
+pub fn load_all_schemas_with_fs(
+    store: &mut AchievementsStore,
+    options: &LoadOptions<'_>,
+    fs: &dyn WatcherFs,
+) -> LoadReport {
+    let appids = collect_appids_with_fs(store, options.stats_dir, options.extra_appids, fs);
+    let progress_files = list_progress_files_with_fs(options.stats_dir, fs);
     let mut report = LoadReport {
         total_appids: appids.len(),
         ..LoadReport::default()
     };
     for appid in appids {
-        let mut schema = load_schema_for_appid(options.stats_dir, &appid);
+        let mut schema = fs
+            .read_bytes(&schema_path(options.stats_dir, &appid))
+            .map(|bytes| schema_from_bytes(&appid, &bytes))
+            .unwrap_or_else(|| AchievementSchema::new(&appid));
         if schema.is_empty() {
             schema = schema_from_saved_items(&store.items(&appid));
             if !schema.is_empty() {
@@ -816,7 +857,11 @@ pub fn load_all_schemas(store: &mut AchievementsStore, options: &LoadOptions<'_>
         let progress = if options.permission_allowed {
             progress_files
                 .get(&appid)
-                .map(load_progress_map)
+                .map(|path| {
+                    fs.read_bytes(path)
+                        .map(|bytes| progress_map_bytes(&bytes))
+                        .unwrap_or_default()
+                })
                 .unwrap_or_default()
         } else {
             BTreeMap::new()
