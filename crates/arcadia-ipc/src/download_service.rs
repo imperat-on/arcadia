@@ -3282,6 +3282,7 @@ impl Aria2Executor {
 mod download_service_tests {
     use super::*;
     use arcadia_download::manager::MemoryPersistence;
+    use arcadia_download::queue::{STATUS_DONE, STATUS_DOWNLOADING, STATUS_PAUSED};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
