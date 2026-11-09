@@ -1,0 +1,5 @@
+provider: github
+owner: imperat-on
+repo: arcadia
+updaterCacheDirName: arcadia-updater
+vPrefixedTagName: false
