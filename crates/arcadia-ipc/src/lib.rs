@@ -2,6 +2,7 @@
 //! canais do preload congelado para handlers Rust. Canais não portados
 //! respondem `not_ported`; canais fora do contrato respondem `unknown_channel`.
 
+pub mod catalog_service;
 pub mod channels;
 pub mod diagnostics;
 pub mod launch_runtime;
@@ -1307,6 +1308,10 @@ async fn dispatch_async_inner(
             let reference = args.first().and_then(Value::as_str).unwrap_or_default();
             Ok(serde_json::to_value(registry.get_game(reference).await)
                 .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "game:stats" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(catalog_service::game_stats(state, appid).await)
         }
         "game:protondb" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
