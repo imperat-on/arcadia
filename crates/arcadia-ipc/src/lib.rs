@@ -5,6 +5,7 @@
 pub mod channels;
 pub mod diagnostics;
 pub mod launch_runtime;
+pub mod media_service;
 pub mod news;
 pub mod steam_service;
 
@@ -889,6 +890,54 @@ async fn dispatch_async_inner(
         "account:signUp" => account_sign_up(state, channel, args).await,
         "account:signOut" => account_sign_out(state, channel).await,
         "account:profile" => account_profile(state, channel).await,
+        "art:download" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+            let kind = payload.get("kind").and_then(Value::as_str).unwrap_or_default();
+            let url = payload.get("url").and_then(Value::as_str).unwrap_or_default();
+            if id.is_empty() || !matches!(kind, "cover" | "hero" | "logo" | "icon") {
+                return Ok(json!({ "ok": false, "error": "pedido_invalido" }));
+            }
+            if !url.starts_with("https://") {
+                return Ok(json!({ "ok": false, "error": "url rejeitada" }));
+            }
+            let Some(api) = state.api() else {
+                return Ok(json!({ "ok": false, "error": "api_indisponivel" }));
+            };
+            let fetcher = arcadia_media::http::HttpClientFetcher::new(api.http().clone());
+            let directory = arcadia_media::art::art_dir(&state.data_dir);
+            if let Err(error) = std::fs::create_dir_all(&directory) {
+                return Ok(json!({ "ok": false, "error": error.to_string() }));
+            }
+            let base = directory.join(format!(
+                "{}-{}-{}",
+                arcadia_media::art::safe_id(id),
+                kind,
+                chrono::Utc::now().timestamp_millis()
+            ));
+            match arcadia_media::art::download_to(&fetcher, url, &base).await {
+                Ok(downloaded) => {
+                    // Remove a arte anterior SÓ se ela vive em art/.
+                    let overrides = media_service::manual_overrides_public(state);
+                    if let Some(previous) = overrides
+                        .get(id)
+                        .and_then(Value::as_object)
+                        .and_then(|entry| entry.get(kind))
+                        .and_then(Value::as_str)
+                    {
+                        if let Some(old) =
+                            arcadia_media::art::art_to_delete_in(previous, &directory)
+                        {
+                            let _ = std::fs::remove_file(old);
+                        }
+                    }
+                    Ok(json!({ "ok": true, "path": downloaded.path.to_string_lossy() }))
+                }
+                Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
+            }
+        }
+        "arte:quadrada" => Ok(media_service::square_art(state, &args).await),
+        "arte:logo" => Ok(media_service::logo_auto(state, &args).await),
         "hltb:get" => {
             let title = args.first().and_then(Value::as_str).unwrap_or_default();
             if title.trim().is_empty() {
