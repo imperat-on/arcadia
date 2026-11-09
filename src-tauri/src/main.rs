@@ -117,6 +117,27 @@ fn handle_shell_channel(
             window.dialog().file().blocking_pick_file(),
         ))),
         "profile:pickImage" => Some(Ok(pick_profile_image(window, state, args))),
+        "gamelog:open" => {
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let safe: String = id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let path = state.data_dir.join("logs").join(format!("{safe}.log"));
+            if !path.exists() {
+                return Some(Ok(json!({ "ok": false, "error": "sem registros" })));
+            }
+            match window.opener().open_path(path.to_string_lossy(), None::<&str>) {
+                Ok(()) => Some(Ok(json!({ "ok": true }))),
+                Err(error) => Some(Ok(json!({ "ok": false, "error": error.to_string() }))),
+            }
+        }
         _ => None,
     }
 }

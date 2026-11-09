@@ -9,5 +9,6 @@ pub mod library;
 pub mod owned;
 pub mod paths;
 pub mod session;
+pub mod snapshots;
 
 pub use paths::{account_path, data_path, resolve_data_dir};

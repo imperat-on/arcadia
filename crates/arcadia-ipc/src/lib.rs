@@ -584,6 +584,87 @@ pub fn dispatch(
                 state.account().as_deref(),
             )))
         }
+        "saves:list" => {
+            let game_id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let service =
+                arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
+            Ok(service.list(game_id))
+        }
+        "saves:create" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let game_id = payload.get("gameId").and_then(Value::as_str).unwrap_or_default();
+            let source = payload.get("sourceDir").and_then(Value::as_str).unwrap_or_default();
+            let label = payload.get("label").and_then(Value::as_str).unwrap_or_default();
+            let service =
+                arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
+            Ok(service.create(game_id, source, label))
+        }
+        "saves:restore" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let game_id = payload.get("gameId").and_then(Value::as_str).unwrap_or_default();
+            let snapshot_id = payload
+                .get("snapshotId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let target = payload.get("targetDir").and_then(Value::as_str).unwrap_or_default();
+            let backup = payload
+                .get("backup")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let service =
+                arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
+            Ok(service.restore(game_id, snapshot_id, target, backup))
+        }
+        "saves:delete" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let game_id = payload.get("gameId").and_then(Value::as_str).unwrap_or_default();
+            let snapshot_id = payload
+                .get("snapshotId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let service =
+                arcadia_store::snapshots::SnapshotService::new(state.data_dir.join("snapshots"));
+            Ok(service.remove(game_id, snapshot_id))
+        }
+        "app:diskSpace" => {
+            let target = args
+                .first()
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+                .unwrap_or_else(arcadia_store::paths::home_dir);
+            let mut probe = target;
+            while !probe.exists() {
+                match probe.parent() {
+                    Some(parent) if parent != probe => probe = parent.to_path_buf(),
+                    _ => break,
+                }
+            }
+            match (fs2::total_space(&probe), fs2::available_space(&probe)) {
+                (Ok(total), Ok(free)) => Ok(json!({
+                    "ok": true,
+                    "total": total as f64 / 1024.0 / 1024.0 / 1024.0,
+                    "free": free as f64 / 1024.0 / 1024.0 / 1024.0
+                })),
+                (Err(error), _) | (_, Err(error)) => {
+                    Ok(json!({ "ok": false, "error": error.to_string() }))
+                }
+            }
+        }
+        "profile:stats" => {
+            let games = read_games(&state.data_dir, state.account().as_deref());
+            let minutes: i64 = games
+                .iter()
+                .map(|game| {
+                    game.get("playtime_minutes")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0)
+                })
+                .sum();
+            Ok(json!({
+                "jogos": games.len(),
+                "playtime_hours": (minutes as f64 / 60.0).round() as i64
+            }))
+        }
         "customgame:add" => custom_game_add(state, args.first().cloned().unwrap_or_else(|| json!({}))),
         "customgame:update" => {
             custom_game_update(state, args.first().cloned().unwrap_or_else(|| json!({})))
@@ -1571,6 +1652,37 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn disk_space_reports_existing_or_parent_path() {
+        let state = state();
+        let value = dispatch(
+            &state,
+            &MockShell,
+            "app:diskSpace",
+            vec![json!(std::env::temp_dir().join("arcadia-nao-existe-xyz"))],
+        )
+        .unwrap();
+        assert_eq!(value["ok"], true, "diskSpace falhou: {value}");
+        assert!(value["total"].as_f64().unwrap_or(0.0) > 0.0);
+        assert!(value["free"].as_f64().unwrap_or(0.0) >= 0.0);
+    }
+
+    #[test]
+    fn profile_stats_counts_library_games() {
+        let dir = std::env::temp_dir().join(format!("arcadia-stats-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("library.json"),
+            r#"{"version":1,"games":[{"id":"a","title":"A","playtime_minutes":90},{"id":"b","title":"B","playtime_minutes":30}]}"#,
+        )
+        .unwrap();
+        let state = AppState::new(dir.clone());
+        let value = dispatch(&state, &MockShell, "profile:stats", Vec::new()).unwrap();
+        assert_eq!(value["jogos"], 2);
+        assert_eq!(value["playtime_hours"], 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

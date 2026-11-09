@@ -382,20 +382,26 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Teste de integração spawna um processo inofensivo real, valida o evento `game:running`, fecha e confirma que o estado volta a idle.
 - `game_settings.json` por conta alimenta o resolver; emulador ainda retorna `None` (registro não portado) e cai no erro claro do resolver.
 
+### Marco 6 — saves e utilidades locais (concluído)
+
+- Snapshots de saves em `dataDir/snapshots/<game>/<id>/{manifest.json,data}`: criar, listar, restaurar (com backup/rollback) e apagar; symlink nunca é seguido e restore só aceita alvo sob home/temp.
+- `saves:*` plugados no IPC com os mesmos payloads do Electron.
+- `app:diskSpace` via `fs2` (GiB), `profile:stats` (jogos/horas locais) e `gamelog:open` (abre o log do jogo pelo opener).
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
 |---|---|---|
 | `arcadia-contracts` | index.js + sync.js completos, com 1.304 casos diferenciais contra o JS | 43 |
-| `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust | 42 |
+| `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust, snapshots de saves | 45 |
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado (gamesettings/overrides/custom), máscara de segredos, allowlist, cobertura de canais | 16 |
-| **Total** | | **414** |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil, máscara de segredos, allowlist, cobertura de canais | 18 |
+| **Total** | | **419** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
