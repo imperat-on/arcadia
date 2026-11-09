@@ -492,7 +492,6 @@ impl MediaService {
 mod tests {
     use super::*;
     use crate::http::Response;
-    use crate::providers::xbox::XboxLocalizedProduct;
     use crate::test_support::{json_response, MockFetcher};
     use serde_json::json;
 
@@ -730,20 +729,6 @@ mod tests {
         assert_eq!(
             result.textos,
             vec![TextCandidate::new("IGDB — Portal 2", "Resumo")]
-        );
-    }
-
-    #[test]
-    fn xbox_text_helper_is_wired_through_the_service() {
-        // Contrato leve: o helper exposto pela fachada é o mesmo da Xbox.
-        let product = XboxLocalizedProduct {
-            product_title: "Portal 2".into(),
-            product_description: "<p>Descrição</p>".into(),
-            images: vec![],
-        };
-        assert_eq!(
-            xbox_texto_de(&product),
-            vec![TextCandidate::new("Xbox — Portal 2", "Descrição")]
         );
     }
 

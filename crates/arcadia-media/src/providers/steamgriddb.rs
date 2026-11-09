@@ -233,7 +233,7 @@ impl SteamGridDb {
                         titulo: value_str(game.get("name")),
                         ano: match game.get("release_date") {
                             None | Some(Value::Null) => None,
-                            value => Some(value_str(value)),
+                            value => value.cloned(),
                         },
                     })
                     .collect()
@@ -366,7 +366,7 @@ mod tests {
         let fetcher = MockFetcher::new(vec![json_response(serde_json::json!({
             "success": true,
             "data": [
-                {"id": 10, "name": "Portal 2", "release_date": "2011-04-19"},
+                {"id": 10, "name": "Portal 2", "release_date": 1299283200},
                 {"id": 11, "name": "Portal", "release_date": null}
             ]
         }))]);
@@ -378,7 +378,7 @@ mod tests {
                 SgdbGame {
                     id: 10,
                     titulo: "Portal 2".into(),
-                    ano: Some("2011-04-19".into())
+                    ano: Some(serde_json::json!(1299283200))
                 },
                 SgdbGame {
                     id: 11,
