@@ -499,6 +499,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Canais `dm:*`, `torrent:*`, `store:install`, `store:ensureDotnet`, `store:ensureDepotDownloader`; executores reais via `ProcessRunner`, argv sem shell.
 - 15 testes de integração do serviço (fake runner/transport, zero subprocessos) + canais antigos.
 
+### Marco 23 — fixes (concluído)
+
+- Catálogo de fixes/ryuu, engine de check/apply/status/cancel/unfix, launcher redirect, auth Ryuu mascarada e downloads (planos/executor injetável).
+- Instalação transacional com backup/rollback/idempotência, extração de arquivos com rejeição de traversal/ADS/reservados e manifests de estado.
+- 96 testes de segurança e contrato. O executor real (download/7z) e o fetch de catálogo ficam para o IPC.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -520,9 +526,10 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-steamstore` | store/search, install info, depots, ACF/biblioteca e updates | 76 |
 | `arcadia-ra` | RetroAchievements: login, sessão, progresso e console ids | 69 |
 | `arcadia-updater` | canais git e empacotado, manifests e estados | 93 |
+| `arcadia-fixes` | catálogo/engine, instalação transacional, redirect e Ryuu | 96 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + downloads/torrent + store + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements + emuladores + retro + RA + avatar, máscara de segredos, allowlist, cobertura de canais | 55 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **1330** |
+| **Total** | | **1426** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
