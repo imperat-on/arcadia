@@ -440,14 +440,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
 | `arcadia-steam` | VDF, conta, playtime, steam news e descoberta de raiz | 82 |
-| `arcadia-media` | SGDB/Steam/IGDB/Xbox/PSN/Wallhaven, composição meta:art/meta:text, artes, HLTB e trailer | 131 |
+| `arcadia-media` | SGDB/Steam/IGDB/Xbox/PSN/Wallhaven, composição meta:art/meta:text, artes, HLTB e trailer | 132 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes, máscara de segredos, allowlist, cobertura de canais | 29 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **712** |
+| **Total** | | **713** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
