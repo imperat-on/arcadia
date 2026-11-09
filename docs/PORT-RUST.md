@@ -405,6 +405,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Fórmula do `ui-scale.js` portada: menor dimensão lógica contra 1920×1080, clamp 1..1.7, `ARCADIA_UI_SCALE` como override (0.7..2), zoom `base da skin × escala` (0.7..2.4), `ui:escala {escala, capa}` reemitido no boot, no resize e na troca de modo.
 - Canais de update respondem estado honesto "sem suporte" enquanto o updater não é portado, em vez de erro de canal.
 
+### Marco 10 — Steam (concluído)
+
+- VDF parser/serializer com escapes, duplicatas, BOM UTF-8/UTF-16 e ordem preservada.
+- Conta Steam (`loginusers.vdf`/`config.vdf`), vínculo/captura, troca de conta e helpers SteamID.
+- Playtime do `localconfig.vdf`, merge local/servidor e payload `{appid,steamid,minutes,persona}`.
+- Steam news (`GetNewsForApp`) com extração de imagem, allowlist HTTPS e cache de 6 h.
+- Detecção de raiz Steam portada junto (`paths.rs`), sem consultar registro — a borda do Windows fica no launch.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -413,13 +421,14 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-store` | paths, config, library, overrides, session (DPAPI + fallback), contas, owned, backup pré-Rust, snapshots de saves | 45 |
 | `arcadia-api` | config, http, auth, REST, RPC, storage (mock server, sem rede real) | 38 |
 | `arcadia-retro` | parser de título, sistemas e matcher (657 + 1.697 + 282 + 400 casos diferenciais contra o JS, 0 diffs) | 84 |
+| `arcadia-steam` | VDF, conta, playtime, steam news e descoberta de raiz | 78 |
 | `arcadia-sync` | biblioteca, playtime, conquistas e sources em pull-only, com mock server | 35 |
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + máquina de estados | 25 |
 | `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias, máscara de segredos, allowlist, cobertura de canais | 24 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **427** |
+| **Total** | | **505** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 
