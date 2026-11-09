@@ -478,7 +478,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 
 - StoreClient (search/suggest/recent/warm/hubcap/appdetails com TTL/cache), DepotClient (install info/manifests/depots), library (ACF/libraries/install dirs/add/remove/SLSsteam/pending) e update report.
 - 76 testes + clippy/doc limpos, com fetcher/fs injetados; zips e manifests são injetados (executor fará download/extração).
-- IPC plugado: `store:search/suggest/recent/warm/validarChaveHubcap/installInfo/libraries/installDir/status` e `store:addToLibrary/removeFromLibrary` (pending + owned + `library:changed`). `store:install` e ensure/dotnet ficam para o executor.
+- IPC plugado: `store:search/suggest/recent/warm/validarChaveHubcap/installInfo/libraries/installDir/status`, `store:addToLibrary/removeFromLibrary` (pending + owned + `library:changed`) e `store:removeFromSteam/removeDownloaded` (path-safe). `store:addToSteam` respeita o gate SLSsteam; install/ensure ficam para o executor.
 
 ### Portes puros já verdes
 

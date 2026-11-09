@@ -38,8 +38,8 @@ use arcadia_retro::repository::RetroLibrary;
 use arcadia_steamstore::depot::DepotClient;
 use arcadia_steamstore::library::{
     add_pending_stub, find_steam_base, game_install_dir_or, read_pending_games,
-    remove_pending_stub, steam_base_candidates, steam_libraries, write_pending_games, GameRef,
-    SystemFs,
+    remove_downloaded, remove_from_steam, remove_pending_stub, steam_base_candidates,
+    steam_libraries, write_pending_games, GameRef, SystemFs,
 };
 use arcadia_steamstore::store::{StoreClient, StoreConfig};
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
@@ -1069,6 +1069,36 @@ pub fn dispatch(
                     .unwrap_or_default(),
                 "adicionados": []
             }))
+        }
+        "store:addToSteam" => Ok(json!({
+            "ok": false,
+            "plugin": "slssteam"
+        })),
+        "store:removeFromSteam" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            let home = arcadia_store::paths::home_dir();
+            let base = find_steam_base(&steam_base_candidates(&home), &SystemFs);
+            Ok(serde_json::to_value(remove_from_steam(
+                appid,
+                base.as_deref(),
+                &home,
+                None,
+                &SystemFs,
+            ))
+            .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "store:removeDownloaded" => {
+            let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            let home = arcadia_store::paths::home_dir();
+            let libraries = steam_libraries(&home, &SystemFs, None);
+            Ok(serde_json::to_value(remove_downloaded(
+                appid,
+                &libraries,
+                &home,
+                None,
+                &SystemFs,
+            ))
+            .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "store:addToLibrary" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
