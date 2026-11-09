@@ -46,8 +46,10 @@ pub const SGDB_DIMENSIONS_DEFAULT: &[(&str, &[&str])] = &[
 pub struct SgdbGame {
     pub id: u64,
     pub titulo: String,
+    /// `release_date` cru: a API devolve timestamp numérico e o JS repassa
+    /// sem converter. `Value` preserva número/string como vieram.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ano: Option<String>,
+    pub ano: Option<Value>,
 }
 
 /// Opções de [`sgdb_art_url`].

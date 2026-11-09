@@ -948,6 +948,8 @@ async fn dispatch_async_inner(
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
         }
+        "meta:art" => Ok(media_service::meta_art(state, &args).await),
+        "meta:text" => Ok(media_service::meta_text(state, &args).await),
         "arte:quadrada" => Ok(media_service::square_art(state, &args).await),
         "arte:logo" => Ok(media_service::logo_auto(state, &args).await),
         "hltb:get" => {

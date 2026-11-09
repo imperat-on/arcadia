@@ -11,11 +11,11 @@ use arcadia_media::art::download_to;
 use arcadia_media::providers::psn::PsnClient;
 use arcadia_media::providers::steamgriddb::{SgdbArtOptions, SteamGridDb};
 use arcadia_media::{
-    ArtKind, Fetcher, HltbClient, HttpClientFetcher, IgdbClient, IgdbSearch, SteamClient,
-    XboxClient,
+    ArtKind, ArtRequest, Fetcher, HltbClient, HttpClientFetcher, IgdbClient, IgdbSearch,
+    MediaConfig, MediaEndpoints, MediaService, SteamClient, XboxClient,
 };
 use serde_json::json;
-use wiremock::matchers::{body_json, header, method, path, query_param};
+use wiremock::matchers::{body_json, header, method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn fetcher(server: &MockServer) -> Arc<HttpClientFetcher> {
@@ -333,4 +333,121 @@ async fn rate_limit_is_a_typed_http_error_over_local_http() {
         error.to_string(),
         format!("HTTP 429 em {}/api/v2/search/autocomplete/x", server.uri())
     );
+}
+
+#[tokio::test]
+async fn steam_storesearch_over_local_http() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/storesearch/"))
+        .and(query_param("term", "Portal 2"))
+        .and(query_param("cc", "br"))
+        .and(query_param("l", "english"))
+        .and(header("user-agent", "Mozilla/5.0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [
+                {"id": 10, "name": "Portal 2", "tiny_image": "https://cdn/tiny.jpg"}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = SteamClient::new(fetcher(&server))
+        .with_search_base(format!("{}/api/storesearch/", server.uri()));
+    let items = client.suggest("Portal 2", "br", "english").await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].appid, "10");
+    assert_eq!(items[0].cover, "https://cdn/tiny.jpg");
+}
+
+#[tokio::test]
+async fn media_service_aggregates_art_over_local_http() {
+    let server = MockServer::start().await;
+    for file in ["library_600x900.jpg", "header.jpg"] {
+        Mock::given(method("HEAD"))
+            .and(path(format!("/steam/10/{file}")))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/api/v2/search/autocomplete/"))
+        .and(header("authorization", "Bearer test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "data": [{"id": 7, "name": "Portal 2", "release_date": 1302931200}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v2/grids/game/7"))
+        .and(query_param("types", "static,animated"))
+        .and(query_param("dimensions", "600x900,660x930,342x482"))
+        .and(query_param("nsfw", "false"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "data": [{
+                "url": "https://cdn2.steamgriddb.com/grid/abc.png",
+                "width": 600,
+                "height": 900,
+                "mime": "image/png"
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/igdb/igdb/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/xbox-search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Payload": {"SearchResults": []}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/psn/search/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>nada</html>"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let base = server.uri();
+    let endpoints = MediaEndpoints {
+        sgdb: format!("{base}/api/v2"),
+        steam_cdn: format!("{base}/steam"),
+        steam_store: format!("{base}/steam-store"),
+        steam_search: format!("{base}/steam-search/"),
+        igdb_proxy: format!("{base}/igdb"),
+        xbox_search: format!("{base}/xbox-search"),
+        xbox_catalog: format!("{base}/xbox-catalog"),
+        wallhaven: format!("{base}/wallhaven"),
+        psn_store: format!("{base}/psn"),
+        psn_graphql: format!("{base}/psn-gql"),
+    };
+    let service = MediaService::with_endpoints(
+        fetcher(&server),
+        MediaConfig {
+            steamgriddb_api_key: Some("test-key".into()),
+            ..MediaConfig::default()
+        },
+        endpoints,
+    );
+    let result = service
+        .art(&ArtRequest::new("steam:10", "Portal 2", ArtKind::Cover))
+        .await
+        .unwrap();
+    assert_eq!(result.candidatos.len(), 3);
+    assert_eq!(result.candidatos[0].fonte, "Steam");
+    assert_eq!(result.candidatos[2].fonte, "SteamGridDB");
+    assert_eq!(result.jogos[0].id, 7);
+    assert!(result.erros.is_empty(), "erros: {:?}", result.erros);
 }

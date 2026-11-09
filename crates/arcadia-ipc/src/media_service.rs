@@ -10,6 +10,8 @@ use serde_json::{json, Map, Value};
 use arcadia_media::art::ArtResolver;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
 use arcadia_media::providers::steamgriddb::SteamGridDb;
+use arcadia_media::service::{ArtRequest, MediaConfig, MediaService};
+use arcadia_media::ArtKind;
 
 use crate::AppState;
 
@@ -118,6 +120,93 @@ fn has_manual_art(overrides: &Map<String, Value>, id: &str, key: &str) -> bool {
         .and_then(|entry| entry.get(key))
         .map(|value| !value.is_null())
         .unwrap_or(false)
+}
+
+fn media_service(state: &AppState) -> Option<MediaService> {
+    let api = state.api()?;
+    let config = arcadia_store::config::read_config(&state.data_dir);
+    let settings = MediaConfig {
+        steamgriddb_api_key: config
+            .get("steamgriddb_api_key")
+            .and_then(Value::as_str)
+            .filter(|key| !key.is_empty())
+            .map(str::to_string),
+        base_worker: Some(api.config().url.clone()),
+        language: config
+            .get("language")
+            .and_then(Value::as_str)
+            .unwrap_or("pt-BR")
+            .to_string(),
+        xbox_market: config
+            .get("xbox_market")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        art_dir: Some(crate::media_service::art_directory(state)),
+    };
+    let fetcher: Arc<dyn Fetcher> = Arc::new(HttpClientFetcher::new(api.http().clone()));
+    Some(MediaService::new(fetcher, settings))
+}
+
+pub fn art_directory(state: &AppState) -> std::path::PathBuf {
+    arcadia_media::art::art_dir(&state.data_dir)
+}
+
+fn art_kind(value: &str) -> Option<ArtKind> {
+    match value {
+        "cover" => Some(ArtKind::Cover),
+        "hero" => Some(ArtKind::Hero),
+        "logo" => Some(ArtKind::Logo),
+        _ => None,
+    }
+}
+
+pub async fn meta_art(state: &AppState, args: &[Value]) -> Value {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let game_id = payload.get("gameId").and_then(Value::as_str).unwrap_or_default();
+    let title = payload.get("titulo").and_then(Value::as_str).unwrap_or_default();
+    let kind = art_kind(payload.get("kind").and_then(Value::as_str).unwrap_or_default());
+    let Some(kind) = kind else {
+        return json!({ "ok": false, "error": "pedido inválido" });
+    };
+    if game_id.is_empty() {
+        return json!({ "ok": false, "error": "pedido inválido" });
+    }
+    let Some(service) = media_service(state) else {
+        return json!({ "ok": false, "error": "api_indisponivel" });
+    };
+    let mut request = ArtRequest::new(game_id, title, kind);
+    if let Some(id) = payload.get("sgdbId").and_then(Value::as_u64) {
+        request = request.with_sgdb_id(id);
+    }
+    if let Some(dimensions) = payload.get("dimensions").and_then(Value::as_array) {
+        request = request.with_dimensions(
+            dimensions
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+        );
+    }
+    match service.art(&request).await {
+        Ok(result) => json!({
+            "ok": true,
+            "candidatos": result.candidatos,
+            "jogos": result.jogos,
+            "erros": result.erros
+        }),
+        Err(error) => json!({ "ok": false, "error": error.to_string() }),
+    }
+}
+
+pub async fn meta_text(state: &AppState, args: &[Value]) -> Value {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let game_id = payload.get("gameId").and_then(Value::as_str).unwrap_or_default();
+    let title = payload.get("titulo").and_then(Value::as_str).unwrap_or_default();
+    let Some(service) = media_service(state) else {
+        return json!({ "ok": false, "error": "api_indisponivel" });
+    };
+    let result = service.text(game_id, title).await;
+    json!({ "ok": true, "textos": result.textos, "erros": result.erros })
 }
 
 pub async fn square_art(state: &AppState, args: &[Value]) -> Value {

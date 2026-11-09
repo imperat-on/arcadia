@@ -25,7 +25,13 @@ use crate::http::{value_number, value_str, Fetcher, Request};
 pub const HLTB_BASE: &str = "https://howlongtobeat.com";
 pub const HLTB_CACHE_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const HLTB_TIMEOUT: Duration = Duration::from_secs(15);
+pub const HLTB_CACHE_FILE: &str = "hltb_cache.json";
 pub const HLTB_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+/// Caminho do cache do HLTB a partir do diretório de dados.
+pub fn hltb_cache_path(data_dir: impl AsRef<Path>) -> PathBuf {
+    data_dir.as_ref().join(HLTB_CACHE_FILE)
+}
 
 /// Hashes de reserva do JS (vazio no oráculo; a extração runtime é o caminho).
 pub const SEEK_HASHES_FALLBACK: &[&str] = &[];
@@ -359,6 +365,10 @@ mod tests {
         assert_eq!(normalize_hltb_title("  Half-Life:  2!! "), "half life 2");
         assert_eq!(normalize_hltb_title("Ação"), "a o");
         assert_eq!(normalize_hltb_title("---"), "");
+        assert_eq!(
+            hltb_cache_path("data"),
+            PathBuf::from("data").join("hltb_cache.json")
+        );
     }
 
     #[test]

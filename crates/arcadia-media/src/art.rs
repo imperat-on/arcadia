@@ -34,6 +34,8 @@ pub const LOGO_MAX_PX: u32 = 4096;
 pub const SQUARE_ART_MIN: u32 = 512;
 /// Nome da pasta de artes escolhidas dentro do diretório de dados.
 pub const ART_DIR_NAME: &str = "art";
+/// Entradas do cache de arte quadrada/logo vencem em 30 dias (`main.js`).
+pub const ART_CACHE_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 /// Diretório de arte a partir do diretório de dados (`data_dir/art`).
 pub fn art_dir(data_dir: impl AsRef<Path>) -> PathBuf {
@@ -116,6 +118,12 @@ pub fn art_cache_base(
         kind.as_str(),
         timestamp_ms
     ))
+}
+
+/// `main.js` apaga a entrada quando `agora - quando > 30 dias`; o limite
+/// exato ainda é considerado fresco.
+pub fn art_cache_is_fresh(cached_at_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(cached_at_ms) <= ART_CACHE_TTL_MS
 }
 
 /// Caminho de uma arte importada pelo usuário (`art:pick`).
@@ -579,6 +587,9 @@ mod tests {
             art_pick_path("art", "x", ArtKind::Cover, 1, ""),
             PathBuf::from("art").join("x-cover-1.png")
         );
+        assert_eq!(art_dir("data"), PathBuf::from("data").join("art"));
+        assert!(art_cache_is_fresh(1_000, 1_000 + ART_CACHE_TTL_MS));
+        assert!(!art_cache_is_fresh(1_000, 1_001 + ART_CACHE_TTL_MS));
     }
 
     #[test]

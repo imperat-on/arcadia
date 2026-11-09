@@ -15,6 +15,13 @@ use crate::http::value_number;
 
 /// Extensões procuradas por `localPath`, na ordem do cliente.
 pub const TRAILER_EXTENSIONS: [&str; 3] = [".mp4", ".webm", ".mkv"];
+/// Nome da pasta de trailers dentro do diretório de dados.
+pub const TRAILERS_DIR_NAME: &str = "trailers";
+
+/// Diretório de trailers a partir do diretório de dados (`data_dir/trailers`).
+pub fn trailers_dir(data_dir: impl AsRef<Path>) -> PathBuf {
+    data_dir.as_ref().join(TRAILERS_DIR_NAME)
+}
 
 /// Formato de download usado por `download` e `downloadUrl`.
 pub const VIDEO_FORMAT: &str = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
@@ -399,6 +406,7 @@ mod tests {
         assert_eq!(safe_name("steam:10"), "steam_10");
         assert_eq!(safe_name("../../outside"), ".._.._outside");
         assert_eq!(safe_name("a b/c\\d"), "a_b_c_d");
+        assert_eq!(trailers_dir("data"), Path::new("data").join("trailers"));
         let path = local_path_with(Path::new("/trailers"), "../../outside", |_| true).unwrap();
         assert_eq!(path, Path::new("/trailers").join(".._.._outside.mp4"));
     }

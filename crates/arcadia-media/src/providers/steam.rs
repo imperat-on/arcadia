@@ -7,15 +7,29 @@
 use std::sync::Arc;
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::Result;
-use crate::http::{get_json, query_string, value_truthy, Fetcher, Request, MOZILLA_UA};
+use crate::http::{get_json, query_string, value_str, value_truthy, Fetcher, Request, MOZILLA_UA};
 use crate::providers::{ArtKind, Artwork, TextCandidate};
 use crate::text::strip_html;
 
 pub const STEAM_CDN: &str = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 pub const STEAM_STORE: &str = "https://store.steampowered.com/api/appdetails";
+/// Busca da loja usada pelo `suggest` de `steamstore.js`.
+pub const STEAM_SEARCH: &str = "https://store.steampowered.com/api/storesearch/";
+
+/// Quantos resultados o dropdown de sugestões devolve (o mesmo `slice(0, 8)`).
+pub const STEAM_SUGGEST_LIMIT: usize = 8;
+
+/// Item de `storesearch`, no formato que o `suggest` expõe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SteamSearchItem {
+    pub appid: String,
+    pub title: String,
+    pub cover: String,
+}
 
 /// Nomes possíveis por tipo, na ordem de preferência do cliente.
 pub const STEAM_FILES: &[(&str, &[&str])] = &[
@@ -53,6 +67,7 @@ pub struct SteamClient {
     fetcher: Arc<dyn Fetcher>,
     cdn_base: String,
     store_base: String,
+    search_base: String,
 }
 
 impl SteamClient {
@@ -61,6 +76,7 @@ impl SteamClient {
             fetcher,
             cdn_base: STEAM_CDN.to_string(),
             store_base: STEAM_STORE.to_string(),
+            search_base: STEAM_SEARCH.to_string(),
         }
     }
 
@@ -71,6 +87,11 @@ impl SteamClient {
 
     pub fn with_store_base(mut self, base: impl Into<String>) -> Self {
         self.store_base = base.into();
+        self
+    }
+
+    pub fn with_search_base(mut self, base: impl Into<String>) -> Self {
+        self.search_base = base.into();
         self
     }
 
@@ -151,6 +172,64 @@ impl SteamClient {
     /// `steamTextos(gameId)` com os defaults do JS (`english`, sem fallback).
     pub async fn textos_default(&self, game_id: &str) -> Result<Vec<TextCandidate>> {
         self.textos(game_id, "english", "").await
+    }
+
+    /// `storesearch` da Steam: `term`, `cc` e `l`, como `steamstore.js`.
+    ///
+    /// A resposta crua não é filtrada por tipo (DLC/demo) porque o filtro do
+    /// cliente usa o cache local de `items`, que não pertence a esta camada.
+    pub async fn search(
+        &self,
+        query: &str,
+        country: &str,
+        language: &str,
+    ) -> Result<Vec<SteamSearchItem>> {
+        let params = query_string(&[
+            ("term", query.to_string()),
+            ("cc", country.to_string()),
+            ("l", language.to_string()),
+        ]);
+        let url = format!("{}?{}", self.search_base.trim_end_matches('?'), params);
+        let json = get_json(self.fetcher.as_ref(), url, &[("User-Agent", MOZILLA_UA)]).await?;
+        let items = json
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let appid = value_str(item.get("id"));
+                        let cover = match value_str(item.get("tiny_image")) {
+                            cover if !cover.is_empty() => cover,
+                            _ => format!("{STEAM_CDN}/{appid}/header.jpg"),
+                        };
+                        SteamSearchItem {
+                            appid,
+                            title: value_str(item.get("name")),
+                            cover,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(items)
+    }
+
+    /// `suggest` da loja: exige ao menos 2 caracteres e devolve no máximo 8,
+    /// como o dropdown congelado. O fallback para o catálogo local/remoto é
+    /// responsabilidade do chamador (não é provedor de metadados).
+    pub async fn suggest(
+        &self,
+        query: &str,
+        country: &str,
+        language: &str,
+    ) -> Result<Vec<SteamSearchItem>> {
+        if query.trim().chars().count() < 2 {
+            return Ok(Vec::new());
+        }
+        let mut items = self.search(query.trim(), country, language).await?;
+        items.truncate(STEAM_SUGGEST_LIMIT);
+        Ok(items)
     }
 }
 
@@ -291,6 +370,75 @@ mod tests {
             .is_empty());
         assert!(client
             .textos("steam:10", "english", "")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn storesearch_contract_parses_items_and_cover_fallback() {
+        let fetcher = MockFetcher::new(vec![json_response(serde_json::json!({
+            "items": [
+                {"id": 10, "name": "Portal 2", "tiny_image": "https://cdn/tiny.jpg"},
+                {"id": 20, "name": "Portal"}
+            ]
+        }))]);
+        let client = SteamClient::new(fetcher.clone());
+        let items = client.search("Portal 2", "br", "portuguese").await.unwrap();
+        assert_eq!(
+            items,
+            vec![
+                SteamSearchItem {
+                    appid: "10".into(),
+                    title: "Portal 2".into(),
+                    cover: "https://cdn/tiny.jpg".into(),
+                },
+                SteamSearchItem {
+                    appid: "20".into(),
+                    title: "Portal".into(),
+                    cover: "https://cdn.cloudflare.steamstatic.com/steam/apps/20/header.jpg".into(),
+                },
+            ]
+        );
+        assert_eq!(
+            fetcher.requests()[0].url,
+            "https://store.steampowered.com/api/storesearch/?term=Portal+2&cc=br&l=portuguese"
+        );
+        assert_eq!(
+            fetcher.requests()[0]
+                .headers
+                .iter()
+                .find(|(name, _)| name == "User-Agent")
+                .map(|(_, value)| value.as_str()),
+            Some(MOZILLA_UA)
+        );
+    }
+
+    #[tokio::test]
+    async fn suggest_requires_two_characters_and_caps_at_eight() {
+        let fetcher = MockFetcher::new(vec![json_response(serde_json::json!({
+            "items": (0..12)
+                .map(|index| serde_json::json!({"id": index, "name": format!("Jogo {index}")}))
+                .collect::<Vec<_>>()
+        }))]);
+        let client = SteamClient::new(fetcher.clone());
+        assert!(client
+            .suggest("p", "br", "english")
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(fetcher.requests().is_empty());
+        let items = client.suggest("portal", "br", "english").await.unwrap();
+        assert_eq!(items.len(), STEAM_SUGGEST_LIMIT);
+        assert_eq!(items[0].appid, "0");
+    }
+
+    #[tokio::test]
+    async fn storesearch_missing_items_is_empty() {
+        let fetcher = MockFetcher::new(vec![json_response(serde_json::json!({}))]);
+        let client = SteamClient::new(fetcher);
+        assert!(client
+            .search("Portal", "br", "english")
             .await
             .unwrap()
             .is_empty());
