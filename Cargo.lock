@@ -137,6 +137,7 @@ dependencies = [
 name = "arcadia-ipc"
 version = "0.1.0"
 dependencies = [
+ "arcadia-achievements",
  "arcadia-api",
  "arcadia-catalog",
  "arcadia-contracts",

@@ -460,6 +460,7 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Parser binário Valve KV (schema/progress), normalização de schema, matching/aliases, loader local, consolidação, Uplay e decisões de cracked watcher com fs/clock injetáveis.
 - Cobertura de truncamento/fuzz no parser binário; payloads de unlock e fila de sync puros.
 - 110 testes. Watcher ao vivo, toasts e scrape público ficam para a borda de runtime.
+- IPC `achievements:get` lê os itens da conta (`achievements.json`) e devolve o array da UI; `schemas:load`/watcher ao vivo ainda pendentes.
 
 ### Portes puros já verdes
 
@@ -478,9 +479,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-plugins` | manifest, trust Ed25519, registry e envelopes IPC | 46 |
 | `arcadia-catalog` | catálogo com mirror/ETag, debrid hosters e sources | 71 |
 | `arcadia-achievements` | schema binário Steam, matching, loader, consolidação, Uplay e watcher decisions | 110 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online, máscara de segredos, allowlist, cobertura de canais | 33 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers + ProtonDB + plugins + perfil online + achievements, máscara de segredos, allowlist, cobertura de canais | 34 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **944** |
+| **Total** | | **945** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

@@ -17,6 +17,7 @@ arcadia-steam = { path = "../arcadia-steam" }
 arcadia-media = { path = "../arcadia-media" }
 arcadia-plugins = { path = "../arcadia-plugins" }
 arcadia-catalog = { path = "../arcadia-catalog" }
+arcadia-achievements = { path = "../arcadia-achievements" }
 fs2 = "0.4"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

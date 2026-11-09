@@ -28,6 +28,7 @@ use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
+use arcadia_achievements::loader::AchievementsStore;
 use arcadia_catalog::hosters::DebridClient;
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
 use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
@@ -844,6 +845,24 @@ pub fn dispatch(
         }
         "plugins:install" | "plugins:remove" => {
             Ok(json!({ "ok": false, "error": "nao_suportado" }))
+        }
+        "achievements:get" => {
+            let raw = args.first().and_then(Value::as_str).unwrap_or_default();
+            let appid = steam_service::normalize_appid(raw);
+            if appid.is_empty() {
+                return Ok(json!([]));
+            }
+            let path = account_file(
+                &state.data_dir,
+                state.account().as_deref(),
+                "achievements.json",
+            );
+            let store = AchievementsStore::load(path);
+            let mut items = store.items(&appid);
+            if items.is_empty() {
+                items = store.items(&format!("steam:{appid}"));
+            }
+            Ok(Value::Array(items))
         }
         "gamepadStatus" => Ok(json!({
             "ok": true,
@@ -2340,6 +2359,24 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn achievements_get_reads_local_items() {
+        let dir = std::env::temp_dir().join(format!("arcadia-ach-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("achievements.json"),
+            r#"{"440":{"items":[{"apiname":"A","achieved":true,"unlock":1700000000}]}}"#,
+        )
+        .unwrap();
+        let state = AppState::new(dir.clone());
+        let items = dispatch(&state, &MockShell, "achievements:get", vec![json!("steam:440")])
+            .unwrap();
+        assert_eq!(items.as_array().unwrap().len(), 1);
+        assert_eq!(items[0]["apiname"], "A");
+        assert_eq!(items[0]["achieved"], true);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
