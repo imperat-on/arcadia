@@ -431,6 +431,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - IPC: `meta:art` e `meta:text` plugados na composição `MediaService` (Steam → SGDB → IGDB → Xbox → Wallhaven → PSN), `hltb:get` no `HltbClient`, `arte:quadrada`/`arte:logo` com cascata e cache de 30 dias, `art:download` (https-only, remove arte antiga só dentro de `art/`) e `art:pick` (diálogo + cópia para `art/`).
 - `integrations:status` reporta chaves de config reais (Steam/SLSsteam/Heroic).
 
+### Marco 13 — trailers em runtime (concluído)
+
+- `yt-dlp` descoberto por `YTDLP_PATH`/PATH; `trailer:search`, `trailer:streamUrl`, `trailer:download`, `trailer:downloadUrl` e `trailer:downloadAll` executam com os argv do crate de mídia.
+- Cookies vêm de `youtube_cookies` (config) ou `youtube_cookies.txt`; caminho local devolve `file://`; ausência de `yt-dlp` vira erro claro, sem processo fantasma.
+- Progresso ao vivo de download ainda não é repassado (o arquivo baixa e o caminho é devolvido).
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |
@@ -445,9 +451,9 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 | `arcadia-social` | amigos + comunidade, cache por conta e envelopes exatos | 38 |
 | `arcadia-launch` | resolver de comando, processos, sessão/focus, gamescope/umu/steam/gamepad, log | 93 |
 | `arcadia-download` | queue policy + integridade + aria2 + depot + torrent + manager persistido | 92 |
-| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes, máscara de segredos, allowlist, cobertura de canais | 29 |
+| `arcadia-ipc` | dispatcher, auth + sync + social + launch runtime + edição de estado + saves/diskSpace/perfil + diagnóstico/support bundle + notícias + Steam horas/news + HLTB/artes + trailers, máscara de segredos, allowlist, cobertura de canais | 30 |
 | `arcadia` (bin) | shell Tauri, eventos, escala automática, diálogos | 2 |
-| **Total** | | **713** |
+| **Total** | | **714** |
 
 O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `session.json`, `library.json`, overrides e os arquivos por conta para `backup-pre-rust-<timestamp>/` antes de qualquer rename.
 

@@ -8,6 +8,7 @@ pub mod launch_runtime;
 pub mod media_service;
 pub mod news;
 pub mod steam_service;
+pub mod trailer_service;
 
 /// Versão-base do cliente Electron que este port substitui.
 pub const APP_VERSION: &str = "1.5.5";
@@ -646,6 +647,10 @@ pub fn dispatch(
                 "report": diagnostics::collect(&state.data_dir, APP_VERSION)
             }))
         }
+        "trailer:path" => Ok(trailer_service::local_path_json(
+            state,
+            args.first().and_then(Value::as_str).unwrap_or_default(),
+        )),
         "saves:list" => {
             let game_id = args.first().and_then(Value::as_str).unwrap_or_default();
             let service =
@@ -948,6 +953,11 @@ async fn dispatch_async_inner(
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
         }
+        "trailer:search" => Ok(trailer_service::search(state, &args).await),
+        "trailer:streamUrl" => Ok(trailer_service::stream_url(state, &args).await),
+        "trailer:downloadUrl" => Ok(trailer_service::download_url(state, &args).await),
+        "trailer:download" => Ok(trailer_service::download(state, &args).await),
+        "trailer:downloadAll" => Ok(trailer_service::download_all(state).await),
         "meta:art" => Ok(media_service::meta_art(state, &args).await),
         "meta:text" => Ok(media_service::meta_text(state, &args).await),
         "arte:quadrada" => Ok(media_service::square_art(state, &args).await),
