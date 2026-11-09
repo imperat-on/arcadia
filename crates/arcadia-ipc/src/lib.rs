@@ -37,7 +37,8 @@ use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
 use arcadia_retro::repository::RetroLibrary;
 use arcadia_steamstore::depot::DepotClient;
 use arcadia_steamstore::library::{
-    find_steam_base, game_install_dir_or, steam_base_candidates, steam_libraries, GameRef,
+    add_pending_stub, find_steam_base, game_install_dir_or, read_pending_games,
+    remove_pending_stub, steam_base_candidates, steam_libraries, write_pending_games, GameRef,
     SystemFs,
 };
 use arcadia_steamstore::store::{StoreClient, StoreConfig};
@@ -1067,6 +1068,85 @@ pub fn dispatch(
                     .map(|path| path.to_string_lossy().into_owned())
                     .unwrap_or_default(),
                 "adicionados": []
+            }))
+        }
+        "store:addToLibrary" => {
+            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+            let appid = payload
+                .get("appid")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let title = payload
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if appid.is_empty()
+                || !appid.chars().all(|c| c.is_ascii_digit())
+                || title.is_empty()
+            {
+                return Ok(json!({ "ok": false, "error": "appid ou título inválido" }));
+            }
+            let account = state.account();
+            let scope = AccountScope::with_active(state.data_dir.clone(), account.as_deref());
+            let pending_path = account_file(
+                &state.data_dir,
+                account.as_deref(),
+                "pending_games.json",
+            );
+            let existing = read_pending_games(&pending_path, &SystemFs);
+            let id = format!("steam:{appid}");
+            let in_library = read_games(&state.data_dir, account.as_deref())
+                .iter()
+                .any(|game| game.get("id").and_then(Value::as_str) == Some(id.as_str()));
+            let update = add_pending_stub(
+                &existing,
+                in_library,
+                &appid,
+                &title,
+                payload.get("cover").and_then(Value::as_str),
+                payload.get("hero").and_then(Value::as_str),
+            );
+            if let Err(error) = write_pending_games(&pending_path, &update.games, &SystemFs) {
+                return Ok(json!({ "ok": false, "error": error.to_string() }));
+            }
+            let _ = arcadia_store::owned::owned_add(&scope, id);
+            shell.emit("library:changed", json!({ "source": "store" }));
+            Ok(json!({
+                "ok": true,
+                "games": read_games(&state.data_dir, account.as_deref())
+            }))
+        }
+        "store:removeFromLibrary" => {
+            let appid = args
+                .first()
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if appid.is_empty() || !appid.chars().all(|c| c.is_ascii_digit()) {
+                return Ok(json!({ "ok": false, "error": "appid inválido" }));
+            }
+            let account = state.account();
+            let scope = AccountScope::with_active(state.data_dir.clone(), account.as_deref());
+            let pending_path = account_file(
+                &state.data_dir,
+                account.as_deref(),
+                "pending_games.json",
+            );
+            let existing = read_pending_games(&pending_path, &SystemFs);
+            let update = remove_pending_stub(&existing, &appid);
+            if let Err(error) = write_pending_games(&pending_path, &update.games, &SystemFs) {
+                return Ok(json!({ "ok": false, "error": error.to_string() }));
+            }
+            let _ = arcadia_store::owned::owned_remove(&scope, format!("steam:{appid}"));
+            shell.emit("library:changed", json!({ "source": "store" }));
+            Ok(json!({
+                "ok": true,
+                "games": read_games(&state.data_dir, account.as_deref())
             }))
         }
         "achievements:get" => {
@@ -2660,6 +2740,36 @@ mod tests {
         .unwrap();
         assert_eq!(got["settings"]["wineVersion"], "GE-Proton9");
         assert!(got["defaultPrefix"].as_str().unwrap().contains("Prefixes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_add_to_library_creates_pending_and_owned() {
+        let dir = std::env::temp_dir().join(format!("arcadia-addlib-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+        let value = dispatch(
+            &state,
+            &MockShell,
+            "store:addToLibrary",
+            vec![json!({ "appid": "440", "title": "Team Fortress 2" })],
+        )
+        .unwrap();
+        assert_eq!(value["ok"], true, "addToLibrary: {value}");
+        assert!(value["games"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|game| game["id"] == "steam:440"));
+        assert!(dir.join("pending_games.json").is_file());
+        let removed = dispatch(
+            &state,
+            &MockShell,
+            "store:removeFromLibrary",
+            vec![json!("440")],
+        )
+        .unwrap();
+        assert_eq!(removed["ok"], true);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
