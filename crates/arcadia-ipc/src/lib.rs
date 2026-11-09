@@ -5,6 +5,7 @@
 pub mod catalog_service;
 pub mod channels;
 pub mod diagnostics;
+pub mod download_service;
 pub mod launch_runtime;
 pub mod media_service;
 pub mod news;
@@ -53,6 +54,9 @@ use arcadia_social::community::{CommunityService, PageOptions};
 use arcadia_social::friends::FriendsService;
 use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
 
+use arcadia_download::manager::FilePersistence;
+
+use crate::download_service::{DownloadService, DownloadServiceConfig};
 use crate::launch_runtime::{EventSink, LaunchRuntime};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -107,6 +111,7 @@ pub struct AppState {
     friends: Mutex<Option<FriendsService>>,
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
+    pub downloads: Arc<DownloadService<FilePersistence>>,
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
@@ -143,6 +148,10 @@ impl AppState {
                 }
             });
         let plugins = PluginRegistry::with_standard_builtins(&data_dir, false, false).ok();
+        let downloads = Arc::new(DownloadService::open(
+            &data_dir,
+            DownloadServiceConfig::new(&data_dir),
+        ));
         Self {
             data_dir,
             mode: Mutex::new(mode),
@@ -153,6 +162,7 @@ impl AppState {
             friends: Mutex::new(None),
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
+            downloads,
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
@@ -287,6 +297,12 @@ impl AppState {
 
     /// Eventos de background (launch/monitor) vão para a janela via este sink.
     pub fn set_event_sink(&self, sink: EventSink) {
+        self.downloads.set_event_sink(Arc::clone(&sink));
+        let done_sink = Arc::clone(&sink);
+        self.downloads.set_done_sink(Arc::new(move |item| {
+            done_sink("store:downloaded", item);
+            done_sink("library:changed", json!({ "source": "downloads" }));
+        }));
         self.launch.set_event_sink(sink);
     }
 
@@ -1358,14 +1374,30 @@ pub fn dispatch(
 
         // ── Leituras de boot com estado vazio seguro ─────────────────────
         "account:status" => Ok(json!({ "session": null, "error": null })),
-        "dm:queue" => Ok(json!([])),
-        "torrent:list" => Ok(json!({ "downloads": [] })),
+        "dm:queue" => Ok(state.downloads.dm_queue()),
+        "torrent:list" => Ok(state.downloads.torrent_list()),
         "sync:state" => Ok(json!({
             "lastPullAt": null,
             "lastSyncAt": null,
             "lastError": null,
             "queueLen": 0
         })),
+
+        // ── Downloads / torrents / instaladores ──────────────────────────
+        other
+            if other.starts_with("dm:")
+                || other.starts_with("torrent:")
+                || matches!(
+                    other,
+                    "store:install" | "store:ensureDotnet" | "store:ensureDepotDownloader"
+                ) =>
+        {
+            state
+                .downloads
+                .handle(other, &args)
+                .map(Ok)
+                .unwrap_or_else(|| Err(IpcError::not_ported(other)))
+        }
 
         // ── Ainda não portado ────────────────────────────────────────────
         other if channels::INVOKE_CHANNELS.contains(&other) => Err(IpcError::not_ported(other)),

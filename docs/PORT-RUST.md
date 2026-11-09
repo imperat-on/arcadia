@@ -493,6 +493,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Manifest `latest.yml`/`app-update.yml` validado.
 - 93 testes. Adaptador Tauri do updater e wiring dos canais ficam para a borda de runtime.
 
+### Marco 22 — runtime de downloads ligado (concluído)
+
+- `DownloadService` no IPC: fila persistida em `downloads.json`, monitor de progresso, `dm:progress`/`torrent:progress`, done-sink que emite `store:downloaded`/`library:changed`.
+- Canais `dm:*`, `torrent:*`, `store:install`, `store:ensureDotnet`, `store:ensureDepotDownloader`; executores reais via `ProcessRunner`, argv sem shell.
+- 15 testes de integração do serviço (fake runner/transport, zero subprocessos) + canais antigos.
+
 ### Portes puros já verdes
 
 | Crate | Conteúdo | Testes |

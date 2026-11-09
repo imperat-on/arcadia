@@ -435,6 +435,7 @@ fn main() {
                 state.set_event_sink(Arc::new(move |event, payload| {
                     let _ = handle.emit(event, payload);
                 }));
+                state.downloads.start_monitor();
             }
 
             // Persiste sessão criada/renovada e espelha account:changed para a UI.
