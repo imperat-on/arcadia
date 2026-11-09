@@ -105,3 +105,6 @@ ui/dist
 
 # logs
 *.log
+
+# build probe (release manual)
+/target-probe
