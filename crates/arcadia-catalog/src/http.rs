@@ -9,6 +9,7 @@
 //! 60 s, conforme o caminho do JS) é aplicado em volta da chamada; o cliente
 //! do `arcadia-api` mantém o timeout global de 30 s.
 
+use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -221,7 +222,7 @@ impl Fetcher for HttpClientFetcher {
             body,
             ..
         } = response;
-        let headers = headers
+        let headers: Vec<(String, String)> = headers
             .iter()
             .map(|(name, value)| {
                 (
@@ -230,6 +231,7 @@ impl Fetcher for HttpClientFetcher {
                 )
             })
             .collect();
+        let body = decode_body(&headers, body);
         Ok(Response {
             status,
             headers,
@@ -243,6 +245,51 @@ impl<T: Fetcher + ?Sized> Fetcher for Arc<T> {
     async fn fetch(&self, request: Request) -> Result<Response, FetchError> {
         (**self).fetch(request).await
     }
+}
+
+/// Descomprime `gzip`/`deflate`/`br` quando o cliente HTTP não o fez.
+///
+/// O `reqwest` do workspace já decodifica automaticamente; esta camada cobre
+/// respostas comprimidas que cheguem com `content-encoding` mesmo assim (ou
+/// fetchers de teste que devolvam bytes crus).
+fn decode_body(headers: &[(String, String)], body: Vec<u8>) -> Vec<u8> {
+    let encoding = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+        .map(|(_, value)| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    if encoding.is_empty() || body.is_empty() {
+        return body;
+    }
+    if encoding.contains("gzip") {
+        let mut out = Vec::with_capacity(body.len().saturating_mul(2));
+        if flate2::read::GzDecoder::new(body.as_slice())
+            .read_to_end(&mut out)
+            .is_ok()
+        {
+            return out;
+        }
+    } else if encoding.contains("deflate") {
+        for mut decoder in [
+            Box::new(flate2::read::ZlibDecoder::new(body.as_slice()))
+                as Box<dyn Read>,
+            Box::new(flate2::read::DeflateDecoder::new(body.as_slice())),
+        ] {
+            let mut out = Vec::with_capacity(body.len().saturating_mul(2));
+            if decoder.read_to_end(&mut out).is_ok() {
+                return out;
+            }
+        }
+    } else if encoding.contains("br") {
+        let mut out = Vec::with_capacity(body.len().saturating_mul(2));
+        if brotli::Decompressor::new(body.as_slice(), 4096)
+            .read_to_end(&mut out)
+            .is_ok()
+        {
+            return out;
+        }
+    }
+    body
 }
 
 /// `Boolean(value)` do JS.
@@ -307,5 +354,18 @@ mod tests {
             form_urlencode(&[("agent", "arcadia"), ("magnets[]", "magnet:x y")]),
             "agent=arcadia&magnets%5B%5D=magnet%3Ax+y"
         );
+    }
+
+    #[test]
+    fn decode_body_inflates_gzip_and_leaves_plain_json_untouched() {
+        use std::io::Write;
+
+        let payload = br#"{"ok":true}"#;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(payload).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let headers = vec![("content-encoding".to_string(), "gzip".to_string())];
+        assert_eq!(decode_body(&headers, compressed), payload.to_vec());
+        assert_eq!(decode_body(&[], payload.to_vec()), payload.to_vec());
     }
 }

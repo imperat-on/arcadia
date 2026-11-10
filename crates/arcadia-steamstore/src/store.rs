@@ -73,6 +73,8 @@ pub const POPULAR_TTL_MS: u64 = 6 * 60 * 60 * 1000;
 pub const GENRE_TTL_MS: u64 = 12 * 60 * 60 * 1000;
 /// TTL do índice Sushi (6 h).
 pub const SUSHI_TTL_MS: u64 = 6 * 60 * 60 * 1000;
+/// TTL da página pronta de `recent` (2 min): Home/Loja voltam instantâneas.
+pub const RECENT_TTL_MS: u64 = 2 * 60 * 1000;
 /// TTL das sondagens de manifesto (7 dias).
 pub const MANIFEST_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// Teto de entradas do cache de itens.
@@ -619,6 +621,7 @@ struct Caches {
     items: HashMap<String, ItemCache>,
     popular: HashMap<String, (u64, Vec<StoreGame>)>,
     genre: HashMap<String, (u64, Vec<StoreGame>)>,
+    recent: HashMap<String, (u64, RecentResponse)>,
     sushi: Option<(u64, HashSet<String>)>,
     manifests: HashMap<String, (u64, bool)>,
 }
@@ -1012,6 +1015,25 @@ impl StoreClient {
         games: Vec<StoreGame>,
         from_hubcap: &HashSet<String>,
     ) -> Vec<StoreGame> {
+        self.prepare_with(games, from_hubcap, true).await
+    }
+
+    /// Variante sem HEAD por fonte — usada em listas para o primeiro paint não
+    /// pagar 24 jogos × 2 provedores sequenciais.
+    async fn prepare_fast(
+        &self,
+        games: Vec<StoreGame>,
+        from_hubcap: &HashSet<String>,
+    ) -> Vec<StoreGame> {
+        self.prepare_with(games, from_hubcap, false).await
+    }
+
+    async fn prepare_with(
+        &self,
+        games: Vec<StoreGame>,
+        from_hubcap: &HashSet<String>,
+        probe_sources: bool,
+    ) -> Vec<StoreGame> {
         let appids = games
             .iter()
             .map(|game| game.appid.clone())
@@ -1038,7 +1060,7 @@ impl StoreClient {
             }
             filtered.push(game);
         }
-        self.mark_availability(&mut filtered, from_hubcap, availability)
+        self.mark_availability(&mut filtered, from_hubcap, availability, probe_sources)
             .await;
         filtered
     }
@@ -1252,6 +1274,7 @@ impl StoreClient {
         games: &mut [StoreGame],
         from_hubcap: &HashSet<String>,
         availability: Availability,
+        probe_sources: bool,
     ) {
         for game in games.iter_mut() {
             let mut sources = Vec::new();
@@ -1273,15 +1296,21 @@ impl StoreClient {
                 if url_ok(entry, &self.bases.twenty_two_url(&game.appid)) {
                     sources.push("TwentyTwo Cloud".to_string());
                 }
-            } else if self.catalog.is_some() || self.availability_probe {
+            } else {
                 if let Some(sushi) = availability.sushi.as_ref() {
                     if sushi.contains(&game.appid) {
                         sources.push("Sushi".to_string());
                     }
-                } else if self.existe(&self.bases.sushi_url(&game.appid), 6000).await {
+                } else if probe_sources
+                    && (self.catalog.is_some() || self.availability_probe)
+                    && self.existe(&self.bases.sushi_url(&game.appid), 6000).await
+                {
                     sources.push("Sushi".to_string());
                 }
-                if self.existe(&self.bases.ryuu_url(&game.appid), 6000).await {
+                if probe_sources
+                    && (self.catalog.is_some() || self.availability_probe)
+                    && self.existe(&self.bases.ryuu_url(&game.appid), 6000).await
+                {
                     sources.push("Ryuu".to_string());
                 }
             }
@@ -1367,6 +1396,15 @@ impl StoreClient {
     ) -> RecentResponse {
         let lista = lista.unwrap_or("top100in2weeks");
         let limit = limite.max(1);
+        let now = self.now();
+        let cache_key = format!("{lista}:{offset}:{limit}");
+        if let Some((at, cached)) = self.lock_caches().recent.get(&cache_key).cloned() {
+            if now.saturating_sub(at) < RECENT_TTL_MS {
+                let mut cached = cached;
+                cached.cache = Some(true);
+                return cached;
+            }
+        }
 
         if lista == "all" {
             let Some(catalog) = self.catalog.as_ref() else {
@@ -1422,6 +1460,9 @@ impl StoreClient {
                 Value::Null
             });
             recent.cache = response.fallback;
+            self.lock_caches()
+                .recent
+                .insert(cache_key, (now, recent.clone()));
             return recent;
         }
 
@@ -1433,7 +1474,7 @@ impl StoreClient {
                     .skip(offset)
                     .take(limit)
                     .collect::<Vec<_>>();
-                let prepared = self.prepare(slice, &HashSet::new()).await;
+                let prepared = self.prepare_fast(slice, &HashSet::new()).await;
                 let mut recent = RecentResponse::failure("");
                 recent.ok = true;
                 recent.error = None;
@@ -1441,6 +1482,9 @@ impl StoreClient {
                 if cached {
                     recent.cache = Some(true);
                 }
+                self.lock_caches()
+                    .recent
+                    .insert(cache_key, (now, recent.clone()));
                 return recent;
             }
             return RecentResponse::failure("lista de gênero indisponível");
@@ -1453,7 +1497,7 @@ impl StoreClient {
                 .skip(offset)
                 .take(limit)
                 .collect::<Vec<_>>();
-            let prepared = self.prepare(slice, &HashSet::new()).await;
+            let prepared = self.prepare_fast(slice, &HashSet::new()).await;
             let mut recent = RecentResponse::failure("");
             recent.ok = true;
             recent.error = None;
@@ -1461,6 +1505,9 @@ impl StoreClient {
             if cached {
                 recent.cache = Some(true);
             }
+            self.lock_caches()
+                .recent
+                .insert(cache_key, (now, recent.clone()));
             return recent;
         }
         RecentResponse::failure("SteamSpy indisponível")
@@ -1599,18 +1646,17 @@ impl StoreClient {
     /// também dispara o índice Sushi e HEADs em background; aqui só a busca é
     /// síncrona (as demais continuam opcionais via `availability_probe`).
     pub async fn warm(&self) -> Result<(), StoreError> {
-        let url = format!(
-            "{}?term=a&cc={}",
-            self.bases.search.trim_end_matches('?'),
-            self.config.country
-        );
-        self.fetch_response(
-            Request::get(url)
-                .timeout(Duration::from_secs(8))
-                .header("User-Agent", USER_AGENT),
-        )
-        .await
-        .map(|_| ())
+        // Aquece exatamente as rotas que abrem Início e Loja. A busca antiga
+        // (`?term=a`) era lenta e não alimentava nenhuma tela.
+        let _ = self.popular_list().await;
+        // Página pronta do Início (limite padrão do IPC = 40).
+        let _ = self.recent(Some("top100in2weeks"), 40, 0).await;
+        if let Some(catalog) = self.catalog.as_ref() {
+            let _ = catalog.get("/catalog/v1/catalog?offset=0&limite=24").await;
+        }
+        // Página pronta da Loja (StoreView pede 24).
+        let _ = self.recent(Some("all"), 24, 0).await;
+        Ok(())
     }
     /// `validarChaveHubcap`: decide pelo status, sem baixar o zip.
     pub async fn validate_hubcap_key(&self, key: &str) -> HubcapKeyValidation {

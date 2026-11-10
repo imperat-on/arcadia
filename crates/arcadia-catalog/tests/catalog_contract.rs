@@ -35,7 +35,7 @@ async fn catalog_get_hits_exact_backend_path_and_headers_and_mirrors_response() 
         .and(path("/catalog/v1/popular"))
         .and(query_param("limite", "1000"))
         .and(header("accept", "application/json"))
-        .and(header("accept-encoding", "gzip"))
+        .and(header("accept-encoding", "identity"))
         .and(header("apikey", "anon-key"))
         .and(header("authorization", "Bearer token-1"))
         .respond_with(
@@ -92,6 +92,33 @@ async fn mirror_304_returns_local_data_without_redownloading() {
         support::header(&requests[1], "if-none-match"),
         Some("\"v1\"")
     );
+    assert!(store.read_json("popular.json").is_some());
+}
+
+#[tokio::test]
+async fn orphan_304_without_mirror_retries_without_conditional_headers() {
+    let store = Arc::new(MemoryMirrorStore::new());
+    // ETag de uma resposta anterior cujo corpo não decodificou: espelho ausente.
+    store.write_etag("popular.json", "\"v1\"");
+    let fetcher = ScriptedFetcher::new(vec![
+        Response::new(304, ""),
+        Response::json(200, &json!({ "ok": true, "itens": [1] })).header("etag", "\"v2\""),
+    ]);
+    let auth = Arc::new(StaticAuth::default());
+    let client = CatalogClient::new(fetcher.clone(), store.clone(), auth, "https://arcadia.test");
+
+    let response = client.get("/catalog/v1/popular").await;
+    assert_eq!(response.error, None);
+    assert_eq!(response.data.unwrap()["itens"][0], 1);
+
+    let requests = fetcher.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        support::header(&requests[0], "if-none-match"),
+        Some("\"v1\"")
+    );
+    assert!(support::header(&requests[1], "if-none-match").is_none());
+    assert_eq!(store.read_etag("popular.json"), Some("\"v2\"".to_string()));
     assert!(store.read_json("popular.json").is_some());
 }
 

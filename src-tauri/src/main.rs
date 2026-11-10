@@ -440,6 +440,14 @@ fn main() {
                     let _ = handle.emit(event, payload);
                 }));
                 state.downloads.start_monitor();
+                // Aquece o cliente compartilhado da loja em paralelo ao primeiro
+                // paint: as listas seguintes vêm do cache em memória.
+                let warm_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(state) = warm_handle.try_state::<AppState>() {
+                        state.warm_store().await;
+                    }
+                });
             }
 
             // Poll de conquistas a cada 15 s; o runtime é silencioso no primeiro

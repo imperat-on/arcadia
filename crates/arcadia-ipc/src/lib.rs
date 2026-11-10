@@ -122,6 +122,7 @@ pub struct AppState {
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
+    store: Mutex<Option<Arc<StoreClient>>>,
     emulators: Mutex<Option<EmulatorRegistry>>,
     retro: Mutex<Option<Arc<RetroCatalogV2>>>,
     fixes_exec: Mutex<Option<FixExecutors>>,
@@ -176,6 +177,7 @@ impl AppState {
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
+            store: Mutex::new(None),
             emulators: Mutex::new(None),
             retro: Mutex::new(None),
             fixes_exec: Mutex::new(None),
@@ -192,6 +194,12 @@ impl AppState {
 
     pub fn account(&self) -> Option<String> {
         lock(&self.account).clone()
+    }
+
+    pub fn access_token(&self) -> Option<String> {
+        self.current_session()
+            .map(|session| session.access_token)
+            .filter(|token| !token.is_empty())
     }
 
     pub fn api(&self) -> Option<&Arc<ApiClient>> {
@@ -328,7 +336,10 @@ impl AppState {
         )
     }
 
-    fn store_client(&self, channel: &str) -> Result<StoreClient, IpcError> {
+    fn store_client(&self, channel: &str) -> Result<Arc<StoreClient>, IpcError> {
+        if let Some(client) = lock(&self.store).clone() {
+            return Ok(client);
+        }
         let api = self.api().ok_or_else(|| {
             IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
         })?;
@@ -356,6 +367,10 @@ impl AppState {
         let mut client = StoreClient::new(fetcher, settings);
         if let Some(catalog) = catalog_service::client(self) {
             client = client.with_catalog(catalog);
+        }
+        let client = Arc::new(client);
+        if self.access_token().is_some() {
+            *lock(&self.store) = Some(Arc::clone(&client));
         }
         Ok(client)
     }
@@ -436,6 +451,8 @@ impl AppState {
         *lock(&self.sync) = None;
         *lock(&self.friends) = None;
         *lock(&self.community) = None;
+        // O cliente da loja carrega o Bearer do dono da sessão.
+        *lock(&self.store) = None;
         *lock(&self.account) = account_from_session(session);
         *lock(&self.session) = Some(session.clone());
     }
@@ -498,10 +515,23 @@ impl AppState {
             .get_or_init(|| async move {
                 let session = lock(&self.boot_session).take();
                 if let Some(session) = session {
-                    api.auth().set_session_optimistic(session, false).await;
+                    api.auth()
+                        .set_session_optimistic(session.clone(), false)
+                        .await;
+                    // Sem isto o boot restaurava a identidade mas não puxava a
+                    // biblioteca/achievements/playtime do servidor.
+                    trigger_reconcile(self, &session);
                 }
             })
             .await;
+    }
+
+    pub async fn warm_store(&self) {
+        // Sem a sessão instalada o cliente sairia sem Bearer (401 no catálogo).
+        self.ensure_boot_session().await;
+        if let Ok(client) = self.store_client("warm") {
+            let _ = client.warm().await;
+        }
     }
 
     fn current_session(&self) -> Option<Session> {
@@ -529,6 +559,7 @@ impl AppState {
         *lock(&self.sync) = None;
         *lock(&self.friends) = None;
         *lock(&self.community) = None;
+        *lock(&self.store) = None;
         *lock(&self.session) = None;
         *lock(&self.account) = None;
     }
@@ -781,19 +812,10 @@ pub fn dispatch(
         // ── Biblioteca e config ──────────────────────────────────────────
         "meta:rebuild" => {
             let _ = std::fs::remove_file(state.data_dir.join("meta_cache.json"));
-            Ok(json_array(read_games(
-                &state.data_dir,
-                state.account().as_deref(),
-            )))
+            Ok(json_array(read_library_enriched(state)))
         }
-        "library:refresh" => {
-            let games = read_games(&state.data_dir, state.account().as_deref());
-            Ok(json_array(games))
-        }
-        "library:get" => {
-            let games = read_games(&state.data_dir, state.account().as_deref());
-            Ok(json_array(games))
-        }
+        "library:refresh" => Ok(json_array(read_library_enriched(state))),
+        "library:get" => Ok(json_array(read_library_enriched(state))),
         "config:get" => Ok(redact_config(&read_config(&state.data_dir))),
         "config:set" => {
             let patch = args
@@ -804,6 +826,8 @@ pub fn dispatch(
             let next = merge_config(&current, &patch);
             write_config_patch(&state.data_dir, &next)
                 .map_err(|error| IpcError::new("io", error.to_string(), channel))?;
+            // Idioma/hubcap/região afetam o cliente da loja e o cache em memória.
+            *lock(&state.store) = None;
             Ok(json!({ "ok": true, "config": redact_config(&next) }))
         }
 
@@ -1493,26 +1517,13 @@ pub fn dispatch(
             }
         }
         "profile:stats" => {
-            let games = read_games(&state.data_dir, state.account().as_deref());
-            let steam_hours = steam_service::hours_by_appid()
-                .map(|(hours, _)| hours)
-                .unwrap_or_default();
+            let games = read_library_enriched(state);
             let minutes: i64 = games
                 .iter()
                 .map(|game| {
-                    let id = game
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-                    let steam = steam_hours
-                        .get(&steam_service::normalize_appid(id))
-                        .copied()
-                        .unwrap_or(0) as i64;
-                    let local = game
-                        .get("playtime_minutes")
+                    game.get("playtime_minutes")
                         .and_then(Value::as_i64)
-                        .unwrap_or(0);
-                    steam.max(local)
+                        .unwrap_or(0)
                 })
                 .sum();
             Ok(json!({
@@ -1632,9 +1643,16 @@ pub async fn dispatch_async(
     channel: &str,
     args: Vec<Value>,
 ) -> Result<Value, IpcError> {
+    let started = std::time::Instant::now();
     let result = dispatch_async_inner(state, shell, channel, args).await;
+    let elapsed = started.elapsed().as_millis();
     if let Ok(path) = std::env::var("ARCADIA_IPC_LOG") {
         use std::io::Write;
+        static LOG_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let _guard = LOG_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1648,7 +1666,7 @@ pub async fn dispatch_async(
                 }
                 Err(error) => format!("err {}", error.code),
             };
-            let _ = writeln!(file, "{channel} -> {outcome}");
+            let _ = writeln!(file, "{channel} +{elapsed}ms -> {outcome}");
         }
     }
     result
@@ -1913,7 +1931,7 @@ async fn dispatch_async_inner(
                 .and_then(Value::as_f64)
                 .filter(|value| *value > 0.0)
                 .map(|value| value as usize)
-                .unwrap_or(20);
+                .unwrap_or(40);
             let offset = payload
                 .get("offset")
                 .and_then(Value::as_f64)
@@ -2002,7 +2020,7 @@ async fn dispatch_async_inner(
         "game:sysinfo" => {
             let game = args.first().cloned().unwrap_or_else(|| json!({}));
             let store = state.store_client(channel).ok();
-            Ok(catalog_service::game_sysinfo(state, store.as_ref(), &game).await)
+            Ok(catalog_service::game_sysinfo(state, store.as_deref(), &game).await)
         }
         "game:stats" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
@@ -2177,6 +2195,59 @@ async fn sync_all_local(
         Ok(outcome) => Ok(json!({ "ok": true, "pushed": outcome.pushed, "synced": outcome.pushed })),
         Err(error) => Ok(sync_error_json(&error)),
     }
+}
+
+/// Biblioteca local + playtime da Steam (local e espelho do servidor).
+fn read_library_enriched(state: &AppState) -> Vec<Value> {
+    let mut games = read_games(&state.data_dir, state.account().as_deref());
+    let steam = steam_service::hours_by_appid()
+        .map(|(hours, _)| hours)
+        .unwrap_or_default();
+    let mut remote: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let sync_path = account_file(
+        &state.data_dir,
+        state.account().as_deref(),
+        "sync_state.json",
+    );
+    if let Ok(raw) = std::fs::read_to_string(sync_path) {
+        if let Ok(Value::Object(state_doc)) = serde_json::from_str::<Value>(&raw) {
+            if let Some(Value::Array(rows)) = state_doc.get("steamPlaytime") {
+                for row in rows {
+                    let appid = row.get("appid").and_then(Value::as_str).unwrap_or_default();
+                    let minutes = row.get("minutes").and_then(Value::as_i64).unwrap_or(0);
+                    if !appid.is_empty() && minutes > 0 {
+                        *remote.entry(appid.to_string()).or_insert(0) += minutes;
+                    }
+                }
+            }
+        }
+    }
+    for game in games.iter_mut() {
+        let Some(id) = game.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let appid = id.strip_prefix("steam:").unwrap_or_default();
+        if appid.is_empty() {
+            continue;
+        }
+        let local_steam = steam.get(appid).copied().unwrap_or(0) as i64;
+        let remote_steam = remote.get(appid).copied().unwrap_or(0);
+        let existing = game
+            .get("playtime_minutes")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let added = game
+            .get("playtime_added_minutes")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let minutes = existing.max(local_steam).max(remote_steam) + added;
+        if minutes > 0 {
+            if let Some(object) = game.as_object_mut() {
+                object.insert("playtime_minutes".into(), json!(minutes));
+            }
+        }
+    }
+    games
 }
 
 fn arg_string(args: &[Value], index: usize) -> String {
@@ -2619,10 +2690,27 @@ fn trigger_reconcile(state: &AppState, session: &Session) {
         return;
     };
     let data_dir = state.data_dir.clone();
+    let sink = lock(&state.background_events).clone();
     tokio::spawn(async move {
         let scope = AccountScope::with_active(data_dir, Some(account.as_str()));
         let engine = SyncEngine::new((*api).clone(), scope);
-        let _ = engine.reconcile().await;
+        if let Ok(report) = engine.reconcile().await {
+            if let Some(sink) = sink {
+                if report.library_changed {
+                    sink("library:changed", json!({ "source": "sync" }));
+                }
+                let state = engine.state();
+                sink(
+                    "sync:state",
+                    json!({
+                        "lastPullAt": state.last_pull_at,
+                        "lastSyncAt": state.last_sync_at,
+                        "lastError": state.last_error,
+                        "queueLen": state.queue_len
+                    }),
+                );
+            }
+        }
     });
 }
 

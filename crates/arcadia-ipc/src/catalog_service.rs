@@ -1,21 +1,62 @@
 //! Serviço de catálogo do IPC: cliente com espelho/ETag e estatísticas de jogo.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
-use arcadia_catalog::catalog::{CatalogClient, FsMirrorStore, NoAuth};
+use arcadia_api::ApiClient;
+use arcadia_catalog::catalog::{AuthProvider, CatalogClient, FsMirrorStore, NoAuth};
 use arcadia_steamstore::store::StoreClient;
 
 use crate::AppState;
 
+/// Auth do catálogo: Bearer da sessão + apikey; refresh real no 401.
+struct SessionAuth {
+    api: Arc<ApiClient>,
+    token: Mutex<Option<String>>,
+}
+
+#[async_trait::async_trait]
+impl AuthProvider for SessionAuth {
+    fn headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![("apikey".to_string(), "arcadia-dummy-key".to_string())];
+        if let Some(token) = self
+            .token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+        {
+            headers.push(("authorization".to_string(), format!("Bearer {token}")));
+        }
+        headers
+    }
+
+    async fn refresh(&self) -> bool {
+        let Ok(session) = self.api.auth().refresh_session().await else {
+            return false;
+        };
+        *self
+            .token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(session.access_token);
+        true
+    }
+}
+
 pub fn client(state: &AppState) -> Option<CatalogClient> {
     let api = state.api()?;
     let store = Arc::new(FsMirrorStore::new(&state.data_dir));
+    let auth: Arc<dyn AuthProvider> = match state.access_token() {
+        Some(token) => Arc::new(SessionAuth {
+            api: Arc::clone(api),
+            token: Mutex::new(Some(token)),
+        }),
+        None => Arc::new(NoAuth),
+    };
     Some(CatalogClient::from_http_client(
         api.http().clone(),
         store,
-        Arc::new(NoAuth),
+        auth,
     ))
 }
 

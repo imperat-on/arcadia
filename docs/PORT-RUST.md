@@ -517,11 +517,32 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 25 — loja, retrô e perfil com dados reais (concluído)
+
+Sintomas relatados: Loja vazia (Steam e Retrô), perfil sem jogos e Início demorando. Causas provadas e correções:
+
+- **Catálogo protegido sem Bearer** — `store:recent("all")` batia em `/catalog/v1/catalog` sem `authorization` e recebia `HTTP 401`. `catalog_service::SessionAuth` injeta `apikey` + `Bearer` da sessão e renova no primeiro 401.
+- **Cliente da loja recriado a cada chamada** — `AppState` agora guarda `Arc<StoreClient>` compartilhado; `config:set`/login/logout invalidam o cache. `warm_store()` roda no setup e chama `ensure_boot_session` antes de criar o cliente (evita Bearer ausente).
+- **Gzip não decodificado** — o pedido forçava `accept-encoding: gzip` e o corpo voltava cru (`expected value at line 1 column 1 (\u001f...)`). O `reqwest` ganhou `gzip`/`brotli`/`deflate`, o catálogo pede `identity` e `http::decode_body` cobre gzip/br/deflate como defesa extra.
+- **`HTTP 304 sem espelho`** — o ETag era gravado antes do parse do JSON, deixando um ETag órfão quando o corpo falhava. O ETag só é gravado após decodificar; um 304 sem espelho limpa o ETag e repete a requisição sem `If-None-Match`.
+- **Listas com HEAD sequencial por fonte** — `prepare_fast` remove as sondagens Sushi/Ryuu das listas (24 jogos × 2 provedores ≈ 30 s); busca continua sondando. Primeiro `store:recent` caiu de ~30 s para ~2,4 s e o segundo já responde do cache de página (0 ms).
+- **Boot sem reconcile** — `ensure_boot_session` dispara `SyncEngine::reconcile()`, emite `library:changed`/`sync:state`; `library:get`, `library:refresh` e `meta:rebuild` usam `read_library_enriched` (playtime local + espelho do servidor).
+- **Retrô bloqueado por refresh remoto** — V2 `ensure` aguardava `refresh_inner()` mesmo com catálogo em disco ( minutos). Agora, com jogos existentes, a revalidação roda em background (`spawn_refresh`, um por vez) e `retro:list` responde só com o repositório.
+- **Limite padrão do `store:recent`** — alinhado ao `main.js` congelado: 40 jogos quando o renderer não envia `limite`.
+
+Verificação com o binário release sobre o perfil real (`%LOCALAPPDATA%\arcadia`), timings por chamada do log de IPC:
+
+- `library:get` 57 ms (18 jogos), `profile:stats`/perfil com 17 capas e 3028 h.
+- `store:recent` 2.389 ms na primeira carga e 0 ms nas seguintes (cache de página de 2 min); Loja com `Resultados (5978)`.
+- `retro:list` 1.809 ms; Loja Retrô com `20888 jogos · 50000 downloads`.
+- `cargo test --workspace` verde (0 falhas).
+
 **Pendências conhecidas (fora do caminho crítico):**
 - `game:uninstall`, `game:import`, `customgame:runInstaller`, `wine:prefixTool`/`wine:runExe` ainda respondem `not_ported` (operações destrutivas/spawn de Wine).
 - `runner:legendary:setup` responde `legendary_setup_nao_portado` (download interativo).
 - Updater ainda usa o estado honesto “sem suporte”; o adaptador Tauri do canal empacotado não foi ligado.
 - Push do sync permanece desligado; Linux/WebKitGTK e empacotamento NSIS/AppImage não foram validados nesta máquina.
+- Catálogo popular não tem cache em disco (o Electron usa `store_popular_cache.json`); o warm + cache de página cobrem o boot, mas um restart frio ainda paga a rede.
 
 ### Portes puros já verdes
 

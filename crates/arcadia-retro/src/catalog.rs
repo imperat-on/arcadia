@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -1389,11 +1390,13 @@ pub struct RefreshResult {
 }
 
 /// Store V2: repositório + migração V1 + envelopes do IPC.
+#[derive(Clone)]
 pub struct RetroCatalogV2 {
     repository: Arc<RetroRepository>,
     v1: Arc<dyn V1Catalog>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    refresh_lock: tokio::sync::Mutex<()>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    refresh_pending: Arc<AtomicBool>,
 }
 
 impl RetroCatalogV2 {
@@ -1407,7 +1410,8 @@ impl RetroCatalogV2 {
             repository,
             v1,
             now: Arc::new(now_ms),
-            refresh_lock: tokio::sync::Mutex::new(()),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            refresh_pending: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1574,14 +1578,28 @@ impl RetroCatalogV2 {
             .map(|updated| self.now() - updated)
             .unwrap_or(i64::MAX);
         if age > CACHE_TTL_MS || force {
-            let _guard = self.refresh_lock.lock().await;
             if force || stats.games == 0 {
+                let _guard = self.refresh_lock.lock().await;
                 self.refresh_inner().await?;
             } else {
-                let _ = self.refresh_inner().await;
+                // Igual ao JS (`inFlight = refresh(); await inFlight` só sem
+                // dados): com catálogo em disco a resposta não espera a rede.
+                self.spawn_refresh();
             }
         }
         Ok(())
+    }
+
+    fn spawn_refresh(&self) {
+        if self.refresh_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let task = self.clone();
+        tokio::spawn(async move {
+            let _guard = task.refresh_lock.lock().await;
+            let _ = task.refresh_inner().await;
+            task.refresh_pending.store(false, Ordering::Release);
+        });
     }
 
     pub fn public_game(game: &Value) -> Value {

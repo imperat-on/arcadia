@@ -10,6 +10,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 arcadia-api = { path = "../arcadia-api" }
 async-trait = "0.1"
+brotli = "9"
+flate2 = "1"
 hex = "0.4"
 regex = "1"
 sha2 = "0.10"

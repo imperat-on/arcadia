@@ -26,6 +26,7 @@ arcadia-download = { path = "../arcadia-download" }
 arcadia-ra = { path = "../arcadia-ra" }
 fs2 = "0.4"
 base64 = "0.23"
+async-trait = "0.1"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

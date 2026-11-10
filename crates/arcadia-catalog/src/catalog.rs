@@ -561,12 +561,14 @@ impl CatalogClient {
     async fn lead(&self, pathname: &str, opts: CatalogOptions) -> CatalogResponse {
         match self.fetch_once(pathname, opts).await {
             Attempt::Done(response) => response,
+            Attempt::RetryPlain => self.fallback_or(pathname, opts, "HTTP 304 sem espelho"),
             Attempt::Renew => {
                 // Como o JS: renova e tenta UMA vez, independentemente de a
                 // renovação ter tido sucesso; se continuar 401, cai no espelho.
                 let _ = self.auth.refresh().await;
                 match self.fetch_once(pathname, opts).await {
                     Attempt::Done(response) => response,
+                    Attempt::RetryPlain => self.fallback_or(pathname, opts, "HTTP 304 sem espelho"),
                     Attempt::Renew => self.fallback_or(pathname, opts, "HTTP 401"),
                 }
             }
@@ -574,14 +576,30 @@ impl CatalogClient {
     }
 
     async fn fetch_once(&self, pathname: &str, opts: CatalogOptions) -> Attempt {
+        match self.fetch_once_with(pathname, opts, true).await {
+            // `304` sem espelho em disco: o ETag guardado ficou órfão (a
+            // resposta anterior não decodificou). Descarta e busca de novo.
+            Attempt::RetryPlain => self.fetch_once_with(pathname, opts, false).await,
+            other => other,
+        }
+    }
+
+    async fn fetch_once_with(
+        &self,
+        pathname: &str,
+        opts: CatalogOptions,
+        conditional: bool,
+    ) -> Attempt {
         let name = mirror_file_name(pathname);
         let base = self.base_url.strip_suffix('/').unwrap_or(&self.base_url);
         let url = format!("{base}{pathname}");
 
         let mut headers = self.auth.headers();
         headers.push(("accept".into(), "application/json".into()));
-        headers.push(("accept-encoding".into(), "gzip".into()));
-        if !opts.no_mirror {
+        // `identity` de propósito: o cliente HTTP antigo não negociava gzip e
+        // devolvia bytes comprimidos como JSON inválido.
+        headers.push(("accept-encoding".into(), "identity".into()));
+        if conditional && !opts.no_mirror {
             if let Some(etag) = self.store.read_etag(&name) {
                 if !etag.is_empty() {
                     headers.push(("if-none-match".into(), etag));
@@ -603,10 +621,15 @@ impl CatalogClient {
         };
 
         if response.status == 304 {
-            return match self.mirror_data(pathname, opts) {
-                Some(data) => Attempt::Done(CatalogResponse::fallback_not_modified(data)),
-                None => Attempt::Done(CatalogResponse::failure("HTTP 304 sem espelho")),
-            };
+            if let Some(data) = self.mirror_data(pathname, opts) {
+                return Attempt::Done(CatalogResponse::fallback_not_modified(data));
+            }
+            if conditional && !opts.no_mirror {
+                // ETag órfão: limpa para não repetir o 304 na próxima chamada.
+                self.store.write_etag(&name, "");
+                return Attempt::RetryPlain;
+            }
+            return Attempt::Done(CatalogResponse::failure("HTTP 304 sem espelho"));
         }
 
         if !response.is_success() {
@@ -620,17 +643,15 @@ impl CatalogClient {
             ));
         }
 
-        if !opts.no_mirror {
-            if let Some(etag) = response.find_header("etag") {
-                if !etag.is_empty() {
-                    self.store.write_etag(&name, etag);
-                }
-            }
-        }
-
         match response.json_value() {
             Ok(data) => {
                 if !opts.no_mirror {
+                    // Só grava o ETag depois de decodificar: assim um corpo
+                    // comprimido/ inválido não cria um 304 sem espelho.
+                    if let Some(etag) = response.find_header("etag").filter(|etag| !etag.is_empty())
+                    {
+                        self.store.write_etag(&name, etag);
+                    }
                     self.store.write_json(&name, &data);
                 }
                 Attempt::Done(CatalogResponse::ok(data))
@@ -664,6 +685,8 @@ impl CatalogClient {
 enum Attempt {
     Done(CatalogResponse),
     Renew,
+    /// `304` sem espelho: repetir sem `If-None-Match`.
+    RetryPlain,
 }
 
 struct LeaderGuard {

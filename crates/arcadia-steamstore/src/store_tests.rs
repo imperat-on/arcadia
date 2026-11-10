@@ -722,12 +722,31 @@ async fn search_probes_sushi_and_ryuu_when_catalog_is_absent() {
 }
 
 #[tokio::test]
-async fn warm_hits_the_frozen_warmup_url() {
-    let fetcher =
-        Arc::new(FixtureFetcher::new().json("store.steampowered.com/api/storesearch", json!({})));
-    client(fetcher.clone()).warm().await.unwrap();
-    assert_eq!(
-        fetcher.urls()[0],
-        "https://store.steampowered.com/api/storesearch/?term=a&cc=br"
+async fn warm_prefetches_popular_and_catalog_first_page() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .json(
+                "/catalog/v1/popular?limite=1000&offset=0",
+                json!({"itens": []}),
+            )
+            .json(
+                "/catalog/v1/catalog?offset=0&limite=24",
+                json!({"itens": [], "total": 0, "offset": 0}),
+            ),
     );
+    let catalog = CatalogClient::new(
+        fetcher.clone(),
+        Arc::new(MemoryMirrorStore::new()),
+        Arc::new(NoAuth),
+        "http://catalog.test",
+    );
+    let store = client(fetcher.clone()).with_catalog(catalog);
+    store.warm().await.unwrap();
+    let urls = fetcher.urls();
+    assert!(urls
+        .iter()
+        .any(|url| url.contains("/catalog/v1/popular?limite=1000&offset=0")));
+    assert!(urls
+        .iter()
+        .any(|url| url.contains("/catalog/v1/catalog?offset=0&limite=24")));
 }
