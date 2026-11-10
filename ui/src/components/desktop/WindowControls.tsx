@@ -9,9 +9,26 @@ export function WindowControls() {
   const api = typeof window !== "undefined" ? window.launcherAPI : undefined
   if (!api?.winClose) return null
 
+  // O arraste nativo do WebView2 (`-webkit-app-region: drag`) não é confiável
+  // nesta janela frameless: o root virava uma região de arraste sobre o app
+  // inteiro e engolia o scroll. O handle fica só nesta faixa e usa o comando
+  // oficial do Tauri (liberado em capabilities/default.json).
+  const iniciarArraste = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest("button")) return
+    event.preventDefault()
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__?: { invoke: (command: string) => Promise<unknown> }
+      }
+    ).__TAURI_INTERNALS__
+    void internals?.invoke("plugin:window|start_dragging")
+  }
+
   return (
     <div
-      className="fixed left-0 top-0 z-[100] flex h-8 items-center px-3"
+      className="fixed left-0 top-0 z-[100] flex h-8 w-44 items-center px-3"
+      onMouseDown={iniciarArraste}
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       <div className="group flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>

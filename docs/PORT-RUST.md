@@ -517,6 +517,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 27 — arraste global engolia o scroll (concluído)
+
+- **Causa**: a classe `app-drag` na raiz do `DesktopLauncher` transformava a janela inteira em região de arraste. No WebView2 o conteúdo herdava o arraste: clicar e segurar em qualquer ponto movia a janela e o wheel era consumido antes de chegar ao scroller (por isso “não descia”).
+- **Correção**: removida a classe da raiz (`ui/src/components/desktop/DesktopLauncher.tsx`, linha 306). O handle de janela ficou só na faixa fixa do `WindowControls` (`h-8 w-44`), cujo `onMouseDown` chama `plugin:window|start_dragging`; a permissão `core:window:allow-start-dragging` foi adicionada em `src-tauri/capabilities/default.json`.
+- **Validação**: arraste no conteúdo/sidebar não move mais a janela; scroll por gesto confiável foi de 416→816 px; `npm --prefix ui run build` e `cargo build --release --features custom-protocol` verdes.
+
 ### Marco 26 — correções de frontend: capas, retrô servidor e janela (concluído)
 
 - **Capas da biblioteca** — `library_600x900.jpg` dá 404 em jogos novos da Steam (o CDN passou a usar `store_item_assets` com hash). O hook `useGameCover` tenta capa/ícone → retrato → header → `game:sysinfo` (`header_image`) e memoriza por appid; aplicado na sidebar, no perfil e na biblioteca. Sidebar, perfil e grade agora resolvem AC Black Flag Resynced/EA FC 26 sem ícone quebrado.

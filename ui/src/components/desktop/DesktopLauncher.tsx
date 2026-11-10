@@ -303,7 +303,7 @@ export function DesktopLauncher() {
       />
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       <div
-        className="arcadia-desktop-retro app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased"
+        className="arcadia-desktop-retro flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased"
         onKeyDownCapture={(event) => {
           const action =
             event.target instanceof HTMLElement
