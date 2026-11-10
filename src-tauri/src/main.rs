@@ -548,6 +548,9 @@ fn main() {
                         let _ = scale_window.hide();
                     }
                 }
+                WindowEvent::Focused(focused) => {
+                    let _ = scale_window.emit("app:focus", focused);
+                }
                 WindowEvent::CloseRequested { api, .. } => {
                     if close_to_tray(&scale_window) {
                         api.prevent_close();

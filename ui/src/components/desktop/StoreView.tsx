@@ -442,7 +442,9 @@ export function StoreView({
   }, [sugestoes])
 
   const aoTeclar = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!appFocused || gameRunning) {
+    // Estado de foco do React pode estar defasado em relação à janela; a
+    // checagem viva evita bloquear quem está digitando com o app em foco.
+    if (!document.hasFocus()) {
       e.preventDefault()
       return
     }

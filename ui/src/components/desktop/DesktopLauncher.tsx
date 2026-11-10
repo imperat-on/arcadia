@@ -148,6 +148,15 @@ export function DesktopLauncher() {
       appFocusedRef.current = focused
       setAppFocused(focused)
     }
+    const aoGanharFoco = () => aoFoco(true)
+    const aoPerderFoco = () => aoFoco(false)
+    const aoInteragir = () => {
+      if (document.hasFocus()) aoFoco(true)
+    }
+    window.addEventListener("focus", aoGanharFoco)
+    window.addEventListener("blur", aoPerderFoco)
+    document.addEventListener("focusin", aoInteragir)
+    document.addEventListener("pointerdown", aoInteragir)
     const api = window.launcherAPI
     const off = api?.onAppFocus?.(aoFoco)
     const offLaunchError = api?.onLaunchError?.((payload) => {
@@ -165,6 +174,10 @@ export function DesktopLauncher() {
     }
     return () => {
       efeitoAtivo = false
+      window.removeEventListener("focus", aoGanharFoco)
+      window.removeEventListener("blur", aoPerderFoco)
+      document.removeEventListener("focusin", aoInteragir)
+      document.removeEventListener("pointerdown", aoInteragir)
       off?.()
       offLaunchError?.()
     }

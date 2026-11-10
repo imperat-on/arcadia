@@ -517,6 +517,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 29 — digitação na Loja e debrid sem reiniciar (concluído)
+
+- **Busca da Loja sem letras**: o Tauri não propagava foco da janela; `appFocused` podia ficar `false` e `StoreView.aoTeclar` fazia `preventDefault()` em toda tecla. Correção: `WindowEvent::Focused` emite `app:focus` (`src-tauri/src/main.rs`), `DesktopLauncher` escuta `focus/blur/focusin/pointerdown`, e o guard da busca usa `document.hasFocus()` ao vivo em vez do estado defasado. Digitação validada na Loja real.
+- **Debrid configurado sem efeito**: `DownloadServiceConfig.debrid_configured` era um snapshot do boot. Agora o serviço guarda um `AtomicBool` atualizado por `config:set` (token adicionado/removido vale na hora, sem reiniciar); os dois checks de torrent leem esse estado. `cargo test -p arcadia-ipc` — 64 verdes.
+- **Fontes com 0 jogos (diagnóstico, sem correção)**: 13 das 17 fontes estão atrás de Cloudflare ("Just a moment", HTTP 403 para qualquer cliente HTTP); só Dauphong, SteamGG, Rutracker e No-Intro respondem. O Electron resolvia com uma janela oculta + sessão `persist:sources`; o port tem `ChallengeSolver` mas usa `NoChallenge`. Solver de navegador fica como tarefa separada.
+
 ### Marco 28 — conquistas totais por jogo (concluído)
 
 - **Sintoma**: painel CONQUISTAS mostrava `0/0` / "Sem conquistas" em jogos sem unlock e apenas `N/N` (desbloqueadas) nos jogos com unlock — o total do schema não aparecia.

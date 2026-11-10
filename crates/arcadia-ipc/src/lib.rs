@@ -849,6 +849,10 @@ pub fn dispatch(
                 .map_err(|error| IpcError::new("io", error.to_string(), channel))?;
             // Idioma/hubcap/região afetam o cliente da loja e o cache em memória.
             *lock(&state.store) = None;
+            // Tokens de debrid passam a valer no download sem reiniciar.
+            state
+                .downloads
+                .set_debrid_configured(arcadia_catalog::hosters::has_debrid_configured(&next));
             Ok(json!({ "ok": true, "config": redact_config(&next) }))
         }
 

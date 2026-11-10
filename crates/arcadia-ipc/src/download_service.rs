@@ -1273,6 +1273,7 @@ struct ServiceCore<P: DownloadsPersistence> {
 pub struct DownloadService<P: DownloadsPersistence + Send + 'static> {
     core: Arc<Mutex<ServiceCore<P>>>,
     config: Arc<DownloadServiceConfig>,
+    debrid_configured: Arc<AtomicBool>,
     runner: Arc<dyn ProcessRunner>,
     probe: Arc<dyn DepotFsProbe + Send + Sync>,
     connector: Arc<dyn TorrentConnector>,
@@ -1292,6 +1293,7 @@ impl<P: DownloadsPersistence + Send + 'static> Clone for DownloadService<P> {
         Self {
             core: Arc::clone(&self.core),
             config: Arc::clone(&self.config),
+            debrid_configured: Arc::clone(&self.debrid_configured),
             runner: Arc::clone(&self.runner),
             probe: Arc::clone(&self.probe),
             connector: Arc::clone(&self.connector),
@@ -1354,6 +1356,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
         probe: Arc<dyn DepotFsProbe + Send + Sync>,
     ) -> Self {
         let config = Arc::new(config);
+        let debrid_configured = Arc::new(AtomicBool::new(config.debrid_configured));
         let active = Arc::new(Mutex::new(HashMap::new()));
         let spawns = Arc::new(Mutex::new(Vec::new()));
         let executor = ServiceExecutor {
@@ -1378,6 +1381,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                 done_deadlines: HashMap::new(),
             })),
             config,
+            debrid_configured,
             runner,
             probe,
             connector,
@@ -1407,6 +1411,11 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
 
     pub fn config(&self) -> &DownloadServiceConfig {
         &self.config
+    }
+
+    /// Atualiza o estado de debrid sem reiniciar o app (`config:set`).
+    pub fn set_debrid_configured(&self, configured: bool) {
+        self.debrid_configured.store(configured, Ordering::Relaxed);
     }
 
     pub fn spawns(&self) -> Vec<RecordedSpawn> {
@@ -1900,7 +1909,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             self.upsert_torrent(base);
             return queued_error("download HTTP não portado");
         }
-        if !self.config.debrid_configured {
+        if !self.debrid_configured.load(Ordering::Relaxed) {
             object.insert("erro".to_string(), Value::String(ERRO_DEBRID.to_string()));
             self.upsert_torrent(base);
             return queued_error(ERRO_DEBRID);
@@ -1989,7 +1998,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             return error_envelope("download não encontrado");
         };
         if item.get("engine").and_then(Value::as_str) == Some("aria2")
-            && !self.config.debrid_configured
+            && !self.debrid_configured.load(Ordering::Relaxed)
         {
             return error_envelope(ERRO_DEBRID);
         }
