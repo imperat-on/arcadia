@@ -2,6 +2,7 @@
 //! canais do preload congelado para handlers Rust. Canais não portados
 //! respondem `not_ported`; canais fora do contrato respondem `unknown_channel`.
 
+mod achievements_service;
 pub mod catalog_service;
 pub mod channels;
 pub mod diagnostics;
@@ -33,7 +34,6 @@ use arcadia_store::accounts::{account_file, AccountScope};
 use arcadia_store::config::{merge_config, read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
-use arcadia_achievements::loader::AchievementsStore;
 use arcadia_achievements::runtime::{AchievementsRuntime, CaptureGate};
 use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
@@ -128,6 +128,7 @@ pub struct AppState {
     retro_server: Mutex<Option<Arc<RetroServerCatalog>>>,
     fixes_exec: Mutex<Option<FixExecutors>>,
     achievements_runtime: Mutex<Option<AchievementsRuntime>>,
+    achievements_http: Arc<dyn arcadia_achievements::steam_page::AchievementsHttp>,
     background_events: Mutex<Option<EventSink>>,
     boot_session: Mutex<Option<Session>>,
     boot_restored: OnceCell<()>,
@@ -184,6 +185,7 @@ impl AppState {
             retro_server: Mutex::new(None),
             fixes_exec: Mutex::new(None),
             achievements_runtime: Mutex::new(None),
+            achievements_http: Arc::new(achievements_service::SteamHttp::default()),
             background_events: Mutex::new(None),
             boot_session: Mutex::new(None),
             boot_restored: OnceCell::new(),
@@ -1451,24 +1453,6 @@ pub fn dispatch(
             Ok(serde_json::to_value(engine.unfix(appid, Some(install_path)))
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
-        "achievements:get" => {
-            let raw = args.first().and_then(Value::as_str).unwrap_or_default();
-            let appid = steam_service::normalize_appid(raw);
-            if appid.is_empty() {
-                return Ok(json!([]));
-            }
-            let path = account_file(
-                &state.data_dir,
-                state.account().as_deref(),
-                "achievements.json",
-            );
-            let store = AchievementsStore::load(path);
-            let mut items = store.items(&appid);
-            if items.is_empty() {
-                items = store.items(&format!("steam:{appid}"));
-            }
-            Ok(Value::Array(items))
-        }
         "runner:legendary:status" => Ok(legendary_service::status(state)),
         "runner:legendary:setup" => Ok(legendary_service::setup_not_ported()),
         "wine:list" => Ok(wine_service::wine_list(state)),
@@ -1702,6 +1686,10 @@ async fn dispatch_async_inner(
     state.ensure_boot_session().await;
 
     match channel {
+        "achievements:get" => {
+            let raw = args.first().and_then(Value::as_str).unwrap_or_default();
+            Ok(achievements_service::get(state, raw).await)
+        }
         "account:status" => {
             let session = state.current_session();
             Ok(json!({
@@ -3404,22 +3392,181 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn achievements_get_reads_local_items() {
-        let dir = std::env::temp_dir().join(format!("arcadia-ach-ipc-{}", std::process::id()));
+    struct AchievementsFixtureHttp {
+        page: Option<&'static str>,
+        calls: std::sync::atomic::AtomicUsize,
+        unlock_during_fetch: Option<PathBuf>,
+    }
+
+    #[async_trait::async_trait]
+    impl arcadia_achievements::steam_page::AchievementsHttp for AchievementsFixtureHttp {
+        async fn get(&self, url: &str, _timeout: std::time::Duration)
+            -> Result<arcadia_achievements::steam_page::HttpResponse, String>
+        {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(url.contains("/stats/1174180/achievements"));
+            if let Some(path) = &self.unlock_during_fetch {
+                std::fs::write(path, r#"{"1174180":{"custom":42,"items":[{"apiname":"Achievement1","achieved":true,"unlock":123,"localUnlock":true,"extra":"keep"}]}}"#).unwrap();
+            }
+            let body = self.page.ok_or_else(|| "offline (fixture)".to_string())?;
+            Ok(arcadia_achievements::steam_page::HttpResponse { status: 200, body: body.into() })
+        }
+    }
+
+    fn achievements_state(label: &str, page: Option<&'static str>, unlock_during_fetch: bool)
+        -> (AppState, Arc<AchievementsFixtureHttp>)
+    {
+        let dir = std::env::temp_dir().join(format!("arcadia-ach-ipc-{label}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        let http = Arc::new(AchievementsFixtureHttp { page,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            unlock_during_fetch: unlock_during_fetch.then(|| dir.join("achievements.json")),
+        });
+        let mut state = AppState::new(dir.clone());
+        state.achievements_http = http.clone();
+        *lock(&state.achievements_runtime) = Some(AchievementsRuntime::system(
+            &dir, "", dir.join("steam"), ["730", "1174180"]));
+        (state, http)
+    }
+
+    fn write_achievement_schema(state: &AppState) {
+        fn kv(name: &str, value: &Value) -> Vec<u8> {
+            let mut bytes = vec![if value.is_object() { 0 } else { 1 }];
+            bytes.extend_from_slice(name.as_bytes());
+            bytes.push(0);
+            if let Some(object) = value.as_object() {
+                for (key, value) in object { bytes.extend(kv(key, value)); }
+                bytes.push(8);
+            } else {
+                bytes.extend_from_slice(value.as_str().unwrap().as_bytes());
+                bytes.push(0);
+            }
+            bytes
+        }
+        let stats = state.with_achievements(|runtime| runtime.stats_dir()).unwrap();
+        std::fs::create_dir_all(&stats).unwrap();
+        let schema = json!({"stats":{"1":{"bits":{
+            "0":{"name":"PLAY_CS2","display":{"name":{"brazilian":"Jogue CS2"}}},
+            "1":{"name":"OTHER","display":{"name":{"brazilian":"Outra"}}},
+            "2":{"name":"HIDDEN","display":{"name":{"brazilian":"Oculta"}},"hidden":"1"}
+        }}}});
+        std::fs::write(arcadia_achievements::schema_path(stats, "730"), kv("", &schema)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn achievements_get_reads_local_items_when_http_fails() {
+        let (state, _) = achievements_state("offline", None, false);
+        let dir = &state.data_dir;
         std::fs::write(
             dir.join("achievements.json"),
-            r#"{"440":{"items":[{"apiname":"A","achieved":true,"unlock":1700000000}]}}"#,
+            r#"{"1174180":{"items":[{"apiname":"A","achieved":true,"unlock":1700000000}]}}"#,
         )
         .unwrap();
-        let state = AppState::new(dir.clone());
-        let items = dispatch(&state, &MockShell, "achievements:get", vec![json!("steam:440")])
-            .unwrap();
+        let before = std::fs::read(dir.join("achievements.json")).unwrap();
+        let items = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("steam:1174180")])
+            .await.unwrap();
         assert_eq!(items.as_array().unwrap().len(), 1);
         assert_eq!(items[0]["apiname"], "A");
         assert_eq!(items[0]["achieved"], true);
+        assert_eq!(std::fs::read(dir.join("achievements.json")).unwrap(), before);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn achievements_get_merges_complete_bin_without_http_or_store_writes() {
+        let (state, http) = achievements_state("bin", None, false);
+        write_achievement_schema(&state);
+        let path = state.data_dir.join("achievements.json");
+        let before = r#"{"730":{"custom":42,"items":[{"apiname":"PLAY_CS2","block":1,"bit":0,"achieved":true,"unlock":123,"extra":"keep"}]}}"#;
+        std::fs::write(&path, before).unwrap();
+        let items = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("steam:730")])
+            .await.unwrap();
+        assert_eq!(items.as_array().unwrap().len(), 3);
+        assert_eq!(items[0]["apiname"], "PLAY_CS2");
+        assert_eq!(items[0]["achieved"], true);
+        assert_eq!(items[0]["unlock"], 123);
+        assert_eq!(items[0]["extra"], "keep");
+        assert!(items.as_array().unwrap()[1..].iter().all(|item| item["achieved"] == false));
+        assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&state.data_dir);
+    }
+
+    #[tokio::test]
+    async fn achievements_get_keeps_non_steam_local_items_without_http() {
+        let (state, http) = achievements_state("non-steam", None, false);
+        std::fs::write(state.data_dir.join("achievements.json"),
+            r#"{"uplay:42":{"items":[{"apiname":"A","achieved":true,"unlock":123}]}}"#).unwrap();
+        let items = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("uplay:42")])
+            .await.unwrap();
+        assert_eq!(items[0]["achieved"], true);
+        assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let _ = std::fs::remove_dir_all(&state.data_dir);
+    }
+
+    const ACHIEVEMENTS_SSR: &str = include_str!("../../arcadia-achievements/tests/fixtures/steam-achievements-ssr.html");
+
+    #[tokio::test]
+    async fn achievements_get_without_bin_or_unlocks_uses_account_scoped_catalog_and_cache() {
+        let (state, http) = achievements_state("catalog", Some(ACHIEVEMENTS_SSR), false);
+        *lock(&state.account) = Some("fixture".into());
+        std::fs::write(state.data_dir.join("achievements.json"),
+            r#"{"1174180":{"items":[{"apiname":"Achievement1","achieved":true}]}}"#).unwrap();
+        let first = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("steam:1174180")])
+            .await.unwrap();
+        let items = first.as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item["achieved"] == false && item["unlock"] == 0));
+        let second = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("1174180")])
+            .await.unwrap();
+        assert_eq!(first, second);
+        assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let account_dir = state.data_dir.join("contas/fixture");
+        assert!(account_dir.join("achievements_store.json").exists());
+        assert!(!account_dir.join("achievements.json").exists());
+        assert!(!state.data_dir.join("achievements_store.json").exists());
+        let _ = std::fs::remove_dir_all(&state.data_dir);
+    }
+
+    #[tokio::test]
+    async fn achievements_get_merges_unlock_observed_during_http_without_polluting_cache() {
+        let (state, _) = achievements_state("fresh-unlock", Some(ACHIEVEMENTS_SSR), true);
+        std::fs::write(state.data_dir.join("achievements.json"),
+            r#"{"1174180":{"items":[{"apiname":"Achievement1","achieved":false}]}}"#).unwrap();
+        let items = dispatch_async(&state, &MockShell, "achievements:get", vec![json!("1174180")])
+            .await.unwrap();
+        assert_eq!(items.as_array().unwrap().len(), 2);
+        assert_eq!(items[0]["achieved"], true);
+        assert_eq!(items[0]["unlock"], 123);
+        assert_eq!(items[0]["extra"], "keep");
+        assert_eq!(items[1]["achieved"], false);
+        let saved = read_json_object(&state.data_dir.join("achievements.json"));
+        assert_eq!(saved["1174180"]["custom"], 42);
+        assert_eq!(saved["1174180"]["items"].as_array().unwrap().len(), 1);
+        let cache = read_json_object(&state.data_dir.join("achievements_store.json"));
+        assert!(cache["1174180"]["items"].as_array().unwrap().iter().all(|item| item["achieved"] == false));
+        let _ = std::fs::remove_dir_all(&state.data_dir);
+    }
+
+    #[test]
+    fn achievements_boot_catch_up_populates_complete_schema_and_preserves_unlock() {
+        let (state, http) = achievements_state("boot", None, false);
+        write_achievement_schema(&state);
+        std::fs::write(state.data_dir.join("achievements.json"),
+            r#"{"730":{"custom":42,"items":[{"apiname":"PLAY_CS2","achieved":true,"unlock":123,"extra":"keep"}]}}"#).unwrap();
+        let report = state.achievements_schemas_load();
+        assert_eq!(report["ok"], true);
+        assert_eq!(report["errors"], 0);
+        let saved = read_json_object(&state.data_dir.join("achievements.json"));
+        assert_eq!(saved["730"]["custom"], 42);
+        let items = saved["730"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0]["apiname"], "PLAY_CS2");
+        assert_eq!(items[0]["achieved"], true);
+        assert_eq!(items[0]["extra"], "keep");
+        assert_eq!(state.achievements_tick(), 0);
+        assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let _ = std::fs::remove_dir_all(&state.data_dir);
     }
 
     #[test]

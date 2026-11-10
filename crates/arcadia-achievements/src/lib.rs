@@ -21,8 +21,8 @@
 //! - [`runtime`]: a passada viva (snapshot do bin, unlock/revoke, gate de
 //!   captura e fila) com filesystem/relógio injetados.
 //!
-//! A crate é pura: não faz rede, não inicia watchers, não cria threads e não
-//! dorme. O cliente real injeta `SystemFs`/`SystemClock` e chama os decisores;
+//! A crate não abre conexões, não inicia watchers, não cria threads e não
+//! dorme. O cliente real injeta HTTP, `SystemFs`/`SystemClock` e chama os decisores;
 //! [`runtime::AchievementsRuntime`] junta as decisões numa passada que o host
 //! agenda.
 
@@ -39,6 +39,7 @@ pub mod runtime;
 mod runtime_tests;
 pub mod schema;
 pub mod steam_bin;
+pub mod steam_page;
 #[cfg(test)]
 mod test_support;
 pub mod uplay;

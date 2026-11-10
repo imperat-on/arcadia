@@ -79,8 +79,11 @@ dependencies = [
 name = "arcadia-achievements"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "regex",
  "serde",
  "serde_json",
+ "tokio",
  "unicode-normalization",
 ]
 

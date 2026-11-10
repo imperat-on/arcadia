@@ -450,14 +450,18 @@ fn main() {
                 });
             }
 
-            // Poll de conquistas a cada 15 s; o runtime é silencioso no primeiro
-            // tick e só emite unlocks realmente novos.
+            // Completa schemas/progresso uma vez no boot, sem toasts; depois poll de 15 s.
             {
                 let handle = app.handle().clone();
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(15));
+                std::thread::spawn(move || {
                     if let Some(state) = handle.try_state::<AppState>() {
-                        let _ = state.achievements_tick();
+                        let _ = state.achievements_schemas_load();
+                    }
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(15));
+                        if let Some(state) = handle.try_state::<AppState>() {
+                            let _ = state.achievements_tick();
+                        }
                     }
                 });
             }

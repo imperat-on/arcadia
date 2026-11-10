@@ -517,6 +517,13 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 28 — conquistas totais por jogo (concluído)
+
+- **Sintoma**: painel CONQUISTAS mostrava `0/0` / "Sem conquistas" em jogos sem unlock e apenas `N/N` (desbloqueadas) nos jogos com unlock — o total do schema não aparecia.
+- **Causa**: `achievements:get` devolvia só o `achievements.json` local, que guarda apenas itens desbloqueados. O JSON congelado caía em `fetchAchievementsForApp` (página de conquistas da Steam) quando o local estava vazio; o port não tinha esse fetch e o boot só rodava o tick do watcher, sem mesclar os bins `UserGameStatsSchema_*.bin`.
+- **Correção**: novo `arcadia-achievements::steam_page` (parse SSR/HTML, agegate, apiname por percentual, cache TTL por conta) e `arcadia-ipc::achievements_service::get`, que mescla o schema local via `rebuild_app` quando existe bin e cai no catálogo remoto quando não existe; unlocks locais continuam donos do estado. `achievements_schemas_load` roda uma vez no boot antes do poll de 15 s.
+- **Validação**: `cargo test -p arcadia-achievements -p arcadia-ipc` — 143 + 64 verdes; página real da Loja (The Last of Us Part I) com `CONQUISTAS 0/29` e nomes listados; `achievements:get` 433–635 ms; build release ok.
+
 ### Marco 27 — arraste global engolia o scroll (concluído)
 
 - **Causa**: a classe `app-drag` na raiz do `DesktopLauncher` transformava a janela inteira em região de arraste. No WebView2 o conteúdo herdava o arraste: clicar e segurar em qualquer ponto movia a janela e o wheel era consumido antes de chegar ao scroller (por isso “não descia”).

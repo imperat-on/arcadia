@@ -8,3 +8,8 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-normalization = "0.1"
+async-trait = "0.1"
+regex = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
