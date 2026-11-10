@@ -7,6 +7,7 @@ import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import { useFriends } from "../account/FriendsContext"
 import { useAccount } from "../account/AccountContext"
+import { useGameCover } from "../useGameCover"
 
 export type DesktopView =
   | "inicio"
@@ -431,15 +432,13 @@ function GameIcon({ game }: { game: Game }) {
   // Retrôs não possuem ícone separado confiável entre máquinas: a capa
   // sincronizada é a fonte canônica. Steam continua preferindo o ícone quadrado.
   const retro = game.retro === true || game.launcher === "retro" || String(game.id).startsWith("retro:")
-  const fontes = (retro ? [game.cover, game.icon] : [game.icon, game.cover]).filter(Boolean) as string[]
-  const [fase, setFase] = useState(0)
-  const src = fontes[fase]
+  const { src, onError } = useGameCover(game, !retro)
   if (src) {
     return (
       <img
         src={src}
         alt=""
-        onError={() => setFase((f) => f + 1)}
+        onError={onError}
         draggable={false}
         className="h-7 w-7 shrink-0 rounded-md object-cover"
       />

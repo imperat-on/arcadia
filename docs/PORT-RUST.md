@@ -517,6 +517,15 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 26 — correções de frontend: capas, retrô servidor e janela (concluído)
+
+- **Capas da biblioteca** — `library_600x900.jpg` dá 404 em jogos novos da Steam (o CDN passou a usar `store_item_assets` com hash). O hook `useGameCover` tenta capa/ícone → retrato → header → `game:sysinfo` (`header_image`) e memoriza por appid; aplicado na sidebar, no perfil e na biblioteca. Sidebar, perfil e grade agora resolvem AC Black Flag Resynced/EA FC 26 sem ícone quebrado.
+- **Vitrine retrô sem capas** — o IPC usava só o repositório V2 local (índice sem artwork). Agora `retro:list/game/offer/migrate` passam pelo `RetroServerCatalog` com `CatalogRemote` (servidor primeiro, local como fallback), como o `retro-server-catalog.js` congelado. Resultado: 28.102 jogos e capas Launchbox/libretro reais na Loja Retrô.
+- **Janela sempre no topo** — o app agora força `set_always_on_top(false)` ao criar a janela; o Tauri nunca define topmost por conta própria (o estado vinha de automação externa e prendia a janela sobre o jogo).
+- Diagnóstico opcional: `ARCADIA_CDP=1` abre CDP em `127.0.0.1:9222` (usado para validar scroll, capas e DOM sem devtools no release).
+
+Validação no release real: Loja Retrô com 24 capas Launchbox na primeira página, `retro:list` 1,6–2,8 s, biblioteca com 0 imagens quebradas, scroll programático 0→400 px na Loja Retrô, `cargo test --workspace` 57 blocos verdes.
+
 ### Marco 25 — loja, retrô e perfil com dados reais (concluído)
 
 Sintomas relatados: Loja vazia (Steam e Retrô), perfil sem jogos e Início demorando. Causas provadas e correções:

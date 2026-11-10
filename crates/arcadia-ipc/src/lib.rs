@@ -38,7 +38,7 @@ use arcadia_achievements::runtime::{AchievementsRuntime, CaptureGate};
 use arcadia_catalog::hosters::DebridClient;
 use arcadia_emulators::registry::{EmulatorRegistry, RegistryOptions};
 use arcadia_emulators::resolve::ResolveLaunchRequest;
-use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2};
+use arcadia_retro::catalog::{RetroCatalog, RetroCatalogV2, RetroServerCatalog};
 use arcadia_fixes::catalog::FixType;
 use arcadia_fixes::exec::FixExecutors;
 use arcadia_fixes::plan::ApplyRequest;
@@ -125,6 +125,7 @@ pub struct AppState {
     store: Mutex<Option<Arc<StoreClient>>>,
     emulators: Mutex<Option<EmulatorRegistry>>,
     retro: Mutex<Option<Arc<RetroCatalogV2>>>,
+    retro_server: Mutex<Option<Arc<RetroServerCatalog>>>,
     fixes_exec: Mutex<Option<FixExecutors>>,
     achievements_runtime: Mutex<Option<AchievementsRuntime>>,
     background_events: Mutex<Option<EventSink>>,
@@ -180,6 +181,7 @@ impl AppState {
             store: Mutex::new(None),
             emulators: Mutex::new(None),
             retro: Mutex::new(None),
+            retro_server: Mutex::new(None),
             fixes_exec: Mutex::new(None),
             achievements_runtime: Mutex::new(None),
             background_events: Mutex::new(None),
@@ -391,6 +393,21 @@ impl AppState {
         })
     }
 
+    /// Vitrine retrô: servidor primeiro (arte real), repositório local como fallback.
+    fn retro_server_catalog(&self, channel: &str) -> Result<Arc<RetroServerCatalog>, IpcError> {
+        if let Some(catalog) = lock(&self.retro_server).clone() {
+            return Ok(catalog);
+        }
+        let local = self.retro_catalog(channel)?;
+        let mut catalog = RetroServerCatalog::new(local);
+        if let Some(client) = catalog_service::client(self) {
+            catalog = catalog.with_remote(Arc::new(catalog_service::CatalogRemote::new(client)));
+        }
+        let catalog = Arc::new(catalog);
+        *lock(&self.retro_server) = Some(Arc::clone(&catalog));
+        Ok(catalog)
+    }
+
     fn with_emulators<T>(
         &self,
         channel: &str,
@@ -453,6 +470,7 @@ impl AppState {
         *lock(&self.community) = None;
         // O cliente da loja carrega o Bearer do dono da sessão.
         *lock(&self.store) = None;
+        *lock(&self.retro_server) = None;
         *lock(&self.account) = account_from_session(session);
         *lock(&self.session) = Some(session.clone());
     }
@@ -560,6 +578,7 @@ impl AppState {
         *lock(&self.friends) = None;
         *lock(&self.community) = None;
         *lock(&self.store) = None;
+        *lock(&self.retro_server) = None;
         *lock(&self.session) = None;
         *lock(&self.account) = None;
     }
@@ -1968,22 +1987,25 @@ async fn dispatch_async_inner(
         }
         "retro:list" => {
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
-            let catalog = state.retro_catalog(channel)?;
+            let catalog = state.retro_server_catalog(channel)?;
             Ok(catalog.list(&payload).await)
         }
         "retro:game" => {
             let id = args.first().and_then(Value::as_str).unwrap_or_default();
-            let catalog = state.retro_catalog(channel)?;
+            let catalog = state.retro_server_catalog(channel)?;
             Ok(catalog.get_game(id).await)
         }
         "retro:offer" => {
             let id = args.first().and_then(Value::as_str).unwrap_or_default();
-            let catalog = state.retro_catalog(channel)?;
+            let catalog = state.retro_server_catalog(channel)?;
             Ok(catalog.get_offer(id).await)
         }
         "retro:migrate" => {
-            let catalog = state.retro_catalog(channel)?;
-            Ok(catalog.migrate_envelope().await)
+            let catalog = state.retro_server_catalog(channel)?;
+            Ok(catalog.migrate_from_v1().await.map_or_else(
+                || json!({"ok": true, "result": null}),
+                |result| json!({"ok": true, "result": result}),
+            ))
         }
         "sources:add" => {
             let registry = state.source_registry(channel)?;

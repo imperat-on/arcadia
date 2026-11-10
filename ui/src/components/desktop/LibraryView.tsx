@@ -13,6 +13,7 @@ import { EditMetadata } from "../ps5-launcher/EditMetadata"
 
 import { AddGameDialog } from "./AddGameDialog"
 import { useI18n } from "../../i18n/I18nContext"
+import { useGameCover } from "../useGameCover"
 import type { GameActions } from "../useGameActions"
 
 // Biblioteca do modo desktop: busca, filtros e grade de capas 2:3.
@@ -374,35 +375,14 @@ export function LibraryView({
 }
 
 function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
-  const appid = game.launcher === "steam" ? String(game.id).replace(/^steam:/, "") : ""
-  const portraitUrl = appid
-    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`
-    : ""
-  const headerUrl = appid
-    ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`
-    : ""
-  const [fase, setFase] = useState<"cover" | "portrait" | "header" | "none">(
-    /\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover",
-  )
-  useEffect(
-    () => setFase(/\/(?:library_)?header\.jpg/i.test(game.cover || "") ? "portrait" : "cover"),
-    [game.id, game.cover],
-  )
-  const src =
-    fase === "cover"
-      ? game.cover || portraitUrl
-      : fase === "portrait"
-        ? portraitUrl
-        : fase === "header"
-          ? headerUrl
-          : ""
-  const isLandscape = /\/(?:library_)?header\.jpg/i.test(src)
+  const { src, onError } = useGameCover(game)
   if (!src)
     return (
       <div className="flex h-full items-center justify-center px-3 text-center text-xs text-white/30">
         {game.title}
       </div>
     )
+  const isLandscape = /header/i.test(src)
   return (
     <img
       src={src}
@@ -411,9 +391,7 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
       decoding="async"
       className={`h-full w-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
       draggable={false}
-      onError={() =>
-        setFase((f) => (f === "cover" ? "portrait" : f === "portrait" ? "header" : "none"))
-      }
+      onError={onError}
     />
   )
 }

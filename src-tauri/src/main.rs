@@ -506,13 +506,21 @@ fn main() {
             });
             let init_script = format!("globalThis.__ARCADIA_BOOT__ = {boot};");
 
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("Arcadia")
             .inner_size(1600.0, 900.0)
             .min_inner_size(960.0, 540.0)
             .decorations(false)
             .fullscreen(mode == "console")
-            .initialization_script(init_script)
+            .initialization_script(init_script);
+            // Diagnóstico opcional: CDP em 127.0.0.1:9222 (só com ARCADIA_CDP=1).
+            #[cfg(windows)]
+            if std::env::var_os("ARCADIA_CDP").is_some() {
+                builder = builder.additional_browser_args(
+                    "--remote-debugging-port=9222 --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
+                );
+            }
+            let window = builder
             // Mesma ideia do ready-to-show: só aparece depois do primeiro paint.
             .on_page_load(|window, payload| {
                 if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
@@ -523,6 +531,8 @@ fn main() {
                 }
             })
             .build()?;
+            // Nunca herdar "sempre no topo" de execuções/automações anteriores.
+            let _ = window.set_always_on_top(false);
 
             let scale_window = window.clone();
             window.on_window_event(move |event| match event {

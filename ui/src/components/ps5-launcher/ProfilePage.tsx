@@ -7,6 +7,7 @@ import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
 import { horasCombinadas, useSteamHoras } from "../steamHoras"
 import { useFriends } from "../account/FriendsContext"
+import { useGameCover } from "../useGameCover"
 
 interface ProfilePageProps {
   open: boolean
@@ -331,14 +332,14 @@ function formatarHoras(min?: number): string {
 }
 
 function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
-  const [broken, setBroken] = useState(false)
+  const { src, onError } = useGameCover(game)
   // Horas da capa: Steam manda, Arcadia completa (mesma regra do resto do app).
   const horas = formatarHoras(
     horasCombinadas(useSteamHoras(), [game.id, game.appid], game.playtime_minutes),
   )
   const cls =
     "relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--placeholder-cool)] to-[color:var(--placeholder-deep)] text-3xl font-bold text-white/50 ring-1 ring-white/10"
-  if (!game.cover || broken) {
+  if (!src) {
     return (
       <button
         className={cls}
@@ -361,12 +362,12 @@ function JogoTile({ game, onClick }: { game: Game; onClick?: () => void }) {
       disabled={!onClick}
     >
       <img
-        src={game.cover}
+        src={src}
         alt={game.title}
         className="h-full w-full object-cover"
         loading="lazy"
         decoding="async"
-        onError={() => setBroken(true)}
+        onError={onError}
       />
       {/* Horas em cima da capa */}
       <HorasBadge horas={horas} />

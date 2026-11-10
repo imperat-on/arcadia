@@ -5,10 +5,39 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 
 use arcadia_api::ApiClient;
-use arcadia_catalog::catalog::{AuthProvider, CatalogClient, FsMirrorStore, NoAuth};
+use arcadia_catalog::catalog::{
+    AuthProvider, CatalogClient, CatalogOptions, FsMirrorStore, NoAuth,
+};
+use arcadia_retro::catalog::RemoteCatalogProvider;
 use arcadia_steamstore::store::StoreClient;
 
 use crate::AppState;
+
+/// Catálogo remoto consumido pelo [`arcadia_retro::catalog::RetroServerCatalog`].
+pub struct CatalogRemote {
+    client: CatalogClient,
+}
+
+impl CatalogRemote {
+    pub fn new(client: CatalogClient) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl RemoteCatalogProvider for CatalogRemote {
+    async fn catalog_get(&self, path: &str, no_mirror: bool) -> Result<Value, String> {
+        let options = CatalogOptions::new().with_no_mirror(no_mirror);
+        let response = self.client.get_with(path, options).await;
+        match response.data {
+            Some(data) => Ok(data),
+            None => Err(response
+                .error
+                .map(|error| error.message)
+                .unwrap_or_else(|| "catálogo vazio".to_string())),
+        }
+    }
+}
 
 /// Auth do catálogo: Bearer da sessão + apikey; refresh real no 401.
 struct SessionAuth {
