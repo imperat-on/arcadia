@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -24,6 +24,9 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
+
+use arcadia_catalog::hosters::{AbortSignal, AtomicAbort, DebridClient};
+use arcadia_catalog::http::Fetcher;
 
 use arcadia_download::aria2::{Aria2Client, HttpTransport};
 use arcadia_download::depot::{
@@ -1253,6 +1256,21 @@ struct TorrentBridge {
     client: TorrentRpcClient<BoxedTorrentTransport>,
 }
 
+struct TorrentJob {
+    abort: AtomicAbort,
+    cancel: tokio::sync::watch::Sender<bool>,
+    reason: AtomicU8, // 1: pausa, 2: cancelamento
+    partial: Mutex<Option<PathBuf>>,
+}
+
+impl TorrentJob {
+    fn stop(&self, reason: u8) {
+        self.reason.store(reason, Ordering::SeqCst);
+        self.abort.abort();
+        let _ = self.cancel.send(true);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DownloadService
 // ---------------------------------------------------------------------------
@@ -1274,6 +1292,9 @@ pub struct DownloadService<P: DownloadsPersistence + Send + 'static> {
     core: Arc<Mutex<ServiceCore<P>>>,
     config: Arc<DownloadServiceConfig>,
     debrid_configured: Arc<AtomicBool>,
+    debrid_fetcher: Option<Arc<dyn Fetcher>>,
+    http_client: Option<reqwest::Client>,
+    torrent_jobs: Arc<Mutex<HashMap<String, Arc<TorrentJob>>>>,
     runner: Arc<dyn ProcessRunner>,
     probe: Arc<dyn DepotFsProbe + Send + Sync>,
     connector: Arc<dyn TorrentConnector>,
@@ -1294,6 +1315,9 @@ impl<P: DownloadsPersistence + Send + 'static> Clone for DownloadService<P> {
             core: Arc::clone(&self.core),
             config: Arc::clone(&self.config),
             debrid_configured: Arc::clone(&self.debrid_configured),
+            debrid_fetcher: self.debrid_fetcher.clone(),
+            http_client: self.http_client.clone(),
+            torrent_jobs: Arc::clone(&self.torrent_jobs),
             runner: Arc::clone(&self.runner),
             probe: Arc::clone(&self.probe),
             connector: Arc::clone(&self.connector),
@@ -1382,6 +1406,9 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             })),
             config,
             debrid_configured,
+            debrid_fetcher: None,
+            http_client: None,
+            torrent_jobs: Arc::new(Mutex::new(HashMap::new())),
             runner,
             probe,
             connector,
@@ -1411,6 +1438,11 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
 
     pub fn config(&self) -> &DownloadServiceConfig {
         &self.config
+    }
+
+    pub fn with_debrid_fetcher(mut self, fetcher: Arc<dyn Fetcher>) -> Self {
+        self.debrid_fetcher = Some(fetcher);
+        self
     }
 
     /// Atualiza o estado de debrid sem reiniciar o app (`config:set`).
@@ -1795,8 +1827,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
         json!({ "ok": true, "downloads": self.torrent_snapshot() })
     }
 
-    /// `torrent:start` — validação de ID/URI, política de debrid e start no
-    /// worker Python (JSON-lines). Envelopes iguais ao `torrent.js`.
+    /// `torrent:start` — validação de ID/URI e início de debrid ou HTTP.
     pub fn torrent_start(&self, payload: &Value) -> Value {
         let game_id_raw = payload.get("gameId").cloned().unwrap_or(Value::Null);
         let url_raw = payload.get("url").cloned().unwrap_or(Value::Null);
@@ -1898,22 +1929,21 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             }
         }
         lock(&self.canceled_torrents).remove(&stable_id);
-        if safe_url.to_ascii_lowercase().starts_with("http") {
-            object.insert("engine".to_string(), Value::String("http".to_string()));
-            object.insert("cacheando".to_string(), Value::Bool(false));
-            object.insert(
-                "erro".to_string(),
-                Value::String("download HTTP não portado".to_string()),
-            );
-            object.insert("pausado".to_string(), Value::Bool(true));
-            self.upsert_torrent(base);
-            return queued_error("download HTTP não portado");
+        let http = safe_url.to_ascii_lowercase().starts_with("http");
+        let magnet = safe_url.starts_with("magnet:");
+        if http || magnet {
+            if magnet && !arcadia_catalog::hosters::has_debrid_configured(
+                &arcadia_store::config::read_config(&self.config.data_dir),
+            ) {
+                object.insert("erro".to_string(), Value::String(ERRO_DEBRID.to_string()));
+                self.upsert_torrent(base);
+                return queued_error(ERRO_DEBRID);
+            }
+            object.insert("engine".to_string(), json!(if magnet { "debrid" } else { "http" }));
+            object.insert("cacheando".to_string(), json!(magnet));
+            return self.start_torrent_job(stable_id, safe_url, save_path, base, magnet);
         }
-        if !self.debrid_configured.load(Ordering::Relaxed) {
-            object.insert("erro".to_string(), Value::String(ERRO_DEBRID.to_string()));
-            self.upsert_torrent(base);
-            return queued_error(ERRO_DEBRID);
-        }
+        // Mantém a bridge Python para os demais caminhos legados.
         self.upsert_torrent(base);
         let file_indices = payload
             .get("fileIndices")
@@ -1970,7 +2000,12 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
             {
-                self.patch_torrent(&id, json!({ "pausado": true }));
+                let mut jobs = lock(&self.torrent_jobs);
+                if let Some(job) = jobs.remove(&id) {
+                    job.stop(1);
+                }
+                self.patch_torrent(&id, json!({ "pausado": true, "cacheando": false, "downloadSpeed": 0 }));
+                drop(jobs);
                 self.emit_torrent(true);
                 return ok_envelope();
             }
@@ -1998,7 +2033,9 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             return error_envelope("download não encontrado");
         };
         if item.get("engine").and_then(Value::as_str) == Some("aria2")
-            && !self.debrid_configured.load(Ordering::Relaxed)
+            && !arcadia_catalog::hosters::has_debrid_configured(
+                &arcadia_store::config::read_config(&self.config.data_dir),
+            )
         {
             return error_envelope(ERRO_DEBRID);
         }
@@ -2009,6 +2046,10 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
         let Some(id) = self.normalized_torrent_arg(game_id) else {
             return error_envelope("invalid_game_id");
         };
+        let mut jobs = lock(&self.torrent_jobs);
+        if let Some(job) = jobs.remove(&id) {
+            job.stop(2);
+        }
         lock(&self.canceled_torrents).insert(id.clone());
         let item = {
             let core = lock(&self.core);
@@ -2040,6 +2081,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                 .retain(|entry| entry.get("gameId").and_then(Value::as_str) != Some(&id));
             self.write_torrent_state(&core.torrent);
         }
+        drop(jobs);
         self.emit_torrent(true);
         ok_envelope()
     }
@@ -2087,10 +2129,9 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
     /// Relê o estado vivo do worker para os itens ativos e emite
     /// `torrent:progress` quando algo mudou.
     pub fn torrent_poll(&self) {
-        let (active, current) = {
+        let active = {
             let core = lock(&self.core);
-            let active = core.torrent.iter().any(torrent_is_active);
-            (active, core.torrent.clone())
+            core.torrent.iter().any(torrent_is_active)
         };
         if !active {
             return;
@@ -2099,19 +2140,9 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             Ok(statuses) => statuses,
             Err(_) => return,
         };
-        let canceled = lock(&self.canceled_torrents).clone();
         let mut changed = false;
-        let mut next = current;
-        let before = next.len();
-        next.retain(|item| {
-            item.get("gameId")
-                .and_then(Value::as_str)
-                .is_none_or(|id| !canceled.contains(id))
-        });
-        if next.len() != before {
-            changed = true;
-        }
-        for item in &mut next {
+        let mut core = lock(&self.core);
+        for item in &mut core.torrent {
             let Some(id) = item.get("gameId").and_then(Value::as_str) else {
                 continue;
             };
@@ -2125,8 +2156,6 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
             }
         }
         if changed {
-            let mut core = lock(&self.core);
-            core.torrent = next;
             self.write_torrent_state(&core.torrent);
             let remaining: HashSet<String> = core
                 .torrent
@@ -2136,6 +2165,8 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                 .collect();
             drop(core);
             lock(&self.canceled_torrents).retain(|id| remaining.contains(id));
+        } else {
+            drop(core);
         }
         self.emit_torrent(false);
     }
@@ -2703,6 +2734,240 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
 
     // -- torrent internals --------------------------------------------------
 
+    fn start_torrent_job(
+        &self,
+        id: String,
+        url: String,
+        save_path: PathBuf,
+        mut base: Value,
+        magnet: bool,
+    ) -> Value {
+        let runtime = match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => runtime,
+            Err(_) => {
+                let error = "runtime de download indisponível";
+                base["erro"] = json!(error);
+                base["pausado"] = json!(true);
+                base["cacheando"] = json!(false);
+                self.upsert_torrent(base);
+                return queued_error(error);
+            }
+        };
+        let (cancel, mut canceled) = tokio::sync::watch::channel(false);
+        let job = Arc::new(TorrentJob {
+            abort: AtomicAbort::new(),
+            cancel,
+            reason: AtomicU8::new(0),
+            partial: Mutex::new(None),
+        });
+        let mut jobs = lock(&self.torrent_jobs);
+        if jobs.contains_key(&id) {
+            return ok_envelope();
+        }
+        jobs.insert(id.clone(), Arc::clone(&job));
+        self.upsert_torrent(base);
+        drop(jobs);
+        let service = self.clone();
+        runtime.spawn(async move {
+            let outcome = tokio::select! {
+                biased;
+                _ = canceled.changed() => None,
+                result = service.run_torrent_job(&id, &url, &save_path, magnet, &job) => Some(result),
+            };
+            let mut jobs = lock(&service.torrent_jobs);
+            let current = jobs.get(&id).is_some_and(|active| Arc::ptr_eq(active, &job));
+            if current {
+                if let Some(Err(error)) = outcome {
+                    service.mark_torrent_error(&id, &error);
+                }
+                jobs.remove(&id);
+            } else if job.reason.load(Ordering::SeqCst) == 2 && !jobs.contains_key(&id) {
+                // A future de download já foi descartada, fechando o arquivo no Windows.
+                if let Some(partial) = lock(&job.partial).as_ref() {
+                    let _ = std::fs::remove_file(partial);
+                }
+            }
+        });
+        ok_envelope()
+    }
+
+    fn with_torrent_job<T>(
+        &self,
+        id: &str,
+        job: &Arc<TorrentJob>,
+        action: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let jobs = lock(&self.torrent_jobs);
+        if job.abort.is_aborted()
+            || !jobs.get(id).is_some_and(|active| Arc::ptr_eq(active, job))
+        {
+            return None;
+        }
+        Some(action())
+    }
+
+    async fn run_torrent_job(
+        &self,
+        id: &str,
+        url: &str,
+        save_path: &Path,
+        magnet: bool,
+        job: &Arc<TorrentJob>,
+    ) -> Result<(), String> {
+        let (url, headers) = if magnet {
+            let fetcher = self.debrid_fetcher.clone().ok_or("cliente de debrid indisponível")?;
+            let config = arcadia_store::config::read_config(&self.config.data_dir);
+            let client = DebridClient::from_config_json(fetcher, &config);
+            let link = client
+                .resolve_magnet(url, &job.abort)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or(ERRO_DEBRID)?;
+            (link.url, link.headers)
+        } else {
+            (url.to_string(), Vec::new())
+        };
+        if job.abort.is_aborted() {
+            return Ok(());
+        }
+        let safe_url = normalize_download_uri(&json!(url));
+        if !safe_url.to_ascii_lowercase().starts_with("http") {
+            return Err("URI de download inválida".to_string());
+        }
+        self.download_http(id, &safe_url, headers, save_path, job).await
+    }
+
+    async fn download_http(
+        &self,
+        id: &str,
+        url: &str,
+        headers: Vec<(String, String)>,
+        save_path: &Path,
+        job: &Arc<TorrentJob>,
+    ) -> Result<(), String> {
+        let previous_name = {
+            let core = lock(&self.core);
+            core.torrent.iter()
+                .find(|item| item.get("gameId").and_then(Value::as_str) == Some(id))
+                .and_then(|item| item.get("fileName").and_then(Value::as_str))
+                .filter(|name| !name.is_empty())
+                .map(safe_http_filename)
+        };
+        let known_part = previous_name.is_some();
+        let previous_part = previous_name.as_ref().map(|name| save_path.join(format!("{name}.part")));
+        let offset = match previous_part.as_ref().map(std::fs::symlink_metadata) {
+            Some(Ok(metadata)) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata.len(),
+            Some(Ok(_)) => return Err("arquivo parcial inválido".to_string()),
+            Some(Err(error)) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
+            _ => 0,
+        };
+        let client = match &self.http_client {
+            Some(client) => client.clone(),
+            None => http_download_client_builder().build().map_err(|error| error.to_string())?,
+        };
+        let mut request = client.get(url)
+            .header(reqwest::header::USER_AGENT, "arcadia")
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        if offset > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
+        }
+        let mut response = request.send().await.map_err(|error| error.without_url().to_string())?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("HTTP {status}"));
+        }
+        if response.headers().get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.to_ascii_lowercase().contains("text/html"))
+        {
+            return Err("hoster não suportado (respondeu página HTML — precisa de resolvedor)".to_string());
+        }
+        let partial_response = status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let initial = if partial_response { offset } else { 0 };
+        let total = if partial_response {
+            let range = response.headers().get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_http_content_range)
+                .ok_or("Content-Range inválido")?;
+            if range.0 != offset {
+                return Err("Content-Range não corresponde ao arquivo parcial".to_string());
+            }
+            Some(range.2)
+        } else {
+            response.content_length()
+        };
+        let file_name = previous_name.unwrap_or_else(|| http_filename(url, response.headers()));
+        let final_path = save_path.join(&file_name);
+        let part_path = save_path.join(format!("{file_name}.part"));
+        let mut file = self.with_torrent_job(id, job, || -> Result<std::fs::File, String> {
+            if std::fs::symlink_metadata(&final_path).is_ok() {
+                return Err("arquivo de destino já existe".to_string());
+            }
+            if let Ok(metadata) = std::fs::symlink_metadata(&part_path) {
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err("arquivo parcial inválido".to_string());
+                }
+                if !known_part {
+                    return Err("arquivo parcial já existe".to_string());
+                }
+            }
+            let file = std::fs::OpenOptions::new().create(true).write(true)
+                .append(partial_response).truncate(!partial_response)
+                .open(&part_path).map_err(|error| error.to_string())?;
+            *lock(&job.partial) = Some(part_path.clone());
+            self.patch_torrent(id, json!({
+                "engine": "http", "cacheando": false, "fileName": file_name,
+                "fileSize": total.unwrap_or(0), "bytesDownloaded": initial,
+                "progress": http_progress(initial, total), "downloadSpeed": 0,
+            }));
+            Ok(file)
+        }).ok_or("download cancelado")??;
+        self.emit_torrent(true);
+        let mut bytes = initial;
+        let mut last_bytes = initial;
+        let mut last_update = Instant::now();
+        let mut first_chunk = true;
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.without_url().to_string())? {
+            self.with_torrent_job(id, job, || file.write_all(&chunk))
+                .ok_or("download cancelado")?
+                .map_err(|error| error.to_string())?;
+            bytes = bytes.saturating_add(chunk.len() as u64);
+            if first_chunk || last_update.elapsed() >= self.config.event_throttle.max(Duration::from_millis(250)) {
+                let speed = (bytes - last_bytes) as f64 / last_update.elapsed().as_secs_f64().max(0.001);
+                self.with_torrent_job(id, job, || self.patch_torrent(id, json!({
+                    "bytesDownloaded": bytes, "progress": http_progress(bytes, total),
+                    "downloadSpeed": speed,
+                }))).ok_or("download cancelado")?;
+                self.emit_torrent(false);
+                last_bytes = bytes;
+                last_update = Instant::now();
+                first_chunk = false;
+            }
+        }
+        if total.is_some_and(|size| size != bytes) {
+            return Err("download HTTP incompleto".to_string());
+        }
+        self.with_torrent_job(id, job, || -> Result<(), String> {
+            file.flush().map_err(|error| error.to_string())?;
+            drop(file);
+            if std::fs::symlink_metadata(&final_path).is_ok() {
+                return Err("arquivo de destino já existe".to_string());
+            }
+            std::fs::rename(&part_path, &final_path).map_err(|error| error.to_string())?;
+            self.patch_torrent(id, json!({
+                "bytesDownloaded": bytes, "fileSize": total.unwrap_or(bytes),
+                "progress": 1.0, "downloadSpeed": 0, "completo": true,
+                "pausado": false, "cacheando": false, "erro": "",
+            }));
+            Ok(())
+        }).ok_or("download cancelado")??;
+        self.emit_torrent(true);
+        Ok(())
+    }
+
     fn normalized_torrent_arg(&self, value: &Value) -> Option<String> {
         let id = normalize_torrent_id(value);
         if id.is_empty() {
@@ -2751,6 +3016,8 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                 "erro": error,
                 "pausado": true,
                 "completo": false,
+                "cacheando": false,
+                "downloadSpeed": 0,
             }),
         );
         self.emit_torrent(true);
@@ -2932,6 +3199,62 @@ fn torrent_error_text(error: &TorrentRpcError) -> String {
     }
 }
 
+fn http_download_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 10
+                || normalize_download_uri(&json!(attempt.url().as_str())).is_empty()
+            {
+                attempt.error("redirecionamento de download inválido")
+            } else {
+                attempt.follow()
+            }
+        }))
+}
+
+fn safe_http_filename(name: &str) -> String {
+    let decoded = percent_encoding::percent_decode_str(name.trim().trim_matches('"'))
+        .decode_utf8_lossy();
+    let safe: String = decoded.chars().map(|character| {
+        if character.is_control() || matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            '_'
+        } else {
+            character
+        }
+    }).take(180).collect();
+    let safe = safe.replace("..", "_");
+    let safe = safe.trim_matches(|character: char| character == '.' || character.is_whitespace());
+    if safe.is_empty() { "download.bin".to_string() } else { safe.to_string() }
+}
+
+fn http_filename(url: &str, headers: &reqwest::header::HeaderMap) -> String {
+    let disposition = headers.get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').skip(1).find_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            if key.eq_ignore_ascii_case("filename") || key.eq_ignore_ascii_case("filename*") {
+                Some(value.trim().trim_matches('"').strip_prefix("UTF-8''").unwrap_or(value.trim().trim_matches('"')))
+            } else {
+                None
+            }
+        }));
+    let path_name = reqwest::Url::parse(url).ok()
+        .and_then(|url| url.path_segments().and_then(|mut segments| segments.next_back()).map(str::to_string));
+    safe_http_filename(disposition.filter(|name| !name.is_empty()).or(path_name.as_deref()).unwrap_or("download.bin"))
+}
+
+fn parse_http_content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (range, total) = value.trim().strip_prefix("bytes ")?.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let (start, end, total) = (start.parse().ok()?, end.parse().ok()?, total.parse().ok()?);
+    if start <= end && end < total { Some((start, end, total)) } else { None }
+}
+
+fn http_progress(bytes: u64, total: Option<u64>) -> f64 {
+    total.filter(|total| *total > 0).map(|total| (bytes as f64 / total as f64).min(1.0)).unwrap_or(0.0)
+}
+
 // ---------------------------------------------------------------------------
 // Limpeza de disco segura
 // ---------------------------------------------------------------------------
@@ -3069,7 +3392,7 @@ fn remove_http_partials(item: &Value) {
         .get("fileName")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if save_path.is_empty() || file_name.is_empty() {
+    if save_path.is_empty() || file_name.is_empty() || safe_http_filename(file_name) != file_name {
         return;
     }
     let base = Path::new(save_path);
@@ -3498,6 +3821,252 @@ mod download_service_tests {
         "magnet:?xt=urn:btih:481B6E3617BE4C88F96CB25E47C9D8272130071E&dn=repack".to_string()
     }
 
+    struct LocalHttp {
+        address: std::net::SocketAddr,
+        requests: Arc<Mutex<Vec<String>>>,
+        stop: Arc<AtomicBool>,
+        release: Arc<AtomicBool>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl LocalHttp {
+        fn new() -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let release = Arc::new(AtomicBool::new(false));
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let thread = {
+                let (stop, release, requests) = (Arc::clone(&stop), Arc::clone(&release), Arc::clone(&requests));
+                thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((mut stream, _)) => {
+                                let (stop, release, requests) = (Arc::clone(&stop), Arc::clone(&release), Arc::clone(&requests));
+                                thread::spawn(move || {
+                                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                                    let mut data = Vec::new();
+                                    let mut buffer = [0; 1024];
+                                    while !data.ends_with(b"\r\n\r\n") && data.len() < 8192 {
+                                        match stream.read(&mut buffer) {
+                                            Ok(0) | Err(_) => return,
+                                            Ok(n) => data.extend_from_slice(&buffer[..n]),
+                                        }
+                                    }
+                                    let request = String::from_utf8_lossy(&data).to_string();
+                                    lock(&requests).push(request.clone());
+                                    let line = request.lines().next().unwrap_or_default();
+                                    let lower = request.to_ascii_lowercase();
+                                    let range = lower.lines().find_map(|line| line.trim().strip_prefix("range: bytes="))
+                                        .and_then(|value| value.trim_end_matches('-').parse::<usize>().ok());
+                                    let body = b"hello-world";
+                                    if line.contains("/redirect") {
+                                        let _ = write!(stream, "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", address.port());
+                                    } else if line.contains("/bad-range") {
+                                        let _ = stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-10/11\r\nContent-Length: 11\r\nConnection: close\r\n\r\nhello-world");
+                                    } else if line.contains("/html") {
+                                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 4\r\nConnection: close\r\n\r\nhtml");
+                                    } else if let Some(offset) = range.filter(|_| !line.contains("/norange")) {
+                                        if offset < body.len() {
+                                            let _ = write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-10/11\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", offset, body.len() - offset);
+                                            let _ = stream.write_all(&body[offset..]);
+                                        }
+                                    } else {
+                                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\n");
+                                        if line.contains("/slow") {
+                                            let _ = stream.write_all(&body[..5]);
+                                            let _ = stream.flush();
+                                            while !release.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                                                thread::sleep(Duration::from_millis(5));
+                                            }
+                                            let _ = stream.write_all(&body[5..]);
+                                        } else {
+                                            let _ = stream.write_all(body);
+                                        }
+                                    }
+                                });
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(5)),
+                            Err(_) => break,
+                        }
+                    }
+                })
+            };
+            Self { address, requests, stop, release, thread: Some(thread) }
+        }
+
+        fn url(&self, path: &str) -> String {
+            format!("http://example.test:{}{path}", self.address.port())
+        }
+
+        fn client(&self) -> reqwest::Client {
+            http_download_client_builder().no_proxy().resolve("example.test", self.address).build().unwrap()
+        }
+    }
+
+    impl Drop for LocalHttp {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            self.release.store(true, Ordering::SeqCst);
+            if let Some(thread) = self.thread.take() { let _ = thread.join(); }
+        }
+    }
+
+    struct MockDebrid {
+        direct_url: String,
+        calls: Mutex<Vec<arcadia_catalog::http::Request>>,
+        gate: Option<Arc<tokio::sync::Notify>>,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Fetcher for MockDebrid {
+        async fn fetch(&self, request: arcadia_catalog::http::Request) -> Result<arcadia_catalog::http::Response, arcadia_catalog::http::FetchError> {
+            let url = request.url.clone();
+            lock(&self.calls).push(request);
+            if url.contains("createtorrent") {
+                if let Some(gate) = &self.gate { gate.notified().await; }
+                if self.fail {
+                    return Ok(arcadia_catalog::http::Response::json(200, &json!({"success": false, "detail": "mock rejected"})));
+                }
+                Ok(arcadia_catalog::http::Response::json(200, &json!({"success": true, "data": {"torrent_id": 123}})))
+            } else if url.contains("mylist") {
+                Ok(arcadia_catalog::http::Response::json(200, &json!({"data": {"id": 123, "download_finished": true}})))
+            } else if url.contains("requestdl") {
+                Ok(arcadia_catalog::http::Response::json(200, &json!({"data": self.direct_url})))
+            } else {
+                Err(arcadia_catalog::http::FetchError::new("unexpected mock request"))
+            }
+        }
+    }
+
+    async fn wait_until(mut predicate: impl FnMut() -> bool) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !predicate() { tokio::time::sleep(Duration::from_millis(10)).await; }
+        }).await.expect("condição do teste não ocorreu");
+    }
+
+    #[tokio::test]
+    async fn debrid_magnet_reads_live_token_and_downloads_without_worker() {
+        let fixture = Fixture::new("live-debrid");
+        let http = LocalHttp::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let fetcher = Arc::new(MockDebrid { direct_url: http.url("/resolved.bin"), calls: Mutex::new(Vec::new()), gate: Some(Arc::clone(&gate)), fail: false });
+        let mut service = fixture.open().with_debrid_fetcher(fetcher.clone());
+        service.http_client = Some(http.client());
+        let payload = json!({"gameId": "abc", "url": magnet(), "savePath": fixture.dir.join("out").to_string_lossy()});
+        assert_eq!(service.torrent_start(&payload), queued_error(ERRO_DEBRID));
+        arcadia_store::config::write_config_patch(&fixture.dir, &json!({"torbox_token": "mock-token"})).unwrap();
+        assert_eq!(service.torrent_start(&payload), ok_envelope());
+        assert_eq!(service.torrent_snapshot()[0]["engine"], "debrid");
+        assert_eq!(service.torrent_snapshot()[0]["cacheando"], true);
+        wait_until(|| !lock(&fetcher.calls).is_empty()).await;
+        assert!(lock(&fetcher.calls)[0].headers.iter().any(|(k, v)| k == "authorization" && v == "Bearer mock-token"));
+        gate.notify_one();
+        wait_until(|| service.torrent_snapshot()[0]["completo"] == true).await;
+        let item = &service.torrent_snapshot()[0];
+        assert_eq!(item["engine"], "http");
+        assert_eq!(item["url"], magnet());
+        assert_eq!(item["fileName"], "resolved.bin");
+        assert_eq!(item["fileSize"], 11);
+        assert_eq!(item["bytesDownloaded"], 11);
+        assert_eq!(std::fs::read(fixture.dir.join("out/resolved.bin")).unwrap(), b"hello-world");
+        assert_eq!(fixture.connector.connections(), 0);
+        assert_eq!(fixture.runner.spawn_count(), 0);
+        std::fs::write(arcadia_store::config::config_path(&fixture.dir), "{}").unwrap();
+        assert_eq!(service.torrent_start(&json!({"gameId": "other", "url": magnet()})), queued_error(ERRO_DEBRID));
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn http_pause_resume_range_and_completion() {
+        let fixture = Fixture::new("http-range");
+        let http = LocalHttp::new();
+        let mut service = fixture.open();
+        service.http_client = Some(http.client());
+        let payload = json!({"gameId": "abc", "url": http.url("/slow.bin"), "savePath": fixture.dir.join("out").to_string_lossy()});
+        assert_eq!(service.torrent_start(&payload), ok_envelope());
+        let part = fixture.dir.join("out/slow.bin.part");
+        wait_until(|| std::fs::metadata(&part).is_ok_and(|metadata| metadata.len() == 5)).await;
+        wait_until(|| service.torrent_snapshot()[0]["bytesDownloaded"] == 5).await;
+        assert!(service.torrent_snapshot()[0]["downloadSpeed"].as_f64().unwrap() > 0.0);
+        assert_eq!(service.torrent_pause(&json!("abc")), ok_envelope());
+        assert_eq!(service.torrent_snapshot()[0]["pausado"], true);
+        assert_eq!(service.torrent_resume(&json!("abc")), ok_envelope());
+        wait_until(|| service.torrent_snapshot()[0]["completo"] == true).await;
+        assert_eq!(std::fs::read(fixture.dir.join("out/slow.bin")).unwrap(), b"hello-world");
+        assert!(!part.exists());
+        assert!(lock(&http.requests).iter().any(|request| request.to_ascii_lowercase().contains("range: bytes=5-")));
+        assert_eq!(service.torrent_snapshot()[0]["progress"], 1.0);
+        assert_eq!(fixture.connector.connections(), 0);
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn cancel_debrid_and_http_jobs_without_late_updates() {
+        let fixture = Fixture::new("cancel-jobs");
+        let http = LocalHttp::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let fetcher = Arc::new(MockDebrid { direct_url: http.url("/resolved.bin"), calls: Mutex::new(Vec::new()), gate: Some(Arc::clone(&gate)), fail: false });
+        let mut service = fixture.open().with_debrid_fetcher(fetcher.clone());
+        service.http_client = Some(http.client());
+        arcadia_store::config::write_config_patch(&fixture.dir, &json!({"torbox_token": "mock-token"})).unwrap();
+        assert_eq!(service.torrent_start(&json!({"gameId": "magnet", "url": magnet()})), ok_envelope());
+        wait_until(|| !lock(&fetcher.calls).is_empty()).await;
+        assert_eq!(service.torrent_cancel(&json!("magnet")), ok_envelope());
+        gate.notify_one();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(service.torrent_snapshot().is_empty());
+        assert!(lock(&http.requests).is_empty());
+        assert_eq!(service.torrent_start(&json!({"gameId": "http", "url": http.url("/slow.bin"), "savePath": fixture.dir.join("out").to_string_lossy()})), ok_envelope());
+        let part = fixture.dir.join("out/slow.bin.part");
+        wait_until(|| std::fs::metadata(&part).is_ok_and(|metadata| metadata.len() == 5)).await;
+        assert_eq!(service.torrent_cancel(&json!("http")), ok_envelope());
+        wait_until(|| !part.exists()).await;
+        assert!(service.torrent_snapshot().is_empty());
+        assert!(!fixture.dir.join("out/slow.bin").exists());
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn http_restarts_if_range_ignored_and_rejects_bad_range_or_redirect() {
+        let fixture = Fixture::new("http-errors");
+        let http = LocalHttp::new();
+        let mut service = fixture.open();
+        service.http_client = Some(http.client());
+        let save = fixture.dir.join("out");
+        std::fs::create_dir_all(&save).unwrap();
+        for (id, name) in [("restart", "norange.bin"), ("bad", "bad-range.bin")] {
+            std::fs::write(save.join(format!("{name}.part")), b"hello").unwrap();
+            service.upsert_torrent(json!({"gameId": format!("tor:{id}"), "url": http.url(&format!("/{name}")), "savePath": save.to_string_lossy(), "fileName": name, "engine": "http", "pausado": true}));
+            assert_eq!(service.torrent_resume(&json!(id)), ok_envelope());
+        }
+        wait_until(|| service.torrent_snapshot().iter().any(|item| item["gameId"] == "tor:restart" && item["completo"] == true)).await;
+        wait_until(|| service.torrent_snapshot().iter().any(|item| item["gameId"] == "tor:bad" && item["pausado"] == true && item["erro"].as_str().is_some_and(|error| error.contains("Content-Range")))).await;
+        assert_eq!(std::fs::read(save.join("norange.bin")).unwrap(), b"hello-world");
+        assert_eq!(std::fs::read(save.join("bad-range.bin.part")).unwrap(), b"hello");
+        assert_eq!(service.torrent_start(&json!({"gameId": "redirect", "url": http.url("/redirect"), "savePath": save.to_string_lossy()})), ok_envelope());
+        wait_until(|| service.torrent_snapshot().iter().any(|item| item["gameId"] == "tor:redirect" && item["pausado"] == true && item["erro"].as_str().is_some_and(|error| !error.is_empty()))).await;
+        assert!(!lock(&http.requests).iter().any(|request| request.contains("GET /private")));
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn debrid_provider_error_clears_cacheando() {
+        let fixture = Fixture::new("debrid-error");
+        let fetcher = Arc::new(MockDebrid { direct_url: String::new(), calls: Mutex::new(Vec::new()), gate: None, fail: true });
+        let service = fixture.open().with_debrid_fetcher(fetcher);
+        arcadia_store::config::write_config_patch(&fixture.dir, &json!({"torbox_token": "mock-token"})).unwrap();
+        assert_eq!(service.torrent_start(&json!({"gameId": "abc", "url": magnet()})), ok_envelope());
+        wait_until(|| service.torrent_snapshot()[0]["pausado"] == true).await;
+        let item = &service.torrent_snapshot()[0];
+        assert_eq!(item["cacheando"], false);
+        assert!(item["erro"].as_str().unwrap().contains("mock rejected"));
+        assert_eq!(fixture.connector.connections(), 0);
+        fixture.cleanup();
+    }
+
     #[test]
     fn download_service_install_snapshot_and_legendary_argv() {
         let fixture = Fixture::new("install");
@@ -3789,14 +4358,15 @@ mod download_service_tests {
         fixture.connector.push(json!({"id": 4, "result": null}));
         let service = fixture.open();
         let payload = json!({
-            "gameId": "abc",
+            "gameId": "tor:abc",
             "url": magnet(),
             "savePath": fixture.dir.join("torrents").to_string_lossy(),
             "fileIndices": [0, 2],
             "title": "Repack",
             "cover": "cover.jpg",
         });
-        assert_eq!(service.torrent_start(&payload), ok_envelope());
+        service.upsert_torrent(payload);
+        assert!(service.torrent_rpc(|client| client.start("tor:abc", &magnet(), "downloads", Some(&[0, 2]), None)).is_ok());
         let list = service.torrent_list();
         assert_eq!(list["ok"], true);
         let item = &list["downloads"][0];
@@ -3807,7 +4377,8 @@ mod download_service_tests {
 
         assert_eq!(service.torrent_pause(&json!("tor:abc")), ok_envelope());
         assert_eq!(service.torrent_snapshot()[0]["pausado"], true);
-        assert_eq!(service.torrent_resume(&json!("tor:abc")), ok_envelope());
+        assert!(service.torrent_rpc(|client| client.resume("tor:abc", &magnet(), "downloads", Some(&[0, 2]), None)).is_ok());
+        service.patch_torrent("tor:abc", json!({"pausado": false}));
         assert_eq!(service.torrent_snapshot()[0]["pausado"], false);
         assert_eq!(service.torrent_cancel(&json!("tor:abc")), ok_envelope());
         assert!(service.torrent_snapshot().is_empty());
@@ -3852,14 +4423,11 @@ mod download_service_tests {
         }));
         fixture.connector.push(json!({"id": 4, "result": null}));
         let service = fixture.open();
-        assert_eq!(
-            service.torrent_start(&json!({
-                "gameId": "abc",
-                "url": magnet(),
-                "savePath": fixture.dir.join("torrents").to_string_lossy(),
-            })),
-            ok_envelope()
-        );
+        service.upsert_torrent(json!({
+            "gameId": "tor:abc", "url": magnet(),
+            "savePath": fixture.dir.join("torrents").to_string_lossy(),
+        }));
+        assert!(service.torrent_rpc(|client| client.start("tor:abc", &magnet(), "downloads", None, None)).is_ok());
         service.torrent_poll();
         let item = &service.torrent_snapshot()[0];
         assert_eq!(item["progress"], 0.5);
@@ -3942,17 +4510,10 @@ mod download_service_tests {
             error_envelope(expected)
         );
 
-        // Worker sem ready: start vira erro enfileirado e marca o item.
+        // A bridge legada continua reportando worker sem ready.
         let empty = Fixture::new("torrent-noworker");
         let empty_service = empty.open();
-        let response = empty_service.torrent_start(&json!({"gameId": "abc", "url": magnet()}));
-        assert_eq!(response["ok"], false);
-        assert_eq!(response["queued"], true);
-        assert!(!response["error"].as_str().unwrap().is_empty());
-        assert!(!empty_service.torrent_snapshot()[0]["erro"]
-            .as_str()
-            .unwrap()
-            .is_empty());
+        assert!(!empty_service.torrent_rpc(|client| client.status()).unwrap_err().is_empty());
         fixture.cleanup();
         empty.cleanup();
     }
@@ -3968,12 +4529,9 @@ mod download_service_tests {
             "error": {"code": "metadata_timeout", "message": "demorou"}
         }));
         let service = fixture.open();
-        let response = service.torrent_start(&json!({"gameId": "abc", "url": magnet()}));
+        let response = service.torrent_files(&json!({"magnet": magnet()}));
         assert_eq!(response["ok"], false);
-        assert_eq!(response["queued"], true);
         assert_eq!(response["error"], "metadata_timeout");
-        assert_eq!(service.torrent_snapshot()[0]["erro"], "metadata_timeout");
-        assert_eq!(service.torrent_snapshot()[0]["pausado"], true);
         fixture.cleanup();
     }
 
@@ -4101,7 +4659,7 @@ mod download_service_tests {
                     "savePath": fixture.dir.join("torrents").to_string_lossy(),
                 })]
             ),
-            Some(ok_envelope())
+            Some(queued_error(ERRO_DEBRID))
         );
         assert!(service.handle("torrent:list", &[]).is_some());
         assert!(service.handle("store:ensureDotnet", &[]).is_some());

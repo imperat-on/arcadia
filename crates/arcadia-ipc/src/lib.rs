@@ -161,10 +161,14 @@ impl AppState {
                 }
             });
         let plugins = PluginRegistry::with_standard_builtins(&data_dir, false, false).ok();
-        let downloads = Arc::new(DownloadService::open(
+        let mut downloads = DownloadService::open(
             &data_dir,
             DownloadServiceConfig::new(&data_dir),
-        ));
+        );
+        if let Some(api) = &api {
+            downloads = downloads.with_debrid_fetcher(Arc::new(CatalogFetcher::new(api.http().clone())));
+        }
+        let downloads = Arc::new(downloads);
         Self {
             data_dir,
             mode: Mutex::new(mode),

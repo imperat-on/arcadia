@@ -30,7 +30,8 @@ async-trait = "0.1"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-tokio = { version = "1", features = ["sync", "rt", "process"] }
+tokio = { version = "1", features = ["sync", "rt", "process", "macros", "time"] }
+percent-encoding = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["sync", "macros", "rt"] }

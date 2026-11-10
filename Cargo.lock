@@ -184,6 +184,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "fs2",
+ "percent-encoding",
  "regex",
  "reqwest 0.12.28",
  "serde",

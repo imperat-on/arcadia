@@ -517,6 +517,12 @@ Esforço em dev-days (uma pessoa focada; agente acelera digitação, não a vali
 - Release `custom-protocol` reconstruído e executado com perfil real: sessão restaurada, biblioteca escopada, home com prateleiras da loja (CS:GO/PUBG/Rust), sync e tray; **0 linhas de erro** no log de IPC.
 - Boot pede `account:status`, `store:status`, `config:get`, `dm:queue`, `torrent:list`, `sync:state` e `library:get` — todos respondem envelope válido.
 
+### Marco 30 — download por debrid + HTTP nativo (concluído)
+
+- **Sintoma**: magnet do RDR2 caía no worker Python e mostrava `worker torrent morreu`; o port não tinha o caminho debrid→HTTP que o Electron usava.
+- **Correção**: `torrent_start` agora roteia magnet para `DebridClient::resolve_magnet` (engine `debrid`, `cacheando: true`) e baixa o link direto pelo engine HTTP nativo (reqwest com Range/resume, pause, resume e cancel); o `Fetcher` do catálogo é injetado no `DownloadService` em `AppState::build`. O worker Python fica só para caminhos legados.
+- **Validação real com TorBox**: RDR2 resolveu para link direto e baixou a **58 MiB/s** (1,1 GiB de 117,9 GiB, pausado para não consumir a fila inteira); estado `engine: "http"`, `cacheando: false`, `erro: ""`. Zero ocorrências de `worker torrent morreu` no log. `cargo test -p arcadia-ipc` — 69 verdes.
+
 ### Marco 29 — digitação na Loja e debrid sem reiniciar (concluído)
 
 - **Busca da Loja sem letras**: o Tauri não propagava foco da janela; `appFocused` podia ficar `false` e `StoreView.aoTeclar` fazia `preventDefault()` em toda tecla. Correção: `WindowEvent::Focused` emite `app:focus` (`src-tauri/src/main.rs`), `DesktopLauncher` escuta `focus/blur/focusin/pointerdown`, e o guard da busca usa `document.hasFocus()` ao vivo em vez do estado defasado. Digitação validada na Loja real.
