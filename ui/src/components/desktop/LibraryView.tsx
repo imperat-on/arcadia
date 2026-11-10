@@ -382,14 +382,13 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
         {game.title}
       </div>
     )
-  const isLandscape = /header/i.test(src)
   return (
     <img
       src={src}
       alt={game.title}
       loading="lazy"
       decoding="async"
-      className={`h-full w-full ${isLandscape ? "object-contain" : "object-cover"} transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
+      className={`h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${apagada ? "grayscale-[0.4]" : ""}`}
       draggable={false}
       onError={onError}
     />

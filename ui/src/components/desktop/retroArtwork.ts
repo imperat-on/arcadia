@@ -31,10 +31,32 @@ function safeCoverUrl(value: unknown) {
   }
 }
 
+const serverCovers = new Map<string, Promise<string | null>>()
+
+function resolveServerCover(id: string): Promise<string | null> {
+  const cached = serverCovers.get(id)
+  if (cached) return cached
+  const promise = (async () => {
+    try {
+      const response = await window.launcherAPI?.retroGame?.(id)
+      const game = response?.game
+      const cover = game?.cover || game?.capa || game?.fallbackCover
+      return typeof cover === "string" && cover ? cover : null
+    } catch {
+      return null
+    }
+  })()
+  serverCovers.set(id, promise)
+  return promise
+}
+
 /**
  * Artwork is resolved before a catalog version is published. Returning only
  * catalog URLs here prevents a page of cards from launching metadata searches;
  * Chromium's persistent HTTP cache supplies the hybrid on-disk layer.
+ *
+ * Exceção: itens que entraram na biblioteca pelo id (`retro:...`) não têm os
+ * campos de arte; para esses, o catálogo do servidor é consultado uma vez.
  */
 export function loadRetroCovers(game: RetroGame): Promise<string[]> {
   const native = [game.cover, game.capa, game.fallbackCover]
@@ -42,7 +64,9 @@ export function loadRetroCovers(game: RetroGame): Promise<string[]> {
     .filter((url): url is string => Boolean(url))
   if (native.length) return Promise.resolve(native)
 
-  return Promise.resolve([])
+  const id = typeof game.id === "string" ? game.id : ""
+  if (!id.startsWith("retro:")) return Promise.resolve([])
+  return resolveServerCover(id).then((cover) => (cover ? [cover] : []))
 }
 
 export function getRetroCover(game: RetroGame): string | null {

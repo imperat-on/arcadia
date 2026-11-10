@@ -17,6 +17,7 @@ type CoverGame = {
 }
 
 const headerCache = new Map<string, Promise<string | null>>()
+const retroCache = new Map<string, Promise<string | null>>()
 
 function appidOf(game: CoverGame): string {
   const raw = String(game.appid ?? game.id ?? "")
@@ -40,6 +41,33 @@ function resolveHeader(game: CoverGame): Promise<string | null> {
   })()
   headerCache.set(appid, promise)
   return promise
+}
+
+/**
+ * Jogo retrô da biblioteca só tem o id local; a capa real vem do catálogo do
+ * servidor (`retro:game`), que resolve Launchbox/libretro por `providerId`.
+ */
+function resolveRetroCover(id: string): Promise<string | null> {
+  const cached = retroCache.get(id)
+  if (cached) return cached
+  const promise = (async () => {
+    try {
+      const response = await window.launcherAPI?.retroGame?.(id)
+      const game = response?.game
+      const cover = game?.cover || game?.capa || game?.fallbackCover
+      return typeof cover === "string" && cover ? cover : null
+    } catch {
+      return null
+    }
+  })()
+  retroCache.set(id, promise)
+  return promise
+}
+
+function resolveExtraCover(game: CoverGame): Promise<string | null> {
+  const id = String(game.id ?? "")
+  if (id.startsWith("retro:")) return resolveRetroCover(id)
+  return resolveHeader(game)
 }
 
 export function useGameCover(game: CoverGame, preferIcon = false) {
@@ -76,14 +104,30 @@ export function useGameCover(game: CoverGame, preferIcon = false) {
 
   const src = failed ? undefined : sources[index]
 
+  // Sem nenhuma fonte inicial (retrô adicionado pela biblioteca), busca a arte
+  // canônica uma vez em vez de renderizar o placeholder para sempre.
+  useEffect(() => {
+    if (deduped.length > 0) return
+    let alive = true
+    void resolveExtraCover(game).then((cover) => {
+      if (!alive) return
+      if (cover) setSources([cover])
+      else setFailed(true)
+    })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.id, game.cover, game.icon, preferIcon])
+
   const onError = useCallback(() => {
     setIndex((current) => {
       if (current + 1 < sources.length) return current + 1
       if (!asked.current) {
         asked.current = true
-        void resolveHeader(game).then((header) => {
-          if (header && !sources.includes(header)) {
-            setSources((previous) => [...previous, header])
+        void resolveExtraCover(game).then((cover) => {
+          if (cover && !sources.includes(cover)) {
+            setSources((previous) => [...previous, cover])
             setIndex(sources.length)
           } else {
             setFailed(true)
