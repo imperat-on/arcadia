@@ -23,7 +23,7 @@ pub mod trailer_service;
 pub mod wine_service;
 
 /// Versão-base do cliente Electron que este port substitui.
-pub const APP_VERSION: &str = "1.5.5";
+pub const APP_VERSION: &str = "1.6.0";
 
 use std::fmt;
 use std::path::{Path, PathBuf};
