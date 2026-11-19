@@ -2851,7 +2851,7 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
                 .find(|item| item.get("gameId").and_then(Value::as_str) == Some(id))
                 .and_then(|item| item.get("fileName").and_then(Value::as_str))
                 .filter(|name| !name.is_empty())
-                .map(safe_http_filename)
+                .map(sanitize_http_filename)
         };
         let known_part = previous_name.is_some();
         let previous_part = previous_name.as_ref().map(|name| save_path.join(format!("{name}.part")));
@@ -3216,7 +3216,11 @@ fn http_download_client_builder() -> reqwest::ClientBuilder {
 fn safe_http_filename(name: &str) -> String {
     let decoded = percent_encoding::percent_decode_str(name.trim().trim_matches('"'))
         .decode_utf8_lossy();
-    let safe: String = decoded.chars().map(|character| {
+    sanitize_http_filename(&decoded)
+}
+
+fn sanitize_http_filename(name: &str) -> String {
+    let safe: String = name.chars().map(|character| {
         if character.is_control() || matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
             '_'
         } else {
@@ -3392,7 +3396,7 @@ fn remove_http_partials(item: &Value) {
         .get("fileName")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if save_path.is_empty() || file_name.is_empty() || safe_http_filename(file_name) != file_name {
+    if save_path.is_empty() || file_name.is_empty() || sanitize_http_filename(file_name) != file_name {
         return;
     }
     let base = Path::new(save_path);
@@ -3845,6 +3849,7 @@ mod download_service_tests {
                             Ok((mut stream, _)) => {
                                 let (stop, release, requests) = (Arc::clone(&stop), Arc::clone(&release), Arc::clone(&requests));
                                 thread::spawn(move || {
+                                    let _ = stream.set_nonblocking(false);
                                     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                                     let mut data = Vec::new();
                                     let mut buffer = [0; 1024];
@@ -4026,6 +4031,52 @@ mod download_service_tests {
         wait_until(|| !part.exists()).await;
         assert!(service.torrent_snapshot().is_empty());
         assert!(!fixture.dir.join("out/slow.bin").exists());
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn pause_and_resume_while_debrid_is_resolving() {
+        let fixture = Fixture::new("pause-debrid");
+        let http = LocalHttp::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let fetcher = Arc::new(MockDebrid { direct_url: http.url("/resolved.bin"), calls: Mutex::new(Vec::new()), gate: Some(Arc::clone(&gate)), fail: false });
+        let mut service = fixture.open().with_debrid_fetcher(fetcher.clone());
+        service.http_client = Some(http.client());
+        arcadia_store::config::write_config_patch(&fixture.dir, &json!({"torbox_token": "mock-token"})).unwrap();
+        assert_eq!(service.torrent_start(&json!({"gameId": "abc", "url": magnet(), "savePath": fixture.dir.join("out").to_string_lossy()})), ok_envelope());
+        wait_until(|| lock(&fetcher.calls).len() == 1).await;
+        assert_eq!(service.torrent_pause(&json!("abc")), ok_envelope());
+        assert_eq!(service.torrent_snapshot()[0]["pausado"], true);
+        assert_eq!(service.torrent_snapshot()[0]["cacheando"], false);
+        assert_eq!(service.torrent_resume(&json!("abc")), ok_envelope());
+        wait_until(|| lock(&fetcher.calls).len() == 2).await;
+        gate.notify_one();
+        wait_until(|| service.torrent_snapshot()[0]["completo"] == true).await;
+        assert_eq!(std::fs::read(fixture.dir.join("out/resolved.bin")).unwrap(), b"hello-world");
+        assert_eq!(fixture.connector.connections(), 0);
+        fixture.cleanup();
+    }
+
+    #[tokio::test]
+    async fn http_preserves_existing_files_and_rejects_html() {
+        let fixture = Fixture::new("http-existing");
+        let http = LocalHttp::new();
+        let mut service = fixture.open();
+        service.http_client = Some(http.client());
+        let save = fixture.dir.join("out");
+        std::fs::create_dir_all(&save).unwrap();
+        std::fs::write(save.join("existing.bin"), b"untouched").unwrap();
+        std::fs::write(save.join("partial.bin.part"), b"unrelated").unwrap();
+        for (id, path) in [("final", "/existing.bin"), ("partial", "/partial.bin"), ("html", "/html")] {
+            assert_eq!(service.torrent_start(&json!({"gameId": id, "url": http.url(path), "savePath": save.to_string_lossy()})), ok_envelope());
+        }
+        wait_until(|| service.torrent_snapshot().len() == 3 && service.torrent_snapshot().iter().all(|item| item["pausado"] == true)).await;
+        let items = service.torrent_snapshot();
+        assert!(items.iter().find(|item| item["gameId"] == "tor:final").unwrap()["erro"].as_str().unwrap().contains("destino já existe"));
+        assert!(items.iter().find(|item| item["gameId"] == "tor:partial").unwrap()["erro"].as_str().unwrap().contains("parcial já existe"));
+        assert!(items.iter().find(|item| item["gameId"] == "tor:html").unwrap()["erro"].as_str().unwrap().contains("HTML"));
+        assert_eq!(std::fs::read(save.join("existing.bin")).unwrap(), b"untouched");
+        assert_eq!(std::fs::read(save.join("partial.bin.part")).unwrap(), b"unrelated");
         fixture.cleanup();
     }
 
