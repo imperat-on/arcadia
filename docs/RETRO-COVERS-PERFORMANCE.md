@@ -1,5 +1,74 @@
 # Carregamento das capas Retro
 
+## Cache de navegação no backend
+
+`crates/arcadia-retro/src/catalog.rs` — `RetroServerCatalog` ganhou
+`cache: Mutex<HashMap<String, (Instant, Value)>>` com
+`CATALOG_CACHE_TTL = 300s`, consultado dentro de `with_fallback` (por onde toda
+resposta remota passa).
+
+Medido no log de IPC do app antes da mudança:
+
+```text
+store:recent  +2436ms  primeira   |  retro:list  +1133ms  primeira
+store:recent     +0ms  segunda    |  retro:list  +1288ms  segunda  ← sem cache
+```
+
+A aba Store já tinha cache em memória; a Retro não. Agora refazer uma página
+visitada há menos de 5 minutos não custa ida ao servidor. `no_mirror` desliga o
+cache junto com o espelho.
+
+Garantia por teste: `catalog::tests::cache_evita_segunda_ida_ao_servidor` conta
+as chamadas ao remote e falha se a segunda passagem voltar à rede.
+
+## Capas: 1,25 MB por card
+
+`crates/arcadia-ipc/src/cover_cache.rs` + canal `retro:covers`.
+
+As capas apontam para o tamanho original em `raw.githubusercontent.com` e
+`images.launchbox-app.com`, servidas com `cache-control: max-age=300`:
+
+```text
+página de 24 jogos ....... 29,4 MB (medido, 8 downloads paralelos)
+média por capa ........... 1,25 MB
+maior capa (PNG) .........   494 KB
+```
+
+O backend baixa cada capa **uma vez**, reduz para 480 px de largura e grava em
+disco (`<data_dir>/covers/<sha256>.jpg`, JPEG q82). O card passa a receber o
+arquivo local como data URI. Medido numa capa real:
+
+```text
+original ......... 494 KB
+reduzida .........  77 KB  (15,5% do original)
+2a chamada .......  27 µs  (só disco)
+```
+
+O canal usa `buffer_unordered(6)`: serial levava **89,4 s** para 24 capas; com 6
+em paralelo, **14,1 s** na primeira visita e **0 ms** nas seguintes.
+
+Falha em qualquer etapa devolve a URL remota (comportamento anterior). Cache é
+otimização, nunca requisito.
+
+## Rolagem do catálogo
+
+- `ui/src/components/desktop/RetroStoreView.tsx`: o grid do catálogo ganha
+  `is-scrolling` durante o gesto (`useScrollActivity`, `ui/src/hooks/`). Com a
+  classe ligada, `ui/src/index.css` zera `animation-delay` e
+  `animation-duration` dos cards; o estado de repouso é idêntico ao anterior.
+  Sem isso, os 24 cards da página mantinham 12 animações `both` com atraso
+  escalonado (`nth-child(n+12)` = 220 ms) exatamente no momento em que o
+  compositor precisa entregar quadros.
+- `contain: layout paint style` no `.retro-catalog-card` passou a valer em
+  qualquer resolução. Antes vivia só em `@media (min-width: 1800px)`, então em
+  1080p/1440p o compositor reinvalidava a grade inteira por quadro. `size` fica
+  de fora de propósito: prender o tamanho colapsaria a capa `aspect-[2/3]`.
+- `.arcadia-desktop-retro::after` (véu `position: fixed` cobrindo a viewport,
+  `z-index: 90`) foi promovido a camada própria com `transform: translateZ(0)`.
+  Sem promoção ele era recomposto junto com o conteúdo a cada quadro.
+- O `content-visibility: auto` que já existia é mantido; ele é o que evita
+  layout das centenas de cards de páginas anteriores quando o catálogo acumula.
+
 ## Mudanças
 
 - `ui/src/components/desktop/retroPageCache.ts`: até 24 páginas recentes,

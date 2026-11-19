@@ -1594,6 +1594,13 @@ declare global {
         hasMore?: boolean
         error?: string
       }>
+      retroCovers: (payload?: {
+        urls?: { id: string; url: string }[]
+      }) => Promise<{
+        ok: boolean
+        covers?: Record<string, string>
+        error?: string
+      }>
       retroGame: (id: string) => Promise<{
         ok: boolean
         game?: RetroGame

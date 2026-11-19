@@ -177,6 +177,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   sourcesSearch: (query, limit) => ipcRenderer.invoke("sources:search", { query, limit }),
   sourcesGame: (ref) => ipcRenderer.invoke("sources:game", ref),
   retroList: (payload) => ipcRenderer.invoke("retro:list", payload || {}),
+  retroCovers: (payload) => ipcRenderer.invoke("retro:covers", payload || {}),
   retroGame: (id) => ipcRenderer.invoke("retro:game", id),
   retroOffer: (id) => ipcRenderer.invoke("retro:offer", id),
   retroStats: () => ipcRenderer.invoke("retro:stats"),

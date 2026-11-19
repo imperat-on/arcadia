@@ -118,6 +118,8 @@ pub struct HttpClient {
     config: Arc<ApiConfig>,
     client: reqwest::Client,
     preferred: Arc<AtomicUsize>,
+    /// Resolvedor DoH, guardado para o `marcar_preferido` após sucesso.
+    resolver: Arc<crate::dns::BackendResolver>,
 }
 
 impl HttpClient {
@@ -127,16 +129,26 @@ impl HttpClient {
 
     pub fn with_timeout(config: Arc<ApiConfig>, timeout: Duration) -> Result<Self, TransportError> {
         let connect_timeout = DEFAULT_CONNECT_TIMEOUT.min(timeout);
+        let resolver = Arc::new(crate::dns::BackendResolver::new());
         let client = reqwest::Client::builder()
             .connect_timeout(connect_timeout)
             .timeout(timeout)
+            // Resolvedor próprio: sistema com limite de 500 ms, DoH como
+            // reserva, cache de 5 min. Ver `crate::dns` para o motivo.
+            .dns_resolver(resolver.clone())
             .build()
             .map_err(|error| TransportError::from_reqwest(&error))?;
         Ok(Self {
             config,
             client,
             preferred: Arc::new(AtomicUsize::new(0)),
+            resolver,
         })
+    }
+
+    /// Resolvedor em uso (para inspeção e teste).
+    pub fn resolver(&self) -> &Arc<crate::dns::BackendResolver> {
+        &self.resolver
     }
 
     pub fn config(&self) -> &ApiConfig {

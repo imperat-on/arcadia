@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { ALL_MSGS, toLocale, type Vars } from "."
 import { userLocale } from "./locale"
 
@@ -53,21 +53,31 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const t = (key: string, vars?: Vars): string => {
-    let s = msgs[key] || key
-    if (vars) {
-      for (const [k, v] of Object.entries(vars)) {
-        s = s.split(`{${k}}`).join(String(v))
+  // `t` precisa ser estável: ela entra nas props de componentes memoizados
+  // (RetroCard compara `previous.t === next.t`), e uma função nova a cada
+  // render do provider invalidava o memo de TODOS os cards da grade. Só muda
+  // quando o idioma muda, porque só `msgs` entra na closure.
+  const t = useCallback(
+    (key: string, vars?: Vars): string => {
+      let s = msgs[key] || key
+      if (vars) {
+        for (const [k, v] of Object.entries(vars)) {
+          s = s.split(`{${k}}`).join(String(v))
+        }
       }
-    }
-    return s
-  }
+      return s
+    },
+    [msgs],
+  )
 
   const locale = toLocale(lang)
 
-  return (
-    <I18nContext.Provider value={{ lang, t, locale, setLang }}>{children}</I18nContext.Provider>
-  )
+  // O `value` também precisa ser estável: um objeto literal novo a cada render
+  // re-renderiza todo consumidor de `useI18n`, inclusive árvores grandes que
+  // nada têm a ver com idioma.
+  const value = useMemo(() => ({ lang, t, locale, setLang }), [lang, t, locale])
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
 export function useI18n() {

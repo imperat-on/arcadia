@@ -402,8 +402,72 @@ mod tests {
     }
 }
 
+/// Aplica as correções de vídeo do WebKitGTK antes de qualquer webview existir.
+///
+/// Precisa rodar no `main`, não num script de entrada: o `.deb` instala um
+/// `.desktop` com `Exec=arcadia` direto, e o AppImage roda o binário pelo
+/// `AppRun`. Um `export` num launcher externo não chega até aqui — só o próprio
+/// processo garante o ambiente para os filhos (WebKitWebProcess herda).
+///
+/// O problema: com driver NVIDIA proprietário, o sink GL do WebKitGTK entrega o
+/// frame de vídeo sem converter YUV→RGB, e o trailer aparece como retângulo
+/// verde (a duração e a timeline ficam corretas — é falha de conversão, não de
+/// decode).
+///
+/// A correção é desligar SÓ o GL sink do vídeo. `WEBKIT_DISABLE_DMABUF_RENDERER`
+/// também resolve o verde, mas desliga o zero-copy do compositing inteiro e
+/// deixa a UI arrastada — já testado e descartado.
+fn aplicar_correcoes_de_video() {
+    // Detecta o driver proprietário da NVIDIA: ele registra /proc/driver/nvidia
+    // e não é o `nouveau`. É onde o sink GL entrega o frame sem converter.
+    //
+    // Intel, AMD e NVIDIA aberto (nouveau) não têm esse arquivo e ficam
+    // intocados — o vídeo funciona nativamente lá.
+    let driver_nvidia = std::path::Path::new("/proc/driver/nvidia/version").is_file();
+    let forcar = std::env::var("ARCADIA_FORCE_GL_SINK_OFF").is_ok();
+    let manter = std::env::var("ARCADIA_KEEP_GL_SINK").is_ok();
+
+    if manter {
+        return;
+    }
+    if forcar || driver_nvidia {
+        std::env::set_var("WEBKIT_GST_DISABLE_GL_SINK", "1");
+    }
+
+    // Plugins de codec extraídos sem root (Arch sem gst-plugins-bad instalado).
+    // O WebKitWebProcess herda este ambiente, então basta setar aqui.
+    if std::env::var_os("GST_PLUGIN_PATH").is_none() {
+        if let Some(home) = std::env::var_os("HOME") {
+            let plugins = std::path::PathBuf::from(home)
+                .join(".local")
+                .join("lib")
+                .join("gstreamer-1.0");
+            if plugins.is_dir() {
+                std::env::set_var("GST_PLUGIN_PATH", plugins);
+            }
+        }
+    }
+}
+
 fn main() {
+    aplicar_correcoes_de_video();
     let data_dir = arcadia_store::paths::resolve_data_dir();
+    // O worker Python do torrent viaja com os recursos do app, não no data_dir.
+    // Resolve o caminho ANTES de construir o AppState, para que o
+    // `DownloadServiceConfig` já nasça apontando para o arquivo certo.
+    let torrent_worker = [
+        data_dir.join("torrent_rpc").join("main.py"),
+        data_dir.join("resources").join("torrent_rpc").join("main.py"),
+    ]
+    .into_iter()
+    .chain(std::env::current_exe().ok().and_then(|exe| {
+        exe.parent()
+            .map(|dir| dir.join("resources").join("torrent_rpc").join("main.py"))
+    }))
+    .find(|path| path.is_file());
+    if let Some(worker) = &torrent_worker {
+        std::env::set_var("ARCADIA_TORRENT_WORKER", worker);
+    }
     let api = match arcadia_api::ApiClient::from_env() {
         Ok(api) => Some(Arc::new(api)),
         Err(error) => {
@@ -411,10 +475,15 @@ fn main() {
             None
         }
     };
-    let state = match api.clone() {
+    let mut state = match api.clone() {
         Some(api) => AppState::with_api(data_dir.clone(), api),
         None => AppState::new(data_dir.clone()),
     };
+    // O worker Python do torrent não existe no data_dir do usuário: ele vem
+    // junto com os recursos do app. A variável de ambiente acima já resolveu
+    // isso; este bloco só mantém o fallback explícito para quem constrói o
+    // AppState fora do `main` (testes).
+    state.set_torrent_worker_opt(torrent_worker.clone());
     let data_dir_for_events = data_dir.clone();
     let api_for_events = api.clone();
 

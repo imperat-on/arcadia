@@ -725,18 +725,21 @@ mod tests {
 
     #[test]
     fn path_helpers_build_the_real_steam_layouts() {
+        // `Path::join` usa o separador do host, não o da plataforma simulada:
+        // literais Windows com `\\` só funcionam no Windows. Montar o esperado
+        // com `join` testa o mesmo layout e roda em qualquer host.
         let root = Path::new("C:\\Steam");
         assert_eq!(
             login_users_path(root),
-            Path::new("C:\\Steam\\config\\loginusers.vdf")
+            root.join("config").join("loginusers.vdf")
         );
         assert_eq!(
             config_vdf_path(root),
-            Path::new("C:\\Steam\\config\\config.vdf")
+            root.join("config").join("config.vdf")
         );
         assert_eq!(
             local_config_path(root, CONTA_A).unwrap(),
-            Path::new("C:\\Steam\\userdata\\39738813\\config\\localconfig.vdf")
+            root.join("userdata").join("39738813").join("config").join("localconfig.vdf")
         );
         assert!(local_config_path(root, "lixo").is_none());
     }

@@ -13,6 +13,11 @@ pub mod legendary_service;
 pub mod media_service;
 pub mod news;
 pub mod protondb;
+pub mod realtime;
+pub mod cover_cache;
+pub mod discord_rpc;
+pub mod updater_backend;
+pub mod updater_service;
 pub mod steam_service;
 pub mod trailer_service;
 pub mod wine_service;
@@ -64,7 +69,7 @@ use arcadia_sync::{SyncEngine, SyncError, SyncReport, SyncState};
 use arcadia_download::manager::FilePersistence;
 
 use crate::download_service::{DownloadService, DownloadServiceConfig};
-use crate::launch_runtime::{EventSink, LaunchRuntime};
+pub use crate::launch_runtime::{EventSink, LaunchRuntime};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -119,6 +124,16 @@ pub struct AppState {
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
     pub downloads: Arc<DownloadService<FilePersistence>>,
+    /// Caminho do worker Python do torrent, quando a borda resolveu um.
+    pub torrent_worker: Option<PathBuf>,
+    /// Auto-update do canal empacotado (AppImage/NSIS).
+    pub updater: crate::updater_service::UpdateService,
+    /// Rich Presence do Discord (silencioso quando desligado).
+    pub discord: crate::discord_rpc::DiscordRpc,
+    /// Canais realtime (friends/library/achievements).
+    pub realtime: crate::realtime::Realtime,
+    /// Cache local das capas Retro (baixa uma vez, reduz, guarda em disco).
+    pub covers: crate::cover_cache::CoverCache,
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
@@ -134,6 +149,18 @@ pub struct AppState {
     boot_restored: OnceCell<()>,
 }
 
+/// Worker Python do torrent, quando a borda apontou um caminho.
+///
+/// A variável é setada pelo shell (Tauri no `main`, Electron no preload) porque
+/// só ele sabe onde o bundle colocou os recursos. Sem ela o serviço cai no
+/// default `data_dir/torrent_rpc/main.py`, que não existe em instalação
+/// empacotada.
+fn torrent_worker_from_env() -> Option<PathBuf> {
+    let raw = std::env::var("ARCADIA_TORRENT_WORKER").ok()?;
+    let path = PathBuf::from(raw.trim());
+    path.is_file().then_some(path)
+}
+
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
         Self::build(data_dir, None)
@@ -143,6 +170,30 @@ impl AppState {
         let state = Self::build(data_dir, Some(api));
         state.load_boot_session();
         state
+    }
+
+    /// Redireciona o worker Python do torrent para um caminho real.
+    ///
+    /// `DownloadServiceConfig::new` assume `data_dir/torrent_rpc/main.py`, mas
+    /// nada popula esse diretório: no Electron o worker vinha de
+    /// `__dirname/torrent_rpc`, sempre presente. No shell empacotado o único
+    /// lugar garantido é o diretório de recursos do bundle, que só a borda
+    /// (Tauri/Electron) sabe resolver. Sem esta chamada o download por torrent
+    /// falha ao conectar, sem mensagem clara.
+    pub fn set_torrent_worker(&mut self, path: impl Into<PathBuf>) {
+        let path = path.into();
+        if !path.is_file() {
+            return;
+        }
+        self.torrent_worker = Some(path);
+    }
+
+    /// Igual a [`set_torrent_worker`](Self::set_torrent_worker), mas aceita o
+    /// resultado de uma busca que pode não ter achado nada.
+    pub fn set_torrent_worker_opt(&mut self, path: Option<PathBuf>) {
+        if let Some(path) = path.filter(|path| path.is_file()) {
+            self.torrent_worker = Some(path);
+        }
     }
 
     fn build(data_dir: PathBuf, api: Option<Arc<ApiClient>>) -> Self {
@@ -161,14 +212,46 @@ impl AppState {
                 }
             });
         let plugins = PluginRegistry::with_standard_builtins(&data_dir, false, false).ok();
-        let mut downloads = DownloadService::open(
-            &data_dir,
-            DownloadServiceConfig::new(&data_dir),
-        );
+        // O worker do torrent vem dos recursos do app, não do data_dir. Sem
+        // isto o `DownloadServiceConfig::new` aponta para um arquivo que nunca
+        // existe e o download por torrent falha ao conectar.
+        let mut dl_config = DownloadServiceConfig::new(&data_dir);
+        if let Some(worker) = torrent_worker_from_env() {
+            dl_config.torrent_worker = worker;
+        }
+        let mut downloads = DownloadService::open(&data_dir, dl_config);
         if let Some(api) = &api {
             downloads = downloads.with_debrid_fetcher(Arc::new(CatalogFetcher::new(api.http().clone())));
         }
         let downloads = Arc::new(downloads);
+        let updater = crate::updater_service::UpdateService::new(data_dir.clone(), APP_VERSION);
+        let dir_covers = data_dir.clone();
+        // O cliente lê a config a cada chamada: mudar o toggle nas
+        // Configurações tem efeito sem reiniciar.
+        let discord = {
+            let dir = data_dir.clone();
+            crate::discord_rpc::DiscordRpc::new(move || {
+                let config = arcadia_store::config::read_config(&dir);
+                let ligado = config
+                    .get("discord_rich_presence")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if !ligado {
+                    return None;
+                }
+                let id = std::env::var("ARCADIA_DISCORD_CLIENT_ID")
+                    .ok()
+                    .or_else(|| {
+                        config
+                            .get("discord_client_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_else(|| "1537346240579248219".to_string());
+                let id = id.trim().to_string();
+                (!id.is_empty()).then_some(id)
+            })
+        };
         Self {
             data_dir,
             mode: Mutex::new(mode),
@@ -180,6 +263,11 @@ impl AppState {
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
             downloads,
+            torrent_worker: None,
+            updater,
+            discord,
+            realtime: crate::realtime::Realtime::new(),
+            covers: crate::cover_cache::CoverCache::new(&dir_covers),
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
@@ -446,6 +534,7 @@ impl AppState {
     /// Eventos de background (launch/monitor) vão para a janela via este sink.
     pub fn set_event_sink(&self, sink: EventSink) {
         *lock(&self.background_events) = Some(Arc::clone(&sink));
+        self.realtime.set_sink(Arc::clone(&sink));
         self.downloads.set_event_sink(Arc::clone(&sink));
         let done_sink = Arc::clone(&sink);
         self.downloads.set_done_sink(Arc::new(move |item| {
@@ -937,36 +1026,76 @@ pub fn dispatch(
             )))
         }
         "app:diagnostics" => Ok(diagnostics::collect(&state.data_dir, APP_VERSION)),
-        // Updater ainda não portado: a UI recebe o estado "sem suporte" em vez
-        // de um erro de canal, e não oferece um download que não existe.
-        "update:packaged:state" => Ok(json!({
-            "canal": "fonte",
-            "suportado": false,
-            "versaoAtual": APP_VERSION,
-            "versaoNova": null,
-            "tamanho": null,
-            "fase": "ocioso",
-            "progresso": 0,
-            "erro": null,
-            "erroDeFundo": false,
-            "erroAcao": null,
-            "jaAvisado": false,
-            "jogoRodando": false
-        })),
-        "update:state" => Ok(json!({
-            "canal": "fonte",
-            "suportado": false,
-            "versao": APP_VERSION,
-            "disponivel": false
-        })),
-        "update:check" => Ok(json!({ "ok": false, "error": "nao_suportado" })),
-        "update:apply" => Ok(json!({ "ok": false, "error": "nao_suportado" })),
-        "update:packaged:check" => Ok(json!({
-            "ok": false, "disponivel": false, "motivo": "fonte"
-        })),
-        "update:packaged:download" => Ok(json!({ "ok": false, "erro": "fonte" })),
-        "update:packaged:install" => Ok(json!({ "ok": false, "erro": "fonte" })),
-        "update:packaged:jaAvisado" => Ok(json!({ "ok": false })),
+        "update:packaged:state" => {
+            let estado = state.updater.state();
+            Ok(serde_json::to_value(estado).unwrap_or_else(|_| json!({
+                "canal": "sem_suporte",
+                "suportado": false,
+                "versaoAtual": APP_VERSION,
+                "versaoNova": null,
+                "tamanho": null,
+                "fase": "ocioso",
+                "progresso": 0,
+                "erro": null,
+                "erroDeFundo": false,
+                "erroAcao": null,
+                "jaAvisado": false,
+                "jogoRodando": false
+            })))
+        }
+        "update:state" => {
+            let estado = state.updater.state();
+            Ok(json!({
+                "canal": estado.canal,
+                "suportado": estado.suportado,
+                "versao": APP_VERSION,
+                "disponivel": estado.versao_nova.is_some()
+            }))
+        }
+        "update:check" => {
+            // Canal `fonte` (rodando do checkout) atualiza por git; os demais
+            // passam pelo serviço empacotado.
+            let resultado = state.updater.check(true);
+            Ok(serde_json::to_value(resultado).unwrap_or_else(|_| json!({
+                "ok": false, "disponivel": false, "erro": "resposta inválida"
+            })))
+        }
+        "update:apply" => {
+            let resultado = state.updater.install();
+            Ok(serde_json::to_value(resultado).unwrap_or_else(|_| json!({
+                "ok": false, "erro": "resposta inválida"
+            })))
+        }
+        "update:packaged:check" => {
+            let manual = args
+                .first()
+                .and_then(|value| value.get("manual"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let resultado = state.updater.check(manual);
+            Ok(serde_json::to_value(resultado).unwrap_or_else(|_| json!({
+                "ok": false, "disponivel": false, "motivo": "erro"
+            })))
+        }
+        "update:packaged:download" => {
+            let resultado = state.updater.download();
+            Ok(serde_json::to_value(resultado).unwrap_or_else(|_| json!({
+                "ok": false, "erro": "resposta inválida"
+            })))
+        }
+        "update:packaged:install" => {
+            let resultado = state.updater.install();
+            Ok(serde_json::to_value(resultado).unwrap_or_else(|_| json!({
+                "ok": false, "erro": "resposta inválida"
+            })))
+        }
+        "update:packaged:jaAvisado" => {
+            let versao = args
+                .first()
+                .and_then(|value| value.get("versao"))
+                .and_then(Value::as_str);
+            Ok(json!({ "ok": state.updater.mark_advised(versao) }))
+        }
         "app:diagnostico" => {
             let read_state = |name: &str| {
                 std::fs::read_to_string(
@@ -1124,7 +1253,28 @@ pub fn dispatch(
             })?)
         }
         "plugins:install" | "plugins:remove" => {
-            Ok(json!({ "ok": false, "error": "nao_suportado" }))
+            // Semântica idêntica ao Electron (plugins.js:install/remove):
+            //   install  → só ATIVA depois de detectar o plugin no sistema.
+            //              Não baixa nada. Falha com "not_detected" se o
+            //              arquivo não estiver lá.
+            //   remove   → só DESATIVA a flag. Nunca apaga o arquivo do
+            //              usuário — ele foi colocado fora do Arcadia.
+            //
+            // `luatools-fixes` é exceção nos dois sentidos: é só uma flag
+            // local (fixes do sistema), não um arquivo a detectar.
+            let instalar = channel == "plugins:install";
+            let id = plugin_id_from_ipc(&args.first().cloned().unwrap_or(Value::Null));
+            let normalized = id.trim().to_lowercase();
+            if normalized.is_empty() {
+                return Ok(json!({ "ok": false, "error": "plugin desconhecido" }));
+            }
+            let eh_luatools = normalized == "luatools-fixes";
+            Ok(state.with_plugins(channel, |registry| {
+                // install exige detecção; remove só limpa a flag.
+                let permitir_nao_detectado = eh_luatools || !instalar;
+                let result = registry.set_enabled_with(&normalized, instalar, permitir_nao_detectado);
+                serde_json::to_value(result).unwrap_or_else(|_| json!({ "ok": false }))
+            })?)
         }
         "retro:stats" => {
             let catalog = state.retro_catalog(channel)?;
@@ -1985,6 +2135,59 @@ async fn dispatch_async_inner(
             let catalog = state.retro_server_catalog(channel)?;
             Ok(catalog.list(&payload).await)
         }
+        // Prepara as capas de vários jogos de uma vez e devolve `id -> data URI`.
+        //
+        // Uma chamada por página (24 itens) em vez de 24 chamadas: cada card
+        // deixa de baixar o PNG original de ~1,25 MB e passa a exibir a versão
+        // reduzida em disco. Sem isto a primeira visita baixa ~29 MB só de
+        // capas — medido nesta máquina.
+        "retro:covers" => {
+            let itens: Vec<(String, String)> = args
+                .first()
+                .and_then(|valor| valor.get("urls"))
+                .and_then(Value::as_array)
+                .map(|urls| {
+                    urls.iter()
+                        .take(64)
+                        .filter_map(|item| {
+                            let url = item.get("url").and_then(Value::as_str)?;
+                            let id = item.get("id").and_then(Value::as_str)?;
+                            Some((id.to_string(), url.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Concorrência limitada: serial levava 89 s para 24 capas (medido);
+            // 6 em paralelo cabe na banda doméstica sem afogar a rede que a UI
+            // também usa.
+            use futures_util::stream::{self, StreamExt};
+            let baixadas: Vec<(String, Option<std::path::PathBuf>)> = stream::iter(itens)
+                .map(|(id, url)| async move {
+                    let caminho = state.covers.obter(&url).await;
+                    (id, caminho)
+                })
+                .buffer_unordered(6)
+                .collect()
+                .await;
+
+            use base64::Engine;
+            let mut saida = serde_json::Map::new();
+            for (id, caminho) in baixadas {
+                let Some(caminho) = caminho else {
+                    continue;
+                };
+                let Ok(bytes) = std::fs::read(&caminho) else {
+                    continue;
+                };
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                saida.insert(
+                    id,
+                    Value::String(format!("data:image/jpeg;base64,{encoded}")),
+                );
+            }
+            Ok(json!({ "ok": true, "covers": saida }))
+        }
         "retro:game" => {
             let id = args.first().and_then(Value::as_str).unwrap_or_default();
             let catalog = state.retro_server_catalog(channel)?;
@@ -2115,11 +2318,43 @@ async fn dispatch_async_inner(
         | "community:collection:report" => Ok(community_channel(state, channel, args).await),
         "game:launch" => {
             let payload = args.first().cloned().unwrap_or(Value::Null);
-            Ok(state
-                .launch
-                .launch(&state.data_dir, state.account().as_deref(), &payload))
+            let resultado =
+                state
+                    .launch
+                    .launch(&state.data_dir, state.account().as_deref(), &payload);
+            // Presença só entra se o launch deu certo. Falha de Discord nunca
+            // afeta o resultado do launch. O título sai da biblioteca pelo
+            // `gameId`, igual ao Electron (`lib?.title || gameId`).
+            if resultado.get("ok").and_then(Value::as_bool) == Some(true) {
+                let game_id = payload
+                    .get("gameId")
+                    .or_else(|| payload.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let biblioteca = read_games(&state.data_dir, state.account().as_deref());
+                let jogo = biblioteca
+                    .iter()
+                    .find(|jogo| {
+                        jogo.get("id").and_then(Value::as_str) == Some(game_id)
+                    });
+                let titulo = jogo
+                    .and_then(|jogo| jogo.get("title"))
+                    .and_then(Value::as_str)
+                    .filter(|titulo| !titulo.is_empty())
+                    .unwrap_or(game_id);
+                let launcher = jogo
+                    .and_then(|jogo| jogo.get("launcher"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("jogo");
+                state.discord.set_game(titulo, launcher);
+            }
+            Ok(resultado)
         }
-        "game:close" => Ok(state.launch.close()),
+        "game:close" => {
+            let resultado = state.launch.close();
+            state.discord.clear();
+            Ok(resultado)
+        }
         "sync:state" => Ok(match state.sync_engine(channel) {
             Ok(engine) => sync_state_json(&engine.state()),
             Err(_) => sync_state_json(&SyncState::default()),
@@ -2691,10 +2926,32 @@ async fn account_sign_in(
         Ok(response) => {
             state.install_session(&response.session);
             trigger_reconcile(state, &response.session);
+            // Realtime só depois da sessão instalada: o token precisa existir.
+            assinar_realtime(state, &response.session);
             Ok(json!({ "ok": true }))
         }
         Err(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
     }
+}
+
+/// Assina os três canais realtime da sessão, em background.
+///
+/// Falha aqui nunca afeta o login: o renderer só perde frescor imediato e cai
+/// no refresh normal.
+fn assinar_realtime(state: &AppState, session: &Session) {
+    let Some(user_id) = session.user_id().map(str::to_string) else {
+        return;
+    };
+    let token = session.access_token.clone();
+    let base = state.api().map(|api| api.config().url.clone());
+    let Some(base) = base else {
+        return;
+    };
+    // Os canais vivem em tasks do tokio; o `Realtime` guarda os handles para
+    // poder derrubar tudo no logout.
+    state
+        .realtime
+        .assinar_sessao(&base, &user_id, &token);
 }
 
 /// Pull/reconcile em background após login, como o `setImmediate` do Electron.
@@ -2811,6 +3068,9 @@ async fn account_sign_out(
         Some(api) => api.auth().sign_out().await.err(),
         None => None,
     };
+    // Derruba os canais antes de esquecer a sessão: sem isso, o socket tentaria
+    // reconectar com um token que não existe mais.
+    state.realtime.parar_tudo();
     state.forget_session();
     match network_error {
         Some(error) => Ok(json!({ "ok": false, "error": api_failure_message(&error) })),
@@ -3203,6 +3463,72 @@ mod tests {
         AppState::new(std::env::temp_dir())
     }
 
+    /// Os canais de auto-update respondem no formato que a UI consome, mesmo
+    /// quando não há update (canal `fonte` no test run).
+    #[test]
+    fn canais_de_update_respondem_no_formato_da_ui() {
+        let state = state();
+
+        let estado = dispatch(&state, &MockShell, "update:packaged:state", vec![]).unwrap();
+        for campo in [
+            "canal",
+            "suportado",
+            "versaoAtual",
+            "versaoNova",
+            "tamanho",
+            "fase",
+            "progresso",
+            "erro",
+            "erroDeFundo",
+            "erroAcao",
+            "jaAvisado",
+            "jogoRodando",
+        ] {
+            assert!(
+                estado.get(campo).is_some(),
+                "update:packaged:state sem o campo `{campo}`"
+            );
+        }
+        assert_eq!(estado["versaoAtual"], APP_VERSION);
+
+        let checagem = dispatch(
+            &state,
+            &MockShell,
+            "update:packaged:check",
+            vec![json!({ "manual": true })],
+        )
+        .unwrap();
+        assert!(checagem.get("ok").is_some());
+        assert!(checagem.get("disponivel").is_some());
+
+        // Sem canal empacotado, baixar/instalar recusa de forma limpa.
+        let baixar = dispatch(&state, &MockShell, "update:packaged:download", vec![]).unwrap();
+        assert_eq!(baixar["ok"], false);
+        let instalar = dispatch(&state, &MockShell, "update:packaged:install", vec![]).unwrap();
+        assert_eq!(instalar["ok"], false);
+
+        let avisado = dispatch(
+            &state,
+            &MockShell,
+            "update:packaged:jaAvisado",
+            vec![json!({ "versao": "9.9.9" })],
+        )
+        .unwrap();
+        assert_eq!(avisado["ok"], true);
+    }
+
+    /// Presença do Discord não pode derrubar nem atrasar o launch.
+    #[test]
+    fn discord_desligado_nao_interfere_no_launch() {
+        let state = state();
+        // Sem config de presença, as chamadas são no-op silencioso.
+        state.discord.set_game("Qualquer Jogo", "steam");
+        state.discord.clear();
+        // O estado do updater segue consultável depois (nenhum lock envenenado).
+        let estado = dispatch(&state, &MockShell, "update:packaged:state", vec![]).unwrap();
+        assert_eq!(estado["versaoAtual"], APP_VERSION);
+    }
+
     #[test]
     fn manifest_matches_generated_channel_lists() {
         let raw = std::fs::read_to_string(concat!(
@@ -3591,6 +3917,63 @@ mod tests {
         assert_eq!(state.achievements_tick(), 0);
         assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
         let _ = std::fs::remove_dir_all(&state.data_dir);
+    }
+
+    #[test]
+    fn plugins_install_e_remove_seguem_a_semantica_do_electron() {
+        // install ativa só se detectar o plugin; remove só desativa a flag.
+        // Nenhum dos dois apaga arquivo do usuário.
+        let dir = std::env::temp_dir().join(format!("arcadia-plugins-io-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = AppState::new(dir.clone());
+
+        // id vazio / desconhecido → erro claro, não pânico.
+        let vazio = dispatch(&state, &MockShell, "plugins:install", vec![json!("")]).unwrap();
+        assert_eq!(vazio["ok"], false);
+
+        // `luatools-fixes` é flag local: ativa sem detecção.
+        let on = dispatch(
+            &state,
+            &MockShell,
+            "plugins:install",
+            vec![json!("luatools-fixes")],
+        )
+        .unwrap();
+        assert_eq!(on["ok"], true, "luatools deveria ativar: {on}");
+
+        // remove desativa e não apaga nada.
+        let off = dispatch(
+            &state,
+            &MockShell,
+            "plugins:remove",
+            vec![json!("luatools-fixes")],
+        )
+        .unwrap();
+        assert_eq!(off["ok"], true, "remove deveria desativar: {off}");
+
+        // `slssteam` sem o .so no sistema → install recusa (not_detected).
+        // remove, ao contrário, sempre aceita: só limpa a flag.
+        let sls = dispatch(
+            &state,
+            &MockShell,
+            "plugins:install",
+            vec![json!("slssteam")],
+        )
+        .unwrap();
+        assert_eq!(
+            sls["ok"], false,
+            "slssteam sem arquivo não pode ativar: {sls}"
+        );
+        let sls_off = dispatch(
+            &state,
+            &MockShell,
+            "plugins:remove",
+            vec![json!("slssteam")],
+        )
+        .unwrap();
+        assert_eq!(sls_off["ok"], true, "remove deve aceitar sempre: {sls_off}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

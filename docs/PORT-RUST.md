@@ -610,10 +610,59 @@ O backup pré-Rust roda na primeira escrita do config: copia `config.json`, `ses
 
 `cargo build --release --features custom-protocol` (ou `tauri build`). O Tauri só embarca os assets da UI e ignora o `devUrl` com essa feature — sem ela, o release abre `ERR_CONNECTION_REFUSED` em `localhost:1420`. Verificado nesta máquina: binário release abriu o desktop launcher logado, com assets embarcados e o Vite desligado.
 
+### Camada de rede — portado
+
+**DoH + preferência de IP** (`crates/arcadia-api/src/dns.rs`). Espelha
+`resolveBackendIpv4` de `supabase/client.js`:
+
+- resolvedor do sistema com limite de **500 ms** (`SYSTEM_DNS_TIMEOUT`);
+- se o sistema não entregar IPv4, consulta `cloudflare-dns.com/dns-query` com
+  `Accept: application/dns-json` e filtra `Answer[].type == 1`;
+- cache de **5 minutos** por host (`CACHE_TTL`);
+- o IP que respondeu por último vai para a frente da lista devolvida ao
+  hyper (`marcar_preferido`), resto segue como reserva;
+- encaixado no `reqwest` por `ClientBuilder::dns_resolver`.
+
+Diferença assumida: o JS tenta os IPs em sequência porque monta a conexão na
+mão com `https.request`. Aqui o hyper recebe a lista inteira e faz a própria
+rotação — mesma intenção, cobertura melhor. O "pinning" do JS vira ordenação,
+não uma nova tentativa.
+
+Medido nesta máquina (`examples/prova_dns.rs`):
+
+```text
+sistema/DoH  workers.dev -> [104.21.94.232, 172.67.141.77]   172 ms
+cache        workers.dev -> [104.21.94.232, 172.67.141.77]     4 µs
+invalido     .invalid    -> falha em 152 ms (sem travar)
+HttpClient   GET /auth/v1/health -> 404
+```
+
+**Realtime WebSocket** (`crates/arcadia-ipc/src/realtime.rs`). Port do
+`channel(name)` "Phoenix-lite":
+
+- handshake `phx_join` com `access_token` e `config.postgres_changes: []`;
+- espera `phx_reply` com status `ok` (limite de 15 s; join recusado derruba a
+  conexão, como o `ws.close()` do original);
+- entrega `postgres_changes` aos handlers e ao sink da janela
+  (`friends:changed`);
+- reconexão fixa de **3 s** enquanto assinado; `unsubscribe` aborta a tarefa;
+- `Ping` → `Pong` para não deixar o socket morrer calado.
+
+Os três tópicos do Electron são abertos no login
+(`assinar_sessao`: `friends-<id>`, `library-<id>`, `achievements-<id>`) e
+derrubados no logout antes de `forget_session`.
+
+Verificado contra um servidor Phoenix de mentira
+(`scripts/phoenix_de_mentira.py` + `examples/prova_realtime.rs`): join aceito,
+2 eventos entregues, 2 emits para a UI, e nenhum evento novo depois do
+`unsubscribe`.
+
 ### Pendências conhecidas da camada de rede
 
-- Realtime WebSocket (`channel()`/`phx_join`) ainda não portado — biblioteca/friends/sync vão precisar de um componente próprio.
-- DoH + pinning IPv4 + deadline único do `httpfetch.js` ainda não implementados; o cliente usa o resolver do sistema e fallback entre endpoints.
+- `httpfetch.js` não tem DoH nem pinning — nunca teve. O cache de conexão e o
+  failover entre endpoints (`urls[]`) estão portados no `HttpClient`.
+- Realtime cobre `friends`/`library`/`achievements`. Não há heartbeat
+  (`phx_heartbeat`), porque o cliente Electron também não manda.
 
 ### Próximo marco — Fase 2 (continuação)
 

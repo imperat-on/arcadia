@@ -1,4 +1,11 @@
-# Toolchain desta máquina: MSVC sem vcvars no shell (Git Bash).
-# O tauri-winres procura RC.EXE; apontamos direto para o SDK instalado.
-[env]
-RC = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\rc.exe'
+# Config local do Cargo.
+#
+# AQUI NÃO FICA `RC`. O `tauri-winres` procura o resource compiler do toolkit;
+# fixar um caminho absoluto do Windows SDK neste arquivo quebra qualquer outro
+# host — Linux, CI, ou uma máquina Windows com outra versão do SDK. Quem precisa
+# apontar o RC exporta no ambiente:
+#
+#   Windows (MSVC):   RC='C:\...\Windows Kits\10\bin\<ver>\x64\rc.exe'
+#   Cross (Linux):    RC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-windres
+#
+# `scripts/package-windows.sh` exporta o valor certo para cada caso.

@@ -1433,6 +1433,21 @@ select:disabled {
 .retro-catalog-card {
   content-visibility: auto;
   contain-intrinsic-size: 430px;
+  /* Isolamento de estilo/paint sempre ativo, em qualquer resolução. Antes
+     isto só existia dentro de @media (min-width: 1800px), então em 1080p e
+     1440p o compositor reinvalidava a grade inteira a cada quadro de scroll.
+     Sem `contain: size`: o tamanho vem do conteúdo, e prendê-lo colapsaria a
+     capa aspect-[2/3]. */
+  contain: layout paint style;
+}
+
+/* Enquanto o gesto de scroll está ativo, a entrada em cascata dos cards custa
+   uma animação por card justamente no momento em que o compositor mais precisa
+   de folga. Os atrasos escalonados são a variável de custo; zerá-los mantém a
+   transição de opacidade e devolve os quadros ao scroll. */
+.retro-catalog-grid.grid-stagger.is-scrolling > * {
+  animation-delay: 0ms !important;
+  animation-duration: 1ms !important;
 }
 
 .store-catalog-row {
@@ -1803,6 +1818,11 @@ select:disabled {
   content: "";
   opacity: .16;
   background: var(--background);
+  /* Camada própria: sem isto o véu é recomposto junto com o conteúdo a cada
+     quadro de scroll, porque pinta sobre uma área que muda. Promovido, ele é
+     um plano estático que o compositor só mistura. */
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .desktop-retro-sidebar {

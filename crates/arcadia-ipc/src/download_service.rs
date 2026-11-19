@@ -58,7 +58,8 @@ pub const EVENT_TORRENT_PROGRESS: &str = "torrent:progress";
 pub const ERRO_DEBRID: &str = "Sem debrid conectado — downloads por torrent exigem debrid.";
 pub const ERRO_LIBTORRENT_WINDOWS: &str =
     "lista de arquivos indisponível no Windows (engine aria2)";
-pub const ERRO_LIBTORRENT: &str = "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)";
+pub const ERRO_LIBTORRENT: &str =
+    "libtorrent (binding Python) não instalado — pip install libtorrent, ou veja docs/DEPENDENCIAS.md";
 
 pub type EventSink = Arc<dyn Fn(&str, Value) + Send + Sync>;
 pub type DoneSink = Arc<dyn Fn(Value) + Send + Sync>;
@@ -855,6 +856,77 @@ pub struct DownloadServiceConfig {
     pub monitor_interval: Duration,
 }
 
+/// Interpretador Python que realmente tem `libtorrent`.
+///
+/// O `python3` do sistema pode não ter o binding, e o torrent morre sem
+/// mensagem. Ordem de preferência:
+///
+/// 1. `ARCADIA_PYTHON` — override explícito.
+/// 2. venv dedicado em `~/.local/share/arcadia-torrent` (criado fora do app,
+///    com Python de versão que tenha wheel).
+/// 3. `python3` do PATH, se importar libtorrent.
+///
+/// Devolve `(interpretador, disponível)`. O interpretador é sempre algo
+/// executável: se nada tiver libtorrent, cai no `python3` e a flag fica false —
+/// a UI mostra a mensagem em vez de o worker explodir no spawn.
+fn interpretador_torrent() -> (String, bool) {
+    let mut candidatos: Vec<String> = Vec::new();
+    if let Ok(explicito) = std::env::var("ARCADIA_PYTHON") {
+        let explicito = explicito.trim();
+        if !explicito.is_empty() {
+            candidatos.push(explicito.to_string());
+        }
+    }
+    // O layout do venv muda por plataforma: POSIX usa bin/python, Windows usa
+    // Scripts/python.exe. E o nome do executável do sistema também: no Windows
+    // é `python`, não `python3` — chamar `python3` lá falha no spawn.
+    let (venv_bin, venv_exe) = if cfg!(windows) {
+        ("Scripts", "python.exe")
+    } else {
+        ("bin", "python")
+    };
+    let (sistema, sistema_alt) = if cfg!(windows) {
+        ("python", "python3")
+    } else {
+        ("python3", "python")
+    };
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let venv = PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("arcadia-torrent")
+            .join(venv_bin)
+            .join(venv_exe);
+        candidatos.push(venv.display().to_string());
+    }
+    candidatos.push(sistema.to_string());
+    candidatos.push(sistema_alt.to_string());
+
+    for candidato in &candidatos {
+        if libtorrent_disponivel(candidato) {
+            return (candidato.clone(), true);
+        }
+    }
+    (sistema.to_string(), false)
+}
+
+/// `libtorrent` está importável no interpretador configurado?
+///
+/// Antes isto era `true` fixo: a checagem de `libtorrent_available` existia mas
+/// nunca disparava, então a UI prometia torrent e a conexão morria sem
+/// mensagem. Sondar de verdade custa um processo Python no boot e evita o
+/// silêncio.
+fn libtorrent_disponivel(python: &str) -> bool {
+    std::process::Command::new(python)
+        .arg("-c")
+        .arg("import libtorrent")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 impl DownloadServiceConfig {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         let data_dir = data_dir.into();
@@ -880,6 +952,8 @@ impl DownloadServiceConfig {
             .map(str::trim)
             .filter(|path| !path.is_empty())
             .map(PathBuf::from);
+        // Uma única sondagem: cada chamada sobe um processo Python.
+        let (python, libtorrent) = interpretador_torrent();
         Self {
             downloads_file: data_dir.join("downloads.json"),
             torrent_state_file: data_dir.join("torrent_state.json"),
@@ -893,11 +967,11 @@ impl DownloadServiceConfig {
                 .join("dotnet")
                 .join(format!("dotnet{ext}")),
             dotnet: format!("dotnet{ext}"),
-            python: "python3".to_string(),
+            python,
             torrent_worker: data_dir.join("torrent_rpc").join("main.py"),
             torrent_download_path,
             debrid_configured: arcadia_catalog::hosters::has_debrid_configured(&config),
-            libtorrent_available: true,
+            libtorrent_available: libtorrent,
             slssteam_enabled: true,
             download_cpu_cores: config
                 .get("download_cpu_cores")
@@ -1932,6 +2006,18 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
         let http = safe_url.to_ascii_lowercase().starts_with("http");
         let magnet = safe_url.starts_with("magnet:");
         if http || magnet {
+            // Engine local primeiro: sem libtorrent nem com debrid o torrent
+            // roda, então essa é a falha mais informativa das duas.
+            if magnet && !self.config.libtorrent_available {
+                let erro = if cfg!(windows) {
+                    ERRO_LIBTORRENT_WINDOWS
+                } else {
+                    ERRO_LIBTORRENT
+                };
+                object.insert("erro".to_string(), Value::String(erro.to_string()));
+                self.upsert_torrent(base);
+                return queued_error(erro);
+            }
             if magnet && !arcadia_catalog::hosters::has_debrid_configured(
                 &arcadia_store::config::read_config(&self.config.data_dir),
             ) {
@@ -2742,6 +2828,18 @@ impl<P: DownloadsPersistence + Send + 'static> DownloadService<P> {
         mut base: Value,
         magnet: bool,
     ) -> Value {
+        // Debrid resolvido: se o engine local também não existe, o job morre
+        // aqui com mensagem, em vez de falhar no spawn do worker Python.
+        if magnet && !self.config.libtorrent_available {
+            let error = if cfg!(windows) {
+                ERRO_LIBTORRENT_WINDOWS
+            } else {
+                ERRO_LIBTORRENT
+            };
+            base["erro"] = json!(error);
+            self.upsert_torrent(base);
+            return queued_error(error);
+        }
         let runtime = match tokio::runtime::Handle::try_current() {
             Ok(runtime) => runtime,
             Err(_) => {
@@ -3617,6 +3715,50 @@ impl Aria2Executor {
 #[cfg(test)]
 mod download_service_tests {
     use super::*;
+
+    #[test]
+    fn interpretador_torrent_prefere_venv_com_libtorrent() {
+        // O python3 do sistema frequentemente não tem o binding. O venv em
+        // ~/.local/share/arcadia-torrent existe justamente para isso, e a
+        // descoberta precisa achá-lo antes de cair no sistema.
+        let (python, disponivel) = interpretador_torrent();
+        assert!(!python.is_empty(), "sempre devolve um interpretador");
+
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        if let Some(home) = std::env::var_os(home_var) {
+            let venv = PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("arcadia-torrent")
+                .join(if cfg!(windows) { "Scripts" } else { "bin" })
+                .join(if cfg!(windows) { "python.exe" } else { "python" });
+            if venv.is_file() && libtorrent_disponivel(&venv.display().to_string()) {
+                assert_eq!(
+                    python,
+                    venv.display().to_string(),
+                    "venv com libtorrent deveria vencer o python3 do sistema"
+                );
+                assert!(disponivel);
+            }
+        }
+    }
+
+    #[test]
+    fn interpretador_torrent_ignora_candidato_invalido() {
+        // ARCADIA_PYTHON apontando para algo inexistente não pode ser
+        // devolvido: a sondagem falha e a descoberta segue adiante.
+        let anterior = std::env::var_os("ARCADIA_PYTHON");
+        std::env::set_var("ARCADIA_PYTHON", "/caminho/que/nao/existe/python");
+        let (python, _) = interpretador_torrent();
+        assert_ne!(
+            python, "/caminho/que/nao/existe/python",
+            "candidato inválido não pode ser retornado"
+        );
+        match anterior {
+            Some(valor) => std::env::set_var("ARCADIA_PYTHON", valor),
+            None => std::env::remove_var("ARCADIA_PYTHON"),
+        }
+    }
     use arcadia_download::manager::MemoryPersistence;
     use arcadia_download::queue::{STATUS_DONE, STATUS_DOWNLOADING, STATUS_PAUSED};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3649,6 +3791,10 @@ mod download_service_tests {
         config.downloads_file = dir.join("downloads.json");
         config.torrent_state_file = dir.join("torrent_state.json");
         config.debrid_configured = true;
+        // Determinismo: os testes assumem engine disponível. Deixar herdar a
+        // sonda do host faria o resultado depender de libtorrent estar
+        // instalado na máquina que roda a suíte.
+        config.libtorrent_available = true;
         config.slssteam_enabled = true;
         config.max_active = 1;
         config.max_downloads = 20;
@@ -4559,6 +4705,23 @@ mod download_service_tests {
         assert_eq!(
             no_lt.torrent_files(&json!({"magnet": magnet()})),
             error_envelope(expected)
+        );
+        // `torrent_start` era o silêncio: aceitava o magnet, enfileirava e
+        // morria no spawn do worker. Com debrid configurado (para passar da
+        // checagem anterior), a falta de engine agora falha na hora.
+        let mut no_lt_start = config(&fixture.dir);
+        no_lt_start.libtorrent_available = false;
+        no_lt_start.debrid_configured = true;
+        let no_lt_start = DownloadService::with_persistence(
+            MemoryPersistence::default(),
+            no_lt_start,
+            Arc::clone(&fixture.runner) as Arc<dyn ProcessRunner>,
+            Arc::clone(&fixture.connector) as Arc<dyn TorrentConnector>,
+            Arc::clone(&fixture.probe),
+        );
+        assert_eq!(
+            no_lt_start.torrent_start(&json!({"gameId": "sem-engine", "url": magnet()})),
+            queued_error(expected)
         );
 
         // A bridge legada continua reportando worker sem ready.

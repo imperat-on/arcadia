@@ -43,6 +43,20 @@ fn ytdlp() -> Option<PathBuf> {
     find_executable("yt-dlp")
 }
 
+/// Erro único para `yt-dlp` ausente.
+///
+/// Antes cada chamada inventava a sua mensagem: `search` dizia "não está
+/// instalado", `stream_url` e `download_url` diziam "pedido inválido" — o que
+/// manda o usuário procurar defeito nos argumentos quando o problema é uma
+/// dependência que não está na máquina.
+fn ytdlp_ausente() -> Value {
+    json!({
+        "ok": false,
+        "error": "yt_dlp_ausente",
+        "mensagem": "yt-dlp não está instalado — instale o pacote yt-dlp (Arch: sudo pacman -S yt-dlp)"
+    })
+}
+
 fn options(state: &AppState) -> (PathBuf, String) {
     let directory = trailers_dir(&state.data_dir);
     let cookies = arcadia_store::config::read_config(&state.data_dir)
@@ -82,7 +96,7 @@ pub fn local_path_json(state: &AppState, id: &str) -> Value {
 
 pub async fn search(_state: &AppState, args: &[Value]) -> Value {
     let Some(program) = ytdlp() else {
-        return json!({ "ok": false, "error": "yt-dlp não está instalado — instale o pacote yt-dlp" });
+        return ytdlp_ausente();
     };
     let query = args
         .first()
@@ -104,7 +118,7 @@ pub async fn search(_state: &AppState, args: &[Value]) -> Value {
 
 pub async fn stream_url(state: &AppState, args: &[Value]) -> Value {
     let Some(program) = ytdlp() else {
-        return json!({ "ok": false, "error": "pedido inválido" });
+        return ytdlp_ausente();
     };
     let url = args
         .first()
@@ -112,7 +126,7 @@ pub async fn stream_url(state: &AppState, args: &[Value]) -> Value {
         .and_then(Value::as_str)
         .unwrap_or_default();
     if url.is_empty() {
-        return json!({ "ok": false, "error": "pedido inválido" });
+        return ytdlp_ausente();
     }
     let (_, cookies) = options(state);
     let output = match run(&program, &stream_url_args(url, &cookies)).await {
@@ -130,13 +144,13 @@ pub async fn stream_url(state: &AppState, args: &[Value]) -> Value {
 
 pub async fn download_url(state: &AppState, args: &[Value]) -> Value {
     let Some(program) = ytdlp() else {
-        return json!({ "ok": false, "error": "pedido inválido" });
+        return ytdlp_ausente();
     };
     let payload = args.first().cloned().unwrap_or_else(|| json!({}));
     let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
     let url = payload.get("url").and_then(Value::as_str).unwrap_or_default();
     if id.is_empty() || url.is_empty() {
-        return json!({ "ok": false, "error": "pedido inválido" });
+        return ytdlp_ausente();
     }
     let (directory, cookies) = options(state);
     let options = TrailerOptions {
@@ -162,13 +176,13 @@ pub async fn download_url(state: &AppState, args: &[Value]) -> Value {
 
 pub async fn download(state: &AppState, args: &[Value]) -> Value {
     let Some(program) = ytdlp() else {
-        return json!({ "ok": false, "error": "yt-dlp ausente" });
+        return ytdlp_ausente();
     };
     let payload = args.first().cloned().unwrap_or_else(|| json!({}));
     let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
     let title = payload.get("title").and_then(Value::as_str).unwrap_or_default();
     if id.is_empty() {
-        return json!({ "ok": false, "error": "yt-dlp ausente" });
+        return ytdlp_ausente();
     }
     let (directory, cookies) = options(state);
     let options = TrailerOptions {
@@ -194,7 +208,7 @@ pub async fn download(state: &AppState, args: &[Value]) -> Value {
 
 pub async fn download_all(state: &AppState) -> Value {
     let Some(program) = ytdlp() else {
-        return json!({ "ok": false, "error": "yt-dlp ausente" });
+        return ytdlp_ausente();
     };
     let (directory, cookies) = options(state);
     let options = TrailerOptions {

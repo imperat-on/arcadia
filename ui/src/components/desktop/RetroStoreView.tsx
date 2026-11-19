@@ -10,6 +10,8 @@ import { StoreGamePage, type RetroStoreDetail } from "./StoreGamePage"
 import type { Game } from "../ps5-launcher/types"
 import { useAccount } from "../account/AccountContext"
 import { getCachedRetroPage, loadRetroPage, prefetchRetroPage } from "./retroPageCache"
+import { useScrollClassFlag } from "../../hooks/useScrollActivity"
+import { useRetroCovers } from "../../hooks/useRetroCovers"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
@@ -118,11 +120,18 @@ export function RetroStoreView({
   const { t } = useI18n()
   const { session } = useAccount()
   const account = session?.user?.id || "guest"
+  // Ref do grid para ligar `is-scrolling` sem passar por estado React: um
+  // setState aqui re-renderizaria a view inteira (e os 24 cards) duas vezes por
+  // gesto, que é exatamente o custo que a classe existe para evitar.
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  useScrollClassFlag(gridRef, "is-scrolling")
   const initialPage = initialGameId ? undefined : getCachedRetroPage({ offset: 0, limit: RETRO_PAGE_SIZE, mode: "all" }, account, true)
   const [query, setQuery] = useState("")
   const [appliedQuery, setAppliedQuery] = useState("")
   const [system, setSystem] = useState("")
   const [games, setGames] = useState<RetroGame[]>(initialPage?.games || [])
+  // Capas reduzidas em disco: 24 PNGs de ~1,25 MB viram ~77 KB cada.
+  const capasLocais = useRetroCovers(games)
   const [sources, setSources] = useState<RetroSource[]>(initialPage?.sources || [])
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState<number | null>(null)
@@ -573,9 +582,19 @@ export function RetroStoreView({
         <RetroSkeleton />
       ) : games.length ? (
         <>
-          <div className="retro-catalog-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5">
+          <div
+            ref={gridRef}
+            className="retro-catalog-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5"
+          >
             {games.map((game, index) => (
-              <RetroCard key={game.id} game={game} priority={index < 8} onOpen={() => void openGame(game)} t={t} />
+              <RetroCard
+                key={game.id}
+                game={game}
+                priority={index < 8}
+                onOpen={openGame}
+                t={t}
+                capaLocal={capasLocais[game.id]}
+              />
             ))}
           </div>
 
@@ -624,11 +643,14 @@ const RetroCard = memo(function RetroCard({
   priority,
   onOpen,
   t,
+  capaLocal,
 }: {
   game: RetroGame
   priority: boolean
-  onOpen: () => void
+  onOpen: (game: RetroGame) => void
   t: (key: string, vars?: Record<string, string | number>) => string
+  /** Data URI da capa já reduzida em disco; quando existe, vence a remota. */
+  capaLocal?: string
 }) {
   return (
     <article
@@ -638,16 +660,16 @@ const RetroCard = memo(function RetroCard({
       <button
         data-testid={`retro-game-card-${game.id}`}
         type="button"
-        onClick={onOpen}
+        onClick={() => onOpen(game)}
         className="block aspect-[2/3] w-full cursor-pointer bg-black text-left"
         title={game.title}
       >
-        <RetroArtwork game={game} title={game.title} priority={priority} />
+        <RetroArtwork game={game} title={game.title} priority={priority} capaLocal={capaLocal} />
       </button>
       <div className="p-3">
         <button
           type="button"
-          onClick={onOpen}
+          onClick={() => onOpen(game)}
           className="mb-2 block w-full truncate text-left text-[13px] font-medium text-white hover:text-[color:var(--accent)]"
           title={game.title}
         >
@@ -666,7 +688,14 @@ const RetroCard = memo(function RetroCard({
       </div>
     </article>
   )
-}, (previous, next) => previous.game === next.game && previous.priority === next.priority && previous.t === next.t)
+}, (previous, next) =>
+  previous.game === next.game &&
+  previous.priority === next.priority &&
+  previous.t === next.t &&
+  previous.capaLocal === next.capaLocal &&
+  // `onOpen` entra na comparação porque agora é a mesma referência estável;
+  // sem isso um handler recriado furaria o memo de qualquer jeito.
+  previous.onOpen === next.onOpen)
 
 function RetroDetail({
   game,
@@ -877,12 +906,25 @@ function RetroDetail({
   )
 }
 
-function RetroArtwork({ game, title, priority }: { game: RetroGame; title: string; priority: boolean }) {
+function RetroArtwork({
+  game,
+  title,
+  priority,
+  capaLocal,
+}: {
+  game: RetroGame
+  title: string
+  priority: boolean
+  capaLocal?: string
+}) {
   const [index, setIndex] = useState(0)
-  const immediateCover = getRetroCover(game)
+  const immediateCover = capaLocal || getRetroCover(game)
   const [resolvedCovers, setResolvedCovers] = useState<string[]>(immediateCover ? [immediateCover] : [])
-  const urls = resolvedCovers
+  // A capa local (reduzida em disco) vence a remota do catálogo: 77 KB contra
+  // 494 KB medidos. Quando ela chega, substitui a lista inteira.
+  const urls = capaLocal ? [capaLocal] : resolvedCovers
   useEffect(() => {
+    if (capaLocal) return
     let alive = true
     void loadRetroCovers(game).then((covers) => {
       if (!alive) return

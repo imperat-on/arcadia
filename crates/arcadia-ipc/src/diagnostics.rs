@@ -127,7 +127,50 @@ pub fn collect(data_dir: &Path, app_version: &str) -> Value {
             "snapshots": count_snapshots(data_dir)
         },
         "library": { "total": games.len(), "by_launcher": by_launcher },
-        "downloads": { "total": downloads.len(), "by_status": by_status }
+        "downloads": { "total": downloads.len(), "by_status": by_status },
+        "dependencies": dependencias_externas()
+    })
+}
+
+/// Dependências que o app invoca em runtime e que o pacote NÃO embarca.
+///
+/// Ficam aqui porque a falha delas é silenciosa na UI: sem `python3`/`libtorrent`
+/// o download por torrent "não conecta" sem dizer por quê, e sem `yt-dlp` o
+/// trailer não baixa. O diagnóstico é o lugar onde isso vira informação
+/// acionável em vez de mistério.
+fn dependencias_externas() -> Value {
+    // `python3` só serve se tiver libtorrent: o worker importa os dois.
+    let python = command_exists("python3");
+    let libtorrent = python
+        && std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import libtorrent")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+
+    json!({
+        // Torrent: worker Python precisa de python3 + libtorrent.
+        "python3": python,
+        "libtorrent": libtorrent,
+        "torrent_pronto": python && libtorrent,
+        // Trailers do YouTube.
+        "yt_dlp": command_exists("yt-dlp"),
+        // .NET, usado pelo DepotDownloader na primeira vez (o app baixa se faltar).
+        "dotnet": command_exists("dotnet"),
+    })
+}
+
+/// Está no PATH e é executável.
+fn command_exists(name: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        let candidate = dir.join(name);
+        candidate.is_file()
     })
 }
 
@@ -283,6 +326,27 @@ mod tests {
         assert!(!redacted.contains("abcd1234"));
         assert!(!redacted.contains("eyJhbGci"));
         assert!(redacted.contains("<DATA_DIR>"), "redacted: {redacted}");
+    }
+
+    #[test]
+    fn diagnostico_lista_dependencias_externas() {
+        // O relatório precisa dizer se torrent e trailer podem funcionar. Sem
+        // isso o usuário vê "não conecta" e não tem onde procurar.
+        let dir = temp_dir("deps");
+        let report = collect(&dir, "1.5.5");
+        let deps = &report["dependencies"];
+        for key in ["python3", "libtorrent", "torrent_pronto", "yt_dlp", "dotnet"] {
+            assert!(
+                deps.get(key).map(Value::is_boolean).unwrap_or(false),
+                "dependencies.{key} deveria ser booleano: {deps}"
+            );
+        }
+        // `torrent_pronto` é a conjunção: só pode ser true se os dois forem.
+        if deps["torrent_pronto"] == json!(true) {
+            assert_eq!(deps["python3"], json!(true));
+            assert_eq!(deps["libtorrent"], json!(true));
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Arcadia",
-  "version": "0.1.0",
+  "version": "1.5.5",
   "identifier": "io.github.imperat-on.arcadia.rust",
   "build": {
-    "beforeDevCommand": "npm --prefix ../ui run dev",
+    "beforeDevCommand": "npm --prefix ui run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm --prefix ../ui run build",
+    "beforeBuildCommand": "npm --prefix ui run build",
     "frontendDist": "../ui/dist"
   },
   "app": {
@@ -18,8 +18,37 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "deb", "appimage", "rpm"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
-    "resources": ["resources/boot.mp4"]
+    "resources": [
+      "resources/boot.mp4",
+      "resources/torrent_rpc/main.py",
+      "resources/torrent_rpc/torrent_downloader.py"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "gst-plugins-base",
+          "gst-plugins-good",
+          "gst-plugins-bad",
+          "gst-libav"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-good",
+          "gstreamer1-plugins-bad-free",
+          "gstreamer1-libav"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
   }
 }

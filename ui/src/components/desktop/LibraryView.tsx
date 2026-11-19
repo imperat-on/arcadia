@@ -78,8 +78,14 @@ export function LibraryView({
 
   const lista = useMemo(() => {
     let l = games.filter((g) => !g.hidden)
-    if (aba === "retro") l = l.filter((g) => g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:"))
-    else l = l.filter((g) => !(g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")))
+    if (aba === "retro")
+      l = l.filter(
+        (g) => g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:"),
+      )
+    else
+      l = l.filter(
+        (g) => !(g.launcher === "retro" || g.retro === true || String(g.id).startsWith("retro:")),
+      )
     if (catFiltro !== "todas") l = l.filter((g) => (g.categories || []).includes(catFiltro))
     if (soInstalados) l = l.filter((g) => g.installed !== false && !recemDesinstalados.has(g.id))
     const q = busca.trim().toLowerCase()
@@ -176,14 +182,19 @@ export function LibraryView({
             setPaginaLoja(null)
           }}
           onConfig={() => setConfigurando(paginaLoja)}
-          onJogar={paginaLoja.installed !== false ? () => void actions.launch(paginaLoja) : undefined}
+          onJogar={
+            paginaLoja.installed !== false ? () => void actions.launch(paginaLoja) : undefined
+          }
           naBiblioteca
           ocupado={false}
         />
         {configurando && (
           <GameSettingsDialog
             game={configurando}
-            onClose={() => { setConfigurando(null); void actions.refresh() }}
+            onClose={() => {
+              setConfigurando(null)
+              void actions.refresh()
+            }}
           />
         )}
       </>
@@ -205,7 +216,10 @@ export function LibraryView({
         {configurando && (
           <GameSettingsDialog
             game={configurando}
-            onClose={() => { setConfigurando(null); void actions.refresh() }}
+            onClose={() => {
+              setConfigurando(null)
+              void actions.refresh()
+            }}
           />
         )}
       </>
@@ -255,7 +269,11 @@ export function LibraryView({
         )}
       </div>
 
-      <div className="flex items-center gap-1 px-8 pb-4" role="tablist" aria-label={t("library.sections_aria")}>
+      <div
+        className="flex items-center gap-1 px-8 pb-4"
+        role="tablist"
+        aria-label={t("library.sections_aria")}
+      >
         {(["todos", "retro"] as const).map((key) => (
           <button
             key={key}
@@ -299,7 +317,11 @@ export function LibraryView({
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
                 onOpen={() => {
-                  if (g2.launcher === "retro" || g2.retro === true || String(g2.id).startsWith("retro:")) {
+                  if (
+                    g2.launcher === "retro" ||
+                    g2.retro === true ||
+                    String(g2.id).startsWith("retro:")
+                  ) {
                     onRetroOpen?.(g2)
                     return
                   }
@@ -310,7 +332,11 @@ export function LibraryView({
             )
           })}
         </div>
-          {lista.length === 0 && <div className="ui-empty">{aba === "retro" ? t("library.retro_vazio") : t("library.vazio")}</div>}
+        {lista.length === 0 && (
+          <div className="ui-empty">
+            {aba === "retro" ? t("library.retro_vazio") : t("library.vazio")}
+          </div>
+        )}
       </div>
 
       {/* Diálogo de instalação (escolher pasta, ver espaço em disco) */}
@@ -318,7 +344,12 @@ export function LibraryView({
 
       {/* Adicionar jogo manualmente */}
       {adicionando && (
-        <AddGameDialog onClose={() => setAdicionando(false)} onAdded={() => { void actions.refresh() }} />
+        <AddGameDialog
+          onClose={() => setAdicionando(false)}
+          onAdded={() => {
+            void actions.refresh()
+          }}
+        />
       )}
 
       {/* Editar jogo custom (título, executável, imagens, instalador) */}
@@ -326,7 +357,9 @@ export function LibraryView({
         <AddGameDialog
           editGame={editandoCustom}
           onClose={() => setEditandoCustom(null)}
-          onAdded={() => { void actions.refresh() }}
+          onAdded={() => {
+            void actions.refresh()
+          }}
         />
       )}
 
@@ -397,7 +430,14 @@ function Capa({ game, apagada }: { game: Game; apagada: boolean }) {
 
 function AllGamesIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="4" y="4" width="6" height="6" rx="1" />
       <rect x="14" y="4" width="6" height="6" rx="1" />
       <rect x="4" y="14" width="6" height="6" rx="1" />
@@ -408,7 +448,14 @@ function AllGamesIcon() {
 
 function RetroLibraryIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M7 7h10a3 3 0 0 1 3 3v5.5a2.5 2.5 0 0 1-4.6 1.35L14 15H10l-1.4 1.85A2.5 2.5 0 0 1 4 15.5V10a3 3 0 0 1 3-3Z" />
       <path d="M8 10v3M6.5 11.5h3M16.5 11.5h.01M18 13.5h.01" />
     </svg>
@@ -469,88 +516,57 @@ function Card({
           </div>
         )}
 
-        {/* Overlay de ação: ícone download (não instalado) ou play+config (instalado) */}
-        <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
-          {instalado ? (
-            <>
-              {/* Configurações do jogo */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onConfig?.()
-                }}
-                title={t("library.config_jogo")}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white backdrop-blur-sm transition-all hover:scale-110 hover:bg-white/[0.2]"
+        {/* Overlay de ação: play+config, só em jogo instalado.
+            Jogo não instalado não mostra botão — a instalação é pela página do
+            jogo. Antes havia um botão de download aqui; removido a pedido. */}
+        {instalado && (
+          <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
+            {/* Configurações do jogo */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onConfig?.()
+              }}
+              title={t("library.config_jogo")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white backdrop-blur-sm transition-all hover:scale-110 hover:bg-white/[0.2]"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="4" y1="6" x2="20" y2="6" />
-                  <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
-                  <line x1="4" y1="12" x2="20" y2="12" />
-                  <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
-                  <line x1="4" y1="18" x2="20" y2="18" />
-                  <circle cx="7" cy="18" r="2" fill="currentColor" stroke="none" />
-                </svg>
-              </button>
-              {/* Jogar */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  acao()
-                }}
-                title={t("library.jogar")}
-                className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
-                style={{
-                  background: "var(--accent)",
-                  boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)",
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.52.86z" />
-                </svg>
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Download (não instalado) */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  acao()
-                }}
-                title={t("library.instalar")}
-                className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
-                style={{
-                  background: "var(--accent)",
-                  boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)",
-                }}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
+                <line x1="4" y1="6" x2="20" y2="6" />
+                <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
+                <line x1="4" y1="12" x2="20" y2="12" />
+                <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+                <line x1="4" y1="18" x2="20" y2="18" />
+                <circle cx="7" cy="18" r="2" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+            {/* Jogar */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                acao()
+              }}
+              title={t("library.jogar")}
+              className="flex h-12 w-12 items-center justify-center rounded-full text-black transition-transform hover:scale-110"
+              style={{
+                background: "var(--accent)",
+                boxShadow: "0 0 20px color-mix(in srgb, var(--accent) 50%, transparent)",
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.52.86z" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
       <div
         className={`truncate px-3 py-2.5 text-[14px] font-medium leading-snug text-white/85 ${alwaysTitles === false ? "opacity-0 transition-opacity group-hover:opacity-100" : ""}`}

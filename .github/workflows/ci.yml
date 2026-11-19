@@ -21,3 +21,130 @@ jobs:
       - run: npm test
       - run: npx tsc --noEmit
       - run: npm run build
+
+  # Shell Tauri/Rust: testes do workspace e build do front-end novo.
+  rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dependências nativas do Tauri no Linux. gst-plugins-bad + gst-libav são
+      # obrigatórios: sem eles o <video> dos trailers fica preto, porque o
+      # WebKitGTK delega toda decodificação ao GStreamer do sistema.
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            libayatana-appindicator3-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav \
+            pkg-config patchelf libssl-dev libopenh264-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Front-end
+        run: npm --prefix ui ci
+
+      - name: Testes do workspace
+        run: cargo test --workspace
+
+  # Empacotamento: gera .deb e AppImage e verifica que o pacote carrega os
+  # codecs de vídeo com as próprias dependências.
+  package:
+    runs-on: ubuntu-22.04
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            libayatana-appindicator3-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav \
+            gstreamer1.0-tools libopenh264-dev pkg-config patchelf \
+            libssl-dev file zstd
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - run: npm --prefix ui ci
+
+      - name: Empacotar e verificar
+        run: ./scripts/package-linux.sh --verify
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcadia-linux
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/rpm/*.rpm
+          retention-days: 14
+
+  # Windows: cross-compile do Linux (mingw) gerando exe portátil e setup NSIS.
+  # A CI usa mingw do apt em vez das ferramentas locais que o script procura.
+  windows:
+    runs-on: ubuntu-22.04
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain cruzado
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mingw-w64 nsis pkg-config libssl-dev file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - run: npm --prefix ui ci
+
+      # Na CI as ferramentas vêm do apt, então ARCADIA_WIN_TOOLS aponta para o
+      # prefixo do sistema e o PATH normal já resolve. O script usa o que achar.
+      - name: Empacotar Windows
+        env:
+          ARCADIA_WIN_TOOLS: /usr
+        run: |
+          export PATH="/usr/bin:$PATH"
+          ./scripts/package-windows.sh
+          ./scripts/verify-package-windows.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcadia-windows
+          path: |
+            target/x86_64-pc-windows-gnu/release/arcadia.exe
+            target/x86_64-pc-windows-gnu/release/WebView2Loader.dll
+            target/x86_64-pc-windows-gnu/release/bundle/nsis/*.exe
+          retention-days: 14

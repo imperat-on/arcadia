@@ -1034,7 +1034,7 @@ async function start({ gameId, url, savePath, fileIndices, title, cover } = {}) 
   delete torrentItem.cacheando
   upsertState(torrentItem)
   if (!(await libtorrentDisponivel())) {
-    const error = "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)"
+    const error = "libtorrent (binding Python) não instalado — pip install libtorrent"
     markStateError(gameId, error)
     armarPolling()
     return { ok: false, queued: true, error }
@@ -1194,7 +1194,7 @@ async function files(magnet, timeoutMs) {
       error:
         process.platform === "win32"
           ? "lista de arquivos indisponível no Windows (engine aria2)"
-          : "libtorrent não instalado (sudo pacman -S libtorrent-rasterbar)",
+          : "libtorrent (binding Python) não instalado — pip install libtorrent",
     }
   }
   try {

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arcadia_catalog::http::{encode_uri_component, form_urlencode, Fetcher, Request};
 use async_trait::async_trait;
@@ -1855,7 +1855,17 @@ pub struct RetroServerCatalog {
     personal_sources: Option<Arc<dyn PersonalSources>>,
     personal_offers: Mutex<HashMap<String, String>>,
     personal_timeout: Duration,
+    /// Respostas recentes por caminho de catálogo.
+    ///
+    /// O catálogo tem 28 mil jogos e cada `retro:list` custa uma ida ao servidor
+    /// (medido: 0,44 s de mediana, com picos de 1,5 s). Sem cache, voltar para a
+    /// página anterior ou reabrir a aba pagava o tempo inteiro de novo. O TTL
+    /// curto mantém o catálogo fresco e mata a espera da navegação repetida.
+    cache: Mutex<HashMap<String, (Instant, Value)>>,
 }
+
+/// Quanto tempo uma resposta de catálogo fica válida em memória.
+pub const CATALOG_CACHE_TTL: Duration = Duration::from_secs(300);
 
 impl RetroServerCatalog {
     pub fn new(fallback: Arc<RetroCatalogV2>) -> Self {
@@ -1865,6 +1875,7 @@ impl RetroServerCatalog {
             personal_sources: None,
             personal_offers: Mutex::new(HashMap::new()),
             personal_timeout: Duration::from_millis(400),
+            cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1892,9 +1903,36 @@ impl RetroServerCatalog {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Value>,
     {
+        // Cache em memória primeiro: refazer uma página visitada há pouco não
+        // pode custar outra ida ao servidor (0,44 s de mediana, picos de 1,5 s).
+        // `no_mirror` desliga o cache junto com o espelho — quem pediu sem
+        // cache quer dado fresco de verdade.
+        if !no_mirror {
+            if let Ok(cache) = self.cache.lock() {
+                if let Some((quando, dados)) = cache.get(path) {
+                    if quando.elapsed() < CATALOG_CACHE_TTL {
+                        return dados.clone();
+                    }
+                }
+            }
+        }
+
         if let Some(remote) = &self.remote {
             if let Ok(data) = remote.catalog_get(path, no_mirror).await {
                 if js_truthy(data.get("ok")) {
+                    if !no_mirror {
+                        if let Ok(mut cache) = self.cache.lock() {
+                            cache.insert(path.to_string(), (Instant::now(), data.clone()));
+                            // Poda simples: o catálogo navega por dezenas de
+                            // páginas e o mapa cresceria sem limite.
+                            if cache.len() > 200 {
+                                let limite = Instant::now()
+                                    .checked_sub(CATALOG_CACHE_TTL)
+                                    .unwrap_or_else(Instant::now);
+                                cache.retain(|_, (quando, _)| *quando > limite);
+                            }
+                        }
+                    }
                     return data;
                 }
             }
@@ -2980,5 +3018,51 @@ mod tests {
         assert_eq!(result["error"], json!("retro_audit_unavailable"));
         let paths = remote.paths.lock().unwrap().clone();
         assert_eq!(paths[0].0, "/catalog/v1/retro/audit?system=nes&samples=100");
+    }
+
+    /// O cache em memória evita a segunda ida ao servidor dentro do TTL.
+    ///
+    /// Sem isto, voltar para a página anterior ou reabrir a aba pagava de novo
+    /// os 0,44 s (mediana) de ida ao catálogo.
+    #[tokio::test]
+    async fn cache_evita_segunda_ida_ao_servidor() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct ContadorRemote {
+            chamadas: Arc<AtomicUsize>,
+        }
+
+        #[async_trait::async_trait]
+        impl RemoteCatalogProvider for ContadorRemote {
+            async fn catalog_get(&self, _path: &str, _no_mirror: bool) -> Result<Value, String> {
+                self.chamadas.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({ "ok": true, "games": [], "total": 0 }))
+            }
+        }
+
+        let dir = temp_dir();
+        let fallback = Arc::new(catalog_v2_with_game(dir.path(), json!({ "id": "g1" })));
+        let chamadas = Arc::new(AtomicUsize::new(0));
+        let catalog = RetroServerCatalog::new(fallback).with_remote(Arc::new(ContadorRemote {
+            chamadas: Arc::clone(&chamadas),
+        }));
+
+        let params = json!({ "offset": 0, "limit": 24 });
+
+        // Primeira chamada: vai ao servidor.
+        let _ = catalog.list(&params).await;
+        assert_eq!(chamadas.load(Ordering::SeqCst), 1, "primeira ida");
+
+        // Segunda: o cache responde e o contador não sobe.
+        let _ = catalog.list(&params).await;
+        assert_eq!(
+            chamadas.load(Ordering::SeqCst),
+            1,
+            "cache deve evitar a segunda ida"
+        );
+
+        // Parâmetros diferentes são chave diferente: vai ao servidor de novo.
+        let _ = catalog.list(&json!({ "offset": 24, "limit": 24 })).await;
+        assert_eq!(chamadas.load(Ordering::SeqCst), 2, "página nova, nova ida");
     }
 }

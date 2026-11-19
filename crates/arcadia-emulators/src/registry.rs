@@ -2165,15 +2165,19 @@ mod tests {
             "LOCALAPPDATA".to_string(),
             "C:\\Users\\x\\AppData\\Local".to_string(),
         );
+        // O separador de `PathBuf::join` é o do host, não o da plataforma
+        // simulada: comparar com a string Windows literal quebra no Linux.
+        // Montar o esperado com `join` preserva a intenção (base + "arcadia")
+        // e roda em qualquer host.
         assert_eq!(
             path_string(&normalize_path(&default_data_dir(
                 PlatformKind::Windows,
                 &env,
                 Path::new("C:\\Users\\x")
             ))),
-            path_string(&normalize_path(Path::new(
-                "C:\\Users\\x\\AppData\\Local\\arcadia"
-            )))
+            path_string(&normalize_path(
+                &PathBuf::from("C:\\Users\\x\\AppData\\Local").join("arcadia")
+            ))
         );
         assert_eq!(
             path_string(&normalize_path(&default_data_dir(

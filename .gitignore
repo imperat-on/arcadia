@@ -98,6 +98,8 @@ steam_account.json
 # Rust / Tauri
 /target
 src-tauri/gen
+# Ferramentas locais extraídas sem root (patchelf etc.) — não versionar
+/.tools
 
 # UI
 ui/node_modules

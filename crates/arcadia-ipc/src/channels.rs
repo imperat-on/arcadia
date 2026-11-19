@@ -93,6 +93,7 @@ pub const INVOKE_CHANNELS: &[&str] = &[
     "sources:search",
     "sources:game",
     "retro:list",
+    "retro:covers",
     "retro:game",
     "retro:offer",
     "retro:stats",

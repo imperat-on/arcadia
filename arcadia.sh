@@ -22,6 +22,15 @@ if [[ "$DATA_DIR" == "~/"* ]]; then DATA_DIR="$HOME/${DATA_DIR:2}"; fi
 if [[ "$DATA_DIR" != /* ]]; then DATA_DIR="$PWD/$DATA_DIR"; fi
 export ARCADIA_DATA_DIR="$DATA_DIR"
 
+# WebKitGTK no Linux delega toda a decodificação de mídia ao GStreamer do
+# sistema — diferente do Chromium no Windows, que embarca H.264 no próprio
+# binário. Sem os plugins (avdec_h264, hlsdemux) o <video> fica em tela preta.
+# ~/.local/lib guarda os plugins extraídos sem root; quando existirem, entram
+# no caminho de busca junto com os do sistema.
+if [ -d "$HOME/.local/lib/gstreamer-1.0" ]; then
+    export GST_PLUGIN_PATH="${GST_PLUGIN_PATH:+$GST_PLUGIN_PATH:}$HOME/.local/lib/gstreamer-1.0"
+fi
+
 # Resolve o binário do Electron de forma tolerante: o caminho do npm às vezes
 # muda ou o download falha. Ordem: (1) caminho padrão do npm; (2) o que o
 # pacote 'electron' resolve; (3) Electron do sistema (pacman/apt). Se nada
