@@ -8,6 +8,8 @@ import { MetodoDownloadDialog } from "./MetodoDownloadDialog"
 import { getRetroCover, loadRetroCovers } from "./retroArtwork"
 import { StoreGamePage, type RetroStoreDetail } from "./StoreGamePage"
 import type { Game } from "../ps5-launcher/types"
+import { useAccount } from "../account/AccountContext"
+import { getCachedRetroPage, loadRetroPage, prefetchRetroPage } from "./retroPageCache"
 
 /** Número de itens por página usado pelo catálogo Retro. */
 export const RETRO_PAGE_SIZE = 24
@@ -114,16 +116,19 @@ export function RetroStoreView({
   onExit,
 }: RetroStoreViewProps) {
   const { t } = useI18n()
+  const { session } = useAccount()
+  const account = session?.user?.id || "guest"
+  const initialPage = initialGameId ? undefined : getCachedRetroPage({ offset: 0, limit: RETRO_PAGE_SIZE, mode: "all" }, account, true)
   const [query, setQuery] = useState("")
   const [appliedQuery, setAppliedQuery] = useState("")
   const [system, setSystem] = useState("")
-  const [games, setGames] = useState<RetroGame[]>([])
-  const [sources, setSources] = useState<RetroSource[]>([])
+  const [games, setGames] = useState<RetroGame[]>(initialPage?.games || [])
+  const [sources, setSources] = useState<RetroSource[]>(initialPage?.sources || [])
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState<number | null>(null)
   const [totalOffers, setTotalOffers] = useState<number | null>(null)
   const [hasMore, setHasMore] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialPage)
   const [error, setError] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RetroGame | null>(null)
@@ -140,7 +145,6 @@ export function RetroStoreView({
   const loadList = useCallback(
     async (nextQuery: string, nextOffset: number, nextSystem: string) => {
       const generation = ++listGeneration.current
-      setLoading(true)
       setError("")
 
       const bridge = window.launcherAPI
@@ -164,10 +168,8 @@ export function RetroStoreView({
       // A vitrine Retro abre no catálogo completo; a caixa de variantes só
       // controla releases beta/demo/patches, não o modo editorial da lista.
       payload.mode = "all"
-
-      try {
-        const response = await bridge.retroList(payload)
-        if (generation !== listGeneration.current) return
+      const cached = getCachedRetroPage(payload, account, true)
+      const applyPage = (response: Awaited<ReturnType<typeof loadRetroPage>>) => {
         const items = Array.isArray(response?.games) ? response.games : []
         const rawTotal = response?.total ?? response?.totalGames
         const responseTotal =
@@ -197,21 +199,31 @@ export function RetroStoreView({
           }
           setError(response?.error || t("store.retro_load_failed"))
         }
+      }
+      // A grade conhecida aparece enquanto a versao e revalidada em background.
+      if (cached) applyPage(cached)
+      setLoading(!cached)
+
+      try {
+        const response = await loadRetroPage(payload, account)
+        if (generation !== listGeneration.current) return
+        if (response?.ok || !cached) applyPage(response)
+        else setError(response?.error || t("store.retro_load_failed"))
       } catch (cause) {
         if (generation !== listGeneration.current) return
-        if (nextOffset === 0) {
+        if (nextOffset === 0 && !cached) {
           setGames([])
           setSources([])
           setTotal(0)
           setTotalOffers(null)
         }
-        setHasMore(false)
+        if (!cached) setHasMore(false)
         setError(cause instanceof Error ? cause.message : t("store.retro_load_failed"))
       } finally {
         if (generation === listGeneration.current) setLoading(false)
       }
     },
-    [t],
+    [t, account],
   )
 
   // Aberto direto num jogo (Library): a grade nunca aparece nessa rota, então
@@ -417,6 +429,10 @@ export function RetroStoreView({
   }, [detailSources, sources])
   const page = Math.floor(offset / RETRO_PAGE_SIZE) + 1
   const totalPages = total === null ? null : Math.max(1, Math.ceil(total / RETRO_PAGE_SIZE))
+  const warmNextPage = () => {
+    if (!hasMore || loading) return
+    prefetchRetroPage({ query: appliedQuery || undefined, system: system || undefined, offset: offset + RETRO_PAGE_SIZE, limit: RETRO_PAGE_SIZE, mode: "all" }, account)
+  }
 
   if (selectedId) {
     return (
@@ -425,7 +441,7 @@ export function RetroStoreView({
         aria-label={t("store.retro_detail")}
         className={`h-full min-h-0 ${className}`}
       >
-        {detailLoading && <RetroDetailSkeleton />}
+        {detailLoading && !detail && <RetroDetailSkeleton />}
 
         {detailError && (
           <p
@@ -436,8 +452,9 @@ export function RetroStoreView({
           </p>
         )}
 
-        {detail && !detailLoading && (
+        {detail && (
           <RetroDetail
+            loading={detailLoading}
             game={detail}
             offers={detailOffers}
             sources={visibleSources}
@@ -557,8 +574,8 @@ export function RetroStoreView({
       ) : games.length ? (
         <>
           <div className="retro-catalog-grid grid-stagger grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 pb-5">
-            {games.map((game) => (
-              <RetroCard key={game.id} game={game} onOpen={() => void openGame(game)} t={t} />
+            {games.map((game, index) => (
+              <RetroCard key={game.id} game={game} priority={index < 8} onOpen={() => void openGame(game)} t={t} />
             ))}
           </div>
 
@@ -583,6 +600,8 @@ export function RetroStoreView({
               <button
                 type="button"
                 onClick={() => setOffset(offset + RETRO_PAGE_SIZE)}
+                onPointerEnter={warmNextPage}
+                onFocus={warmNextPage}
                 disabled={!hasMore || loading}
                 className="min-w-9 rounded-lg border border-white/10 px-3 py-2 text-[13px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
               >
@@ -602,10 +621,12 @@ export function RetroStoreView({
 
 const RetroCard = memo(function RetroCard({
   game,
+  priority,
   onOpen,
   t,
 }: {
   game: RetroGame
+  priority: boolean
   onOpen: () => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
@@ -621,7 +642,7 @@ const RetroCard = memo(function RetroCard({
         className="block aspect-[2/3] w-full cursor-pointer bg-black text-left"
         title={game.title}
       >
-        <RetroArtwork game={game} title={game.title} />
+        <RetroArtwork game={game} title={game.title} priority={priority} />
       </button>
       <div className="p-3">
         <button
@@ -645,10 +666,11 @@ const RetroCard = memo(function RetroCard({
       </div>
     </article>
   )
-}, (previous, next) => previous.game === next.game && previous.t === next.t)
+}, (previous, next) => previous.game === next.game && previous.priority === next.priority && previous.t === next.t)
 
 function RetroDetail({
   game,
+  loading,
   offers,
   sources,
   downloadUri,
@@ -660,6 +682,7 @@ function RetroDetail({
   t,
 }: {
   game: RetroGame
+  loading?: boolean
   offers: RetroOfferSummary[]
   sources: RetroSource[]
   downloadUri: string
@@ -791,7 +814,7 @@ function RetroDetail({
         onJogar={hasEmulator ? jogar : undefined}
         statusMessage={libraryMessage || downloadMessage}
         naBiblioteca={inLibrary}
-        ocupado={Boolean(downloadUri || removendo)}
+        ocupado={Boolean(loading || downloadUri || removendo)}
         slssteamAtivo={availableCount > 0}
         retro={{
           systemId: game.systemId,
@@ -854,7 +877,7 @@ function RetroDetail({
   )
 }
 
-function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
+function RetroArtwork({ game, title, priority }: { game: RetroGame; title: string; priority: boolean }) {
   const [index, setIndex] = useState(0)
   const immediateCover = getRetroCover(game)
   const [resolvedCovers, setResolvedCovers] = useState<string[]>(immediateCover ? [immediateCover] : [])
@@ -905,7 +928,8 @@ function RetroArtwork({ game, title }: { game: RetroGame; title: string }) {
     <img
       src={urls[index]}
       alt=""
-      loading="lazy"
+      loading={priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : "auto"}
       decoding="async"
       className="h-full w-full object-cover"
       draggable={false}

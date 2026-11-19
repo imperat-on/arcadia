@@ -192,7 +192,8 @@ export function Sidebar({
       </div>
 
       {/* Itens */}
-      <nav className="desktop-sidebar-nav flex flex-col gap-0.5 px-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <nav className="desktop-sidebar-nav flex shrink-0 flex-col gap-0.5 px-2">
         {ITENS.map((it) => {
           const active = view === it.id
           return (
@@ -266,7 +267,7 @@ export function Sidebar({
 
       {/* Lista de jogos estilo Hydra (permanente em todas as abas) */}
       {
-        <div className="desktop-sidebar-games mt-3 flex min-h-0 flex-1 flex-col border-t border-white/[0.06] pt-2">
+        <div className="desktop-sidebar-games mt-3 flex min-h-[140px] flex-1 shrink-0 flex-col border-t border-white/[0.06] pt-2">
           <div className="flex items-center gap-1 px-4 pb-1">
             <button
               onClick={onToggleLibrarySidebar}
@@ -375,9 +376,10 @@ export function Sidebar({
           )}
         </div>
       }
+      </div>
 
       {/* Rodapé */}
-      <div className="desktop-sidebar-footer mt-auto px-4 py-3">
+      <div className="desktop-sidebar-footer mt-auto shrink-0 px-4 py-3">
         <button
           onClick={onBigPicture}
           className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2.5 text-left text-[13px] font-semibold text-white/70 transition-colors hover:border-[color:var(--accent)] hover:text-white"

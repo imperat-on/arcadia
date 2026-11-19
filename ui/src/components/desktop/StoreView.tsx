@@ -8,6 +8,8 @@ import { EscolhaDownloadDialog } from "../DepotPicker"
 import type { Game } from "../ps5-launcher/types"
 import { StoreKeyboard, type SugestaoLoja } from "../ps5-launcher/StoreKeyboard"
 import { RetroStoreView } from "./RetroStoreView"
+import { useAccount } from "../account/AccountContext"
+import { prefetchRetroPage } from "./retroPageCache"
 
 // Aba Lojas: busca no catálogo (Hubcap + Steam). Página de detalhe estilo
 // Hydra (StoreGamePage) abre ao clicar no card.
@@ -311,10 +313,16 @@ export function StoreView({
       return
     }
     const timer = setTimeout(async () => {
-      const r = await window.launcherAPI?.storeSuggest(q)
-      if (meu !== gerSug.current) return
-      setSugestoes(r?.ok ? r.jogos || [] : [])
-      setSugSel(-1)
+      try {
+        const r = await window.launcherAPI?.storeSuggest(q)
+        if (meu !== gerSug.current) return
+        setSugestoes(r?.ok ? r.jogos || [] : [])
+        setSugSel(-1)
+      } catch {
+        if (meu !== gerSug.current) return
+        setSugestoes([])
+        setSugSel(-1)
+      }
     }, 120)
     return () => clearTimeout(timer)
   }, [busca])
@@ -346,16 +354,23 @@ export function StoreView({
       const meu = ++gerBusca.current
       setBuscando(true)
       setMsg("")
-      const r = await window.launcherAPI?.storeSearch(q)
-      if (meu !== gerBusca.current) return
-      setBuscando(false)
-      if (!r?.ok) {
+      try {
+        const r = await window.launcherAPI?.storeSearch(q)
+        if (meu !== gerBusca.current) return
+        if (!r?.ok) {
+          setResultados([])
+          setMsg(r?.error || t("store.busca_falhou"))
+          return
+        }
+        setResultados(r.jogos || [])
+        setMsg(r.jogos?.length ? "" : t("store.nada_encontrado"))
+      } catch {
+        if (meu !== gerBusca.current) return
         setResultados([])
-        setMsg(r?.error || t("store.busca_falhou"))
-        return
+        setMsg(t("store.busca_falhou"))
+      } finally {
+        if (meu === gerBusca.current) setBuscando(false)
       }
-      setResultados(r.jogos || [])
-      setMsg(r.jogos?.length ? "" : t("store.nada_encontrado"))
     },
     [busca, fecharSugestoes, t],
   )
@@ -666,8 +681,6 @@ export function StoreView({
         </button>
       </div>
 
-      {msg && <p className="mb-4 text-[12px] text-white/55">{msg}</p>}
-
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-medium text-white/65">
           {t("store.resultados_count", { count: buscou ? resultadosVisiveis.length : catTotal })}
@@ -792,6 +805,12 @@ function StoreTabs({
   onAba: (aba: "steam" | "retro") => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
+  const { session } = useAccount()
+  const warmRetro = () => {
+    if (aba !== "retro" && window.launcherAPI?.retroList) {
+      prefetchRetroPage({ offset: 0, limit: 24, mode: "all" }, session?.user?.id || "guest")
+    }
+  }
   return (
     <div
       role="tablist"
@@ -811,6 +830,8 @@ function StoreTabs({
         type="button"
         role="tab"
         aria-selected={aba === "retro"}
+        onPointerEnter={warmRetro}
+        onFocus={warmRetro}
         onClick={() => onAba("retro")}
         className={`rounded-lg px-4 py-2 text-[12px] font-medium transition-colors ${aba === "retro" ? "bg-white/[0.12] text-white" : "text-white/50 hover:text-white"}`}
       >
