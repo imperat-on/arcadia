@@ -1,5 +1,6 @@
 "use client"
 
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useEffect, useState } from "react"
 
 import type { RetroGame } from "../global"
@@ -9,35 +10,39 @@ import type { RetroGame } from "../global"
  *
  * ## Por que existe
  *
- * As capas do catálogo apontam para o tamanho original: medido nesta máquina,
- * uma página de 24 jogos baixava 29,4 MB de imagem (1,25 MB de média, 494 KB na
- * maior). Para um card de 210 px isso é desperdício de banda e de decodificação
- * — e como o `raw.githubusercontent.com` responde `max-age=300`, os mesmos 29 MB
+ * As capas do catálogo apontam para o original em hosts externos: medido nesta
+ * máquina, uma página de 24 jogos baixava **29,4 MB** (1,25 MB de média, 494 KB
+ * no maior PNG), e como o GitHub responde `max-age=300`, os mesmos 29 MB
  * voltavam a cada cinco minutos.
  *
- * O backend (`retro:covers`) baixa cada capa uma vez, reduz para 480 px de
- * largura e guarda em disco. Este hook recebe os data URIs já prontos.
+ * O backend baixa cada capa uma vez, reduz para 480 px e guarda em disco. Este
+ * hook recebe o caminho do arquivo e o converte com `convertFileSrc` para uma
+ * URL do protocolo de asset do Tauri.
  *
- * ## Por que em lote
+ * ## Por que URL e não data URI
  *
- * Uma chamada por página em vez de uma por card: 24 chamadas IPC concorrentes
- * com latência de rede cada uma ocupariam a fila e fariam a grade aparecer aos
- * pedaços. Em lote, a primeira visita mostra o placeholder e troca tudo de uma
- * vez quando a resposta chega; as seguintes são instantâneas (só disco).
+ * Data URI não tem endereço, então o WebKit não consegue cachear o bitmap: cada
+ * visita recriava os ~25 MB de imagem decodificada da página. Como URL, o
+ * WebKit cacheia e descarta junto com o componente.
  *
  * ## Silêncio por design
  *
- * Falha devolve mapa vazio e o card cai na URL remota do catálogo — o
- * comportamento anterior. Cache é otimização, nunca requisito.
+ * Falha devolve mapa vazio e o card usa a URL remota do catálogo, que é o
+ * comportamento sem cache. O cache é otimização, nunca requisito.
  */
 export function useRetroCovers(games: RetroGame[]) {
   const [capas, setCapas] = useState<Record<string, string>>({})
+
+  // A lista de ids é a chave real: `games` muda de identidade a cada página.
+  const chave = games.map((game) => game.id).join("|")
 
   useEffect(() => {
     const urls = games
       .map((game) => {
         const url = game.cover || game.capa || game.fallbackCover
-        return typeof url === "string" && url.startsWith("http") ? { id: game.id, url } : null
+        return typeof url === "string" && url.startsWith("http")
+          ? { id: game.id, url }
+          : null
       })
       .filter((item): item is { id: string; url: string } => Boolean(item))
 
@@ -51,18 +56,28 @@ export function useRetroCovers(games: RetroGame[]) {
       ?.retroCovers?.({ urls })
       .then((resposta) => {
         if (!vivo || !resposta?.ok || !resposta.covers) return
-        // Mescla: páginas diferentes compartilham capas, e descartar o que já
-        // veio faria o card piscar de volta para o remoto.
-        setCapas((anteriores) => ({ ...anteriores, ...resposta.covers }))
+        const convertidas: Record<string, string> = {}
+        for (const [id, caminho] of Object.entries(resposta.covers)) {
+          // Só converte o que é caminho absoluto; se vier outra coisa, ignora
+          // e o card cai na URL do servidor.
+          if (typeof caminho === "string" && caminho.startsWith("/")) {
+            try {
+              convertidas[id] = convertFileSrc(caminho)
+            } catch {
+              // `convertFileSrc` indisponível: segue sem cache.
+            }
+          }
+        }
+        // Mescla: páginas diferentes compartilham capas.
+        setCapas((anteriores) => ({ ...anteriores, ...convertidas }))
       })
       .catch(() => {})
 
     return () => {
       vivo = false
     }
-    // `games` muda de identidade a cada página; a chave real é a lista de ids.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [games.map((game) => game.id).join("|")])
+  }, [chave])
 
   return capas
 }

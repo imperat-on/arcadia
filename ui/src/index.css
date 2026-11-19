@@ -1431,13 +1431,10 @@ select:disabled {
 /* O Retro mantém capas completas, mas as cartas fora da viewport não precisam
    participar de cada etapa de pintura durante a rolagem. */
 .retro-catalog-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 430px;
-  /* Isolamento de estilo/paint sempre ativo, em qualquer resolução. Antes
-     isto só existia dentro de @media (min-width: 1800px), então em 1080p e
-     1440p o compositor reinvalidava a grade inteira a cada quadro de scroll.
-     Sem `contain: size`: o tamanho vem do conteúdo, e prendê-lo colapsaria a
-     capa aspect-[2/3]. */
+  /* Isolamento de layout/paint/estilo por card. Sem isto o compositor
+     reinvalida a grade inteira a cada quadro de scroll.
+     `size` fica de fora de propósito: prender o tamanho colapsaria a capa
+     `aspect-[2/3]`, que dimensiona pelo conteúdo. */
   contain: layout paint style;
 }
 
@@ -2327,7 +2324,6 @@ select:disabled {
 
   .retro-catalog-card {
     contain: layout paint style;
-    contain-intrinsic-size: 0 400px;
   }
 
   /* A entrada escalonada é bonita, mas ao carregar uma nova página gera várias

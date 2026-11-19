@@ -2135,12 +2135,15 @@ async fn dispatch_async_inner(
             let catalog = state.retro_server_catalog(channel)?;
             Ok(catalog.list(&payload).await)
         }
-        // Prepara as capas de vários jogos de uma vez e devolve `id -> data URI`.
+        // Prepara as capas de vários jogos de uma vez e devolve `id -> caminho`.
         //
-        // Uma chamada por página (24 itens) em vez de 24 chamadas: cada card
-        // deixa de baixar o PNG original de ~1,25 MB e passa a exibir a versão
-        // reduzida em disco. Sem isto a primeira visita baixa ~29 MB só de
-        // capas — medido nesta máquina.
+        // O caminho é o arquivo reduzido em disco. A UI o converte com
+        // `convertFileSrc` para uma URL do protocolo de asset do Tauri, que o
+        // WebKit trata como imagem normal: cacheia o bitmap e o libera junto
+        // com o componente.
+        //
+        // Data URI foi tentado antes e saiu: sem URL não há cache, e cada
+        // visita recriava ~25 MB de bitmap por página.
         "retro:covers" => {
             let itens: Vec<(String, String)> = args
                 .first()
@@ -2171,19 +2174,15 @@ async fn dispatch_async_inner(
                 .collect()
                 .await;
 
-            use base64::Engine;
             let mut saida = serde_json::Map::new();
             for (id, caminho) in baixadas {
                 let Some(caminho) = caminho else {
                     continue;
                 };
-                let Ok(bytes) = std::fs::read(&caminho) else {
-                    continue;
-                };
-                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                // Caminho absoluto; a UI chama `convertFileSrc` nele.
                 saida.insert(
                     id,
-                    Value::String(format!("data:image/jpeg;base64,{encoded}")),
+                    Value::String(caminho.to_string_lossy().into_owned()),
                 );
             }
             Ok(json!({ "ok": true, "covers": saida }))

@@ -1,7 +1,7 @@
 "use client"
 
 // Sidebar do modo desktop (estilo Heroic, adaptada ao tema do Arcadia).
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
@@ -93,22 +93,21 @@ export function Sidebar({
   const logado = contaStatus === "logado"
   const [profileMenu, setProfileMenu] = useState(false)
   const [buscaJogos, setBuscaJogos] = useState("")
-  const [avatarErro, setAvatarErro] = useState(false)
   // Identidade: logado → conta online (display_name > username + avatar do
   // servidor); deslogado → perfil local. O avatar da conta tem prioridade.
   const nome = logado
     ? contaPerfil?.display_name || contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
     : profile.name || t("profile.jogador")
   const avatarUrl = logado ? contaPerfil?.avatar_url || profile.avatar : profile.avatar
-  // Se o avatar falhar (ex.: URL quebrada no servidor), cai na letra em vez
-  // do preview de img quebrado.
-  const mostraAvatar = avatarUrl && !avatarErro
+  // Estado de erro chaveado pela URL: se a imagem falhou e a URL NÃO mudou,
+  // continua escondida. Só uma URL nova reabre a tentativa.
+  const [avatarFalhou, setAvatarFalhou] = useState<string | null>(null)
+  const avatarErro = Boolean(avatarUrl) && avatarFalhou === avatarUrl
 
-  // Um novo avatar pode chegar enquanto a Sidebar continua montada. Limpa o
-  // erro anterior para que a URL atual volte a ser tentada imediatamente.
-  useEffect(() => {
-    setAvatarErro(false)
-  }, [avatarUrl])
+  // Um novo avatar pode chegar enquanto a Sidebar continua montada. Só uma URL
+  // diferente reabre a tentativa: o `onError` abaixo marca a URL que falhou, e
+  // comparar por valor evita o loop que existia quando o erro era um booleano
+  // resetado a cada render (o avatar piscava entre a foto e a inicial).
 
   const jogos = useMemo(() => {
     const l = games.filter((g) => !g.hidden)
@@ -132,18 +131,28 @@ export function Sidebar({
           onClick={() => setProfileMenu((v) => !v)}
           className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-white/[0.04]"
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
-            {mostraAvatar ? (
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
+            {/* A letra fica SEMPRE montada, atrás da imagem. Antes eram irmãos
+                num ternário: quando o `onError` disparava, o <img> era
+                desmontado e a letra entrava; ao limpar o erro, o <img> remontava
+                e baixava os 486 KB do avatar de novo. Esse ciclo — causado pela
+                identidade nova de `perfil` a cada resposta do backend — é o que
+                fazia o avatar piscar entre a foto e a inicial. */}
+            <span aria-hidden="true">{nome[0]?.toUpperCase()}</span>
+            {avatarUrl ? (
               <img
                 src={avatarUrl}
                 alt=""
-                className="h-full w-full object-cover"
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-150 ${
+                  avatarErro ? "opacity-0" : "opacity-100"
+                }`}
                 draggable={false}
-                onError={() => setAvatarErro(true)}
+                // Marca a URL que falhou. Como o erro é comparado por valor, o
+                // mesmo endereço não é tentado de novo — e uma URL nova
+                // (avatar trocado) reabre a tentativa sozinha.
+                onError={() => setAvatarFalhou(avatarUrl ?? null)}
               />
-            ) : (
-              nome[0]?.toUpperCase()
-            )}
+            ) : null}
           </div>
           <div className="min-w-0">
             <div className="truncate text-[13px] font-medium text-white/80 group-hover:text-white">

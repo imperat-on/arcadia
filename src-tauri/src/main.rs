@@ -436,14 +436,28 @@ fn aplicar_correcoes_de_video() {
 
     // Plugins de codec extraídos sem root (Arch sem gst-plugins-bad instalado).
     // O WebKitWebProcess herda este ambiente, então basta setar aqui.
+    //
+    // O diretório do usuário é uma extração sem root e por isso não traz todas
+    // as dependências de sistema: dos 65 plugins, 21 falham ao carregar
+    // (`libltc.so.11`, `libfaad.so.2`, …). Cada falha é um `gst-plugin-scanner`
+    // que morre no boot — medido: 39 s do primeiro ao último aviso.
+    //
+    // `ARCADIA_GST_LOCAL=off` desliga o diretório inteiro: o app perde os
+    // codecs extras e cai no GStreamer do sistema, que tem menos plugins mas
+    // nenhum quebrado. É a saída para quem sente o boot lento.
     if std::env::var_os("GST_PLUGIN_PATH").is_none() {
-        if let Some(home) = std::env::var_os("HOME") {
-            let plugins = std::path::PathBuf::from(home)
-                .join(".local")
-                .join("lib")
-                .join("gstreamer-1.0");
-            if plugins.is_dir() {
-                std::env::set_var("GST_PLUGIN_PATH", plugins);
+        let desligado = std::env::var("ARCADIA_GST_LOCAL")
+            .map(|valor| valor.eq_ignore_ascii_case("off") || valor == "0")
+            .unwrap_or(false);
+        if !desligado {
+            if let Some(home) = std::env::var_os("HOME") {
+                let plugins = std::path::PathBuf::from(home)
+                    .join(".local")
+                    .join("lib")
+                    .join("gstreamer-1.0");
+                if plugins.is_dir() {
+                    std::env::set_var("GST_PLUGIN_PATH", plugins);
+                }
             }
         }
     }

@@ -1598,6 +1598,7 @@ declare global {
         urls?: { id: string; url: string }[]
       }) => Promise<{
         ok: boolean
+        /** id do jogo -> caminho absoluto do arquivo em cache. */
         covers?: Record<string, string>
         error?: string
       }>

@@ -130,7 +130,7 @@ export function RetroStoreView({
   const [appliedQuery, setAppliedQuery] = useState("")
   const [system, setSystem] = useState("")
   const [games, setGames] = useState<RetroGame[]>(initialPage?.games || [])
-  // Capas reduzidas em disco: 24 PNGs de ~1,25 MB viram ~77 KB cada.
+  // Capas reduzidas em disco: 24 originais de ~1,25 MB viram ~77 KB cada.
   const capasLocais = useRetroCovers(games)
   const [sources, setSources] = useState<RetroSource[]>(initialPage?.sources || [])
   const [offset, setOffset] = useState(0)
@@ -649,7 +649,7 @@ const RetroCard = memo(function RetroCard({
   priority: boolean
   onOpen: (game: RetroGame) => void
   t: (key: string, vars?: Record<string, string | number>) => string
-  /** Data URI da capa já reduzida em disco; quando existe, vence a remota. */
+  /** URL local da capa reduzida; quando existe, vence a do servidor. */
   capaLocal?: string
 }) {
   return (
@@ -918,13 +918,15 @@ function RetroArtwork({
   capaLocal?: string
 }) {
   const [index, setIndex] = useState(0)
-  const immediateCover = capaLocal || getRetroCover(game)
-  const [resolvedCovers, setResolvedCovers] = useState<string[]>(immediateCover ? [immediateCover] : [])
-  // A capa local (reduzida em disco) vence a remota do catálogo: 77 KB contra
-  // 494 KB medidos. Quando ela chega, substitui a lista inteira.
-  const urls = capaLocal ? [capaLocal] : resolvedCovers
+  const doServidor = getRetroCover(game)
+  const imediata = capaLocal || doServidor
+  const [resolvedCovers, setResolvedCovers] = useState<string[]>(imediata ? [imediata] : [])
+  // Local primeiro (77 KB), servidor como reserva (494 KB). O `onError` avança
+  // o índice, então a reserva entra sozinha se a local falhar.
+  const urls = capaLocal
+    ? [capaLocal, ...(doServidor && doServidor !== capaLocal ? [doServidor] : [])]
+    : resolvedCovers
   useEffect(() => {
-    if (capaLocal) return
     let alive = true
     void loadRetroCovers(game).then((covers) => {
       if (!alive) return
