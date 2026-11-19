@@ -149,19 +149,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends nsis
           curl -fsSL -o /tmp/nsis.zip \
             "https://prdownloads.sourceforge.net/nsis/nsis-3.10.zip"
-          TOOLS="$HOME/.local/share/arcadia-tools/win/nsis"
-          mkdir -p "$TOOLS"
-          python3 -c "import os,zipfile;z=zipfile.ZipFile('/tmp/nsis.zip');[os.makedirs(os.path.dirname(os.path.join('$TOOLS',n.split('/',1)[1])),exist_ok=True) or open(os.path.join('$TOOLS',n.split('/',1)[1]),'wb').write(z.read(n)) for n in z.namelist() if len(n.split('/',1))==2 and n.split('/',1)[1]]"
-          test -f "$TOOLS/Include/Win/RestartManager.nsh"
-          test -d "$TOOLS/Stubs"
-          echo "NSIS dados em $TOOLS"
+          sudo python3 scripts/instalar_nsis.py /tmp/nsis.zip /usr/share/nsis
+          makensis -VERSION
 
       # Na CI as ferramentas vêm do prefixo local (NSIS oficial) e do apt
       # (mingw), então o script acha tudo pelo PATH.
       - name: Empacotar Windows
         run: |
-          export NSISDIR="$HOME/.local/share/arcadia-tools/win/nsis"
-          export ARCADIA_WIN_TOOLS="$HOME/.local/share/arcadia-tools/win"
+          export ARCADIA_WIN_TOOLS="/usr"
           export PATH="/usr/bin:$PATH"
           ./scripts/package-windows.sh
           ./scripts/verify-package-windows.sh
