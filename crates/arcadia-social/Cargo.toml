@@ -1,0 +1,19 @@
+[package]
+name = "arcadia-social"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt"] }
+url = "2"
+arcadia-api = { path = "../arcadia-api" }
+arcadia-contracts = { path = "../arcadia-contracts" }
+arcadia-store = { path = "../arcadia-store" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+wiremock = "0.6"

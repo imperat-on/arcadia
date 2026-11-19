@@ -1,0 +1,445 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import type { AppConfig, UpdateInfo } from "../../global"
+import { aplicarA11y } from "./AccessibilityView"
+import { TEMAS } from "../../themes"
+import { useI18n } from "../../i18n/I18nContext"
+import { UpdateDialog } from "../UpdateDialog"
+
+const LANGS = [
+  { id: "pt-BR", label: "Português (Brasil)" },
+  { id: "en-US", label: "English (US)" },
+  { id: "es-ES", label: "Español" },
+]
+
+export function GeneralSection({ onSaved }: { onSaved: () => void }) {
+  const { t, lang, setLang } = useI18n()
+  const [cfg, setCfg] = useState<AppConfig>({})
+  const home = window.launcherPaths?.home || "~"
+  const win = window.launcherPlatform === "win32"
+  const sep = win ? "\\" : "/"
+  const defaultInstall = `${home}${sep}Games${sep}Arcadia`
+  const defaultPrefixes = `${home}${sep}Games${sep}Arcadia${sep}Prefixes`
+  // No Windows o caminho padrão da Steam não é ~/.steam/steam: usa o
+  // diretório detectado (storeLibraries) quando disponível.
+  const [steamDetectado, setSteamDetectado] = useState<string | null>(null)
+  useEffect(() => {
+    window.launcherAPI
+      ?.storeLibraries?.()
+      .then((libs: { steamDir?: string }[]) => {
+        const dir = libs?.find((l) => l.steamDir)?.steamDir
+        if (dir) setSteamDetectado(dir)
+      })
+      .catch(() => {})
+  }, [])
+  const defaultSteam = win ? steamDetectado || `${home}${sep}Steam` : `${home}/.steam/steam`
+
+  useEffect(() => {
+    window.launcherAPI?.getConfig().then((c) => setCfg(c || {}))
+  }, [])
+
+  const set = async <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => {
+    setCfg((c) => ({ ...c, [key]: val }))
+    await window.launcherAPI?.setConfig({ [key]: val } as Partial<AppConfig>)
+    onSaved()
+  }
+
+  const pickFolder = async (key: keyof AppConfig) => {
+    const r = await window.launcherAPI?.pickFolder()
+    if (r?.path) await set(key, r.path as never)
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <h2 className="text-3xl font-light tracking-wide text-white mb-1">{t("settings.general")}</h2>
+      <p className="text-sm text-[color:var(--text-2)] mb-8">{t("settings.general_desc")}</p>
+
+      <Group title={t("settings.language")}>
+        <Select
+          label={t("settings.language.label")}
+          desc={t("settings.language.desc")}
+          value={cfg.language ?? lang}
+          options={LANGS}
+          onChange={(v) => {
+            set("language", v)
+            setLang(v)
+          }}
+        />
+        <Select
+          label={t("settings.theme.label")}
+          desc={t("settings.theme.desc")}
+          value={cfg.theme_name ?? "midnight"}
+          options={TEMAS.map((t) => ({ id: t.id, label: t.nome }))}
+          onChange={(v) => {
+            const tema = TEMAS.find((t) => t.id === v)
+            const patch = { theme_name: v, accent: tema?.accent ?? cfg.accent }
+            setCfg((c) => {
+              const next = { ...c, ...patch }
+              aplicarA11y(next)
+              return next
+            })
+            window.launcherAPI?.setConfig(patch)
+            onSaved()
+          }}
+        />
+        <Path
+          label={t("settings.custom_css.label")}
+          desc={t("settings.custom_css.desc")}
+          value={cfg.custom_css_path ?? ""}
+          placeholder={t("settings.custom_css.placeholder")}
+          onPick={() => pickFolder("custom_css_path")}
+        />
+      </Group>
+
+      <Group title={t("settings.paths")}>
+        <Path
+          label={t("settings.install_path.label")}
+          desc={t("settings.install_path.desc")}
+          value={cfg.default_install_path ?? defaultInstall}
+          onPick={() => pickFolder("default_install_path")}
+        />
+        <Path
+          label={t("settings.wine_prefix.label")}
+          desc={t("settings.wine_prefix.desc")}
+          value={cfg.default_wine_prefix_path ?? defaultPrefixes}
+          onPick={() => pickFolder("default_wine_prefix_path")}
+        />
+        <Path
+          label={t("settings.steam_path.label")}
+          desc={t("settings.steam_path.desc")}
+          value={cfg.steam_path ?? defaultSteam}
+          onPick={() => pickFolder("steam_path")}
+        />
+      </Group>
+
+      <Group title={t("settings.behavior")}>
+        <Toggle
+          label={t("settings.check_updates.label")}
+          desc={t("settings.check_updates.desc")}
+          value={cfg.check_updates_on_start !== false}
+          onChange={(v) => set("check_updates_on_start", v)}
+        />
+        <Toggle
+          label={t("settings.console_mode.label")}
+          desc={t("settings.console_mode.desc")}
+          value={cfg.start_in_console_mode === true}
+          onChange={(v) => set("start_in_console_mode", v)}
+        />
+        <ProcurarAtualizacao />
+        <Toggle
+          label={t("settings.hide_changelog.label")}
+          desc={t("settings.hide_changelog.desc")}
+          value={cfg.hide_changelog_on_start === true}
+          onChange={(v) => set("hide_changelog_on_start", v)}
+        />
+        <Toggle
+          label={t("settings.minimize_on_launch.label")}
+          desc={t("settings.minimize_on_launch.desc")}
+          value={cfg.minimize_on_game_launch === true}
+          onChange={(v) => set("minimize_on_game_launch", v)}
+        />
+        <Toggle
+          label={t("settings.frameless.label")}
+          desc={t("settings.frameless.desc")}
+          value={cfg.frameless_window === true}
+          onChange={(v) => set("frameless_window", v)}
+        />
+        <Toggle
+          label={t("settings.disable_playtime.label")}
+          desc={t("settings.disable_playtime.desc")}
+          value={cfg.disable_playtime_tracking === true}
+          onChange={(v) => set("disable_playtime_tracking", v)}
+        />
+        <Toggle
+          label={t("settings.discord_rpc.label")}
+          desc={t("settings.discord_rpc.desc")}
+          value={cfg.discord_rich_presence === true}
+          onChange={(v) => set("discord_rich_presence", v)}
+        />
+        <TextField
+          label="Discord Client ID"
+          desc="Application ID do Discord Developer Portal. Necessário para publicar a presença."
+          value={cfg.discord_client_id ?? "1537346240579248219"}
+          onChange={(v) => set("discord_client_id", v.trim())}
+        />
+      </Group>
+
+      <Group title={t("settings.library")}>
+        <NumberField
+          label={t("settings.download_cores.label")}
+          desc={t("settings.download_cores.desc")}
+          value={cfg.download_cpu_cores ?? 0}
+          min={0}
+          max={64}
+          onChange={(v) => set("download_cpu_cores", v)}
+        />
+      </Group>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Componentes base (mesmo visual do resto das Configurações)         */
+/* ------------------------------------------------------------------ */
+
+// Verificação manual, para quem desligou a automática — e o único lugar onde
+// o motivo de o clone estar bloqueado aparece por escrito. Sem isto, quem tem
+// alteração local nunca saberia por que o aviso não vem.
+function ProcurarAtualizacao() {
+  const { t } = useI18n()
+  const [msg, setMsg] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+
+  const procurar = async () => {
+    setBusy(true)
+    setMsg("")
+    // M4: o renderer não tem `isPackaged`; o canal do estado novo decide.
+    // No app empacotado não existe `.git` — a mensagem "não é um clone do
+    // Git" não se aplica e some.
+    const canal = (await window.launcherAPI?.updatePackagedState())?.canal
+    if (canal && canal !== "fonte") {
+      const r = await window.launcherAPI?.updatePackagedCheck({ manual: true })
+      setBusy(false)
+      if (r?.motivo === "canal_nao_suportado") return setMsg(t("update.packaged.sem_suporte"))
+      if (!r?.ok) return setMsg(r?.erro || t("update.erro_generico"))
+      if (!r.disponivel) return setMsg(t("update.packaged.em_dia"))
+      // A checagem manual zera o "já avisei" no módulo; o diálogo do launcher
+      // abre pelo push `update:packaged:changed` — nada a fazer aqui.
+      return
+    }
+    const st = await window.launcherAPI?.updateState()
+    if (st && !st.podeAtualizar) {
+      setBusy(false)
+      setMsg(t(`update.bloqueado.${st.motivo}`, { detalhe: st.detalhe || "" }))
+      return
+    }
+    const r = await window.launcherAPI?.updateCheck()
+    setBusy(false)
+    if (!r?.ok) return setMsg(r?.error || t("update.erro_generico"))
+    if (!r.atrasado) return setMsg(t("update.em_dia", { sha: r.local || "" }))
+    setInfo(r)
+  }
+
+  return (
+    <>
+      <Row
+        label={t("update.procurar.label")}
+        desc={msg || t("update.procurar.desc")}
+        control={
+          <button
+            onClick={procurar}
+            disabled={busy}
+            className="rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white disabled:opacity-60"
+          >
+            {busy ? t("update.procurando") : t("update.procurar")}
+          </button>
+        }
+      />
+      {info && <UpdateDialog info={info} onDepois={() => setInfo(null)} />}
+    </>
+  )
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-8">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/40">
+        {title}
+      </h3>
+      <div className="flex flex-col gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2">
+        {children}
+      </div>
+    </section>
+  )
+}
+
+function Row({ label, desc, control }: { label: string; desc?: string; control: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03]">
+      <div className="min-w-0">
+        <div className="text-[14px] text-white/90">{label}</div>
+        {desc && <div className="mt-0.5 text-xs leading-snug text-white/40">{desc}</div>}
+      </div>
+      <div className="shrink-0">{control}</div>
+    </div>
+  )
+}
+
+function Toggle({
+  label,
+  desc,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  value: boolean
+  disabled?: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <button
+          role="switch"
+          aria-checked={value}
+          disabled={disabled}
+          onClick={() => onChange(!value)}
+          className={`relative h-6 w-11 rounded-full transition-colors ${disabled ? "cursor-not-allowed opacity-35" : ""}`}
+          style={{ background: value ? "var(--accent)" : "rgba(255,255,255,0.12)" }}
+        >
+          <span
+            className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all"
+            style={{ left: value ? "22px" : "2px" }}
+          />
+        </button>
+      }
+    />
+  )
+}
+
+function Select({
+  label,
+  desc,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  value: string
+  options: readonly { id: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+        >
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      }
+    />
+  )
+}
+
+function Path({
+  label,
+  desc,
+  value,
+  placeholder,
+  onPick,
+}: {
+  label: string
+  desc?: string
+  value: string
+  placeholder?: string
+  onPick: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <button
+          onClick={onPick}
+          title={value || placeholder}
+          className="flex max-w-[260px] items-center gap-2 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/70 outline-none transition-colors hover:border-white/25 hover:text-white"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="shrink-0"
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          <span className="truncate">{value || placeholder || t("common.selecionar")}</span>
+        </button>
+      }
+    />
+  )
+}
+
+function TextField({
+  label,
+  desc,
+  value,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          className="w-64 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[12px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+        />
+      }
+    />
+  )
+}
+
+function NumberField({
+  label,
+  desc,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  value: number
+  min: number
+  max: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <Row
+      label={label}
+      desc={desc}
+      control={
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)))
+          }}
+          className="w-20 rounded-lg border border-white/10 bg-[color:var(--surface-2)] px-3 py-1.5 text-[13px] text-white/85 outline-none transition-colors hover:border-white/25 focus:border-[var(--accent)]"
+        />
+      }
+    />
+  )
+}
