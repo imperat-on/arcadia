@@ -3248,6 +3248,49 @@ async fn upload_avatar(
     json!({ "ok": true, "avatar_url": avatar_url })
 }
 
+/// Converte o que a UI mandou num caminho de arquivo utilizável.
+///
+/// O `profile:pickImage` devolve `file://<caminho>?t=<timestamp>` — o `t` é
+/// cache-buster para o `<img>` do renderer, não faz parte do arquivo. Ler o
+/// caminho sem limpar a query falha com `ENOENT`, e o erro sobe como
+/// `avatar_ilegivel` (ou `arquivo_ilegivel`), escondendo a causa real.
+///
+/// Espelha `caminhoDeArquivo()` de `app/electron/supabase/auth.js`: remove o
+/// esquema, corta `?query` e `#hash`, e decodifica percent-encoding.
+fn caminho_de_arquivo(entrada: &str) -> String {
+    let sem_esquema = entrada.strip_prefix("file://").unwrap_or(entrada);
+    let sem_query = sem_esquema
+        .split('?')
+        .next()
+        .unwrap_or(sem_esquema)
+        .split('#')
+        .next()
+        .unwrap_or(sem_esquema);
+    percent_decode(sem_query)
+}
+
+/// Decodifica `%XX` mantendo o resto intacto. Entrada inválida volta como veio.
+fn percent_decode(valor: &str) -> String {
+    let bytes = valor.as_bytes();
+    let mut saida = Vec::with_capacity(bytes.len());
+    let mut indice = 0;
+    while indice < bytes.len() {
+        if bytes[indice] == b'%' && indice + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[indice + 1..indice + 3]).ok();
+            if let Some(hex) = hex {
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                    saida.push(byte);
+                    indice += 3;
+                    continue;
+                }
+            }
+        }
+        saida.push(bytes[indice]);
+        indice += 1;
+    }
+    String::from_utf8(saida).unwrap_or_else(|_| valor.to_string())
+}
+
 async fn account_set_avatar_path(
     state: &AppState,
     channel: &str,
@@ -3267,8 +3310,9 @@ async fn account_set_avatar_path(
         return Ok(json!({ "ok": false, "error": "nao_logado" }));
     };
     let raw = args.first().and_then(Value::as_str).unwrap_or_default();
-    let path = raw.strip_prefix("file://").unwrap_or(raw);
-    let Ok(bytes) = std::fs::read(path) else {
+    // O path chega como `file://…?t=<stamp>`; a query não é parte do arquivo.
+    let path = caminho_de_arquivo(raw);
+    let Ok(bytes) = std::fs::read(&path) else {
         return Ok(json!({ "ok": false, "error": "avatar_ilegivel" }));
     };
     if bytes.len() > 5 * 1024 * 1024 {
@@ -3318,20 +3362,21 @@ async fn account_set_background(
         return Ok(json!({ "ok": false, "error": "nao_logado" }));
     };
     let raw = args.first().and_then(Value::as_str).unwrap_or_default();
-    let path = raw.strip_prefix("file://").unwrap_or(raw);
+    // Mesmo caso do avatar: `file://…?t=<stamp>` — a query quebra o read.
+    let path = caminho_de_arquivo(raw);
     let kind = args.get(1).and_then(Value::as_str).unwrap_or("background");
     let field = if kind == "banner" {
         "banner_url"
     } else {
         "background_url"
     };
-    let Ok(bytes) = std::fs::read(path) else {
+    let Ok(bytes) = std::fs::read(&path) else {
         return Ok(json!({ "ok": false, "error": "arquivo_ilegivel" }));
     };
     if bytes.len() > 25 * 1024 * 1024 {
         return Ok(json!({ "ok": false, "error": "arquivo_grande" }));
     }
-    let extension = std::path::Path::new(path)
+    let extension = std::path::Path::new(&path)
         .extension()
         .and_then(|value| value.to_str())
         .map(|value| format!(".{}", value.to_ascii_lowercase()))
@@ -3461,6 +3506,55 @@ mod tests {
 
     fn state() -> AppState {
         AppState::new(std::env::temp_dir())
+    }
+
+    /// O `pickImage` devolve `file://…?t=<stamp>`; ler sem cortar a query dava
+    /// ENOENT e virava `avatar_ilegivel` para qualquer imagem.
+    #[test]
+    fn caminho_de_arquivo_remove_query_e_hash() {
+        assert_eq!(
+            caminho_de_arquivo("file:///home/user/avatar.gif?t=1795120259552"),
+            "/home/user/avatar.gif"
+        );
+        assert_eq!(
+            caminho_de_arquivo("/home/user/avatar.png#cache"),
+            "/home/user/avatar.png"
+        );
+        assert_eq!(
+            caminho_de_arquivo("file:///tmp/meu%20avatar.jpg"),
+            "/tmp/meu avatar.jpg"
+        );
+        // Entrada sem esquema e sem query passa intacta.
+        assert_eq!(caminho_de_arquivo("/dados/avatar.webp"), "/dados/avatar.webp");
+    }
+
+    /// Prova o bug de ponta a ponta: o arquivo existe, mas o path com `?t=`
+    /// não. Depois do fix, os bytes são lidos.
+    #[test]
+    fn avatar_com_cache_buster_no_path_e_lido() {
+        let dir = std::env::temp_dir().join(format!("avatar-fix-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let arquivo = dir.join("avatar.png");
+        // PNG mínimo válido (magic bytes + IHDR), suficiente para o read.
+        std::fs::write(&arquivo, b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let com_query = format!("file://{}?t=1795120259552", arquivo.display());
+        // Sem o fix: read falha.
+        assert!(std::fs::read(com_query.strip_prefix("file://").unwrap()).is_err());
+        // Com o fix: read funciona.
+        let limpo = caminho_de_arquivo(&com_query);
+        assert!(std::fs::read(&limpo).is_ok());
+        assert_eq!(limpo, arquivo.to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn percent_decode_preserva_o_que_nao_e_escape() {
+        assert_eq!(percent_decode("100%25 pronto"), "100% pronto");
+        assert_eq!(percent_decode("sem-escape"), "sem-escape");
+        // `%zz` não é hex válido: fica como veio.
+        assert_eq!(percent_decode("a%zzb"), "a%zzb");
     }
 
     /// Os canais de auto-update respondem no formato que a UI consome, mesmo
