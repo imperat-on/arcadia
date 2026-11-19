@@ -19,6 +19,8 @@
 
 use serde_json::{Map, Value};
 
+use crate::loader::normalize_steam_icon_url;
+
 /// Canal IPC do renderer (`main.js` → `webContents.send`).
 pub const ACHIEVEMENT_UNLOCKED_CHANNEL: &str = "achievement:unlocked";
 /// Canal sugerido para revogação. O oráculo não envia isto ao renderer; o
@@ -105,7 +107,8 @@ impl UnlockEvent {
         }
         object.insert("title".into(), Value::String(self.title.clone()));
         object.insert("desc".into(), Value::String(self.desc.clone()));
-        object.insert("icon".into(), Value::String(self.icon.clone()));
+        let icon = normalize_steam_icon_url(&self.icon).unwrap_or_else(|| self.icon.clone());
+        object.insert("icon".into(), Value::String(icon));
         object.insert("percent".into(), number_value(self.percent));
         object.insert("unlock".into(), Value::from(self.unlock));
         object.insert("done".into(), Value::from(self.done as u64));
@@ -122,7 +125,9 @@ impl UnlockEvent {
         };
         object.insert("name".into(), Value::String(self.title.clone()));
         object.insert("description".into(), Value::String(self.desc.clone()));
-        object.insert("icongray".into(), Value::String(self.icongray.clone()));
+        let icongray =
+            normalize_steam_icon_url(&self.icongray).unwrap_or_else(|| self.icongray.clone());
+        object.insert("icongray".into(), Value::String(icongray));
         object.insert("hidden".into(), Value::Bool(self.hidden));
         object.insert("unlockTime".into(), Value::from(self.unlock));
         object.insert(

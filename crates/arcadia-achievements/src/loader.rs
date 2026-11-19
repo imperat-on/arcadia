@@ -377,14 +377,37 @@ impl IconResolver for SteamIcons {
     }
 }
 
-pub const STEAM_ICON_HOST: &str = "https://cdn.cloudflare.steamstatic.com";
+pub const STEAM_ICON_HOST: &str = "https://shared.fastly.steamstatic.com";
+
+const LEGACY_STEAM_ICON_PREFIXES: [&str; 4] = [
+    "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/",
+    "http://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/",
+    "https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/",
+    "http://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/",
+];
+
+/// Reescreve a URL antiga (`cdn.cloudflare`/`cdn.akamai`) para o host atual de
+/// `community_assets`. Jogos novos, como o appid 4115450, só existem nesse host;
+/// a URL legada devolve 404.
+pub fn normalize_steam_icon_url(value: &str) -> Option<String> {
+    let rest = LEGACY_STEAM_ICON_PREFIXES
+        .iter()
+        .find_map(|prefix| value.strip_prefix(prefix))?;
+    Some(format!(
+        "{STEAM_ICON_HOST}/community_assets/images/apps/{rest}"
+    ))
+}
 
 pub fn steam_icon_url(appid: &str, hash: &str) -> Option<String> {
     if hash.is_empty() {
         return None;
     }
+    // O parser SSR pode entregar uma URL completa em vez do hash do arquivo.
+    if hash.starts_with("http://") || hash.starts_with("https://") {
+        return Some(hash.to_string());
+    }
     Some(format!(
-        "{STEAM_ICON_HOST}/steamcommunity/public/images/apps/{appid}/{hash}"
+        "{STEAM_ICON_HOST}/community_assets/images/apps/{appid}/{hash}"
     ))
 }
 
@@ -1187,6 +1210,31 @@ mod tests {
         );
         assert_eq!(icons.resolve_icon("42", ""), None);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn steam_icon_url_uses_community_assets_and_normalizes_legacy_urls() {
+        assert_eq!(
+            steam_icon_url("4115450", "abc.jpg").as_deref(),
+            Some(
+                "https://shared.fastly.steamstatic.com/community_assets/images/apps/4115450/abc.jpg"
+            )
+        );
+        assert_eq!(
+            steam_icon_url("42", "https://cdn/x.jpg").as_deref(),
+            Some("https://cdn/x.jpg")
+        );
+        assert_eq!(steam_icon_url("42", ""), None);
+        assert_eq!(
+            normalize_steam_icon_url(
+                "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/4115450/abc.jpg"
+            )
+            .as_deref(),
+            Some(
+                "https://shared.fastly.steamstatic.com/community_assets/images/apps/4115450/abc.jpg"
+            )
+        );
+        assert_eq!(normalize_steam_icon_url("https://cdn/x.jpg"), None);
     }
 
     #[test]

@@ -66,8 +66,9 @@ pub use fsx::{Clock, Platform, SystemClock, SystemFs, WatcherFs};
 pub use loader::{
     collect_appids, collect_appids_with_fs, configured_appids, copy_icon_to_cache, first_text,
     list_progress_files, list_progress_files_with_fs, load_achievements, load_all_schemas,
-    load_all_schemas_with_fs, load_item_index, load_item_index_from_path, resolve_schema_for_appid,
-    save_achievements, schema_item_view, sort_items, steam_icon_url, AchievementsStore, CdnIcons,
+    load_all_schemas_with_fs, load_item_index, load_item_index_from_path, normalize_steam_icon_url,
+    resolve_schema_for_appid, save_achievements, schema_item_view, sort_items, steam_icon_url,
+    AchievementsStore, CdnIcons,
     IconResolver, ItemIndex, LoadOptions, LoadReport, NoScrapeProvider, RebuildReport,
     ResolvedAppSchema, SchemaOrigin, ScrapeSchemaProvider, SteamIcons, SyncRecord, STEAM_ICON_HOST,
 };

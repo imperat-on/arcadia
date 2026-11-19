@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use arcadia_achievements::loader::{rebuild_app, AchievementsStore, SteamIcons};
+use arcadia_achievements::loader::{
+    normalize_steam_icon_url, rebuild_app, AchievementsStore, SteamIcons,
+};
 use arcadia_achievements::steam_page::{
     fetch_achievements_for_app, merge_catalog_items, AchievementsHttp, HttpResponse,
 };
@@ -59,6 +61,35 @@ fn local_items(path: &std::path::Path, appid: &str) -> Vec<Value> {
     }
 }
 
+/// Dados antigos guardam o host legado, que devolve 404 para jogos novos.
+/// Normaliza na leitura para corrigir o cache existente sem reescrever JSON.
+fn normalize_icons(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            if let Some(fixed) = normalize_steam_icon_url(text) {
+                *text = fixed;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_icons(item);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                normalize_icons(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn items_value(items: Vec<Value>) -> Value {
+    let mut value = Value::Array(items);
+    normalize_icons(&mut value);
+    value
+}
+
 pub(crate) async fn get(state: &AppState, raw: &str) -> Value {
     let appid = steam_service::normalize_appid(raw);
     if appid.is_empty() {
@@ -67,7 +98,7 @@ pub(crate) async fn get(state: &AppState, raw: &str) -> Value {
     let account = state.account();
     let path = account_file(&state.data_dir, account.as_deref(), "achievements.json");
     if !appid.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Value::Array(local_items(&path, &appid));
+        return items_value(local_items(&path, &appid));
     }
     let stats_dir = state
         .with_achievements(|runtime| runtime.stats_dir())
@@ -84,7 +115,7 @@ pub(crate) async fn get(state: &AppState, raw: &str) -> Value {
         );
         // A leitura não ingere progresso nem grava unlocks: o runtime aplica o gate.
         rebuild_app(&mut store, &appid, &schema, &BTreeMap::new(), &icons);
-        return Value::Array(store.items(&appid));
+        return items_value(store.items(&appid));
     }
 
     let cache_path = account_file(
@@ -107,5 +138,28 @@ pub(crate) async fn get(state: &AppState, raw: &str) -> Value {
         }
     };
     // O poll pode desbloquear algo enquanto o HTTP está em andamento.
-    Value::Array(merge_catalog_items(catalog, &local_items(&path, &appid)))
+    items_value(merge_catalog_items(catalog, &local_items(&path, &appid)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn normalizes_legacy_achievement_icons_in_existing_cache_payloads() {
+        let mut value = json!([{
+            "icon": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/4115450/a.jpg",
+            "icongray": "https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/4115450/b.jpg"
+        }]);
+        normalize_icons(&mut value);
+        assert_eq!(
+            value[0]["icon"],
+            "https://shared.fastly.steamstatic.com/community_assets/images/apps/4115450/a.jpg"
+        );
+        assert_eq!(
+            value[0]["icongray"],
+            "https://shared.fastly.steamstatic.com/community_assets/images/apps/4115450/b.jpg"
+        );
+    }
 }
