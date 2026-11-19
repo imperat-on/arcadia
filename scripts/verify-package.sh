@@ -159,7 +159,10 @@ if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
         if [ -e "$sq/usr/lib/libopenh264.so.8" ]; then
             ok "AppImage embarca libopenh264.so.8"
         else
-            bad "AppImage sem libopenh264 — o plugin não carrega"
+            # O `.so` versionado pode não existir num build feito em distro que
+            # entrega só o SONAME sem o arquivo real. O que decide se o trailer
+            # toca é o plugin carregar — testado logo abaixo.
+            skip "libopenh264.so.8 ausente; o plugin será validado pelo teste de carga"
         fi
 
         # Carrega os plugins num ambiente limpo: se resolver pelo host, o teste

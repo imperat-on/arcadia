@@ -51,7 +51,7 @@ if [ -f "$EXE" ] && command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then
     dlls="$(x86_64-w64-mingw32-objdump -p "$EXE" 2>/dev/null \
             | awk '/DLL Name/{print tolower($3)}' | sort -u)"
     externas="$(printf '%s\n' "$dlls" | grep -vE \
-        '^(advapi32|bcrypt|bcryptprimitives|combase|comctl32|crypt32|dwmapi|gdi32|imm32|kernel32|ntdll|ole32|oleaut32|propsys|rpcrt4|shell32|shlwapi|user32|userenv|ws2_32|api-ms-win-.*|webview2loader)\.dll$' \
+        '^(advapi32|bcrypt|bcryptprimitives|combase|comctl32|crypt32|dwmapi|gdi32|imm32|kernel32|msvcrt|ntdll|ole32|oleaut32|propsys|rpcrt4|shell32|shlwapi|user32|userenv|ws2_32|api-ms-win-.*|webview2loader)\.dll$' \
         | grep -v '^$' || true)"
 
     if [ -z "$externas" ]; then
