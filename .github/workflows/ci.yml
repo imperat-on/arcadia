@@ -119,7 +119,7 @@ jobs:
           # não existir. Instalar aqui não contamina o `.exe`: o alvo continua
           # sendo x86_64-pc-windows-gnu.
           sudo apt-get install -y --no-install-recommends \
-            mingw-w64 nsis pkg-config libssl-dev file \
+            mingw-w64 pkg-config libssl-dev file \
             libayatana-appindicator3-dev libwebkit2gtk-4.1-dev \
             libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
@@ -137,12 +137,31 @@ jobs:
 
       - run: npm --prefix ui ci
 
-      # Na CI as ferramentas vêm do apt, então ARCADIA_WIN_TOOLS aponta para o
-      # prefixo do sistema e o PATH normal já resolve. O script usa o que achar.
-      - name: Empacotar Windows
-        env:
-          ARCADIA_WIN_TOOLS: /usr
+      # O `nsis` do apt vem sem `Include/Win/` (`RestartManager.nsh`) e sem os
+      # `Stubs/`, e o template do Tauri inclui um header de `Win/` — o makensis
+      # aborta com "could not find: Win\RestartManager.nsh".
+      #
+      # O `.zip` oficial do NSIS tem os Includes/Stubs/Plugins completos, mas só
+      # traz `makensis.exe` (Windows). A saída é combinar: o binário Linux vem
+      # do apt, e os dados (Include, Stubs, Plugins, Contrib) do zip oficial.
+      - name: NSIS (binário do apt + dados oficiais)
         run: |
+          sudo apt-get install -y --no-install-recommends nsis
+          curl -fsSL -o /tmp/nsis.zip \
+            "https://prdownloads.sourceforge.net/nsis/nsis-3.10.zip"
+          TOOLS="$HOME/.local/share/arcadia-tools/win/nsis"
+          mkdir -p "$TOOLS"
+          python3 -c "import os,zipfile;z=zipfile.ZipFile('/tmp/nsis.zip');[os.makedirs(os.path.dirname(os.path.join('$TOOLS',n.split('/',1)[1])),exist_ok=True) or open(os.path.join('$TOOLS',n.split('/',1)[1]),'wb').write(z.read(n)) for n in z.namelist() if len(n.split('/',1))==2 and n.split('/',1)[1]]"
+          test -f "$TOOLS/Include/Win/RestartManager.nsh"
+          test -d "$TOOLS/Stubs"
+          echo "NSIS dados em $TOOLS"
+
+      # Na CI as ferramentas vêm do prefixo local (NSIS oficial) e do apt
+      # (mingw), então o script acha tudo pelo PATH.
+      - name: Empacotar Windows
+        run: |
+          export NSISDIR="$HOME/.local/share/arcadia-tools/win/nsis"
+          export ARCADIA_WIN_TOOLS="$HOME/.local/share/arcadia-tools/win"
           export PATH="/usr/bin:$PATH"
           ./scripts/package-windows.sh
           ./scripts/verify-package-windows.sh
