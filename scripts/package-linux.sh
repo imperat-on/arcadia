@@ -80,10 +80,29 @@ fi
 # --- Localiza os plugins de codec no host -----------------------------------
 
 # Onde procurar: os plugins extraídos pelo usuário primeiro, depois o sistema.
+# O caminho depende da distro: Arch/Fedora usam `/usr/lib/gstreamer-1.0`, e as
+# derivadas Debian (Ubuntu do CI) usam o diretório multiarch
+# `/usr/lib/<tripla>/gstreamer-1.0`. Procurar só no primeiro fazia o job de
+# empacotamento falhar mesmo com `gstreamer1.0-plugins-bad` instalado.
 gst_dir_candidates=(
     "$HOME/.local/lib/gstreamer-1.0"
     "/usr/lib/gstreamer-1.0"
+    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
+    "/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+    "/usr/lib64/gstreamer-1.0"
 )
+# Complementa com o que o próprio `pkg-config` ou o `gst-inspect` reportarem,
+# para cobrir triplas que não estão na lista fixa.
+if command -v gst-inspect-1.0 >/dev/null 2>&1; then
+    while IFS= read -r dir; do
+        [ -n "$dir" ] && gst_dir_candidates+=("$dir")
+    done < <(gst-inspect-1.0 --plugins 2>/dev/null \
+        | sed -n 's|^ *Filename *\(.*\)/[^/]*$|\1|p' | sort -u)
+fi
+if command -v pkg-config >/dev/null 2>&1; then
+    pc_dir=$(pkg-config --variable=pluginsdir gstreamer-1.0 2>/dev/null || true)
+    [ -n "$pc_dir" ] && gst_dir_candidates+=("$pc_dir")
+fi
 
 find_gst_plugin() {
     local name="$1" dir
