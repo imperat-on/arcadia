@@ -31,7 +31,7 @@ use tokio::sync::OnceCell;
 use arcadia_api::auth::Session;
 use arcadia_api::{ApiClient, Error as ApiFailure};
 use arcadia_store::accounts::{account_file, AccountScope};
-use arcadia_store::config::{merge_config, read_config, write_config_patch};
+use arcadia_store::config::{read_config, write_config_patch};
 use arcadia_store::library::read_games;
 use arcadia_media::http::{Fetcher, HttpClientFetcher};
 use arcadia_achievements::runtime::{AchievementsRuntime, CaptureGate};
@@ -848,8 +848,7 @@ pub fn dispatch(
                 .ok_or_else(|| IpcError::invalid(channel, "config:set sem payload"))?;
             let current = read_config(&state.data_dir);
             let patch = prepare_patch(&current, patch, channel)?;
-            let next = merge_config(&current, &patch);
-            write_config_patch(&state.data_dir, &next)
+            let next = write_config_patch(&state.data_dir, &patch)
                 .map_err(|error| IpcError::new("io", error.to_string(), channel))?;
             // Idioma/hubcap/região afetam o cliente da loja e o cache em memória.
             *lock(&state.store) = None;
@@ -3282,6 +3281,23 @@ mod tests {
         let stored = read_config(&dir);
         assert_eq!(stored["steam_api_key"], "ABCDEF1234567890");
         assert_eq!(stored["language"], "en-US");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_set_removes_cleared_secrets_and_keeps_unrelated_fields() {
+        let dir = std::env::temp_dir().join(format!("arcadia-ipc-clear-secret-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.json"), r#"{"torbox_token":"mock-token","steam_api_key":"mock-key","language":"pt-BR","future_field":{"keep":true}}"#).unwrap();
+        let state = AppState::new(dir.clone());
+        let response = dispatch(&state, &MockShell, "config:set", vec![json!({"torbox_token":"", "steam_api_key":null})]).unwrap();
+        let stored = read_config(&dir);
+        assert!(stored.get("torbox_token").is_none(), "token limpo deve sair do disco");
+        assert!(stored.get("steam_api_key").is_none());
+        assert_eq!(stored["language"], "pt-BR");
+        assert_eq!(stored["future_field"]["keep"], true);
+        assert_eq!(response["config"], redact_config(&stored));
+        assert!(!arcadia_catalog::hosters::has_debrid_configured(&stored));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
