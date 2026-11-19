@@ -148,7 +148,6 @@ impl CoverCache {
         // Decodificação é CPU-bound: sai da thread do runtime para não segurar
         // outras respostas de IPC.
         let bytes_vec = bytes.to_vec();
-        let destino_dono = destino.to_path_buf();
         let reduzida = tokio::task::spawn_blocking(move || {
             let imagem = image::load_from_memory(&bytes_vec).ok()?;
             let largura = imagem.width();

@@ -34,7 +34,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 /// Client id padrão do Arcadia (o mesmo do Electron).
-const DEFAULT_CLIENT_ID: &str = "1537346240579248219";
+pub const DEFAULT_CLIENT_ID: &str = "1537346240579248219";
 const OP_HANDSHAKE: u32 = 0;
 const OP_FRAME: u32 = 1;
 
@@ -51,7 +51,7 @@ type Fluxo = std::fs::File;
 struct Estado {
     socket: Option<Fluxo>,
     conectado: bool,
-    buffer: Vec<u8>,
+    /// Atividade que chegou antes da conexão e será enviada ao conectar.
     pendente: Option<String>,
 }
 
@@ -76,7 +76,6 @@ impl DiscordRpc {
             estado: Mutex::new(Estado {
                 socket: None,
                 conectado: false,
-                buffer: Vec::new(),
                 pendente: None,
             }),
             tentou: AtomicBool::new(false),

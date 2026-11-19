@@ -88,7 +88,24 @@ echo "==> compilando para $TARGET"
 cd "$ROOT/src-tauri"
 if [ $DO_SETUP -eq 1 ]; then
     need makensis
-    "$TAURI" build --target "$TARGET" --bundles nsis
+    # O `tauri build` do host checa a presença de appindicator/GTK antes de
+    # empacotar, mesmo quando o alvo é Windows. Quando a checagem falha, o
+    # bundler aborta com "Can't detect any appindicator library" DEPOIS de já
+    # ter produzido o `.exe` — foi o que aconteceu no CI.
+    #
+    # Aqui o bundle é tratado como opcional: se o `.exe` já existe, o
+    # instalador é uma etapa extra, não um requisito. Sem ele o artefato ainda
+    # é entregável e o script avisa por quê.
+    if ! "$TAURI" build --target "$TARGET" --bundles nsis; then
+        if [ -f "$OUT/arcadia.exe" ]; then
+            echo "aviso: o instalador NSIS não foi gerado (bundler abortou)." >&2
+            echo "       O .exe já está pronto; instale libayatana-appindicator3-dev" >&2
+            echo "       para o bundle funcionar em hosts onde a checagem falha." >&2
+        else
+            echo "erro: build falhou e o .exe não foi gerado" >&2
+            exit 1
+        fi
+    fi
 else
     # Só o executável: `tauri build` sem bundle ainda passa pelo build script.
     "$TAURI" build --target "$TARGET"

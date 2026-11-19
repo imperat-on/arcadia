@@ -247,7 +247,7 @@ impl AppState {
                             .and_then(Value::as_str)
                             .map(str::to_string)
                     })
-                    .unwrap_or_else(|| "1537346240579248219".to_string());
+                    .unwrap_or_else(|| crate::discord_rpc::DEFAULT_CLIENT_ID.to_string());
                 let id = id.trim().to_string();
                 (!id.is_empty()).then_some(id)
             })
