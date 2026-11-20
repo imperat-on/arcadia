@@ -2000,6 +2000,9 @@ pub struct GameSettingsView {
     pub script_post: String,
     pub wrapper_count: usize,
     pub emulator_id: Option<String>,
+    pub rom_path: String,
+    pub emulator_args: Vec<String>,
+    pub emulator_core_path: String,
 }
 
 impl Default for GameSettingsView {
@@ -2030,6 +2033,9 @@ impl Default for GameSettingsView {
             script_post: String::new(),
             wrapper_count: 0,
             emulator_id: None,
+            rom_path: String::new(),
+            emulator_args: Vec::new(),
+            emulator_core_path: String::new(),
         }
     }
 }
@@ -2110,7 +2116,36 @@ impl GameSettingsView {
             "gamescope": self.gamescope,
             "gsHdr": self.gs_hdr,
             "verboseLogs": self.verbose_logs,
+            "emulatorId": self.emulator_id,
+            "romPath": self.rom_path.trim(),
+            "emulatorArgs": self.emulator_args,
+            "emulatorCorePath": self.emulator_core_path.trim(),
         })
+    }
+
+    /// Payload de `emulators:resolve` para a configuração atual do jogo.
+    pub fn emulator_resolve_payload(&self, launch_mode: &str) -> Value {
+        let mut payload = serde_json::Map::new();
+        if let Some(emulator_id) = self
+            .emulator_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            payload.insert("emulatorId".to_string(), json!(emulator_id));
+        }
+        payload.insert("romPath".to_string(), json!(self.rom_path.trim()));
+        if !self.emulator_args.is_empty() {
+            payload.insert("extraArgs".to_string(), json!(self.emulator_args));
+        }
+        if !self.emulator_core_path.trim().is_empty() {
+            payload.insert(
+                "corePath".to_string(),
+                json!(self.emulator_core_path.trim()),
+            );
+        }
+        payload.insert("launchMode".to_string(), json!(launch_mode));
+        Value::Object(payload)
     }
 }
 
@@ -2132,6 +2167,16 @@ fn string_field(value: &Value, key: &str) -> String {
 
 fn bool_field(value: &Value, key: &str, default: bool) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(default)
+}
+
+/// `emulatorArgs` chega como array na UI web; respostas antigas podem trazer a
+/// string única que o resolvedor de launch ainda lê.
+fn string_or_args_field(value: &Value, key: &str) -> Vec<String> {
+    match value.get(key) {
+        Some(Value::Array(_)) => string_list(value.get(key)),
+        Some(Value::String(text)) => parse_emulator_args(text),
+        _ => Vec::new(),
+    }
 }
 
 /// Lê o objeto de settings devolvido por `gamesettings:get`/`set`.
@@ -2184,6 +2229,9 @@ pub fn parse_game_settings(value: &Value) -> GameSettingsView {
             .map(Vec::len)
             .unwrap_or(0),
         emulator_id: optional_string_field(value, "emulatorId"),
+        rom_path: string_field(value, "romPath"),
+        emulator_args: string_or_args_field(value, "emulatorArgs"),
+        emulator_core_path: string_field(value, "emulatorCorePath"),
     }
 }
 
@@ -4424,6 +4472,180 @@ pub struct EmulationLoad {
     pub warnings: Vec<String>,
 }
 
+/// Catálogo/status usados pelo seletor de emulador das opções do jogo.
+#[derive(Debug, Clone, Default)]
+pub struct GameEmulatorOptions {
+    pub emulators: Vec<EmulatorInfo>,
+    pub statuses: Vec<EmulatorStatus>,
+}
+
+/// Resultado de `emulators:resolve` (`ok`, `cmd`, `error`, `code`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EmulatorResolveResult {
+    pub ok: bool,
+    pub cmd: Vec<String>,
+    pub error: Option<String>,
+    pub code: Option<String>,
+}
+
+impl EmulatorResolveResult {
+    /// Mensagem do contrato para o banner; não inventa sucesso nem esconde o
+    /// código estruturado quando os dois vêm preenchidos.
+    pub fn error_text(&self) -> String {
+        match (self.error.as_deref(), self.code.as_deref()) {
+            (Some(error), Some(code)) if !code.is_empty() && code != error => {
+                format!("{error} ({code})")
+            }
+            (Some(error), _) => error.to_string(),
+            (None, Some(code)) if !code.is_empty() => code.to_string(),
+            _ => "configuração do emulador inválida".to_string(),
+        }
+    }
+}
+
+/// Pedido de importação de uma ROM do índice como jogo customizado.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EmulatorRomImport {
+    pub emulator_id: String,
+    pub rom_path: String,
+    pub rom_name: String,
+    pub extra_args: Vec<String>,
+    pub core_path: Option<String>,
+    /// Ids já presentes na biblioteca; a geração do slug os evita.
+    pub occupied_ids: Vec<String>,
+}
+
+impl EmulatorRomImport {
+    pub fn title(&self) -> String {
+        custom_game_title(&self.rom_name)
+    }
+
+    pub fn game_id(&self) -> String {
+        custom_emulator_game_id(&self.emulator_id, &self.title(), &self.occupied_ids)
+    }
+
+    /// Payload de `customgame:add` para `platform: "emulator"`.
+    pub fn custom_game_payload(&self) -> Value {
+        let id = self.game_id();
+        json!({
+            "id": id,
+            "title": self.title(),
+            "platform": "emulator",
+            "emulatorId": self.emulator_id.trim(),
+            "romPath": self.rom_path.trim(),
+            "emulatorArgs": self.extra_args,
+            "emulatorCorePath": self.core_path.as_deref().unwrap_or("").trim(),
+        })
+    }
+
+    /// Patch de `gamesettings:set` para o `plan_launch` montar o argv.
+    pub fn settings_patch(&self) -> Value {
+        json!({
+            "emulatorId": self.emulator_id.trim(),
+            "romPath": self.rom_path.trim(),
+            "emulatorArgs": self.extra_args,
+            "emulatorCorePath": self.core_path.as_deref().unwrap_or("").trim(),
+        })
+    }
+
+    pub fn resolve_payload(&self) -> Value {
+        let mut payload = serde_json::Map::new();
+        payload.insert("emulatorId".to_string(), json!(self.emulator_id.trim()));
+        payload.insert("romPath".to_string(), json!(self.rom_path.trim()));
+        if !self.extra_args.is_empty() {
+            payload.insert("extraArgs".to_string(), json!(self.extra_args));
+        }
+        if let Some(core) = self.core_path.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            payload.insert("corePath".to_string(), json!(core));
+        }
+        payload.insert("launchMode".to_string(), json!("hydra"));
+        Value::Object(payload)
+    }
+}
+
+/// Jogo importado: a biblioteca recarregada já inclui o novo `custom:<slug>`.
+#[derive(Debug, Clone, Default)]
+pub struct ImportedEmulatorRom {
+    pub title: String,
+    pub games: Vec<Game>,
+}
+
+/// Título do jogo a partir do nome do arquivo da ROM (sem extensão, máx. 200).
+pub fn custom_game_title(rom_name: &str) -> String {
+    let file = rom_name.rsplit(['/', '\\']).next().unwrap_or(rom_name);
+    let stem = match file.rsplit_once('.') {
+        Some((stem, _)) if !stem.trim().is_empty() => stem,
+        _ => file,
+    };
+    let title = if stem.trim().is_empty() {
+        file.trim()
+    } else {
+        stem.trim()
+    };
+    title.chars().take(200).collect()
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    for character in value.to_lowercase().chars() {
+        if character.is_ascii_lowercase() || character.is_ascii_digit() {
+            slug.push(character);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+/// Id `custom:<slug>` estável a partir do emulador + título.
+///
+/// O slug é limitado a 90 caracteres e, se o id já existir, recebe um sufixo
+/// numérico em vez de sobrescrever o jogo existente.
+pub fn custom_emulator_game_id(emulator_id: &str, title: &str, occupied: &[String]) -> String {
+    let emulator = slugify(emulator_id);
+    let title = slugify(title);
+    let base = [emulator.as_str(), title.as_str()]
+        .iter()
+        .filter(|part| !part.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("-");
+    let base = if base.is_empty() {
+        "rom".to_string()
+    } else {
+        base.chars().take(90).collect::<String>()
+    };
+    let base = base.trim_matches('-').to_string();
+
+    let candidate = format!("custom:{base}");
+    if !occupied.iter().any(|id| id == &candidate) {
+        return candidate;
+    }
+    for suffix_number in 2..=999u32 {
+        let suffix = format!("-{suffix_number}");
+        let keep = 90usize.saturating_sub(suffix.len());
+        let shortened = base.chars().take(keep).collect::<String>();
+        let shortened = shortened.trim_end_matches('-');
+        let candidate = format!("custom:{shortened}{suffix}");
+        if !occupied.iter().any(|id| id == &candidate) {
+            return candidate;
+        }
+    }
+    // Fallback determinístico para catálogos anormalmente grandes.
+    format!("custom:{base}-{}", occupied.len())
+}
+
+/// Lê o envelope de `emulators:resolve`; `ok:false` é dado do contrato, não
+/// erro de transporte.
+pub fn parse_emulator_resolve(value: &Value) -> EmulatorResolveResult {
+    EmulatorResolveResult {
+        ok: value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        cmd: string_list(value.get("cmd")),
+        error: optional_text_field(value, "error"),
+        code: optional_text_field(value, "code"),
+    }
+}
+
 fn value_texts(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -5522,6 +5744,77 @@ impl Backend {
             .await?;
         check_envelope(&value, "gamesettings:set")?;
         Ok(parse_game_settings(&value))
+    }
+
+    /// `emulators:list` + `emulators:status` para o seletor da ficha.
+    ///
+    /// Falha de status não derruba o catálogo; o seletor continua utilizável e
+    /// a validação de BIOS apenas fica sem aviso.
+    pub async fn load_game_emulator_options(&self) -> Result<GameEmulatorOptions, String> {
+        let (catalog, statuses) = tokio::join!(
+            self.dispatch("emulators:list", Vec::new()),
+            self.dispatch("emulators:status", Vec::new())
+        );
+        let emulators = parse_emulators_list(catalog?)?;
+        let statuses = statuses
+            .and_then(parse_emulators_status)
+            .unwrap_or_default();
+        Ok(GameEmulatorOptions {
+            emulators,
+            statuses,
+        })
+    }
+
+    /// `emulators:resolve` — valida emulador/ROM/core antes de salvar ou
+    /// importar. O envelope `ok:false` volta como resultado, não como `Err`.
+    pub async fn resolve_emulator_launch(
+        &self,
+        payload: Value,
+    ) -> Result<EmulatorResolveResult, String> {
+        let value = self.dispatch("emulators:resolve", vec![payload]).await?;
+        Ok(parse_emulator_resolve(&value))
+    }
+
+    /// Importa uma ROM como `custom:<slug>` e grava os settings que o
+    /// `plan_launch` consome. Para no primeiro erro real do contrato.
+    pub async fn import_emulator_rom(
+        &self,
+        request: EmulatorRomImport,
+    ) -> Result<ImportedEmulatorRom, String> {
+        let resolved = self
+            .resolve_emulator_launch(request.resolve_payload())
+            .await?;
+        if !resolved.ok {
+            return Err(resolved.error_text());
+        }
+
+        let id = request.game_id();
+        let title = request.title();
+        let added = self
+            .dispatch("customgame:add", vec![request.custom_game_payload()])
+            .await?;
+        check_envelope(&added, "customgame:add")?;
+
+        let saved = self
+            .dispatch(
+                "gamesettings:set",
+                vec![json!({ "id": id, "patch": request.settings_patch() })],
+            )
+            .await?;
+        if let Err(error) = check_envelope(&saved, "gamesettings:set") {
+            return Err(format!(
+                "o jogo {id} foi criado, mas os settings do emulador falharam: {error}"
+            ));
+        }
+
+        let games = self.refresh_library().await?;
+        Ok(ImportedEmulatorRom { title, games })
+    }
+
+    /// `library:refresh` — relê a biblioteca depois de criar um jogo custom.
+    pub async fn refresh_library(&self) -> Result<Vec<Game>, String> {
+        let value = self.dispatch("library:refresh", Vec::new()).await?;
+        parse_library(value)
     }
 
     /// `dm:queue` + `torrent:list` em paralelo. Uma falha parcial não apaga a
@@ -7078,7 +7371,10 @@ mod tests {
                 "verboseLogs": true,
                 "scriptPre": "/tmp/pre.sh",
                 "wrappers": [{ "cmd": "mangohud" }],
-                "emulatorId": "retroarch"
+                "emulatorId": "retroarch",
+                "romPath": "/roms/snes/game.sfc",
+                "emulatorArgs": ["--fullscreen", "-v"],
+                "emulatorCorePath": "/cores/snes9x.so"
             },
             "defaultPrefix": "/home/user/Games/Arcadia/Prefixes/steam_10"
         }));
@@ -7102,6 +7398,12 @@ mod tests {
         assert_eq!(settings.script_pre, "/tmp/pre.sh");
         assert_eq!(settings.wrapper_count, 1);
         assert_eq!(settings.emulator_id.as_deref(), Some("retroarch"));
+        assert_eq!(settings.rom_path, "/roms/snes/game.sfc");
+        assert_eq!(
+            settings.emulator_args,
+            vec!["--fullscreen".to_string(), "-v".to_string()]
+        );
+        assert_eq!(settings.emulator_core_path, "/cores/snes9x.so");
         assert_eq!(
             envelope.default_prefix,
             "/home/user/Games/Arcadia/Prefixes/steam_10"
@@ -7124,6 +7426,10 @@ mod tests {
             script_pre: "/tmp/ignorado.sh".to_string(),
             auto_dxvk: false,
             auto_vkd3d: true,
+            emulator_id: Some("retroarch".to_string()),
+            rom_path: " /roms/snes/game.sfc ".to_string(),
+            emulator_args: vec!["--fullscreen".to_string(), "-v".to_string()],
+            emulator_core_path: " /cores/snes9x.so ".to_string(),
             ..GameSettingsView::default()
         };
         settings.env_vars.push(EnvVarSetting {
@@ -7141,6 +7447,13 @@ mod tests {
         assert_eq!(patch["esync"], true);
         assert_eq!(patch["gamescope"], true);
         assert_eq!(patch["envVars"][0]["name"], "WINEDLLOVERRIDES");
+        assert_eq!(patch["emulatorId"], "retroarch");
+        assert_eq!(patch["romPath"], "/roms/snes/game.sfc");
+        assert_eq!(
+            patch["emulatorArgs"],
+            json!(["--fullscreen", "-v"]),
+        );
+        assert_eq!(patch["emulatorCorePath"], "/cores/snes9x.so");
 
         // Campos não editáveis não são sobrescritos pelo diálogo nativo.
         assert!(patch.get("wineVersion").is_none());
@@ -7184,17 +7497,30 @@ mod tests {
         let mut settings = GameSettingsView::default();
         settings.prefix_path = "/games/pfx".to_string();
         settings.set_toggle(LaunchToggle::Esync, true);
+        settings.emulator_id = Some("retroarch".to_string());
+        settings.rom_path = "/roms/snes/game.sfc".to_string();
+        settings.emulator_args = vec!["--fullscreen".to_string(), "-v".to_string()];
+        settings.emulator_core_path = "/cores/snes9x.so".to_string();
         let saved = runtime
             .block_on(backend.save_game_settings("steam:10".to_string(), settings.to_patch()))
             .unwrap();
         assert_eq!(saved.prefix_path, "/games/pfx");
         assert!(saved.esync);
+        assert_eq!(saved.emulator_id.as_deref(), Some("retroarch"));
+        assert_eq!(saved.rom_path, "/roms/snes/game.sfc");
 
         let loaded = runtime
             .block_on(backend.load_game_settings("steam:10".to_string()))
             .unwrap();
         assert_eq!(loaded.settings.prefix_path, "/games/pfx");
         assert!(loaded.settings.esync);
+        assert_eq!(loaded.settings.emulator_id.as_deref(), Some("retroarch"));
+        assert_eq!(loaded.settings.rom_path, "/roms/snes/game.sfc");
+        assert_eq!(
+            loaded.settings.emulator_args,
+            vec!["--fullscreen".to_string(), "-v".to_string()]
+        );
+        assert_eq!(loaded.settings.emulator_core_path, "/cores/snes9x.so");
         // O patch do diálogo não apaga o que a UI web gravou.
         assert_eq!(
             loaded.settings.wine_version.as_deref(),
@@ -7204,6 +7530,130 @@ mod tests {
         assert!(!loaded.default_prefix.is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn emulator_import_slug_and_payload_are_stable() {
+        let request = EmulatorRomImport {
+            emulator_id: "retroarch".to_string(),
+            rom_path: " /roms/snes/Super Metroid (USA).sfc ".to_string(),
+            rom_name: "Super Metroid (USA).sfc".to_string(),
+            extra_args: vec!["--fullscreen".to_string()],
+            core_path: Some("/cores/snes9x.so".to_string()),
+            occupied_ids: Vec::new(),
+        };
+        assert_eq!(request.title(), "Super Metroid (USA)");
+        assert_eq!(
+            request.game_id(),
+            "custom:retroarch-super-metroid-usa"
+        );
+        // Estável para a mesma ROM/título.
+        assert_eq!(request.game_id(), request.game_id());
+
+        let payload = request.custom_game_payload();
+        assert_eq!(payload["id"], "custom:retroarch-super-metroid-usa");
+        assert_eq!(payload["title"], "Super Metroid (USA)");
+        assert_eq!(payload["platform"], "emulator");
+        assert_eq!(payload["emulatorId"], "retroarch");
+        assert_eq!(payload["romPath"], "/roms/snes/Super Metroid (USA).sfc");
+        assert_eq!(payload["emulatorArgs"], json!(["--fullscreen"]));
+        assert_eq!(payload["emulatorCorePath"], "/cores/snes9x.so");
+        assert_eq!(
+            request.settings_patch(),
+            json!({
+                "emulatorId": "retroarch",
+                "romPath": "/roms/snes/Super Metroid (USA).sfc",
+                "emulatorArgs": ["--fullscreen"],
+                "emulatorCorePath": "/cores/snes9x.so",
+            })
+        );
+
+        let mut occupied = vec!["custom:retroarch-super-metroid-usa".to_string()];
+        let collided = EmulatorRomImport {
+            occupied_ids: occupied.clone(),
+            ..request.clone()
+        };
+        assert_eq!(
+            collided.game_id(),
+            "custom:retroarch-super-metroid-usa-2"
+        );
+        occupied.push("custom:retroarch-super-metroid-usa-2".to_string());
+        let collided_again = EmulatorRomImport {
+            occupied_ids: occupied,
+            ..request
+        };
+        assert_eq!(
+            collided_again.game_id(),
+            "custom:retroarch-super-metroid-usa-3"
+        );
+    }
+
+    #[test]
+    fn emulator_import_slug_is_bounded_and_valid() {
+        let title = "ç".repeat(400);
+        let id = custom_emulator_game_id("pcsx2", &title, &[]);
+        let slug = id.strip_prefix("custom:").unwrap();
+        assert!(slug.len() <= 90, "{id}");
+        assert!(slug.chars().next().unwrap().is_ascii_lowercase());
+        assert!(slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')));
+
+        let long_title = "A Very Long Game Title ".repeat(10);
+        let base = slugify(&format!("retroarch-{long_title}"))
+            .chars()
+            .take(90)
+            .collect::<String>();
+        let base = base.trim_matches('-').to_string();
+        let with_suffix =
+            custom_emulator_game_id("retroarch", &long_title, &[format!("custom:{base}")]);
+        assert!(with_suffix.ends_with("-2"), "{with_suffix}");
+        assert!(with_suffix.strip_prefix("custom:").unwrap().len() <= 90);
+    }
+
+    #[test]
+    fn emulator_resolve_parser_keeps_contract_errors() {
+        let ok = parse_emulator_resolve(&json!({
+            "ok": true,
+            "emulatorId": "pcsx2",
+            "system": "playstation-2",
+            "cmd": ["pcsx2-qt", "/roms/game.iso"]
+        }));
+        assert!(ok.ok);
+        assert_eq!(ok.cmd, vec!["pcsx2-qt".to_string(), "/roms/game.iso".to_string()]);
+        assert_eq!(ok.error_text(), "configuração do emulador inválida");
+
+        let failed = parse_emulator_resolve(&json!({
+            "ok": false,
+            "error": "ROM inválida",
+            "code": "rom_invalida"
+        }));
+        assert!(!failed.ok);
+        assert_eq!(failed.error_text(), "ROM inválida (rom_invalida)");
+
+        let only_code = parse_emulator_resolve(&json!({ "ok": false, "code": "core_ausente" }));
+        assert_eq!(only_code.error_text(), "core_ausente");
+    }
+
+    #[test]
+    fn emulator_settings_resolve_payload_matches_contract() {
+        let settings = GameSettingsView {
+            emulator_id: Some("retroarch".to_string()),
+            rom_path: " /roms/snes/game.sfc ".to_string(),
+            emulator_args: vec!["--fullscreen".to_string()],
+            emulator_core_path: " /cores/snes9x.so ".to_string(),
+            ..GameSettingsView::default()
+        };
+        assert_eq!(
+            settings.emulator_resolve_payload("hydra"),
+            json!({
+                "emulatorId": "retroarch",
+                "romPath": "/roms/snes/game.sfc",
+                "extraArgs": ["--fullscreen"],
+                "corePath": "/cores/snes9x.so",
+                "launchMode": "hydra",
+            })
+        );
     }
 
     #[test]

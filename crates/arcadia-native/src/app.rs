@@ -18,9 +18,10 @@ use crate::backend::{
     AccountProfile, AccountSession, Achievement, AchievementsData, AuthSuccess, Backend,
     CommunityCollectionsPage, CommunityError, CommunityMutation, CommunityReviewsPage,
     DownloadAction, DownloadItem, DownloadsData, EmulationLoad, EmulatorInfo, EmulatorProfile,
-    EmulatorRomEntry, EmulatorRomFolder, EmulatorRomIndexEntry, EmulatorScanResult, EmulatorStatus,
-    FriendAchievements, FriendProfile, FriendSearchResult, FriendsLoad, Game, GameMedia,
-    GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent, LaunchToggle, NewsItem,
+    EmulatorRomEntry, EmulatorRomFolder, EmulatorRomImport, EmulatorRomIndexEntry, EmulatorScanResult,
+    EmulatorStatus, FriendAchievements, FriendProfile, FriendSearchResult, FriendsLoad, Game,
+    GameEmulatorOptions, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats,
+    ImportedEmulatorRom, LaunchEvent, LaunchToggle, NewsItem,
     PackagedPhase, PackagedState, PluginAction, PluginActionOutcome, PluginDetails, PluginItem,
     PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame, RetroGameDetail,
     RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
@@ -218,6 +219,19 @@ pub enum Message {
         id: String,
         result: Result<GameSettingsEnvelope, String>,
     },
+    LaunchOptionsEmulatorsLoaded {
+        id: String,
+        result: Result<GameEmulatorOptions, String>,
+    },
+    LaunchOptionsEmulatorChanged(String),
+    LaunchOptionsRomChanged(String),
+    LaunchOptionsCoreChanged(String),
+    LaunchOptionsEmulatorArgsChanged(String),
+    LaunchOptionsValidated {
+        id: String,
+        patch: Value,
+        result: Result<(), String>,
+    },
     LaunchOptionsPrefixChanged(String),
     LaunchOptionsExeChanged(String),
     LaunchOptionsArgsChanged(String),
@@ -277,6 +291,13 @@ pub enum Message {
     EmulationProfileRemoved(Result<(), String>),
     EmulationScan,
     EmulationScanDone(Result<EmulatorScanResult, String>),
+    EmulationImportRom {
+        path: String,
+        name: String,
+    },
+    EmulationImportDone {
+        result: Result<ImportedEmulatorRom, String>,
+    },
     SourcesLoaded(Result<Vec<SourceItem>, String>),
     SourceUrlChanged(String),
     SourceAdd,
@@ -857,11 +878,19 @@ pub struct LaunchOptionsState {
     pub mode: Option<String>,
     pub env_name: String,
     pub env_value: String,
+    /// Texto do campo de argumentos do emulador (preserva espaços digitados).
+    pub emulator_args_text: String,
+    /// Catálogo para o seletor "Nenhum / emulador"; carregado com a ficha.
+    pub emulators: Vec<EmulatorInfo>,
+    pub emulator_statuses: Vec<EmulatorStatus>,
+    pub emulators_error: Option<String>,
     pub saving: bool,
     pub saved: bool,
     /// Há edições no formulário que ainda não foram gravadas.
     pub dirty: bool,
     pub error: Option<String>,
+    /// Seletor em voo (ROM/core da seção Emulador).
+    pub pick_busy: Option<PickPurpose>,
 }
 
 impl LaunchOptionsState {
@@ -880,6 +909,42 @@ impl LaunchOptionsState {
     fn mark_dirty(&mut self) {
         self.dirty = true;
         self.saved = false;
+    }
+
+    /// Aplica ROM/core escolhidos no seletor à seção Emulador. Só aceita o
+    /// jogo/emulador atuais para um resultado atrasado não preencher outro.
+    pub fn apply_pick(&mut self, purpose: &PickPurpose, path: PathBuf) -> bool {
+        if purpose.game_id() != Some(self.game_id.as_str()) {
+            return false;
+        }
+        let Some(settings) = self.settings.as_mut() else {
+            return false;
+        };
+        if purpose.emulator_id() != settings.emulator_id.as_deref() {
+            return false;
+        }
+        let path = path.to_string_lossy().into_owned();
+        match purpose.target() {
+            PickTarget::GameRom => settings.rom_path = path,
+            PickTarget::GameCore => settings.emulator_core_path = path,
+            _ => return false,
+        }
+        self.mark_dirty();
+        true
+    }
+
+    /// Emulador selecionado no catálogo, se ainda existir.
+    pub fn selected_emulator(&self) -> Option<&EmulatorInfo> {
+        let id = self.settings.as_ref()?.emulator_id.as_deref()?;
+        self.emulators.iter().find(|item| item.id == id)
+    }
+
+    /// Status de BIOS/firmware do emulador selecionado.
+    pub fn selected_emulator_status(&self) -> Option<&EmulatorStatus> {
+        let id = self.settings.as_ref()?.emulator_id.as_deref()?;
+        self.emulator_statuses
+            .iter()
+            .find(|status| status.emulator_id == id)
     }
 }
 
@@ -1058,6 +1123,9 @@ pub struct EmulationEditorState {
     pub preview_available: bool,
     pub preview_roms: Vec<EmulatorRomEntry>,
     pub preview_truncated: bool,
+    /// ROM cuja importação está em voo (path).
+    pub importing_rom: Option<String>,
+    pub notice: Option<String>,
     /// Seletor em voo; só um diálogo por vez.
     pub pick_busy: Option<PickPurpose>,
 }
@@ -1108,6 +1176,7 @@ impl EmulationEditorState {
             // Sem campo de ROM única no editor; fica pronto para a próxima
             // fatia de lançamento por emulador.
             PickTarget::RomFile => return Ok(false),
+            PickTarget::GameRom | PickTarget::GameCore => return Ok(false),
             PickTarget::Avatar | PickTarget::Background | PickTarget::Banner => return Ok(false),
         }
         Ok(true)
@@ -2292,6 +2361,74 @@ impl App {
                     }
                 }
                 Task::none()
+            }
+            Message::EmulationImportRom { path, name } => {
+                let Some(editor) = self.emulation.editor.as_ref() else {
+                    return Task::none();
+                };
+                if editor.importing_rom.is_some() {
+                    return Task::none();
+                }
+                let emulator_id = editor.emulator_id.clone();
+                let extra_args = crate::backend::emulator_args_from_text(
+                    &editor.args_text,
+                    editor.original.as_ref(),
+                );
+                let core_path = if editor.requires_core {
+                    let core = editor.core_path.trim();
+                    (!core.is_empty()).then(|| core.to_string())
+                } else {
+                    None
+                };
+                let occupied_ids = self
+                    .library
+                    .games
+                    .iter()
+                    .map(|game| game.id.clone())
+                    .collect();
+                let request = EmulatorRomImport {
+                    emulator_id,
+                    rom_path: path.clone(),
+                    rom_name: name,
+                    extra_args,
+                    core_path,
+                    occupied_ids,
+                };
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.importing_rom = Some(path);
+                    editor.error = None;
+                    editor.notice = None;
+                }
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.import_emulator_rom(request).await },
+                    |result| Message::EmulationImportDone { result },
+                )
+            }
+            Message::EmulationImportDone { result } => {
+                match result {
+                    Ok(imported) => {
+                        if let Some(editor) = self.emulation.editor.as_mut() {
+                            editor.importing_rom = None;
+                            editor.notice = Some(self.i18n.t_args(
+                                "native.emulation.import_notice",
+                                &[("title", &imported.title)],
+                            ));
+                        }
+                        self.library.ready(imported.games);
+                        self.big_picture
+                            .sync_games(self.library.visible_all().len());
+                        let urls = self.library.image_urls();
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        if let Some(editor) = self.emulation.editor.as_mut() {
+                            editor.importing_rom = None;
+                            editor.error = Some(error);
+                        }
+                        Task::none()
+                    }
+                }
             }
             Message::SourcesLoaded(result) => {
                 self.sources.busy = false;
@@ -3854,6 +3991,10 @@ impl App {
                             self.launch_options.mode = None;
                         }
                         self.launch_options.settings = Some(envelope.settings);
+                        if let Some(settings) = self.launch_options.settings.as_ref() {
+                            self.launch_options.emulator_args_text =
+                                settings.emulator_args.join(" ");
+                        }
                         self.launch_options.status = LoadStatus::Ready;
                         self.launch_options.saved = false;
                         self.launch_options.dirty = false;
@@ -3864,6 +4005,76 @@ impl App {
                     }
                 }
                 Task::none()
+            }
+            Message::LaunchOptionsEmulatorsLoaded { id, result } => {
+                if !self.launch_options.open || self.launch_options.game_id != id {
+                    return Task::none();
+                }
+                match result {
+                    Ok(options) => {
+                        self.launch_options.emulators = options.emulators;
+                        self.launch_options.emulator_statuses = options.statuses;
+                        self.launch_options.emulators_error = None;
+                    }
+                    Err(error) => {
+                        self.launch_options.emulators = Vec::new();
+                        self.launch_options.emulator_statuses = Vec::new();
+                        self.launch_options.emulators_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsEmulatorChanged(value) => {
+                let emulator_id = value.trim().to_string();
+                let requires_core = self.launch_options.emulators.iter().any(|item| {
+                    item.id == emulator_id && (item.requires_core || item.id == "retroarch")
+                });
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.emulator_id = (!emulator_id.is_empty()).then_some(emulator_id);
+                    if !requires_core {
+                        settings.emulator_core_path.clear();
+                    }
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsRomChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.rom_path = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsCoreChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.emulator_core_path = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsEmulatorArgsChanged(value) => {
+                if self.launch_options.settings.is_some() {
+                    self.launch_options.emulator_args_text = value.clone();
+                    if let Some(settings) = self.launch_options.settings.as_mut() {
+                        settings.emulator_args = crate::backend::parse_emulator_args(&value);
+                    }
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsValidated { id, patch, result } => {
+                if self.launch_options.game_id != id || !self.launch_options.saving {
+                    return Task::none();
+                }
+                match result {
+                    Ok(()) => self.save_launch_options_patch(id, patch),
+                    Err(error) => {
+                        self.launch_options.saving = false;
+                        self.launch_options.dirty = true;
+                        self.launch_options.error = Some(error);
+                        Task::none()
+                    }
+                }
             }
             Message::LaunchOptionsPrefixChanged(value) => {
                 if let Some(settings) = self.launch_options.settings.as_mut() {
@@ -3960,6 +4171,8 @@ impl App {
                         // Edições feitas enquanto o save estava em voo não
                         // podem ser sobrescritas pela resposta do servidor.
                         if !self.launch_options.dirty {
+                            self.launch_options.emulator_args_text =
+                                settings.emulator_args.join(" ");
                             self.launch_options.settings = Some(settings);
                             self.launch_options.saved = true;
                         }
@@ -4588,6 +4801,26 @@ impl App {
                 self.account.editor.pick_busy = Some(purpose.clone());
                 self.account.editor.error = None;
             }
+            PickTarget::GameRom | PickTarget::GameCore => {
+                if !self.launch_options.open
+                    || purpose.game_id() != Some(self.launch_options.game_id.as_str())
+                    || self.launch_options.pick_busy.is_some()
+                {
+                    return Task::none();
+                }
+                let matches_emulator = self
+                    .launch_options
+                    .settings
+                    .as_ref()
+                    .is_some_and(|settings| {
+                        purpose.emulator_id() == settings.emulator_id.as_deref()
+                    });
+                if !matches_emulator {
+                    return Task::none();
+                }
+                self.launch_options.pick_busy = Some(purpose.clone());
+                self.launch_options.error = None;
+            }
             _ => {
                 let Some(editor) = self.emulation.editor.as_mut() else {
                     return Task::none();
@@ -4643,6 +4876,24 @@ impl App {
                     Ok(None) => Task::none(),
                     Ok(Some(path)) => self.start_image_upload(kind, path),
                 }
+            }
+            PickTarget::GameRom | PickTarget::GameCore => {
+                if self.launch_options.pick_busy.as_ref() == Some(&purpose) {
+                    self.launch_options.pick_busy = None;
+                }
+                match result {
+                    Err(error) => {
+                        if self.launch_options.open {
+                            self.launch_options.error =
+                                Some(picker_error_text(&self.i18n, &error));
+                        }
+                    }
+                    Ok(None) => {}
+                    Ok(Some(path)) => {
+                        self.launch_options.apply_pick(&purpose, path);
+                    }
+                }
+                Task::none()
             }
             _ => {
                 let Some(editor) = self.emulation.editor.as_mut() else {
@@ -5552,21 +5803,38 @@ impl App {
             mode: previous_mode,
             env_name: String::new(),
             env_value: String::new(),
+            emulator_args_text: String::new(),
+            emulators: Vec::new(),
+            emulator_statuses: Vec::new(),
+            emulators_error: None,
             saving: false,
             saved: false,
             dirty: false,
             error: None,
+            pick_busy: None,
         };
 
         let backend = self.backend.clone();
         let message_id = id.clone();
-        Task::perform(
+        let settings_task = Task::perform(
             async move { backend.load_game_settings(id).await },
             move |result| Message::LaunchOptionsLoaded {
                 id: message_id,
                 result,
             },
-        )
+        );
+
+        let backend = self.backend.clone();
+        let message_id = self.launch_options.game_id.clone();
+        let emulators_task = Task::perform(
+            async move { backend.load_game_emulator_options().await },
+            move |result| Message::LaunchOptionsEmulatorsLoaded {
+                id: message_id,
+                result,
+            },
+        );
+
+        Task::batch([settings_task, emulators_task])
     }
 
     fn add_launch_env_var(&mut self) {
@@ -5612,6 +5880,19 @@ impl App {
 
         let id = self.launch_options.game_id.clone();
         let patch = settings.to_patch();
+        let emulator_selected = settings
+            .emulator_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty());
+        if emulator_selected && settings.rom_path.trim().is_empty() {
+            self.launch_options.error = Some(
+                self.i18n
+                    .t("native.game.emulator_rom_required")
+                    .to_string(),
+            );
+            return Task::none();
+        }
+
         self.launch_options.saving = true;
         self.launch_options.saved = false;
         // O patch cobre o estado atual; se algo for editado enquanto o save
@@ -5619,6 +5900,29 @@ impl App {
         self.launch_options.dirty = false;
         self.launch_options.error = None;
 
+        if emulator_selected {
+            // A validação é o mesmo `emulators:resolve` do launch/importação:
+            // sem ela o diálogo poderia "salvar" uma ROM/core inválidos.
+            let payload = settings.emulator_resolve_payload("hydra");
+            let backend = self.backend.clone();
+            return Task::perform(
+                async move {
+                    let resolved = backend.resolve_emulator_launch(payload).await?;
+                    if resolved.ok {
+                        Ok(())
+                    } else {
+                        Err(resolved.error_text())
+                    }
+                },
+                move |result| Message::LaunchOptionsValidated { id, patch, result },
+            );
+        }
+
+        self.save_launch_options_patch(id, patch)
+    }
+
+    /// Dispara o `gamesettings:set` de um patch já validado.
+    fn save_launch_options_patch(&mut self, id: String, patch: Value) -> Task<Message> {
         let backend = self.backend.clone();
         let message_id = id.clone();
         Task::perform(
@@ -6421,6 +6725,8 @@ impl App {
             preview_available,
             preview_roms,
             preview_truncated,
+            importing_rom: None,
+            notice: None,
             pick_busy: None,
         });
     }
@@ -8011,6 +8317,63 @@ mod tests {
     }
 
     #[test]
+    fn game_option_pick_fills_the_selected_game_and_emulator_fields() {
+        let mut state = LaunchOptionsState {
+            open: true,
+            game_id: "custom:demo".to_string(),
+            settings: Some(GameSettingsView {
+                emulator_id: Some("retroarch".to_string()),
+                ..GameSettingsView::default()
+            }),
+            ..LaunchOptionsState::default()
+        };
+
+        let rom = PickPurpose::GameRom {
+            game_id: "custom:demo".to_string(),
+            emulator_id: "retroarch".to_string(),
+        };
+        assert!(state.apply_pick(&rom, PathBuf::from("/roms/demo.sfc")));
+        assert_eq!(
+            state.settings.as_ref().unwrap().rom_path,
+            "/roms/demo.sfc"
+        );
+        assert!(state.dirty);
+
+        // Resultado atrasado de outro jogo/emulador não altera o rascunho.
+        let other_emulator = PickPurpose::GameRom {
+            game_id: "custom:demo".to_string(),
+            emulator_id: "pcsx2".to_string(),
+        };
+        assert!(!state.apply_pick(&other_emulator, PathBuf::from("/roms/other.iso")));
+        let other_game = PickPurpose::GameCore {
+            game_id: "custom:outro".to_string(),
+            emulator_id: "retroarch".to_string(),
+        };
+        assert!(!state.apply_pick(&other_game, PathBuf::from("/cores/outro.so")));
+
+        let core = PickPurpose::GameCore {
+            game_id: "custom:demo".to_string(),
+            emulator_id: "retroarch".to_string(),
+        };
+        assert!(state.apply_pick(&core, PathBuf::from("/cores/snes9x.so")));
+        let settings = state.settings.as_ref().unwrap();
+        assert_eq!(settings.rom_path, "/roms/demo.sfc");
+        assert_eq!(settings.emulator_core_path, "/cores/snes9x.so");
+    }
+
+    #[test]
+    fn emulator_args_text_is_split_and_capped_in_the_game_options() {
+        let args = crate::backend::parse_emulator_args(
+            &(0..40)
+                .map(|index| format!("--flag{index}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        assert_eq!(args.len(), crate::backend::MAX_EMULATOR_ARGS);
+        assert_eq!(args[0], "--flag0");
+    }
+
+    #[test]
     fn pick_purposes_map_to_emulation_fields_and_rom_folders() {
         let mut editor = EmulationEditorState {
             emulator_id: "pcsx2".to_string(),
@@ -8031,6 +8394,8 @@ mod tests {
             preview_available: false,
             preview_roms: Vec::new(),
             preview_truncated: false,
+            importing_rom: None,
+            notice: None,
             pick_busy: None,
         };
 

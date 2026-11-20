@@ -3,8 +3,8 @@
 
 use iced::widget::text::{Rich, Span, Wrapping};
 use iced::widget::{
-    button, column, container, image, opaque, progress_bar, row, scrollable, slider, text,
-    text_input, Space, Stack,
+    button, column, container, image, opaque, pick_list, progress_bar, row, scrollable, slider,
+    text, text_input, Space, Stack,
 };
 use iced::{Color, ContentFit, Element, Fill};
 
@@ -19,6 +19,7 @@ use crate::covers::CoverCache;
 use crate::i18n::I18n;
 use crate::input;
 use crate::media::{self, MediaPlayer, MediaStatus};
+use crate::picker::PickPurpose;
 use crate::rich_text::{parse_description, RichBlock};
 use crate::theme;
 
@@ -537,6 +538,8 @@ fn launch_options_form<'a>(
 
     let env_section = launch_env_section(i18n, state, settings);
 
+    let emulator_section = launch_emulator_section(i18n, state, settings);
+
     let disabled_section = option_section(
         i18n.t("native.game.disabled_section"),
         column![
@@ -566,14 +569,6 @@ fn launch_options_form<'a>(
                 ),
                 i18n.t("native.game.wrappers_note"),
             ),
-            disabled_option(
-                i18n.t("gamesettings.emulador"),
-                settings
-                    .emulator_id
-                    .clone()
-                    .unwrap_or_else(|| i18n.t("native.game.emulator_not_configured").to_string()),
-                i18n.t("native.game.emulator_note"),
-            ),
         ]
         .spacing(6)
         .into(),
@@ -586,6 +581,7 @@ fn launch_options_form<'a>(
         compatibility,
         performance,
         env_section,
+        emulator_section,
         disabled_section,
     ]
     .spacing(theme::SPACE_3)
@@ -594,6 +590,202 @@ fn launch_options_form<'a>(
     scrollable(form)
         .height(360.0)
         .style(theme::scrollable)
+        .into()
+}
+
+fn launch_emulator_section<'a>(
+    i18n: &'a I18n,
+    state: &'a LaunchOptionsState,
+    settings: &'a GameSettingsView,
+) -> Element<'a, Message> {
+    let mut body = column![].spacing(theme::SPACE_2);
+
+    let mut choices = Vec::with_capacity(state.emulators.len() + 1);
+    choices.push(EmulatorChoice {
+        id: String::new(),
+        label: i18n.t("native.game.emulator_none").to_string(),
+    });
+    choices.extend(state.emulators.iter().map(|item| EmulatorChoice {
+        id: item.id.clone(),
+        label: if item.available {
+            format!("{} · {}", item.name, item.systems.join(" / "))
+        } else {
+            format!(
+                "{} ({})",
+                item.name,
+                i18n.t("native.game.emulator_unavailable")
+            )
+        },
+    }));
+
+    let selected_id = settings.emulator_id.clone().unwrap_or_default();
+    let selected = choices.iter().find(|choice| choice.id == selected_id).cloned();
+    body = body.push(field_label(i18n.t("native.game.emulator_selector")));
+    body = body.push(
+        pick_list(choices, selected, |choice: EmulatorChoice| {
+            Message::LaunchOptionsEmulatorChanged(choice.id)
+        })
+        .width(Fill)
+        .padding([8.0, 10.0])
+        .text_size(12)
+        .style(theme::pick_list)
+        .menu_style(theme::pick_list_menu),
+    );
+    if let Some(error) = state.emulators_error.as_deref() {
+        body = body.push(super::action_error_banner(error, None));
+    }
+
+    if let Some(item) = state.selected_emulator() {
+        let rom_purpose = PickPurpose::GameRom {
+            game_id: state.game_id.clone(),
+            emulator_id: item.id.clone(),
+        };
+        body = body.push(field_label(i18n.t("native.game.emulator_rom")));
+        body = body.push(pick_control_row(
+            text_input(
+                i18n.t("native.game.emulator_rom_placeholder"),
+                settings.rom_path.as_str(),
+            )
+            .on_input(Message::LaunchOptionsRomChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .width(Fill)
+            .style(theme::search_input)
+            .into(),
+            rom_purpose,
+            state.pick_busy.as_ref(),
+            i18n,
+            i18n.t("native.game.emulator_pick_rom"),
+        ));
+
+        if item.requires_core || item.id == "retroarch" {
+            let core_purpose = PickPurpose::GameCore {
+                game_id: state.game_id.clone(),
+                emulator_id: item.id.clone(),
+            };
+            body = body.push(field_label(i18n.t("native.game.emulator_core")));
+            body = body.push(pick_control_row(
+                text_input(
+                    i18n.t("native.game.emulator_core_placeholder"),
+                    settings.emulator_core_path.as_str(),
+                )
+                .on_input(Message::LaunchOptionsCoreChanged)
+                .padding([8.0, 10.0])
+                .size(12)
+                .width(Fill)
+                .style(theme::search_input)
+                .into(),
+                core_purpose,
+                state.pick_busy.as_ref(),
+                i18n,
+                i18n.t("native.game.emulator_pick_core"),
+            ));
+            body = body.push(
+                text(i18n.t("native.game.emulator_core_hint"))
+                    .size(9)
+                    .color(theme::TEXT_3),
+            );
+            if settings.emulator_core_path.trim().is_empty() {
+                body = body.push(
+                    text(i18n.t("native.game.emulator_core_missing"))
+                        .size(10)
+                        .color(theme::WARNING),
+                );
+            }
+        }
+
+        if let Some(status) = state.selected_emulator_status() {
+            if status.required && !status.installed {
+                let detail = status
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| i18n.t("native.game.emulator_bios_missing").to_string());
+                body = body.push(
+                    text(i18n.t_args(
+                        "native.game.emulator_bios_warning",
+                        &[("detail", &detail)],
+                    ))
+                    .size(10)
+                    .color(theme::WARNING),
+                );
+            }
+        }
+
+        body = body.push(field_label(i18n.t("native.game.emulator_args")));
+        body = body.push(
+            text_input(
+                i18n.t("native.game.emulator_args_placeholder"),
+                state.emulator_args_text.as_str(),
+            )
+            .on_input(Message::LaunchOptionsEmulatorArgsChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .style(theme::search_input),
+        );
+        body = body.push(
+            text(i18n.t("native.game.emulator_args_hint"))
+                .size(9)
+                .color(theme::TEXT_3),
+        );
+        body = body.push(
+            text(i18n.t_args(
+                "native.game.emulator_launch_note",
+                &[("name", &item.name)],
+            ))
+            .size(10)
+            .color(theme::TEXT_3),
+        );
+    } else if settings.emulator_id.is_some() {
+        body = body.push(
+            text(i18n.t("native.game.emulator_unknown"))
+                .size(10)
+                .color(theme::WARNING),
+        );
+    } else {
+        body = body.push(
+            text(i18n.t("native.game.emulator_none_hint"))
+                .size(10)
+                .color(theme::TEXT_3),
+        );
+    }
+
+    option_section(i18n.t("native.game.emulator_section"), body.into())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmulatorChoice {
+    id: String,
+    label: String,
+}
+
+impl std::fmt::Display for EmulatorChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.label)
+    }
+}
+
+fn pick_control_row<'a>(
+    control: Element<'a, Message>,
+    purpose: PickPurpose,
+    pick_busy: Option<&PickPurpose>,
+    i18n: &'a I18n,
+    idle_label: &'a str,
+) -> Element<'a, Message> {
+    let picking = pick_busy == Some(&purpose);
+    let label = if picking {
+        i18n.t("native.picker.opening")
+    } else {
+        idle_label
+    };
+    let mut pick = button(text(label).size(11).font(theme::FONT_MEDIUM))
+        .padding([8.0, 12.0])
+        .style(theme::ghost_button);
+    if pick_busy.is_none() {
+        pick = pick.on_press(Message::PickRequested(purpose));
+    }
+    row![container(control).width(Fill), pick]
+        .spacing(6)
+        .align_y(iced::Center)
         .into()
 }
 
