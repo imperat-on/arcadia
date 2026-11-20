@@ -1,10 +1,11 @@
 //! Lojas: busca Steam/Hubcap (`store:search`), sugestões (`store:suggest`),
-//! catálogo navegável (`store:recent`) e ficha com `game:sysinfo`.
+//! catálogo navegável (`store:recent`), ficha com `game:sysinfo` e instalação
+//! por `store:installInfo`/`store:install`.
 //!
 //! A grade é a mesma `minmax(170px, 1fr)` da shell; a ficha repete o hero
-//! cinemático da `StoreGamePage.tsx`. O botão de instalar fica desabilitado de
-//! propósito: o fluxo real depende de `store:installInfo` + escolha de depots,
-//! que ainda não foi portado — nenhuma tela finge iniciar download.
+//! cinemático da `StoreGamePage.tsx`. A ficha mostra o manifesto e as
+//! bibliotecas de `store:libraries`; o botão Instalar só enfileira quando o
+//! dispatcher aceita o payload — nada aqui simula download nem sucesso.
 
 use iced::widget::text::Wrapping;
 use iced::widget::{
@@ -16,7 +17,7 @@ use crate::app::{
     App, LoadStatus, Message, Section, StoreBrowseState, StoreDetailState, StoreSearchState,
     StoreState, StoreTab,
 };
-use crate::backend::{StoreGame, StoreInfo};
+use crate::backend::{StoreDepot, StoreGame, StoreInfo, StoreInstallInfo};
 use crate::covers::CoverCache;
 use crate::theme;
 use crate::views;
@@ -629,7 +630,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
     }
 
     let description = detail_description(detail, info);
-    let install = install_panel();
+    let install = install_panel(detail);
     let details = container(
         row![
             column![description, install]
@@ -709,33 +710,397 @@ fn detail_description<'a>(
         .into()
 }
 
-fn install_panel<'a>() -> Element<'a, Message> {
-    container(
-        column![
-            views::section_label("Instalação"),
-            text(
-                "Esta build não inicia downloads pela ficha nativa. O fluxo real da loja \
-                 depende de store:installInfo, escolha de depots e do diálogo de método da \
-                 UI web; nada é baixado por esta tela."
-            )
-            .size(12)
-            .color(theme::TEXT_2)
-            .wrapping(Wrapping::WordOrGlyph),
-            button(
-                text("Instalar (indisponível nesta build)")
+fn install_panel<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let mut content = column![views::section_label("Instalação")].spacing(theme::SPACE_3);
+
+    match detail.install_status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            content = content.push(
+                text("Consultando o manifesto de instalação (store:installInfo)...")
                     .size(12)
-                    .font(theme::FONT_MEDIUM),
-            )
-            .padding([9.0, 16.0])
-            .style(theme::ghost_button),
+                    .color(theme::TEXT_2)
+                    .wrapping(Wrapping::WordOrGlyph),
+            );
+        }
+        LoadStatus::Error(_) => {
+            content = content.push(views::action_error_banner(
+                detail
+                    .install_error
+                    .as_deref()
+                    .unwrap_or("O dispatcher não respondeu store:installInfo para este jogo."),
+                Some(Message::StoreOpenDetail(detail.game.clone())),
+            ));
+        }
+        LoadStatus::Ready => {
+            if let Some(info) = detail.install.as_ref() {
+                content = content.push(install_summary(info));
+                content = content.push(libraries_block(detail));
+                content = content.push(depot_picker(detail, info));
+                content = content.push(install_actions(detail));
+            } else {
+                content = content.push(
+                    text("store:installInfo respondeu sem manifesto utilizável para este jogo.")
+                        .size(12)
+                        .color(theme::TEXT_3),
+                );
+            }
+        }
+    }
+
+    if let Some(message) = detail.install_message.as_deref() {
+        content = content.push(
+            container(text(message).size(12).color(theme::SUCCESS).width(Fill))
+                .width(Fill)
+                .padding([9.0, 12.0])
+                .style(theme::stub_panel),
+        );
+    }
+    if detail.install_status == LoadStatus::Ready {
+        if let Some(error) = detail.install_error.as_deref() {
+            content = content.push(views::action_error_banner(error, None));
+        }
+    }
+
+    container(content)
+        .width(Fill)
+        .padding(theme::SPACE_5)
+        .style(theme::panel)
+        .into()
+}
+
+fn install_summary(info: &StoreInstallInfo) -> Element<'_, Message> {
+    let mut rows = column![].spacing(theme::SPACE_2);
+    rows = rows.push(info_row(
+        "Manifesto",
+        format!(
+            "{} depot(s) · {} no total",
+            info.depots.len(),
+            format_bytes(info.total_size())
+        ),
+    ));
+    if let Some(source) = info.source.as_deref().filter(|source| !source.is_empty()) {
+        rows = rows.push(info_row("Fonte", source.to_string()));
+    }
+    if let Some(dir) = info
+        .install_dir
+        .as_deref()
+        .filter(|dir| !dir.trim().is_empty())
+    {
+        rows = rows.push(info_row("Pasta sugerida", dir.to_string()));
+    }
+    rows = rows.push(info_row(
+        "Token",
+        if info.token.as_deref().is_some_and(|token| !token.is_empty()) {
+            "presente no manifesto".to_string()
+        } else {
+            "não informado".to_string()
+        },
+    ));
+
+    container(rows)
+        .width(Fill)
+        .padding(theme::SPACE_3)
+        .style(theme::stub_panel)
+        .into()
+}
+
+fn libraries_block<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let mut content = column![views::section_label("Bibliotecas Steam")].spacing(theme::SPACE_2);
+
+    match detail.libraries_status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            content = content.push(
+                text("Consultando bibliotecas (store:libraries)...")
+                    .size(12)
+                    .color(theme::TEXT_2),
+            );
+        }
+        LoadStatus::Error(_) => {
+            content = content.push(views::action_error_banner(
+                detail
+                    .libraries_error
+                    .as_deref()
+                    .unwrap_or("O dispatcher não respondeu store:libraries."),
+                Some(Message::StoreOpenDetail(detail.game.clone())),
+            ));
+        }
+        LoadStatus::Ready if detail.libraries.is_empty() => {
+            content = content.push(
+                text(
+                    "Nenhuma biblioteca Steam encontrada. Sem steamapps não há como \
+                     enfileirar o store:install.",
+                )
+                .size(12)
+                .color(theme::TEXT_3)
+                .wrapping(Wrapping::WordOrGlyph),
+            );
+        }
+        LoadStatus::Ready => {
+            for (index, library) in detail.libraries.iter().enumerate() {
+                let selected = index == detail.selected_library;
+                content = content.push(
+                    button(
+                        row![
+                            column![
+                                text(library.steam_dir.as_str())
+                                    .size(12)
+                                    .color(if selected {
+                                        theme::TEXT_1
+                                    } else {
+                                        theme::TEXT_STRONG
+                                    })
+                                    .wrapping(Wrapping::WordOrGlyph),
+                                text(format!(
+                                    "{} livres · {}",
+                                    format_bytes(library.free),
+                                    ellipsize(&library.path, 64)
+                                ))
+                                .size(10)
+                                .color(theme::TEXT_3)
+                                .wrapping(Wrapping::WordOrGlyph),
+                            ]
+                            .spacing(2)
+                            .width(Fill),
+                            text(if selected { "Selecionada" } else { "Usar" })
+                                .size(10)
+                                .font(theme::FONT_MEDIUM)
+                                .color(if selected { theme::ACCENT } else { theme::TEXT_3 }),
+                        ]
+                        .spacing(theme::SPACE_2)
+                        .align_y(iced::Center),
+                    )
+                    .on_press(Message::StoreLibrarySelected(index))
+                    .width(Fill)
+                    .padding([7.0, 10.0])
+                    .style(move |style_theme, status| {
+                        theme::segment_button(style_theme, status, selected)
+                    }),
+                );
+            }
+        }
+    }
+
+    container(content)
+        .width(Fill)
+        .padding(theme::SPACE_3)
+        .style(theme::stub_panel)
+        .into()
+}
+
+fn depot_picker<'a>(
+    detail: &'a StoreDetailState,
+    info: &'a StoreInstallInfo,
+) -> Element<'a, Message> {
+    let relevant = info.relevant_depots();
+    let hidden = info.depots.len().saturating_sub(relevant.len());
+    let selected_size: u64 = info
+        .depots
+        .iter()
+        .filter(|depot| detail.selected_depots.contains(&depot.depot_id))
+        .map(|depot| depot.size)
+        .sum();
+
+    let mut content = column![
+        row![
+            views::section_label("Depots"),
+            Space::new().width(Fill),
+            text(format!(
+                "{} de {} · {}",
+                detail
+                    .selected_depots
+                    .iter()
+                    .filter(|id| info.depots.iter().any(|depot| &depot.depot_id == *id))
+                    .count(),
+                info.depots.len(),
+                format_bytes(selected_size)
+            ))
+            .size(10)
+            .color(theme::TEXT_3),
         ]
-        .spacing(theme::SPACE_3)
-        .align_x(iced::Left),
-    )
-    .width(Fill)
-    .padding(theme::SPACE_5)
-    .style(theme::panel)
-    .into()
+        .spacing(theme::SPACE_2)
+        .align_y(iced::Center),
+        row![
+            button(text("Recomendados").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::StoreRecommendedDepots)
+                .padding([4.0, 9.0])
+                .style(theme::ghost_button),
+            button(text("Limpar").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::StoreClearDepots)
+                .padding([4.0, 9.0])
+                .style(theme::ghost_button),
+        ]
+        .spacing(6),
+    ]
+    .spacing(6);
+
+    if relevant.is_empty() {
+        content = content.push(
+            text("O manifesto não listou depots utilizáveis para este jogo.")
+                .size(12)
+                .color(theme::TEXT_3)
+                .wrapping(Wrapping::WordOrGlyph),
+        );
+    } else {
+        for depot in relevant {
+            let selected = detail.selected_depots.contains(&depot.depot_id);
+            content = content.push(
+                button(
+                    row![
+                        text(if selected { "✓" } else { "○" })
+                            .size(12)
+                            .font(theme::FONT_BOLD)
+                            .color(if selected { theme::ACCENT } else { theme::TEXT_3 }),
+                        text(depot_label(depot))
+                            .size(12)
+                            .color(if selected {
+                                theme::TEXT_1
+                            } else {
+                                theme::TEXT_STRONG
+                            })
+                            .wrapping(Wrapping::None),
+                        Space::new().width(Fill),
+                        text(depot_meta(depot)).size(10).color(theme::TEXT_3),
+                    ]
+                    .spacing(theme::SPACE_2)
+                    .align_y(iced::Center),
+                )
+                .on_press(Message::StoreDepotToggled(depot.depot_id.clone()))
+                .width(Fill)
+                .padding([6.0, 8.0])
+                .style(move |style_theme, status| {
+                    theme::game_item(style_theme, status, selected)
+                }),
+            );
+        }
+    }
+
+    if hidden > 0 {
+        content = content.push(
+            text(format!(
+                "{hidden} depot(s) sem metadados, compartilhado(s) ou de macOS fora da lista."
+            ))
+            .size(10)
+            .color(theme::TEXT_3),
+        );
+    }
+
+    container(content)
+        .width(Fill)
+        .padding(theme::SPACE_3)
+        .style(theme::stub_panel)
+        .into()
+}
+
+fn install_actions<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let blocked = install_block_reason(detail);
+    let label = if detail.install_busy {
+        "Enfileirando..."
+    } else {
+        "Instalar"
+    };
+    let mut install = button(text(label).size(12).font(theme::FONT_MEDIUM)).padding([9.0, 18.0]);
+    if blocked.is_none() {
+        install = install
+            .on_press(Message::StoreInstallRequested)
+            .style(theme::primary_button);
+    } else {
+        install = install.style(theme::ghost_button);
+    }
+
+    let mut actions = row![install].spacing(theme::SPACE_3).align_y(iced::Center);
+    if let Some(reason) = blocked {
+        actions = actions.push(
+            text(reason)
+                .size(11)
+                .color(theme::TEXT_3)
+                .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+    actions.into()
+}
+
+fn install_block_reason(detail: &StoreDetailState) -> Option<String> {
+    if detail.install_busy {
+        return Some("Aguardando o dispatcher aceitar o pedido de instalação.".to_string());
+    }
+    match detail.install_status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            return Some("Consultando store:installInfo...".to_string())
+        }
+        LoadStatus::Error(_) => {
+            return Some(
+                "Manifesto indisponível; o motivo do dispatcher aparece acima.".to_string(),
+            )
+        }
+        LoadStatus::Ready => {}
+    }
+
+    match detail.libraries_status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            return Some("Consultando store:libraries...".to_string())
+        }
+        LoadStatus::Error(_) => {
+            return Some("Bibliotecas indisponíveis; o motivo do dispatcher aparece acima.".to_string())
+        }
+        LoadStatus::Ready => {}
+    }
+    if detail.libraries.is_empty() {
+        return Some("Nenhuma biblioteca Steam em store:libraries.".to_string());
+    }
+    let Some(info) = detail.install.as_ref() else {
+        return Some("Manifesto de instalação ausente.".to_string());
+    };
+    if info.depots.is_empty() {
+        return Some("store:installInfo não retornou depots para este jogo.".to_string());
+    }
+    if !info
+        .depots
+        .iter()
+        .any(|depot| detail.selected_depots.contains(&depot.depot_id))
+    {
+        return Some("Selecione ao menos um depot.".to_string());
+    }
+    None
+}
+
+fn depot_label(depot: &StoreDepot) -> String {
+    if let Some(language) = depot.language.as_deref().filter(|language| !language.is_empty()) {
+        let mut characters = language.chars();
+        return match characters.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+            None => language.to_string(),
+        };
+    }
+    if let Some(name) = depot.name.as_deref().filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+    if let Some(dlc) = depot.dlc_appid.as_deref().filter(|dlc| !dlc.is_empty()) {
+        return format!("DLC {dlc}");
+    }
+    format!("Depot {}", depot.depot_id)
+}
+
+fn depot_meta(depot: &StoreDepot) -> String {
+    let mut parts = Vec::with_capacity(3);
+    if let Some(os) = depot.os.as_deref().filter(|os| !os.is_empty()) {
+        parts.push(os.to_uppercase());
+    }
+    parts.push(format_bytes(depot.size));
+    if depot.optional {
+        parts.push("opcional".to_string());
+    }
+    parts.join(" · ")
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    let gib = bytes as f64 / GIB;
+    if gib >= 1.0 {
+        format!("{gib:.1} GiB")
+    } else {
+        format!("{:.0} MiB", bytes as f64 / MIB)
+    }
 }
 
 fn info_panel<'a>(
