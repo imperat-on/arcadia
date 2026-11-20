@@ -9,9 +9,11 @@ pub mod game;
 pub mod home;
 pub mod icons;
 pub mod library;
+pub mod retro;
 pub mod settings;
 pub mod sidebar;
 pub mod sources;
+pub mod store;
 
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Fill};

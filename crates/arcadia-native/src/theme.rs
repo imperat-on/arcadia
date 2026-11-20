@@ -7,8 +7,9 @@
 
 use iced::border::Radius;
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
+use iced::widget::overlay::menu as menu_widget;
 use iced::widget::scrollable as scrollable_widget;
-use iced::widget::{button, container, text_input};
+use iced::widget::{button, container, pick_list as pick_list_widget, text_input};
 use iced::{Border, Color, Font, Shadow, Theme, Vector};
 
 // ── Cores (mesmos valores de `ui/src/index.css`) ────────────────────────────
@@ -441,6 +442,83 @@ pub fn big_picture(_theme: &Theme, status: button::Status) -> button::Style {
         text_color,
         border: rounded_border(border_color, 1.0, 3.0),
         ..button::Style::default()
+    }
+}
+
+/// Fundo do segmented control Loja/Retro (`StoreTabs` da web).
+pub fn segmented(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.025).into()),
+        border: rounded_border(BORDER, 1.0, 3.0),
+        ..container::Style::default()
+    }
+}
+
+/// Aba do segmented control; a ativa usa o mesmo realce branco de 12% da web.
+pub fn segment_button(_theme: &Theme, status: button::Status, active: bool) -> button::Style {
+    let background = if active {
+        Color::from_rgba(1.0, 1.0, 1.0, 0.12)
+    } else {
+        match status {
+            button::Status::Hovered | button::Status::Pressed => {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.06)
+            }
+            _ => TRANSPARENT,
+        }
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: if active {
+            TEXT_1
+        } else {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.50)
+        },
+        border: Border::default().rounded(3),
+        ..button::Style::default()
+    }
+}
+
+/// Seletor de sistema do catálogo Retro, no mesmo vidro dos inputs.
+pub fn pick_list(_theme: &Theme, status: pick_list_widget::Status) -> pick_list_widget::Style {
+    let focused = matches!(
+        status,
+        pick_list_widget::Status::Hovered | pick_list_widget::Status::Opened { .. }
+    );
+
+    pick_list_widget::Style {
+        text_color: TEXT_1,
+        placeholder_color: TEXT_2,
+        handle_color: TEXT_2,
+        background: if focused {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.055).into()
+        } else {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.04).into()
+        },
+        border: rounded_border(
+            if focused {
+                Color::from_rgba8(0x22, 0xd3, 0xee, 0.70)
+            } else {
+                Color::from_rgba8(0xff, 0xff, 0xff, 0.10)
+            },
+            1.0,
+            3.0,
+        ),
+    }
+}
+
+pub fn pick_list_menu(_theme: &Theme) -> menu_widget::Style {
+    menu_widget::Style {
+        background: SURFACE_2.into(),
+        border: rounded_border(BORDER_STRONG, 1.0, 3.0),
+        text_color: TEXT_1,
+        selected_text_color: TEXT_1,
+        selected_background: ACCENT_SOFT.into(),
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.55),
+            offset: Vector::new(0.0, 8.0),
+            blur_radius: 20.0,
+        },
     }
 }
 

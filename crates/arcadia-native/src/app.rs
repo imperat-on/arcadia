@@ -12,8 +12,9 @@ use iced::{window, Element, Fill, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
-    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
-    PluginItem, SettingsConfig, SourceItem,
+    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia, PluginItem,
+    RetroGame, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreGame,
+    StoreInfo, StorePage, StoreSearch,
 };
 use crate::covers::CoverCache;
 use crate::media::{self, MediaPlayer};
@@ -68,6 +69,41 @@ pub enum Message {
     SourcesActionDone(Result<(), String>),
     FriendsLoaded(Result<FriendsLoad, String>),
     ComponentsLoaded(Result<Vec<PluginItem>, String>),
+    StoreTabChanged(StoreTab),
+    StoreQueryChanged(String),
+    StoreSearchSubmitted,
+    StoreClearSearch,
+    StoreSuggestionPicked(StoreGame),
+    StoreSearchDone {
+        query: String,
+        result: Result<StoreSearch, String>,
+    },
+    StoreSuggestDone {
+        query: String,
+        result: Result<Vec<StoreGame>, String>,
+    },
+    StoreBrowseLoaded {
+        append: bool,
+        result: Result<StorePage, String>,
+    },
+    StoreLoadMore,
+    StoreOpenDetail(StoreGame),
+    StoreCloseDetail,
+    StoreDetailLoaded {
+        appid: String,
+        result: Result<StoreInfo, String>,
+    },
+    RetroQueryChanged(String),
+    RetroSystemChanged(RetroSystemInfo),
+    RetroSearchSubmitted,
+    RetroClearSearch,
+    RetroPageLoaded {
+        generation: u64,
+        offset: u64,
+        result: Result<RetroPage, String>,
+    },
+    RetroPrevPage,
+    RetroNextPage,
     SidebarSearchChanged(String),
     ToggleSidebarGames,
     WindowReady(Option<window::Id>),
@@ -77,8 +113,8 @@ pub enum Message {
     WindowClose,
 }
 
-/// Itens fixos da sidebar. Biblioteca, Home e as seções desta onda têm tela
-/// real; Lojas e Big Picture ainda abrem um placeholder explícito.
+/// Itens fixos da sidebar. Biblioteca, Home e Lojas têm tela real; Big
+/// Picture ainda abre um placeholder explícito.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Home,
@@ -122,7 +158,7 @@ impl Section {
         match self {
             Section::Home => "A Home nativa usa os dados locais da biblioteca.",
             Section::Library => "Biblioteca local carregada via `library:get`.",
-            Section::Stores => "A vitrine de lojas ainda não foi portada para o iced.",
+            Section::Stores => "As abas Loja e Retro usam store:search/recent e retro:list.",
             Section::Components => "Plugins e componentes ainda não têm tela nativa.",
             Section::Downloads => "Fila de downloads chega junto com o serviço de download.",
             Section::Sources => "Catálogos e fontes extras entram numa onda própria.",
@@ -329,6 +365,104 @@ pub struct ComponentsState {
     pub status: LoadStatus,
 }
 
+/// Aba interna de Lojas: a mesma alternância `steam | retro` da web.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StoreTab {
+    #[default]
+    Steam,
+    Retro,
+}
+
+impl StoreTab {
+    pub fn label(self) -> &'static str {
+        match self {
+            StoreTab::Steam => "Loja",
+            StoreTab::Retro => "Retro",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StoreSearchState {
+    /// Termo efetivamente enviado ao dispatcher (pode diferir do rascunho).
+    pub query: String,
+    pub status: LoadStatus,
+    pub result: Option<StoreSearch>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StoreBrowseState {
+    pub games: Vec<StoreGame>,
+    pub status: LoadStatus,
+    pub total: Option<u64>,
+    pub has_more: bool,
+    pub next_offset: Option<u64>,
+    pub loading_more: bool,
+    /// Falha de "carregar mais" sem apagar a grade já visível.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoreDetailState {
+    pub game: StoreGame,
+    pub info: Option<StoreInfo>,
+    pub status: LoadStatus,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StoreState {
+    pub tab: StoreTab,
+    pub query: String,
+    pub suggestions: Vec<StoreGame>,
+    /// Guarda o termo da última consulta de sugestão para não repetir IPC.
+    pub suggested_query: String,
+    pub search: Option<StoreSearchState>,
+    pub browse: StoreBrowseState,
+    pub detail: Option<StoreDetailState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetroState {
+    pub query: String,
+    /// Termo efetivamente aplicado à grade; paginar não usa o rascunho.
+    pub applied_query: String,
+    pub system: RetroSystemInfo,
+    pub games: Vec<RetroGame>,
+    pub sources: Vec<RetroSource>,
+    pub status: LoadStatus,
+    pub total: Option<u64>,
+    pub total_offers: Option<u64>,
+    pub offset: u64,
+    pub has_more: bool,
+    pub error: Option<String>,
+    /// Descarta respostas de uma página antiga quando o usuário pagina rápido.
+    pub generation: u64,
+}
+
+impl Default for RetroState {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            applied_query: String::new(),
+            system: crate::backend::RETRO_ALL_SYSTEMS,
+            games: Vec::new(),
+            sources: Vec::new(),
+            status: LoadStatus::Idle,
+            total: None,
+            total_offers: None,
+            offset: 0,
+            has_more: false,
+            error: None,
+            generation: 0,
+        }
+    }
+}
+
+pub const STORE_PAGE_SIZE: u64 = 24;
+pub const RETRO_PAGE_SIZE: u64 = 24;
+
 pub struct App {
     pub backend: Backend,
     pub screen: Screen,
@@ -343,6 +477,8 @@ pub struct App {
     pub sources: SourcesState,
     pub friends: FriendsState,
     pub components: ComponentsState,
+    pub store: StoreState,
+    pub retro: RetroState,
     pub sidebar_search: String,
     pub sidebar_games_open: bool,
     pub window: Option<window::Id>,
@@ -363,6 +499,8 @@ impl App {
             sources: SourcesState::default(),
             friends: FriendsState::default(),
             components: ComponentsState::default(),
+            store: StoreState::default(),
+            retro: RetroState::default(),
             sidebar_search: String::new(),
             sidebar_games_open: true,
             window: None,
@@ -405,6 +543,9 @@ impl App {
             Message::Navigate(section) => {
                 self.media.clear();
                 self.game_media = None;
+                if section != Section::Stores {
+                    self.store.detail = None;
+                }
                 self.screen = Screen::for_section(section);
                 self.load_section(section, false)
             }
@@ -634,6 +775,289 @@ impl App {
                 }
                 Task::none()
             }
+            Message::StoreTabChanged(tab) => {
+                if self.store.tab == tab {
+                    return Task::none();
+                }
+                self.store.tab = tab;
+                match tab {
+                    StoreTab::Steam if matches!(self.store.browse.status, LoadStatus::Idle) => {
+                        self.load_store_browse(false)
+                    }
+                    StoreTab::Retro if matches!(self.retro.status, LoadStatus::Idle) => {
+                        self.load_retro_page(0)
+                    }
+                    _ => Task::none(),
+                }
+            }
+            Message::StoreQueryChanged(query) => {
+                self.store.query = query;
+                let trimmed = self.store.query.trim();
+                if trimmed.chars().count() < 2 {
+                    self.store.suggestions.clear();
+                    self.store.suggested_query.clear();
+                    return Task::none();
+                }
+                if self.store.suggested_query == trimmed {
+                    return Task::none();
+                }
+                self.store.suggested_query = trimmed.to_string();
+                let request = trimmed.to_string();
+                let message_request = request.clone();
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.suggest_store(request).await },
+                    move |result| Message::StoreSuggestDone {
+                        query: message_request,
+                        result,
+                    },
+                )
+            }
+            Message::StoreSearchSubmitted => self.submit_store_search(),
+            Message::StoreSuggestionPicked(suggestion) => {
+                self.store.query = suggestion.title;
+                self.store.suggestions.clear();
+                self.submit_store_search()
+            }
+            Message::StoreClearSearch => {
+                self.store.query.clear();
+                self.store.suggestions.clear();
+                self.store.suggested_query.clear();
+                self.store.search = None;
+                Task::none()
+            }
+            Message::StoreSearchDone { query, result } => {
+                let Some(search) = self.store.search.as_mut() else {
+                    return Task::none();
+                };
+                if search.query != query {
+                    return Task::none();
+                }
+                match result {
+                    Ok(found) => {
+                        let urls: Vec<String> =
+                            found.games.iter().flat_map(StoreGame::image_urls).collect();
+                        eprintln!(
+                            "[arcadia-native] loja: {} resultado(s) para {query:?}",
+                            found.games.len()
+                        );
+                        search.result = Some(found);
+                        search.status = LoadStatus::Ready;
+                        search.error = None;
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja: {error}");
+                        search.result = None;
+                        search.status = LoadStatus::Error(error.clone());
+                        search.error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::StoreSuggestDone { query, result } => {
+                if self.store.query.trim() != query {
+                    return Task::none();
+                }
+                // Sugestão em voo do termo que acabou de virar busca não deve
+                // reabrir a lista sobre os resultados.
+                if self
+                    .store
+                    .search
+                    .as_ref()
+                    .is_some_and(|search| search.query == query)
+                {
+                    return Task::none();
+                }
+                match result {
+                    Ok(games) => {
+                        let urls: Vec<String> =
+                            games.iter().flat_map(StoreGame::image_urls).collect();
+                        self.store.suggestions = games;
+                        self.cover_tasks(urls)
+                    }
+                    Err(_) => {
+                        // Sugestão é auxiliar: uma falha aqui não esconde a busca.
+                        self.store.suggestions.clear();
+                        Task::none()
+                    }
+                }
+            }
+            Message::StoreBrowseLoaded { append, result } => {
+                self.store.browse.loading_more = false;
+                match result {
+                    Ok(page) => {
+                        let urls: Vec<String> =
+                            page.games.iter().flat_map(StoreGame::image_urls).collect();
+                        eprintln!(
+                            "[arcadia-native] loja: {} jogo(s) no catálogo (total {:?})",
+                            page.games.len(),
+                            page.total
+                        );
+                        if append {
+                            for game in page.games {
+                                if !self
+                                    .store
+                                    .browse
+                                    .games
+                                    .iter()
+                                    .any(|current| current.appid == game.appid)
+                                {
+                                    self.store.browse.games.push(game);
+                                }
+                            }
+                            if let Some(total) = page.total {
+                                self.store.browse.total = Some(total);
+                            }
+                        } else {
+                            self.store.browse.games = page.games;
+                            self.store.browse.total = page.total;
+                        }
+                        self.store.browse.has_more = page.has_more;
+                        self.store.browse.next_offset = page.next_offset.or_else(|| {
+                            page.has_more
+                                .then_some(self.store.browse.games.len() as u64)
+                        });
+                        self.store.browse.status = LoadStatus::Ready;
+                        self.store.browse.error = None;
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        if append {
+                            self.store.browse.error = Some(error);
+                        } else {
+                            eprintln!("[arcadia-native] loja: {error}");
+                            self.store.browse.status = LoadStatus::Error(error.clone());
+                            self.store.browse.error = Some(error);
+                            self.store.browse.games.clear();
+                            self.store.browse.total = None;
+                            self.store.browse.has_more = false;
+                            self.store.browse.next_offset = None;
+                        }
+                        Task::none()
+                    }
+                }
+            }
+            Message::StoreLoadMore => {
+                let browse = &self.store.browse;
+                if browse.loading_more || !browse.has_more {
+                    return Task::none();
+                }
+                let offset = browse.next_offset.unwrap_or(browse.games.len() as u64);
+                self.store.browse.loading_more = true;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_store_recent(offset, STORE_PAGE_SIZE).await },
+                    |result| Message::StoreBrowseLoaded {
+                        append: true,
+                        result,
+                    },
+                )
+            }
+            Message::StoreOpenDetail(game) => {
+                let urls = game.image_urls();
+                let info_task = self.store_info_task(&game);
+                self.store.detail = Some(StoreDetailState {
+                    game,
+                    info: None,
+                    status: LoadStatus::Loading,
+                    error: None,
+                });
+                Task::batch([self.cover_tasks(urls), info_task])
+            }
+            Message::StoreCloseDetail => {
+                self.store.detail = None;
+                Task::none()
+            }
+            Message::StoreDetailLoaded { appid, result } => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.appid != appid {
+                    return Task::none();
+                }
+                match result {
+                    Ok(info) => {
+                        let urls = info.image_urls();
+                        detail.info = Some(info);
+                        detail.status = LoadStatus::Ready;
+                        detail.error = None;
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (ficha): {error}");
+                        detail.status = LoadStatus::Error(error.clone());
+                        detail.error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::RetroQueryChanged(query) => {
+                self.retro.query = query;
+                Task::none()
+            }
+            Message::RetroSystemChanged(system) => {
+                if self.retro.system == system {
+                    return Task::none();
+                }
+                self.retro.system = system;
+                self.load_retro_page(0)
+            }
+            Message::RetroSearchSubmitted => self.submit_retro_search(),
+            Message::RetroClearSearch => {
+                self.retro.query.clear();
+                self.retro.applied_query.clear();
+                self.load_retro_page(0)
+            }
+            Message::RetroPageLoaded {
+                generation,
+                offset,
+                result,
+            } => {
+                if generation != self.retro.generation {
+                    return Task::none();
+                }
+                match result {
+                    Ok(page) => {
+                        let urls: Vec<String> =
+                            page.games.iter().flat_map(RetroGame::image_urls).collect();
+                        eprintln!(
+                            "[arcadia-native] retro: {} jogo(s), offset {}",
+                            page.games.len(),
+                            page.offset
+                        );
+                        self.retro.offset = offset;
+                        self.retro.games = page.games;
+                        self.retro.sources = page.sources;
+                        self.retro.total = page.total;
+                        self.retro.total_offers = page.total_offers;
+                        self.retro.has_more = page.has_more;
+                        self.retro.status = LoadStatus::Ready;
+                        self.retro.error = None;
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] retro: {error}");
+                        self.retro.status = LoadStatus::Error(error.clone());
+                        self.retro.error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::RetroPrevPage => {
+                if self.retro.offset == 0 || self.retro.status == LoadStatus::Loading {
+                    return Task::none();
+                }
+                let offset = self.retro.offset.saturating_sub(RETRO_PAGE_SIZE);
+                self.load_retro_page(offset)
+            }
+            Message::RetroNextPage => {
+                if !self.retro.has_more || self.retro.status == LoadStatus::Loading {
+                    return Task::none();
+                }
+                let offset = self.retro.offset + RETRO_PAGE_SIZE;
+                self.load_retro_page(offset)
+            }
             Message::SidebarSearchChanged(search) => {
                 self.sidebar_search = search;
                 Task::none()
@@ -730,6 +1154,7 @@ impl App {
             Screen::Section(Section::Friends) => views::friends::view(self),
             Screen::Section(Section::Components) => views::components::view(self),
             Screen::Section(Section::Home) => views::home::view(self),
+            Screen::Section(Section::Stores) => views::store::view(self),
             Screen::Section(section) => views::section_placeholder(*section),
         };
 
@@ -797,8 +1222,115 @@ impl App {
                     Message::ComponentsLoaded,
                 )
             }
+            Section::Stores => match self.store.tab {
+                StoreTab::Steam => {
+                    if force && self.store.search.is_some() {
+                        self.submit_store_search()
+                    } else {
+                        let should_load =
+                            force || matches!(self.store.browse.status, LoadStatus::Idle);
+                        if should_load {
+                            self.load_store_browse(force)
+                        } else {
+                            Task::none()
+                        }
+                    }
+                }
+                StoreTab::Retro => {
+                    let should_load = force || matches!(self.retro.status, LoadStatus::Idle);
+                    if should_load {
+                        self.load_retro_page(0)
+                    } else {
+                        Task::none()
+                    }
+                }
+            },
             _ => Task::none(),
         }
+    }
+
+    /// Dispara a busca com o texto atual; chamado pelo Enter, pelo botão e
+    /// pelo clique numa sugestão.
+    fn submit_store_search(&mut self) -> Task<Message> {
+        let query = self.store.query.trim().to_string();
+        if query.is_empty() {
+            self.store.search = None;
+            self.store.suggestions.clear();
+            return Task::none();
+        }
+        self.store.suggestions.clear();
+        self.store.search = Some(StoreSearchState {
+            query: query.clone(),
+            status: LoadStatus::Loading,
+            result: None,
+            error: None,
+        });
+        let backend = self.backend.clone();
+        let message_query = query.clone();
+        Task::perform(
+            async move { backend.search_store(query).await },
+            move |result| Message::StoreSearchDone {
+                query: message_query,
+                result,
+            },
+        )
+    }
+
+    fn load_store_browse(&mut self, force: bool) -> Task<Message> {
+        if !force && self.store.browse.status == LoadStatus::Loading {
+            return Task::none();
+        }
+        self.store.browse.status = LoadStatus::Loading;
+        self.store.browse.error = None;
+        self.store.browse.loading_more = false;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_store_recent(0, STORE_PAGE_SIZE).await },
+            |result| Message::StoreBrowseLoaded {
+                append: false,
+                result,
+            },
+        )
+    }
+
+    fn load_retro_page(&mut self, offset: u64) -> Task<Message> {
+        self.retro.status = LoadStatus::Loading;
+        self.retro.error = None;
+        self.retro.generation = self.retro.generation.wrapping_add(1);
+        let generation = self.retro.generation;
+        let query = self.retro.applied_query.clone();
+        let system = (!self.retro.system.id.is_empty()).then(|| self.retro.system.id.to_string());
+        let backend = self.backend.clone();
+        Task::perform(
+            async move {
+                backend
+                    .load_retro_page(query, system, offset, RETRO_PAGE_SIZE)
+                    .await
+            },
+            move |result| Message::RetroPageLoaded {
+                generation,
+                offset,
+                result,
+            },
+        )
+    }
+
+    fn submit_retro_search(&mut self) -> Task<Message> {
+        self.retro.applied_query = self.retro.query.trim().to_string();
+        self.load_retro_page(0)
+    }
+
+    fn store_info_task(&self, game: &StoreGame) -> Task<Message> {        let backend = self.backend.clone();
+        let appid = game.appid.clone();
+        let message_appid = appid.clone();
+        let title = game.title.clone();
+        Task::perform(
+            async move { backend.load_store_info(appid, title).await },
+            move |result| Message::StoreDetailLoaded {
+                appid: message_appid,
+                result,
+            },
+        )
     }
 
     /// Envelopa um patch `config:set` em uma única chave e recarrega o estado
