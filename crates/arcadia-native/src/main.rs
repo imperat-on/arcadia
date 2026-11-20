@@ -10,6 +10,7 @@ mod big_picture;
 mod covers;
 mod input;
 mod media;
+mod rich_text;
 mod shell;
 mod theme;
 mod views;

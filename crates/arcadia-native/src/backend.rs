@@ -134,6 +134,31 @@ impl Game {
         format_playtime(self.playtime_minutes)
     }
 
+    /// Appid Steam do jogo (`steam:<appid>` ou id numérico com launcher Steam).
+    pub fn steam_appid(&self) -> Option<&str> {
+        steam_appid(&self.id).or_else(|| {
+            let id = self.id.trim();
+            (self.launcher.eq_ignore_ascii_case("steam")
+                && !id.is_empty()
+                && id.chars().all(|character| character.is_ascii_digit()))
+            .then_some(id)
+        })
+    }
+
+    /// `true` para jogos do catálogo Retro (`retro:<sistema>:…`).
+    pub fn is_retro(&self) -> bool {
+        self.id.starts_with("retro:")
+    }
+
+    /// Sistema RetroAchievements embutido no id (`retro:ps2:SLUS…` → `ps2`).
+    pub fn retro_system(&self) -> Option<&str> {
+        self.id
+            .strip_prefix("retro:")
+            .and_then(|rest| rest.split(':').next())
+            .map(str::trim)
+            .filter(|system| !system.is_empty())
+    }
+
     /// Linha de metadados da página do jogo: ano · desenvolvedor · gênero.
     pub fn metadata_line(&self) -> String {
         let mut parts = Vec::new();
@@ -681,7 +706,28 @@ impl Movie {
     }
 }
 
-/// Dados de mídia que a página do jogo precisa para tocar o trailer.
+/// Captura de tela de `game:sysinfo` (`info.screenshots[]`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Screenshot {
+    pub thumb: Option<String>,
+    pub full: Option<String>,
+}
+
+impl Screenshot {
+    /// Imagem grande; cai para a miniatura quando a loja não mandou a versão
+    /// full.
+    pub fn full_or_thumb(&self) -> Option<&str> {
+        self.full.as_deref().or(self.thumb.as_deref())
+    }
+
+    /// Miniatura da faixa; cai para a imagem grande quando não há thumb.
+    pub fn thumb_or_full(&self) -> Option<&str> {
+        self.thumb.as_deref().or(self.full.as_deref())
+    }
+}
+
+/// Dados de mídia que a página do jogo precisa para tocar o trailer e montar
+/// a galeria de screenshots.
 ///
 /// `notice` é sempre explícito: falha de `game:sysinfo` (`ok:false`),
 /// `info:null`, jogo sem trailer ou trailers sem fonte utilizável. A UI usa
@@ -689,6 +735,10 @@ impl Movie {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GameMedia {
     pub movies: Vec<Movie>,
+    pub screenshots: Vec<Screenshot>,
+    /// HTML de `about`/`short_description` da loja. O renderizador nativo
+    /// transforma isso em spans; nada de HTML é executado.
+    pub about: Option<String>,
     pub notice: Option<String>,
 }
 
@@ -696,8 +746,8 @@ pub struct GameMedia {
 pub fn parse_game_media(value: Value) -> GameMedia {
     let Some(object) = value.as_object() else {
         return GameMedia {
-            movies: Vec::new(),
             notice: Some("game:sysinfo devolveu um payload que não é um objeto.".to_string()),
+            ..GameMedia::default()
         };
     };
 
@@ -709,10 +759,10 @@ pub fn parse_game_media(value: Value) -> GameMedia {
             .filter(|error| !error.is_empty())
             .unwrap_or("sem detalhes");
         return GameMedia {
-            movies: Vec::new(),
             notice: Some(format!(
-                "Falha ao consultar o trailer (game:sysinfo: {detail})."
+                "Falha ao consultar a loja (game:sysinfo: {detail})."
             )),
+            ..GameMedia::default()
         };
     }
 
@@ -720,11 +770,11 @@ pub fn parse_game_media(value: Value) -> GameMedia {
         Some(Value::Object(info)) => info,
         _ => {
             return GameMedia {
-                movies: Vec::new(),
                 notice: Some(
-                    "A loja não retornou informações deste jogo (info:null); sem trailer para exibir."
+                    "A loja não retornou informações deste jogo (info:null); sem trailer ou capturas para exibir."
                         .to_string(),
                 ),
+                ..GameMedia::default()
             };
         }
     };
@@ -734,6 +784,13 @@ pub fn parse_game_media(value: Value) -> GameMedia {
         .and_then(Value::as_array)
         .map(|values| values.iter().filter_map(movie_from_value).collect())
         .unwrap_or_default();
+    let screenshots: Vec<Screenshot> = info
+        .get("screenshots")
+        .and_then(Value::as_array)
+        .map(|values| values.iter().filter_map(screenshot_from_value).collect())
+        .unwrap_or_default();
+    let about = optional_map_text_field(info, "about")
+        .or_else(|| optional_map_text_field(info, "short_description"));
 
     if movies.is_empty() {
         let had_movies = info
@@ -747,13 +804,34 @@ pub fn parse_game_media(value: Value) -> GameMedia {
         };
         return GameMedia {
             movies: Vec::new(),
+            screenshots,
+            about,
             notice: Some(notice.to_string()),
         };
     }
 
     GameMedia {
         movies,
+        screenshots,
+        about,
         notice: None,
+    }
+}
+
+fn screenshot_from_value(value: &Value) -> Option<Screenshot> {
+    let thumb = optional_text_field(value, "thumb")
+        .or_else(|| optional_text_field(value, "path_thumbnail"))
+        .and_then(|url| normalize_image_url(&url));
+    let full = optional_text_field(value, "full")
+        .or_else(|| optional_text_field(value, "path_full"))
+        .and_then(|url| normalize_image_url(&url));
+
+    match (thumb, full) {
+        (None, None) => None,
+        (thumb, full) => Some(Screenshot {
+            thumb: thumb.clone().or_else(|| full.clone()),
+            full: full.or(thumb),
+        }),
     }
 }
 
@@ -795,6 +873,340 @@ fn media_url(input: &str) -> Option<String> {
     }
     let lower = normalized.to_ascii_lowercase();
     (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
+}
+
+// ── Painéis da ficha: conquistas, ProtonDB e stats/reviews ─────────────────
+
+/// Conquista normalizada de Steam (`achievements:get`) ou RetroAchievements
+/// (`retroachievements:gameProgress`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Achievement {
+    pub title: String,
+    pub description: Option<String>,
+    /// Ícone já escolhido: colorido quando desbloqueada, cinza quando não.
+    pub icon: Option<String>,
+    pub unlocked: bool,
+    /// Percentual global de jogadores que desbloquearam (Steam).
+    pub percent: Option<u32>,
+    /// Pontos da conquista (RetroAchievements).
+    pub points: Option<u32>,
+}
+
+/// Resultado do painel de conquistas. `note` explica ausência de dados
+/// (jogo não encontrado no RA) e é exibido mesmo com a lista vazia.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AchievementsData {
+    pub items: Vec<Achievement>,
+    pub note: Option<String>,
+}
+
+/// Resumo público do ProtonDB para um appid.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProtonDbInfo {
+    /// Tier em minúsculas (`platinum`, `gold`, …), como a API devolve.
+    pub tier: Option<String>,
+    /// Score já convertido para percentual (0–100).
+    pub score_pct: Option<u32>,
+    /// Compatibilidade com Steam Deck (`verified`, `playable`, …).
+    pub deck: Option<String>,
+    pub total: Option<u64>,
+    pub url: Option<String>,
+}
+
+/// Avaliação resumida de `game:stats`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameReview {
+    pub author: String,
+    pub text: String,
+    pub positive: bool,
+    pub hours: u64,
+    pub helpful: u64,
+}
+
+/// Owners/CCU e reviews resumidas de `game:stats`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameStats {
+    pub owners: Option<String>,
+    pub ccu: Option<u64>,
+    pub review_desc: Option<String>,
+    pub positive_pct: Option<u32>,
+    pub total_reviews: Option<u64>,
+    pub reviews: Vec<GameReview>,
+}
+
+impl GameStats {
+    pub fn is_empty(&self) -> bool {
+        self.owners.is_none()
+            && self.ccu.is_none()
+            && self.review_desc.is_none()
+            && self.positive_pct.is_none()
+            && self.total_reviews.is_none()
+            && self.reviews.is_empty()
+    }
+}
+
+/// `achievements:get` responde um array de itens (ou um objeto com
+/// `achievements`); `ok:false` vira erro em vez de lista vazia.
+pub fn parse_steam_achievements(value: Value) -> Result<AchievementsData, String> {
+    let items = match &value {
+        Value::Null => return Ok(AchievementsData::default()),
+        Value::Array(items) => items,
+        Value::Object(object) => {
+            check_channel_ok(&value, "achievements:get")?;
+            object
+                .get("achievements")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+        }
+        _ => {
+            return Err(
+                "achievements:get devolveu um payload que não é uma lista nem um objeto."
+                    .to_string(),
+            )
+        }
+    };
+
+    let items = items.iter().filter_map(steam_achievement).collect();
+    Ok(AchievementsData { items, note: None })
+}
+
+fn steam_achievement(value: &Value) -> Option<Achievement> {
+    let title = optional_text_field(value, "title")
+        .or_else(|| optional_text_field(value, "apiname"))
+        .map(|title| strip_html(&title))?;
+    if title.is_empty() {
+        return None;
+    }
+
+    let unlocked = value
+        .get("achieved")
+        .and_then(Value::as_bool)
+        .or_else(|| value.get("unlocked").and_then(Value::as_bool))
+        .unwrap_or_else(|| value_u64(value.get("unlock")).unwrap_or(0) > 0);
+    let description = optional_text_field(value, "desc")
+        .or_else(|| optional_text_field(value, "description"))
+        .map(|description| strip_html(&description))
+        .filter(|description| !description.is_empty());
+    let icon = if unlocked {
+        optional_text_field(value, "icon").or_else(|| optional_text_field(value, "icongray"))
+    } else {
+        optional_text_field(value, "icongray").or_else(|| optional_text_field(value, "icon"))
+    };
+
+    Some(Achievement {
+        title,
+        description,
+        icon: icon.and_then(|icon| normalize_image_url(&icon)),
+        unlocked,
+        percent: value_f64(value.get("percent"))
+            .map(|percent| percent.round().clamp(0.0, 100.0) as u32),
+        points: None,
+    })
+}
+
+/// `retroachievements:gameProgress` — `{ ok, game, achievements }`.
+/// `game:null` não é erro: vira uma nota explícita para a UI.
+pub fn parse_retro_achievements(value: Value) -> Result<AchievementsData, String> {
+    let Some(object) = value.as_object() else {
+        return Err(
+            "retroachievements:gameProgress devolveu um payload que não é um objeto."
+                .to_string(),
+        );
+    };
+
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        let code = optional_text_field(&value, "error")
+            .unwrap_or_else(|| "erro desconhecido".to_string());
+        return Err(retro_error_message(&code));
+    }
+
+    let game_missing = object.get("game").is_none_or(Value::is_null);
+    let items: Vec<Achievement> = object
+        .get("achievements")
+        .and_then(Value::as_array)
+        .map(|values| values.iter().filter_map(retro_achievement).collect())
+        .unwrap_or_default();
+
+    let note = if game_missing {
+        Some("O RetroAchievements não encontrou este jogo para a conta conectada.".to_string())
+    } else if items.is_empty() {
+        Some("O RetroAchievements não retornou conquistas para este jogo.".to_string())
+    } else {
+        None
+    };
+
+    Ok(AchievementsData { items, note })
+}
+
+fn retro_achievement(value: &Value) -> Option<Achievement> {
+    let title = optional_text_field(value, "title").map(|title| strip_html(&title))?;
+    if title.is_empty() {
+        return None;
+    }
+
+    let unlocked = value
+        .get("unlocked")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let icon = if unlocked {
+        optional_text_field(value, "badgeUrl")
+            .or_else(|| optional_text_field(value, "badgeLockedUrl"))
+    } else {
+        optional_text_field(value, "badgeLockedUrl")
+            .or_else(|| optional_text_field(value, "badgeUrl"))
+    };
+
+    Some(Achievement {
+        title,
+        description: optional_text_field(value, "description")
+            .map(|description| strip_html(&description))
+            .filter(|description| !description.is_empty()),
+        icon: icon.and_then(|icon| normalize_image_url(&icon)),
+        unlocked,
+        percent: None,
+        points: value_u64(value.get("points"))
+            .map(|points| points.min(u64::from(u32::MAX)) as u32)
+            .filter(|points| *points > 0),
+    })
+}
+
+fn retro_error_message(code: &str) -> String {
+    match code {
+        "nao_logado" | "sem_web_api_key" | "chave_invalida" | "credenciais_invalidas"
+        | "credenciais_vazias" => {
+            "RetroAchievements: conecte a conta nas Configurações para ver as conquistas."
+                .to_string()
+        }
+        "tempo_esgotado" | "falha_rede" => {
+            "RetroAchievements: a consulta falhou por rede/tempo. Tente novamente.".to_string()
+        }
+        "sistema_nao_suportado" => {
+            "RetroAchievements não reconhece o sistema deste jogo.".to_string()
+        }
+        other => format!("retroachievements:gameProgress: {other}"),
+    }
+}
+
+/// `game:protondb` — `{ ok, info }`; `info:null` vira `Ok(None)`.
+pub fn parse_protondb(value: Value, appid: &str) -> Result<Option<ProtonDbInfo>, String> {
+    let Some(object) = value.as_object() else {
+        return Err("game:protondb devolveu um payload que não é um objeto.".to_string());
+    };
+    check_channel_ok(&value, "game:protondb")?;
+
+    let fallback_url = {
+        let appid = appid.trim().trim_start_matches("steam:");
+        (!appid.is_empty() && appid.chars().all(|character| character.is_ascii_digit()))
+            .then(|| format!("https://www.protondb.com/app/{appid}"))
+    };
+
+    let Some(info) = object.get("info").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+
+    let tier = optional_map_text_field(info, "tier")
+        .map(|tier| tier.to_ascii_lowercase())
+        .filter(|tier| !tier.is_empty());
+    let score_pct = value_f64(info.get("score"))
+        .filter(|score| score.is_finite() && *score >= 0.0)
+        .map(|score| {
+            let percent = if score <= 1.0 { score * 100.0 } else { score };
+            percent.round().clamp(0.0, 100.0) as u32
+        });
+    let deck = optional_map_text_field(info, "deckCompatibility")
+        .map(|deck| deck.to_ascii_lowercase())
+        .filter(|deck| !deck.is_empty());
+    let total = value_u64(info.get("total")).filter(|total| *total > 0);
+    let url = optional_map_text_field(info, "url").or(fallback_url);
+
+    if tier.is_none() && score_pct.is_none() && total.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(ProtonDbInfo {
+        tier,
+        score_pct,
+        deck,
+        total,
+        url,
+    }))
+}
+
+/// `game:stats` — `{ ok, info }` com owners/CCU e reviews resumidas.
+pub fn parse_game_stats(value: Value) -> Result<Option<GameStats>, String> {
+    let Some(object) = value.as_object() else {
+        return Err("game:stats devolveu um payload que não é um objeto.".to_string());
+    };
+    check_channel_ok(&value, "game:stats")?;
+
+    let Some(info) = object.get("info").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+
+    let owners = match info.get("owners") {
+        Some(Value::String(owners)) => {
+            let owners = owners.trim();
+            (!owners.is_empty()).then(|| owners.to_string())
+        }
+        Some(Value::Number(owners)) => Some(owners.to_string()),
+        _ => None,
+    };
+    let stats = GameStats {
+        owners,
+        ccu: value_u64(info.get("ccu")),
+        review_desc: optional_map_text_field(info, "reviewDesc"),
+        positive_pct: value_f64(info.get("reviewPositivePct"))
+            .map(|percent| percent.round().clamp(0.0, 100.0) as u32),
+        total_reviews: value_u64(info.get("totalReviews")),
+        reviews: info
+            .get("comments")
+            .and_then(Value::as_array)
+            .map(|values| values.iter().filter_map(game_review).collect())
+            .unwrap_or_default(),
+    };
+
+    if stats.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(stats))
+    }
+}
+
+fn game_review(value: &Value) -> Option<GameReview> {
+    let text = optional_text_field(value, "text")?;
+    let author = optional_text_field(value, "author").unwrap_or_else(|| "Steam".to_string());
+    Some(GameReview {
+        author,
+        text,
+        positive: value
+            .get("positive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        hours: value_u64(value.get("hours")).unwrap_or(0),
+        helpful: value_u64(value.get("helpful")).unwrap_or(0),
+    })
+}
+
+fn value_u64(value: Option<&Value>) -> Option<u64> {
+    match value? {
+        Value::Number(number) => number.as_u64().or_else(|| {
+            number
+                .as_f64()
+                .filter(|number| number.is_finite() && *number >= 0.0)
+                .map(|number| number.round() as u64)
+        }),
+        Value::String(text) => text.trim().parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn value_f64(value: Option<&Value>) -> Option<f64> {
+    match value? {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    }
 }
 
 // ── Seletor de trailers do YouTube ─────────────────────────────────────────
@@ -1749,6 +2161,17 @@ fn optional_text_field(value: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn optional_map_text_field(
+    map: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Option<String> {
+    map.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
 fn optional_text_field_from(value: Option<&Value>) -> Option<String> {
     value
         .and_then(Value::as_str)
@@ -2044,10 +2467,53 @@ impl Backend {
         match self.dispatch("game:sysinfo", vec![payload]).await {
             Ok(value) => parse_game_media(value),
             Err(error) => GameMedia {
-                movies: Vec::new(),
-                notice: Some(format!("Falha ao consultar o trailer (game:sysinfo): {error}")),
+                notice: Some(format!("Falha ao consultar a loja (game:sysinfo): {error}")),
+                ..GameMedia::default()
             },
         }
+    }
+
+    /// Conquistas Steam do appid (`achievements:get`).
+    pub async fn load_steam_achievements(
+        &self,
+        appid: String,
+    ) -> Result<AchievementsData, String> {
+        let value = self
+            .dispatch("achievements:get", vec![Value::String(appid)])
+            .await?;
+        parse_steam_achievements(value)
+    }
+
+    /// Conquistas RetroAchievements do título/sistema
+    /// (`retroachievements:gameProgress`).
+    pub async fn load_retro_achievements(
+        &self,
+        title: String,
+        system: String,
+    ) -> Result<AchievementsData, String> {
+        let value = self
+            .dispatch(
+                "retroachievements:gameProgress",
+                vec![json!({ "title": title, "systemId": system })],
+            )
+            .await?;
+        parse_retro_achievements(value)
+    }
+
+    /// Resumo do ProtonDB (`game:protondb`); `Ok(None)` = sem relatórios.
+    pub async fn load_protondb(&self, appid: String) -> Result<Option<ProtonDbInfo>, String> {
+        let value = self
+            .dispatch("game:protondb", vec![Value::String(appid.clone())])
+            .await?;
+        parse_protondb(value, &appid)
+    }
+
+    /// Owners/CCU e reviews de `game:stats`; `Ok(None)` = sem dados.
+    pub async fn load_game_stats(&self, appid: String) -> Result<Option<GameStats>, String> {
+        let value = self
+            .dispatch("game:stats", vec![Value::String(appid)])
+            .await?;
+        parse_game_stats(value)
     }
 
     /// Busca vídeos do YouTube (`trailer:search`) para o seletor manual.
@@ -2728,6 +3194,245 @@ mod tests {
         let media = parse_game_media(json!(["não é objeto"]));
         assert!(media.movies.is_empty());
         assert!(media.notice.is_some());
+    }
+
+    #[test]
+    fn game_media_keeps_screenshots_and_about_html() {
+        let media = parse_game_media(json!({
+            "ok": true,
+            "info": {
+                "about": "<h2>Sobre</h2><p>Texto <b>rico</b>.</p>",
+                "screenshots": [
+                    { "thumb": "//cdn.test/a_thumb.jpg", "full": "https://cdn.test/a.jpg" },
+                    { "path_thumbnail": "https://cdn.test/b_thumb.jpg" },
+                    { "full": "" },
+                    { "thumb": "" }
+                ],
+                "movies": []
+            }
+        }));
+
+        assert_eq!(media.screenshots.len(), 2);
+        assert_eq!(
+            media.screenshots[0].thumb.as_deref(),
+            Some("https://cdn.test/a_thumb.jpg")
+        );
+        assert_eq!(
+            media.screenshots[0].full.as_deref(),
+            Some("https://cdn.test/a.jpg")
+        );
+        assert_eq!(
+            media.screenshots[1].thumb.as_deref(),
+            Some("https://cdn.test/b_thumb.jpg")
+        );
+        assert_eq!(media.screenshots[1].full_or_thumb(), Some("https://cdn.test/b_thumb.jpg"));
+        assert!(media.about.as_deref().unwrap_or_default().contains("<b>rico</b>"));
+        // Sem trailer continua sendo um estado explícito, mas a galeria ainda
+        // tem dados para mostrar.
+        assert!(media.notice.is_some());
+    }
+
+    #[test]
+    fn parses_steam_achievements_with_partial_and_unlocked_items() {
+        let data = parse_steam_achievements(json!([
+            {
+                "title": "Primeira",
+                "desc": "Abra a porta",
+                "icon": "https://cdn.test/on.png",
+                "icongray": "https://cdn.test/off.png",
+                "achieved": true,
+                "percent": 42.6
+            },
+            {
+                "apiname": "ACH_2",
+                "title": "Segunda",
+                "icongray": "//cdn.test/gray.png",
+                "achieved": false
+            },
+            { "apiname": "ACH_SEM_TITULO", "achieved": false },
+            { "desc": "sem título" },
+            { "title": "", "desc": "vazio" }
+        ]))
+        .expect("lista válida");
+
+        assert_eq!(data.items.len(), 3);
+        assert_eq!(data.items[0].title, "Primeira");
+        assert!(data.items[0].unlocked);
+        assert_eq!(data.items[0].percent, Some(43));
+        assert_eq!(
+            data.items[0].icon.as_deref(),
+            Some("https://cdn.test/on.png")
+        );
+        assert_eq!(data.items[1].title, "Segunda");
+        assert!(!data.items[1].unlocked);
+        assert_eq!(
+            data.items[1].icon.as_deref(),
+            Some("https://cdn.test/gray.png")
+        );
+        assert_eq!(data.items[2].title, "ACH_SEM_TITULO");
+        assert!(data.note.is_none());
+
+        let failed = parse_steam_achievements(json!({ "ok": false, "error": "sem_conta" }))
+            .expect_err("ok:false vira erro");
+        assert!(failed.contains("sem_conta"), "{failed}");
+        assert!(parse_steam_achievements(json!(["não é item"])).expect("itens inválidos").items.is_empty());
+    }
+
+    #[test]
+    fn parses_retro_achievements_and_missing_game_as_a_note() {
+        let data = parse_retro_achievements(json!({
+            "ok": true,
+            "game": { "title": "Chrono Trigger" },
+            "achievements": [
+                {
+                    "title": "Herói do tempo",
+                    "description": "Termine o jogo",
+                    "points": 50,
+                    "badgeUrl": "https://media.retroachievements.org/Badge/1.png",
+                    "badgeLockedUrl": "https://media.retroachievements.org/Badge/1_lock.png",
+                    "unlocked": true
+                },
+                {
+                    "title": "Segredo",
+                    "description": "",
+                    "badgeLockedUrl": "https://media.retroachievements.org/Badge/2_lock.png",
+                    "unlocked": false
+                }
+            ]
+        }))
+        .expect("progresso válido");
+
+        assert_eq!(data.items.len(), 2);
+        assert_eq!(data.items[0].points, Some(50));
+        assert!(data.items[0].unlocked);
+        assert_eq!(
+            data.items[0].icon.as_deref(),
+            Some("https://media.retroachievements.org/Badge/1.png")
+        );
+        assert_eq!(
+            data.items[1].icon.as_deref(),
+            Some("https://media.retroachievements.org/Badge/2_lock.png")
+        );
+
+        let missing = parse_retro_achievements(json!({
+            "ok": true,
+            "game": null,
+            "achievements": []
+        }))
+        .expect("jogo ausente não é erro");
+        assert!(missing.items.is_empty());
+        assert!(missing.note.as_deref().unwrap_or_default().contains("não encontrou"));
+
+        let offline = parse_retro_achievements(json!({ "ok": false, "error": "nao_logado" }))
+            .expect_err("conta desconectada");
+        assert!(offline.contains("conecte a conta"), "{offline}");
+    }
+
+    #[test]
+    fn parses_protondb_tiers_scores_and_nulls() {
+        let info = parse_protondb(
+            json!({
+                "ok": true,
+                "info": {
+                    "tier": "GOLD",
+                    "score": 0.734,
+                    "deckCompatibility": "PLAYABLE",
+                    "total": 42,
+                    "url": ""
+                }
+            }),
+            "steam:570",
+        )
+        .expect("payload válido")
+        .expect("relatórios presentes");
+
+        assert_eq!(info.tier.as_deref(), Some("gold"));
+        assert_eq!(info.score_pct, Some(73));
+        assert_eq!(info.deck.as_deref(), Some("playable"));
+        assert_eq!(info.total, Some(42));
+        assert_eq!(info.url.as_deref(), Some("https://www.protondb.com/app/570"));
+
+        assert_eq!(
+            parse_protondb(json!({ "ok": true, "info": null }), "570").unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_protondb(json!({ "ok": true, "info": {} }), "570").unwrap(),
+            None
+        );
+        assert!(parse_protondb(json!({ "ok": false, "error": "api_indisponivel" }), "570").is_err());
+    }
+
+    #[test]
+    fn parses_game_stats_owners_ccu_and_reviews_tolerantly() {
+        let stats = parse_game_stats(json!({
+            "ok": true,
+            "info": {
+                "owners": 1_000_000,
+                "ccu": "12345",
+                "reviewDesc": "Muito positivas",
+                "reviewPositivePct": 94.6,
+                "totalReviews": "250000",
+                "comments": [
+                    {
+                        "author": "Steam 1234",
+                        "text": "Ótimo jogo",
+                        "positive": true,
+                        "hours": 120,
+                        "helpful": 7
+                    },
+                    {
+                        "author": "",
+                        "text": "",
+                        "positive": false
+                    },
+                    { "text": "Sem autor", "positive": false }
+                ]
+            }
+        }))
+        .expect("stats válidas")
+        .expect("dados presentes");
+
+        assert_eq!(stats.owners.as_deref(), Some("1000000"));
+        assert_eq!(stats.ccu, Some(12345));
+        assert_eq!(stats.positive_pct, Some(95));
+        assert_eq!(stats.total_reviews, Some(250000));
+        assert_eq!(stats.reviews.len(), 2);
+        assert_eq!(stats.reviews[0].author, "Steam 1234");
+        assert!(stats.reviews[0].positive);
+        assert_eq!(stats.reviews[1].author, "Steam");
+
+        assert_eq!(
+            parse_game_stats(json!({ "ok": true, "info": null })).unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_game_stats(json!({ "ok": true, "info": {} })).unwrap(),
+            None
+        );
+        assert!(parse_game_stats(json!({ "ok": false, "error": "api_indisponivel" })).is_err());
+    }
+
+    #[test]
+    fn game_exposes_steam_appid_and_retro_system_safely() {
+        let mut game = launch_game_fixture();
+        assert_eq!(game.steam_appid(), Some("10"));
+        assert!(!game.is_retro());
+        assert_eq!(game.retro_system(), None);
+
+        game.id = "retro:ps2:SLUS20312".to_string();
+        game.launcher = "retro".to_string();
+        assert_eq!(game.steam_appid(), None);
+        assert!(game.is_retro());
+        assert_eq!(game.retro_system(), Some("ps2"));
+
+        game.id = "12345".to_string();
+        game.launcher = "Steam".to_string();
+        assert_eq!(game.steam_appid(), Some("12345"));
+
+        game.id = "steam:12x".to_string();
+        game.launcher = "steam".to_string();
+        assert_eq!(game.steam_appid(), None);
     }
 
     #[test]
