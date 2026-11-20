@@ -4,7 +4,8 @@
 use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
 use iced::{ContentFit, Element, Fill};
 
-use crate::app::{App, Message, ProfileField};
+use crate::app::{App, Message, ProfileField, ProfileImageKind};
+use crate::picker::PickPurpose;
 use crate::theme;
 use crate::views;
 
@@ -232,16 +233,34 @@ fn edit_form(app: &App) -> Element<'_, Message> {
             .size(10)
             .color(theme::TEXT_3),
     );
-    form = form.push(field_input(
-        i18n,
+    form = form.push(image_url_field(
+        app,
         ProfileField::BackgroundUrl,
+        ProfileImageKind::Background,
+        PickPurpose::Background,
         &editor.background_url,
     ));
-    form = form.push(field_input(
-        i18n,
+    form = form.push(image_url_field(
+        app,
         ProfileField::BannerUrl,
+        ProfileImageKind::Banner,
+        PickPurpose::Banner,
         &editor.banner_url,
     ));
+
+    let avatar_picking = editor.pick_busy.as_ref() == Some(&PickPurpose::Avatar);
+    let avatar_busy = avatar_picking || editor.uploading_avatar;
+    let avatar_pick_label = if avatar_picking {
+        i18n.t("native.picker.opening")
+    } else {
+        i18n.t("editprofile.escolher_imagem")
+    };
+    let mut pick_avatar = button(text(avatar_pick_label).size(12).font(theme::FONT_MEDIUM))
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button);
+    if !avatar_busy && editor.pick_busy.is_none() {
+        pick_avatar = pick_avatar.on_press(Message::PickRequested(PickPurpose::Avatar));
+    }
 
     let avatar_row = row![
         text_input(
@@ -253,6 +272,7 @@ fn edit_form(app: &App) -> Element<'_, Message> {
         .size(12)
         .width(Fill)
         .style(theme::search_input),
+        pick_avatar,
         button(
             text(if editor.uploading_avatar {
                 i18n.t("native.profile.uploading")
@@ -262,7 +282,10 @@ fn edit_form(app: &App) -> Element<'_, Message> {
             .size(12)
             .font(theme::FONT_MEDIUM)
         )
-        .on_press_maybe((!editor.uploading_avatar).then_some(Message::AvatarUpload))
+        .on_press_maybe(
+            (!editor.uploading_avatar && editor.pick_busy.is_none())
+                .then_some(Message::AvatarUpload),
+        )
         .padding([8.0, 14.0])
         .style(theme::ghost_button),
     ]
@@ -307,6 +330,51 @@ fn edit_form(app: &App) -> Element<'_, Message> {
         .padding(theme::SPACE_5)
         .style(theme::stub_panel)
         .into()
+}
+
+fn image_url_field<'a>(
+    app: &'a App,
+    field: ProfileField,
+    kind: ProfileImageKind,
+    purpose: PickPurpose,
+    value: &'a str,
+) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let editor = &app.account.editor;
+    let label = field.label(i18n);
+    let picking = editor.pick_busy.as_ref() == Some(&purpose);
+    let uploading = match kind {
+        ProfileImageKind::Background => editor.uploading_background,
+        ProfileImageKind::Banner => editor.uploading_banner,
+    };
+    let busy = picking || uploading;
+    let pick_label = if busy {
+        i18n.t("native.profile.uploading")
+    } else {
+        i18n.t("editprofile.escolher_imagem")
+    };
+    let input = text_input(label, value)
+        .on_input(move |value| Message::ProfileFieldChanged { field, value })
+        .padding([8.0, 10.0])
+        .size(12)
+        .width(Fill)
+        .style(theme::search_input);
+    let mut pick = button(text(pick_label).size(12).font(theme::FONT_MEDIUM))
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button);
+    if !busy && editor.pick_busy.is_none() {
+        pick = pick.on_press(Message::PickRequested(purpose));
+    }
+
+    column![
+        text(label).size(11).color(theme::TEXT_2),
+        row![input, pick]
+            .spacing(theme::SPACE_2)
+            .align_y(iced::Center),
+    ]
+    .spacing(4)
+    .width(Fill)
+    .into()
 }
 
 fn field_input<'a>(

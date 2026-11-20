@@ -11,6 +11,7 @@ mod covers;
 mod i18n;
 mod input;
 mod media;
+mod picker;
 mod rich_text;
 mod shell;
 mod theme;

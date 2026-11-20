@@ -17,6 +17,7 @@ use iced::widget::image::Handle;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::picker::PickPurpose;
 use crate::shell::NativeShell;
 
 /// Jogo já normalizado para a UI nativa.
@@ -2887,6 +2888,16 @@ pub fn parse_avatar_upload(value: Value) -> Result<String, String> {
         .ok_or_else(|| "account:setAvatar não devolveu a URL do avatar".to_string())
 }
 
+/// URL pública devolvida por `account:setBackground` (`{ ok, url, error? }`).
+pub fn parse_background_upload(value: Value) -> Result<String, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(code);
+    }
+    optional_text_field(&value, "url")
+        .or_else(|| optional_text_field(&value, "background_url"))
+        .ok_or_else(|| "account:setBackground não devolveu a URL da imagem".to_string())
+}
+
 /// Decodifica o data URL de `avatar:load` em um `Handle` do iced.
 pub fn avatar_handle_from_data_url(src: &str) -> Result<Handle, String> {
     let (_, encoded) = src
@@ -5533,6 +5544,22 @@ impl Backend {
         parse_avatar_upload(value)
     }
 
+    /// Envia fundo/banner de um caminho local e devolve a URL pública.
+    pub async fn set_account_background(&self, path: String, kind: &str) -> Result<String, String> {
+        let value = self
+            .dispatch(
+                "account:setBackground",
+                vec![Value::String(path), Value::String(kind.to_string())],
+            )
+            .await?;
+        parse_background_upload(value)
+    }
+
+    /// Abre o seletor nativo. `None` significa que o usuário cancelou.
+    pub async fn pick_path(&self, purpose: PickPurpose) -> Result<Option<PathBuf>, String> {
+        crate::picker::pick(purpose).await
+    }
+
     /// `avatar:load` baixa a URL http(s) e devolve o Handle pronto para o iced.
     pub async fn load_avatar(&self, url: String) -> Result<Handle, String> {
         let value = self
@@ -7753,6 +7780,29 @@ mod tests {
             "https://cdn.test/b.png"
         );
         assert!(parse_avatar_upload(json!({ "ok": false, "error": "avatar_grande" })).is_err());
+    }
+
+    #[test]
+    fn parses_background_upload_response() {
+        assert_eq!(
+            parse_background_upload(json!({ "ok": true, "url": "https://cdn.test/bg.png" }))
+                .expect("url do fundo"),
+            "https://cdn.test/bg.png"
+        );
+        assert_eq!(
+            parse_background_upload(json!({
+                "ok": true,
+                "background_url": "https://cdn.test/banner.png"
+            }))
+            .expect("background_url alternativa"),
+            "https://cdn.test/banner.png"
+        );
+        assert_eq!(
+            parse_background_upload(json!({ "ok": false, "error": "arquivo_grande" }))
+                .expect_err("erro do IPC"),
+            "arquivo_grande"
+        );
+        assert!(parse_background_upload(json!({ "ok": true })).is_err());
     }
 
     #[test]
