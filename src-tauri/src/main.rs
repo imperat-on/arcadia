@@ -467,7 +467,23 @@ fn aplicar_correcoes_de_video() {
                     .join("lib")
                     .join("gstreamer-1.0");
                 if plugins.is_dir() {
-                    std::env::set_var("GST_PLUGIN_PATH", plugins);
+                    // ACRESCENTA ao que já existir, nunca substitui.
+                    //
+                    // `GST_PLUGIN_PATH` define os diretórios de onde o
+                    // GStreamer carrega plugins, e o valor antigo era só
+                    // `~/.local`. Isso derrubava o path padrão do sistema:
+                    // medido, o registro caía de 1383 para 525 plugins e
+                    // `filesrc`/`qtdemux` deixavam de existir — sem demuxer,
+                    // nenhum trailer abre e o player fica em buffering
+                    // infinito. `~/.local` traz os codecs patenteados que
+                    // faltam; o sistema traz o resto.
+                    let anterior = std::env::var("GST_PLUGIN_PATH").unwrap_or_default();
+                    let novo = if anterior.is_empty() {
+                        plugins.to_string_lossy().into_owned()
+                    } else {
+                        format!("{}:{}", plugins.to_string_lossy(), anterior)
+                    };
+                    std::env::set_var("GST_PLUGIN_PATH", novo);
                 }
             }
         }
