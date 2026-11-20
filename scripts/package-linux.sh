@@ -235,8 +235,28 @@ inject_appimage_codecs() {
         #      o nome pedido. A ABI do libopenh264 é estável entre essas
         #      versões (o decoder só é chamado pelo plugin), e é isso ou
         #      entregar um pacote sem H.264.
-        local faltando
-        faltando="$(ldd "$dst/$p" 2>/dev/null | awk '/not found/ {print $1}' | sort -u)"
+        # As dependências que o plugin pede, lidas do binário. NÃO usar o
+        # `ldd` sozinho: no host de build a lib costuma existir (Ubuntu 22.04
+        # tem a `.so.6` instalada), então o `ldd` resolve e não reporta nada —
+        # mas o AppImage vai para uma máquina que não tem. Foi assim que o
+        # primeiro "fix" passou no CI e o vídeo continuou quebrado.
+        #
+        # Só as libs do PRÓPRIO codec interessam. A pilha GStreamer/glib/gtk
+        # (libgstreamer, libglib, libgobject, libgstvideo, libstdc++) vem do
+        # sistema do usuário: embarcá-la recriaria o problema de duas pilhas
+        # gráficas que a limpeza do AppDir existe para evitar.
+        faltando=""
+        for so in $(readelf -d "$dst/$p" 2>/dev/null | awk -F'[][]' '/NEEDED/ {print $2}'); do
+            case "$so" in
+                # sistema, sempre presente ou já coberto pelo host
+                libc.so*|libm.so*|libdl.so*|libpthread.so*|librt.so*|ld-linux*) continue ;;
+                libgstreamer*|libgstvideo*|libgstbase*|libgstpbutils*|libgstaudio*) continue ;;
+                libglib*|libgobject*|libgio*|libgmodule*) continue ;;
+                libstdc++*|libgcc_s*) continue ;;
+                # codecs: esses precisam viajar com o pacote
+            esac
+            [ -e "$APPDIR/usr/lib/$so" ] || faltando="$faltando $so"
+        done
         for so in $faltando; do
             local alvo=""
             for dir in /usr/lib /usr/lib/x86_64-linux-gnu /lib /lib/x86_64-linux-gnu \
