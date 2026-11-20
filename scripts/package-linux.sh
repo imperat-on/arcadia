@@ -204,9 +204,13 @@ trim_appdir_graphics() {
     if [ ! -x "$scanner" ]; then
         local origem_scanner=""
         for cand in \
+            /usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner \
             /usr/lib/x86_64-linux-gnu/gstreamer1.0/gst-plugin-scanner \
+            /usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner \
             /usr/lib/gstreamer1.0/gst-plugin-scanner \
+            /usr/lib64/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner \
             /usr/lib64/gstreamer1.0/gst-plugin-scanner \
+            /usr/libexec/gstreamer-1.0/gst-plugin-scanner \
             /usr/lib/gstreamer-1.0/gst-plugin-scanner \
             "$HOME/.local/lib/gstreamer-1.0/gst-plugin-scanner"; do
             [ -x "$cand" ] && { origem_scanner="$cand"; break; }
