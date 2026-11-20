@@ -646,6 +646,20 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
 
     content = content.push(details);
 
+    let community_appid = crate::backend::community_appid(&game.appid);
+    if let Some(community) = app.community.get(&community_appid) {
+        content = content.push(
+            container(views::community::panel(game.title.as_str(), community))
+                .width(Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: theme::PAGE_PADDING,
+                    bottom: theme::SPACE_5,
+                    left: theme::PAGE_PADDING,
+                }),
+        );
+    }
+
     scrollable(content)
         .height(Fill)
         .style(theme::scrollable)

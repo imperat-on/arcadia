@@ -2833,6 +2833,521 @@ fn plugin_description(id: &str, desc_key: &str) -> String {
     }
 }
 
+/// Ações com semântica própria do registro de plugins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginAction {
+    Enable,
+    Disable,
+    Install,
+    Remove,
+    Unregister,
+}
+
+impl PluginAction {
+    pub fn channel(self) -> &'static str {
+        match self {
+            Self::Enable => "plugins:enable",
+            Self::Disable => "plugins:disable",
+            Self::Install => "plugins:install",
+            Self::Remove => "plugins:remove",
+            Self::Unregister => "plugins:unregister",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Enable => "Ativar",
+            Self::Disable => "Desativar",
+            Self::Install => "Instalar",
+            Self::Remove => "Remover",
+            Self::Unregister => "Desregistrar",
+        }
+    }
+
+    pub fn success_message(self) -> &'static str {
+        match self {
+            Self::Enable => "Componente ativado.",
+            Self::Disable => "Componente desativado.",
+            Self::Install => "Componente detectado e ativado.",
+            Self::Remove => "Componente desativado; o arquivo do sistema foi preservado.",
+            Self::Unregister => "Componente removido do registro.",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginActionOutcome {
+    Success,
+    /// `plugins:install`/`enable` recusaram porque o arquivo não existe.
+    NotDetected,
+}
+
+pub fn parse_plugin_action(
+    value: &Value,
+    action: PluginAction,
+) -> Result<PluginActionOutcome, String> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(PluginActionOutcome::Success),
+        Some(false) => {
+            let code = optional_text_field(value, "error").unwrap_or_default();
+            if code == "not_detected" {
+                Ok(PluginActionOutcome::NotDetected)
+            } else {
+                Err(plugin_error_message(&code, action.channel()))
+            }
+        }
+        None => Err(format!(
+            "{} devolveu uma resposta sem `ok`",
+            action.channel()
+        )),
+    }
+}
+
+/// Resultado de `plugins:register`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginRegistration {
+    pub id: String,
+    pub name: String,
+}
+
+pub fn parse_plugin_register(value: Value) -> Result<PluginRegistration, String> {
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        let mut code = optional_text_field(&value, "error").unwrap_or_default();
+        if code.is_empty() {
+            code = value
+                .get("errors")
+                .and_then(Value::as_array)
+                .and_then(|errors| errors.first())
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+        }
+        return Err(plugin_error_message(&code, "plugins:register"));
+    }
+
+    let plugin = value
+        .get("plugin")
+        .filter(|plugin| plugin.is_object())
+        .ok_or_else(|| "plugins:register não devolveu o plugin registrado".to_string())?;
+    let id = text_field(plugin, "id");
+    if id.is_empty() {
+        return Err("plugins:register devolveu um plugin sem id".to_string());
+    }
+    let name = plugin
+        .get("manifest")
+        .map(|manifest| text_field(manifest, "name"))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| id.clone());
+    Ok(PluginRegistration { id, name })
+}
+
+/// Resultado resumido de `plugins:verify` (sem caminhos privados).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginVerification {
+    pub id: String,
+    pub ok: bool,
+    pub valid: bool,
+    pub verified: bool,
+    pub declared: bool,
+    pub source: String,
+    pub error: String,
+}
+
+pub fn parse_plugin_verification(value: Value) -> Result<PluginVerification, String> {
+    let id = text_field(&value, "id");
+    if id.is_empty() {
+        return Err("plugins:verify devolveu um resultado sem id".to_string());
+    }
+    Ok(PluginVerification {
+        id,
+        ok: value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        valid: value
+            .get("valid")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        verified: value
+            .get("verified")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        declared: value
+            .get("declared")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        source: text_field(&value, "source"),
+        error: optional_text_field(&value, "error").unwrap_or_default(),
+    })
+}
+
+/// Detalhes públicas de um plugin (`plugins:get`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginDetails {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub installed: bool,
+    pub enabled: bool,
+    pub valid: bool,
+    pub source: String,
+    pub error: String,
+    pub version: Option<String>,
+    pub permissions: Vec<String>,
+    pub signed: bool,
+}
+
+pub fn parse_plugin_details(value: Value) -> Result<PluginDetails, String> {
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        let code = envelope_error(&value, "plugins:get");
+        return Err(plugin_error_message(&code, "plugins:get"));
+    }
+    let plugin = value
+        .get("plugin")
+        .filter(|plugin| plugin.is_object())
+        .ok_or_else(|| "plugins:get não devolveu plugin".to_string())?;
+    let id = text_field(plugin, "id");
+    if id.is_empty() {
+        return Err("plugins:get devolveu um plugin sem id".to_string());
+    }
+    let manifest = plugin.get("manifest").filter(|manifest| manifest.is_object());
+    let manifest_name = manifest.map(|manifest| text_field(manifest, "name"));
+    let name = manifest_name
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| plugin_name(&id, &text_field(plugin, "name")));
+    let description = manifest
+        .and_then(|manifest| optional_text_field(manifest, "description"))
+        .or_else(|| optional_text_field(plugin, "description"))
+        .unwrap_or_else(|| plugin_description(&id, &text_field(plugin, "descKey")));
+    let version = manifest.and_then(|manifest| optional_text_field(manifest, "version"));
+    let permissions = manifest
+        .map(|manifest| string_list(manifest.get("permissions")))
+        .unwrap_or_default();
+    let signed = manifest.is_some_and(|manifest| {
+        optional_text_field(manifest, "signature").is_some()
+            && optional_text_field(manifest, "signingKeyId").is_some()
+    });
+
+    Ok(PluginDetails {
+        id,
+        name,
+        description,
+        installed: plugin
+            .get("installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        enabled: plugin
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        valid: plugin.get("valid").and_then(Value::as_bool).unwrap_or(false),
+        source: text_field(plugin, "source"),
+        error: optional_text_field(plugin, "error").unwrap_or_default(),
+        version,
+        permissions,
+        signed,
+    })
+}
+
+fn plugin_error_message(code: &str, channel: &str) -> String {
+    match code {
+        "not_detected" => {
+            "Arquivo do componente não encontrado no sistema; nada foi baixado.".to_string()
+        }
+        "plugin_desconhecido" => "Componente desconhecido pelo registro.".to_string(),
+        "plugin_embutido" => "Componentes embutidos não podem ser desregistrados.".to_string(),
+        "plugin_invalido" => "Id de componente inválido.".to_string(),
+        "manifest_invalido" => "Manifesto do componente inválido.".to_string(),
+        "registro_nao_gravavel" => {
+            "Não foi possível gravar o registro de componentes.".to_string()
+        }
+        "id_reservado" => "O id do componente pertence a um componente embutido.".to_string(),
+        "" => format!("{channel} falhou sem detalhes."),
+        other => format!("{channel}: {other}"),
+    }
+}
+
+// ── Comunidade ─────────────────────────────────────────────────────────────
+
+/// Review pública já normalizada para a UI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommunityReview {
+    pub id: String,
+    pub author: String,
+    pub title: Option<String>,
+    pub text: String,
+    pub rating: Option<f64>,
+    pub positive: Option<bool>,
+    pub hours: Option<f64>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommunityCollectionItem {
+    pub appid: String,
+    pub title: Option<String>,
+}
+
+/// Coleção pública já normalizada para a UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommunityCollection {
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub visibility: Option<String>,
+    pub owner: String,
+    pub item_count: u64,
+    pub items: Vec<CommunityCollectionItem>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CommunityPagination {
+    pub limit: u64,
+    pub offset: u64,
+    pub has_more: bool,
+    pub total: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommunityReviewsPage {
+    pub reviews: Vec<CommunityReview>,
+    pub pagination: CommunityPagination,
+    pub offline: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommunityCollectionsPage {
+    pub collections: Vec<CommunityCollection>,
+    pub pagination: CommunityPagination,
+    pub offline: bool,
+}
+
+/// Falha de leitura da comunidade; `offline` mantém o estado explícito mesmo
+/// quando o serviço não tinha cache para devolver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommunityError {
+    pub message: String,
+    pub offline: bool,
+    pub code: Option<String>,
+}
+
+/// Appid usado pelas rotas `/community/v1`: sempre sem o prefixo `steam:`.
+pub fn community_appid(appid: &str) -> String {
+    let trimmed = appid.trim();
+    trimmed
+        .strip_prefix("steam:")
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+pub fn parse_community_reviews(value: Value) -> Result<CommunityReviewsPage, CommunityError> {
+    let offline = value
+        .get("offline")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(community_envelope_error(
+            &value,
+            "community:reviews",
+            offline,
+        ));
+    }
+    let Some(items) = value
+        .get("reviews")
+        .filter(|items| items.is_array())
+        .or_else(|| value.get("items").filter(|items| items.is_array()))
+    else {
+        return Err(CommunityError {
+            message: "community:reviews não devolveu reviews.".to_string(),
+            offline,
+            code: None,
+        });
+    };
+    let reviews: Vec<CommunityReview> = items
+        .as_array()
+        .map(|items| items.iter().filter_map(community_review).collect())
+        .unwrap_or_default();
+    let pagination = community_pagination(&value, reviews.len());
+    Ok(CommunityReviewsPage {
+        reviews,
+        pagination,
+        offline,
+    })
+}
+
+pub fn parse_community_collections(
+    value: Value,
+) -> Result<CommunityCollectionsPage, CommunityError> {
+    let offline = value
+        .get("offline")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(community_envelope_error(
+            &value,
+            "community:collections",
+            offline,
+        ));
+    }
+    let Some(items) = value
+        .get("collections")
+        .filter(|items| items.is_array())
+        .or_else(|| value.get("lists").filter(|items| items.is_array()))
+        .or_else(|| value.get("items").filter(|items| items.is_array()))
+    else {
+        return Err(CommunityError {
+            message: "community:collections não devolveu coleções.".to_string(),
+            offline,
+            code: None,
+        });
+    };
+    let collections: Vec<CommunityCollection> = items
+        .as_array()
+        .map(|items| items.iter().filter_map(community_collection).collect())
+        .unwrap_or_default();
+    let pagination = community_pagination(&value, collections.len());
+    Ok(CommunityCollectionsPage {
+        collections,
+        pagination,
+        offline,
+    })
+}
+
+fn community_review(value: &Value) -> Option<CommunityReview> {
+    let id = text_field_any(value, "id").unwrap_or_default();
+    let author = community_author(value);
+    let text = optional_text_field(value, "text").unwrap_or_default();
+    if id.is_empty() && author.is_empty() && text.is_empty() {
+        return None;
+    }
+    let positive = match value.get("positive") {
+        Some(Value::Bool(positive)) => Some(*positive),
+        Some(other) => value_f64(Some(other)).map(|positive| positive != 0.0),
+        None => None,
+    };
+    Some(CommunityReview {
+        id,
+        author,
+        title: optional_text_field(value, "title"),
+        text,
+        rating: value_f64(value.get("rating")),
+        positive,
+        hours: value_f64(value.get("hours")),
+        created_at: optional_text_field(value, "created_at")
+            .or_else(|| optional_text_field(value, "createdAt")),
+    })
+}
+
+fn community_author(value: &Value) -> String {
+    let nested = value.get("author").filter(|author| author.is_object());
+    optional_text_field(value, "display_name")
+        .or_else(|| nested.and_then(|author| optional_text_field(author, "display_name")))
+        .or_else(|| optional_text_field(value, "username"))
+        .or_else(|| nested.and_then(|author| optional_text_field(author, "username")))
+        .unwrap_or_else(|| "Membro da comunidade".to_string())
+}
+
+fn community_collection(value: &Value) -> Option<CommunityCollection> {
+    let id = text_field_any(value, "id").unwrap_or_default();
+    let title = optional_text_field(value, "title");
+    if id.is_empty() && title.is_none() {
+        return None;
+    }
+    let items: Vec<CommunityCollectionItem> = value
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(community_collection_item).collect())
+        .unwrap_or_default();
+    let item_count = value_u64(value.get("item_count"))
+        .or_else(|| value_u64(value.get("itemCount")))
+        .unwrap_or(items.len() as u64);
+    let owner = {
+        let owner = value.get("owner").filter(|owner| owner.is_object());
+        optional_text_field(value, "display_name")
+            .or_else(|| owner.and_then(|owner| optional_text_field(owner, "display_name")))
+            .or_else(|| optional_text_field(value, "username"))
+            .or_else(|| owner.and_then(|owner| optional_text_field(owner, "username")))
+            .unwrap_or_else(|| "Membro da comunidade".to_string())
+    };
+    Some(CommunityCollection {
+        id,
+        title: title.unwrap_or_else(|| "Coleção sem título".to_string()),
+        description: optional_text_field(value, "description"),
+        visibility: optional_text_field(value, "visibility"),
+        owner,
+        item_count,
+        items,
+    })
+}
+
+fn community_collection_item(value: &Value) -> Option<CommunityCollectionItem> {
+    let appid = text_field_any(value, "appid")?;
+    Some(CommunityCollectionItem {
+        appid,
+        title: optional_text_field(value, "title"),
+    })
+}
+
+fn community_pagination(value: &Value, item_count: usize) -> CommunityPagination {
+    let page = value.get("pagination");
+    let limit = page
+        .and_then(|page| value_u64(page.get("limit")))
+        .unwrap_or(item_count as u64);
+    let offset = page
+        .and_then(|page| value_u64(page.get("offset")))
+        .unwrap_or(0);
+    let total = page
+        .and_then(|page| value_u64(page.get("total")))
+        .or_else(|| value_u64(value.get("total")));
+    let explicit_has_more = page
+        .and_then(|page| page.get("has_more").or_else(|| page.get("hasMore")))
+        .or_else(|| value.get("has_more").or_else(|| value.get("hasMore")))
+        .and_then(Value::as_bool);
+    let has_more = explicit_has_more
+        .unwrap_or_else(|| total.is_some_and(|total| offset + (item_count as u64) < total));
+    CommunityPagination {
+        limit,
+        offset,
+        has_more,
+        total,
+    }
+}
+
+fn community_envelope_error(value: &Value, channel: &str, offline: bool) -> CommunityError {
+    let offline = offline
+        || value
+            .get("offline")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    let code =
+        optional_text_field(value, "code").or_else(|| optional_text_field(value, "error"));
+    let raw = optional_text_field(value, "message")
+        .or_else(|| optional_text_field(value, "error"))
+        .unwrap_or_else(|| channel.to_string());
+    let message = match code.as_deref() {
+        Some("nao_logado") | Some("token_invalido") => {
+            "Entre na sua conta Arcadia para acessar a comunidade.".to_string()
+        }
+        Some("conta_trocada") => {
+            "A conta ativa mudou durante a consulta. Tente novamente.".to_string()
+        }
+        Some("offline") if offline => {
+            if raw == "offline" {
+                "Sem conexão com a comunidade.".to_string()
+            } else {
+                format!("Sem conexão com a comunidade: {raw}")
+            }
+        }
+        _ if raw == "nao_logado" => {
+            "Entre na sua conta Arcadia para acessar a comunidade.".to_string()
+        }
+        _ => raw,
+    };
+    CommunityError {
+        message,
+        offline,
+        code,
+    }
+}
+
 fn envelope_error(value: &Value, channel: &str) -> String {
     let code = value
         .get("error")
@@ -3456,6 +3971,85 @@ impl Backend {
     pub async fn load_plugins(&self) -> Result<Vec<PluginItem>, String> {
         let value = self.dispatch("plugins:list", Vec::new()).await?;
         parse_plugins(value)
+    }
+
+    /// Executa uma mutação do registro e devolve o resultado já normalizado.
+    /// A lista não vem no envelope: o chamador recarrega `plugins:list`.
+    pub async fn run_plugin_action(
+        &self,
+        id: String,
+        action: PluginAction,
+    ) -> Result<PluginActionOutcome, String> {
+        let value = self
+            .dispatch(action.channel(), vec![Value::String(id)])
+            .await?;
+        parse_plugin_action(&value, action)
+    }
+
+    pub async fn register_plugin(
+        &self,
+        path: String,
+    ) -> Result<PluginRegistration, String> {
+        let value = self
+            .dispatch("plugins:register", vec![Value::String(path)])
+            .await?;
+        parse_plugin_register(value)
+    }
+
+    pub async fn load_plugin_details(&self, id: String) -> Result<PluginDetails, String> {
+        let value = self
+            .dispatch("plugins:get", vec![Value::String(id)])
+            .await?;
+        parse_plugin_details(value)
+    }
+
+    pub async fn verify_plugin(&self, id: String) -> Result<PluginVerification, String> {
+        let value = self
+            .dispatch("plugins:verify", vec![Value::String(id)])
+            .await?;
+        parse_plugin_verification(value)
+    }
+
+    /// Página de reviews públicas de um appid (`community:reviews`).
+    pub async fn load_community_reviews(
+        &self,
+        appid: String,
+        offset: u64,
+        limit: u64,
+    ) -> Result<CommunityReviewsPage, CommunityError> {
+        let appid = community_appid(&appid);
+        let value = self
+            .dispatch(
+                "community:reviews",
+                vec![Value::String(appid), json!({ "limit": limit, "offset": offset })],
+            )
+            .await
+            .map_err(|message| CommunityError {
+                message,
+                offline: false,
+                code: None,
+            })?;
+        parse_community_reviews(value)
+    }
+
+    /// Página de coleções públicas (`community:collections`).
+    pub async fn load_community_collections(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<CommunityCollectionsPage, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:collections",
+                vec![json!({ "limit": limit, "offset": offset })],
+            )
+            .await
+            .map_err(|message| CommunityError {
+                message,
+                offline: false,
+                code: None,
+            })?;
+        parse_community_collections(value)
     }
 
     /// Busca no catálogo da loja (`store:search`), como a aba Lojas da web.
@@ -4976,5 +5570,204 @@ mod tests {
         assert!(failed.contains("Game not found"), "{failed}");
         assert!(parse_retro_game_detail(json!({ "ok": true })).is_err());
         assert!(parse_retro_offer_detail(json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_community_reviews_with_offline_and_pagination() {
+        let page = parse_community_reviews(json!({
+            "ok": true,
+            "offline": true,
+            "reviews": [
+                {
+                    "id": 7,
+                    "text": "Muito bom",
+                    "rating": 5,
+                    "positive": true,
+                    "hours": 12.5,
+                    "created_at": "2026-01-02T03:04:05Z",
+                    "username": "ana"
+                },
+                {
+                    "id": "r2",
+                    "text": "Sem nota",
+                    "positive": 0,
+                    "author": { "display_name": "Beto" }
+                }
+            ],
+            "pagination": { "limit": 2, "offset": 4, "has_more": true, "total": 9 }
+        }))
+        .expect("reviews válidas");
+
+        assert!(page.offline);
+        assert_eq!(page.reviews.len(), 2);
+        assert_eq!(page.reviews[0].id, "7");
+        assert_eq!(page.reviews[0].author, "ana");
+        assert_eq!(page.reviews[0].rating, Some(5.0));
+        assert_eq!(page.reviews[0].hours, Some(12.5));
+        assert_eq!(page.reviews[1].author, "Beto");
+        assert_eq!(page.reviews[1].positive, Some(false));
+        assert_eq!(page.pagination.offset, 4);
+        assert!(page.pagination.has_more);
+        assert_eq!(page.pagination.total, Some(9));
+
+        let fallback = parse_community_reviews(json!({
+            "ok": true,
+            "items": [{ "id": 1, "text": "x" }]
+        }))
+        .expect("items funciona como fallback");
+        assert_eq!(fallback.pagination.offset, 0);
+        assert!(!fallback.pagination.has_more);
+        assert!(!fallback.offline);
+    }
+
+    #[test]
+    fn parses_community_collections_from_lists_and_counts_items() {
+        let page = parse_community_collections(json!({
+            "ok": true,
+            "lists": [{
+                "id": "c1",
+                "title": "Favoritos",
+                "description": "Lista pessoal",
+                "visibility": "unlisted",
+                "owner": { "username": "ana" },
+                "item_count": 3,
+                "items": [
+                    { "appid": 10, "title": "A" },
+                    { "appid": "20" }
+                ]
+            }],
+            "pagination": { "limit": 1, "offset": 0, "has_more": false }
+        }))
+        .expect("coleções válidas");
+
+        let collection = &page.collections[0];
+        assert_eq!(collection.id, "c1");
+        assert_eq!(collection.owner, "ana");
+        assert_eq!(collection.visibility.as_deref(), Some("unlisted"));
+        assert_eq!(collection.item_count, 3);
+        assert_eq!(collection.items.len(), 2);
+        assert_eq!(collection.items[0].appid, "10");
+        assert_eq!(collection.items[1].appid, "20");
+        assert!(!page.offline);
+    }
+
+    #[test]
+    fn community_error_envelope_marks_offline_and_login() {
+        let offline = parse_community_reviews(json!({
+            "ok": false,
+            "offline": true,
+            "error": "offline",
+            "code": "offline",
+            "message": "connect refused"
+        }))
+        .expect_err("envelope de erro");
+        assert!(offline.offline);
+        assert!(offline.message.contains("Sem conexão"), "{}", offline.message);
+
+        let login = parse_community_collections(json!({
+            "ok": false,
+            "error": "nao_logado",
+            "code": "nao_logado"
+        }))
+        .expect_err("sem sessão");
+        assert!(!login.offline);
+        assert!(
+            login.message.contains("Entre na sua conta"),
+            "{}",
+            login.message
+        );
+    }
+
+    #[test]
+    fn parses_plugin_action_success_not_detected_and_error() {
+        assert_eq!(
+            parse_plugin_action(&json!({ "ok": true }), PluginAction::Install)
+                .expect("sucesso"),
+            PluginActionOutcome::Success
+        );
+        assert_eq!(
+            parse_plugin_action(
+                &json!({ "ok": false, "error": "not_detected" }),
+                PluginAction::Install
+            )
+            .expect("não detectado"),
+            PluginActionOutcome::NotDetected
+        );
+        let error = parse_plugin_action(
+            &json!({ "ok": false, "error": "plugin_embutido" }),
+            PluginAction::Unregister,
+        )
+        .expect_err("embutido não desregistra");
+        assert!(error.contains("embutidos"), "{error}");
+        assert!(parse_plugin_action(&json!({}), PluginAction::Enable).is_err());
+    }
+
+    #[test]
+    fn parses_plugin_register_verify_and_details() {
+        let registration = parse_plugin_register(json!({
+            "ok": true,
+            "plugin": { "id": "demo", "manifest": { "name": "Demo" } }
+        }))
+        .expect("registro válido");
+        assert_eq!(registration.id, "demo");
+        assert_eq!(registration.name, "Demo");
+
+        let invalid = parse_plugin_register(json!({
+            "ok": false,
+            "errors": ["manifest_invalido"]
+        }))
+        .expect_err("manifesto inválido");
+        assert!(invalid.contains("Manifesto"), "{invalid}");
+
+        let verification = parse_plugin_verification(json!({
+            "id": "demo",
+            "ok": true,
+            "valid": true,
+            "verified": true,
+            "declared": true,
+            "source": "local"
+        }))
+        .expect("verificação válida");
+        assert!(verification.valid);
+        assert!(verification.verified);
+        assert_eq!(verification.source, "local");
+
+        let details = parse_plugin_details(json!({
+            "ok": true,
+            "plugin": {
+                "id": "demo",
+                "name": "Demo",
+                "enabled": true,
+                "installed": true,
+                "valid": true,
+                "source": "local",
+                "manifest": {
+                    "name": "Demo",
+                    "version": "1.2.3",
+                    "description": "Descrição",
+                    "permissions": ["files"],
+                    "signature": "sig",
+                    "signingKeyId": "key"
+                }
+            }
+        }))
+        .expect("detalhes válidos");
+        assert_eq!(details.version.as_deref(), Some("1.2.3"));
+        assert_eq!(details.permissions, vec!["files"]);
+        assert!(details.signed);
+
+        let missing = parse_plugin_details(json!({
+            "ok": false,
+            "error": "plugin_desconhecido"
+        }))
+        .expect_err("plugin desconhecido");
+        assert!(missing.contains("desconhecido"), "{missing}");
+    }
+
+    #[test]
+    fn community_appid_strips_steam_prefix() {
+        assert_eq!(community_appid("steam:10"), "10");
+        assert_eq!(community_appid(" 10 "), "10");
+        assert_eq!(community_appid("custom:1"), "custom:1");
     }
 }
