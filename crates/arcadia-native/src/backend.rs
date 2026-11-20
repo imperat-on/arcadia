@@ -172,6 +172,496 @@ pub fn parse_library(value: Value) -> Result<Vec<Game>, String> {
         .collect::<Vec<_>>())
 }
 
+// ── Loja ────────────────────────────────────────────────────────────────────
+
+/// Jogo normalizado de `store:search`, `store:suggest` e `store:recent`.
+///
+/// O dispatcher devolve `appid` como string, mas catálogos antigos podem
+/// mandar número; o parser aceita os dois. `preco` só existe na busca direta
+/// da Steam (`price`); quando ausente a UI simplesmente não mostra preço.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StoreGame {
+    pub appid: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    pub hero_url: Option<String>,
+    pub portrait_url: Option<String>,
+    pub price: Option<String>,
+    pub source: Option<String>,
+    pub genres: Vec<String>,
+    pub manifest: bool,
+}
+
+impl StoreGame {
+    /// URLs que a UI deve carregar para este item (capa, hero e retrato).
+    pub fn image_urls(&self) -> Vec<String> {
+        let mut urls = Vec::new();
+        for url in [
+            self.cover_url.as_ref(),
+            self.hero_url.as_ref(),
+            self.portrait_url.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !urls.contains(url) {
+                urls.push(url.clone());
+            }
+        }
+        urls
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreSearch {
+    pub games: Vec<StoreGame>,
+    pub source: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorePage {
+    pub games: Vec<StoreGame>,
+    pub total: Option<u64>,
+    pub has_more: bool,
+    pub next_offset: Option<u64>,
+}
+
+/// Metadados de `game:sysinfo` usados pela ficha da loja.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreInfo {
+    pub description: Option<String>,
+    pub header_url: Option<String>,
+    pub background_url: Option<String>,
+    pub developers: Vec<String>,
+    pub publishers: Vec<String>,
+    pub release_date: Option<String>,
+}
+
+impl StoreInfo {
+    pub fn image_urls(&self) -> Vec<String> {
+        let mut urls = Vec::new();
+        for url in [self.background_url.as_ref(), self.header_url.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            if !urls.contains(url) {
+                urls.push(url.clone());
+            }
+        }
+        urls
+    }
+}
+
+/// `store:search` — `{ ok, jogos, fonte, avisos, error? }`.
+pub fn parse_store_search(value: Value) -> Result<StoreSearch, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "store:search devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "store:search")?;
+
+    Ok(StoreSearch {
+        games: parse_store_games(object.get("jogos")),
+        source: optional_text_field(&value, "fonte"),
+        warnings: string_list(object.get("avisos")),
+    })
+}
+
+/// `store:suggest` — mesmo envelope da busca, sem fonte/avisos.
+pub fn parse_store_suggest(value: Value) -> Result<Vec<StoreGame>, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "store:suggest devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "store:suggest")?;
+    Ok(parse_store_games(object.get("jogos")))
+}
+
+/// `store:recent` — `{ ok, jogos, total, has_more, next_offset, error? }`.
+pub fn parse_store_recent(value: Value) -> Result<StorePage, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "store:recent devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "store:recent")?;
+
+    let games = parse_store_games(object.get("jogos"));
+    let total = object.get("total").and_then(Value::as_u64);
+    let offset = object.get("offset").and_then(Value::as_u64).unwrap_or(0);
+    let has_more = object
+        .get("has_more")
+        .or_else(|| object.get("hasMore"))
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| total.is_some_and(|total| offset + (games.len() as u64) < total));
+    let next_offset = object
+        .get("next_offset")
+        .or_else(|| object.get("nextOffset"))
+        .and_then(Value::as_u64)
+        .or_else(|| has_more.then_some(offset + games.len() as u64));
+
+    Ok(StorePage {
+        games,
+        total,
+        has_more,
+        next_offset,
+    })
+}
+
+fn parse_store_games(value: Option<&Value>) -> Vec<StoreGame> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_store_game).collect())
+        .unwrap_or_default()
+}
+
+fn parse_store_game(value: &Value) -> Option<StoreGame> {
+    let appid = text_field_any(value, "appid").or_else(|| text_field_any(value, "id"))?;
+    let title = text_field_any(value, "title")?;
+    if appid.is_empty() || title.is_empty() {
+        return None;
+    }
+
+    let cover_url = optional_image_url(value, "cover")
+        .or_else(|| optional_image_url(value, "capa"))
+        .or_else(|| steam_store_header(&appid));
+    let hero_url = optional_image_url(value, "hero").or_else(|| optional_image_url(value, "heroi"));
+    let portrait_url = optional_image_url(value, "capa");
+    let source = optional_text_field(value, "fonte")
+        .or_else(|| string_list(value.get("fontes")).into_iter().next());
+    let mut genres = string_list(value.get("genres"));
+    genres.extend(string_list(value.get("generos")));
+    genres.dedup();
+
+    Some(StoreGame {
+        appid,
+        title,
+        cover_url,
+        hero_url,
+        portrait_url,
+        price: optional_text_field(value, "preco").or_else(|| optional_text_field(value, "price")),
+        source,
+        genres,
+        manifest: value
+            .get("manifest")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// `game:sysinfo` — `{ ok, info }`; `info:null` e `ok:false` viram erro
+/// explícito para a ficha mostrar por que não há descrição/backdrop.
+pub fn parse_store_info(value: Value) -> Result<StoreInfo, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "game:sysinfo devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "game:sysinfo")?;
+
+    let Some(Value::Object(info)) = object.get("info") else {
+        return Err(
+            "A loja não retornou informações deste jogo (info:null); a ficha segue só com os dados da busca."
+                .to_string(),
+        );
+    };
+
+    let description = optional_text_field_from(info.get("short_description"))
+        .or_else(|| optional_text_field_from(info.get("about")))
+        .map(|text| strip_html(&text))
+        .filter(|text| !text.is_empty());
+
+    Ok(StoreInfo {
+        description,
+        header_url: optional_image_url_from(info.get("header")),
+        background_url: optional_image_url_from(info.get("background")),
+        developers: string_list(info.get("developers")),
+        publishers: string_list(info.get("publishers")),
+        release_date: optional_text_field_from(info.get("release_date")),
+    })
+}
+
+// ── Catálogo Retro ──────────────────────────────────────────────────────────
+
+/// Sistema do catálogo Retro. A lista abaixo é a mesma do seletor da
+/// `RetroStoreView.tsx`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetroSystemInfo {
+    pub id: &'static str,
+    pub label: &'static str,
+}
+
+impl std::fmt::Display for RetroSystemInfo {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.label)
+    }
+}
+
+pub const RETRO_ALL_SYSTEMS: RetroSystemInfo = RetroSystemInfo {
+    id: "",
+    label: "Todos os sistemas",
+};
+
+pub const RETRO_SYSTEMS: [RetroSystemInfo; 14] = [
+    RetroSystemInfo {
+        id: "sony-playstation",
+        label: "PlayStation",
+    },
+    RetroSystemInfo {
+        id: "sony-playstation-2",
+        label: "PlayStation 2",
+    },
+    RetroSystemInfo {
+        id: "sony-playstation-3",
+        label: "PlayStation 3",
+    },
+    RetroSystemInfo {
+        id: "sony-psp",
+        label: "PSP",
+    },
+    RetroSystemInfo {
+        id: "nintendo-nes",
+        label: "Nintendo NES",
+    },
+    RetroSystemInfo {
+        id: "nintendo-snes",
+        label: "Super Nintendo",
+    },
+    RetroSystemInfo {
+        id: "nintendo-64",
+        label: "Nintendo 64",
+    },
+    RetroSystemInfo {
+        id: "nintendo-gamecube",
+        label: "Nintendo GameCube",
+    },
+    RetroSystemInfo {
+        id: "nintendo-wii",
+        label: "Nintendo Wii",
+    },
+    RetroSystemInfo {
+        id: "nintendo-ds",
+        label: "Nintendo DS",
+    },
+    RetroSystemInfo {
+        id: "nintendo-dsi",
+        label: "Nintendo DSi",
+    },
+    RetroSystemInfo {
+        id: "nintendo-game-boy",
+        label: "Game Boy",
+    },
+    RetroSystemInfo {
+        id: "nintendo-game-boy-color",
+        label: "Game Boy Color",
+    },
+    RetroSystemInfo {
+        id: "nintendo-game-boy-advance",
+        label: "Game Boy Advance",
+    },
+];
+
+/// Opções do `pick_list`: "Todos" primeiro, depois os 14 sistemas da web.
+pub fn retro_system_filters() -> Vec<RetroSystemInfo> {
+    let mut filters = Vec::with_capacity(RETRO_SYSTEMS.len() + 1);
+    filters.push(RETRO_ALL_SYSTEMS);
+    filters.extend(RETRO_SYSTEMS);
+    filters
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RetroGame {
+    pub id: String,
+    pub title: String,
+    pub source_title: Option<String>,
+    pub system_id: Option<String>,
+    pub platform: Option<String>,
+    pub description: Option<String>,
+    pub cover_url: Option<String>,
+    pub fallback_cover_url: Option<String>,
+    pub hero_url: Option<String>,
+    pub file_size: Option<String>,
+    pub release_year: Option<u32>,
+    pub developer: Option<String>,
+    pub publisher: Option<String>,
+    pub genres: Vec<String>,
+    pub offer_count: Option<u64>,
+}
+
+impl RetroGame {
+    pub fn image_urls(&self) -> Vec<String> {
+        let mut urls = Vec::new();
+        for url in [
+            self.cover_url.as_ref(),
+            self.fallback_cover_url.as_ref(),
+            self.hero_url.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !urls.contains(url) {
+                urls.push(url.clone());
+            }
+        }
+        urls
+    }
+
+    /// Rótulo humano do sistema; cai no id cru quando não é um dos conhecidos.
+    pub fn system_label(&self) -> String {
+        let raw = self
+            .system_id
+            .as_deref()
+            .or(self.platform.as_deref())
+            .unwrap_or_default();
+        retro_system_label(raw)
+    }
+
+    /// Linha ano · desenvolvedor · gêneros para o card.
+    pub fn meta_line(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(year) = self.release_year {
+            parts.push(year.to_string());
+        }
+        if let Some(developer) = self.developer.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(developer.to_string());
+        } else if let Some(publisher) = self.publisher.as_deref().filter(|value| !value.is_empty())
+        {
+            parts.push(publisher.to_string());
+        }
+        if !self.genres.is_empty() {
+            parts.push(self.genres.join(", "));
+        }
+        parts.join("  ·  ")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RetroSource {
+    pub id: String,
+    pub title: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RetroPage {
+    pub games: Vec<RetroGame>,
+    pub sources: Vec<RetroSource>,
+    pub total: Option<u64>,
+    pub total_offers: Option<u64>,
+    pub offset: u64,
+    pub has_more: bool,
+}
+
+/// `retro:list` — `{ ok, games, sources, total, totalOffers, hasMore }`.
+pub fn parse_retro_page(value: Value) -> Result<RetroPage, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "retro:list devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "retro:list")?;
+
+    let games: Vec<RetroGame> = object
+        .get("games")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_retro_game).collect())
+        .unwrap_or_default();
+    let sources: Vec<RetroSource> = object
+        .get("sources")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_retro_source).collect())
+        .unwrap_or_default();
+    let offset = object.get("offset").and_then(Value::as_u64).unwrap_or(0);
+    let total = object
+        .get("total")
+        .or_else(|| object.get("totalGames"))
+        .and_then(Value::as_u64);
+    let total_offers = object.get("totalOffers").and_then(Value::as_u64);
+    let has_more = object
+        .get("hasMore")
+        .or_else(|| object.get("has_more"))
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| total.is_some_and(|total| offset + (games.len() as u64) < total));
+
+    Ok(RetroPage {
+        games,
+        sources,
+        total,
+        total_offers,
+        offset,
+        has_more,
+    })
+}
+
+fn parse_retro_game(value: &Value) -> Option<RetroGame> {
+    let id = text_field_any(value, "id")?;
+    let title = text_field_any(value, "title")?;
+    if id.is_empty() || title.is_empty() {
+        return None;
+    }
+
+    let artwork = value.get("artwork");
+    let art_url = |key: &str| {
+        artwork
+            .and_then(|artwork| artwork.get(key))
+            .and_then(Value::as_str)
+            .and_then(normalize_image_url)
+    };
+    let first_art_url = |key: &str| {
+        artwork
+            .and_then(|artwork| artwork.get(key))
+            .and_then(Value::as_array)
+            .and_then(|items| items.iter().find_map(Value::as_str))
+            .and_then(normalize_image_url)
+    };
+
+    let cover_url = optional_image_url(value, "cover").or_else(|| art_url("cover"));
+    let fallback_cover_url = optional_image_url(value, "fallbackCover")
+        .or_else(|| art_url("titleScreen"))
+        .or_else(|| first_art_url("titleScreens"))
+        .or_else(|| art_url("cachedUrl"));
+    let hero_url = optional_image_url(value, "hero").or_else(|| first_art_url("backgrounds"));
+
+    let release_year = value.get("releaseYear").and_then(value_to_year_number);
+
+    Some(RetroGame {
+        id,
+        title,
+        source_title: optional_text_field(value, "sourceTitle"),
+        system_id: optional_text_field(value, "systemId"),
+        platform: optional_text_field(value, "platform"),
+        description: optional_text_field_from(value.get("description"))
+            .map(|text| strip_html(&text))
+            .filter(|text| !text.is_empty()),
+        cover_url,
+        fallback_cover_url,
+        hero_url,
+        file_size: optional_text_field(value, "fileSize"),
+        release_year,
+        developer: first_string(value.get("developer")),
+        publisher: first_string(value.get("publisher")),
+        genres: string_list(value.get("genres")),
+        offer_count: value.get("offerCount").and_then(Value::as_u64),
+    })
+}
+
+fn parse_retro_source(value: &Value) -> Option<RetroSource> {
+    let id = text_field_any(value, "id")?;
+    if id.is_empty() {
+        return None;
+    }
+    let title = text_field_any(value, "title").unwrap_or_else(|| id.clone());
+    Some(RetroSource {
+        id,
+        title,
+        url: optional_image_url(value, "url"),
+    })
+}
+
+fn retro_system_label(raw: &str) -> String {
+    if let Some(system) = RETRO_SYSTEMS.iter().find(|system| system.id == raw) {
+        return system.label.to_string();
+    }
+    if raw.is_empty() {
+        "Sistema não informado".to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
 // ── Mídia da ficha do jogo ──────────────────────────────────────────────────
 
 /// Trailer de `game:sysinfo` (`info.movies[]`).
@@ -1098,6 +1588,116 @@ fn optional_text_field(value: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn optional_text_field_from(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// Campo textual que aceita string ou número — `appid`/`id` variam entre as
+/// respostas da Steam, do Hubcap e de catálogos antigos.
+fn text_field_any(value: &Value, key: &str) -> Option<String> {
+    match value.get(key)? {
+        Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    Value::String(text) => {
+                        let text = text.trim();
+                        (!text.is_empty()).then(|| text.to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn first_string(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        Value::Array(items) => items.iter().find_map(|item| match item {
+            Value::String(text) => {
+                let text = text.trim();
+                (!text.is_empty()).then(|| text.to_string())
+            }
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn optional_image_url(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .and_then(normalize_image_url)
+}
+
+fn optional_image_url_from(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).and_then(normalize_image_url)
+}
+
+/// Normaliza URLs de arte como o `media_url` do trailer: aceita `//`,
+/// `http(s)` e descarta qualquer outro esquema que o cliente HTTP não abre.
+fn normalize_image_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let normalized = trimmed.replace("&amp;", "&");
+    if let Some(rest) = normalized.strip_prefix("//") {
+        return Some(format!("https://{rest}"));
+    }
+    let lower = normalized.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
+}
+
+fn steam_store_header(appid: &str) -> Option<String> {
+    let appid = appid.trim().strip_prefix("steam:").unwrap_or(appid.trim());
+    (!appid.is_empty() && appid.chars().all(|character| character.is_ascii_digit()))
+        .then(|| format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"))
+}
+
+fn check_channel_ok(value: &Value, channel: &str) -> Result<(), String> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(false) => {
+            let error = match value.get("error") {
+                Some(Value::String(text)) if !text.trim().is_empty() => text.trim().to_string(),
+                Some(other) if !other.is_null() => other.to_string(),
+                _ => "erro desconhecido".to_string(),
+            };
+            Err(format!("{channel}: {error}"))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn value_to_year_number(value: &Value) -> Option<u32> {
+    match value {
+        Value::Number(number) => number.as_u64().and_then(|year| u32::try_from(year).ok()),
+        Value::String(text) => text.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
 fn first_non_empty<const N: usize>(values: [&String; N]) -> String {
     values
         .into_iter()
@@ -1402,6 +2002,73 @@ impl Backend {
     pub async fn load_plugins(&self) -> Result<Vec<PluginItem>, String> {
         let value = self.dispatch("plugins:list", Vec::new()).await?;
         parse_plugins(value)
+    }
+
+    /// Busca no catálogo da loja (`store:search`), como a aba Lojas da web.
+    pub async fn search_store(&self, query: String) -> Result<StoreSearch, String> {
+        let value = self
+            .dispatch("store:search", vec![Value::String(query)])
+            .await?;
+        parse_store_search(value)
+    }
+
+    /// Sugestões enquanto digita (`store:suggest`).
+    pub async fn suggest_store(&self, query: String) -> Result<Vec<StoreGame>, String> {
+        let value = self
+            .dispatch("store:suggest", vec![Value::String(query)])
+            .await?;
+        parse_store_suggest(value)
+    }
+
+    /// Catálogo navegável paginado (`store:recent` com `lista: "all"`).
+    pub async fn load_store_recent(&self, offset: u64, limit: u64) -> Result<StorePage, String> {
+        let payload = json!({
+            "lista": "all",
+            "limite": limit,
+            "offset": offset,
+        });
+        let value = self.dispatch("store:recent", vec![payload]).await?;
+        parse_store_recent(value)
+    }
+
+    /// Ficha da loja (`game:sysinfo`) com descrição/backdrop do appid.
+    pub async fn load_store_info(&self, appid: String, title: String) -> Result<StoreInfo, String> {
+        let id = if appid.starts_with("steam:") {
+            appid
+        } else {
+            format!("steam:{appid}")
+        };
+        let payload = json!({ "id": id, "title": title, "launcher": "steam" });
+        let value = self.dispatch("game:sysinfo", vec![payload]).await?;
+        parse_store_info(value)
+    }
+
+    /// Página do catálogo Retro (`retro:list`). O filtro usa `system`, a mesma
+    /// chave aceita pelo catálogo remoto e pela UI web.
+    pub async fn load_retro_page(
+        &self,
+        query: String,
+        system: Option<String>,
+        offset: u64,
+        limit: u64,
+    ) -> Result<RetroPage, String> {
+        let mut payload = json!({
+            "offset": offset,
+            "limit": limit,
+            "mode": "all",
+            "variants": "all",
+        });
+        if !query.trim().is_empty() {
+            payload["query"] = Value::String(query);
+        }
+        if let Some(system) = system.filter(|system| !system.trim().is_empty()) {
+            // O catálogo remoto lê `system`; o fallback local em disco lê
+            // `systems[]`. Mandar as duas formas mantém o filtro nos dois.
+            payload["systems"] = json!([system.clone()]);
+            payload["system"] = Value::String(system);
+        }
+        let value = self.dispatch("retro:list", vec![payload]).await?;
+        parse_retro_page(value)
     }
 
     /// Baixa, decodifica e reduz a imagem para um `Handle` pronto para o iced.
@@ -1900,5 +2567,185 @@ mod tests {
                 pid: Some(4242),
             }
         );
+    }
+
+    #[test]
+    fn parses_store_search_with_price_source_and_numeric_appid() {
+        let search = parse_store_search(json!({
+            "ok": true,
+            "jogos": [
+                {
+                    "appid": "10",
+                    "title": "Half-Life",
+                    "cover": "https://cdn.test/hl.jpg",
+                    "heroi": "https://cdn.test/hl-hero.jpg",
+                    "capa": "https://cdn.test/hl-portrait.jpg",
+                    "preco": "R$ 19,99",
+                    "fontes": ["Hubcap"],
+                    "manifest": true
+                },
+                {
+                    "appid": 20,
+                    "title": "Jogo numérico",
+                    "fontes": []
+                },
+                { "appid": "", "title": "Sem appid" }
+            ],
+            "fonte": "steam",
+            "avisos": ["catálogo parcial"]
+        }))
+        .expect("busca válida");
+
+        assert_eq!(search.games.len(), 2);
+        let first = &search.games[0];
+        assert_eq!(first.appid, "10");
+        assert_eq!(first.price.as_deref(), Some("R$ 19,99"));
+        assert_eq!(first.source.as_deref(), Some("Hubcap"));
+        assert!(first.manifest);
+        assert_eq!(first.image_urls().len(), 3);
+        assert_eq!(search.source.as_deref(), Some("steam"));
+        assert_eq!(search.warnings, vec!["catálogo parcial"]);
+
+        let second = &search.games[1];
+        assert_eq!(second.appid, "20");
+        assert_eq!(
+            second.cover_url.as_deref(),
+            Some("https://cdn.akamai.steamstatic.com/steam/apps/20/header.jpg")
+        );
+        assert!(second.image_urls().len() == 1);
+    }
+
+    #[test]
+    fn store_parsers_report_ok_false_and_accept_null_lists() {
+        let error = parse_store_search(json!({ "ok": false, "error": "hubcap_offline" }))
+            .expect_err("ok:false deve virar erro");
+        assert!(error.contains("hubcap_offline"), "{error}");
+
+        let empty = parse_store_search(json!({ "ok": true, "jogos": null })).expect("null é vazio");
+        assert!(empty.games.is_empty());
+
+        let suggest = parse_store_suggest(json!({
+            "ok": true,
+            "jogos": [{ "appid": "30", "title": "Sugestão" }]
+        }))
+        .expect("sugestões válidas");
+        assert_eq!(suggest.len(), 1);
+
+        assert!(parse_store_suggest(json!({ "ok": false, "error": "sem_rede" })).is_err());
+        assert!(parse_store_recent(Value::Null).is_err());
+    }
+
+    #[test]
+    fn parses_store_recent_pagination_fallbacks() {
+        let page = parse_store_recent(json!({
+            "ok": true,
+            "jogos": [
+                { "appid": "1", "title": "A" },
+                { "appid": "2", "title": "B" }
+            ],
+            "offset": 24,
+            "total": 100
+        }))
+        .expect("página válida");
+        assert_eq!(page.games.len(), 2);
+        assert_eq!(page.total, Some(100));
+        assert!(page.has_more);
+        assert_eq!(page.next_offset, Some(26));
+
+        let last = parse_store_recent(json!({
+            "ok": true,
+            "jogos": [],
+            "offset": 96,
+            "total": 96,
+            "has_more": false,
+            "next_offset": null
+        }))
+        .expect("última página válida");
+        assert!(!last.has_more);
+        assert!(last.next_offset.is_none());
+    }
+
+    #[test]
+    fn parses_retro_page_and_builds_cover_fallbacks() {
+        let page = parse_retro_page(json!({
+            "ok": true,
+            "games": [
+                {
+                    "id": "retro:1",
+                    "title": "Chrono Trigger",
+                    "systemId": "nintendo-snes",
+                    "releaseYear": 1995,
+                    "developer": ["Square"],
+                    "genres": ["RPG"],
+                    "offerCount": 3,
+                    "artwork": {
+                        "cover": "//cdn.test/chrono.jpg",
+                        "titleScreen": "https://cdn.test/chrono-title.png",
+                        "backgrounds": ["https://cdn.test/chrono-hero.jpg"]
+                    }
+                },
+                {
+                    "id": "retro:2",
+                    "title": "Sem arte",
+                    "platform": "sony-playstation"
+                }
+            ],
+            "sources": [{ "id": "src", "title": "Fonte", "url": "https://example.test/catalog" }],
+            "total": 240,
+            "totalOffers": 500,
+            "offset": 24,
+            "hasMore": true
+        }))
+        .expect("catálogo válido");
+
+        assert_eq!(page.games.len(), 2);
+        assert_eq!(page.total, Some(240));
+        assert_eq!(page.total_offers, Some(500));
+        assert!(page.has_more);
+        assert_eq!(page.sources.len(), 1);
+
+        let chrono = &page.games[0];
+        assert_eq!(
+            chrono.cover_url.as_deref(),
+            Some("https://cdn.test/chrono.jpg")
+        );
+        assert_eq!(chrono.system_label(), "Super Nintendo");
+        assert_eq!(chrono.meta_line(), "1995  ·  Square  ·  RPG");
+        assert_eq!(chrono.offer_count, Some(3));
+
+        let sem_arte = &page.games[1];
+        assert!(sem_arte.cover_url.is_none());
+        assert_eq!(sem_arte.system_label(), "PlayStation");
+
+        let error = parse_retro_page(json!({ "ok": false, "error": "catalogo_offline" }))
+            .expect_err("ok:false deve virar erro");
+        assert!(error.contains("catalogo_offline"), "{error}");
+    }
+
+    #[test]
+    fn parses_store_info_and_reports_null_info() {
+        let info = parse_store_info(json!({
+            "ok": true,
+            "info": {
+                "short_description": "<p>Descrição &amp; detalhes</p>",
+                "background": "https://cdn.test/bg.jpg",
+                "header": "//cdn.test/header.jpg",
+                "developers": ["Valve"],
+                "publishers": ["Valve"],
+                "release_date": "2004"
+            }
+        }))
+        .expect("ficha válida");
+        assert_eq!(info.description.as_deref(), Some("Descrição & detalhes"));
+        assert_eq!(info.image_urls().len(), 2);
+        assert_eq!(info.developers, vec!["Valve"]);
+
+        let null_info =
+            parse_store_info(json!({ "ok": true, "info": null })).expect_err("info:null");
+        assert!(null_info.contains("info:null"), "{null_info}");
+
+        let failed = parse_store_info(json!({ "ok": false, "error": "api_indisponivel" }))
+            .expect_err("ok:false");
+        assert!(failed.contains("api_indisponivel"), "{failed}");
     }
 }

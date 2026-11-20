@@ -317,8 +317,10 @@ version = "1.6.0"
 dependencies = [
  "arcadia-api",
  "arcadia-ipc",
+ "arcadia-native-input",
  "arcadia-native-media",
  "arcadia-store",
+ "chrono",
  "iced",
  "image",
  "reqwest 0.12.28",
