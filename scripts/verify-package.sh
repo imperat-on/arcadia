@@ -200,10 +200,35 @@ if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
         # Carrega os plugins num ambiente limpo: se resolver pelo host, o teste
         # não prova nada sobre o pacote.
         if command -v gst-inspect-1.0 >/dev/null 2>&1; then
+            # O scanner precisa vir do pacote e estar no caminho CERTO. O hook
+            # do linuxdeploy aponta para `usr/lib/gstreamer1.0/gstreamer-1.0/`,
+            # que não existe: sem scanner o GStreamer não registra plugin
+            # dinâmico nenhum e o decoder fica no pacote sem ser usado. Era o
+            # buffering infinito do trailer.
+            scanner="$gst/gst-plugin-scanner"
+            if [ -x "$scanner" ]; then
+                ok "gst-plugin-scanner presente e executável"
+            else
+                bad "gst-plugin-scanner ausente em $gst — nenhum plugin dinâmico vai registrar"
+            fi
+
+            # O hook gerado pelo linuxdeploy é quem exporta o caminho no
+            # arranque. Se ele apontar para o diretório duplicado, o pacote
+            # está quebrado mesmo com o scanner presente no lugar certo.
+            hook="$sq/apprun-hooks/linuxdeploy-plugin-gstreamer.sh"
+            if [ -f "$hook" ]; then
+                if grep -q 'gstreamer1\.0/gstreamer-1\.0' "$hook"; then
+                    bad "hook do GStreamer aponta para gstreamer1.0/gstreamer-1.0 (caminho inexistente)"
+                else
+                    ok "hook do GStreamer aponta para o scanner real"
+                fi
+            fi
+
             probe="$(env -i HOME="$work" PATH=/usr/bin:/bin \
                      LD_LIBRARY_PATH="$sq/usr/lib" \
                      GST_PLUGIN_PATH="$gst" \
                      GST_PLUGIN_SYSTEM_PATH_1_0="$gst" \
+                     GST_PLUGIN_SCANNER_1_0="$scanner" \
                      gst-inspect-1.0 openh264dec 2>&1)"
             if printf '%s' "$probe" | grep -q "$sq"; then
                 ok "openh264dec carrega de dentro do pacote"
