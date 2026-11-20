@@ -181,15 +181,27 @@ fn torrent_worker_vai_nos_recursos_do_bundle() {
     // ele vinha de `__dirname/torrent_rpc`. Sem embarcar main.py e
     // torrent_downloader.py (o segundo é importado pelo primeiro), o download
     // por torrent falha ao conectar em toda instalação empacotada.
+    //
+    // `bundle.resources` aceita lista (caminhos preservados) ou mapa
+    // (origem -> destino achatado). O projeto usa mapa desde que o binário
+    // `arcadia-gamepad` passou a viajar junto: achatado, ele fica em
+    // `resources/arcadia-gamepad` em vez de replicar `target/release/`.
     let conf = tauri_conf();
-    let resources = conf["bundle"]["resources"]
-        .as_array()
-        .expect("bundle.resources como lista");
-    let joined = resources
-        .iter()
-        .filter_map(|r| r.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let recursos = &conf["bundle"]["resources"];
+    let joined = match recursos.as_array() {
+        Some(lista) => lista
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect::<Vec<_>>()
+            .join(" "),
+        None => recursos
+            .as_object()
+            .expect("bundle.resources como lista ou mapa")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
+    };
 
     for required in ["torrent_rpc/main.py", "torrent_rpc/torrent_downloader.py"] {
         assert!(
@@ -197,6 +209,33 @@ fn torrent_worker_vai_nos_recursos_do_bundle() {
             "bundle.resources não embarca '{required}': {joined}"
         );
     }
+}
+
+#[test]
+fn binario_do_gamepad_vai_no_pacote() {
+    // O wrapper XInput agora é Rust. Se ele não viajar no bundle, o launcher
+    // detecta o controle e não tem o que executar — o jogo abre sem XInput,
+    // que é justamente o bug que o wrapper existe para evitar.
+    let conf = tauri_conf();
+    let recursos = &conf["bundle"]["resources"];
+    let joined = match recursos.as_array() {
+        Some(lista) => lista
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect::<Vec<_>>()
+            .join(" "),
+        None => recursos
+            .as_object()
+            .expect("bundle.resources como lista ou mapa")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
+    };
+    assert!(
+        joined.contains("arcadia-gamepad"),
+        "bundle.resources não embarca o wrapper XInput: {joined}"
+    );
 }
 
 #[test]

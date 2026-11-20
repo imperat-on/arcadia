@@ -5,24 +5,9 @@ on:
   pull_request:
 
 jobs:
-  app:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm test
-      - run: npx tsc --noEmit
-      - run: npm run build
-
   # Shell Tauri/Rust: testes do workspace e build do front-end novo.
+  # A UI do Arcadia é a única frente TypeScript: o app antigo em Electron foi
+  # retirado (tag legacy-electron-final guarda o ponto de retorno).
   rust:
     runs-on: ubuntu-22.04
     steps:

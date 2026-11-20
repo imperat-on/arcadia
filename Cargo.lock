@@ -160,6 +160,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "arcadia-gamepad"
+version = "1.6.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "arcadia-ipc"
 version = "1.6.0"
 dependencies = [

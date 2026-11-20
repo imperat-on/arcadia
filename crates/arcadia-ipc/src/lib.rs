@@ -134,6 +134,9 @@ pub struct AppState {
     pub realtime: crate::realtime::Realtime,
     /// Cache local das capas Retro (baixa uma vez, reduz, guarda em disco).
     pub covers: crate::cover_cache::CoverCache,
+    /// Processo do wrapper XInput, quando ativo. `gamepadStatus` lê daqui em
+    /// vez de devolver um stub — antes o canal sempre dizia `running: false`.
+    pub gamepad: Mutex<Option<std::process::Child>>,
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
@@ -268,6 +271,7 @@ impl AppState {
             discord,
             realtime: crate::realtime::Realtime::new(),
             covers: crate::cover_cache::CoverCache::new(&dir_covers),
+            gamepad: Mutex::new(None),
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
@@ -1635,11 +1639,27 @@ pub fn dispatch(
             );
             Ok(json!({ "ok": true }))
         }
-        "gamepadStatus" => Ok(json!({
-            "ok": true,
-            "emulator": "uinput",
-            "running": false
-        })),
+        "gamepadStatus" => {
+            // Estado real: se o wrapper morreu, o `try_wait` colhe o zumbi e
+            // devolve `running: false`. Antes este canal era um stub fixo.
+            let mut guard = state.gamepad.lock().unwrap_or_else(|e| e.into_inner());
+            let running = match guard.as_mut() {
+                Some(child) => match child.try_wait() {
+                    Ok(Some(_)) => {
+                        *guard = None;
+                        false
+                    }
+                    Ok(None) => true,
+                    Err(_) => false,
+                },
+                None => false,
+            };
+            Ok(json!({
+                "ok": true,
+                "emulator": "uinput",
+                "running": running
+            }))
+        }
         "integrations:status" => {
             let config = read_config(&state.data_dir);
             Ok(json!({

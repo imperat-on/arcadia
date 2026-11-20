@@ -486,12 +486,52 @@ fn main() {
     ]
     .into_iter()
     .chain(std::env::current_exe().ok().and_then(|exe| {
-        exe.parent()
-            .map(|dir| dir.join("resources").join("torrent_rpc").join("main.py"))
+        exe.parent().map(|dir| {
+            // Recursos achatados no bundle: `resources/torrent_rpc/main.py`,
+            // mas o layout antigo tinha `resources/resources/...`.
+            let flat = dir.join("resources").join("torrent_rpc").join("main.py");
+            if flat.is_file() {
+                flat
+            } else {
+                dir.join("resources")
+                    .join("resources")
+                    .join("torrent_rpc")
+                    .join("main.py")
+            }
+        })
     }))
     .find(|path| path.is_file());
     if let Some(worker) = &torrent_worker {
         std::env::set_var("ARCADIA_TORRENT_WORKER", worker);
+    }
+    // O wrapper XInput viaja como recurso. `arcadia-launch` procura o binário
+    // ao lado do executável; no pacote ele fica em `usr/lib/Arcadia/`
+    // (ao lado do exe em `usr/bin/`), então a borda resolve o caminho e
+    // exporta para o crate achar.
+    let gamepad_bin = [
+        data_dir.join("resources").join("arcadia-gamepad"),
+        data_dir.join("arcadia-gamepad"),
+    ]
+    .into_iter()
+    .chain(std::env::current_exe().ok().and_then(|exe| {
+        exe.parent().map(|dir| {
+            // Candidatos, do mais específico ao mais genérico:
+            //   1. ao lado do exe (build local, target/release)
+            //   2. resources/ achatado (bundler atual)
+            //   3. ../lib/Arcadia/ (AppImage e .deb instalam aqui)
+            [
+                dir.join("arcadia-gamepad"),
+                dir.join("resources").join("arcadia-gamepad"),
+                dir.join("..").join("lib").join("Arcadia").join("arcadia-gamepad"),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| dir.join("arcadia-gamepad"))
+        })
+    }))
+    .find(|path| path.is_file());
+    if let Some(bin) = &gamepad_bin {
+        std::env::set_var("ARCADIA_GAMEPAD_BIN", bin);
     }
     let api = match arcadia_api::ApiClient::from_env() {
         Ok(api) => Some(Arc::new(api)),

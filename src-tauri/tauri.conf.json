@@ -24,11 +24,12 @@
     "active": true,
     "targets": ["nsis", "deb", "appimage", "rpm"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
-    "resources": [
-      "resources/boot.mp4",
-      "resources/torrent_rpc/main.py",
-      "resources/torrent_rpc/torrent_downloader.py"
-    ],
+    "resources": {
+      "resources/boot.mp4": "boot.mp4",
+      "resources/torrent_rpc/main.py": "torrent_rpc/main.py",
+      "resources/torrent_rpc/torrent_downloader.py": "torrent_rpc/torrent_downloader.py",
+      "../target/release/arcadia-gamepad": "arcadia-gamepad"
+    },
     "linux": {
       "deb": {
         "depends": [

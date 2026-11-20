@@ -1,0 +1,12 @@
+[package]
+name = "arcadia-gamepad"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "arcadia-gamepad"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

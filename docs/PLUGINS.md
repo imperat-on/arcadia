@@ -111,7 +111,8 @@ executado durante `register`, `get`, `listDetailed` ou `verify`.
 
 ## API de host
 
-`app/electron/plugins.js` mantém as chamadas existentes:
+`crates/arcadia-plugins` implementa a superfície, exposta pelo dispatcher IPC
+(`plugins:list`, `plugins:install`, `plugins:remove`):
 
 - `list()` — shape histórico (`id`, `name`, `descKey`, `installed`, `enabled`);
 - `install(id)` / `remove(id)` — confirmar/desativar built-ins, sem download;

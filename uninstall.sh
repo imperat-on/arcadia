@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Desinstalação completa do Arcadia.
+# Desinstalação completa do Arcadia (edição Tauri/Rust).
 #
 # Duas formas de usar:
 #   Local:  ./uninstall.sh
@@ -29,11 +29,12 @@ if [ ! -d "$DIR" ]; then
     exit 0
 fi
 
-# Segurança: só remove se $DIR parecer mesmo o Arcadia (tem app/package.json).
-# Evita apagar uma pasta que não é o projeto por engano (ex.: se o usuário
-# mudou o caminho ou o diretório tem outro conteúdo).
-if [ ! -f "$DIR/app/package.json" ]; then
-    echo "ERRO: $DIR existe mas não parece ser o Arcadia (faltam app/package.json)." >&2
+# Segurança: só remove se $DIR parecer mesmo o Arcadia. A instalação Rust
+# empacota o binário em bin/ e os recursos em resources/ — o diretório de
+# dados carrega config.json/library. Evita apagar uma pasta que não é o
+# projeto por engano.
+if [ ! -f "$DIR/config.json" ] && [ ! -f "$DIR/bin/arcadia" ]; then
+    echo "ERRO: $DIR existe mas não parece ser o Arcadia." >&2
     echo "Abortando para não apagar algo por engano. Se quiser mesmo, remova na mão." >&2
     exit 1
 fi
@@ -42,9 +43,12 @@ echo "Isso vai remover o Arcadia deste computador ($DIR)."
 echo
 
 # --- 0/5 Fecha o app, se estiver aberto -------------------------------------
-if pgrep -f "$DIR/app/node_modules/electron" >/dev/null 2>&1; then
+# O binário do Arcadia é "arcadia" (Tauri); o download manager pode ter
+# deixado o worker Python de torrent vivo — ele morre com o pai, mas se
+# veio de uma sessão anterior, derruba também.
+if pgrep -x arcadia >/dev/null 2>&1; then
     echo "==> 0/5 Fechando o Arcadia…"
-    pkill -f "$DIR/app/node_modules/electron" 2>/dev/null || true
+    pkill -x arcadia 2>/dev/null || true
     sleep 1
 fi
 
@@ -127,6 +131,15 @@ fi
 echo "==> 5/5 Removendo $DIR"
 rm -rf "$DIR"
 
+# Instalação via gerenciador de pacotes (deb/rpm/AppImage): o AppImage não
+# deixa rastro no sistema, mas deb/rpm podem ter instalado em /usr.
+if command -v dpkg >/dev/null 2>&1 && dpkg -s arcadia >/dev/null 2>&1; then
+    echo "    Detectada instalação .deb do Arcadia: rode 'sudo apt remove arcadia'."
+fi
+if command -v rpm >/dev/null 2>&1 && rpm -q arcadia >/dev/null 2>&1; then
+    echo "    Detectada instalação .rpm do Arcadia: rode 'sudo dnf remove arcadia'."
+fi
+
 echo
 echo "Arcadia desinstalado."
 [ -d "$BACKUP" ] && echo "O que você pediu para manter ficou em: $BACKUP"
@@ -137,5 +150,5 @@ echo "Para removê-los, use o botão \"Remover\" na Loja do Arcadia ANTES de"
 echo "desinstalar — senão eles continuam instalados normalmente na Steam."
 echo
 echo "Dependências de sistema instaladas pelo install.sh (steam, dotnet,"
-echo "ffmpeg, node, etc.) não são removidas — são pacotes comuns que outros"
+echo "ffmpeg, etc.) não são removidas — são pacotes comuns que outros"
 echo "programas podem estar usando."

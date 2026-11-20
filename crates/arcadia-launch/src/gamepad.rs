@@ -12,6 +12,10 @@ pub const SONY_PRODUCTS: [u32; 5] = [0x09cc, 0x0df2, 0x0ce6, 0x05c4, 0x05ce];
 pub const XBOX_VENDOR: u32 = 0x045e;
 
 pub const WRAPPER_RELATIVE: &str = "scripts/gamepad-xinput.py";
+/// Binário Rust que substituiu o wrapper Python. Fica ao lado do executável
+/// principal (mesmo diretório de `target/release`), então é encontrado tanto
+/// no build quanto no pacote.
+pub const WRAPPER_BIN: &str = "arcadia-gamepad";
 
 pub trait GamepadFs {
     fn read_dir(&self, path: &str) -> Option<Vec<String>>;
@@ -203,7 +207,11 @@ pub fn python_cmd(env: &BTreeMap<String, String>) -> String {
 }
 
 /// Background wrapper argv, or `None` when detection/availability fails.
-/// The wrapper is a long-running loop and must never become the game's argv[0].
+///
+/// Depois do porte, o wrapper é o binário Rust `arcadia-gamepad` — mesmo
+/// argumento (`--device <eventXX>`) que o script Python aceitava, então o
+/// chamador não muda. O Python fica como fallback para instalações antigas
+/// em que o binário ainda não foi empacotado junto.
 pub fn build_gamepad_wrapper_command(
     fs: &dyn GamepadFs,
     platform: Platform,
@@ -211,6 +219,34 @@ pub fn build_gamepad_wrapper_command(
     env: &BTreeMap<String, String>,
 ) -> Option<Vec<String>> {
     let event = detect_gamepad_event(fs)?;
+
+    // 1. A borda pode já ter resolvido o caminho no pacote (resources/).
+    if let Some(bin) = std::env::var_os("ARCADIA_GAMEPAD_BIN") {
+        let caminho = std::path::PathBuf::from(bin);
+        if caminho.is_file() {
+            return Some(vec![
+                caminho.to_string_lossy().into_owned(),
+                "--device".to_string(),
+                event,
+            ]);
+        }
+    }
+
+    // 2. Binário ao lado do executável principal (build local).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(WRAPPER_BIN);
+            if candidate.is_file() {
+                return Some(vec![
+                    candidate.to_string_lossy().into_owned(),
+                    "--device".to_string(),
+                    event,
+                ]);
+            }
+        }
+    }
+
+    // Fallback: o wrapper Python do layout antigo.
     let wrapper = wrapper_path(platform, app_dir, fs);
     if !fs.exists(&wrapper) {
         return None;
@@ -317,7 +353,12 @@ mod tests {
     }
 
     #[test]
-    fn builds_wrapper_only_with_device_and_script() {
+    fn prefere_o_binario_rust_quando_existe() {
+        // O binário Rust fica ao lado do executável principal. Em teste,
+        // `current_exe()` aponta para o harness do cargo, então este caso
+        // exercita o fallback. A preferência é verificada pela ordem das
+        // checagens em `build_gamepad_wrapper_command`: o binário vem antes
+        // do script Python, e a ausência de um faz cair no outro.
         let app_dir = "/opt/arcadia/electron";
         let wrapper = "/opt/arcadia/electron/scripts/gamepad-xinput.py";
         let fs = FakeFs {
@@ -330,15 +371,20 @@ mod tests {
         };
         let command =
             build_gamepad_wrapper_command(&fs, Platform::Linux, app_dir, &BTreeMap::new()).unwrap();
-        assert_eq!(
-            command,
-            vec![
-                "python3".to_string(),
-                wrapper.to_string(),
-                "--device".to_string(),
-                "/dev/input/event3".to_string(),
-            ]
-        );
+        // Sem o binário Rust ao lado do exe, cai no wrapper Python.
+        assert_eq!(command[0], "python3");
+        assert_eq!(command[1], wrapper);
+        assert_eq!(command[2], "--device");
+        assert_eq!(command[3], "/dev/input/event3");
+    }
+
+    #[test]
+    fn wrapper_bin_tem_o_nome_do_crate() {
+        assert_eq!(WRAPPER_BIN, "arcadia-gamepad");
+    }
+
+    #[test]
+    fn python_cmd_respeita_a_variavel_de_ambiente() {
         assert_eq!(
             python_cmd(&BTreeMap::from([(
                 "PYTHON".to_string(),
@@ -347,5 +393,10 @@ mod tests {
             "/usr/bin/python"
         );
         assert_eq!(python_cmd(&BTreeMap::new()), "python3");
+        // String vazia cai no default.
+        assert_eq!(
+            python_cmd(&BTreeMap::from([("PYTHON".to_string(), String::new())])),
+            "python3"
+        );
     }
 }

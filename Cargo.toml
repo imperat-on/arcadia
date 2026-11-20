@@ -19,6 +19,7 @@ members = [
     "crates/arcadia-ra",
     "crates/arcadia-fixes",
     "crates/arcadia-updater",
+    "crates/arcadia-gamepad",
     "crates/arcadia-ipc",
     "src-tauri",
 ]

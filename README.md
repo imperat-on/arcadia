@@ -207,16 +207,19 @@ The packaging contract is itself covered by tests
 `Cargo.toml`, `ui/package.json` and `tauri.conf.json`, bundle targets, and the
 GStreamer dependencies the Linux bundle must declare.
 
-## Legacy scripts
+## Legacy reference
 
-The repository still carries the original Electron entry points
-(`app/electron`, `arcadia.sh`, `run.sh`, `install.sh`). **They are not the
-current runtime** — the Rust binary is. `app/electron` is kept as the frozen
-reference for the IPC contract, which the Rust dispatcher implements channel by
-channel.
+The Electron app (`app/electron`, 37k lines of JS) has been **removed**. Every
+module was ported to a Rust crate first — `steamstore.js` → `arcadia-steamstore`,
+`downloadmanager.js` → `arcadia-download`, `retro-catalog.js` → `arcadia-retro`,
+`emulator-registry.js` → `arcadia-emulators`, and so on. The last two holdouts,
+the gamepad uinput wrapper and the `contracts/` helpers, are now
+`arcadia-gamepad` and `arcadia-contracts`.
 
-Use `arcadia-tauri.sh` for the Rust build; the Electron launchers remain only
-for historical reference.
+The tag `legacy-electron-final` keeps the full tree as a frozen reference if the
+old IPC contract ever needs to be consulted.
+
+`arcadia-tauri.sh` is the build entry point.
 
 ## Uninstall
 
