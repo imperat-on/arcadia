@@ -11,6 +11,7 @@ pub mod cards;
 pub mod chrome;
 pub mod community;
 pub mod game;
+pub mod game_detail;
 pub mod home;
 pub mod icons;
 pub mod library;
@@ -90,11 +91,16 @@ pub(crate) fn page_header_labeled<'a>(
 }
 
 pub(crate) fn section_label(title: &str) -> Element<'_, Message> {
-    text(title.to_uppercase())
-        .size(10)
-        .font(theme::FONT_MEDIUM)
-        .color(theme::TEXT_3)
-        .into()
+    row![
+        container(Space::new().width(3).height(14)).style(theme::accent_bar),
+        text(title.to_uppercase())
+            .size(11)
+            .font(theme::FONT_SEMIBOLD)
+            .color(theme::TEXT_2),
+    ]
+    .spacing(8)
+    .align_y(iced::Center)
+    .into()
 }
 
 pub(crate) fn loading_state(message: &str) -> Element<'_, Message> {

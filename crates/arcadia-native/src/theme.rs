@@ -93,7 +93,6 @@ pub const CARD_GAP: f32 = 16.0;
 /// `.arcadia-desktop-retro .rounded-xl` força 3 px nos cards do shell.
 pub const CARD_RADIUS: f32 = 3.0;
 pub const PANEL_RADIUS: f32 = 3.0;
-pub const HERO_HEIGHT: f32 = 396.0;
 
 /// Tema do iced. Os widgets usam os estilos explícitos abaixo, mas o tema
 /// mantém defaults coerentes para diálogos e overlays futuros.
@@ -426,6 +425,68 @@ pub fn library_button(_theme: &Theme, status: button::Status) -> button::Style {
 }
 
 /// Cartão da vitrine da Home (arte + título + ação).
+/// Capa retrato flutuante do herói (150×225), com aro e sombra.
+pub fn portrait_frame(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(BACKGROUND.into()),
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.10), 1.0, 8.0),
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.65),
+            offset: Vector::new(0.0, 18.0),
+            blur_radius: 36.0,
+        },
+        ..container::Style::default()
+    }
+}
+
+/// Botão voltar circular em vidro sobre o herói.
+pub fn circle_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.16)
+        }
+        _ => Color::from_rgba(0.0, 0.0, 0.0, 0.55),
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: TEXT_1,
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 1.0, 20.0),
+        ..button::Style::default()
+    }
+}
+
+pub fn chip(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(TEXT_STRONG),
+        background: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.07).into()),
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.10), 1.0, 20.0),
+        ..container::Style::default()
+    }
+}
+
+pub fn chip_accent(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(ACCENT),
+        background: Some(ACCENT_SOFT.into()),
+        border: rounded_border(ACCENT_BORDER, 1.0, 20.0),
+        ..container::Style::default()
+    }
+}
+
+pub fn action_bar(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()),
+        border: Border {
+            color: Color::from_rgba(1.0, 1.0, 1.0, 0.06),
+            width: 1.0,
+            radius: Radius::default(),
+        },
+        ..container::Style::default()
+    }
+}
+
+
 pub fn home_store_card(_theme: &Theme) -> container::Style {
     container::Style {
         text_color: Some(TEXT_1),

@@ -36,96 +36,38 @@ pub fn view<'a>(
     launch_options: &'a LaunchOptionsState,
     i18n: &'a I18n,
 ) -> Element<'a, Message> {
-    let hero_url = game.hero_url.as_deref().or(game.cover_url.as_deref());
-
-    let hero: Element<'a, Message> = match covers.ready(hero_url) {
-        Some(handle) => image(handle.clone())
-            .width(Fill)
-            .height(Fill)
-            .content_fit(ContentFit::Cover)
-            .into(),
-        None => container(Space::new())
-            .width(Fill)
-            .height(Fill)
-            .style(theme::cover_placeholder)
-            .into(),
-    };
-
-    let back = button(
-        row![
-            text("‹").size(22).color(theme::TEXT_1),
-            text(i18n.t("sidebar.biblioteca"))
-                .size(12)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_1),
-        ]
-        .spacing(6)
-        .align_y(iced::Center),
-    )
-    .on_press(Message::BackToLibrary)
-    .padding([6.0, 12.0])
-    .style(theme::ghost_button);
-
-    let mut meta = column![
-        text(game.title.as_str())
-            .size(40)
-            .font(theme::FONT_BOLD)
-            .color(theme::TEXT_1),
-        text(game.metadata_line())
-            .size(14)
-            .color(theme::TEXT_STRONG),
-        row![
-            text(game.playtime_label_i18n(i18n)).size(12).color(theme::TEXT_2),
-            text("·").size(12).color(theme::TEXT_3),
-            text(if game.installed {
-                i18n.t("native.game.installed")
-            } else {
-                i18n.t("native.game.not_installed")
-            })
-            .size(12)
-            .color(if game.installed {
-                theme::SUCCESS
-            } else {
-                theme::WARNING
-            }),
-        ]
-        .spacing(8),
-    ]
-    .spacing(6);
-
-    meta = meta.push(launch_controls(game, launch, i18n));
-    if let Some(error) = launch.error.as_deref() {
-        meta = meta.push(super::action_error_banner(error, None));
+    let mut chips = vec![super::game_detail::chip(
+        game.playtime_label_i18n(i18n),
+        false,
+    )];
+    if let Some(year) = game.year.as_deref().filter(|year| !year.trim().is_empty()) {
+        chips.push(super::game_detail::chip(year.to_string(), false));
     }
-    let warnings = launch.warnings_for(&game.id);
-    if !warnings.is_empty() {
-        meta = meta.push(launch_warning_banner(warnings.join("  ·  ")));
+    if let Some(developer) = game
+        .developer
+        .as_deref()
+        .or(game.publisher.as_deref())
+        .filter(|name| !name.trim().is_empty())
+    {
+        chips.push(super::game_detail::chip(developer.to_string(), false));
     }
-
-    let overlay = container(
-        column![back, Space::new().height(Fill), meta,]
-            .height(Fill)
-            .width(Fill),
-    )
-    .width(Fill)
-    .height(Fill)
-    .padding(theme::PAGE_PADDING)
-    .style(theme::hero_overlay);
-
-    let hero = Stack::new()
-        .width(Fill)
-        .height(theme::HERO_HEIGHT)
-        .push(hero)
-        .push(overlay);
+    if game.installed {
+        chips.push(super::game_detail::chip(
+            i18n.t("native.game.installed").to_string(),
+            true,
+        ));
+    }
 
     let description = description_panel(i18n, game, game_media);
-    let gallery = gallery_panel(i18n, game_media, covers, selected_screenshot);
+    let gallery = gallery_panel(i18n, media, game_media, covers, selected_screenshot);
 
-    let mut left = column![description, gallery]
-        .spacing(theme::SPACE_4)
-        .width(iced::FillPortion(2));
+    let mut left = vec![description, gallery];
     if let Some(community) = community {
-        left = left.push(super::community::panel(i18n, game.title.as_str(), community));
+        left.push(super::community::panel(
+            i18n,
+            game.title.as_str(),
+            community,
+        ));
     }
 
     let mut gamepad = input::GamepadInput::new();
@@ -136,28 +78,25 @@ pub fn view<'a>(
         i18n.t("native.game.controller_placeholder")
     };
 
-    let right = column![
-        trailer_card(i18n, media, game_media),
+    let right = vec![
         achievements_panel(i18n, panels, covers),
         protondb_panel(i18n, panels),
         stats_reviews_panel(i18n, panels),
         placeholder_card(i18n.t("native.game.controller"), gamepad_body),
-    ]
-    .spacing(theme::SPACE_4)
-    .width(iced::FillPortion(1));
+    ];
 
-    let body = scrollable(
-        row![left, right]
-            .spacing(theme::SPACE_4)
-            .padding([theme::SPACE_4, theme::PAGE_PADDING])
-            .width(Fill)
-            .align_y(iced::Top),
-    )
-    .width(Fill)
-    .height(Fill)
-    .style(theme::scrollable);
-
-    let page = column![hero, body].width(Fill).height(Fill);
+    let page = super::game_detail::view(
+        380.0,
+        covers,
+        game.hero_url.clone().or_else(|| game.cover_url.clone()),
+        game.cover_url.clone(),
+        game.title.as_str(),
+        chips,
+        Message::BackToLibrary,
+        Some(launch_controls(game, launch, i18n)),
+        left,
+        right,
+    );
 
     let mut layers = Stack::new()
         .width(Fill)
@@ -1138,82 +1077,191 @@ fn rich_block(block: RichBlock) -> Element<'static, Message> {
 
 fn gallery_panel<'a>(
     i18n: &'a I18n,
+    media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
     covers: &'a CoverCache,
     selected: usize,
 ) -> Element<'a, Message> {
-    let right: Option<Element<'a, Message>> = Some(
-        button(text(i18n.t("native.refresh")).size(9).font(theme::FONT_MEDIUM))
-            .on_press(Message::ReloadGameData)
-            .padding([5.0, 10.0])
-            .style(theme::ghost_button)
-            .into(),
-    );
-
-    let body: Element<'a, Message> = match game_media {
-        None => hint(i18n.t("native.game.screenshots_loading"), theme::TEXT_2),
-        Some(media) if media.screenshots.is_empty() => {
-            let has_failure = media
-                .notice
-                .as_deref()
-                .is_some_and(|notice| notice.contains("Falha") || notice.contains("info:null"));
-            if has_failure {
-                hint(
-                    media
-                        .notice
-                        .as_deref()
-                        .unwrap_or(i18n.t("native.game.store_query_failed")),
-                    theme::WARNING,
-                )
-            } else {
-                hint(
-                    i18n.t("native.game.screenshots_missing"),
-                    theme::TEXT_3,
-                )
-            }
-        }
-        Some(media) => {
-            let index = selected.min(media.screenshots.len() - 1);
-            let screenshot = &media.screenshots[index];
-            let full = screenshot.full_or_thumb();
-            let large: Element<'a, Message> = match covers.ready(full) {
-                Some(handle) => image(handle.clone())
-                    .width(Fill)
-                    .height(320)
-                    .content_fit(ContentFit::Contain)
-                    .into(),
-                None => container(
-                    text(i18n.t("native.game.screenshot_loading"))
-                        .size(10)
-                        .color(theme::TEXT_3),
-                )
-                .width(Fill)
-                .height(320)
-                .center_x(Fill)
-                .center_y(Fill)
-                .style(theme::cover_placeholder)
-                .into(),
-            };
-
-            column![
-                large,
-                screenshot_strip(&media.screenshots, covers, index),
-                text(i18n.t_args(
-                    "native.game.screenshot_counter",
-                    &[
-                        ("index", &(index + 1).to_string()),
-                        ("total", &media.screenshots.len().to_string()),
-                    ],
-                ))
+    let mut actions = row![].spacing(theme::SPACE_2).align_y(iced::Center);
+    if media.is_active() {
+        actions = actions.push(
+            text(source_label(i18n, media.uri()))
                 .size(9)
                 .color(theme::TEXT_3),
-            ]
-            .spacing(theme::SPACE_2)
-            .into()
+        );
+    }
+    actions = actions
+        .push(
+            button(text(i18n.t("trailer.escolher")).size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::OpenTrailerPicker)
+                .padding([5.0, 10.0])
+                .style(theme::ghost_button),
+        )
+        .push(
+            button(text(i18n.t("native.refresh")).size(9).font(theme::FONT_MEDIUM))
+                .on_press(Message::ReloadGameData)
+                .padding([5.0, 10.0])
+                .style(theme::ghost_button),
+        );
+
+    let body: Element<'a, Message> = if media.is_active() {
+        trailer_body(i18n, media, game_media)
+    } else {
+        match game_media {
+            None => hint(i18n.t("native.game.screenshots_loading"), theme::TEXT_2),
+            Some(media) if media.screenshots.is_empty() => {
+                let has_failure = media
+                    .notice
+                    .as_deref()
+                    .is_some_and(|notice| notice.contains("Falha") || notice.contains("info:null"));
+                if has_failure {
+                    hint(
+                        media
+                            .notice
+                            .as_deref()
+                            .unwrap_or(i18n.t("native.game.store_query_failed")),
+                        theme::WARNING,
+                    )
+                } else {
+                    hint(i18n.t("native.game.screenshots_missing"), theme::TEXT_3)
+                }
+            }
+            Some(media) => {
+                let index = selected.min(media.screenshots.len() - 1);
+                let screenshot = &media.screenshots[index];
+                let full = screenshot.full_or_thumb();
+                let large: Element<'a, Message> = match covers.ready(full) {
+                    Some(handle) => image(handle.clone())
+                        .width(Fill)
+                        .height(340)
+                        .content_fit(ContentFit::Contain)
+                        .into(),
+                    None => container(
+                        text(i18n.t("native.game.screenshot_loading"))
+                            .size(10)
+                            .color(theme::TEXT_3),
+                    )
+                    .width(Fill)
+                    .height(340)
+                    .center_x(Fill)
+                    .center_y(Fill)
+                    .style(theme::cover_placeholder)
+                    .into(),
+                };
+
+                column![
+                    large,
+                    screenshot_strip(&media.screenshots, covers, index),
+                    text(i18n.t_args(
+                        "native.game.screenshot_counter",
+                        &[
+                            ("index", &(index + 1).to_string()),
+                            ("total", &media.screenshots.len().to_string()),
+                        ],
+                    ))
+                    .size(9)
+                    .color(theme::TEXT_3),
+                ]
+                .spacing(theme::SPACE_2)
+                .into()
+            }
         }
     };
 
-    panel_card(i18n.t("native.game.screenshots"), right, body)
+    panel_card(
+        i18n.t("native.game.media_title"),
+        Some(actions.into()),
+        body,
+    )
+}
+
+fn trailer_body<'a>(
+    i18n: &'a I18n,
+    media: &'a MediaPlayer,
+    game_media: Option<&'a GameMedia>,
+) -> Element<'a, Message> {
+    let surface: Element<'a, Message> = match media.texture() {
+        Some(handle) => image(handle.clone())
+            .width(Fill)
+            .height(Fill)
+            .content_fit(ContentFit::Contain)
+            .into(),
+        None => missing_frame(i18n, media, game_media),
+    };
+
+    let surface = container(surface)
+        .width(Fill)
+        .height(340)
+        .style(theme::cover_placeholder);
+
+    let duration = media.duration_seconds();
+    let position = media.position_seconds();
+    let label = if media.is_playing() {
+        i18n.t("native.game.pause")
+    } else {
+        i18n.t("native.game.play")
+    };
+    let mut toggle = button(text(label).size(11).font(theme::FONT_MEDIUM))
+        .padding([6, 12])
+        .style(theme::ghost_button);
+    if media.can_control() {
+        toggle = toggle.on_press(Message::MediaTogglePlayback);
+    }
+
+    let mut controls = row![toggle].spacing(theme::SPACE_2).align_y(iced::Center);
+    if duration > 0.5 {
+        controls = controls.push(
+            slider(0.0..=duration as f32, position as f32, |seconds| {
+                Message::MediaSeek(f64::from(seconds))
+            })
+            .step(0.1_f32)
+            .width(Fill),
+        );
+    } else {
+        controls = controls.push(
+            text(i18n.t("native.game.awaiting_duration"))
+                .size(9)
+                .color(theme::TEXT_3),
+        );
+    }
+
+    let status_color = if media.status().is_error() {
+        theme::DANGER
+    } else {
+        theme::TEXT_3
+    };
+    let timing = media
+        .first_frame_ms()
+        .map(|elapsed| i18n.t_args("native.game.first_frame", &[("ms", &elapsed.to_string())]))
+        .unwrap_or_default();
+
+    let mut body = column![
+        surface,
+        controls,
+        row![
+            text(format!(
+                "{} / {}{timing}",
+                media::format_seconds(position),
+                media::format_seconds(duration)
+            ))
+            .size(10)
+            .color(theme::TEXT_2),
+            Space::new().width(Fill),
+            text(short_status(i18n, media.status()))
+                .size(10)
+                .color(status_color),
+        ]
+        .align_y(iced::Center),
+        text(i18n.t("native.game.audio_note"))
+            .size(9)
+            .color(theme::TEXT_3),
+    ]
+    .spacing(theme::SPACE_2);
+
+    if let (true, MediaStatus::Error(message)) = (media.texture().is_some(), media.status()) {
+        body = body.push(text(shorten(message, 180)).size(9).color(theme::DANGER));
+    }
+    body.into()
 }
 
 fn screenshot_strip<'a>(
@@ -1777,11 +1825,14 @@ fn panel_card<'a>(
     right: Option<Element<'a, Message>>,
     body: Element<'a, Message>,
 ) -> Element<'a, Message> {
-    let mut header = row![text(title)
-        .size(13)
-        .font(theme::FONT_MEDIUM)
-        .color(theme::TEXT_1)]
-    .spacing(theme::SPACE_2)
+    let mut header = row![
+        container(Space::new().width(3).height(14)).style(theme::accent_bar),
+        text(title.to_uppercase())
+            .size(11)
+            .font(theme::FONT_SEMIBOLD)
+            .color(theme::TEXT_2),
+    ]
+    .spacing(8)
     .align_y(iced::Center);
     if let Some(right) = right {
         header = header.push(Space::new().width(Fill)).push(right);
@@ -1859,130 +1910,6 @@ fn placeholder_card<'a>(title: &'a str, message: &'a str) -> Element<'a, Message
 }
 
 /// Card "Trailer": frame RGBA do GStreamer, play/pause, seek e estado.
-fn trailer_card<'a>(
-    i18n: &'a I18n,
-    media: &'a MediaPlayer,
-    game_media: Option<&'a GameMedia>,
-) -> Element<'a, Message> {
-    let surface: Element<'a, Message> = match media.texture() {
-        Some(handle) => image(handle.clone())
-            .width(Fill)
-            .height(Fill)
-            .content_fit(ContentFit::Contain)
-            .into(),
-        None => missing_frame(i18n, media, game_media),
-    };
-
-    let surface = container(surface)
-        .width(Fill)
-        .height(180)
-        .style(theme::cover_placeholder);
-
-    let duration = media.duration_seconds();
-    let position = media.position_seconds();
-    let label = if media.is_playing() {
-        i18n.t("native.game.pause")
-    } else {
-        i18n.t("native.game.play")
-    };
-    let mut toggle = button(text(label).size(11).font(theme::FONT_MEDIUM))
-        .padding([6, 12])
-        .style(theme::ghost_button);
-    if media.can_control() {
-        toggle = toggle.on_press(Message::MediaTogglePlayback);
-    }
-
-    let mut controls = row![toggle].spacing(theme::SPACE_2).align_y(iced::Center);
-    if duration > 0.5 {
-        controls = controls.push(
-            slider(0.0..=duration as f32, position as f32, |seconds| {
-                Message::MediaSeek(f64::from(seconds))
-            })
-            .step(0.1_f32)
-            .width(Fill),
-        );
-    } else {
-        controls = controls.push(
-            text(i18n.t("native.game.awaiting_duration"))
-                .size(9)
-                .color(theme::TEXT_3),
-        );
-    }
-
-    let status_color = if media.status().is_error() {
-        theme::DANGER
-    } else {
-        theme::TEXT_3
-    };
-
-    let timing = media
-        .first_frame_ms()
-        .map(|elapsed| {
-            i18n.t_args("native.game.first_frame", &[("ms", &elapsed.to_string())])
-        })
-        .unwrap_or_default();
-
-    let body = column![
-        row![
-            text(i18n.t("gameoverview.trailer"))
-                .size(13)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_1),
-            text(source_label(i18n, media.uri()))
-                .size(9)
-                .color(theme::TEXT_3),
-            Space::new().width(Fill),
-            button(
-                text(i18n.t("trailer.escolher"))
-                    .size(10)
-                    .font(theme::FONT_MEDIUM),
-            )
-                .on_press(Message::OpenTrailerPicker)
-                .padding([5.0, 10.0])
-                .style(theme::ghost_button),
-        ]
-        .spacing(theme::SPACE_2)
-        .align_y(iced::Center),
-        surface,
-        controls,
-        row![
-            text(format!(
-                "{} / {}{timing}",
-                media::format_seconds(position),
-                media::format_seconds(duration)
-            ))
-            .size(10)
-            .color(theme::TEXT_2),
-            Space::new().width(Fill),
-            text(short_status(i18n, media.status()))
-                .size(10)
-                .color(status_color),
-        ]
-        .align_y(iced::Center),
-        text(i18n.t("native.game.audio_note"))
-            .size(9)
-            .color(theme::TEXT_3),
-    ]
-    .spacing(theme::SPACE_2);
-
-    // Com o último frame ainda na tela, o detalhe do erro precisa de uma linha
-    // própria (a área do vídeo só mostra o placeholder quando não há frame).
-    let body = match (media.texture().is_some(), media.status()) {
-        (true, MediaStatus::Error(message)) => body.push(
-            text(shorten(message, 180))
-                .size(9)
-                .color(theme::DANGER),
-        ),
-        _ => body,
-    };
-
-    container(body)
-        .width(Fill)
-        .padding(theme::SPACE_3)
-        .style(theme::stub_panel)
-        .into()
-}
-
 /// Área do vídeo antes do primeiro frame: carregando, erro, `info:null` etc.
 fn missing_frame<'a>(
     i18n: &'a I18n,

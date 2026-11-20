@@ -196,6 +196,7 @@ impl Game {
     }
 
     /// Linha de metadados da página do jogo: ano · desenvolvedor · gênero.
+    #[allow(dead_code)]
     pub fn metadata_line(&self) -> String {
         self.metadata_line_with_fallback("Metadados não disponíveis")
     }
@@ -306,6 +307,8 @@ pub struct StoreInfo {
     pub developers: Vec<String>,
     pub publishers: Vec<String>,
     pub release_date: Option<String>,
+    pub screenshots: Vec<Screenshot>,
+    pub movies: Vec<Movie>,
 }
 
 impl StoreInfo {
@@ -317,6 +320,16 @@ impl StoreInfo {
         {
             if !urls.contains(url) {
                 urls.push(url.clone());
+            }
+        }
+        for screenshot in &self.screenshots {
+            for url in [screenshot.full.as_ref(), screenshot.thumb.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                if !urls.contains(url) {
+                    urls.push(url.clone());
+                }
             }
         }
         urls
@@ -519,6 +532,7 @@ pub fn parse_store_info(value: Value) -> Result<StoreInfo, String> {
         .map(|text| strip_html(&text))
         .filter(|text| !text.is_empty());
 
+    let media = parse_game_media(value.clone());
     Ok(StoreInfo {
         description,
         header_url: optional_image_url_from(info.get("header")),
@@ -526,6 +540,8 @@ pub fn parse_store_info(value: Value) -> Result<StoreInfo, String> {
         developers: string_list(info.get("developers")),
         publishers: string_list(info.get("publishers")),
         release_date: optional_text_field_from(info.get("release_date")),
+        screenshots: media.screenshots,
+        movies: media.movies,
     })
 }
 
@@ -4330,6 +4346,20 @@ fn steam_cover_url(id: &str) -> Option<String> {
     steam_appid(id).map(|appid| {
         format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg")
     })
+}
+
+/// Capa retrato 2:3 da ficha. A `store:recent` costuma mandar o header
+/// paisagem em `capa`; para a ficha preferimos `library_600x900`.
+pub fn store_portrait_url(game: &StoreGame) -> Option<String> {
+    let appid = game.appid.trim();
+    if !appid.is_empty() && appid.chars().all(|character| character.is_ascii_digit()) {
+        return Some(format!(
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
+        ));
+    }
+    game.portrait_url
+        .clone()
+        .or_else(|| game.cover_url.clone())
 }
 
 /// Backdrop largo usado pelo herói da Home, no mesmo formato da UI web.

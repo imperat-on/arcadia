@@ -394,6 +394,7 @@ pub enum Message {
     StoreLoadMore,
     StoreOpenDetail(StoreGame),
     StoreCloseDetail,
+    StoreScreenshotSelected(usize),
     /// Vitrine inicial da Home (`store:recent` top100in2weeks).
     HomeLoaded(Result<StorePage, String>),
     HomeHeroInfoLoaded {
@@ -1625,6 +1626,8 @@ pub struct StoreDetailState {
     pub install_busy: bool,
     /// Confirmação exibida depois que `store:install` aceita o pedido.
     pub install_message: Option<String>,
+    /// Captura selecionada na galeria da ficha da loja.
+    pub selected_screenshot: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -3195,6 +3198,12 @@ impl App {
             Message::StoreOpenDetail(game) => self.open_store_detail(game),
             Message::StoreCloseDetail => {
                 self.store.detail = None;
+                Task::none()
+            }
+            Message::StoreScreenshotSelected(index) => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    detail.selected_screenshot = index;
+                }
                 Task::none()
             }
             Message::HomeLoaded(result) => {
@@ -7013,7 +7022,12 @@ impl App {
     }
 
     fn open_store_detail(&mut self, game: StoreGame) -> Task<Message> {
-        let urls = game.image_urls();
+        let mut urls = game.image_urls();
+        if let Some(portrait) = crate::backend::store_portrait_url(&game) {
+            if !urls.contains(&portrait) {
+                urls.push(portrait);
+            }
+        }
         let info_task = self.store_info_task(&game);
         let install_task = self.store_install_info_task(&game);
         let libraries_task = self.store_libraries_task();
@@ -7034,6 +7048,7 @@ impl App {
             selected_depots: BTreeSet::new(),
             install_busy: false,
             install_message: None,
+            selected_screenshot: 0,
         });
         Task::batch([
             self.cover_tasks(urls),

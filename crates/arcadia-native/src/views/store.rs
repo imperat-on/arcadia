@@ -24,7 +24,6 @@ use crate::views::icons::{self, Icon};
 
 const STORE_COVER_HEIGHT: f32 = 106.0;
 const STORE_CARD_INFO_HEIGHT: f32 = 56.0;
-const DETAIL_HERO_HEIGHT: f32 = 360.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(detail) = app.store.detail.as_ref() {
@@ -553,204 +552,220 @@ pub(crate) fn detail_view<'a>(
 ) -> Element<'a, Message> {
     let game = &detail.game;
     let info = detail.info.as_ref();
+    let i18n = &app.i18n;
+
     let backdrop = info
-        .and_then(|info| info.background_url.as_deref())
-        .or_else(|| info.and_then(|info| info.header_url.as_deref()))
-        .or(game.hero_url.as_deref())
-        .or(game.cover_url.as_deref());
+        .and_then(|info| info.background_url.clone())
+        .or_else(|| info.and_then(|info| info.header_url.clone()))
+        .or_else(|| game.hero_url.clone())
+        .or_else(|| game.cover_url.clone());
+    let portrait = crate::backend::store_portrait_url(game);
 
-    let art: Element<'a, Message> = match app.covers.ready(backdrop) {
-        Some(handle) => image(handle.clone())
-            .width(Fill)
-            .height(Fill)
-            .content_fit(ContentFit::Cover)
-            .into(),
-        None => container(
-            text(game.title.to_uppercase())
-                .size(42)
-                .font(theme::FONT_BOLD)
-                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.08)),
-        )
-        .width(Fill)
-        .height(Fill)
-        .align_x(iced::Center)
-        .align_y(iced::Center)
-        .style(theme::cover_placeholder)
-        .into(),
-    };
-
-    let portrait = detail_portrait(game, &app.covers);
-    let mut meta = row![].spacing(8).align_y(iced::Center);
+    let mut chips = Vec::new();
+    if let Some(release) = info.and_then(|info| info.release_date.as_deref()) {
+        chips.push(super::game_detail::chip(release.to_string(), false));
+    }
+    if let Some(developer) = info
+        .and_then(|info| info.developers.first())
+        .filter(|developer| !developer.trim().is_empty())
+    {
+        chips.push(super::game_detail::chip(developer.clone(), false));
+    }
+    if let Some(publisher) = info
+        .and_then(|info| info.publishers.first())
+        .filter(|publisher| {
+            !publisher.trim().is_empty()
+                && info
+                    .and_then(|info| info.developers.first())
+                    .is_none_or(|developer| developer != *publisher)
+        })
+    {
+        chips.push(super::game_detail::chip(publisher.clone(), false));
+    }
     if let Some(price) = game
         .price
         .as_deref()
         .filter(|price| !price.trim().is_empty())
     {
-        meta = meta.push(
-            text(price)
-                .size(14)
-                .font(theme::FONT_SEMIBOLD)
-                .color(theme::SUCCESS),
-        );
-    } else {
-        meta = meta.push(
-            text(app.i18n.t("native.console.store.price_missing"))
-                .size(12)
-                .color(theme::TEXT_3),
-        );
+        chips.push(super::game_detail::chip(price.to_string(), true));
     }
-    if let Some(source) = game.source.as_deref() {
-        meta = meta.push(badge(source, theme::TEXT_2));
-    }
-    if game.manifest {
-        meta = meta.push(badge(
-            app.i18n.t("native.console.store.manifest"),
-            theme::ACCENT,
+
+    let mut left = Vec::new();
+    if let Some(error) = detail.error.as_deref() {
+        left.push(views::action_error_banner(
+            error,
+            Some(Message::StoreOpenDetail(game.clone())),
         ));
     }
-
-    let hero_copy = container(
-        row![
-            portrait,
-            column![
-                text(game.title.as_str())
-                    .size(34)
-                    .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_1)
-                    .wrapping(Wrapping::WordOrGlyph),
-                meta,
-                text(app.i18n.t_args(
-                    "native.console.store.detail_meta",
-                    &[("appid", game.appid.as_str())],
-                ))
-                    .size(11)
-                    .color(theme::TEXT_3),
-            ]
-            .spacing(8)
-            .width(Fill),
-        ]
-        .spacing(theme::SPACE_5)
-        .align_y(iced::Bottom),
-    )
-    .width(Fill)
-    .height(Fill)
-    .align_y(iced::Bottom)
-    .padding([theme::SPACE_5, theme::PAGE_PADDING]);
-
-    let hero = Stack::new()
-        .width(Fill)
-        .height(DETAIL_HERO_HEIGHT)
-        .push(art)
-        .push(
-            container(Space::new())
-                .width(Fill)
-                .height(Fill)
-                .style(theme::hero_overlay),
-        )
-        .push(hero_copy);
-
-    let mut content = column![
-        container(
-            button(
-                row![
-                    text("‹").size(18).color(theme::TEXT_1),
-                    text(app.i18n.t("native.store.back"))
-                        .size(12)
-                        .font(theme::FONT_MEDIUM)
-                        .color(theme::TEXT_1),
-                ]
-                .spacing(6)
-                .align_y(iced::Center),
-            )
-            .on_press(Message::StoreCloseDetail)
-            .padding([7.0, 13.0])
-            .style(theme::ghost_button)
-        )
-        .width(Fill)
-        .padding([theme::SPACE_3, theme::PAGE_PADDING]),
-        hero,
-    ]
-    .width(Fill);
-
-    if let Some(error) = detail.error.as_deref() {
-        content = content.push(
-            container(views::action_error_banner(
-                error,
-                Some(Message::StoreOpenDetail(game.clone())),
-            ))
-            .width(Fill)
-            .padding(Padding {
-                top: theme::SPACE_3,
-                right: theme::PAGE_PADDING,
-                bottom: 0.0,
-                left: theme::PAGE_PADDING,
-            }),
-        );
-    }
-
-    let description = detail_description(app, detail, info);
-    let install = install_panel(app, detail);
-    let details = container(
-        row![
-            column![description, install]
-                .spacing(theme::SPACE_4)
-                .width(Fill),
-            info_panel(app, info, game, detail.status == LoadStatus::Loading),
-        ]
-        .spacing(theme::SPACE_5)
-        .align_y(iced::Top),
-    )
-    .width(Fill)
-    .padding([theme::SPACE_5, theme::PAGE_PADDING]);
-
-    content = content.push(details);
+    left.push(store_release_box(app, info, game));
+    left.push(store_gallery_panel(app, detail, info));
+    left.push(detail_description(app, detail, info));
 
     let community_appid = crate::backend::community_appid(&game.appid);
     if let Some(community) = app.community.get(&community_appid) {
-        content = content.push(
-            container(views::community::panel(
-                &app.i18n,
-                game.title.as_str(),
-                community,
-            ))
+        left.push(views::community::panel(
+            i18n,
+            game.title.as_str(),
+            community,
+        ));
+    }
+
+    let right = vec![install_panel(app, detail)];
+
+    super::game_detail::view(
+        app.window_size.height * 0.46,
+        &app.covers,
+        backdrop,
+        portrait,
+        game.title.as_str(),
+        chips,
+        Message::StoreCloseDetail,
+        None,
+        left,
+        right,
+    )
+}
+
+fn store_gallery_panel<'a>(
+    app: &'a App,
+    detail: &'a StoreDetailState,
+    info: Option<&'a StoreInfo>,
+) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let screenshots = info.map(|info| info.screenshots.as_slice()).unwrap_or_default();
+
+    let body: Element<'a, Message> = if screenshots.is_empty() {
+        text(i18n.t("native.game.screenshots_missing"))
+            .size(12)
+            .color(theme::TEXT_3)
+            .wrapping(Wrapping::WordOrGlyph)
+            .into()
+    } else {
+        let index = detail.selected_screenshot.min(screenshots.len() - 1);
+        let screenshot = &screenshots[index];
+        let large: Element<'a, Message> = match app.covers.ready(screenshot.full_or_thumb()) {
+            Some(handle) => image(handle.clone())
                 .width(Fill)
-                .padding(Padding {
-                    top: 0.0,
-                    right: theme::PAGE_PADDING,
-                    bottom: theme::SPACE_5,
-                    left: theme::PAGE_PADDING,
+                .height(340)
+                .content_fit(ContentFit::Contain)
+                .into(),
+            None => container(
+                text(i18n.t("native.game.screenshot_loading"))
+                    .size(11)
+                    .color(theme::TEXT_3),
+            )
+            .width(Fill)
+            .height(340)
+            .center_x(Fill)
+            .center_y(Fill)
+            .style(theme::cover_placeholder)
+            .into(),
+        };
+
+        let mut strip = row![].spacing(8);
+        for (thumb_index, thumb) in screenshots.iter().take(6).enumerate() {
+            let selected = thumb_index == index;
+            let thumb_art: Element<'a, Message> = match app.covers.ready(thumb.thumb_or_full()) {
+                Some(handle) => image(handle.clone())
+                    .width(Fill)
+                    .height(Fill)
+                    .content_fit(ContentFit::Cover)
+                    .into(),
+                None => container(Space::new())
+                    .width(Fill)
+                    .height(Fill)
+                    .style(theme::cover_placeholder)
+                    .into(),
+            };
+            strip = strip.push(
+                button(
+                    container(thumb_art)
+                        .width(Length::Fixed(118.0))
+                        .height(Length::Fixed(66.0))
+                        .clip(true),
+                )
+                .on_press(Message::StoreScreenshotSelected(thumb_index))
+                .padding(0)
+                .style(move |style_theme, status| {
+                    theme::segment_button(style_theme, status, selected)
                 }),
+            );
+        }
+
+        column![large, strip].spacing(theme::SPACE_3).into()
+    };
+
+    container(
+        column![
+            views::section_label(i18n.t("native.game.screenshots")),
+            body,
+        ]
+        .spacing(theme::SPACE_3),
+    )
+    .width(Fill)
+    .padding(theme::SPACE_5)
+    .style(theme::panel)
+    .into()
+}
+
+fn store_release_box<'a>(
+    app: &'a App,
+    info: Option<&'a StoreInfo>,
+    game: &'a StoreGame,
+) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let mut content = column![].spacing(4).width(Fill);
+
+    if let Some(release) = info.and_then(|info| info.release_date.as_deref()) {
+        content = content.push(
+            text(i18n.t_args("native.store.released_on", &[("date", release)]))
+                .size(13)
+                .color(theme::TEXT_STRONG)
+                .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+    if let Some(developer) = info
+        .and_then(|info| info.developers.first())
+        .filter(|developer| !developer.trim().is_empty())
+    {
+        content = content.push(
+            text(i18n.t_args(
+                "native.store.developed_by",
+                &[("name", developer.as_str())],
+            ))
+            .size(13)
+            .color(theme::TEXT_2)
+            .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+    if let Some(publisher) = info
+        .and_then(|info| info.publishers.first())
+        .filter(|publisher| !publisher.trim().is_empty())
+    {
+        content = content.push(
+            text(i18n.t_args(
+                "native.store.published_by",
+                &[("name", publisher.as_str())],
+            ))
+            .size(13)
+            .color(theme::TEXT_2)
+            .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+    if !game.genres.is_empty() {
+        content = content.push(
+            text(game.genres.join(" · "))
+                .size(12)
+                .color(theme::TEXT_3)
+                .wrapping(Wrapping::WordOrGlyph),
         );
     }
 
-    scrollable(content)
-        .height(Fill)
-        .style(theme::scrollable)
+    container(content)
+        .width(Fill)
+        .padding(theme::SPACE_5)
+        .style(theme::panel)
         .into()
-}
-
-fn detail_portrait<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'a, Message> {
-    let url = game.portrait_url.as_deref().or(game.cover_url.as_deref());
-    match covers.ready(url) {
-        Some(handle) => image(handle.clone())
-            .width(116)
-            .height(164)
-            .content_fit(ContentFit::Cover)
-            .border_radius(3)
-            .into(),
-        None => container(
-            text(initial(&game.title))
-                .size(34)
-                .font(theme::FONT_BOLD)
-                .color(theme::TEXT_2),
-        )
-        .width(116)
-        .height(164)
-        .align_x(iced::Center)
-        .align_y(iced::Center)
-        .style(theme::cover_placeholder)
-        .into(),
-    }
 }
 
 fn detail_description<'a>(
@@ -1219,71 +1234,6 @@ fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{:.0} MiB", bytes as f64 / MIB)
     }
-}
-
-fn info_panel<'a>(
-    app: &'a App,
-    info: Option<&'a StoreInfo>,
-    game: &'a StoreGame,
-    loading: bool,
-) -> Element<'a, Message> {
-    let i18n = &app.i18n;
-    let mut rows = column![].spacing(theme::SPACE_2);
-    let mut has_row = false;
-
-    if let Some(info) = info {
-        if !info.developers.is_empty() {
-            rows = rows.push(info_row(
-                i18n.t("native.console.store.developer"),
-                info.developers.join(", "),
-            ));
-            has_row = true;
-        }
-        if !info.publishers.is_empty() {
-            rows = rows.push(info_row(
-                i18n.t("native.console.store.publisher"),
-                info.publishers.join(", "),
-            ));
-            has_row = true;
-        }
-        if let Some(release) = info.release_date.as_deref() {
-            rows = rows.push(info_row(
-                i18n.t("native.console.store.release"),
-                release.to_string(),
-            ));
-            has_row = true;
-        }
-    }
-    if !game.genres.is_empty() {
-        rows = rows.push(info_row(
-            i18n.t("native.console.store.genres"),
-            game.genres.join(", "),
-        ));
-        has_row = true;
-    }
-    if !has_row {
-        rows = rows.push(
-            text(if loading {
-                i18n.t("native.store.info_meta")
-            } else {
-                i18n.t("native.console.store.info_empty")
-            })
-            .size(12)
-            .color(theme::TEXT_3),
-        );
-    }
-
-    container(
-        column![
-            views::section_label(i18n.t("native.store.info_title")),
-            rows,
-        ]
-        .spacing(theme::SPACE_3),
-    )
-        .width(Length::Fixed(320.0))
-        .padding(theme::SPACE_5)
-        .style(theme::panel)
-        .into()
 }
 
 fn info_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
