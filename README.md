@@ -170,13 +170,42 @@ User data lives under `~/.local/share/arcadia/` on Linux and
 ## Backend
 
 The client talks to the Arcadia API over HTTPS. The server and migrations live
-in a separate, private repository; installing the launcher does not require a
-local PostgreSQL. Point the client at an authorized instance with
-`ARCADIA_API_URL`.
+in a separate repository (`imperat-on/arcadia-server`); installing the launcher
+does not require a local PostgreSQL. Point the client at an authorized instance
+with `ARCADIA_API_URL`.
 
 Address failover, DNS resolution and response caching happen in the Rust client
 (`arcadia-api`): the system resolver is tried first with a 500 ms budget, then
 Cloudflare DoH, with a five-minute cache and preferred-IP ordering.
+
+### Caching layers
+
+Game pages open from three caches before any network is touched:
+
+```
+layer       holds                                  lifetime
+-------------------------------------------------------------------
+memory      sysinfo per app id, 256-entry cap       600 s
+edge        sysinfo/stats/meta/hltb (Cloudflare)     24 h + stale-while-revalidate
+origin      PostgreSQL `catalog_cache`               revalidation of the source
+```
+
+`SysinfoCache` (`crates/arcadia-ipc/src/sysinfo_cache.rs`) keeps the parsed
+response in memory. It exists because opening a game page used to cost
+**1.4–2.2 s** every single time — the IPC handler resolved the Steam appid and
+then fetched the catalog, never storing the result. A repeat visit paid the
+same price. Measured after the cache: **19 of 30 calls returned in 0 ms**.
+
+Negative results (`ok: true, info: null` — a game with no Steam appid, or the
+catalog being down) are cached too: they are a legitimate answer and equally
+expensive to produce.
+
+The edge layer is the server's responsibility: those routes are public and
+carry `Cache-Control: public, s-maxage=86400, stale-while-revalidate=604800`.
+They are identical for every user — the route received a `uid` and never used
+it — so the CDN can serve them. With `stale-while-revalidate` the user gets the
+cached copy immediately while the CDN refreshes in the background; no page open
+waits on the origin.
 
 ## Config
 

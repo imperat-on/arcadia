@@ -85,6 +85,10 @@ if [ -n "$SETUP" ] && [ -f "$SETUP" ]; then
     # fonte da verdade, já que o payload está comprimido em LZMA.
     nsi="$OUT/nsis/x64/installer.nsi"
     if [ -f "$nsi" ]; then
+        # `boot.mp4` e o worker de torrent vivem sob `resources\` no instalador
+        # Windows (o Tauri preserva o caminho de origem no NSIS), enquanto no
+        # AppImage eles ficam achatados em `Arcadia/`. O verificador do Linux
+        # cobre o segundo caso; aqui vale o caminho com prefixo.
         for item in 'MAINBINARYSRCPATH' 'resources\\boot.mp4' 'WebView2Loader.dll' 'torrent_rpc\\main.py'; do
             if grep -q "$item" "$nsi"; then
                 ok "instalador inclui $(echo "$item" | tr -d '\\')"
