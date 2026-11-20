@@ -165,6 +165,141 @@ pub fn parse_library(value: Value) -> Result<Vec<Game>, String> {
         .collect::<Vec<_>>())
 }
 
+// ── Mídia da ficha do jogo ──────────────────────────────────────────────────
+
+/// Trailer de `game:sysinfo` (`info.movies[]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Movie {
+    pub name: String,
+    pub thumb: Option<String>,
+    pub hls: Option<String>,
+    pub mp4: Option<String>,
+    pub webm: Option<String>,
+}
+
+impl Movie {
+    /// `true` quando há ao menos uma URI que o player consegue abrir.
+    pub fn has_source(&self) -> bool {
+        self.hls.is_some() || self.mp4.is_some() || self.webm.is_some()
+    }
+}
+
+/// Dados de mídia que a página do jogo precisa para tocar o trailer.
+///
+/// `notice` é sempre explícito: falha de `game:sysinfo` (`ok:false`),
+/// `info:null`, jogo sem trailer ou trailers sem fonte utilizável. A UI usa
+/// isso no lugar de uma área vazia sem contexto.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameMedia {
+    pub movies: Vec<Movie>,
+    pub notice: Option<String>,
+}
+
+/// Interpreta o envelope `{ ok, info }` de `game:sysinfo`.
+pub fn parse_game_media(value: Value) -> GameMedia {
+    let Some(object) = value.as_object() else {
+        return GameMedia {
+            movies: Vec::new(),
+            notice: Some("game:sysinfo devolveu um payload que não é um objeto.".to_string()),
+        };
+    };
+
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        let detail = object
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|error| !error.is_empty())
+            .unwrap_or("sem detalhes");
+        return GameMedia {
+            movies: Vec::new(),
+            notice: Some(format!(
+                "Falha ao consultar o trailer (game:sysinfo: {detail})."
+            )),
+        };
+    }
+
+    let info = match object.get("info") {
+        Some(Value::Object(info)) => info,
+        _ => {
+            return GameMedia {
+                movies: Vec::new(),
+                notice: Some(
+                    "A loja não retornou informações deste jogo (info:null); sem trailer para exibir."
+                        .to_string(),
+                ),
+            };
+        }
+    };
+
+    let movies: Vec<Movie> = info
+        .get("movies")
+        .and_then(Value::as_array)
+        .map(|values| values.iter().filter_map(movie_from_value).collect())
+        .unwrap_or_default();
+
+    if movies.is_empty() {
+        let had_movies = info
+            .get("movies")
+            .and_then(Value::as_array)
+            .is_some_and(|values| !values.is_empty());
+        let notice = if had_movies {
+            "A loja informou trailers, mas nenhum traz hls/mp4/webm reproduzível."
+        } else {
+            "Este jogo não tem trailer informado pela loja."
+        };
+        return GameMedia {
+            movies: Vec::new(),
+            notice: Some(notice.to_string()),
+        };
+    }
+
+    GameMedia {
+        movies,
+        notice: None,
+    }
+}
+
+fn movie_from_value(value: &Value) -> Option<Movie> {
+    let movie = Movie {
+        name: optional_text_field(value, "name").unwrap_or_else(|| "Trailer".to_string()),
+        thumb: optional_text_field(value, "thumb")
+            .or_else(|| optional_text_field(value, "thumbnail")),
+        hls: stream_field(value, "hls").or_else(|| stream_field(value, "hls_h264")),
+        mp4: stream_field(value, "mp4"),
+        webm: stream_field(value, "webm"),
+    };
+    movie.has_source().then_some(movie)
+}
+
+/// Aceita string direta (`game:sysinfo` normalizado) ou objeto `{ max, 480 }`
+/// do `appdetails` cru da Steam.
+fn stream_field(value: &Value, key: &str) -> Option<String> {
+    let raw = value.get(key)?;
+    let url = match raw {
+        Value::String(text) => text.as_str(),
+        Value::Object(map) => map
+            .get("max")
+            .or_else(|| map.get("480"))
+            .and_then(Value::as_str)?,
+        _ => return None,
+    };
+    media_url(url)
+}
+
+fn media_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let normalized = trimmed.replace("&amp;", "&");
+    if let Some(rest) = normalized.strip_prefix("//") {
+        return Some(format!("https://{rest}"));
+    }
+    let lower = normalized.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
+}
+
 // ── Downloads ───────────────────────────────────────────────────────────────
 
 /// Origem do item: fila Epic/Steam (`dm:*`) ou subsistema torrent (`torrent:*`).
@@ -1066,6 +1201,21 @@ impl Backend {
         parse_library(value)
     }
 
+    /// Busca `info.movies[]` em `game:sysinfo` sem bloquear a UI.
+    ///
+    /// A chamada roda no runtime tokio do app. Falha de IPC vira `notice` na
+    /// [`GameMedia`] — a página do jogo continua utilizável sem trailer.
+    pub async fn load_game_media(&self, id: String, title: String) -> GameMedia {
+        let payload = json!({ "id": id, "title": title });
+        match self.dispatch("game:sysinfo", vec![payload]).await {
+            Ok(value) => parse_game_media(value),
+            Err(error) => GameMedia {
+                movies: Vec::new(),
+                notice: Some(format!("Falha ao consultar o trailer (game:sysinfo): {error}")),
+            },
+        }
+    }
+
     /// `dm:queue` + `torrent:list` em paralelo. Uma falha parcial não apaga a
     /// outra fonte: vira aviso na tela, com os itens que responderam.
     pub async fn load_downloads(&self) -> Result<DownloadsData, String> {
@@ -1512,5 +1662,75 @@ mod tests {
             parse_friends(json!({ "ok": false, "error": "nao_logado" })).unwrap(),
             FriendsLoad::NotLoggedIn
         );
+    }
+
+    #[test]
+    fn parses_movies_skipping_entries_without_usable_source() {
+        let value = json!({
+            "ok": true,
+            "info": {
+                "movies": [
+                    {
+                        "name": "Trailer oficial",
+                        "thumb": "https://cdn.test/thumb.jpg",
+                        "hls_h264": "https://cdn.test/trailer.m3u8",
+                        "mp4": { "max": "https://cdn.test/max.mp4", "480": "https://cdn.test/480.mp4" }
+                    },
+                    { "name": "Só pôster", "thumbnail": "//cdn.test/poster.jpg" },
+                    {
+                        "name": "WebM",
+                        "webm": "//cdn.test/trailer.webm"
+                    }
+                ]
+            }
+        });
+
+        let media = parse_game_media(value);
+        assert_eq!(media.movies.len(), 2);
+        assert!(media.notice.is_none());
+
+        let first = &media.movies[0];
+        assert_eq!(first.name, "Trailer oficial");
+        assert_eq!(first.hls.as_deref(), Some("https://cdn.test/trailer.m3u8"));
+        assert_eq!(first.mp4.as_deref(), Some("https://cdn.test/max.mp4"));
+        assert_eq!(first.thumb.as_deref(), Some("https://cdn.test/thumb.jpg"));
+
+        let second = &media.movies[1];
+        assert_eq!(second.name, "WebM");
+        assert_eq!(second.webm.as_deref(), Some("https://cdn.test/trailer.webm"));
+        assert!(second.thumb.is_none());
+    }
+
+    #[test]
+    fn game_media_reports_ok_false_info_null_and_missing_trailer() {
+        let failed = parse_game_media(json!({ "ok": false, "error": "api_indisponivel" }));
+        let failed_notice = failed.notice.expect("mensagem de falha");
+        assert!(failed_notice.contains("api_indisponivel"), "{failed_notice}");
+        assert!(failed.movies.is_empty());
+
+        let empty_info = parse_game_media(json!({ "ok": true, "info": null }));
+        let empty_notice = empty_info.notice.expect("mensagem de info:null");
+        assert!(empty_notice.contains("info:null"), "{empty_notice}");
+
+        let no_trailer = parse_game_media(json!({ "ok": true, "info": { "movies": [] } }));
+        let no_trailer_notice = no_trailer.notice.expect("mensagem de sem trailer");
+        assert!(
+            no_trailer_notice.contains("não tem trailer"),
+            "{no_trailer_notice}"
+        );
+
+        let unusable = parse_game_media(json!({
+            "ok": true,
+            "info": { "movies": [{ "name": "Vazio", "mp4": "", "hls": "ftp://cdn.test/a" }] }
+        }));
+        let unusable_notice = unusable.notice.expect("mensagem de fonte inválida");
+        assert!(unusable_notice.contains("reproduzível"), "{unusable_notice}");
+    }
+
+    #[test]
+    fn malformed_game_media_payload_is_reported() {
+        let media = parse_game_media(json!(["não é objeto"]));
+        assert!(media.movies.is_empty());
+        assert!(media.notice.is_some());
     }
 }

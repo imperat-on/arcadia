@@ -62,6 +62,7 @@ fn main() -> iced::Result {
     let result = iced::application(move || App::boot(backend.clone()), App::update, App::view)
         .title("ARCADIA")
         .theme(theme::arcadia())
+        .subscription(App::subscription)
         .default_font(theme::FONT)
         .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-Medium.ttf").as_slice())

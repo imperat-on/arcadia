@@ -5,16 +5,18 @@
 //! que desenha.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use iced::widget::image::Handle;
-use iced::{window, Element, Fill, Task};
+use iced::{window, Element, Fill, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
-    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, PluginItem,
-    SettingsConfig, SourceItem,
+    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
+    PluginItem, SettingsConfig, SourceItem,
 };
 use crate::covers::CoverCache;
+use crate::media::{self, MediaPlayer};
 use crate::theme;
 use crate::views;
 
@@ -30,6 +32,13 @@ pub enum Message {
     Navigate(Section),
     OpenGame(String),
     BackToLibrary,
+    /// Resultado de `game:sysinfo` para o jogo aberto.
+    MediaLoaded(GameMedia),
+    /// Tick da Subscription: drena frames e sincroniza o estado do player.
+    MediaTick,
+    MediaTogglePlayback,
+    MediaSeek(f64),
+    MediaError(String),
     Refresh(Section),
     DownloadsLoaded(Result<DownloadsData, String>),
     DownloadActionRequested {
@@ -326,6 +335,9 @@ pub struct App {
     pub library: Library,
     pub covers: CoverCache,
     pub search: String,
+    pub media: MediaPlayer,
+    /// `None` enquanto o `game:sysinfo` está em voo.
+    pub game_media: Option<GameMedia>,
     pub downloads: DownloadsState,
     pub settings: SettingsState,
     pub sources: SourcesState,
@@ -344,6 +356,8 @@ impl App {
             library: Library::loading(),
             covers: CoverCache::default(),
             search: String::new(),
+            media: MediaPlayer::new(),
+            game_media: None,
             downloads: DownloadsState::default(),
             settings: SettingsState::default(),
             sources: SourcesState::default(),
@@ -389,19 +403,27 @@ impl App {
                 Task::none()
             }
             Message::Navigate(section) => {
+                self.media.clear();
+                self.game_media = None;
                 self.screen = Screen::for_section(section);
                 self.load_section(section, false)
             }
             Message::OpenGame(id) => {
-                let urls = self
-                    .library
-                    .game(&id)
-                    .map(Game::image_urls)
-                    .unwrap_or_default();
+                let game = self.library.game(&id).cloned();
+                let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
                 self.screen = Screen::Game(id);
-                self.cover_tasks(urls)
+                // Troca de jogo nunca reaproveita o pipeline anterior.
+                self.media.clear();
+                self.game_media = None;
+                let covers = self.cover_tasks(urls);
+                let media = game
+                    .map(|game| self.game_media_task(&game))
+                    .unwrap_or_else(Task::none);
+                Task::batch([covers, media])
             }
             Message::BackToLibrary => {
+                self.media.clear();
+                self.game_media = None;
                 self.screen.back_to_library();
                 Task::none()
             }
@@ -628,6 +650,64 @@ impl App {
             Message::WindowMinimize => self.window_task(|id| window::minimize(id, true)),
             Message::WindowToggleMaximize => self.window_task(window::toggle_maximize),
             Message::WindowClose => self.window_task(window::close),
+            Message::MediaLoaded(game_media) => {
+                eprintln!(
+                    "[arcadia-native] trailer: {} movie(s){}",
+                    game_media.movies.len(),
+                    game_media
+                        .notice
+                        .as_deref()
+                        .map(|notice| format!(" — {notice}"))
+                        .unwrap_or_default()
+                );
+                self.game_media = Some(game_media);
+                // Prioridade hls → mp4 → webm fica no wrapper de mídia.
+                let sources = self
+                    .game_media
+                    .as_ref()
+                    .and_then(|game_media| game_media.movies.first())
+                    .map(|movie| media::TrailerSources {
+                        hls: movie.hls.clone(),
+                        mp4: movie.mp4.clone(),
+                        webm: movie.webm.clone(),
+                    });
+                match sources {
+                    Some(sources) => match self.media.open(&sources) {
+                        Ok(()) => Task::none(),
+                        Err(error) => Task::done(Message::MediaError(error)),
+                    },
+                    None => Task::none(),
+                }
+            }
+            Message::MediaTick => {
+                self.media.tick();
+                Task::none()
+            }
+            Message::MediaTogglePlayback => match self.media.toggle() {
+                Ok(()) => Task::none(),
+                Err(error) => Task::done(Message::MediaError(error)),
+            },
+            Message::MediaSeek(seconds) => match self.media.seek(seconds) {
+                Ok(()) => Task::none(),
+                Err(error) => Task::done(Message::MediaError(error)),
+            },
+            Message::MediaError(error) => {
+                eprintln!("[arcadia-native] trailer: {error}");
+                self.media.report_error(error);
+                Task::none()
+            }
+        }
+    }
+
+    /// Timer de ~60 fps que drena os frames do GStreamer.
+    ///
+    /// Só existe na página do jogo e depois que o pipeline foi criado; fora
+    /// isso o app não acorda à toa.
+    pub fn subscription(&self) -> Subscription<Message> {
+        if matches!(self.screen, Screen::Game(_)) && self.media.is_active() {
+            iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick)
+        } else {
+            Subscription::none()
         }
     }
 
@@ -636,7 +716,12 @@ impl App {
         let content: Element<'_, Message> = match &self.screen {
             Screen::Library => views::library::view(self),
             Screen::Game(id) => match self.library.game(id) {
-                Some(game) => views::game::view(game, &self.covers),
+                Some(game) => views::game::view(
+                    game,
+                    &self.covers,
+                    &self.media,
+                    self.game_media.as_ref(),
+                ),
                 None => views::missing_game(),
             },
             Screen::Section(Section::Downloads) => views::downloads::view(self),
@@ -750,6 +835,16 @@ impl App {
         Task::perform(
             async move { backend.load_library().await },
             Message::LibraryLoaded,
+        )
+    }
+
+    fn game_media_task(&self, game: &Game) -> Task<Message> {
+        let backend = self.backend.clone();
+        let id = game.id.clone();
+        let title = game.title.clone();
+        Task::perform(
+            async move { backend.load_game_media(id, title).await },
+            Message::MediaLoaded,
         )
     }
 
