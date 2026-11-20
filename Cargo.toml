@@ -11,6 +11,7 @@ members = [
     "crates/arcadia-launch",
     "crates/arcadia-steam",
     "crates/arcadia-media",
+    "crates/arcadia-native-media",
     "crates/arcadia-catalog",
     "crates/arcadia-plugins",
     "crates/arcadia-achievements",
