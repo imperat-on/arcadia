@@ -581,10 +581,21 @@ pub fn console_bottom_wash(_theme: &Theme) -> container::Style {
 }
 
 /// Camada do painel do jogo (Game Overview): fundo escuro quase opaco.
+#[allow(dead_code)] // mantido como fallback estático; a view usa a versão com alfa.
 pub fn console_overview(_theme: &Theme) -> container::Style {
     container::Style {
         text_color: Some(TEXT_1),
         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.82).into()),
+        ..container::Style::default()
+    }
+}
+
+/// Igual ao [`console_overview`], com alfa para a entrada animada do painel.
+pub fn console_overview_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
+    let alpha = alpha.clamp(0.0, 1.0);
+    move |_theme| container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.82 * alpha).into()),
         ..container::Style::default()
     }
 }
@@ -594,6 +605,26 @@ pub fn console_panel(_theme: &Theme) -> container::Style {
         text_color: Some(TEXT_1),
         background: Some(Color::from_rgba8(8, 12, 17, 0.94).into()),
         border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 1.0, 10.0),
+        ..container::Style::default()
+    }
+}
+
+/// Painel com alfa animado; o texto continua legível no estado final.
+pub fn console_panel_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
+    let alpha = alpha.clamp(0.0, 1.0);
+    move |_theme| container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(Color::from_rgba8(8, 12, 17, 0.94 * alpha).into()),
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.14 * alpha), 1.0, 10.0),
+        ..container::Style::default()
+    }
+}
+
+/// Véu do menu "•••" e da ficha da loja com alfa de entrada.
+pub fn console_veil(alpha: f32) -> impl Fn(&Theme) -> container::Style {
+    let alpha = alpha.clamp(0.0, 1.0);
+    move |_theme| container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.72 * alpha).into()),
         ..container::Style::default()
     }
 }
@@ -624,6 +655,7 @@ pub fn console_tab(
     status: button::Status,
     active: bool,
     focused: bool,
+    glow: f32,
 ) -> button::Style {
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     let background = if focused {
@@ -643,7 +675,7 @@ pub fn console_tab(
         },
         border: rounded_border(
             if focused {
-                Color::from_rgba(1.0, 1.0, 1.0, 0.85)
+                Color::from_rgba(1.0, 1.0, 1.0, 0.62 + 0.28 * glow.clamp(0.0, 1.0))
             } else {
                 TRANSPARENT
             },
@@ -668,6 +700,7 @@ pub fn console_card(
     status: button::Status,
     selected: bool,
     focused: bool,
+    glow: f32,
 ) -> button::Style {
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     let background = if selected {
@@ -683,7 +716,7 @@ pub fn console_card(
         text_color: TEXT_1,
         border: rounded_border(
             if focused {
-                Color::from_rgba(1.0, 1.0, 1.0, 0.78)
+                Color::from_rgba(1.0, 1.0, 1.0, 0.58 + 0.24 * glow.clamp(0.0, 1.0))
             } else if selected {
                 Color::from_rgba(1.0, 1.0, 1.0, 0.30)
             } else {
@@ -693,7 +726,12 @@ pub fn console_card(
             8.0,
         ),
         shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, if selected { 0.45 } else { 0.25 }),
+            color: Color::from_rgba(
+                0.0,
+                0.0,
+                0.0,
+                (if selected { 0.45 } else { 0.25 }) + 0.10 * glow.clamp(0.0, 1.0),
+            ),
             offset: Vector::new(0.0, 10.0),
             blur_radius: 24.0,
         },
@@ -702,7 +740,12 @@ pub fn console_card(
 }
 
 /// Botão principal "Jogar": pílula branca do `ps5-overview-play`.
-pub fn console_play(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+pub fn console_play(
+    _theme: &Theme,
+    status: button::Status,
+    focused: bool,
+    glow: f32,
+) -> button::Style {
     let background = match status {
         button::Status::Hovered => Color::from_rgb8(0xe6, 0xe6, 0xe6),
         button::Status::Pressed => Color::from_rgb8(0xcf, 0xcf, 0xcf),
@@ -714,7 +757,16 @@ pub fn console_play(_theme: &Theme, status: button::Status, focused: bool) -> bu
         background: Some(background.into()),
         text_color: BACKGROUND,
         border: Border {
-            color: if focused { ACCENT } else { TRANSPARENT },
+            color: if focused {
+                Color::from_rgba(
+                    0x22 as f32 / 255.0,
+                    0xd3 as f32 / 255.0,
+                    0xee as f32 / 255.0,
+                    0.55 + 0.45 * glow.clamp(0.0, 1.0),
+                )
+            } else {
+                TRANSPARENT
+            },
             width: if focused { 2.0 } else { 0.0 },
             radius: 26.0.into(),
         },
@@ -727,8 +779,14 @@ pub fn console_play(_theme: &Theme, status: button::Status, focused: bool) -> bu
     }
 }
 
-/// Botões redondos do painel (♥ e •••).
-pub fn console_round(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+/// Botões redondos do painel (♥ e •••); reservado para ações compactas.
+#[allow(dead_code)]
+pub fn console_round(
+    _theme: &Theme,
+    status: button::Status,
+    focused: bool,
+    glow: f32,
+) -> button::Style {
     let background = match status {
         button::Status::Hovered | button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.24),
         _ => Color::from_rgba(1.0, 1.0, 1.0, 0.12),
@@ -739,7 +797,7 @@ pub fn console_round(_theme: &Theme, status: button::Status, focused: bool) -> b
         text_color: TEXT_1,
         border: Border {
             color: if focused {
-                Color::from_rgba(1.0, 1.0, 1.0, 0.90)
+                Color::from_rgba(1.0, 1.0, 1.0, 0.62 + 0.28 * glow.clamp(0.0, 1.0))
             } else {
                 TRANSPARENT
             },
@@ -751,7 +809,12 @@ pub fn console_round(_theme: &Theme, status: button::Status, focused: bool) -> b
 }
 
 /// Ação secundária do painel (Trailer), com foco visível.
-pub fn console_action(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+pub fn console_action(
+    _theme: &Theme,
+    status: button::Status,
+    focused: bool,
+    glow: f32,
+) -> button::Style {
     let (background, text_color) = match status {
         button::Status::Hovered | button::Status::Pressed => {
             (Color::from_rgba(1.0, 1.0, 1.0, 0.18), TEXT_1)
@@ -764,12 +827,47 @@ pub fn console_action(_theme: &Theme, status: button::Status, focused: bool) -> 
         text_color,
         border: rounded_border(
             if focused {
-                Color::from_rgba(1.0, 1.0, 1.0, 0.90)
+                Color::from_rgba(1.0, 1.0, 1.0, 0.62 + 0.28 * glow.clamp(0.0, 1.0))
             } else {
                 Color::from_rgba(1.0, 1.0, 1.0, 0.18)
             },
             2.0,
             22.0,
+        ),
+        ..button::Style::default()
+    }
+}
+
+/// Card da grade da Loja no console (foco com halo e seleção persistente).
+pub fn console_store_card(
+    _theme: &Theme,
+    status: button::Status,
+    selected: bool,
+    focused: bool,
+    glow: f32,
+) -> button::Style {
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let background = if selected {
+        Color::from_rgba8(13, 16, 21, 0.96)
+    } else if hovered {
+        Color::from_rgb8(0x16, 0x16, 0x1b)
+    } else {
+        Color::from_rgba(0.0, 0.0, 0.0, 0.55)
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: TEXT_1,
+        border: rounded_border(
+            if focused {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.58 + 0.24 * glow.clamp(0.0, 1.0))
+            } else if selected {
+                Color::from_rgba(0.133, 0.827, 0.933, 0.55)
+            } else {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.10)
+            },
+            if focused { 2.0 } else { 1.0 },
+            8.0,
         ),
         ..button::Style::default()
     }
@@ -821,6 +919,36 @@ pub fn search_input(_theme: &Theme, status: text_input::Status) -> text_input::S
         value: TEXT_1,
         selection: ACCENT_SOFT,
     }
+}
+
+/// Busca da Loja no console: o anel de foco acompanha o gamepad/teclado mesmo
+/// antes de o `text_input` receber o foco interno.
+pub fn console_search_input(
+    _theme: &Theme,
+    status: text_input::Status,
+    zone_focused: bool,
+    editing: bool,
+    glow: f32,
+) -> text_input::Style {
+    let mut style = search_input(_theme, status);
+    let hovered = matches!(
+        status,
+        text_input::Status::Focused { .. } | text_input::Status::Hovered
+    );
+
+    if zone_focused {
+        let alpha = if editing {
+            0.75 + 0.25 * glow.clamp(0.0, 1.0)
+        } else {
+            0.52 + 0.20 * glow.clamp(0.0, 1.0)
+        };
+        style.border = rounded_border(Color::from_rgba(0.133, 0.827, 0.933, alpha), 2.0, 8.0);
+        style.background = Color::from_rgba(1.0, 1.0, 1.0, 0.07).into();
+    } else if !hovered {
+        style.border = rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.12), 1.0, 8.0);
+    }
+
+    style
 }
 
 pub fn sidebar_search_input(_theme: &Theme, status: text_input::Status) -> text_input::Style {
