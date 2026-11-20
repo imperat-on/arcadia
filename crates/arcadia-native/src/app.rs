@@ -16,16 +16,16 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     AccountProfile, AccountSession, Achievement, AchievementsData, AuthSuccess, Backend,
-    CommunityCollectionsPage, CommunityError, CommunityReviewsPage, DownloadAction, DownloadItem,
-    DownloadsData, EmulationLoad, EmulatorInfo, EmulatorProfile, EmulatorRomEntry, EmulatorRomFolder,
-    EmulatorRomIndexEntry, EmulatorScanResult, EmulatorStatus, FriendProfile, FriendSearchResult,
-    FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent,
-    LaunchToggle, NewsItem, PackagedPhase, PackagedState, PluginAction, PluginActionOutcome,
-    PluginDetails, PluginItem, PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame,
-    RetroGameDetail, RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig,
-    SourceItem, StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage,
-    StoreSearch, TrailerResult, UiEvent, UpdateActionResult, UpdateCheck, UpdateCheckReport,
-    UpdateSnapshot,
+    CommunityCollectionsPage, CommunityError, CommunityMutation, CommunityReviewsPage,
+    DownloadAction, DownloadItem, DownloadsData, EmulationLoad, EmulatorInfo, EmulatorProfile,
+    EmulatorRomEntry, EmulatorRomFolder, EmulatorRomIndexEntry, EmulatorScanResult, EmulatorStatus,
+    FriendAchievements, FriendProfile, FriendSearchResult, FriendsLoad, Game, GameMedia,
+    GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent, LaunchToggle, NewsItem,
+    PackagedPhase, PackagedState, PluginAction, PluginActionOutcome, PluginDetails, PluginItem,
+    PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame, RetroGameDetail,
+    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
+    StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage, StoreSearch,
+    TrailerResult, UiEvent, UpdateActionResult, UpdateCheck, UpdateCheckReport, UpdateSnapshot,
 };
 use crate::big_picture::{
     home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
@@ -38,7 +38,47 @@ use crate::picker::{PickPurpose, PickTarget};
 use crate::theme;
 use crate::toast::ToastQueue;
 use crate::views;
-use crate::views::community::{CommunityCache, CommunityTab};
+use crate::views::community::{
+    CollectionFormState, CommunityCache, CommunityConfirm, CommunityReportState, CommunityState,
+    CommunityTab, CommunityTarget, CommunityVisibility, ReviewFormState,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommunityMutationKind {
+    ReviewCreate,
+    ReviewUpdate,
+    ReviewRemove,
+    ReviewReport,
+    CollectionCreate,
+    CollectionUpdate,
+    CollectionRemove,
+    CollectionReport,
+    CollectionItemAdd,
+    CollectionItemRemove,
+}
+
+impl CommunityMutationKind {
+    fn is_review(self) -> bool {
+        matches!(
+            self,
+            Self::ReviewCreate | Self::ReviewUpdate | Self::ReviewRemove | Self::ReviewReport
+        )
+    }
+
+    fn success_key(self) -> Option<&'static str> {
+        match self {
+            Self::ReviewCreate | Self::ReviewUpdate => Some("native.community.review_saved"),
+            Self::ReviewRemove => Some("native.community.review_removed"),
+            Self::CollectionCreate | Self::CollectionUpdate => {
+                Some("native.community.collection_saved")
+            }
+            Self::CollectionRemove => Some("native.community.collection_removed"),
+            Self::ReviewReport | Self::CollectionReport => Some("native.community.report_sent"),
+            Self::CollectionItemAdd => Some("native.community.item_added"),
+            Self::CollectionItemRemove => Some("native.community.item_removed"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -283,6 +323,36 @@ pub enum Message {
         append: bool,
         result: Result<CommunityCollectionsPage, CommunityError>,
     },
+    CommunityReviewFormOpened,
+    CommunityReviewEditRequested(String),
+    CommunityReviewFormClosed,
+    CommunityReviewTitleChanged(String),
+    CommunityReviewTextChanged(String),
+    CommunityReviewRatingChanged(u8),
+    CommunityReviewHoursChanged(String),
+    CommunityReviewSubmit,
+    CommunityCollectionFormOpened,
+    CommunityCollectionEditRequested(String),
+    CommunityCollectionFormClosed,
+    CommunityCollectionTitleChanged(String),
+    CommunityCollectionDescriptionChanged(String),
+    CommunityCollectionVisibilityChanged(CommunityVisibility),
+    CommunityCollectionSubmit,
+    CommunityMineToggled(bool),
+    CommunityCollectionItemAdd(String),
+    CommunityCollectionItemRemove(String),
+    CommunityConfirmRequested(CommunityTarget, String),
+    CommunityConfirmCancelled,
+    CommunityConfirmAccepted,
+    CommunityReportRequested(CommunityTarget, String),
+    CommunityReportReasonChanged(String),
+    CommunityReportSubmit,
+    CommunityReportCancelled,
+    CommunityMutationDone {
+        appid: String,
+        action: CommunityMutationKind,
+        result: Result<CommunityMutation, CommunityError>,
+    },
     StoreTabChanged(StoreTab),
     StoreQueryChanged(String),
     StoreSearchSubmitted,
@@ -434,6 +504,10 @@ pub enum Message {
     FriendProfileLoaded {
         id: String,
         result: Result<FriendProfile, String>,
+    },
+    FriendAchievementsLoaded {
+        id: String,
+        result: Result<FriendAchievements, String>,
     },
     FriendProfileClosed,
 }
@@ -1364,9 +1438,14 @@ impl FriendAction {
 #[derive(Debug, Clone)]
 pub struct FriendProfileState {
     pub id: String,
+    pub is_friend: bool,
     pub status: LoadStatus,
     pub profile: Option<FriendProfile>,
     pub error: Option<String>,
+    /// Preenchido em paralelo quando o alvo é um amigo aceito.
+    pub achievements_status: LoadStatus,
+    pub achievements: Option<FriendAchievements>,
+    pub achievements_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2634,6 +2713,152 @@ impl App {
                 }
                 Task::none()
             }
+            Message::CommunityReviewFormOpened => self.open_community_review_form(None),
+            Message::CommunityReviewEditRequested(id) => {
+                self.open_community_review_form(Some(id))
+            }
+            Message::CommunityReviewFormClosed => {
+                if let Some(state) = self.current_community_state_mut() {
+                    state.review_form = None;
+                }
+                Task::none()
+            }
+            Message::CommunityReviewTitleChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.review_form.as_mut())
+                {
+                    form.title = value;
+                }
+                Task::none()
+            }
+            Message::CommunityReviewTextChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.review_form.as_mut())
+                {
+                    form.text = value;
+                }
+                Task::none()
+            }
+            Message::CommunityReviewRatingChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.review_form.as_mut())
+                {
+                    form.rating = value;
+                }
+                Task::none()
+            }
+            Message::CommunityReviewHoursChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.review_form.as_mut())
+                {
+                    form.hours = value;
+                }
+                Task::none()
+            }
+            Message::CommunityReviewSubmit => self.submit_community_review(),
+            Message::CommunityCollectionFormOpened => self.open_community_collection_form(None),
+            Message::CommunityCollectionEditRequested(id) => {
+                self.open_community_collection_form(Some(id))
+            }
+            Message::CommunityCollectionFormClosed => {
+                if let Some(state) = self.current_community_state_mut() {
+                    state.collection_form = None;
+                }
+                Task::none()
+            }
+            Message::CommunityCollectionTitleChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.collection_form.as_mut())
+                {
+                    form.title = value;
+                }
+                Task::none()
+            }
+            Message::CommunityCollectionDescriptionChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.collection_form.as_mut())
+                {
+                    form.description = value;
+                }
+                Task::none()
+            }
+            Message::CommunityCollectionVisibilityChanged(value) => {
+                if let Some(form) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.collection_form.as_mut())
+                {
+                    form.visibility = value;
+                }
+                Task::none()
+            }
+            Message::CommunityCollectionSubmit => self.submit_community_collection(),
+            Message::CommunityMineToggled(value) => self.toggle_community_mine(value),
+            Message::CommunityCollectionItemAdd(id) => {
+                self.start_community_item(CommunityMutationKind::CollectionItemAdd, id)
+            }
+            Message::CommunityCollectionItemRemove(id) => {
+                self.start_community_item(CommunityMutationKind::CollectionItemRemove, id)
+            }
+            Message::CommunityConfirmRequested(target, id) => {
+                if let Some(state) = self.current_community_state_mut() {
+                    state.confirm = Some(match target {
+                        CommunityTarget::Review => CommunityConfirm::Review(id),
+                        CommunityTarget::Collection => CommunityConfirm::Collection(id),
+                    });
+                    state.report = None;
+                    state.mutation_error = None;
+                    state.mutation_notice = None;
+                }
+                Task::none()
+            }
+            Message::CommunityConfirmCancelled => {
+                if let Some(state) = self.current_community_state_mut() {
+                    state.confirm = None;
+                }
+                Task::none()
+            }
+            Message::CommunityConfirmAccepted => self.confirm_community_removal(),
+            Message::CommunityReportRequested(target, id) => {
+                let reason = self.i18n.t("community.conteudo_inadequado").to_string();
+                if let Some(state) = self.current_community_state_mut() {
+                    state.report = Some(CommunityReportState {
+                        target,
+                        id,
+                        reason,
+                    });
+                    state.confirm = None;
+                    state.mutation_error = None;
+                    state.mutation_notice = None;
+                }
+                Task::none()
+            }
+            Message::CommunityReportReasonChanged(value) => {
+                if let Some(report) = self
+                    .current_community_state_mut()
+                    .and_then(|state| state.report.as_mut())
+                {
+                    report.reason = value;
+                }
+                Task::none()
+            }
+            Message::CommunityReportCancelled => {
+                if let Some(state) = self.current_community_state_mut() {
+                    state.report = None;
+                }
+                Task::none()
+            }
+            Message::CommunityReportSubmit => self.submit_community_report(),
+            Message::CommunityMutationDone {
+                appid,
+                action,
+                result,
+            } => self.finish_community_mutation(appid, action, result),
             Message::StoreTabChanged(tab) => {
                 if self.store.tab == tab {
                     return Task::none();
@@ -3829,18 +4054,24 @@ impl App {
             Message::AccountStatusLoaded(result) => match result {
                 Ok(Some(session)) => {
                     self.account.apply_session(session);
+                    let community = self.sync_community_viewer();
                     let profile = self.account_profile_task();
                     if matches!(self.screen, Screen::Section(Section::Friends))
                         && matches!(self.friends.status, LoadStatus::Idle)
                     {
-                        Task::batch([profile, self.load_section(Section::Friends, false)])
+                        Task::batch([
+                            profile,
+                            self.load_section(Section::Friends, false),
+                            community,
+                        ])
                     } else {
-                        profile
+                        Task::batch([profile, community])
                     }
                 }
                 Ok(None) => {
                     self.account.signed_out();
-                    let mut tasks = Vec::new();
+                    let community = self.sync_community_viewer();
+                    let mut tasks = vec![community];
                     if !self.account.auto_auth_shown {
                         self.account.auto_auth_shown = true;
                         self.account.open_auth(false);
@@ -3979,6 +4210,7 @@ impl App {
                     eprintln!("[arcadia-native] sair da conta: {error}");
                 }
                 self.account.signed_out();
+                let community = self.sync_community_viewer();
                 self.account.auto_auth_shown = true;
                 self.account.open_auth(true);
                 self.account.auth.error = error.map(|error| account_error_text(&self.i18n, &error));
@@ -3988,7 +4220,7 @@ impl App {
                 if matches!(self.screen, Screen::Profile) {
                     self.screen = Screen::Library;
                 }
-                self.auth_focus_task()
+                Task::batch([self.auth_focus_task(), community])
             }
             Message::OpenProfile => {
                 if self.account.is_signed_in() {
@@ -4182,21 +4414,45 @@ impl App {
                 }
             }
             Message::FriendProfileRequested(id) => {
+                let is_friend = self.is_accepted_friend(&id);
                 self.friends.profile = Some(FriendProfileState {
                     id: id.clone(),
+                    is_friend,
                     status: LoadStatus::Loading,
                     profile: None,
                     error: None,
+                    achievements_status: if is_friend {
+                        LoadStatus::Loading
+                    } else {
+                        LoadStatus::Idle
+                    },
+                    achievements: None,
+                    achievements_error: None,
                 });
                 let backend = self.backend.clone();
                 let request_id = id.clone();
-                Task::perform(
+                let profile_message_id = id.clone();
+                let profile_task = Task::perform(
                     async move { backend.load_friend_profile(request_id).await },
                     move |result| Message::FriendProfileLoaded {
-                        id: id.clone(),
+                        id: profile_message_id.clone(),
                         result,
                     },
-                )
+                );
+                if !is_friend {
+                    return profile_task;
+                }
+                let achievements_id = id.clone();
+                let achievements_message_id = id.clone();
+                let backend = self.backend.clone();
+                let achievements_task = Task::perform(
+                    async move { backend.load_friend_achievements(achievements_id).await },
+                    move |result| Message::FriendAchievementsLoaded {
+                        id: achievements_message_id.clone(),
+                        result,
+                    },
+                );
+                Task::batch([profile_task, achievements_task])
             }
             Message::FriendProfileLoaded { id, result } => {
                 let Some(profile) = self.friends.profile.as_mut() else {
@@ -4219,6 +4475,38 @@ impl App {
                     }
                 }
                 Task::none()
+            }
+            Message::FriendAchievementsLoaded { id, result } => {
+                let icons = {
+                    let Some(profile) = self.friends.profile.as_mut() else {
+                        return Task::none();
+                    };
+                    if profile.id != id {
+                        return Task::none();
+                    }
+                    match result {
+                        Ok(achievements) => {
+                            let icons: Vec<String> = achievements
+                                .items
+                                .iter()
+                                .filter_map(|item| item.icon.clone())
+                                .take(64)
+                                .collect();
+                            profile.achievements = Some(achievements);
+                            profile.achievements_status = LoadStatus::Ready;
+                            profile.achievements_error = None;
+                            icons
+                        }
+                        Err(error) => {
+                            eprintln!("[arcadia-native] amigos (conquistas): {error}");
+                            profile.achievements = None;
+                            profile.achievements_status = LoadStatus::Error(error.clone());
+                            profile.achievements_error = Some(error);
+                            Vec::new()
+                        }
+                    }
+                };
+                self.cover_tasks(icons)
             }
             Message::FriendProfileClosed => {
                 self.friends.profile = None;
@@ -4504,6 +4792,21 @@ impl App {
             async move { backend.load_friends(true).await },
             Message::FriendsLoaded,
         )
+    }
+
+    /// Amigo aceito na lista ou num resultado de busca; só eles liberam
+    /// `friends:achievements`.
+    fn is_accepted_friend(&self, id: &str) -> bool {
+        let in_list = matches!(
+            self.friends.data.as_ref(),
+            Some(FriendsLoad::Ready(data)) if data.friends.iter().any(|friend| friend.id == id)
+        );
+        in_list
+            || self.friends.search_results.as_ref().is_some_and(|results| {
+                results
+                    .iter()
+                    .any(|result| result.id == id && result.status.as_deref() == Some("accepted"))
+            })
     }
 
     fn submit_friend_search(&mut self) -> Task<Message> {
@@ -6586,6 +6889,7 @@ impl App {
         let Some(state) = self.community.get_mut(appid) else {
             return Task::none();
         };
+        let mine = state.mine_only;
         if append {
             if state.collections.loading_more || !state.collections.has_more {
                 return Task::none();
@@ -6606,7 +6910,11 @@ impl App {
         Task::perform(
             async move {
                 backend
-                    .load_community_collections(offset, views::community::COMMUNITY_PAGE_SIZE)
+                    .load_community_collections(
+                        offset,
+                        views::community::COMMUNITY_PAGE_SIZE,
+                        mine,
+                    )
                     .await
             },
             move |result| Message::CommunityCollectionsLoaded {
@@ -6616,6 +6924,488 @@ impl App {
                 result,
             },
         )
+    }
+
+    /// Estado de comunidade do appid aberto; `None` fora de ficha/detalhe.
+    fn current_community_state_mut(&mut self) -> Option<&mut CommunityState> {
+        let appid = self.current_community_appid()?;
+        self.community.get_mut(&appid)
+    }
+
+    /// Mantém o painel ciente da sessão mesmo quando o cache já existia.
+    /// Se a conta mudou, o cache foi descartado e a ficha aberta recarrega.
+    fn sync_community_viewer(&mut self) -> Task<Message> {
+        let viewer = self.account.session.as_ref().map(|session| session.id.clone());
+        if !self.community.set_viewer(viewer) {
+            return Task::none();
+        }
+        match self.current_community_appid() {
+            Some(appid) => self.community_tasks(&appid),
+            None => Task::none(),
+        }
+    }
+
+    /// Título do jogo/loja atual para o item inicial da coleção.
+    fn current_community_title(&self) -> String {
+        match &self.screen {
+            Screen::Game(id) => self
+                .library
+                .game(id)
+                .map(|game| game.title.clone())
+                .unwrap_or_default(),
+            Screen::Section(Section::Stores) => self
+                .store
+                .detail
+                .as_ref()
+                .map(|detail| detail.game.title.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
+    fn open_community_review_form(&mut self, editing: Option<String>) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let Some(state) = self.community.get_mut(&appid) else {
+            return Task::none();
+        };
+        let form = match editing {
+            Some(id) => {
+                let Some(review) = state.reviews.items.iter().find(|review| review.id == id)
+                else {
+                    return Task::none();
+                };
+                ReviewFormState::for_review(review)
+            }
+            None => ReviewFormState::default(),
+        };
+        state.review_form = Some(form);
+        state.collection_form = None;
+        state.confirm = None;
+        state.report = None;
+        state.mutation_error = None;
+        state.mutation_notice = None;
+        Task::none()
+    }
+
+    fn open_community_collection_form(&mut self, editing: Option<String>) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let Some(state) = self.community.get_mut(&appid) else {
+            return Task::none();
+        };
+        let form = match editing {
+            Some(id) => {
+                let Some(collection) = state
+                    .collections
+                    .items
+                    .iter()
+                    .find(|collection| collection.id == id)
+                else {
+                    return Task::none();
+                };
+                CollectionFormState::for_collection(collection)
+            }
+            None => CollectionFormState::default(),
+        };
+        state.collection_form = Some(form);
+        state.review_form = None;
+        state.confirm = None;
+        state.report = None;
+        state.mutation_error = None;
+        state.mutation_notice = None;
+        Task::none()
+    }
+
+    fn submit_community_review(&mut self) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let backend = self.backend.clone();
+        let payload_appid = appid.clone();
+        let message_appid = appid.clone();
+        let (payload, action) = {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mutation_busy {
+                return Task::none();
+            }
+            let Some(form) = state.review_form.as_ref() else {
+                return Task::none();
+            };
+            let draft = match form.validate() {
+                Ok(draft) => draft,
+                Err(error) => {
+                    state.mutation_error = Some(error.message(&self.i18n).to_string());
+                    return Task::none();
+                }
+            };
+            let action = if form.editing.is_some() {
+                CommunityMutationKind::ReviewUpdate
+            } else {
+                CommunityMutationKind::ReviewCreate
+            };
+            let mut payload = json!({
+                "appid": payload_appid,
+                "text": draft.text,
+                "rating": draft.rating,
+                "positive": draft.rating >= 3,
+                "hours": draft.hours,
+            });
+            if let Some(title) = draft.title {
+                payload["title"] = Value::String(title);
+            }
+            state.mutation_busy = true;
+            state.mutation_error = None;
+            state.mutation_notice = None;
+            (payload, action)
+        };
+        let editing = self
+            .community
+            .get(&appid)
+            .and_then(|state| state.review_form.as_ref())
+            .and_then(|form| form.editing.clone());
+        Task::perform(
+            async move {
+                match editing {
+                    Some(id) => backend.update_community_review(id, payload).await,
+                    None => backend.create_community_review(payload).await,
+                }
+            },
+            move |result| Message::CommunityMutationDone {
+                appid: message_appid,
+                action,
+                result,
+            },
+        )
+    }
+
+    fn submit_community_collection(&mut self) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let game_title = self.current_community_title();
+        let backend = self.backend.clone();
+        let payload_appid = appid.clone();
+        let message_appid = appid.clone();
+        let (payload, action) = {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mutation_busy {
+                return Task::none();
+            }
+            let Some(form) = state.collection_form.as_ref() else {
+                return Task::none();
+            };
+            let draft = match form.validate() {
+                Ok(draft) => draft,
+                Err(error) => {
+                    state.mutation_error = Some(error.message(&self.i18n).to_string());
+                    return Task::none();
+                }
+            };
+            let editing = form.editing.is_some();
+            let action = if editing {
+                CommunityMutationKind::CollectionUpdate
+            } else {
+                CommunityMutationKind::CollectionCreate
+            };
+            let mut payload = json!({
+                "title": draft.title,
+                "description": draft.description,
+                "visibility": draft.visibility.as_str(),
+            });
+            if !editing && !payload_appid.is_empty() {
+                payload["items"] = json!([{
+                    "appid": payload_appid,
+                    "title": game_title,
+                }]);
+            }
+            state.mutation_busy = true;
+            state.mutation_error = None;
+            state.mutation_notice = None;
+            (payload, action)
+        };
+        let editing = self
+            .community
+            .get(&appid)
+            .and_then(|state| state.collection_form.as_ref())
+            .and_then(|form| form.editing.clone());
+        Task::perform(
+            async move {
+                match editing {
+                    Some(id) => backend.update_community_collection(id, payload).await,
+                    None => backend.create_community_collection(payload).await,
+                }
+            },
+            move |result| Message::CommunityMutationDone {
+                appid: message_appid,
+                action,
+                result,
+            },
+        )
+    }
+
+    fn toggle_community_mine(&mut self, mine: bool) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mine_only == mine {
+                return Task::none();
+            }
+            state.mine_only = mine;
+            state.collections = Default::default();
+            state.mutation_error = None;
+            state.mutation_notice = None;
+        }
+        self.load_community_collections(&appid, 0, false)
+    }
+
+    fn start_community_item(
+        &mut self,
+        action: CommunityMutationKind,
+        collection_id: String,
+    ) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        if appid.is_empty() {
+            return Task::none();
+        }
+        let backend = self.backend.clone();
+        let message_appid = appid.clone();
+        {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mutation_busy {
+                return Task::none();
+            }
+            state.mutation_busy = true;
+            state.mutation_error = None;
+            state.mutation_notice = None;
+        }
+        Task::perform(
+            async move {
+                match action {
+                    CommunityMutationKind::CollectionItemAdd => {
+                        backend
+                            .add_community_collection_item(collection_id, appid)
+                            .await
+                    }
+                    _ => {
+                        backend
+                            .remove_community_collection_item(collection_id, appid)
+                            .await
+                    }
+                }
+            },
+            move |result| Message::CommunityMutationDone {
+                appid: message_appid,
+                action,
+                result,
+            },
+        )
+    }
+
+    fn confirm_community_removal(&mut self) -> Task<Message> {
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let backend = self.backend.clone();
+        let message_appid = appid.clone();
+        let (confirm, action) = {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mutation_busy {
+                return Task::none();
+            }
+            let Some(confirm) = state.confirm.clone() else {
+                return Task::none();
+            };
+            let action = match confirm {
+                CommunityConfirm::Review(_) => CommunityMutationKind::ReviewRemove,
+                CommunityConfirm::Collection(_) => CommunityMutationKind::CollectionRemove,
+            };
+            state.mutation_busy = true;
+            state.mutation_error = None;
+            state.mutation_notice = None;
+            (confirm, action)
+        };
+        Task::perform(
+            async move {
+                match confirm {
+                    CommunityConfirm::Review(id) => backend.remove_community_review(id).await,
+                    CommunityConfirm::Collection(id) => {
+                        backend.remove_community_collection(id).await
+                    }
+                }
+            },
+            move |result| Message::CommunityMutationDone {
+                appid: message_appid,
+                action,
+                result,
+            },
+        )
+    }
+
+    fn submit_community_report(&mut self) -> Task<Message> {
+        let Some(appid) = self.current_community_appid() else {
+            return Task::none();
+        };
+        let backend = self.backend.clone();
+        let message_appid = appid.clone();
+        let (report, action) = {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            if state.mutation_busy {
+                return Task::none();
+            }
+            let Some(report) = state.report.clone() else {
+                return Task::none();
+            };
+            let reason = report.reason.trim();
+            if reason.is_empty() {
+                state.mutation_error = Some(
+                    crate::views::community::CommunityFormError::EmptyReportReason
+                        .message(&self.i18n)
+                        .to_string(),
+                );
+                return Task::none();
+            }
+            let action = match report.target {
+                CommunityTarget::Review => CommunityMutationKind::ReviewReport,
+                CommunityTarget::Collection => CommunityMutationKind::CollectionReport,
+            };
+            state.mutation_busy = true;
+            state.mutation_error = None;
+            state.mutation_notice = None;
+            (
+                CommunityReportState {
+                    reason: reason.to_string(),
+                    ..report
+                },
+                action,
+            )
+        };
+        Task::perform(
+            async move {
+                match report.target {
+                    CommunityTarget::Review => {
+                        backend
+                            .report_community_review(report.id, report.reason)
+                            .await
+                    }
+                    CommunityTarget::Collection => {
+                        backend
+                            .report_community_collection(report.id, report.reason)
+                            .await
+                    }
+                }
+            },
+            move |result| Message::CommunityMutationDone {
+                appid: message_appid,
+                action,
+                result,
+            },
+        )
+    }
+
+    fn finish_community_mutation(
+        &mut self,
+        appid: String,
+        action: CommunityMutationKind,
+        result: Result<CommunityMutation, CommunityError>,
+    ) -> Task<Message> {
+        let notice = action
+            .success_key()
+            .map(|key| self.i18n.t(key).to_string());
+        let reload_offset = {
+            let Some(state) = self.community.get_mut(&appid) else {
+                return Task::none();
+            };
+            state.mutation_busy = false;
+            match result {
+                Ok(_) => {
+                    state.mutation_error = None;
+                    state.mutation_notice = notice;
+                    match action {
+                        CommunityMutationKind::ReviewCreate
+                        | CommunityMutationKind::ReviewUpdate => {
+                            state.review_form = None;
+                        }
+                        CommunityMutationKind::ReviewRemove => {
+                            state.confirm = None;
+                        }
+                        CommunityMutationKind::ReviewReport => {
+                            state.report = None;
+                        }
+                        CommunityMutationKind::CollectionCreate
+                        | CommunityMutationKind::CollectionUpdate => {
+                            state.collection_form = None;
+                        }
+                        CommunityMutationKind::CollectionRemove => {
+                            state.confirm = None;
+                        }
+                        CommunityMutationKind::CollectionReport => {
+                            state.report = None;
+                        }
+                        CommunityMutationKind::CollectionItemAdd
+                        | CommunityMutationKind::CollectionItemRemove => {}
+                    }
+                    Some(if action.is_review() {
+                        state.reviews.page_offset
+                    } else {
+                        state.collections.page_offset
+                    })
+                }
+                Err(error) => {
+                    state.mutation_error = Some(error.message);
+                    None
+                }
+            }
+        };
+        if matches!(
+            action,
+            CommunityMutationKind::ReviewReport | CommunityMutationKind::CollectionReport
+        ) {
+            return Task::none();
+        }
+        match reload_offset {
+            Some(offset) if action.is_review() => {
+                self.load_community_reviews(&appid, offset, false)
+            }
+            Some(offset) => self.load_community_collections(&appid, offset, false),
+            None => Task::none(),
+        }
     }
 
     fn reload_task(&self) -> Task<Message> {
