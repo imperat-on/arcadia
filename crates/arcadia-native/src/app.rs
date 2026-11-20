@@ -4,7 +4,7 @@
 //! mensagens voltam para `update` — nenhuma chamada bloqueante roda na thread
 //! que desenha.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use arcadia_native_input::NavEvent;
@@ -13,10 +13,11 @@ use iced::{keyboard, window, Element, Fill, Size, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
-    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
-    LaunchSnapshot, NewsItem, PluginItem, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage,
-    RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
-    StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
+    Achievement, AchievementsData, Backend, DownloadAction, DownloadItem, DownloadsData,
+    FriendsLoad, Game, GameMedia, GameStats, LaunchSnapshot, NewsItem, PluginItem, ProtonDbInfo,
+    RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo,
+    SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary,
+    StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
     BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
@@ -41,7 +42,29 @@ pub enum Message {
     OpenGame(String),
     BackToLibrary,
     /// Resultado de `game:sysinfo` para o jogo aberto no desktop.
-    MediaLoaded(GameMedia),
+    MediaLoaded {
+        game_id: String,
+        media: GameMedia,
+    },
+    /// Conquistas Steam/RetroAchievements do jogo aberto.
+    AchievementsLoaded {
+        game_id: String,
+        result: Result<AchievementsData, String>,
+    },
+    /// ProtonDB do appid do jogo aberto.
+    ProtonDbLoaded {
+        game_id: String,
+        result: Result<Option<ProtonDbInfo>, String>,
+    },
+    /// Owners/CCU e reviews do jogo aberto.
+    GameStatsLoaded {
+        game_id: String,
+        result: Result<Option<GameStats>, String>,
+    },
+    /// Miniatura escolhida na faixa de screenshots.
+    SelectScreenshot(usize),
+    /// Recarrega `game:sysinfo` e os painéis do jogo atual.
+    ReloadGameData,
     /// Resultado de `game:sysinfo` para o painel do Big Picture.
     ConsoleMediaLoaded {
         id: String,
@@ -483,6 +506,41 @@ pub struct NewsState {
     pub error: Option<String>,
 }
 
+/// Painel de conquistas da ficha: lista + estado explícito de carga.
+#[derive(Debug, Clone, Default)]
+pub struct AchievementsPanelState {
+    pub status: LoadStatus,
+    pub items: Vec<Achievement>,
+    /// Ausência explicada (jogo não encontrado no RA, launcher sem suporte).
+    pub note: Option<String>,
+}
+
+/// Painel ProtonDB da ficha.
+#[derive(Debug, Clone, Default)]
+pub struct ProtonPanelState {
+    pub status: LoadStatus,
+    pub info: Option<ProtonDbInfo>,
+    /// Ausência explicada (jogo não-Steam, sem relatórios).
+    pub note: Option<String>,
+}
+
+/// Painel de estatísticas/reviews da ficha.
+#[derive(Debug, Clone, Default)]
+pub struct StatsPanelState {
+    pub status: LoadStatus,
+    pub stats: Option<GameStats>,
+    /// Ausência explicada (jogo não-Steam, API sem dados).
+    pub note: Option<String>,
+}
+
+/// Dados dos painéis por jogo; o mapa em [`App`] é o cache da sessão.
+#[derive(Debug, Clone, Default)]
+pub struct GamePanels {
+    pub achievements: AchievementsPanelState,
+    pub proton: ProtonPanelState,
+    pub stats: StatsPanelState,
+}
+
 /// Aba interna das Configurações, equivalente à sub-navegação da UI web.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsTab {
@@ -708,6 +766,11 @@ pub struct App {
     pub media: MediaPlayer,
     /// `None` enquanto o `game:sysinfo` está em voo.
     pub game_media: Option<GameMedia>,
+    /// Índice da screenshot selecionada na galeria da ficha.
+    pub selected_screenshot: usize,
+    /// Painéis da ficha por jogo (conquistas, ProtonDB, stats/reviews).
+    /// O mapa é o cache da sessão: reabrir um jogo não refaz o IPC.
+    pub game_panels: HashMap<String, GamePanels>,
     /// Seletor de trailers do YouTube sobre a ficha.
     pub trailer_picker: TrailerPickerState,
     /// O usuário abriu um trailer local; o `game:sysinfo` em voo não pode
@@ -750,6 +813,8 @@ impl App {
             i18n: I18n::default(),
             media: MediaPlayer::new(),
             game_media: None,
+            selected_screenshot: 0,
+            game_panels: HashMap::new(),
             trailer_picker: TrailerPickerState::default(),
             trailer_override: false,
             downloads: DownloadsState::default(),
@@ -1756,15 +1821,21 @@ impl App {
             }
             Message::ConsoleNewsReload => self.load_console_news(),
 
-            Message::MediaLoaded(game_media) => {
+            Message::MediaLoaded { game_id, media: game_media } => {
                 // Resposta do trailer do desktop não pode abrir mídia por cima
                 // do painel do console; o console usa `ConsoleMediaLoaded`.
                 if matches!(self.screen, Screen::BigPicture) {
                     return Task::none();
                 }
+                // Clique rápido em outro jogo: a resposta antiga não pode
+                // trocar screenshots/descrição da ficha atual.
+                if self.current_game().map(|game| game.id.as_str()) != Some(game_id.as_str()) {
+                    return Task::none();
+                }
                 eprintln!(
-                    "[arcadia-native] trailer: {} movie(s){}",
+                    "[arcadia-native] trailer: {} movie(s), {} screenshot(s){}",
                     game_media.movies.len(),
+                    game_media.screenshots.len(),
                     game_media
                         .notice
                         .as_deref()
@@ -1772,10 +1843,29 @@ impl App {
                         .unwrap_or_default()
                 );
                 self.game_media = Some(game_media);
+                self.selected_screenshot = 0;
+
+                let mut urls = Vec::new();
+                if let Some(media) = self.game_media.as_ref() {
+                    for screenshot in &media.screenshots {
+                        if let Some(url) = screenshot.thumb_or_full() {
+                            urls.push(url.to_string());
+                        }
+                    }
+                    if let Some(full) = media
+                        .screenshots
+                        .first()
+                        .and_then(|screenshot| screenshot.full_or_thumb())
+                    {
+                        urls.push(full.to_string());
+                    }
+                }
+                let images = self.cover_tasks(urls);
+
                 // Um trailer local escolhido pelo usuário tem prioridade sobre
                 // um `game:sysinfo` que ainda estava em voo.
                 if self.trailer_override {
-                    return Task::none();
+                    return images;
                 }
                 // Prioridade hls → mp4 → webm fica no wrapper de mídia.
                 let sources = self
@@ -1787,13 +1877,103 @@ impl App {
                         mp4: movie.mp4.clone(),
                         webm: movie.webm.clone(),
                     });
-                match sources {
+                let playback = match sources {
                     Some(sources) => match self.media.open(&sources) {
                         Ok(()) => Task::none(),
                         Err(error) => Task::done(Message::MediaError(error)),
                     },
                     None => Task::none(),
+                };
+                Task::batch([images, playback])
+            }
+            Message::AchievementsLoaded { game_id, result } => {
+                let mut icons = Vec::new();
+                if let Some(panels) = self.game_panels.get_mut(&game_id) {
+                    match result {
+                        Ok(data) => {
+                            eprintln!(
+                                "[arcadia-native] conquistas: {} item(ns) para {game_id}",
+                                data.items.len()
+                            );
+                            panels.achievements.items = data.items;
+                            panels.achievements.note = data.note;
+                            panels.achievements.status = LoadStatus::Ready;
+                        }
+                        Err(error) => {
+                            eprintln!("[arcadia-native] conquistas: {error}");
+                            panels.achievements.items.clear();
+                            panels.achievements.note = None;
+                            panels.achievements.status = LoadStatus::Error(error);
+                        }
+                    }
+                    icons = panels
+                        .achievements
+                        .items
+                        .iter()
+                        .filter_map(|item| item.icon.clone())
+                        .collect();
                 }
+                self.cover_tasks(icons)
+            }
+            Message::ProtonDbLoaded { game_id, result } => {
+                if let Some(panels) = self.game_panels.get_mut(&game_id) {
+                    match result {
+                        Ok(info) => {
+                            panels.proton.info = info;
+                            panels.proton.note = None;
+                            panels.proton.status = LoadStatus::Ready;
+                        }
+                        Err(error) => {
+                            eprintln!("[arcadia-native] protondb: {error}");
+                            panels.proton.info = None;
+                            panels.proton.status = LoadStatus::Error(error);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::GameStatsLoaded { game_id, result } => {
+                if let Some(panels) = self.game_panels.get_mut(&game_id) {
+                    match result {
+                        Ok(stats) => {
+                            panels.stats.stats = stats;
+                            panels.stats.note = None;
+                            panels.stats.status = LoadStatus::Ready;
+                        }
+                        Err(error) => {
+                            eprintln!("[arcadia-native] stats: {error}");
+                            panels.stats.stats = None;
+                            panels.stats.status = LoadStatus::Error(error);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::SelectScreenshot(index) => {
+                self.selected_screenshot = index;
+                let url = self
+                    .game_media
+                    .as_ref()
+                    .and_then(|media| media.screenshots.get(index))
+                    .and_then(|screenshot| screenshot.full_or_thumb())
+                    .map(str::to_string);
+                match url {
+                    Some(url) => self.cover_tasks(vec![url]),
+                    None => Task::none(),
+                }
+            }
+            Message::ReloadGameData => {
+                let Some(game) = self.current_game().cloned() else {
+                    return Task::none();
+                };
+                self.game_panels.remove(&game.id);
+                self.media.clear();
+                self.game_media = None;
+                self.selected_screenshot = 0;
+                self.reset_trailer_state();
+                let media = self.game_media_task(&game);
+                let panels = self.game_panels_task(&game);
+                Task::batch([media, panels])
             }
             Message::MediaTick => {
                 self.media.tick();
@@ -2126,12 +2306,18 @@ impl App {
         // Troca de jogo nunca reaproveita o pipeline anterior.
         self.media.clear();
         self.game_media = None;
+        self.selected_screenshot = 0;
         self.reset_trailer_state();
         let covers = self.cover_tasks(urls);
         let media = game
-            .map(|game| self.game_media_task(&game))
+            .as_ref()
+            .map(|game| self.game_media_task(game))
             .unwrap_or_else(Task::none);
-        Task::batch([covers, media])
+        let panels = game
+            .as_ref()
+            .map(|game| self.game_panels_task(game))
+            .unwrap_or_else(Task::none);
+        Task::batch([covers, media, panels])
     }
 
     /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
@@ -2627,6 +2813,8 @@ impl App {
                     &self.covers,
                     &self.media,
                     self.game_media.as_ref(),
+                    self.game_panels.get(id),
+                    self.selected_screenshot,
                     &self.launch,
                     &self.trailer_picker,
                 ),
@@ -2894,10 +3082,100 @@ impl App {
         let backend = self.backend.clone();
         let id = game.id.clone();
         let title = game.title.clone();
+        let message_id = game.id.clone();
         Task::perform(
             async move { backend.load_game_media(id, title).await },
-            Message::MediaLoaded,
+            move |media| Message::MediaLoaded {
+                game_id: message_id,
+                media,
+            },
         )
+    }
+
+    /// Dispara, em paralelo, os painéis da ficha para o jogo. O mapa
+    /// `game_panels` é o cache: se o jogo já foi aberto nesta sessão, nada é
+    /// refeito. Jogos fora da Steam/Retro entram como `Ready` com uma nota
+    /// explícita, não como painel vazio.
+    fn game_panels_task(&mut self, game: &Game) -> Task<Message> {
+        if self.game_panels.contains_key(&game.id) {
+            return Task::none();
+        }
+
+        let mut panels = GamePanels::default();
+        let mut tasks = Vec::new();
+
+        if let Some(appid) = game.steam_appid().map(str::to_string) {
+            panels.achievements.status = LoadStatus::Loading;
+            panels.proton.status = LoadStatus::Loading;
+            panels.stats.status = LoadStatus::Loading;
+
+            let backend = self.backend.clone();
+            let game_id = game.id.clone();
+            let achievements_appid = appid.clone();
+            tasks.push(Task::perform(
+                async move {
+                    backend
+                        .load_steam_achievements(achievements_appid)
+                        .await
+                },
+                move |result| Message::AchievementsLoaded { game_id, result },
+            ));
+
+            let backend = self.backend.clone();
+            let game_id = game.id.clone();
+            let proton_appid = appid.clone();
+            tasks.push(Task::perform(
+                async move { backend.load_protondb(proton_appid).await },
+                move |result| Message::ProtonDbLoaded { game_id, result },
+            ));
+
+            let backend = self.backend.clone();
+            let game_id = game.id.clone();
+            tasks.push(Task::perform(
+                async move { backend.load_game_stats(appid).await },
+                move |result| Message::GameStatsLoaded { game_id, result },
+            ));
+        } else if let (true, Some(system)) = (game.is_retro(), game.retro_system()) {
+            panels.achievements.status = LoadStatus::Loading;
+            panels.proton.status = LoadStatus::Ready;
+            panels.proton.note =
+                Some("ProtonDB cobre jogos da Steam; não se aplica a este título retro.".to_string());
+            panels.stats.status = LoadStatus::Ready;
+            panels.stats.note =
+                Some("Estatísticas da loja Steam não se aplicam a jogos retro.".to_string());
+
+            let backend = self.backend.clone();
+            let game_id = game.id.clone();
+            let title = game.title.clone();
+            let system = system.to_string();
+            tasks.push(Task::perform(
+                async move {
+                    backend
+                        .load_retro_achievements(title, system)
+                        .await
+                },
+                move |result| Message::AchievementsLoaded { game_id, result },
+            ));
+        } else {
+            let launcher = if game.launcher.trim().is_empty() {
+                "desconhecido"
+            } else {
+                game.launcher.as_str()
+            };
+            panels.achievements.status = LoadStatus::Ready;
+            panels.achievements.note = Some(format!(
+                "Conquistas não estão disponíveis para o launcher \"{launcher}\" nesta build."
+            ));
+            panels.proton.status = LoadStatus::Ready;
+            panels.proton.note =
+                Some("ProtonDB só tem relatórios para jogos com appid da Steam.".to_string());
+            panels.stats.status = LoadStatus::Ready;
+            panels.stats.note =
+                Some("Estatísticas e reviews da loja Steam não se aplicam a este jogo.".to_string());
+        }
+
+        self.game_panels.insert(game.id.clone(), panels);
+        Task::batch(tasks)
     }
 
     fn cover_tasks(&mut self, urls: Vec<String>) -> Task<Message> {
