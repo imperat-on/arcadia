@@ -7,6 +7,7 @@ use iced::{Border, Color, Element, Fill};
 use crate::app::{App, EmulationEditorState, LoadStatus, Message};
 use crate::backend::{EmulatorInfo, EmulatorRomEntry};
 use crate::i18n::I18n;
+use crate::picker::PickPurpose;
 use crate::theme;
 use crate::views;
 
@@ -270,30 +271,44 @@ fn editor_view<'a>(
 
     content = content.push(field(
         i18n.t("emulador.executavel_label"),
-        text_input(
-            i18n.t("native.emulation.executable_placeholder"),
-            editor.executable.as_str(),
-        )
-        .on_input(Message::EmulationExecutableChanged)
-        .padding([9.0, 12.0])
-        .size(12)
-        .style(theme::search_input)
-        .into(),
+        with_pick_button(
+            i18n,
+            text_input(
+                i18n.t("native.emulation.executable_placeholder"),
+                editor.executable.as_str(),
+            )
+            .on_input(Message::EmulationExecutableChanged)
+            .padding([9.0, 12.0])
+            .size(12)
+            .width(Fill)
+            .style(theme::search_input)
+            .into(),
+            PickPurpose::EmulatorExecutable(editor.emulator_id.clone()),
+            editor.pick_busy.as_ref(),
+            i18n.t("common.selecionar"),
+        ),
         Some(i18n.t("native.emulation.executable_hint").to_string()),
     ));
 
     if editor.requires_core {
         content = content.push(field(
             i18n.t("emulacao.core_libretro"),
-            text_input(
-                i18n.t("emulacao.core_placeholder"),
-                editor.core_path.as_str(),
-            )
-            .on_input(Message::EmulationCorePathChanged)
-            .padding([9.0, 12.0])
-            .size(12)
-            .style(theme::search_input)
-            .into(),
+            with_pick_button(
+                i18n,
+                text_input(
+                    i18n.t("emulacao.core_placeholder"),
+                    editor.core_path.as_str(),
+                )
+                .on_input(Message::EmulationCorePathChanged)
+                .padding([9.0, 12.0])
+                .size(12)
+                .width(Fill)
+                .style(theme::search_input)
+                .into(),
+                PickPurpose::EmulatorCore(editor.emulator_id.clone()),
+                editor.pick_busy.as_ref(),
+                i18n.t("emulacao.escolher_core"),
+            ),
             Some(i18n.t("native.emulation.core_hint").to_string()),
         ));
     }
@@ -309,15 +324,22 @@ fn editor_view<'a>(
         };
         content = content.push(field(
             i18n.t("emulacao.pasta_bios"),
-            text_input(
-                i18n.t("emulacao.bios_placeholder"),
-                editor.bios_path.as_str(),
-            )
-            .on_input(Message::EmulationBiosPathChanged)
-            .padding([9.0, 12.0])
-            .size(12)
-            .style(theme::search_input)
-            .into(),
+            with_pick_button(
+                i18n,
+                text_input(
+                    i18n.t("emulacao.bios_placeholder"),
+                    editor.bios_path.as_str(),
+                )
+                .on_input(Message::EmulationBiosPathChanged)
+                .padding([9.0, 12.0])
+                .size(12)
+                .width(Fill)
+                .style(theme::search_input)
+                .into(),
+                PickPurpose::EmulatorBios(editor.emulator_id.clone()),
+                editor.pick_busy.as_ref(),
+                i18n.t("common.escolher_pasta"),
+            ),
             Some(bios_state),
         ));
     }
@@ -360,6 +382,31 @@ fn field<'a>(
         content = content.push(text(hint).size(10).color(theme::TEXT_3));
     }
     content.width(Fill).into()
+}
+
+fn with_pick_button<'a>(
+    i18n: &'a I18n,
+    control: Element<'a, Message>,
+    purpose: PickPurpose,
+    pick_busy: Option<&PickPurpose>,
+    idle_label: &'a str,
+) -> Element<'a, Message> {
+    let picking = pick_busy == Some(&purpose);
+    let label = if picking {
+        i18n.t("native.picker.opening")
+    } else {
+        idle_label
+    };
+    let mut pick = button(text(label).size(11).font(theme::FONT_MEDIUM))
+        .padding([8.0, 12.0])
+        .style(theme::ghost_button);
+    if pick_busy.is_none() {
+        pick = pick.on_press(Message::PickRequested(purpose));
+    }
+    row![container(control).width(Fill), pick]
+        .spacing(6)
+        .align_y(iced::Center)
+        .into()
 }
 
 fn rom_folders_editor<'a>(
@@ -411,6 +458,20 @@ fn rom_folders_editor<'a>(
         }
     }
 
+    let folder_purpose = PickPurpose::RomFolder(editor.emulator_id.clone());
+    let folder_picking = editor.pick_busy.as_ref() == Some(&folder_purpose);
+    let folder_pick_label = if folder_picking {
+        i18n.t("native.picker.opening")
+    } else {
+        i18n.t("common.escolher_pasta")
+    };
+    let mut pick_folder = button(text(folder_pick_label).size(11).font(theme::FONT_MEDIUM))
+        .padding([8.0, 12.0])
+        .style(theme::ghost_button);
+    if editor.pick_busy.is_none() {
+        pick_folder = pick_folder.on_press(Message::PickRequested(folder_purpose));
+    }
+
     let add = row![
         text_input(
             i18n.t("native.emulation.folder_placeholder"),
@@ -421,6 +482,7 @@ fn rom_folders_editor<'a>(
         .size(11)
         .width(Fill)
         .style(theme::search_input),
+        pick_folder,
         button(
             text(i18n.t("emulacao.adicionar_pasta"))
                 .size(11)

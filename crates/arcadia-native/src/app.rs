@@ -34,6 +34,7 @@ use crate::big_picture::{
 use crate::covers::CoverCache;
 use crate::i18n::{I18n, Lang};
 use crate::media::{self, MediaPlayer};
+use crate::picker::{PickPurpose, PickTarget};
 use crate::theme;
 use crate::toast::ToastQueue;
 use crate::views;
@@ -405,6 +406,18 @@ pub enum Message {
     AvatarPathChanged(String),
     AvatarUpload,
     AvatarUploadDone(Result<String, String>),
+    /// Abre o seletor nativo para o alvo indicado.
+    PickRequested(PickPurpose),
+    /// Resultado do seletor; `None` significa que o usuário cancelou.
+    PickDone {
+        purpose: PickPurpose,
+        result: Result<Option<PathBuf>, String>,
+    },
+    /// `account:setBackground` concluído para fundo ou banner.
+    ProfileImageUploadDone {
+        kind: ProfileImageKind,
+        result: Result<String, String>,
+    },
     FriendSearchChanged(String),
     FriendSearchSubmitted,
     FriendSearchDone(Result<Vec<FriendSearchResult>, String>),
@@ -971,6 +984,60 @@ pub struct EmulationEditorState {
     pub preview_available: bool,
     pub preview_roms: Vec<EmulatorRomEntry>,
     pub preview_truncated: bool,
+    /// Seletor em voo; só um diálogo por vez.
+    pub pick_busy: Option<PickPurpose>,
+}
+
+/// Falhas ao inserir uma pasta de ROM; a view traduz para o i18n.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RomFolderAddError {
+    Empty,
+    Limit,
+    Duplicate,
+}
+
+impl EmulationEditorState {
+    pub fn add_rom_folder(&mut self, path: &str) -> Result<(), RomFolderAddError> {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            return Err(RomFolderAddError::Empty);
+        }
+        if self.rom_folders.len() >= crate::backend::MAX_EMULATOR_ROM_FOLDERS {
+            return Err(RomFolderAddError::Limit);
+        }
+        if self.rom_folders.iter().any(|folder| folder.path == path) {
+            return Err(RomFolderAddError::Duplicate);
+        }
+        self.rom_folders.push(EmulatorRomFolder {
+            path,
+            recursive: true,
+        });
+        Ok(())
+    }
+
+    /// Aplica o resultado do seletor ao campo correspondente. Devolve `false`
+    /// quando o alvo não pertence a este editor/estado (resultado atrasado).
+    pub fn apply_pick(
+        &mut self,
+        purpose: &PickPurpose,
+        path: PathBuf,
+    ) -> Result<bool, RomFolderAddError> {
+        if purpose.emulator_id() != Some(self.emulator_id.as_str()) {
+            return Ok(false);
+        }
+        let path = path.to_string_lossy().into_owned();
+        match purpose.target() {
+            PickTarget::EmulatorExecutable => self.executable = path,
+            PickTarget::EmulatorCore => self.core_path = path,
+            PickTarget::EmulatorBios => self.bios_path = path,
+            PickTarget::RomFolder => self.add_rom_folder(&path)?,
+            // Sem campo de ROM única no editor; fica pronto para a próxima
+            // fatia de lançamento por emulador.
+            PickTarget::RomFile => return Ok(false),
+            PickTarget::Avatar | PickTarget::Background | PickTarget::Banner => return Ok(false),
+        }
+        Ok(true)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1028,6 +1095,36 @@ impl ProfileField {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileImageKind {
+    Background,
+    Banner,
+}
+
+impl ProfileImageKind {
+    pub fn from_purpose(purpose: &PickPurpose) -> Option<Self> {
+        match purpose {
+            PickPurpose::Background => Some(Self::Background),
+            PickPurpose::Banner => Some(Self::Banner),
+            _ => None,
+        }
+    }
+
+    pub fn ipc_kind(self) -> &'static str {
+        match self {
+            Self::Background => "background",
+            Self::Banner => "banner",
+        }
+    }
+
+    pub fn success_key(self) -> &'static str {
+        match self {
+            Self::Background => "native.profile.background_updated",
+            Self::Banner => "native.profile.banner_updated",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ProfileEditorState {
     pub editing: bool,
@@ -1041,6 +1138,10 @@ pub struct ProfileEditorState {
     pub avatar_path: String,
     pub saving: bool,
     pub uploading_avatar: bool,
+    pub uploading_background: bool,
+    pub uploading_banner: bool,
+    /// Seletor em voo; só um diálogo por vez.
+    pub pick_busy: Option<PickPurpose>,
     pub error: Option<String>,
     pub notice: Option<String>,
 }
@@ -1059,6 +1160,9 @@ impl ProfileEditorState {
             avatar_path: String::new(),
             saving: false,
             uploading_avatar: false,
+            uploading_background: false,
+            uploading_banner: false,
+            pick_busy: None,
             error: None,
             notice: None,
         }
@@ -1073,6 +1177,20 @@ impl ProfileEditorState {
             ProfileField::Showcase => self.showcase = value,
             ProfileField::BackgroundUrl => self.background_url = value,
             ProfileField::BannerUrl => self.banner_url = value,
+        }
+    }
+
+    pub fn image_url_mut(&mut self, kind: ProfileImageKind) -> &mut String {
+        match kind {
+            ProfileImageKind::Background => &mut self.background_url,
+            ProfileImageKind::Banner => &mut self.banner_url,
+        }
+    }
+
+    pub fn image_upload_busy_mut(&mut self, kind: ProfileImageKind) -> &mut bool {
+        match kind {
+            ProfileImageKind::Background => &mut self.uploading_background,
+            ProfileImageKind::Banner => &mut self.uploading_banner,
         }
     }
 }
@@ -1892,28 +2010,16 @@ impl App {
                 Task::none()
             }
             Message::EmulationFolderAdd => {
-                let invalid = self.i18n.t("native.emulation.folder_invalid").to_string();
-                let limit = self.i18n.t("native.emulation.folder_limit").to_string();
-                let duplicate = self.i18n.t("native.emulation.folder_duplicate").to_string();
                 if let Some(editor) = self.emulation.editor.as_mut() {
-                    let path = editor.folder_draft.trim().to_string();
-                    if path.is_empty() {
-                        editor.error = Some(invalid);
-                    } else if editor.rom_folders.len() >= crate::backend::MAX_EMULATOR_ROM_FOLDERS {
-                        editor.error = Some(limit);
-                    } else if editor
-                        .rom_folders
-                        .iter()
-                        .any(|folder| folder.path == path)
-                    {
-                        editor.error = Some(duplicate);
-                    } else {
-                        editor.rom_folders.push(EmulatorRomFolder {
-                            path,
-                            recursive: true,
-                        });
-                        editor.folder_draft.clear();
-                        editor.error = None;
+                    let draft = editor.folder_draft.clone();
+                    match editor.add_rom_folder(&draft) {
+                        Ok(()) => {
+                            editor.folder_draft.clear();
+                            editor.error = None;
+                        }
+                        Err(error) => {
+                            editor.error = Some(rom_folder_error_text(&self.i18n, error));
+                        }
                     }
                 }
                 Task::none()
@@ -3900,9 +4006,17 @@ impl App {
                 if self.account.editor.editing {
                     if let Some(profile) = self.account.profile.as_ref() {
                         let avatar_path = self.account.editor.avatar_path.clone();
+                        let pick_busy = self.account.editor.pick_busy.clone();
+                        let uploading_avatar = self.account.editor.uploading_avatar;
+                        let uploading_background = self.account.editor.uploading_background;
+                        let uploading_banner = self.account.editor.uploading_banner;
                         let mut editor = ProfileEditorState::from_profile(profile);
                         editor.editing = true;
                         editor.avatar_path = avatar_path;
+                        editor.pick_busy = pick_busy;
+                        editor.uploading_avatar = uploading_avatar;
+                        editor.uploading_background = uploading_background;
+                        editor.uploading_banner = uploading_banner;
                         self.account.editor = editor;
                     }
                 }
@@ -3972,29 +4086,7 @@ impl App {
                 self.account.editor.avatar_path = path;
                 Task::none()
             }
-            Message::AvatarUpload => {
-                if self.account.editor.uploading_avatar {
-                    return Task::none();
-                }
-                let path = self.account.editor.avatar_path.trim().to_string();
-                if path.is_empty() {
-                    self.account.editor.error =
-                        Some(
-                            self.i18n
-                                .t("native.profile.avatar_path_required")
-                                .to_string(),
-                        );
-                    return Task::none();
-                }
-                self.account.editor.uploading_avatar = true;
-                self.account.editor.error = None;
-                self.account.editor.notice = None;
-                let backend = self.backend.clone();
-                Task::perform(
-                    async move { backend.set_account_avatar(path).await },
-                    Message::AvatarUploadDone,
-                )
-            }
+            Message::AvatarUpload => self.start_avatar_upload(),
             Message::AvatarUploadDone(result) => {
                 self.account.editor.uploading_avatar = false;
                 match result {
@@ -4007,6 +4099,34 @@ impl App {
                             profile.avatar_url = Some(url.clone());
                         }
                         self.avatar_load_task(url)
+                    }
+                    Err(error) => {
+                        self.account.editor.error = Some(account_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                }
+            }
+            Message::PickRequested(purpose) => self.request_pick(purpose),
+            Message::PickDone { purpose, result } => self.finish_pick(purpose, result),
+            Message::ProfileImageUploadDone { kind, result } => {
+                *self.account.editor.image_upload_busy_mut(kind) = false;
+                match result {
+                    Ok(url) => {
+                        *self.account.editor.image_url_mut(kind) = url.clone();
+                        if let Some(profile) = self.account.profile.as_mut() {
+                            match kind {
+                                ProfileImageKind::Background => {
+                                    profile.background_url = Some(url);
+                                }
+                                ProfileImageKind::Banner => {
+                                    profile.banner_url = Some(url);
+                                }
+                            }
+                        }
+                        self.account.editor.error = None;
+                        self.account.editor.notice =
+                            Some(self.i18n.t(kind.success_key()).to_string());
+                        Task::none()
                     }
                     Err(error) => {
                         self.account.editor.error = Some(account_error_text(&self.i18n, &error));
@@ -4130,6 +4250,135 @@ impl App {
             async move { backend.load_avatar(request_url).await.ok() },
             move |handle| Message::AccountAvatarLoaded { url, handle },
         )
+    }
+
+    fn start_avatar_upload(&mut self) -> Task<Message> {
+        if self.account.editor.uploading_avatar {
+            return Task::none();
+        }
+        let path = self.account.editor.avatar_path.trim().to_string();
+        if path.is_empty() {
+            self.account.editor.error = Some(
+                self.i18n
+                    .t("native.profile.avatar_path_required")
+                    .to_string(),
+            );
+            return Task::none();
+        }
+        self.account.editor.uploading_avatar = true;
+        self.account.editor.error = None;
+        self.account.editor.notice = None;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.set_account_avatar(path).await },
+            Message::AvatarUploadDone,
+        )
+    }
+
+    fn start_image_upload(&mut self, kind: ProfileImageKind, path: PathBuf) -> Task<Message> {
+        if *self.account.editor.image_upload_busy_mut(kind) {
+            return Task::none();
+        }
+        *self.account.editor.image_upload_busy_mut(kind) = true;
+        self.account.editor.error = None;
+        self.account.editor.notice = None;
+        let backend = self.backend.clone();
+        let path = path.to_string_lossy().into_owned();
+        let ipc_kind = kind.ipc_kind().to_string();
+        Task::perform(
+            async move { backend.set_account_background(path, &ipc_kind).await },
+            move |result| Message::ProfileImageUploadDone { kind, result },
+        )
+    }
+
+    fn request_pick(&mut self, purpose: PickPurpose) -> Task<Message> {
+        match purpose.target() {
+            PickTarget::Avatar | PickTarget::Background | PickTarget::Banner => {
+                if !self.account.is_signed_in() || self.account.editor.pick_busy.is_some() {
+                    return Task::none();
+                }
+                self.account.editor.pick_busy = Some(purpose.clone());
+                self.account.editor.error = None;
+            }
+            _ => {
+                let Some(editor) = self.emulation.editor.as_mut() else {
+                    return Task::none();
+                };
+                if editor.pick_busy.is_some()
+                    || purpose.emulator_id() != Some(editor.emulator_id.as_str())
+                {
+                    return Task::none();
+                }
+                editor.pick_busy = Some(purpose.clone());
+                editor.error = None;
+            }
+        }
+
+        let backend = self.backend.clone();
+        let request = purpose.clone();
+        Task::perform(
+            async move { backend.pick_path(request).await },
+            move |result| Message::PickDone { purpose, result },
+        )
+    }
+
+    fn finish_pick(
+        &mut self,
+        purpose: PickPurpose,
+        result: Result<Option<PathBuf>, String>,
+    ) -> Task<Message> {
+        match purpose.target() {
+            PickTarget::Avatar => {
+                self.account.editor.pick_busy = None;
+                match result {
+                    Err(error) => {
+                        self.account.editor.error = Some(picker_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                    Ok(None) => Task::none(),
+                    Ok(Some(path)) => {
+                        self.account.editor.avatar_path = path.to_string_lossy().into_owned();
+                        self.start_avatar_upload()
+                    }
+                }
+            }
+            PickTarget::Background | PickTarget::Banner => {
+                self.account.editor.pick_busy = None;
+                let Some(kind) = ProfileImageKind::from_purpose(&purpose) else {
+                    return Task::none();
+                };
+                match result {
+                    Err(error) => {
+                        self.account.editor.error = Some(picker_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                    Ok(None) => Task::none(),
+                    Ok(Some(path)) => self.start_image_upload(kind, path),
+                }
+            }
+            _ => {
+                let Some(editor) = self.emulation.editor.as_mut() else {
+                    return Task::none();
+                };
+                if editor.pick_busy.as_ref() == Some(&purpose) {
+                    editor.pick_busy = None;
+                }
+                match result {
+                    Err(error) => {
+                        editor.error = Some(picker_error_text(&self.i18n, &error));
+                    }
+                    Ok(None) => {}
+                    Ok(Some(path)) => match editor.apply_pick(&purpose, path) {
+                        Ok(true) => editor.error = None,
+                        Ok(false) => {}
+                        Err(error) => {
+                            editor.error = Some(rom_folder_error_text(&self.i18n, error));
+                        }
+                    },
+                }
+                Task::none()
+            }
+        }
     }
 
     fn auth_focus_task(&self) -> Task<Message> {
@@ -5869,6 +6118,7 @@ impl App {
             preview_available,
             preview_roms,
             preview_truncated,
+            pick_busy: None,
         });
     }
 
@@ -6538,6 +6788,19 @@ fn console_shelf_for<'a>(library: &'a Library, tab: ConsoleTab) -> Vec<&'a Game>
     }
 }
 
+fn picker_error_text(i18n: &I18n, error: &str) -> String {
+    format!("{} {error}", i18n.t("native.picker.error"))
+}
+
+fn rom_folder_error_text(i18n: &I18n, error: RomFolderAddError) -> String {
+    let key = match error {
+        RomFolderAddError::Empty => "native.emulation.folder_invalid",
+        RomFolderAddError::Limit => "native.emulation.folder_limit",
+        RomFolderAddError::Duplicate => "native.emulation.folder_duplicate",
+    };
+    i18n.t(key).to_string()
+}
+
 fn account_error_text(i18n: &I18n, code: &str) -> String {
     // Erros de `dispatch` chegam como "[api_unavailable] … (canal)"; o código
     // entre colchetes é o que o mapa de mensagens entende.
@@ -6556,9 +6819,9 @@ fn account_error_text(i18n: &I18n, code: &str) -> String {
         "rede_indisponivel" => "account.erro_rede",
         "api_unavailable" => "native.account.erro_api",
         "nao_logado" => "native.account.erro_nao_logado",
-        "avatar_ilegivel" | "avatar_nao_imagem" | "avatar_grande" | "arquivo_ilegivel" => {
-            "native.account.erro_avatar"
-        }
+        "avatar_ilegivel" | "avatar_nao_imagem" | "avatar_grande" => "native.account.erro_avatar",
+        "arquivo_ilegivel" => "native.account.erro_arquivo",
+        "arquivo_grande" => "native.account.erro_imagem_grande",
         "sem_campos" => "native.account.erro_sem_campos",
         "resposta_invalida" => "native.account.erro_resposta",
         other => return format!("{} ({other})", i18n.t("account.erro_geral")),
@@ -6925,5 +7188,127 @@ mod tests {
         assert!(api.contains("backend"), "{api}");
         let unknown = account_error_text(&i18n, "erro_novo");
         assert!(unknown.contains("erro_novo"), "{unknown}");
+        assert!(account_error_text(&i18n, "arquivo_grande").contains("grande"));
+    }
+
+    #[test]
+    fn pick_purposes_map_to_profile_fields() {
+        assert_eq!(
+            ProfileImageKind::from_purpose(&PickPurpose::Background),
+            Some(ProfileImageKind::Background)
+        );
+        assert_eq!(
+            ProfileImageKind::from_purpose(&PickPurpose::Banner),
+            Some(ProfileImageKind::Banner)
+        );
+        assert_eq!(ProfileImageKind::from_purpose(&PickPurpose::Avatar), None);
+        assert_eq!(ProfileImageKind::Background.ipc_kind(), "background");
+        assert_eq!(ProfileImageKind::Banner.ipc_kind(), "banner");
+
+        let mut editor = ProfileEditorState::default();
+        editor.background_url = "https://manual/background.png".to_string();
+        *editor.image_url_mut(ProfileImageKind::Banner) = "https://manual/banner.png".to_string();
+        assert_eq!(editor.background_url, "https://manual/background.png");
+        assert_eq!(editor.banner_url, "https://manual/banner.png");
+
+        *editor.image_upload_busy_mut(ProfileImageKind::Background) = true;
+        assert!(editor.uploading_background);
+        assert!(!editor.uploading_banner);
+        assert_eq!(
+            ProfileImageKind::Banner.success_key(),
+            "native.profile.banner_updated"
+        );
+    }
+
+    #[test]
+    fn pick_purposes_map_to_emulation_fields_and_rom_folders() {
+        let mut editor = EmulationEditorState {
+            emulator_id: "pcsx2".to_string(),
+            executable: String::new(),
+            core_path: "/usr/lib/core.so".to_string(),
+            bios_path: String::new(),
+            args_text: String::new(),
+            rom_folders: Vec::new(),
+            folder_draft: String::new(),
+            original: None,
+            requires_core: true,
+            bios_required: true,
+            saving: false,
+            confirm_remove: false,
+            error: None,
+            scanning: false,
+            scan_error: None,
+            preview_available: false,
+            preview_roms: Vec::new(),
+            preview_truncated: false,
+            pick_busy: None,
+        };
+
+        assert!(editor
+            .apply_pick(
+                &PickPurpose::EmulatorExecutable("pcsx2".to_string()),
+                PathBuf::from("/opt/pcsx2/pcsx2-qt"),
+            )
+            .unwrap());
+        assert_eq!(editor.executable, "/opt/pcsx2/pcsx2-qt");
+
+        assert!(editor
+            .apply_pick(
+                &PickPurpose::EmulatorCore("pcsx2".to_string()),
+                PathBuf::from("/usr/lib/cores/ps2.so"),
+            )
+            .unwrap());
+        assert_eq!(editor.core_path, "/usr/lib/cores/ps2.so");
+
+        assert!(editor
+            .apply_pick(
+                &PickPurpose::EmulatorBios("pcsx2".to_string()),
+                PathBuf::from("/roms/bios"),
+            )
+            .unwrap());
+        assert_eq!(editor.bios_path, "/roms/bios");
+
+        assert!(editor
+            .apply_pick(
+                &PickPurpose::RomFolder("pcsx2".to_string()),
+                PathBuf::from("/roms/ps2"),
+            )
+            .unwrap());
+        assert_eq!(editor.rom_folders.len(), 1);
+        assert_eq!(editor.rom_folders[0].path, "/roms/ps2");
+        assert!(editor.rom_folders[0].recursive);
+
+        assert_eq!(
+            editor.apply_pick(
+                &PickPurpose::RomFolder("pcsx2".to_string()),
+                PathBuf::from("/roms/ps2"),
+            ),
+            Err(RomFolderAddError::Duplicate)
+        );
+
+        // Resultado atrasado de outro emulador e ROM única (sem campo hoje)
+        // não mexem no editor.
+        assert!(!editor
+            .apply_pick(
+                &PickPurpose::EmulatorCore("retroarch".to_string()),
+                PathBuf::from("/cores/snes.so"),
+            )
+            .unwrap());
+        assert_eq!(editor.core_path, "/usr/lib/cores/ps2.so");
+        assert!(!editor
+            .apply_pick(
+                &PickPurpose::RomFile("pcsx2".to_string()),
+                PathBuf::from("/roms/ps2/game.iso"),
+            )
+            .unwrap());
+
+        while editor.rom_folders.len() < crate::backend::MAX_EMULATOR_ROM_FOLDERS {
+            let path = format!("/roms/{}", editor.rom_folders.len());
+            editor.add_rom_folder(&path).unwrap();
+        }
+        assert_eq!(
+            editor.add_rom_folder("/roms/demais"),
+            Err(RomFolderAddError::Limit)
+        );
     }
 }
