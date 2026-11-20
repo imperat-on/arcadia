@@ -3,7 +3,11 @@
 pub mod components;
 pub mod downloads;
 pub mod friends;
+pub mod cards;
+pub mod chrome;
 pub mod game;
+pub mod home;
+pub mod icons;
 pub mod library;
 pub mod settings;
 pub mod sidebar;

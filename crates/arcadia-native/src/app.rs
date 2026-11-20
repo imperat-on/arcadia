@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use iced::widget::image::Handle;
-use iced::{Element, Fill, Task};
+use iced::{window, Element, Fill, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
@@ -59,10 +59,17 @@ pub enum Message {
     SourcesActionDone(Result<(), String>),
     FriendsLoaded(Result<FriendsLoad, String>),
     ComponentsLoaded(Result<Vec<PluginItem>, String>),
+    SidebarSearchChanged(String),
+    ToggleSidebarGames,
+    WindowReady(Option<window::Id>),
+    WindowDrag,
+    WindowMinimize,
+    WindowToggleMaximize,
+    WindowClose,
 }
 
-/// Itens fixos da sidebar. Biblioteca e as seções desta onda têm tela real;
-/// Home, Lojas e Big Picture ainda abrem um placeholder explícito.
+/// Itens fixos da sidebar. Biblioteca, Home e as seções desta onda têm tela
+/// real; Lojas e Big Picture ainda abrem um placeholder explícito.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Home,
@@ -104,7 +111,7 @@ impl Section {
 
     pub fn stub_message(self) -> &'static str {
         match self {
-            Section::Home => "A Home nativa entra na próxima onda. A Biblioteca já está funcional.",
+            Section::Home => "A Home nativa usa os dados locais da biblioteca.",
             Section::Library => "Biblioteca local carregada via `library:get`.",
             Section::Stores => "A vitrine de lojas ainda não foi portada para o iced.",
             Section::Components => "Plugins e componentes ainda não têm tela nativa.",
@@ -324,6 +331,9 @@ pub struct App {
     pub sources: SourcesState,
     pub friends: FriendsState,
     pub components: ComponentsState,
+    pub sidebar_search: String,
+    pub sidebar_games_open: bool,
+    pub window: Option<window::Id>,
 }
 
 impl App {
@@ -339,8 +349,14 @@ impl App {
             sources: SourcesState::default(),
             friends: FriendsState::default(),
             components: ComponentsState::default(),
+            sidebar_search: String::new(),
+            sidebar_games_open: true,
+            window: None,
         };
-        let task = app.reload_task();
+        let task = Task::batch([
+            app.reload_task(),
+            window::latest().map(Message::WindowReady),
+        ]);
         (app, task)
     }
 
@@ -596,6 +612,22 @@ impl App {
                 }
                 Task::none()
             }
+            Message::SidebarSearchChanged(search) => {
+                self.sidebar_search = search;
+                Task::none()
+            }
+            Message::ToggleSidebarGames => {
+                self.sidebar_games_open = !self.sidebar_games_open;
+                Task::none()
+            }
+            Message::WindowReady(id) => {
+                self.window = id;
+                Task::none()
+            }
+            Message::WindowDrag => self.window_task(window::drag),
+            Message::WindowMinimize => self.window_task(|id| window::minimize(id, true)),
+            Message::WindowToggleMaximize => self.window_task(window::toggle_maximize),
+            Message::WindowClose => self.window_task(window::close),
         }
     }
 
@@ -612,15 +644,21 @@ impl App {
             Screen::Section(Section::Sources) => views::sources::view(self),
             Screen::Section(Section::Friends) => views::friends::view(self),
             Screen::Section(Section::Components) => views::components::view(self),
+            Screen::Section(Section::Home) => views::home::view(self),
             Screen::Section(section) => views::section_placeholder(*section),
         };
 
-        iced::widget::row![
-            sidebar,
-            iced::widget::container(content)
-                .width(Fill)
-                .height(Fill)
-                .style(theme::app_background)
+        iced::widget::column![
+            views::chrome::top_bar(),
+            iced::widget::row![
+                sidebar,
+                iced::widget::container(content)
+                    .width(Fill)
+                    .height(Fill)
+                    .style(theme::app_background)
+            ]
+            .width(Fill)
+            .height(Fill)
         ]
         .width(Fill)
         .height(Fill)
@@ -698,6 +736,13 @@ impl App {
                 result,
             },
         )
+    }
+
+    fn window_task<F>(&self, action: F) -> Task<Message>
+    where
+        F: FnOnce(window::Id) -> Task<Message>,
+    {
+        self.window.map(action).unwrap_or_else(Task::none)
     }
 
     fn reload_task(&self) -> Task<Message> {
