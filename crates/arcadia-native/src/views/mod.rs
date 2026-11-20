@@ -2,6 +2,7 @@
 
 pub mod components;
 pub mod downloads;
+pub mod emulation;
 pub mod friends;
 pub mod big_picture;
 pub mod cards;

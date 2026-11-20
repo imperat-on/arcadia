@@ -69,6 +69,7 @@ fn ready_body(app: &App) -> Element<'_, Message> {
         SettingsTab::Downloads => downloads_tab(app, config, disabled),
         SettingsTab::Playback => playback_tab(app, config, disabled),
         SettingsTab::Integrations => integrations_tab(app, config),
+        SettingsTab::Emulation => views::emulation::view(app),
         SettingsTab::About => about_tab(app, config),
     };
 

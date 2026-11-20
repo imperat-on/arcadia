@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use arcadia_ipc::{dispatch_async, AppState};
 use iced::widget::image::Handle;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::shell::NativeShell;
@@ -3106,6 +3106,434 @@ async fn fetch_cover_http(http: reqwest::Client, url: String) -> Option<Handle> 
     decode_cover(&bytes).map(|(width, height, pixels)| Handle::from_rgba(width, height, pixels))
 }
 
+// ── Emuladores ──────────────────────────────────────────────────────────────
+
+/// Pasta de ROM do perfil (`emulators:profile:set`/`emulators:profiles`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmulatorRomFolder {
+    pub path: String,
+    #[serde(default = "default_true")]
+    pub recursive: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Perfil persistido em `emulators.json`, como devolvido por
+/// `emulators:list` (`profile`) e `emulators:profiles`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EmulatorProfile {
+    pub id: String,
+    pub executable: String,
+    pub core_path: String,
+    pub bios_path: String,
+    pub rom_folders: Vec<EmulatorRomFolder>,
+    pub args: Vec<String>,
+    pub updated_at: i64,
+}
+
+/// Item do catálogo de `emulators:list`/`emulators:detect`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorInfo {
+    pub id: String,
+    pub name: String,
+    pub systems: Vec<String>,
+    pub description: String,
+    pub candidates: Vec<String>,
+    pub executable: String,
+    pub detected_args: Vec<String>,
+    pub available: bool,
+    /// `builtin`, `detected` ou `configured`, direto do contrato.
+    pub source: String,
+    pub requires_core: bool,
+    pub rom_extensions: Vec<String>,
+    pub rom_directory_markers: Vec<String>,
+    pub profile: Option<EmulatorProfile>,
+}
+
+/// Item de `emulators:status`: BIOS/firmware, processo e código de erro.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorStatus {
+    pub ok: bool,
+    pub emulator_id: String,
+    pub kind: Option<String>,
+    pub required: bool,
+    pub installed: bool,
+    pub detected_path: Option<String>,
+    pub error: Option<String>,
+    pub code: Option<String>,
+    pub running: bool,
+    pub running_pid: Option<u64>,
+}
+
+/// ROM encontrada pelo scanner e persistida no índice.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorRomEntry {
+    pub path: String,
+    pub name: String,
+    pub relative_path: String,
+    pub extension: String,
+    pub kind: String,
+    pub size_bytes: u64,
+    pub mtime_ms: i64,
+    pub sidecars: Vec<String>,
+}
+
+/// Entrada de `emulators:roms:index` por emulador.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorRomIndexEntry {
+    pub updated_at: i64,
+    pub directory: String,
+    pub folders: Vec<EmulatorRomFolder>,
+    pub truncated: bool,
+    pub roms: Vec<EmulatorRomEntry>,
+}
+
+/// Resultado de `emulators:roms`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorScanResult {
+    pub emulator_id: String,
+    pub directory: Option<String>,
+    pub recursive: bool,
+    pub max_depth: u64,
+    pub folders: Vec<EmulatorRomFolder>,
+    pub truncated: bool,
+    pub persisted: bool,
+    pub roms: Vec<EmulatorRomEntry>,
+}
+
+/// Carga paralela da aba Emulação.
+#[derive(Debug, Clone, Default)]
+pub struct EmulationLoad {
+    pub emulators: Vec<EmulatorInfo>,
+    pub statuses: Vec<EmulatorStatus>,
+    pub rom_index: std::collections::BTreeMap<String, EmulatorRomIndexEntry>,
+    /// Falhas parciais de status/índice/perfis; o catálogo continua visível.
+    pub warnings: Vec<String>,
+}
+
+fn value_texts(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_emulator_rom_folder(value: &Value) -> Option<EmulatorRomFolder> {
+    if let Some(path) = value.as_str() {
+        let path = path.trim();
+        return (!path.is_empty()).then(|| EmulatorRomFolder {
+            path: path.to_string(),
+            recursive: true,
+        });
+    }
+    let path = text_field(value, "path");
+    if path.is_empty() {
+        return None;
+    }
+    Some(EmulatorRomFolder {
+        path,
+        recursive: value
+            .get("recursive")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    })
+}
+
+fn parse_emulator_rom_folders(value: Option<&Value>) -> Vec<EmulatorRomFolder> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(parse_emulator_rom_folder)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_emulator_profile(value: &Value) -> Option<EmulatorProfile> {
+    let id = text_field(value, "id");
+    if id.is_empty() {
+        return None;
+    }
+    Some(EmulatorProfile {
+        id,
+        executable: text_field(value, "executable"),
+        core_path: text_field(value, "corePath"),
+        bios_path: text_field(value, "biosPath"),
+        rom_folders: parse_emulator_rom_folders(value.get("romFolders")),
+        args: value
+            .get("args")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        updated_at: value.get("updatedAt").and_then(Value::as_i64).unwrap_or(0),
+    })
+}
+
+fn parse_emulator_info(value: &Value) -> Option<EmulatorInfo> {
+    let id = text_field(value, "id");
+    if id.is_empty() {
+        return None;
+    }
+    let name = text_field(value, "name");
+    Some(EmulatorInfo {
+        name: if name.is_empty() { id.clone() } else { name },
+        id,
+        systems: value_texts(value.get("systems")),
+        description: text_field(value, "description"),
+        candidates: value_texts(value.get("candidates")),
+        executable: text_field(value, "executable"),
+        detected_args: value_texts(value.get("detectedArgs")),
+        available: value.get("available").and_then(Value::as_bool).unwrap_or(false),
+        source: {
+            let source = text_field(value, "source");
+            if source.is_empty() {
+                "builtin".to_string()
+            } else {
+                source.to_ascii_lowercase()
+            }
+        },
+        requires_core: value
+            .get("requiresCore")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        rom_extensions: value_texts(value.get("romExtensions")),
+        rom_directory_markers: value_texts(value.get("romDirectoryMarkers")),
+        profile: value.get("profile").and_then(parse_emulator_profile),
+    })
+}
+
+fn parse_emulator_status(value: &Value) -> Option<EmulatorStatus> {
+    let emulator_id = text_field(value, "emulatorId");
+    if emulator_id.is_empty() {
+        return None;
+    }
+    Some(EmulatorStatus {
+        ok: value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        emulator_id,
+        kind: optional_text_field(value, "kind"),
+        required: value.get("required").and_then(Value::as_bool).unwrap_or(false),
+        installed: value
+            .get("installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        detected_path: optional_text_field(value, "detectedPath"),
+        error: optional_text_field(value, "error"),
+        code: optional_text_field(value, "code"),
+        running: value.get("running").and_then(Value::as_bool).unwrap_or(false),
+        running_pid: value.get("runningPid").and_then(Value::as_u64),
+    })
+}
+
+fn parse_emulator_rom_entry(value: &Value) -> Option<EmulatorRomEntry> {
+    let path = text_field(value, "path");
+    if path.is_empty() {
+        return None;
+    }
+    let name = {
+        let name = text_field(value, "name");
+        if name.is_empty() {
+            path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string()
+        } else {
+            name
+        }
+    };
+    let relative_path = {
+        let relative = text_field(value, "relativePath");
+        if relative.is_empty() {
+            name.clone()
+        } else {
+            relative
+        }
+    };
+    Some(EmulatorRomEntry {
+        path,
+        name,
+        relative_path,
+        extension: text_field(value, "extension"),
+        kind: {
+            let kind = text_field(value, "kind");
+            if kind.is_empty() {
+                "file".to_string()
+            } else {
+                kind
+            }
+        },
+        size_bytes: value.get("sizeBytes").and_then(Value::as_u64).unwrap_or(0),
+        mtime_ms: value.get("mtimeMs").and_then(Value::as_i64).unwrap_or(0),
+        sidecars: value_texts(value.get("sidecars")),
+    })
+}
+
+fn parse_emulator_rom_entries(value: Option<&Value>) -> Vec<EmulatorRomEntry> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(parse_emulator_rom_entry)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_emulator_rom_index_entry(value: &Value) -> EmulatorRomIndexEntry {
+    EmulatorRomIndexEntry {
+        updated_at: value.get("updatedAt").and_then(Value::as_i64).unwrap_or(0),
+        directory: text_field(value, "directory"),
+        folders: parse_emulator_rom_folders(value.get("folders")),
+        truncated: value.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+        roms: parse_emulator_rom_entries(value.get("roms")),
+    }
+}
+
+/// `emulators:list`/`emulators:detect` → catálogo tipado.
+pub fn parse_emulators_list(value: Value) -> Result<Vec<EmulatorInfo>, String> {
+    check_envelope(&value, "emulators:list")?;
+    let items = value
+        .get("emulators")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "emulators:list não devolveu a lista de emuladores".to_string())?;
+    Ok(items.iter().filter_map(parse_emulator_info).collect())
+}
+
+/// `emulators:status` → BIOS/firmware/execução por emulador.
+pub fn parse_emulators_status(value: Value) -> Result<Vec<EmulatorStatus>, String> {
+    check_envelope(&value, "emulators:status")?;
+    let items = value
+        .get("statuses")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "emulators:status não devolveu a lista de status".to_string())?;
+    Ok(items.iter().filter_map(parse_emulator_status).collect())
+}
+
+/// `emulators:profiles` → perfis indexados pelo id do emulador.
+pub fn parse_emulators_profiles(
+    value: Value,
+) -> Result<std::collections::BTreeMap<String, EmulatorProfile>, String> {
+    check_envelope(&value, "emulators:profiles")?;
+    let profiles = value
+        .get("profiles")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "emulators:profiles não devolveu o mapa de perfis".to_string())?;
+    Ok(profiles
+        .iter()
+        .filter_map(|(id, profile)| {
+            parse_emulator_profile(profile).map(|parsed| (id.clone(), parsed))
+        })
+        .collect())
+}
+
+/// `emulators:roms` → resultado do scanner configurado.
+pub fn parse_emulator_roms(value: Value) -> Result<EmulatorScanResult, String> {
+    check_envelope(&value, "emulators:roms")?;
+    Ok(EmulatorScanResult {
+        emulator_id: text_field(&value, "emulatorId"),
+        directory: optional_text_field(&value, "directory"),
+        recursive: value.get("recursive").and_then(Value::as_bool).unwrap_or(true),
+        max_depth: value.get("maxDepth").and_then(Value::as_u64).unwrap_or(0),
+        folders: parse_emulator_rom_folders(value.get("folders")),
+        truncated: value.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+        persisted: value.get("persisted").and_then(Value::as_bool).unwrap_or(false),
+        roms: parse_emulator_rom_entries(value.get("roms")),
+    })
+}
+
+/// `emulators:roms:index` → índice persistido por emulador.
+pub fn parse_emulators_rom_index(
+    value: Value,
+) -> Result<std::collections::BTreeMap<String, EmulatorRomIndexEntry>, String> {
+    check_envelope(&value, "emulators:roms:index")?;
+    let emulators = value
+        .get("emulators")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "emulators:roms:index não devolveu o índice".to_string())?;
+    Ok(emulators
+        .iter()
+        .map(|(id, entry)| (id.clone(), parse_emulator_rom_index_entry(entry)))
+        .collect())
+}
+
+/// Limite de argumentos aceito pelo registry (`MAX_ARGS`).
+pub const MAX_EMULATOR_ARGS: usize = 32;
+
+/// Limite de pastas de ROM aceito pelo registry (`MAX_ROM_FOLDERS`).
+pub const MAX_EMULATOR_ROM_FOLDERS: usize = 32;
+
+/// Executável do perfil: caminho/nome não vazio. Nada é executado aqui.
+pub fn valid_emulator_executable(executable: &str) -> bool {
+    !executable.trim().is_empty()
+}
+
+/// Divide os argumentos por espaços, sem interpretar aspas ou shell, e limita
+/// a [`MAX_EMULATOR_ARGS`] entradas.
+pub fn parse_emulator_args(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .take(MAX_EMULATOR_ARGS)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Argumentos do editor: se o texto não mudou em relação ao perfil salvo,
+/// devolve a lista original intacta (um argv existente pode conter espaços).
+pub fn emulator_args_from_text(text: &str, existing: Option<&EmulatorProfile>) -> Vec<String> {
+    match existing {
+        Some(profile) if text == profile.args.join(" ") => profile.args.clone(),
+        _ => parse_emulator_args(text),
+    }
+}
+
+/// Campos editáveis de um perfil; `None` em core/bios significa "preserve o
+/// valor do perfil existente" (campo fora do formulário).
+pub struct EmulatorProfileDraft<'a> {
+    pub id: &'a str,
+    pub executable: &'a str,
+    pub core_path: Option<&'a str>,
+    pub bios_path: Option<&'a str>,
+    pub rom_folders: &'a [EmulatorRomFolder],
+    pub args: &'a [String],
+    pub existing: Option<&'a EmulatorProfile>,
+}
+
+/// Payload de `emulators:profile:set` preservando core/bios fora do formulário.
+pub fn emulator_profile_payload(draft: &EmulatorProfileDraft<'_>) -> Value {
+    let preserved_core = draft
+        .existing
+        .map(|profile| profile.core_path.as_str())
+        .unwrap_or("");
+    let preserved_bios = draft
+        .existing
+        .map(|profile| profile.bios_path.as_str())
+        .unwrap_or("");
+    json!({
+        "id": draft.id,
+        "executable": draft.executable.trim(),
+        "corePath": draft.core_path.unwrap_or(preserved_core),
+        "biosPath": draft.bios_path.unwrap_or(preserved_bios),
+        "romFolders": draft.rom_folders,
+        "args": draft.args,
+    })
+}
+
 /// Fachada compartilhada pelas tasks do iced.
 #[derive(Clone)]
 pub struct Backend {
@@ -3420,6 +3848,93 @@ impl Backend {
             .get("config")
             .ok_or_else(|| "config:set não devolveu a configuração".to_string())?;
         Ok(SettingsConfig::from_value(config))
+    }
+
+    /// Carrega catálogo, status, perfis e índice de ROMs em paralelo.
+    ///
+    /// `detect` força `emulators:detect`; falhas parciais de status/índice/
+    /// perfis viram avisos para a tela não perder o catálogo já disponível.
+    pub async fn load_emulation(&self, detect: bool) -> Result<EmulationLoad, String> {
+        let channel = if detect {
+            "emulators:detect"
+        } else {
+            "emulators:list"
+        };
+        let (catalog, statuses, index, profiles) = tokio::join!(
+            self.dispatch(channel, Vec::new()),
+            self.dispatch("emulators:status", Vec::new()),
+            self.dispatch("emulators:roms:index", Vec::new()),
+            self.dispatch("emulators:profiles", Vec::new())
+        );
+
+        let mut emulators = parse_emulators_list(catalog?)?;
+        let mut warnings = Vec::new();
+
+        let statuses = match statuses.and_then(parse_emulators_status) {
+            Ok(statuses) => statuses,
+            Err(error) => {
+                warnings.push(format!("emulators:status: {error}"));
+                Vec::new()
+            }
+        };
+        let rom_index = match index.and_then(parse_emulators_rom_index) {
+            Ok(index) => index,
+            Err(error) => {
+                warnings.push(format!("emulators:roms:index: {error}"));
+                Default::default()
+            }
+        };
+        let profiles = match profiles.and_then(parse_emulators_profiles) {
+            Ok(profiles) => profiles,
+            Err(error) => {
+                warnings.push(format!("emulators:profiles: {error}"));
+                Default::default()
+            }
+        };
+
+        // `emulators:list` já inclui o perfil; o mapa de profiles cobre uma
+        // resposta antiga/sem o campo sem exigir outro round-trip na view.
+        for emulator in &mut emulators {
+            if emulator.profile.is_none() {
+                emulator.profile = profiles.get(&emulator.id).cloned();
+            }
+        }
+
+        Ok(EmulationLoad {
+            emulators,
+            statuses,
+            rom_index,
+            warnings,
+        })
+    }
+
+    pub async fn save_emulator_profile(&self, payload: Value) -> Result<(), String> {
+        let value = self
+            .dispatch("emulators:profile:set", vec![payload])
+            .await?;
+        check_envelope(&value, "emulators:profile:set")
+    }
+
+    pub async fn remove_emulator_profile(&self, id: String) -> Result<(), String> {
+        let value = self
+            .dispatch("emulators:profile:remove", vec![Value::String(id)])
+            .await?;
+        check_envelope(&value, "emulators:profile:remove")
+    }
+
+    /// `emulators:roms` com as pastas persistidas do perfil (sem diretório
+    /// avulso), limite de 256 resultados e recursão ligada.
+    pub async fn scan_configured_emulator_roms(
+        &self,
+        emulator_id: String,
+    ) -> Result<EmulatorScanResult, String> {
+        let payload = json!({
+            "emulatorId": emulator_id,
+            "recursive": true,
+            "maxResults": 256,
+        });
+        let value = self.dispatch("emulators:roms", vec![payload]).await?;
+        parse_emulator_roms(value)
     }
 
     pub async fn load_sources(&self) -> Result<Vec<SourceItem>, String> {
@@ -4976,5 +5491,315 @@ mod tests {
         assert!(failed.contains("Game not found"), "{failed}");
         assert!(parse_retro_game_detail(json!({ "ok": true })).is_err());
         assert!(parse_retro_offer_detail(json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_emulators_list_with_profiles_and_detected_wrappers() {
+        let emulators = parse_emulators_list(json!({
+            "ok": true,
+            "emulators": [
+                {
+                    "id": "pcsx2",
+                    "name": "PCSX2",
+                    "systems": ["PlayStation 2"],
+                    "description": "Emulador de PlayStation 2",
+                    "candidates": ["pcsx2-qt", "pcsx2"],
+                    "romExtensions": [".iso", ".chd"],
+                    "romDirectoryMarkers": ["roms"],
+                    "executable": "/usr/bin/pcsx2-qt",
+                    "available": true,
+                    "source": "configured",
+                    "requiresCore": false,
+                    "profile": {
+                        "id": "pcsx2",
+                        "executable": "/usr/bin/pcsx2-qt",
+                        "corePath": "",
+                        "biosPath": "/home/jogador/bios/ps2",
+                        "romFolders": [
+                            { "path": "/home/jogador/roms/ps2", "recursive": true }
+                        ],
+                        "args": ["-fullscreen", "-nogui"],
+                        "updatedAt": 1_700_000_000_000i64
+                    }
+                },
+                {
+                    "id": "duckstation",
+                    "name": "DuckStation",
+                    "systems": ["PlayStation 1"],
+                    "description": "Emulador de PlayStation 1",
+                    "executable": "flatpak",
+                    "detectedArgs": ["run", "org.duckstation.DuckStation"],
+                    "available": true,
+                    "source": "detected",
+                    "requiresCore": true,
+                    "romExtensions": [".cue"],
+                    "romDirectoryMarkers": []
+                },
+                { "id": "", "name": "sem id" }
+            ]
+        }))
+        .expect("catálogo válido");
+
+        assert_eq!(emulators.len(), 2);
+        let pcsx2 = &emulators[0];
+        assert_eq!(pcsx2.id, "pcsx2");
+        assert_eq!(pcsx2.systems, vec!["PlayStation 2"]);
+        assert_eq!(pcsx2.source, "configured");
+        assert!(pcsx2.available);
+        let profile = pcsx2.profile.as_ref().expect("perfil configurado");
+        assert_eq!(profile.bios_path, "/home/jogador/bios/ps2");
+        assert_eq!(profile.args, vec!["-fullscreen", "-nogui"]);
+        assert_eq!(profile.rom_folders[0].path, "/home/jogador/roms/ps2");
+        assert!(profile.rom_folders[0].recursive);
+
+        let duckstation = &emulators[1];
+        assert_eq!(
+            duckstation.detected_args,
+            vec!["run", "org.duckstation.DuckStation"]
+        );
+        assert!(duckstation.requires_core);
+        assert!(duckstation.profile.is_none());
+
+        let failed = parse_emulators_list(json!({ "ok": false, "error": "fila ocupada" }))
+            .expect_err("ok:false deve virar erro");
+        assert!(failed.contains("fila ocupada"), "{failed}");
+    }
+
+    #[test]
+    fn parses_emulators_status_bios_and_running() {
+        let statuses = parse_emulators_status(json!({
+            "ok": true,
+            "statuses": [
+                {
+                    "ok": true,
+                    "emulatorId": "duckstation",
+                    "kind": "bios",
+                    "required": true,
+                    "installed": true,
+                    "detectedPath": "/home/jogador/bios/ps1",
+                    "running": false,
+                    "runningPid": null
+                },
+                {
+                    "ok": true,
+                    "emulatorId": "rpcs3",
+                    "kind": "firmware",
+                    "required": false,
+                    "installed": false,
+                    "detectedPath": null,
+                    "running": true,
+                    "runningPid": 4242
+                }
+            ]
+        }))
+        .expect("status válido");
+
+        assert_eq!(statuses.len(), 2);
+        assert!(statuses[0].required);
+        assert!(statuses[0].installed);
+        assert_eq!(
+            statuses[0].detected_path.as_deref(),
+            Some("/home/jogador/bios/ps1")
+        );
+        assert_eq!(statuses[1].kind.as_deref(), Some("firmware"));
+        assert!(statuses[1].running);
+        assert_eq!(statuses[1].running_pid, Some(4242));
+        assert!(parse_emulators_status(json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_emulators_profiles_map() {
+        let profiles = parse_emulators_profiles(json!({
+            "ok": true,
+            "profiles": {
+                "retroarch": {
+                    "id": "retroarch",
+                    "executable": "/usr/bin/retroarch",
+                    "corePath": "/home/jogador/cores/snes9x_libretro.so",
+                    "biosPath": "",
+                    "romFolders": [
+                        { "path": "/home/jogador/roms/snes", "recursive": false }
+                    ],
+                    "args": ["-v"],
+                    "updatedAt": 1_700_000_000_001i64
+                }
+            }
+        }))
+        .expect("perfis válidos");
+
+        let retroarch = profiles.get("retroarch").expect("perfil");
+        assert_eq!(retroarch.executable, "/usr/bin/retroarch");
+        assert_eq!(
+            retroarch.core_path,
+            "/home/jogador/cores/snes9x_libretro.so"
+        );
+        assert!(!retroarch.rom_folders[0].recursive);
+        assert_eq!(retroarch.args, vec!["-v"]);
+        assert!(parse_emulators_profiles(json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_emulators_roms_scan_result() {
+        let result = parse_emulator_roms(json!({
+            "ok": true,
+            "emulatorId": "pcsx2",
+            "recursive": true,
+            "maxDepth": 6,
+            "folders": [{ "path": "/home/jogador/roms/ps2", "recursive": true }],
+            "truncated": true,
+            "persisted": true,
+            "roms": [
+                {
+                    "path": "/home/jogador/roms/ps2/Game.cue",
+                    "name": "Game.cue",
+                    "relativePath": "Game.cue",
+                    "extension": ".cue",
+                    "kind": "file",
+                    "sizeBytes": 4096,
+                    "mtimeMs": 1_700_000_000_002i64,
+                    "sidecars": ["/home/jogador/roms/ps2/Game.bin"]
+                }
+            ]
+        }))
+        .expect("varredura válida");
+
+        assert_eq!(result.emulator_id, "pcsx2");
+        assert!(result.recursive);
+        assert!(result.truncated);
+        assert!(result.persisted);
+        assert_eq!(result.folders.len(), 1);
+        assert_eq!(result.roms.len(), 1);
+        assert_eq!(result.roms[0].relative_path, "Game.cue");
+        assert_eq!(result.roms[0].size_bytes, 4096);
+        assert_eq!(result.roms[0].sidecars.len(), 1);
+
+        let failed = parse_emulator_roms(json!({
+            "ok": false,
+            "error": "diretorio_rom_invalido"
+        }))
+        .expect_err("ok:false deve virar erro");
+        assert!(failed.contains("diretorio_rom_invalido"), "{failed}");
+    }
+
+    #[test]
+    fn parses_emulators_rom_index_entries() {
+        let index = parse_emulators_rom_index(json!({
+            "ok": true,
+            "emulators": {
+                "pcsx2": {
+                    "updatedAt": 1_700_000_000_003i64,
+                    "directory": "",
+                    "folders": [{ "path": "/roms/ps2", "recursive": true }],
+                    "truncated": false,
+                    "roms": [
+                        {
+                            "path": "/roms/ps2/Other.iso",
+                            "name": "Other.iso",
+                            "relativePath": "Other.iso",
+                            "extension": ".iso",
+                            "sizeBytes": 1024,
+                            "sidecars": []
+                        }
+                    ]
+                }
+            }
+        }))
+        .expect("índice válido");
+
+        let entry = index.get("pcsx2").expect("entrada");
+        assert_eq!(entry.updated_at, 1_700_000_000_003);
+        assert_eq!(entry.folders[0].path, "/roms/ps2");
+        assert!(!entry.truncated);
+        assert_eq!(entry.roms[0].name, "Other.iso");
+        assert_eq!(entry.roms[0].kind, "file");
+    }
+
+    #[test]
+    fn emulator_profile_payload_preserves_fields_outside_the_form() {
+        let existing = EmulatorProfile {
+            id: "retroarch".to_string(),
+            executable: "/usr/bin/retroarch".to_string(),
+            core_path: "/home/jogador/cores/snes9x_libretro.so".to_string(),
+            bios_path: "/home/jogador/bios".to_string(),
+            rom_folders: vec![EmulatorRomFolder {
+                path: "/home/jogador/roms/antigas".to_string(),
+                recursive: true,
+            }],
+            args: vec!["-v".to_string()],
+            updated_at: 1,
+        };
+        let folders = vec![EmulatorRomFolder {
+            path: "/home/jogador/roms/snes".to_string(),
+            recursive: false,
+        }];
+        let args = vec!["-f".to_string()];
+
+        let preserved = emulator_profile_payload(&EmulatorProfileDraft {
+            id: "retroarch",
+            executable: "  /usr/bin/retroarch  ",
+            core_path: None,
+            bios_path: None,
+            rom_folders: &folders,
+            args: &args,
+            existing: Some(&existing),
+        });
+        assert_eq!(preserved["executable"], json!("/usr/bin/retroarch"));
+        assert_eq!(
+            preserved["corePath"],
+            json!("/home/jogador/cores/snes9x_libretro.so")
+        );
+        assert_eq!(preserved["biosPath"], json!("/home/jogador/bios"));
+        assert_eq!(
+            preserved["romFolders"],
+            json!([{ "path": "/home/jogador/roms/snes", "recursive": false }])
+        );
+        assert_eq!(preserved["args"], json!(["-f"]));
+
+        let cleared = emulator_profile_payload(&EmulatorProfileDraft {
+            id: "retroarch",
+            executable: "/usr/bin/retroarch",
+            core_path: Some(""),
+            bios_path: Some(""),
+            rom_folders: &folders,
+            args: &args,
+            existing: Some(&existing),
+        });
+        assert_eq!(cleared["corePath"], json!(""));
+        assert_eq!(cleared["biosPath"], json!(""));
+    }
+
+    #[test]
+    fn emulator_args_split_without_shell_and_reject_empty_executable() {
+        assert_eq!(
+            parse_emulator_args("  --fullscreen\t-L \"core path.so\"  "),
+            vec!["--fullscreen", "-L", "\"core", "path.so\""]
+        );
+        let many = (0..40)
+            .map(|index| format!("a{index}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(parse_emulator_args(&many).len(), MAX_EMULATOR_ARGS);
+
+        let existing = EmulatorProfile {
+            id: "retroarch".to_string(),
+            args: vec![
+                "--config=/home/jogador/config com espaço.cfg".to_string(),
+                "-v".to_string(),
+            ],
+            ..EmulatorProfile::default()
+        };
+        let untouched = existing.args.join(" ");
+        assert_eq!(
+            emulator_args_from_text(&untouched, Some(&existing)),
+            existing.args
+        );
+        assert_eq!(
+            emulator_args_from_text("--config=/novo.cfg -v", Some(&existing)),
+            vec!["--config=/novo.cfg", "-v"]
+        );
+
+        assert!(valid_emulator_executable("/usr/bin/pcsx2-qt"));
+        assert!(!valid_emulator_executable(""));
+        assert!(!valid_emulator_executable("   "));
     }
 }
