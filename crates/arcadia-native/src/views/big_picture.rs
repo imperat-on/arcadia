@@ -145,6 +145,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.launch_options.open {
         if let Some(game) = app.library.game(&app.launch_options.game_id) {
             layers = layers.push(super::game::launch_options_overlay(
+                &app.i18n,
                 &app.launch_options,
                 game,
             ));
@@ -170,9 +171,9 @@ fn background<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messa
                     .font(theme::FONT_BOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.10)),
                 text(match &app.library.status {
-                    LibraryStatus::Loading => "Carregando a biblioteca local…",
-                    LibraryStatus::Error(_) => "Biblioteca indisponível",
-                    LibraryStatus::Ready => "Modo console",
+                    LibraryStatus::Loading => app.i18n.t("native.console.library_loading"),
+                    LibraryStatus::Error(_) => app.i18n.t("native.console.library_unavailable"),
+                    LibraryStatus::Ready => app.i18n.t("native.console.mode"),
                 })
                 .size(13)
                 .color(FAINT),
@@ -229,7 +230,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let profile = container(
         row![
             container(
-                text("J")
+                text(initial(app.i18n.t("native.profile.local")))
                     .size(13)
                     .font(theme::FONT_BOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.85)),
@@ -240,11 +241,13 @@ fn top_bar(app: &App) -> Element<'_, Message> {
             .align_y(iced::Center)
             .style(theme::avatar),
             column![
-                text("Jogador local")
+                text(app.i18n.t("native.profile.local"))
                     .size(12)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_1),
-                text("Perfil local").size(9).color(FAINT),
+                text(app.i18n.t("native.console.profile_sub"))
+                    .size(9)
+                    .color(FAINT),
             ]
             .spacing(1),
         ]
@@ -255,7 +258,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     .style(theme::console_profile);
 
     let exit = button(
-        text("Sair")
+        text(app.i18n.t("native.sidebar.logout"))
             .size(12)
             .font(theme::FONT_MEDIUM)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.78)),
@@ -291,9 +294,12 @@ fn top_bar(app: &App) -> Element<'_, Message> {
 
 fn connection(app: &App) -> Element<'_, Message> {
     let (color, label) = match &app.library.status {
-        LibraryStatus::Ready => (theme::SUCCESS, "Local conectado"),
-        LibraryStatus::Loading => (theme::WARNING, "Conectando"),
-        LibraryStatus::Error(_) => (theme::DANGER, "Sem conexão"),
+        LibraryStatus::Ready => (theme::SUCCESS, app.i18n.t("native.console.status.local")),
+        LibraryStatus::Loading => (
+            theme::WARNING,
+            app.i18n.t("native.console.status.connecting"),
+        ),
+        LibraryStatus::Error(_) => (theme::DANGER, app.i18n.t("native.console.status.offline")),
     };
 
     row![
@@ -372,24 +378,26 @@ fn hero_copy<'a>(app: &'a App, game: &'a Game, tab: ConsoleTab) -> Element<'a, M
         .unwrap_or("")
         .to_uppercase();
     let tag = if tab == ConsoleTab::Home && game.favorite {
-        format!("FAVORITO · {genre}")
+        format!("{} · {genre}", app.i18n.t("native.console.favorite_tag"))
     } else if genre.is_empty() {
         if tab == ConsoleTab::Home {
-            "DESTAQUE".to_string()
+            app.i18n.t("native.console.highlight_home").to_string()
         } else {
-            "EM DESTAQUE".to_string()
+            app.i18n.t("native.console.highlight_library").to_string()
         }
     } else {
         genre
     };
 
     let mut details = row![
-        text(game.playtime_label()).size(12).color(MUTED),
+        text(game.playtime_label_i18n(&app.i18n))
+            .size(12)
+            .color(MUTED),
         text("·").size(12).color(FAINT),
         text(if game.installed {
-            "Instalado"
+            app.i18n.t("native.game.installed")
         } else {
-            "Não instalado"
+            app.i18n.t("native.game.not_installed")
         })
         .size(12)
         .color(if game.installed {
@@ -429,7 +437,9 @@ fn hero_copy<'a>(app: &'a App, game: &'a Game, tab: ConsoleTab) -> Element<'a, M
             .color(theme::TEXT_1)
             .wrapping(Wrapping::WordOrGlyph),
         text(subtitle).size(12).color(FAINT),
-        text(game.metadata_line()).size(14).color(MUTED),
+        text(game.metadata_line_i18n(&app.i18n))
+            .size(14)
+            .color(MUTED),
         details,
         text(
             app.big_picture
@@ -485,9 +495,12 @@ fn tab_placeholder(app: &App, tab: ConsoleTab) -> Element<'_, Message> {
         ),
         ConsoleTab::News => (
             i18n.t("topbar.noticias"),
-            "A lista de notícias usa o feed `news:get`.",
+            i18n.t("native.console.news_feed_note"),
         ),
-        ConsoleTab::Library => (i18n.t("sidebar.biblioteca"), "Use o trilho para escolher um jogo."),
+        ConsoleTab::Library => (
+            i18n.t("sidebar.biblioteca"),
+            i18n.t("native.console.library_hint"),
+        ),
     };
 
     container(
@@ -531,31 +544,36 @@ fn news_view(app: &App) -> Element<'_, Message> {
     let state = &app.console_news;
     let header = row![
         column![
-            text("NOTÍCIAS")
+            text(app.i18n.t("native.console.news_title"))
                 .size(11)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::ACCENT),
-            text("Feed via `news:get`; os links aparecem como texto porque o shell nativo ainda não expõe `app:openExternal`.")
+            text(app.i18n.t("native.console.news_subtitle"))
                 .size(11)
                 .color(FAINT)
                 .wrapping(Wrapping::WordOrGlyph),
         ]
         .spacing(3),
         Space::new().width(Fill),
-        button(text("Atualizar").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::ConsoleNewsReload)
-            .padding([8.0, 14.0])
-            .style(theme::ghost_button),
+        button(
+            text(app.i18n.t("native.refresh"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::ConsoleNewsReload)
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button),
     ]
     .align_y(iced::Center);
+    // O bloco acima já fecha o cabeçalho; as linhas seguintes mantêm o corpo.
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => {
-            super::loading_state("Carregando notícias…")
-        }
+        LoadStatus::Idle | LoadStatus::Loading => super::loading_state(
+            app.i18n.t("native.console.news_loading"),
+        ),
         LoadStatus::Error(error) => container(
             column![
-                text("As notícias não carregaram")
+                text(app.i18n.t("native.console.news_error"))
                     .size(20)
                     .font(theme::FONT_BOLD)
                     .color(theme::DANGER),
@@ -563,10 +581,14 @@ fn news_view(app: &App) -> Element<'_, Message> {
                     .size(13)
                     .color(theme::TEXT_2)
                     .wrapping(Wrapping::WordOrGlyph),
-                button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
-                    .on_press(Message::ConsoleNewsReload)
-                    .padding([8.0, 14.0])
-                    .style(theme::primary_button),
+                button(
+                    text(app.i18n.t("downloads.tentar_novamente"))
+                        .size(12)
+                        .font(theme::FONT_MEDIUM),
+                )
+                .on_press(Message::ConsoleNewsReload)
+                .padding([8.0, 14.0])
+                .style(theme::primary_button),
             ]
             .spacing(10)
             .max_width(680),
@@ -577,8 +599,8 @@ fn news_view(app: &App) -> Element<'_, Message> {
         .center_y(Fill)
         .into(),
         LoadStatus::Ready if state.items.is_empty() => super::empty_state(
-            "Nenhuma notícia no feed",
-            "O `news:get` respondeu sem itens. Isso pode ser falta de rede ou o filtro anti-oferta do feed; tente atualizar.",
+            app.i18n.t("native.console.news_empty_title"),
+            app.i18n.t("native.console.news_empty_desc"),
         ),
         LoadStatus::Ready => {
             let mut list = column![].spacing(8);
@@ -596,7 +618,7 @@ fn news_view(app: &App) -> Element<'_, Message> {
                             .font(theme::FONT_SEMIBOLD)
                             .color(theme::ACCENT),
                         text("·").size(10).color(FAINT),
-                        text(item.date_label()).size(10).color(MUTED),
+                        text(item.date_label_i18n(&app.i18n)).size(10).color(MUTED),
                     ]
                     .spacing(8)
                     .align_y(iced::Center),
@@ -828,7 +850,9 @@ fn card<'a>(app: &'a App, index: usize, game: &'a Game) -> Element<'a, Message> 
                     .font(theme::FONT_SEMIBOLD)
                     .color(theme::ACCENT),
                 Space::new().width(Fill),
-                text(game.playtime_label()).size(9).color(FAINT),
+                text(game.playtime_label_i18n(&app.i18n))
+                    .size(9)
+                    .color(FAINT),
             ]
             .align_y(iced::Center),
         ]
@@ -857,7 +881,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let back = button(
         row![
             text("‹").size(20).color(theme::TEXT_1),
-            text("Voltar")
+            text(app.i18n.t("native.console.back"))
                 .size(13)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
@@ -883,13 +907,13 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
 
     let running = app.launch.is_running(&game.id);
     let (play_glyph, play_label, play_message) = if app.launch.is_launching(&game.id) {
-        ("▶", "Abrindo…".to_string(), None)
+        ("▶", app.i18n.t("common.abrindo").to_string(), None)
     } else if running {
-        ("■", "Parar".to_string(), Some(Message::StopGame))
+        ("■", app.i18n.t("hero.parar").to_string(), Some(Message::StopGame))
     } else if app.launch.is_stopping(&game.id) {
-        ("■", "Parando…".to_string(), None)
+        ("■", app.i18n.t("native.game.stopping").to_string(), None)
     } else {
-        ("▶", "Jogar".to_string(), Some(Message::ConsolePlay))
+        ("▶", app.i18n.t("hero.jogar").to_string(), Some(Message::ConsolePlay))
     };
 
     let play = button(
@@ -911,7 +935,11 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         )
     });
 
-    let trailer = button(text("Trailer").size(14).font(theme::FONT_MEDIUM))
+    let trailer = button(
+        text(app.i18n.t("gameoverview.trailer"))
+            .size(14)
+            .font(theme::FONT_MEDIUM),
+    )
         .on_press(Message::ConsoleTrailer)
         .padding([12.0, 20.0])
         .style(move |style_theme, status| {
@@ -977,7 +1005,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     // Entrada mouse para o diálogo de opções; a navegação por gamepad fica
     // nas quatro ações do `FocusGrid` (escopo desta onda).
     let launch_options = button(
-        text("Opções")
+        text(app.i18n.t("native.console.options"))
             .size(13)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_1),
@@ -992,17 +1020,14 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         .genre
         .as_deref()
         .filter(|genre| !genre.is_empty())
-        .unwrap_or("Jogo")
+        .unwrap_or_else(|| app.i18n.t("native.console.game_fallback"))
         .to_uppercase();
 
     let description = game
         .description
         .as_deref()
         .map(|description| shorten(description, 300))
-        .unwrap_or_else(|| {
-            "Sem descrição disponível para este jogo. Os metadados vêm da biblioteca local."
-                .to_string()
-        });
+        .unwrap_or_else(|| app.i18n.t("native.console.no_description").to_string());
 
     let mut activity = column![
         container(
@@ -1018,7 +1043,9 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             .font(theme::FONT_BOLD)
             .color(theme::TEXT_1)
             .wrapping(Wrapping::WordOrGlyph),
-        text(game.metadata_line()).size(14).color(MUTED),
+        text(game.metadata_line_i18n(&app.i18n))
+            .size(14)
+            .color(MUTED),
         text(description)
             .size(14)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.76))
@@ -1042,12 +1069,14 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
 
     activity = activity.push(
         row![
-            text(game.playtime_label()).size(12).color(MUTED),
+            text(game.playtime_label_i18n(&app.i18n))
+                .size(12)
+                .color(MUTED),
             text("·").size(12).color(FAINT),
             text(if game.installed {
-                "Instalado"
+                app.i18n.t("native.game.installed")
             } else {
-                "Instalar pelo desktop"
+                app.i18n.t("native.console.install_desktop")
             })
             .size(12)
             .color(if game.installed {
@@ -1070,7 +1099,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
 
     if running {
         activity = activity.push(
-            text("Em execução — Parar encerra o processo.")
+            text(app.i18n.t("native.game.running_note"))
                 .size(11)
                 .color(theme::SUCCESS),
         );
@@ -1141,18 +1170,18 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let (status, status_color) = if let Some(notice) = notice {
         (notice.to_string(), theme::WARNING)
     } else if media.status().is_error() {
-        (media.status().label().to_string(), theme::DANGER)
+        (media_status_label(app, media.status()), theme::DANGER)
     } else if app.game_media.is_none() {
-        ("Consultando o trailer…".to_string(), MUTED)
+        (app.i18n.t("native.console.trailer_querying").to_string(), MUTED)
     } else {
-        (media.status().label().to_string(), MUTED)
+        (media_status_label(app, media.status()), MUTED)
     };
 
     let mut toggle = button(
         text(if media.is_playing() {
-            "Pausar"
+            app.i18n.t("native.game.pause")
         } else {
-            "Reproduzir"
+            app.i18n.t("native.game.play")
         })
         .size(11)
         .font(theme::FONT_MEDIUM),
@@ -1177,7 +1206,7 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         );
     } else {
         controls = controls.push(
-            text("sem duração ainda")
+            text(app.i18n.t("native.console.no_duration"))
                 .size(9)
                 .color(FAINT),
         );
@@ -1215,11 +1244,15 @@ fn more_menu<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         app.i18n.t("native.console.favorite.add")
     };
     let trailer_label = if app.media.is_playing() {
-        "Pausar trailer"
+        app.i18n.t("native.console.pause_trailer")
     } else {
-        "Reproduzir trailer"
+        app.i18n.t("native.console.play_trailer")
     };
-    let labels = ["Abrir ficha", favorite_label, trailer_label];
+    let labels = [
+        app.i18n.t("native.console.open_detail"),
+        favorite_label,
+        trailer_label,
+    ];
     let actions = [MENU_OPEN_DETAIL, MENU_FAVORITE, MENU_TRAILER];
 
     let mut items = column![].spacing(4);
@@ -1946,6 +1979,17 @@ fn store_detail_overlay<'a>(
                 .padding(24),
         )
         .into()
+}
+
+fn media_status_label(app: &App, status: &crate::media::MediaStatus) -> String {
+    match status {
+        crate::media::MediaStatus::Error(message) => message.clone(),
+        crate::media::MediaStatus::Idle => app.i18n.t("native.game.media.idle").to_string(),
+        crate::media::MediaStatus::Loading => app.i18n.t("native.game.media.loading").to_string(),
+        crate::media::MediaStatus::Playing => app.i18n.t("native.game.media.playing").to_string(),
+        crate::media::MediaStatus::Paused => app.i18n.t("native.game.media.paused").to_string(),
+        crate::media::MediaStatus::Ended => app.i18n.t("native.game.media.ended").to_string(),
+    }
 }
 
 fn detail_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {

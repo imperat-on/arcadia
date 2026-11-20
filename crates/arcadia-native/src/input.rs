@@ -5,6 +5,7 @@
 //! que a UI já tenha o ponto de extensão.
 
 /// Texto exibido no card "Controle" da página do jogo.
+#[allow(dead_code)]
 pub const GAMEPAD_PLACEHOLDER: &str =
     "Navegação por gamepad ainda não ligada. O stub fica pronto para a onda de input.";
 

@@ -16,6 +16,7 @@ use crate::backend::{
     Screenshot, TrailerResult,
 };
 use crate::covers::CoverCache;
+use crate::i18n::I18n;
 use crate::input;
 use crate::media::{self, MediaPlayer, MediaStatus};
 use crate::rich_text::{parse_description, RichBlock};
@@ -32,6 +33,7 @@ pub fn view<'a>(
     launch: &'a GameLaunchState,
     trailer_picker: &'a TrailerPickerState,
     launch_options: &'a LaunchOptionsState,
+    i18n: &'a I18n,
 ) -> Element<'a, Message> {
     let hero_url = game.hero_url.as_deref().or(game.cover_url.as_deref());
 
@@ -51,7 +53,7 @@ pub fn view<'a>(
     let back = button(
         row![
             text("‹").size(22).color(theme::TEXT_1),
-            text("Biblioteca")
+            text(i18n.t("sidebar.biblioteca"))
                 .size(12)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
@@ -72,12 +74,12 @@ pub fn view<'a>(
             .size(14)
             .color(theme::TEXT_STRONG),
         row![
-            text(game.playtime_label()).size(12).color(theme::TEXT_2),
+            text(game.playtime_label_i18n(i18n)).size(12).color(theme::TEXT_2),
             text("·").size(12).color(theme::TEXT_3),
             text(if game.installed {
-                "Instalado"
+                i18n.t("native.game.installed")
             } else {
-                "Não instalado"
+                i18n.t("native.game.not_installed")
             })
             .size(12)
             .color(if game.installed {
@@ -90,7 +92,7 @@ pub fn view<'a>(
     ]
     .spacing(6);
 
-    meta = meta.push(launch_controls(game, launch));
+    meta = meta.push(launch_controls(game, launch, i18n));
     if let Some(error) = launch.error.as_deref() {
         meta = meta.push(super::action_error_banner(error, None));
     }
@@ -115,30 +117,30 @@ pub fn view<'a>(
         .push(hero)
         .push(overlay);
 
-    let description = description_panel(game, game_media);
-    let gallery = gallery_panel(game_media, covers, selected_screenshot);
+    let description = description_panel(i18n, game, game_media);
+    let gallery = gallery_panel(i18n, game_media, covers, selected_screenshot);
 
     let mut left = column![description, gallery]
         .spacing(theme::SPACE_4)
         .width(iced::FillPortion(2));
     if let Some(community) = community {
-        left = left.push(super::community::panel(game.title.as_str(), community));
+        left = left.push(super::community::panel(i18n, game.title.as_str(), community));
     }
 
     let mut gamepad = input::GamepadInput::new();
     let gamepad_state = gamepad.poll();
     let gamepad_body = if gamepad_state.connected {
-        "Controle conectado."
+        i18n.t("native.game.controller_connected")
     } else {
-        input::GAMEPAD_PLACEHOLDER
+        i18n.t("native.game.controller_placeholder")
     };
 
     let right = column![
-        trailer_card(media, game_media),
-        achievements_panel(panels, covers),
-        protondb_panel(panels),
-        stats_reviews_panel(panels),
-        placeholder_card("Controle", gamepad_body),
+        trailer_card(i18n, media, game_media),
+        achievements_panel(i18n, panels, covers),
+        protondb_panel(i18n, panels),
+        stats_reviews_panel(i18n, panels),
+        placeholder_card(i18n.t("native.game.controller"), gamepad_body),
     ]
     .spacing(theme::SPACE_4)
     .width(iced::FillPortion(1));
@@ -161,30 +163,37 @@ pub fn view<'a>(
         .height(Fill)
         .push(page);
     if trailer_picker.open {
-        layers = layers.push(trailer_picker_overlay(trailer_picker, covers));
+        layers = layers.push(trailer_picker_overlay(i18n, trailer_picker, covers));
     }
     if launch_options.open && launch_options.game_id == game.id {
-        layers = layers.push(launch_options_overlay(launch_options, game));
+        layers = layers.push(launch_options_overlay(i18n, launch_options, game));
     }
     layers.into()
 }
 
 /// Botão Jogar/Parar da ficha, com o estado da sessão ao lado.
-fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'a, Message> {
+fn launch_controls<'a>(
+    game: &'a Game,
+    launch: &'a GameLaunchState,
+    i18n: &'a I18n,
+) -> Element<'a, Message> {
     let running = launch.is_running(&game.id);
     let (label, message) = if !game.installed {
-        ("Instale para jogar".to_string(), None)
+        (i18n.t("native.game.install_to_play").to_string(), None)
     } else if launch.is_launching(&game.id) {
-        ("Abrindo…".to_string(), None)
+        (i18n.t("common.abrindo").to_string(), None)
     } else if running {
-        ("■  Parar".to_string(), Some(Message::StopGame))
+        (
+            format!("■  {}", i18n.t("hero.parar")),
+            Some(Message::StopGame),
+        )
     } else if launch.is_stopping(&game.id) {
-        ("Parando…".to_string(), None)
+        (i18n.t("native.game.stopping").to_string(), None)
     } else if launch.busy_with_other(&game.id) {
-        ("Jogar".to_string(), None)
+        (i18n.t("hero.jogar").to_string(), None)
     } else {
         (
-            "▶  Jogar".to_string(),
+            format!("▶  {}", i18n.t("hero.jogar")),
             Some(Message::LaunchGame(game.id.clone())),
         )
     };
@@ -201,7 +210,7 @@ fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'
         .style(play_style);
 
     let options = button(
-        text("Opções de inicialização")
+        text(i18n.t("native.game.launch_options"))
             .size(11)
             .font(theme::FONT_MEDIUM),
     )
@@ -210,22 +219,22 @@ fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'
     .style(theme::ghost_button);
 
     let status: Element<'a, Message> = if running {
-        text("Em execução — Parar encerra o processo.")
+        text(i18n.t("native.game.running_note"))
             .size(11)
             .color(theme::SUCCESS)
             .into()
     } else if launch.is_launching(&game.id) {
-        text("Aguardando o processo do jogo…")
+        text(i18n.t("native.game.awaiting_process"))
             .size(11)
             .color(theme::TEXT_2)
             .into()
     } else if launch.is_stopping(&game.id) {
-        text("Encerrando o processo…")
+        text(i18n.t("native.game.stopping_process"))
             .size(11)
             .color(theme::TEXT_2)
             .into()
     } else if launch.busy_with_other(&game.id) {
-        text("Feche o jogo em execução antes de abrir este.")
+        text(i18n.t("native.game.close_other"))
             .size(11)
             .color(theme::TEXT_3)
             .into()
@@ -257,25 +266,30 @@ pub(crate) fn launch_warning_banner(message: String) -> Element<'static, Message
 /// reutilizado pelo Big Picture. Só envia `gamesettings:set`; o próximo
 /// `game:launch` lê o arquivo no `RuntimeDeps` do IPC.
 pub(crate) fn launch_options_overlay<'a>(
+    i18n: &'a I18n,
     state: &'a LaunchOptionsState,
     game: &'a Game,
 ) -> Element<'a, Message> {
     let header = row![
         column![
-            text("Opções de inicialização")
+            text(i18n.t("native.game.launch_options"))
                 .size(20)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text(format!(
-                "{} — salvas por jogo em game_settings.json",
-                state.game_title
+            text(i18n.t_args(
+                "native.game.options_subtitle",
+                &[("title", &state.game_title)],
             ))
             .size(11)
             .color(theme::TEXT_2),
         ]
         .spacing(3)
         .width(Fill),
-        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
+        button(
+            text(i18n.t("common.fechar"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
             .on_press(Message::CloseLaunchOptions)
             .padding([7.0, 14.0])
             .style(theme::ghost_button),
@@ -289,15 +303,18 @@ pub(crate) fn launch_options_overlay<'a>(
     }
 
     content = match (&state.status, state.settings.as_ref()) {
-        (LoadStatus::Idle | LoadStatus::Loading, _) => {
-            content.push(placeholder_panel("Carregando opções…", theme::TEXT_2))
+        (LoadStatus::Idle | LoadStatus::Loading, _) => content.push(placeholder_panel(
+            i18n.t("native.game.options_loading"),
+            theme::TEXT_2,
+        )),
+        (LoadStatus::Error(error), _) => {
+            content.push(launch_options_load_error(i18n, error, &game.id))
         }
-        (LoadStatus::Error(error), _) => content.push(launch_options_load_error(error, &game.id)),
         (LoadStatus::Ready, Some(settings)) => content
-            .push(launch_options_form(state, settings, game))
-            .push(launch_options_footer(state)),
+            .push(launch_options_form(i18n, state, settings, game))
+            .push(launch_options_footer(i18n, state)),
         (LoadStatus::Ready, None) => content.push(placeholder_panel(
-            "As opções não estão disponíveis para este jogo.",
+            i18n.t("native.game.options_unavailable"),
             theme::TEXT_3,
         )),
     };
@@ -328,16 +345,24 @@ pub(crate) fn launch_options_overlay<'a>(
         .into()
 }
 
-fn launch_options_load_error<'a>(error: &'a str, game_id: &'a str) -> Element<'a, Message> {
+fn launch_options_load_error<'a>(
+    i18n: &'a I18n,
+    error: &'a str,
+    game_id: &'a str,
+) -> Element<'a, Message> {
     container(
         column![
-            text("Não foi possível ler as opções deste jogo.")
+            text(i18n.t("native.game.options_read_error"))
                 .size(13)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::DANGER),
             text(shorten(error, 280)).size(11).color(theme::TEXT_2),
-            button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
-                .on_press(Message::OpenLaunchOptions(game_id.to_string()))
+            button(
+                text(i18n.t("downloads.tentar_novamente"))
+                    .size(12)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .on_press(Message::OpenLaunchOptions(game_id.to_string()))
                 .padding([7.0, 13.0])
                 .style(theme::ghost_button),
         ]
@@ -352,6 +377,7 @@ fn launch_options_load_error<'a>(error: &'a str, game_id: &'a str) -> Element<'a
 }
 
 fn launch_options_form<'a>(
+    i18n: &'a I18n,
     state: &'a LaunchOptionsState,
     settings: &'a GameSettingsView,
     game: &'a Game,
@@ -361,23 +387,23 @@ fn launch_options_form<'a>(
     let exe_available = !settings.exe_path.trim().is_empty();
 
     let mode_section = option_section(
-        "MODO DE LANÇAMENTO",
+        i18n.t("native.game.launch_mode"),
         column![
             row![
                 mode_button(
-                    "Automático",
+                    i18n.t("native.game.mode_auto"),
                     mode.is_none(),
                     Some(Message::LaunchOptionsModeChanged(None))
                 ),
                 mode_button(
-                    "Steam",
+                    i18n.t("gamecard.steam"),
                     mode == Some("steam"),
                     steam_available.then_some(Message::LaunchOptionsModeChanged(Some(
                         "steam".to_string()
                     ))),
                 ),
                 mode_button(
-                    "Executável",
+                    i18n.t("gamesettings.executavel"),
                     mode == Some("exe"),
                     exe_available.then_some(Message::LaunchOptionsModeChanged(Some(
                         "exe".to_string()
@@ -386,9 +412,9 @@ fn launch_options_form<'a>(
             ]
             .spacing(8),
             text(if steam_available {
-                "Vale só para os próximos lançamentos. Executável roda o caminho diretamente, sem montar wine/proton."
+                i18n.t("native.game.mode_hint")
             } else {
-                "Vale só para os próximos lançamentos. Executável roda o caminho diretamente, sem montar wine/proton; o modo Steam só existe em jogos Steam."
+                i18n.t("native.game.mode_hint_steam")
             })
             .size(10)
             .color(theme::TEXT_3),
@@ -398,33 +424,35 @@ fn launch_options_form<'a>(
     );
 
     let default_prefix = if state.default_prefix.is_empty() {
-        "o prefixo padrão do Arcadia".to_string()
+        i18n.t("native.game.default_prefix").to_string()
     } else {
         state.default_prefix.clone()
     };
     let wine_section = option_section(
-        "WINE E PREFIXO",
+        i18n.t("native.game.wine_section"),
         column![
-            field_label("Prefixo (WINEPREFIX)"),
-            text_input("Vazio usa o prefixo padrão", settings.prefix_path.as_str())
-                .on_input(Message::LaunchOptionsPrefixChanged)
-                .padding([8.0, 10.0])
-                .size(12)
-                .style(theme::search_input),
-            text(format!(
-                "Vazio: jogos custom usam {default_prefix}; os demais mantêm o WINEPREFIX do ambiente."
+            field_label(i18n.t("native.game.prefix_label")),
+            text_input(
+                i18n.t("native.game.prefix_placeholder"),
+                settings.prefix_path.as_str(),
+            )
+            .on_input(Message::LaunchOptionsPrefixChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .style(theme::search_input),
+            text(i18n.t_args(
+                "native.game.prefix_hint",
+                &[("prefix", &default_prefix)],
             ))
             .size(9)
             .color(theme::TEXT_3),
             disabled_option(
-                "Versão Wine/Proton",
+                i18n.t("native.game.wine_version"),
                 settings
                     .wine_version
                     .clone()
-                    .unwrap_or_else(|| "Wine do sistema".to_string()),
-                "Indisponível no runtime nativo: o catálogo de Proton não é carregado no \
-                 LaunchRuntime e o resolver só aplica wineVersion em jogos Legendary. \
-                 O valor salvo é preservado.",
+                    .unwrap_or_else(|| i18n.t("native.game.system_wine").to_string()),
+                i18n.t("native.game.wine_disabled"),
             ),
         ]
         .spacing(theme::SPACE_2)
@@ -432,24 +460,27 @@ fn launch_options_form<'a>(
     );
 
     let paths_section = option_section(
-        "EXECUTÁVEL E ARGUMENTOS",
+        i18n.t("native.game.exe_section"),
         column![
-            field_label("Executável do modo exe"),
-            text_input("Caminho completo do .exe (opcional)", settings.exe_path.as_str())
-                .on_input(Message::LaunchOptionsExeChanged)
-                .padding([8.0, 10.0])
-                .size(12)
-                .style(theme::search_input),
-            field_label("Argumentos extras"),
+            field_label(i18n.t("native.game.exe_label")),
             text_input(
-                "ex.: --windowed -novid",
-                settings.game_args.as_str()
+                i18n.t("native.game.exe_placeholder"),
+                settings.exe_path.as_str(),
+            )
+            .on_input(Message::LaunchOptionsExeChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .style(theme::search_input),
+            field_label(i18n.t("native.game.extra_args")),
+            text_input(
+                i18n.t("native.game.args_placeholder"),
+                settings.game_args.as_str(),
             )
             .on_input(Message::LaunchOptionsArgsChanged)
             .padding([8.0, 10.0])
             .size(12)
             .style(theme::search_input),
-            text("Não se aplicam a jogos Steam; entram depois do comando do jogo.")
+            text(i18n.t("native.game.args_hint"))
                 .size(9)
                 .color(theme::TEXT_3),
         ]
@@ -458,7 +489,7 @@ fn launch_options_form<'a>(
     );
 
     let compatibility = option_section(
-        "COMPATIBILIDADE (WINE/PROTON)",
+        i18n.t("native.game.compat_section"),
         column![
             toggle_row(&[
                 ("Esync", LaunchToggle::Esync, settings.esync),
@@ -476,7 +507,7 @@ fn launch_options_form<'a>(
     );
 
     let performance = option_section(
-        "DESEMPENHO",
+        i18n.t("native.game.performance_section"),
         column![
             toggle_row(&[
                 ("MangoHud", LaunchToggle::Mangohud, settings.mangohud),
@@ -485,15 +516,18 @@ fn launch_options_form<'a>(
             ]),
             toggle_row(&[
                 ("HDR (gamescope)", LaunchToggle::GsHdr, settings.gs_hdr),
-                ("Logs verbosos", LaunchToggle::VerboseLogs, settings.verbose_logs),
+                (i18n.t("native.game.verbose"), LaunchToggle::VerboseLogs, settings.verbose_logs),
             ]),
-            field_label("DXVK_HUD"),
-            text_input("ex.: fps, full (vazio desliga)", settings.dxvk_hud.as_str())
-                .on_input(Message::LaunchOptionsHudChanged)
-                .padding([8.0, 10.0])
-                .size(12)
-                .style(theme::search_input),
-            text("Gamescope/GameMode/MangoHud só se aplicam a jogos não-Steam e avisam quando o binário não existe. Logs verbosos ajustam WINEDEBUG/DXVK_HUD; o runtime nativo não grava stdout/stderr em arquivo.")
+            field_label(i18n.t("native.game.dxvk_hud")),
+            text_input(
+                i18n.t("native.game.hud_placeholder"),
+                settings.dxvk_hud.as_str(),
+            )
+            .on_input(Message::LaunchOptionsHudChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .style(theme::search_input),
+            text(i18n.t("native.game.performance_note"))
                 .size(9)
                 .color(theme::TEXT_3),
         ]
@@ -501,45 +535,44 @@ fn launch_options_form<'a>(
         .into(),
     );
 
-    let env_section = launch_env_section(state, settings);
+    let env_section = launch_env_section(i18n, state, settings);
 
     let disabled_section = option_section(
-        "NÃO EDITÁVEL NESTA TELA",
+        i18n.t("native.game.disabled_section"),
         column![
             disabled_option(
                 "autoDXVK / autoVKD3D",
                 format!(
                     "DXVK {} · VKD3D {}",
-                    sim_nao(settings.auto_dxvk),
-                    sim_nao(settings.auto_vkd3d)
+                    sim_nao(i18n, settings.auto_dxvk),
+                    sim_nao(i18n, settings.auto_vkd3d)
                 ),
-                "Só alimentam o pedido de bibliotecas gráficas do Legendary/Epic; \
-                 o runtime nativo ignora graphics_libs no spawn e não altera jogos \
-                 locais lançados por wine/proton.",
+                i18n.t("native.game.auto_graphics_note"),
             ),
             disabled_option(
-                "Scripts pré/pós",
+                i18n.t("native.game.scripts"),
                 if settings.script_pre.is_empty() && settings.script_post.is_empty() {
-                    "não configurados".to_string()
+                    i18n.t("native.game.not_configured_plural").to_string()
                 } else {
-                    "configurados".to_string()
+                    i18n.t("native.game.configured_plural").to_string()
                 },
-                "O LaunchRuntime nativo ignora scriptPre/scriptPost no spawn; \
-                 use a UI web se precisar deles nesta versão.",
+                i18n.t("native.game.scripts_note"),
             ),
             disabled_option(
-                "Wrappers",
-                format!("{} configurado(s)", settings.wrapper_count),
-                "O planejador aplica wrappers, mas esta tela não edita a lista (adiado).",
+                i18n.t("native.game.wrappers"),
+                i18n.t_args(
+                    "native.game.wrappers_count",
+                    &[("count", &settings.wrapper_count.to_string())],
+                ),
+                i18n.t("native.game.wrappers_note"),
             ),
             disabled_option(
-                "Emulador",
+                i18n.t("gamesettings.emulador"),
                 settings
                     .emulator_id
                     .clone()
-                    .unwrap_or_else(|| "não configurado".to_string()),
-                "ROM/emulador têm fluxo próprio na ficha retro; esta tela não edita \
-                 emulatorId, romPath nem emulatorArgs.",
+                    .unwrap_or_else(|| i18n.t("native.game.emulator_not_configured").to_string()),
+                i18n.t("native.game.emulator_note"),
             ),
         ]
         .spacing(6)
@@ -565,36 +598,44 @@ fn launch_options_form<'a>(
 }
 
 fn launch_env_section<'a>(
+    i18n: &'a I18n,
     state: &'a LaunchOptionsState,
     settings: &'a GameSettingsView,
 ) -> Element<'a, Message> {
     let mut list = column![].spacing(4);
     if settings.env_vars.is_empty() {
         list = list.push(
-            text("Nenhuma variável extra configurada.")
+            text(i18n.t("native.game.env_empty"))
                 .size(10)
                 .color(theme::TEXT_3),
         );
     }
     for (index, variable) in settings.env_vars.iter().enumerate() {
-        list = list.push(env_var_row(variable, index));
+        list = list.push(env_var_row(i18n, variable, index));
     }
 
     let add = row![
-        text_input("NOME", state.env_name.as_str())
+        text_input(i18n.t("gamesettings.env_placeholder_nome"), state.env_name.as_str())
             .on_input(Message::LaunchOptionsEnvNameChanged)
             .padding([8.0, 10.0])
             .size(11)
             .width(Fill)
             .style(theme::search_input),
-        text_input("valor", state.env_value.as_str())
+        text_input(
+            i18n.t("native.game.env_value"),
+            state.env_value.as_str()
+        )
             .on_input(Message::LaunchOptionsEnvValueChanged)
             .padding([8.0, 10.0])
             .size(11)
             .width(Fill)
             .style(theme::search_input),
-        button(text("Adicionar").size(11).font(theme::FONT_MEDIUM))
-            .on_press(Message::LaunchOptionsEnvAdd)
+        button(
+            text(i18n.t("fontes.adicionar"))
+                .size(11)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::LaunchOptionsEnvAdd)
             .padding([8.0, 12.0])
             .style(theme::ghost_button),
     ]
@@ -602,14 +643,24 @@ fn launch_env_section<'a>(
     .align_y(iced::Center);
 
     option_section(
-        "VARIÁVEIS DE AMBIENTE",
-        column![list, add, text("Nomes inválidos são ignorados pelo planejador do IPC.").size(9).color(theme::TEXT_3)]
-            .spacing(theme::SPACE_2)
-            .into(),
+        i18n.t("gamesettings.env_vars"),
+        column![
+            list,
+            add,
+            text(i18n.t("native.game.env_hint"))
+                .size(9)
+                .color(theme::TEXT_3)
+        ]
+        .spacing(theme::SPACE_2)
+        .into(),
     )
 }
 
-fn env_var_row<'a>(variable: &'a EnvVarSetting, index: usize) -> Element<'a, Message> {
+fn env_var_row<'a>(
+    i18n: &'a I18n,
+    variable: &'a EnvVarSetting,
+    index: usize,
+) -> Element<'a, Message> {
     container(
         row![
             text(variable.name.as_str())
@@ -617,15 +668,19 @@ fn env_var_row<'a>(variable: &'a EnvVarSetting, index: usize) -> Element<'a, Mes
                 .color(theme::TEXT_1)
                 .width(Fill),
             text(if variable.value.is_empty() {
-                "(vazio)"
+                i18n.t("common.fallback")
             } else {
                 variable.value.as_str()
             })
             .size(11)
             .color(theme::TEXT_2)
             .width(Fill),
-            button(text("Remover").size(10).font(theme::FONT_MEDIUM))
-                .on_press(Message::LaunchOptionsEnvRemove(index))
+            button(
+                text(i18n.t("common.remover"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .on_press(Message::LaunchOptionsEnvRemove(index))
                 .padding([4.0, 9.0])
                 .style(theme::ghost_button),
         ]
@@ -638,11 +693,18 @@ fn env_var_row<'a>(variable: &'a EnvVarSetting, index: usize) -> Element<'a, Mes
     .into()
 }
 
-fn launch_options_footer<'a>(state: &'a LaunchOptionsState) -> Element<'a, Message> {
+fn launch_options_footer<'a>(
+    i18n: &'a I18n,
+    state: &'a LaunchOptionsState,
+) -> Element<'a, Message> {
     let mut save = button(
-        text(if state.saving { "Salvando…" } else { "Salvar" })
-            .size(12)
-            .font(theme::FONT_SEMIBOLD),
+        text(if state.saving {
+            i18n.t("common.salvando")
+        } else {
+            i18n.t("common.salvar")
+        })
+        .size(12)
+        .font(theme::FONT_SEMIBOLD),
     )
     .padding([9.0, 18.0])
     .style(theme::primary_button);
@@ -651,13 +713,13 @@ fn launch_options_footer<'a>(state: &'a LaunchOptionsState) -> Element<'a, Messa
     }
 
     let note = if state.saving {
-        "Gravando game_settings.json…"
+        i18n.t("native.game.save_saving_note")
     } else if state.dirty {
-        "Há alterações não salvas; salve para aplicá-las (e liberar o modo) no próximo lançamento."
+        i18n.t("native.game.save_dirty")
     } else if state.saved {
-        "Salvo. As opções entram no próximo lançamento deste jogo."
+        i18n.t("native.game.save_done")
     } else {
-        "As opções entram no próximo lançamento deste jogo."
+        i18n.t("native.game.save_idle")
     };
 
     row![
@@ -671,8 +733,12 @@ fn launch_options_footer<'a>(state: &'a LaunchOptionsState) -> Element<'a, Messa
                 theme::TEXT_3
             }),
         Space::new().width(Fill),
-        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::CloseLaunchOptions)
+        button(
+            text(i18n.t("common.fechar"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::CloseLaunchOptions)
             .padding([9.0, 14.0])
             .style(theme::ghost_button),
         save,
@@ -776,11 +842,11 @@ fn disabled_option<'a>(
     .into()
 }
 
-fn sim_nao(value: bool) -> &'static str {
+fn sim_nao<'a>(i18n: &'a I18n, value: bool) -> &'a str {
     if value {
-        "ligado"
+        i18n.t("common.ligado")
     } else {
-        "desligado"
+        i18n.t("common.desligado")
     }
 }
 
@@ -789,24 +855,25 @@ fn sim_nao(value: bool) -> &'static str {
 /// Painel "Sobre o jogo": usa o HTML de `about` do `game:sysinfo`; sem ele,
 /// renderiza a descrição já limpa da biblioteca. Nada de tag crua na tela.
 fn description_panel<'a>(
+    i18n: &'a I18n,
     game: &'a Game,
     game_media: Option<&'a GameMedia>,
 ) -> Element<'a, Message> {
     let about = game_media.and_then(|media| media.about.as_deref());
     let raw = about.or(game.description.as_deref());
     let note = if about.is_some() {
-        "HTML da loja convertido em parágrafos e negrito; links aparecem como texto."
+        i18n.t("native.game.html_note")
     } else {
-        "Descrição da biblioteca; links aparecem como texto."
+        i18n.t("native.game.library_desc_note")
     };
 
     let body: Element<'a, Message> = match (game_media, raw) {
-        (None, None) => hint("Consultando a descrição da loja…", theme::TEXT_2),
+        (None, None) => hint(i18n.t("native.game.description_loading"), theme::TEXT_2),
         (_, Some(raw)) => {
             let blocks = parse_description(raw);
             if blocks.is_empty() {
                 hint(
-                    "A loja não informou uma descrição legível para este jogo.",
+                    i18n.t("native.game.description_unreadable"),
                     theme::TEXT_3,
                 )
             } else {
@@ -820,12 +887,15 @@ fn description_panel<'a>(
                 .is_some_and(|notice| notice.contains("Falha") || notice.contains("info:null"));
             if failed {
                 hint(
-                    media.notice.as_deref().unwrap_or("Falha ao consultar a loja."),
+                    media
+                        .notice
+                        .as_deref()
+                        .unwrap_or(i18n.t("native.game.store_query_failed")),
                     theme::WARNING,
                 )
             } else {
                 hint(
-                    "A loja não informou uma descrição para este jogo.",
+                    i18n.t("native.console.store.description_empty"),
                     theme::TEXT_3,
                 )
             }
@@ -833,7 +903,7 @@ fn description_panel<'a>(
     };
 
     panel_card(
-        "Sobre o jogo",
+        i18n.t("native.game.about"),
         None,
         column![text(note).size(9).color(theme::TEXT_3), body]
             .spacing(theme::SPACE_2)
@@ -875,12 +945,13 @@ fn rich_block(block: RichBlock) -> Element<'static, Message> {
 // ── Galeria de screenshots ─────────────────────────────────────────────────
 
 fn gallery_panel<'a>(
+    i18n: &'a I18n,
     game_media: Option<&'a GameMedia>,
     covers: &'a CoverCache,
     selected: usize,
 ) -> Element<'a, Message> {
     let right: Option<Element<'a, Message>> = Some(
-        button(text("Atualizar").size(9).font(theme::FONT_MEDIUM))
+        button(text(i18n.t("native.refresh")).size(9).font(theme::FONT_MEDIUM))
             .on_press(Message::ReloadGameData)
             .padding([5.0, 10.0])
             .style(theme::ghost_button)
@@ -888,7 +959,7 @@ fn gallery_panel<'a>(
     );
 
     let body: Element<'a, Message> = match game_media {
-        None => hint("Consultando screenshots na loja…", theme::TEXT_2),
+        None => hint(i18n.t("native.game.screenshots_loading"), theme::TEXT_2),
         Some(media) if media.screenshots.is_empty() => {
             let has_failure = media
                 .notice
@@ -896,12 +967,15 @@ fn gallery_panel<'a>(
                 .is_some_and(|notice| notice.contains("Falha") || notice.contains("info:null"));
             if has_failure {
                 hint(
-                    media.notice.as_deref().unwrap_or("Falha ao consultar a loja."),
+                    media
+                        .notice
+                        .as_deref()
+                        .unwrap_or(i18n.t("native.game.store_query_failed")),
                     theme::WARNING,
                 )
             } else {
                 hint(
-                    "A loja não informou capturas de tela para este jogo.",
+                    i18n.t("native.game.screenshots_missing"),
                     theme::TEXT_3,
                 )
             }
@@ -917,7 +991,7 @@ fn gallery_panel<'a>(
                     .content_fit(ContentFit::Contain)
                     .into(),
                 None => container(
-                    text("Carregando captura…")
+                    text(i18n.t("native.game.screenshot_loading"))
                         .size(10)
                         .color(theme::TEXT_3),
                 )
@@ -932,10 +1006,12 @@ fn gallery_panel<'a>(
             column![
                 large,
                 screenshot_strip(&media.screenshots, covers, index),
-                text(format!(
-                    "Captura {} de {}",
-                    index + 1,
-                    media.screenshots.len()
+                text(i18n.t_args(
+                    "native.game.screenshot_counter",
+                    &[
+                        ("index", &(index + 1).to_string()),
+                        ("total", &media.screenshots.len().to_string()),
+                    ],
                 ))
                 .size(9)
                 .color(theme::TEXT_3),
@@ -945,7 +1021,7 @@ fn gallery_panel<'a>(
         }
     };
 
-    panel_card("Capturas de tela", right, body)
+    panel_card(i18n.t("native.game.screenshots"), right, body)
 }
 
 fn screenshot_strip<'a>(
@@ -1015,14 +1091,15 @@ fn screenshot_thumb<'a>(
 // ── Conquistas ─────────────────────────────────────────────────────────────
 
 fn achievements_panel<'a>(
+    i18n: &'a I18n,
     panels: Option<&'a GamePanels>,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
     let Some(panels) = panels else {
         return panel_card(
-            "Conquistas",
+            i18n.t("conquistas.titulo"),
             None,
-            hint("Carregando conquistas…", theme::TEXT_2),
+            hint(i18n.t("native.game.achievements_loading"), theme::TEXT_2),
         );
     };
 
@@ -1042,13 +1119,17 @@ fn achievements_panel<'a>(
     });
 
     let body: Element<'a, Message> = match &panel.status {
-        LoadStatus::Idle | LoadStatus::Loading => hint("Carregando conquistas…", theme::TEXT_2),
-        LoadStatus::Error(error) => error_body("Falha ao carregar conquistas", error),
+        LoadStatus::Idle | LoadStatus::Loading => {
+            hint(i18n.t("native.game.achievements_loading"), theme::TEXT_2)
+        }
+        LoadStatus::Error(error) => {
+            error_body(i18n, i18n.t("native.game.achievements_load_error"), error)
+        }
         LoadStatus::Ready if panel.items.is_empty() => hint(
             panel
                 .note
                 .as_deref()
-                .unwrap_or("Nenhuma conquista registrada para este jogo."),
+                .unwrap_or(i18n.t("native.game.achievements_empty")),
             theme::TEXT_3,
         ),
         LoadStatus::Ready => {
@@ -1064,7 +1145,7 @@ fn achievements_panel<'a>(
 
             let mut list = column![].spacing(theme::SPACE_1);
             for item in &panel.items {
-                list = list.push(achievement_row(item, covers));
+                list = list.push(achievement_row(i18n, item, covers));
             }
             content = content.push(
                 scrollable(list)
@@ -1076,10 +1157,11 @@ fn achievements_panel<'a>(
         }
     };
 
-    panel_card("Conquistas", right, body)
+    panel_card(i18n.t("conquistas.titulo"), right, body)
 }
 
 fn achievement_row<'a>(
+    i18n: &'a I18n,
     item: &'a Achievement,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
@@ -1106,21 +1188,28 @@ fn achievement_row<'a>(
     };
 
     let status = if item.unlocked {
-        text("Desbloqueada").size(9).color(theme::SUCCESS)
+        text(i18n.t("native.game.achievement_unlocked"))
+            .size(9)
+            .color(theme::SUCCESS)
     } else {
-        text("Bloqueada").size(9).color(theme::TEXT_3)
+        text(i18n.t("native.game.achievement_locked"))
+            .size(9)
+            .color(theme::TEXT_3)
     };
     let mut meta = row![status].spacing(theme::SPACE_2);
     if let Some(percent) = item.percent {
         meta = meta.push(
-            text(format!("{percent}% dos jogadores"))
+            text(i18n.t_args(
+                "native.game.achievement_players",
+                &[("percent", &percent.to_string())],
+            ))
                 .size(9)
                 .color(theme::TEXT_3),
         );
     }
     if let Some(points) = item.points {
         meta = meta.push(
-            text(format!("{points} pts"))
+            text(i18n.t_args("native.game.points", &[("points", &points.to_string())]))
                 .size(9)
                 .color(theme::TEXT_3),
         );
@@ -1164,12 +1253,12 @@ fn achievement_row<'a>(
 
 // ── ProtonDB ───────────────────────────────────────────────────────────────
 
-fn protondb_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Message> {
+fn protondb_panel<'a>(i18n: &'a I18n, panels: Option<&'a GamePanels>) -> Element<'a, Message> {
     let Some(panels) = panels else {
         return panel_card(
             "ProtonDB",
             None,
-            hint("Carregando ProtonDB…", theme::TEXT_2),
+            hint(i18n.t("native.game.protondb_loading"), theme::TEXT_2),
         );
     };
     let panel = &panels.proton;
@@ -1177,42 +1266,51 @@ fn protondb_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Message> {
         .info
         .as_ref()
         .and_then(|info| info.tier.as_deref())
-        .map(|tier| colored_badge(tier_label(tier), tier_color(tier)));
+        .map(|tier| colored_badge(tier_label(i18n, tier), tier_color(tier)));
 
     let body: Element<'a, Message> = match &panel.status {
-        LoadStatus::Idle | LoadStatus::Loading => hint("Carregando ProtonDB…", theme::TEXT_2),
-        LoadStatus::Error(error) => error_body("Falha ao consultar o ProtonDB", error),
+        LoadStatus::Idle | LoadStatus::Loading => {
+            hint(i18n.t("native.game.protondb_loading"), theme::TEXT_2)
+        }
+        LoadStatus::Error(error) => error_body(
+            i18n,
+            i18n.t("native.game.protondb_error"),
+            error,
+        ),
         LoadStatus::Ready => match panel.info.as_ref() {
             None => hint(
                 panel
                     .note
                     .as_deref()
-                    .unwrap_or("Sem relatórios do ProtonDB para este jogo."),
+                    .unwrap_or(i18n.t("native.game.protondb_empty")),
                 theme::TEXT_3,
             ),
             Some(info) => {
                 let mut rows = column![].spacing(theme::SPACE_2);
                 if let Some(tier) = info.tier.as_deref() {
                     rows = rows.push(proton_row(
-                        "Nível",
-                        colored_badge(tier_label(tier), tier_color(tier)),
+                        i18n.t("protondb.nivel"),
+                        colored_badge(tier_label(i18n, tier), tier_color(tier)),
                     ));
                 }
                 if let Some(deck) = info.deck.as_deref() {
                     rows = rows.push(proton_row(
-                        "Steam Deck",
-                        text(deck_label(deck)).size(11).color(theme::TEXT_STRONG).into(),
+                        i18n.t("protondb.steam_deck"),
+                        text(deck_label(i18n, deck))
+                            .size(11)
+                            .color(theme::TEXT_STRONG)
+                            .into(),
                     ));
                 }
                 if let Some(score) = info.score_pct {
                     rows = rows.push(proton_row(
-                        "Pontuação",
+                        i18n.t("protondb.pontuacao"),
                         text(format!("{score}%")).size(11).color(theme::TEXT_STRONG).into(),
                     ));
                 }
                 if let Some(total) = info.total {
                     rows = rows.push(proton_row(
-                        "Relatos",
+                        i18n.t("native.game.reports"),
                         text(format_count(total))
                             .size(11)
                             .color(theme::TEXT_STRONG)
@@ -1222,7 +1320,7 @@ fn protondb_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Message> {
                 if let Some(url) = info.url.as_deref() {
                     rows = rows.push(
                         column![
-                            text("Link")
+                            text(i18n.t("native.game.link"))
                                 .size(9)
                                 .font(theme::FONT_MEDIUM)
                                 .color(theme::TEXT_3),
@@ -1234,7 +1332,7 @@ fn protondb_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Message> {
                         .spacing(2),
                     );
                     rows = rows.push(hint(
-                        "O shell nativo não abre links; a URL fica visível para copiar.",
+                        i18n.t("native.game.link_note"),
                         theme::TEXT_3,
                     ));
                 }
@@ -1256,14 +1354,14 @@ fn proton_row<'a>(label: &'a str, value: Element<'a, Message>) -> Element<'a, Me
     .into()
 }
 
-fn tier_label(tier: &str) -> &str {
+fn tier_label<'a>(i18n: &'a I18n, tier: &'a str) -> &'a str {
     match tier {
-        "platinum" => "Platinum",
-        "gold" => "Gold",
-        "silver" => "Silver",
-        "bronze" => "Bronze",
-        "borked" => "Borked",
-        "pending" => "Pendente",
+        "platinum" => i18n.t("protondb.tier.platinum"),
+        "gold" => i18n.t("protondb.tier.gold"),
+        "silver" => i18n.t("protondb.tier.silver"),
+        "bronze" => i18n.t("protondb.tier.bronze"),
+        "borked" => i18n.t("protondb.tier.borked"),
+        "pending" => i18n.t("native.game.tier_pending"),
         other => other,
     }
 }
@@ -1279,11 +1377,12 @@ fn tier_color(tier: &str) -> Color {
     }
 }
 
-fn deck_label(deck: &str) -> &str {
+fn deck_label<'a>(i18n: &'a I18n, deck: &'a str) -> &'a str {
     match deck {
-        "verified" => "Verificado",
-        "playable" => "Jogável",
-        "unsupported" => "Não suportado",
+        "verified" => i18n.t("protondb.deck.verified"),
+        "playable" => i18n.t("protondb.deck.playable"),
+        "unsupported" => i18n.t("protondb.deck.unsupported"),
+        "unknown" => i18n.t("protondb.deck.unknown"),
         other => other,
     }
 }
@@ -1307,12 +1406,15 @@ fn colored_badge<'a>(label: &'a str, background: Color) -> Element<'a, Message> 
 
 // ── Stats e reviews ────────────────────────────────────────────────────────
 
-fn stats_reviews_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Message> {
+fn stats_reviews_panel<'a>(
+    i18n: &'a I18n,
+    panels: Option<&'a GamePanels>,
+) -> Element<'a, Message> {
     let Some(panels) = panels else {
         return panel_card(
-            "Estatísticas e avaliações",
+            i18n.t("native.game.stats_title"),
             None,
-            hint("Carregando estatísticas…", theme::TEXT_2),
+            hint(i18n.t("native.game.stats_loading"), theme::TEXT_2),
         );
     };
     let panel = &panels.stats;
@@ -1321,41 +1423,46 @@ fn stats_reviews_panel<'a>(panels: Option<&'a GamePanels>) -> Element<'a, Messag
         .as_ref()
         .and_then(|stats| stats.total_reviews)
         .map(|total| {
-            text(format!("{} avaliações", format_count(total)))
+            text(i18n.t_args(
+                "native.game.reviews_count",
+                &[("count", &format_count(total))],
+            ))
                 .size(9)
                 .color(theme::TEXT_2)
                 .into()
         });
 
     let body: Element<'a, Message> = match &panel.status {
-        LoadStatus::Idle | LoadStatus::Loading => hint("Carregando estatísticas…", theme::TEXT_2),
-        LoadStatus::Error(error) => error_body("Falha ao consultar a loja", error),
+        LoadStatus::Idle | LoadStatus::Loading => {
+            hint(i18n.t("native.game.stats_loading"), theme::TEXT_2)
+        }
+        LoadStatus::Error(error) => error_body(i18n, i18n.t("native.game.stats_error"), error),
         LoadStatus::Ready => match panel.stats.as_ref() {
             None => hint(
                 panel
                     .note
                     .as_deref()
-                    .unwrap_or("A loja não retornou estatísticas para este jogo."),
+                    .unwrap_or(i18n.t("native.game.stats_empty")),
                 theme::TEXT_3,
             ),
-            Some(stats) => stats_body(stats),
+            Some(stats) => stats_body(i18n, stats),
         },
     };
 
-    panel_card("Estatísticas e avaliações", right, body)
+    panel_card(i18n.t("native.game.stats_title"), right, body)
 }
 
-fn stats_body<'a>(stats: &'a GameStats) -> Element<'a, Message> {
+fn stats_body<'a>(i18n: &'a I18n, stats: &'a GameStats) -> Element<'a, Message> {
     let mut content = column![].spacing(theme::SPACE_2);
     if let Some(owners) = stats.owners.as_deref() {
         content = content.push(proton_row(
-            "Proprietários",
+            i18n.t("native.game.owners"),
             text(owners).size(11).color(theme::TEXT_STRONG).into(),
         ));
     }
     if let Some(ccu) = stats.ccu.filter(|ccu| *ccu > 0) {
         content = content.push(proton_row(
-            "Jogadores ativos",
+            i18n.t("stats.jogadores_ativos"),
             text(format_count(ccu))
                 .size(11)
                 .color(theme::TEXT_STRONG)
@@ -1368,34 +1475,37 @@ fn stats_body<'a>(stats: &'a GameStats) -> Element<'a, Message> {
             if !value.is_empty() {
                 value.push_str(" · ");
             }
-            value.push_str(&format!("{percent}% positivas"));
+            value.push_str(&i18n.t_args(
+                "native.game.positive_pct",
+                &[("percent", &percent.to_string())],
+            ));
         }
         content = content.push(proton_row(
-            "Avaliação",
+            i18n.t("stats.avaliacao"),
             text(value).size(11).color(theme::TEXT_STRONG).into(),
         ));
     }
 
     if stats.reviews.is_empty() {
         content = content.push(hint(
-            "A loja não retornou avaliações recentes para este jogo.",
+            i18n.t("native.game.reviews_empty"),
             theme::TEXT_3,
         ));
     } else {
         content = content.push(
-            text("Avaliações recentes")
+            text(i18n.t("native.game.recent_reviews"))
                 .size(10)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_2),
         );
         for review in stats.reviews.iter().take(4) {
-            content = content.push(review_card(review));
+            content = content.push(review_card(i18n, review));
         }
         if stats.reviews.len() > 4 {
             content = content.push(hint(
-                format!(
-                    "Mostrando 4 de {} avaliações resumidas.",
-                    stats.reviews.len()
+                i18n.t_args(
+                    "native.game.reviews_truncated",
+                    &[("count", &stats.reviews.len().to_string())],
                 ),
                 theme::TEXT_3,
             ));
@@ -1405,7 +1515,10 @@ fn stats_body<'a>(stats: &'a GameStats) -> Element<'a, Message> {
     content.into()
 }
 
-fn review_card<'a>(review: &'a crate::backend::GameReview) -> Element<'a, Message> {
+fn review_card<'a>(
+    i18n: &'a I18n,
+    review: &'a crate::backend::GameReview,
+) -> Element<'a, Message> {
     let mut body = column![
         row![
             text(review.author.as_str())
@@ -1414,9 +1527,9 @@ fn review_card<'a>(review: &'a crate::backend::GameReview) -> Element<'a, Messag
                 .color(theme::TEXT_STRONG),
             Space::new().width(Fill),
             text(if review.positive {
-                "★ Recomenda"
+                format!("★ {}", i18n.t("native.game.recommends"))
             } else {
-                "☆ Não recomenda"
+                format!("☆ {}", i18n.t("native.game.not_recommends"))
             })
             .size(9)
             .color(if review.positive {
@@ -1436,14 +1549,20 @@ fn review_card<'a>(review: &'a crate::backend::GameReview) -> Element<'a, Messag
     let mut meta = row![].spacing(theme::SPACE_2);
     if review.hours > 0 {
         meta = meta.push(
-            text(format!("{}h jogadas", review.hours))
+            text(i18n.t_args(
+                "community.horas_jogadas",
+                &[("h", &review.hours.to_string())],
+            ))
                 .size(9)
                 .color(theme::TEXT_3),
         );
     }
     if review.helpful > 0 {
         meta = meta.push(
-            text(format!("{} úteis", review.helpful))
+            text(i18n.t_args(
+                "native.game.helpful",
+                &[("count", &review.helpful.to_string())],
+            ))
                 .size(9)
                 .color(theme::TEXT_3),
         );
@@ -1491,7 +1610,11 @@ fn hint<'a>(message: impl Into<String>, color: Color) -> Element<'a, Message> {
         .into()
 }
 
-fn error_body<'a>(title: &'a str, error: &'a str) -> Element<'a, Message> {
+fn error_body<'a>(
+    i18n: &'a I18n,
+    title: &'a str,
+    error: &'a str,
+) -> Element<'a, Message> {
     container(
         column![
             text(title).size(11).color(theme::DANGER),
@@ -1499,8 +1622,12 @@ fn error_body<'a>(title: &'a str, error: &'a str) -> Element<'a, Message> {
                 .size(10)
                 .color(theme::TEXT_2)
                 .wrapping(Wrapping::WordOrGlyph),
-            button(text("Tentar novamente").size(10).font(theme::FONT_MEDIUM))
-                .on_press(Message::ReloadGameData)
+            button(
+                text(i18n.t("downloads.tentar_novamente"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .on_press(Message::ReloadGameData)
                 .padding([5.0, 10.0])
                 .style(theme::ghost_button),
         ]
@@ -1541,6 +1668,7 @@ fn placeholder_card<'a>(title: &'a str, message: &'a str) -> Element<'a, Message
 
 /// Card "Trailer": frame RGBA do GStreamer, play/pause, seek e estado.
 fn trailer_card<'a>(
+    i18n: &'a I18n,
     media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
 ) -> Element<'a, Message> {
@@ -1550,7 +1678,7 @@ fn trailer_card<'a>(
             .height(Fill)
             .content_fit(ContentFit::Contain)
             .into(),
-        None => missing_frame(media, game_media),
+        None => missing_frame(i18n, media, game_media),
     };
 
     let surface = container(surface)
@@ -1561,9 +1689,9 @@ fn trailer_card<'a>(
     let duration = media.duration_seconds();
     let position = media.position_seconds();
     let label = if media.is_playing() {
-        "Pausar"
+        i18n.t("native.game.pause")
     } else {
-        "Reproduzir"
+        i18n.t("native.game.play")
     };
     let mut toggle = button(text(label).size(11).font(theme::FONT_MEDIUM))
         .padding([6, 12])
@@ -1583,7 +1711,7 @@ fn trailer_card<'a>(
         );
     } else {
         controls = controls.push(
-            text("aguardando a duração do trailer…")
+            text(i18n.t("native.game.awaiting_duration"))
                 .size(9)
                 .color(theme::TEXT_3),
         );
@@ -1597,20 +1725,26 @@ fn trailer_card<'a>(
 
     let timing = media
         .first_frame_ms()
-        .map(|elapsed| format!("  ·  1º frame em {elapsed} ms"))
+        .map(|elapsed| {
+            i18n.t_args("native.game.first_frame", &[("ms", &elapsed.to_string())])
+        })
         .unwrap_or_default();
 
     let body = column![
         row![
-            text("Trailer")
+            text(i18n.t("gameoverview.trailer"))
                 .size(13)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
-            text(source_label(media.uri()))
+            text(source_label(i18n, media.uri()))
                 .size(9)
                 .color(theme::TEXT_3),
             Space::new().width(Fill),
-            button(text("Escolher trailer").size(10).font(theme::FONT_MEDIUM))
+            button(
+                text(i18n.t("trailer.escolher"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM),
+            )
                 .on_press(Message::OpenTrailerPicker)
                 .padding([5.0, 10.0])
                 .style(theme::ghost_button),
@@ -1628,12 +1762,14 @@ fn trailer_card<'a>(
             .size(10)
             .color(theme::TEXT_2),
             Space::new().width(Fill),
-            text(short_status(media.status()))
+            text(short_status(i18n, media.status()))
                 .size(10)
                 .color(status_color),
         ]
         .align_y(iced::Center),
-        text(media::AUDIO_NOTE).size(9).color(theme::TEXT_3),
+        text(i18n.t("native.game.audio_note"))
+            .size(9)
+            .color(theme::TEXT_3),
     ]
     .spacing(theme::SPACE_2);
 
@@ -1657,31 +1793,32 @@ fn trailer_card<'a>(
 
 /// Área do vídeo antes do primeiro frame: carregando, erro, `info:null` etc.
 fn missing_frame<'a>(
+    i18n: &'a I18n,
     media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
 ) -> Element<'a, Message> {
     let (title, detail, color) = if let MediaStatus::Error(message) = media.status() {
         (
             shorten(message, 180),
-            "O trailer não pôde ser aberto.".to_string(),
+            i18n.t("native.game.trailer_open_error").to_string(),
             theme::DANGER,
         )
     } else if let Some(notice) = game_media.and_then(|info| info.notice.as_deref()) {
         (
             shorten(notice, 140),
-            "Nenhum trailer será reproduzido.".to_string(),
+            i18n.t("native.game.no_trailer_played").to_string(),
             theme::WARNING,
         )
     } else if game_media.is_none() {
         (
-            "Consultando a loja…".to_string(),
-            "game:sysinfo · hls → mp4 → webm".to_string(),
+            i18n.t("native.game.querying_trailer").to_string(),
+            i18n.t("native.game.sysinfo_pipeline").to_string(),
             theme::TEXT_2,
         )
     } else {
         (
-            media.status().label().to_string(),
-            "Aguardando o primeiro frame do GStreamer.".to_string(),
+            short_status(i18n, media.status()).to_string(),
+            i18n.t("native.game.awaiting_frame").to_string(),
             theme::TEXT_2,
         )
     };
@@ -1703,26 +1840,28 @@ fn missing_frame<'a>(
 }
 
 /// Rótulo curto na linha de controles; o erro completo fica na área do vídeo.
-fn short_status(status: &MediaStatus) -> &'static str {
+fn short_status<'a>(i18n: &'a I18n, status: &MediaStatus) -> &'a str {
     match status {
-        MediaStatus::Idle => "sem trailer",
-        MediaStatus::Loading => "carregando",
-        MediaStatus::Playing => "tocando",
-        MediaStatus::Paused => "pausado",
-        MediaStatus::Ended => "fim",
-        MediaStatus::Error(_) => "erro",
+        MediaStatus::Idle => i18n.t("native.game.media.idle"),
+        MediaStatus::Loading => i18n.t("native.game.media.loading"),
+        MediaStatus::Playing => i18n.t("native.game.media.playing"),
+        MediaStatus::Paused => i18n.t("native.game.media.paused"),
+        MediaStatus::Ended => i18n.t("native.game.media.ended"),
+        MediaStatus::Error(_) => i18n.t("native.game.media.error"),
     }
 }
 
 /// Origem escolhida pelo wrapper (`hls` tem prioridade sobre `mp4`/`webm`).
-fn source_label(uri: Option<&str>) -> &'static str {
+fn source_label<'a>(i18n: &'a I18n, uri: Option<&str>) -> &'a str {
     match uri {
         Some(uri) if uri.starts_with("file://") || !uri.contains("://") => {
-            "Arquivo local · GStreamer"
+            i18n.t("native.game.source.local")
         }
-        Some(uri) if uri.to_ascii_lowercase().contains(".m3u8") => "HLS · GStreamer",
-        Some(_) => "MP4/WebM · GStreamer",
-        None => "GStreamer",
+        Some(uri) if uri.to_ascii_lowercase().contains(".m3u8") => {
+            i18n.t("native.game.source.hls")
+        }
+        Some(_) => i18n.t("native.game.source.file"),
+        None => i18n.t("native.game.source.gstreamer"),
     }
 }
 
@@ -1730,22 +1869,30 @@ fn source_label(uri: Option<&str>) -> &'static str {
 
 /// Véu + cartão central do seletor; o player da ficha continua montado atrás.
 fn trailer_picker_overlay<'a>(
+    i18n: &'a I18n,
     picker: &'a TrailerPickerState,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
     let header = row![
         column![
-            text("Escolher trailer")
+            text(i18n.t("trailer.escolher"))
                 .size(20)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text(format!("{} — vídeos do YouTube", picker.game_title))
-                .size(11)
-                .color(theme::TEXT_2),
+            text(i18n.t_args(
+                "native.game.youtube_subtitle",
+                &[("title", &picker.game_title)],
+            ))
+            .size(11)
+            .color(theme::TEXT_2),
         ]
         .spacing(3)
         .width(Fill),
-        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
+        button(
+            text(i18n.t("common.fechar"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
             .on_press(Message::CloseTrailerPicker)
             .padding([7.0, 14.0])
             .style(theme::ghost_button),
@@ -1754,15 +1901,22 @@ fn trailer_picker_overlay<'a>(
     .align_y(iced::Center);
 
     let search = row![
-        text_input("Buscar trailer no YouTube...", picker.query.as_str())
+        text_input(
+            i18n.t("native.game.trailer_search_placeholder"),
+            picker.query.as_str(),
+        )
             .on_input(Message::TrailerQueryChanged)
             .on_submit(Message::TrailerSearchSubmitted)
             .padding([9.0, 12.0])
             .size(12)
             .width(Fill)
             .style(theme::search_input),
-        button(text("Buscar").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::TrailerSearchSubmitted)
+        button(
+            text(i18n.t("store.buscar"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::TrailerSearchSubmitted)
             .padding([9.0, 16.0])
             .style(theme::primary_button),
     ]
@@ -1771,15 +1925,15 @@ fn trailer_picker_overlay<'a>(
 
     let mut content = column![header, search].spacing(theme::SPACE_4);
     if let Some(path) = picker.existing_path.as_deref() {
-        content = content.push(existing_trailer_panel(path));
+        content = content.push(existing_trailer_panel(i18n, path));
     }
     if let Some(error) = picker.download_error.as_deref() {
         content = content.push(super::action_error_banner(error, None));
     }
     if let Some(video) = picker.downloading.as_ref() {
-        content = content.push(downloading_panel(video, covers));
+        content = content.push(downloading_panel(i18n, video, covers));
     } else {
-        content = content.push(results_panel(picker, covers));
+        content = content.push(results_panel(i18n, picker, covers));
     }
 
     let card = container(content)
@@ -1819,22 +1973,27 @@ fn placeholder_panel<'a>(message: &'a str, color: iced::Color) -> Element<'a, Me
 }
 
 fn results_panel<'a>(
+    i18n: &'a I18n,
     picker: &'a TrailerPickerState,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
     match &picker.status {
         LoadStatus::Idle | LoadStatus::Loading => {
-            placeholder_panel("Buscando vídeos no YouTube…", theme::TEXT_2)
+            placeholder_panel(i18n.t("trailer.buscando_youtube"), theme::TEXT_2)
         }
         LoadStatus::Error(error) => container(
             column![
-                text("Falha ao buscar trailers")
+                text(i18n.t("trailer.falha_busca"))
                     .size(13)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::DANGER),
                 text(shorten(error, 260)).size(11).color(theme::TEXT_2),
-                button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
-                    .on_press(Message::TrailerSearchSubmitted)
+                button(
+                    text(i18n.t("downloads.tentar_novamente"))
+                        .size(12)
+                        .font(theme::FONT_MEDIUM),
+                )
+                .on_press(Message::TrailerSearchSubmitted)
                     .padding([7.0, 13.0])
                     .style(theme::ghost_button),
             ]
@@ -1847,14 +2006,14 @@ fn results_panel<'a>(
         .center_y(Fill)
         .into(),
         LoadStatus::Ready if picker.results.is_empty() => {
-            placeholder_panel("Nenhum vídeo encontrado para esta busca.", theme::TEXT_2)
+            placeholder_panel(i18n.t("trailer.nenhum_video"), theme::TEXT_2)
         }
         LoadStatus::Ready => scrollable(
             column(
                 picker
                     .results
                     .iter()
-                    .map(|result| trailer_result_row(result, covers))
+                    .map(|result| trailer_result_row(i18n, result, covers))
                     .collect::<Vec<_>>(),
             )
             .spacing(theme::SPACE_2)
@@ -1867,6 +2026,7 @@ fn results_panel<'a>(
 }
 
 fn trailer_thumbnail<'a>(
+    i18n: &'a I18n,
     video: &'a TrailerResult,
     covers: &'a CoverCache,
     width: f32,
@@ -1880,9 +2040,9 @@ fn trailer_thumbnail<'a>(
             .into(),
         None => container(
             text(if video.thumbnail.is_some() {
-                "carregando…"
+                i18n.t("native.game.thumbnail_loading")
             } else {
-                "sem prévia"
+                i18n.t("native.game.no_preview")
             })
             .size(9)
             .color(theme::TEXT_3),
@@ -1897,11 +2057,12 @@ fn trailer_thumbnail<'a>(
 }
 
 fn trailer_result_row<'a>(
+    i18n: &'a I18n,
     video: &'a TrailerResult,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
     let channel = if video.channel.trim().is_empty() {
-        "Canal não informado"
+        i18n.t("native.game.channel_unknown")
     } else {
         video.channel.as_str()
     };
@@ -1916,7 +2077,7 @@ fn trailer_result_row<'a>(
 
     button(
         row![
-            trailer_thumbnail(video, covers, 160.0, 90.0),
+            trailer_thumbnail(i18n, video, covers, 160.0, 90.0),
             column![
                 text(video.title.as_str())
                     .size(13)
@@ -1924,7 +2085,7 @@ fn trailer_result_row<'a>(
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::WordOrGlyph),
                 meta,
-                text("Clique para baixar e abrir no player")
+                text(i18n.t("native.game.trailer_click_note"))
                     .size(9)
                     .color(theme::TEXT_3),
             ]
@@ -1942,11 +2103,12 @@ fn trailer_result_row<'a>(
 }
 
 fn downloading_panel<'a>(
+    i18n: &'a I18n,
     video: &'a TrailerResult,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
     let channel = if video.channel.trim().is_empty() {
-        "Canal não informado"
+        i18n.t("native.game.channel_unknown")
     } else {
         video.channel.as_str()
     };
@@ -1961,9 +2123,9 @@ fn downloading_panel<'a>(
 
     container(
         row![
-            trailer_thumbnail(video, covers, 200.0, 112.0),
+            trailer_thumbnail(i18n, video, covers, 200.0, 112.0),
             column![
-                text("Baixando…")
+                text(i18n.t("common.baixando"))
                     .size(14)
                     .font(theme::FONT_BOLD)
                     .color(theme::ACCENT),
@@ -1973,7 +2135,7 @@ fn downloading_panel<'a>(
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::WordOrGlyph),
                 meta,
-                text("O yt-dlp baixa e remuxa o vídeo; isso pode levar alguns minutos.")
+                text(i18n.t("native.game.ytdlp_note"))
                     .size(9)
                     .color(theme::TEXT_3),
             ]
@@ -1989,11 +2151,11 @@ fn downloading_panel<'a>(
     .into()
 }
 
-fn existing_trailer_panel(path: &str) -> Element<'_, Message> {
+fn existing_trailer_panel<'a>(i18n: &'a I18n, path: &'a str) -> Element<'a, Message> {
     container(
         row![
             column![
-                text("Trailer baixado disponível")
+                text(i18n.t("native.game.downloaded_trailer"))
                     .size(12)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_1),
@@ -2002,7 +2164,7 @@ fn existing_trailer_panel(path: &str) -> Element<'_, Message> {
             .spacing(3)
             .width(Fill),
             button(
-                text("Abrir trailer baixado")
+                text(i18n.t("native.game.open_downloaded"))
                     .size(11)
                     .font(theme::FONT_MEDIUM),
             )

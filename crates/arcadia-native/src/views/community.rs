@@ -26,10 +26,10 @@ pub enum CommunityTab {
 }
 
 impl CommunityTab {
-    pub fn label(self) -> &'static str {
+    pub fn label<'a>(self, i18n: &'a crate::i18n::I18n) -> &'a str {
         match self {
-            Self::Reviews => "Reviews",
-            Self::Collections => "Coleções",
+            Self::Reviews => i18n.t("reviews.titulo"),
+            Self::Collections => i18n.t("community.colecoes"),
         }
     }
 }
@@ -201,24 +201,36 @@ fn dedupe_by_key<T: CommunityItemKey>(items: &mut Vec<T>) {
     });
 }
 
-pub fn panel<'a>(title: &'a str, state: &'a CommunityState) -> Element<'a, Message> {
+pub fn panel<'a>(
+    i18n: &'a crate::i18n::I18n,
+    title: &'a str,
+    state: &'a CommunityState,
+) -> Element<'a, Message> {
     let header = row![
         column![
-            text("Comunidade")
+            text(i18n.t("community.titulo"))
                 .size(16)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text(format!("Reviews e coleções públicas de {title}."))
+            text(i18n.t_args("community.subtitulo", &[("title", title)]))
                 .size(11)
                 .color(theme::TEXT_2),
         ]
         .spacing(3)
         .width(Fill),
         row![
-            tab_button(CommunityTab::Reviews.label(), CommunityTab::Reviews, state.tab),
-            tab_button(CommunityTab::Collections.label(), CommunityTab::Collections, state.tab),
+            tab_button(
+                CommunityTab::Reviews.label(i18n),
+                CommunityTab::Reviews,
+                state.tab
+            ),
+            tab_button(
+                CommunityTab::Collections.label(i18n),
+                CommunityTab::Collections,
+                state.tab
+            ),
             button(
-                text("Atualizar")
+                text(i18n.t("native.refresh"))
                     .size(10)
                     .font(theme::FONT_MEDIUM),
             )
@@ -232,8 +244,8 @@ pub fn panel<'a>(title: &'a str, state: &'a CommunityState) -> Element<'a, Messa
     .align_y(iced::Center);
 
     let body = match state.tab {
-        CommunityTab::Reviews => reviews_body(&state.reviews),
-        CommunityTab::Collections => collections_body(&state.collections),
+        CommunityTab::Reviews => reviews_body(i18n, &state.reviews),
+        CommunityTab::Collections => collections_body(i18n, &state.collections),
     };
 
     container(column![header, body].spacing(theme::SPACE_3).width(Fill))
@@ -243,7 +255,7 @@ pub fn panel<'a>(title: &'a str, state: &'a CommunityState) -> Element<'a, Messa
         .into()
 }
 
-fn tab_button(label: &'static str, tab: CommunityTab, active: CommunityTab) -> Element<'static, Message> {
+fn tab_button<'a>(label: &'a str, tab: CommunityTab, active: CommunityTab) -> Element<'a, Message> {
     let is_active = tab == active;
     let mut control = button(
         text(label)
@@ -259,9 +271,13 @@ fn tab_button(label: &'static str, tab: CommunityTab, active: CommunityTab) -> E
     control.into()
 }
 
-fn reviews_body(list: &CommunityList<CommunityReview>) -> Element<'_, Message> {
+fn reviews_body<'a>(
+    i18n: &'a crate::i18n::I18n,
+    list: &'a CommunityList<CommunityReview>,
+) -> Element<'a, Message> {
     let mut content = column![].spacing(theme::SPACE_2).width(Fill);
     content = content.push(status_banner(
+        i18n,
         &list.status,
         list.offline,
         CommunityTab::Reviews,
@@ -269,27 +285,40 @@ fn reviews_body(list: &CommunityList<CommunityReview>) -> Element<'_, Message> {
 
     if list.items.is_empty() {
         if matches!(list.status, LoadStatus::Idle | LoadStatus::Loading) {
-            content = content.push(hint("Carregando reviews...", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("native.community.loading_reviews"),
+                theme::TEXT_3,
+            ));
         } else if matches!(list.status, LoadStatus::Ready) {
-            content = content.push(hint("Nenhuma review pública ainda.", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("community.vazio_avaliacoes"),
+                theme::TEXT_3,
+            ));
         }
     } else {
         for review in &list.items {
-            content = content.push(review_card(review));
+            content = content.push(review_card(i18n, review));
         }
         if let Some(error) = list.error.as_deref() {
-            content = content.push(views::action_error_banner(
+            content = content.push(views::action_error_banner_labeled(
                 error,
                 Some(Message::CommunityRefresh(CommunityTab::Reviews)),
+                i18n.t("downloads.tentar_novamente"),
             ));
         }
         if list.loading_more {
-            content = content.push(hint("Carregando mais reviews...", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("native.community.loading_more_reviews"),
+                theme::TEXT_3,
+            ));
         } else if list.has_more {
-            content = content.push(load_more_button(CommunityTab::Reviews));
+            content = content.push(load_more_button(i18n, CommunityTab::Reviews));
         }
         content = content.push(hint(
-            &format!("{} review(s) nesta sessão.", list.items.len()),
+            i18n.t_args(
+                "native.community.reviews_count",
+                &[("count", &list.items.len().to_string())],
+            ),
             theme::TEXT_3,
         ));
     }
@@ -297,9 +326,13 @@ fn reviews_body(list: &CommunityList<CommunityReview>) -> Element<'_, Message> {
     content.into()
 }
 
-fn collections_body(list: &CommunityList<CommunityCollection>) -> Element<'_, Message> {
+fn collections_body<'a>(
+    i18n: &'a crate::i18n::I18n,
+    list: &'a CommunityList<CommunityCollection>,
+) -> Element<'a, Message> {
     let mut content = column![].spacing(theme::SPACE_2).width(Fill);
     content = content.push(status_banner(
+        i18n,
         &list.status,
         list.offline,
         CommunityTab::Collections,
@@ -307,27 +340,40 @@ fn collections_body(list: &CommunityList<CommunityCollection>) -> Element<'_, Me
 
     if list.items.is_empty() {
         if matches!(list.status, LoadStatus::Idle | LoadStatus::Loading) {
-            content = content.push(hint("Carregando coleções...", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("native.community.loading_collections"),
+                theme::TEXT_3,
+            ));
         } else if matches!(list.status, LoadStatus::Ready) {
-            content = content.push(hint("Nenhuma coleção pública encontrada.", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("community.vazio_colecoes"),
+                theme::TEXT_3,
+            ));
         }
     } else {
         for collection in &list.items {
-            content = content.push(collection_card(collection));
+            content = content.push(collection_card(i18n, collection));
         }
         if let Some(error) = list.error.as_deref() {
-            content = content.push(views::action_error_banner(
+            content = content.push(views::action_error_banner_labeled(
                 error,
                 Some(Message::CommunityRefresh(CommunityTab::Collections)),
+                i18n.t("downloads.tentar_novamente"),
             ));
         }
         if list.loading_more {
-            content = content.push(hint("Carregando mais coleções...", theme::TEXT_3));
+            content = content.push(hint(
+                i18n.t("native.community.loading_more_collections"),
+                theme::TEXT_3,
+            ));
         } else if list.has_more {
-            content = content.push(load_more_button(CommunityTab::Collections));
+            content = content.push(load_more_button(i18n, CommunityTab::Collections));
         }
         content = content.push(hint(
-            &format!("{} coleção(ões) nesta sessão.", list.items.len()),
+            i18n.t_args(
+                "native.community.collections_count",
+                &[("count", &list.items.len().to_string())],
+            ),
             theme::TEXT_3,
         ));
     }
@@ -336,26 +382,30 @@ fn collections_body(list: &CommunityList<CommunityCollection>) -> Element<'_, Me
 }
 
 fn status_banner<'a>(
+    i18n: &'a crate::i18n::I18n,
     status: &'a LoadStatus,
     offline: bool,
     tab: CommunityTab,
 ) -> Element<'a, Message> {
     match status {
-        LoadStatus::Error(message) => {
-            views::action_error_banner(message, Some(Message::CommunityRefresh(tab)))
-        }
-        _ if offline => views::warning_banner(
-            "Sem conexão: exibindo dados salvos em cache quando disponíveis.",
+        LoadStatus::Error(message) => views::action_error_banner_labeled(
+            message,
+            Some(Message::CommunityRefresh(tab)),
+            i18n.t("downloads.tentar_novamente"),
         ),
+        _ if offline => views::warning_banner(i18n.t("native.community.offline_cache")),
         LoadStatus::Idle | LoadStatus::Loading | LoadStatus::Ready => {
             iced::widget::Space::new().height(0).into()
         }
     }
 }
 
-fn load_more_button(tab: CommunityTab) -> Element<'static, Message> {
+fn load_more_button<'a>(
+    i18n: &'a crate::i18n::I18n,
+    tab: CommunityTab,
+) -> Element<'a, Message> {
     button(
-        text("Carregar mais")
+        text(i18n.t("native.community.load_more"))
             .size(11)
             .font(theme::FONT_MEDIUM),
     )
@@ -365,7 +415,10 @@ fn load_more_button(tab: CommunityTab) -> Element<'static, Message> {
     .into()
 }
 
-fn review_card(review: &CommunityReview) -> Element<'_, Message> {
+fn review_card<'a>(
+    i18n: &'a crate::i18n::I18n,
+    review: &'a CommunityReview,
+) -> Element<'a, Message> {
     let stars = rating_stars(review);
     let date = review
         .created_at
@@ -386,7 +439,11 @@ fn review_card(review: &CommunityReview) -> Element<'_, Message> {
     }
     if let Some(positive) = review.positive {
         header = header.push(badge(
-            if positive { "Positiva" } else { "Negativa" },
+            if positive {
+                i18n.t("native.community.positive")
+            } else {
+                i18n.t("native.community.negative")
+            },
             if positive { theme::SUCCESS } else { theme::DANGER },
         ));
     }
@@ -406,7 +463,7 @@ fn review_card(review: &CommunityReview) -> Element<'_, Message> {
     }
     content = content.push(
         text(if review.text.is_empty() {
-            "Sem texto."
+            i18n.t("community.sem_texto")
         } else {
             review.text.as_str()
         })
@@ -415,7 +472,10 @@ fn review_card(review: &CommunityReview) -> Element<'_, Message> {
         .width(Fill),
     );
 
-    let hours = review.hours.map(format_hours).unwrap_or_default();
+    let hours = review
+        .hours
+        .map(|hours| format_hours(i18n, hours))
+        .unwrap_or_default();
     if !hours.is_empty() {
         content = content.push(text(hours).size(10).color(theme::TEXT_3));
     }
@@ -427,12 +487,15 @@ fn review_card(review: &CommunityReview) -> Element<'_, Message> {
         .into()
 }
 
-fn collection_card(collection: &CommunityCollection) -> Element<'_, Message> {
+fn collection_card<'a>(
+    i18n: &'a crate::i18n::I18n,
+    collection: &'a CommunityCollection,
+) -> Element<'a, Message> {
     let visibility = collection
         .visibility
         .as_deref()
-        .map(visibility_label)
-        .unwrap_or("Pública");
+        .map(|visibility| visibility_label(i18n, visibility))
+        .unwrap_or_else(|| i18n.t("community.visibilidade.publica"));
     let mut header = row![
         text(collection.title.as_str())
             .size(13)
@@ -445,13 +508,16 @@ fn collection_card(collection: &CommunityCollection) -> Element<'_, Message> {
     .align_y(iced::Center);
 
     header = header.push(badge(
-        format!("{} jogo(s)", collection.item_count),
+        i18n.t_args(
+            "native.community.items_count",
+            &[("count", &collection.item_count.to_string())],
+        ),
         theme::ACCENT,
     ));
 
     let mut content = column![
         header,
-        text(format!("por {}", collection.owner))
+        text(i18n.t_args("native.community.by_owner", &[("owner", &collection.owner)]))
             .size(10)
             .color(theme::TEXT_3),
     ]
@@ -480,10 +546,13 @@ fn collection_card(collection: &CommunityCollection) -> Element<'_, Message> {
             .collect::<Vec<_>>()
             .join(" · ");
         content = content.push(
-            text(format!("Itens: {preview}"))
-                .size(10)
-                .color(theme::TEXT_3)
-                .width(Fill),
+            text(i18n.t_args(
+                "native.community.items_preview",
+                &[("preview", &preview)],
+            ))
+            .size(10)
+            .color(theme::TEXT_3)
+            .width(Fill),
         );
     }
 
@@ -531,22 +600,23 @@ fn format_date(value: &str) -> String {
         .unwrap_or_else(|_| value.chars().take(10).collect())
 }
 
-fn format_hours(hours: f64) -> String {
+fn format_hours(i18n: &crate::i18n::I18n, hours: f64) -> String {
     if !hours.is_finite() || hours <= 0.0 {
         return String::new();
     }
-    if hours.fract().abs() < 0.05 {
-        format!("{hours:.0} h jogadas")
+    let value = if hours.fract().abs() < 0.05 {
+        format!("{hours:.0}")
     } else {
-        format!("{hours:.1} h jogadas")
-    }
+        format!("{hours:.1}")
+    };
+    i18n.t_args("community.horas_jogadas", &[("h", &value)])
 }
 
-fn visibility_label(visibility: &str) -> &str {
+fn visibility_label<'a>(i18n: &'a crate::i18n::I18n, visibility: &'a str) -> &'a str {
     match visibility {
-        "public" => "Pública",
-        "unlisted" => "Não listada",
-        "private" => "Privada",
+        "public" => i18n.t("community.visibilidade.publica"),
+        "unlisted" => i18n.t("community.visibilidade.nao_listada"),
+        "private" => i18n.t("community.visibilidade.privada"),
         other => other,
     }
 }

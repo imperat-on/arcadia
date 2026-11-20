@@ -65,7 +65,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     if signup {
         card = card.push(
-            text_input("Email", &auth.email)
+            text_input(i18n.t("account.email"), &auth.email)
                 .id(iced::widget::Id::new(EMAIL_ID))
                 .on_input(Message::AuthEmailChanged)
                 .on_submit(Message::AuthSubmit)
@@ -78,7 +78,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     card = card
         .push(
-            text_input("Nome de usuário", &auth.username)
+            text_input(i18n.t("native.auth.username_placeholder"), &auth.username)
                 .id(iced::widget::Id::new(USERNAME_ID))
                 .on_input(Message::AuthUsernameChanged)
                 .on_submit(Message::AuthSubmit)
@@ -88,7 +88,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .style(theme::search_input),
         )
         .push(
-            text_input("Senha", &auth.password)
+            text_input(i18n.t("native.auth.password_placeholder"), &auth.password)
                 .id(iced::widget::Id::new(PASSWORD_ID))
                 .on_input(Message::AuthPasswordChanged)
                 .on_submit(Message::AuthSubmit)

@@ -4,26 +4,34 @@ use iced::widget::{button, column, container, progress_bar, row, scrollable, tex
 use iced::{Color, Element, Fill};
 
 use crate::app::{App, LoadStatus, Message, Section};
-use crate::backend::{DownloadAction, DownloadItem, DownloadStatus};
+use crate::backend::{DownloadAction, DownloadItem, DownloadKind, DownloadStatus};
 use crate::theme;
 use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.downloads;
+    let i18n = &app.i18n;
     let total = state.data.items.len();
-    let header = views::page_header(
-        "Downloads",
-        "Fila Epic/Steam e torrents, lida do dispatcher Rust.",
-        Some(format!("{total} item(ns)")),
+    let header = views::page_header_labeled(
+        i18n.t("downloads.titulo"),
+        i18n.t("native.downloads.subtitle"),
+        Some(i18n.t_args(
+            "native.downloads.count",
+            &[("count", &total.to_string())],
+        )),
         Some(Message::Refresh(Section::Downloads)),
+        i18n.t("native.refresh"),
     );
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => views::loading_state("Carregando downloads..."),
-        LoadStatus::Error(error) => container(views::error_state(
-            "Não foi possível carregar os downloads",
+        LoadStatus::Idle | LoadStatus::Loading => {
+            views::loading_state(i18n.t("native.downloads.loading"))
+        }
+        LoadStatus::Error(error) => container(views::error_state_labeled(
+            i18n.t("native.downloads.load_error"),
             error,
             Message::Refresh(Section::Downloads),
+            i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .padding([theme::SPACE_2, theme::PAGE_PADDING])
@@ -70,8 +78,8 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
     if state.data.items.is_empty() && state.data.warnings.is_empty() {
         return views::empty_state(
-            "Nenhum download na fila",
-            "Instalações das lojas e torrents aparecem aqui assim que começarem.",
+            app.i18n.t("downloads.vazio_titulo"),
+            app.i18n.t("downloads.vazio_sub"),
         );
     }
 
@@ -84,12 +92,24 @@ fn ready_body(app: &App) -> Element<'_, Message> {
         content = content.push(views::action_error_banner(error, None));
     }
 
-    content = content.push(download_group("Em andamento", &active, app));
+    content = content.push(download_group(
+        app.i18n.t("native.downloads.group_active"),
+        &active,
+        app,
+    ));
     if !done.is_empty() {
-        content = content.push(download_group("Concluídos", &done, app));
+        content = content.push(download_group(
+            app.i18n.t("downloads.secao.concluidos"),
+            &done,
+            app,
+        ));
     }
     if !failed.is_empty() {
-        content = content.push(download_group("Falhas", &failed, app));
+        content = content.push(download_group(
+            app.i18n.t("downloads.secao.falhas"),
+            &failed,
+            app,
+        ));
     }
 
     scrollable(
@@ -118,22 +138,27 @@ fn download_group<'a>(
     .spacing(theme::SPACE_2);
 
     if items.is_empty() {
-        group = group.push(text("Nada por aqui.").size(12).color(theme::TEXT_3));
+        group = group.push(
+            text(app.i18n.t("native.downloads.empty_group"))
+                .size(12)
+                .color(theme::TEXT_3),
+        );
     } else {
         for item in items {
-            group = group.push(card(item, app.downloads.busy_id.as_deref()));
+            group = group.push(card(app, item, app.downloads.busy_id.as_deref()));
         }
     }
 
     group.width(Fill).into()
 }
 
-fn card<'a>(item: &'a DownloadItem, busy: Option<&str>) -> Element<'a, Message> {
+fn card<'a>(app: &'a App, item: &'a DownloadItem, busy: Option<&str>) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let status_color = status_color(item.status);
 
     let title = row![
         container(
-            text(item.kind.label())
+            text(kind_label(i18n, item.kind))
                 .size(9)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_2)
@@ -145,7 +170,7 @@ fn card<'a>(item: &'a DownloadItem, busy: Option<&str>) -> Element<'a, Message> 
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_1),
         Space::new().width(Fill),
-        text(item.status.label())
+        text(status_label(i18n, item.status))
             .size(11)
             .font(theme::FONT_MEDIUM)
             .color(status_color),
@@ -176,13 +201,17 @@ fn card<'a>(item: &'a DownloadItem, busy: Option<&str>) -> Element<'a, Message> 
 
     let actions = if busy == Some(item.id.as_str()) {
         row![
-            button(text("Aplicando...").size(11).font(theme::FONT_MEDIUM))
+            button(
+                text(i18n.t("native.downloads.applying"))
+                    .size(11)
+                    .font(theme::FONT_MEDIUM),
+            )
                 .padding([7.0, 13.0])
                 .style(theme::ghost_button),
         ]
         .into()
     } else {
-        action_row(item)
+        action_row(app, item)
     };
 
     container(
@@ -196,12 +225,12 @@ fn card<'a>(item: &'a DownloadItem, busy: Option<&str>) -> Element<'a, Message> 
     .into()
 }
 
-fn action_row(item: &DownloadItem) -> Element<'_, Message> {
+fn action_row<'a>(app: &'a App, item: &'a DownloadItem) -> Element<'a, Message> {
     let mut actions = row![].spacing(6);
     for action in actions_for(item.status) {
         let primary = matches!(action, DownloadAction::Resume | DownloadAction::Retry);
         let button: iced::widget::Button<'_, Message> =
-            button(text(action.label()).size(11).font(theme::FONT_MEDIUM))
+            button(text(action_label(&app.i18n, *action)).size(11).font(theme::FONT_MEDIUM))
                 .on_press(Message::DownloadActionRequested {
                     item: item.clone(),
                     action: *action,
@@ -228,6 +257,38 @@ fn actions_for(status: DownloadStatus) -> &'static [DownloadAction] {
         DownloadStatus::Error => &[DownloadAction::Retry, DownloadAction::Dismiss],
         DownloadStatus::Canceled => &[DownloadAction::Dismiss],
         DownloadStatus::Done => &[DownloadAction::Dismiss],
+    }
+}
+
+fn kind_label<'a>(i18n: &'a crate::i18n::I18n, kind: DownloadKind) -> &'a str {
+    match kind {
+        DownloadKind::Epic => i18n.t("downloads.origem.epic"),
+        DownloadKind::Steam => i18n.t("downloads.origem.steam"),
+        DownloadKind::Torrent => i18n.t("downloads.origem.torrent"),
+        DownloadKind::Http => i18n.t("downloads.origem.http"),
+        DownloadKind::Debrid => i18n.t("downloads.origem.debrid"),
+    }
+}
+
+fn status_label<'a>(i18n: &'a crate::i18n::I18n, status: DownloadStatus) -> &'a str {
+    match status {
+        DownloadStatus::Active => i18n.t("downloads.status.baixando"),
+        DownloadStatus::Queued => i18n.t("downloads.status.na_fila"),
+        DownloadStatus::Paused => i18n.t("downloads.status.paused"),
+        DownloadStatus::Caching => i18n.t("native.downloads.status.caching"),
+        DownloadStatus::Done => i18n.t("downloads.status.done"),
+        DownloadStatus::Error => i18n.t("downloads.status.error"),
+        DownloadStatus::Canceled => i18n.t("downloads.status.canceled"),
+    }
+}
+
+fn action_label<'a>(i18n: &'a crate::i18n::I18n, action: DownloadAction) -> &'a str {
+    match action {
+        DownloadAction::Pause => i18n.t("downloads.pausar"),
+        DownloadAction::Resume => i18n.t("downloads.retomar"),
+        DownloadAction::Cancel => i18n.t("common.cancelar"),
+        DownloadAction::Retry => i18n.t("downloads.tentar_novamente"),
+        DownloadAction::Dismiss => i18n.t("common.remover"),
     }
 }
 

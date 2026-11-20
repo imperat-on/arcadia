@@ -17,38 +17,44 @@ use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.components;
-    let header = views::page_header(
-        "Componentes",
-        "Plugins detectados pelo Arcadia; nada é baixado por esta tela.",
-        Some(format!("{} componente(s)", state.plugins.len())),
+    let i18n = &app.i18n;
+    let header = views::page_header_labeled(
+        i18n.t("sidebar.plugins"),
+        i18n.t("native.components.subtitle"),
+        Some(i18n.t_args(
+            "native.components.count",
+            &[("count", &state.plugins.len().to_string())],
+        )),
         Some(Message::Refresh(Section::Components)),
+        i18n.t("native.refresh"),
     );
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => views::loading_state("Carregando componentes..."),
-        LoadStatus::Error(error) => container(views::error_state(
-            "Não foi possível carregar os componentes",
+        LoadStatus::Idle | LoadStatus::Loading => {
+            views::loading_state(i18n.t("native.components.loading"))
+        }
+        LoadStatus::Error(error) => container(views::error_state_labeled(
+            i18n.t("native.components.load_error"),
             error,
             Message::Refresh(Section::Components),
+            i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .padding([theme::SPACE_2, theme::PAGE_PADDING])
         .into(),
-        LoadStatus::Ready => ready_body(state),
+        LoadStatus::Ready => ready_body(app, state),
     };
 
     column![header, body].width(Fill).height(Fill).into()
 }
 
-fn ready_body(state: &ComponentsState) -> Element<'_, Message> {
+fn ready_body<'a>(app: &'a App, state: &'a ComponentsState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut content = column![
-        text(
-            "Componentes opcionais que você já tem no sistema. O Arcadia apenas \
-             detecta e carrega — não baixa nem hospeda nada."
-        )
-        .size(12)
-        .color(theme::TEXT_2)
-        .width(Fill),
+        text(i18n.t("native.components.intro"))
+            .size(12)
+            .color(theme::TEXT_2)
+            .width(Fill),
     ]
     .spacing(theme::SPACE_3)
     .width(Fill);
@@ -57,22 +63,19 @@ fn ready_body(state: &ComponentsState) -> Element<'_, Message> {
         content = content.push(notice_banner(banner));
     }
 
-    content = content.push(register_panel(state));
+    content = content.push(register_panel(app, state));
 
     if state.plugins.is_empty() {
         content = content.push(
             container(
                 column![
-                    text("Nenhum componente registrado")
+                    text(i18n.t("native.components.empty_title"))
                         .size(14)
                         .font(theme::FONT_MEDIUM)
                         .color(theme::TEXT_STRONG),
-                    text(
-                        "O registro respondeu vazio. Componentes opcionais aparecem aqui \
-                         quando detectados pelo Arcadia."
-                    )
-                    .size(12)
-                    .color(theme::TEXT_2),
+                    text(i18n.t("native.components.empty_desc"))
+                        .size(12)
+                        .color(theme::TEXT_2),
                 ]
                 .spacing(4),
             )
@@ -82,19 +85,15 @@ fn ready_body(state: &ComponentsState) -> Element<'_, Message> {
         );
     } else {
         for plugin in &state.plugins {
-            content = content.push(plugin_card(state, plugin));
+            content = content.push(plugin_card(app, state, plugin));
         }
     }
 
     content = content.push(
-        text(
-            "Instalar só ativa um componente já presente no sistema e falha com \
-             “não detectado” quando o arquivo não existe. Remover apenas desativa a \
-             flag; o arquivo do usuário nunca é apagado.",
-        )
-        .size(11)
-        .color(theme::TEXT_3)
-        .width(Fill),
+        text(i18n.t("native.components.footer_note"))
+            .size(11)
+            .color(theme::TEXT_3)
+            .width(Fill),
     );
 
     scrollable(
@@ -107,14 +106,15 @@ fn ready_body(state: &ComponentsState) -> Element<'_, Message> {
     .into()
 }
 
-fn register_panel(state: &ComponentsState) -> Element<'_, Message> {
+fn register_panel<'a>(app: &'a App, state: &'a ComponentsState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let can_register =
         !state.registering && state.busy.is_none() && !state.path_draft.trim().is_empty();
     let mut register_button = button(
         text(if state.registering {
-            "Registrando..."
+            i18n.t("native.components.registering")
         } else {
-            "Registrar componente"
+            i18n.t("native.components.register")
         })
         .size(12)
         .font(theme::FONT_MEDIUM),
@@ -127,18 +127,18 @@ fn register_panel(state: &ComponentsState) -> Element<'_, Message> {
 
     container(
         column![
-            text("Adicionar componente manual")
+            text(i18n.t("native.components.add_title"))
                 .size(13)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_STRONG),
-            text(
-                "Informe a pasta do componente ou o caminho do manifesto. O registro \
-                 lê os metadados locais; nada é baixado."
-            )
-            .size(11)
-            .color(theme::TEXT_3),
+            text(i18n.t("native.components.add_desc"))
+                .size(11)
+                .color(theme::TEXT_3),
             row![
-                text_input("Caminho da pasta ou do manifesto", &state.path_draft)
+                text_input(
+                    i18n.t("native.components.path_placeholder"),
+                    &state.path_draft
+                )
                     .on_input(Message::PluginPathChanged)
                     .on_submit(Message::PluginRegisterRequested)
                     .padding([10.0, 14.0])
@@ -159,7 +159,12 @@ fn register_panel(state: &ComponentsState) -> Element<'_, Message> {
     .into()
 }
 
-fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Element<'a, Message> {
+fn plugin_card<'a>(
+    app: &'a App,
+    state: &'a ComponentsState,
+    plugin: &'a PluginItem,
+) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let busy = state.busy.as_deref() == Some(plugin.id.as_str());
     let can_act = state.busy.is_none() && !state.registering;
     let details_open = state
@@ -169,23 +174,27 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
 
     let mut statuses = row![
         if plugin.enabled {
-            badge("Ativo", theme::ACCENT)
+            badge(i18n.t("common.ativo"), theme::ACCENT)
         } else {
-            badge("Desativado", theme::TEXT_3)
+            badge(i18n.t("common.desativado"), theme::TEXT_3)
         },
         if plugin.installed {
-            badge("Arquivo encontrado", theme::SUCCESS)
+            badge(i18n.t("native.components.file_found"), theme::SUCCESS)
         } else {
-            badge("Arquivo não encontrado", theme::WARNING)
+            badge(i18n.t("native.components.file_missing"), theme::WARNING)
         },
     ]
     .spacing(6)
     .align_y(iced::Center);
     if busy {
-        statuses = statuses.push(text("ação em andamento...").size(10).color(theme::TEXT_3));
+        statuses = statuses.push(
+            text(i18n.t("native.components.busy"))
+                .size(10)
+                .color(theme::TEXT_3),
+        );
     } else if plugin.enabled {
         statuses = statuses.push(
-            text("carregado no próximo boot")
+            text(i18n.t("native.components.load_next_boot"))
                 .size(10)
                 .color(theme::TEXT_3),
         );
@@ -215,7 +224,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
     let mut actions = row![].spacing(8).align_y(iced::Center);
     if plugin.enabled {
         actions = actions.push(action_button(
-            "Desativar",
+            i18n.t("native.components.disable"),
             Message::PluginActionRequested {
                 id: plugin.id.clone(),
                 action: PluginAction::Disable,
@@ -224,7 +233,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
             false,
         ));
         actions = actions.push(action_button(
-            "Remover",
+            i18n.t("common.remover"),
             Message::PluginActionRequested {
                 id: plugin.id.clone(),
                 action: PluginAction::Remove,
@@ -234,7 +243,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
         ));
     } else {
         actions = actions.push(action_button(
-            "Ativar",
+            i18n.t("native.components.enable"),
             Message::PluginActionRequested {
                 id: plugin.id.clone(),
                 action: PluginAction::Enable,
@@ -243,7 +252,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
             true,
         ));
         actions = actions.push(action_button(
-            "Instalar",
+            i18n.t("native.components.install"),
             Message::PluginActionRequested {
                 id: plugin.id.clone(),
                 action: PluginAction::Install,
@@ -253,13 +262,13 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
         ));
     }
     actions = actions.push(action_button(
-        "Verificar",
+        i18n.t("native.components.verify"),
         Message::PluginVerifyRequested(plugin.id.clone()),
         can_act,
         false,
     ));
     actions = actions.push(action_button(
-        if details_open { "Fechar" } else { "Detalhes" },
+        if details_open { i18n.t("common.fechar") } else { i18n.t("gameoverview.detalhes") },
         if details_open {
             Message::PluginDetailsClose
         } else {
@@ -269,7 +278,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
         false,
     ));
     actions = actions.push(action_button(
-        "Desregistrar",
+        i18n.t("native.components.unregister"),
         Message::PluginActionRequested {
             id: plugin.id.clone(),
             action: PluginAction::Unregister,
@@ -294,7 +303,7 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
 
     if details_open {
         if let Some(details) = state.details.as_ref() {
-            content = content.push(details_panel(details));
+            content = content.push(details_panel(app, details));
         }
     }
 
@@ -305,9 +314,10 @@ fn plugin_card<'a>(state: &'a ComponentsState, plugin: &'a PluginItem) -> Elemen
         .into()
 }
 
-fn details_panel(panel: &PluginDetailsPanel) -> Element<'_, Message> {
-    let body: Element<'_, Message> = match &panel.status {
-        LoadStatus::Idle | LoadStatus::Loading => text("Carregando detalhes...")
+fn details_panel<'a>(app: &'a App, panel: &'a PluginDetailsPanel) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let body: Element<'a, Message> = match &panel.status {
+        LoadStatus::Idle | LoadStatus::Loading => text(i18n.t("native.components.details_loading"))
             .size(11)
             .color(theme::TEXT_3)
             .into(),
@@ -317,8 +327,8 @@ fn details_panel(panel: &PluginDetailsPanel) -> Element<'_, Message> {
             .width(Fill)
             .into(),
         LoadStatus::Ready => match panel.details.as_ref() {
-            Some(details) => details_body(details),
-            None => text("Sem detalhes para este componente.")
+            Some(details) => details_body(app, details),
+            None => text(i18n.t("native.components.no_details"))
                 .size(11)
                 .color(theme::TEXT_3)
                 .into(),
@@ -327,7 +337,7 @@ fn details_panel(panel: &PluginDetailsPanel) -> Element<'_, Message> {
 
     container(
         column![
-            text("Detalhes")
+            text(i18n.t("gameoverview.detalhes"))
                 .size(11)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_3),
@@ -342,28 +352,48 @@ fn details_panel(panel: &PluginDetailsPanel) -> Element<'_, Message> {
     .into()
 }
 
-fn details_body(details: &PluginDetails) -> Element<'_, Message> {
+fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut content = column![
         row![
-            badge(if details.valid { "Válido" } else { "Inválido" },
-                if details.valid { theme::SUCCESS } else { theme::DANGER }),
-            badge(if details.installed { "Instalado" } else { "Não detectado" },
-                if details.installed { theme::SUCCESS } else { theme::WARNING }),
-            badge(if details.enabled { "Ativo" } else { "Desativado" }, theme::TEXT_2),
+            badge(
+                if details.valid {
+                    i18n.t("native.components.valid")
+                } else {
+                    i18n.t("native.components.invalid")
+                },
+                if details.valid { theme::SUCCESS } else { theme::DANGER }
+            ),
+            badge(
+                if details.installed {
+                    i18n.t("native.components.installed")
+                } else {
+                    i18n.t("native.components.not_detected")
+                },
+                if details.installed { theme::SUCCESS } else { theme::WARNING }
+            ),
+            badge(
+                if details.enabled {
+                    i18n.t("common.ativo")
+                } else {
+                    i18n.t("common.desativado")
+                },
+                theme::TEXT_2
+            ),
         ]
         .spacing(6),
         text(format!(
             "{} · {} · {}",
             details.id,
             if details.source.is_empty() {
-                "origem desconhecida"
+                i18n.t("native.components.unknown_source")
             } else {
                 details.source.as_str()
             },
             if details.signed {
-                "assinado"
+                i18n.t("native.components.signed")
             } else {
-                "sem assinatura"
+                i18n.t("native.components.unsigned")
             }
         ))
         .size(10)
@@ -377,20 +407,30 @@ fn details_body(details: &PluginDetails) -> Element<'_, Message> {
     .width(Fill);
 
     if let Some(version) = details.version.as_deref() {
-        content = content.push(text(format!("Versão: {version}")).size(10).color(theme::TEXT_3));
+        content = content.push(
+            text(i18n.t_args("native.components.version", &[("version", version)]))
+                .size(10)
+                .color(theme::TEXT_3),
+        );
     }
     if !details.permissions.is_empty() {
         content = content.push(
-            text(format!("Permissões: {}", details.permissions.join(", ")))
-                .size(10)
+            text(i18n.t_args(
+                "native.components.permissions",
+                &[("list", &details.permissions.join(", "))],
+            ))
+            .size(10)
                 .color(theme::TEXT_3)
                 .width(Fill),
         );
     }
     if !details.error.is_empty() {
         content = content.push(
-            text(format!("Erro do registro: {}", details.error))
-                .size(10)
+            text(i18n.t_args(
+                "native.components.registry_error",
+                &[("error", &details.error)],
+            ))
+            .size(10)
                 .color(theme::DANGER)
                 .width(Fill),
         );
@@ -399,12 +439,12 @@ fn details_body(details: &PluginDetails) -> Element<'_, Message> {
     content.into()
 }
 
-fn action_button(
-    label: &'static str,
+fn action_button<'a>(
+    label: &'a str,
     message: Message,
     enabled: bool,
     primary: bool,
-) -> Element<'static, Message> {
+) -> Element<'a, Message> {
     let mut control = button(text(label).size(11).font(theme::FONT_MEDIUM))
         .padding([6.0, 12.0])
         .style(if primary {

@@ -11,12 +11,17 @@ use iced::{Color, ContentFit, Element, Fill, Length};
 use crate::app::Message;
 use crate::backend::Game;
 use crate::covers::CoverCache;
+use crate::i18n::I18n;
 use crate::theme;
 use crate::views::icons::{self, Icon};
 
 const TITLE_COLOR: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.85);
 
-pub fn game_card<'a>(game: &'a Game, covers: &'a CoverCache) -> Element<'a, Message> {
+pub fn game_card<'a>(
+    i18n: &'a I18n,
+    game: &'a Game,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
     let cover: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
         Some(handle) => image(handle.clone())
             .width(Fill)
@@ -69,7 +74,9 @@ pub fn game_card<'a>(game: &'a Game, covers: &'a CoverCache) -> Element<'a, Mess
             .height(20)
             .clip(true),
             row![
-                text(game.playtime_label()).size(11).color(theme::TEXT_3),
+                text(game.playtime_label_i18n(i18n))
+                    .size(11)
+                    .color(theme::TEXT_3),
                 Space::new().width(Fill),
             ]
             .align_y(iced::Center),
@@ -158,7 +165,11 @@ pub fn grid<'a>(cards: Vec<Element<'a, Message>>, aspect: (f32, f32)) -> Element
 }
 
 /// Card horizontal usado nos trilhos da Home (capa pequena + texto).
-pub fn compact_card<'a>(game: &'a Game, covers: &'a CoverCache) -> Element<'a, Message> {
+pub fn compact_card<'a>(
+    i18n: &'a I18n,
+    game: &'a Game,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
     let cover: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
         Some(handle) => image(handle.clone())
             .width(46)
@@ -200,7 +211,9 @@ pub fn compact_card<'a>(game: &'a Game, covers: &'a CoverCache) -> Element<'a, M
                 .width(Fill)
                 .height(18)
                 .clip(true),
-                text(game.playtime_label()).size(11).color(theme::TEXT_3),
+                text(game.playtime_label_i18n(i18n))
+                    .size(11)
+                    .color(theme::TEXT_3),
             ]
             .spacing(3)
             .width(Fill),

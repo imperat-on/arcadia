@@ -173,7 +173,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     } else {
         let rail: Vec<Element<'a, Message>> = playing
             .into_iter()
-            .map(|game| cards::compact_card(game, &app.covers))
+            .map(|game| cards::compact_card(&app.i18n, game, &app.covers))
             .collect();
         content = content.push(Row::with_children(rail).spacing(theme::SPACE_3));
     }
@@ -211,7 +211,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
         let cards: Vec<Element<'a, Message>> = games
             .iter()
             .take(7)
-            .map(|game| cards::game_card(game, &app.covers))
+            .map(|game| cards::game_card(&app.i18n, game, &app.covers))
             .collect();
         content = content.push(cards::grid(cards, (2.0, 3.55)));
     }

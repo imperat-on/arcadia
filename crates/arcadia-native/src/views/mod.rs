@@ -29,6 +29,7 @@ use crate::i18n::I18n;
 use crate::theme;
 
 /// Cabeçalho comum: título, subtítulo, contador e ação de atualizar.
+#[allow(dead_code)]
 pub(crate) fn page_header<'a>(
     title: &'a str,
     subtitle: &'a str,
@@ -120,6 +121,7 @@ pub(crate) fn empty_state<'a>(title: &'a str, message: &'a str) -> Element<'a, M
     .into()
 }
 
+#[allow(dead_code)]
 pub(crate) fn error_state<'a>(
     title: &'a str,
     error: &'a str,
@@ -165,12 +167,21 @@ pub(crate) fn warning_banner(message: &str) -> Element<'_, Message> {
 }
 
 pub(crate) fn action_error_banner(message: &str, retry: Option<Message>) -> Element<'_, Message> {
+    action_error_banner_labeled(message, retry, "Tentar novamente")
+}
+
+/// Igual a [`action_error_banner`], com o rótulo de retry vindo do i18n.
+pub(crate) fn action_error_banner_labeled<'a>(
+    message: &'a str,
+    retry: Option<Message>,
+    retry_label: &'a str,
+) -> Element<'a, Message> {
     let mut content =
         column![text(message).size(12).color(theme::DANGER).width(Fill),].spacing(theme::SPACE_2);
 
     if let Some(retry) = retry {
         content = content.push(
-            button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
+            button(text(retry_label).size(12).font(theme::FONT_MEDIUM))
                 .on_press(retry)
                 .padding([6.0, 12.0])
                 .style(theme::ghost_button),
