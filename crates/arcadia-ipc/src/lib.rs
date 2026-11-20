@@ -2286,14 +2286,42 @@ async fn dispatch_async_inner(
         }
         "game:stats" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
-            Ok(catalog_service::game_stats(state, appid).await)
+            // Mesmo cache do `game:sysinfo`: o handler faz DUAS idas à rede em
+            // série (`/catalog/v1/stats` + `/catalog/v1/reviews`) e mediu
+            // 1.483 ms de média em 12 chamadas — o maior gargalo restante na
+            // página do jogo. A chave leva o prefixo porque o cache é o mesmo
+            // mapa de `game:sysinfo`; sem ele um appid colidiria entre os dois.
+            let chave = format!("stats:{appid}");
+            if appid.trim().is_empty() {
+                return Ok(catalog_service::game_stats(state, appid).await);
+            }
+            if let Some(cacheado) = state.sysinfo.get(&chave) {
+                return Ok(cacheado);
+            }
+            let resposta = catalog_service::game_stats(state, appid).await;
+            state.sysinfo.put(chave, resposta.clone());
+            Ok(resposta)
         }
         "game:protondb" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
-            Ok(json!({
+            // Protondb é dado público por appid (relatos de compatibilidade):
+            // igual para todo usuário, muda quando a comunidade reporta.
+            // Medido: 348 ms de média. `achievements:get` NÃO entra aqui —
+            // conquistas desbloqueadas são por conta, e cachear misturaria o
+            // progresso de um usuário com o de outro.
+            let chave = format!("protondb:{appid}");
+            if appid.trim().is_empty() {
+                return Ok(json!({ "ok": true, "info": protondb::info(appid).await }));
+            }
+            if let Some(cacheado) = state.sysinfo.get(&chave) {
+                return Ok(cacheado);
+            }
+            let resposta = json!({
                 "ok": true,
                 "info": protondb::info(appid).await
-            }))
+            });
+            state.sysinfo.put(chave, resposta.clone());
+            Ok(resposta)
         }
         "trailer:search" => Ok(trailer_service::search(state, &args).await),
         "trailer:streamUrl" => Ok(trailer_service::stream_url(state, &args).await),

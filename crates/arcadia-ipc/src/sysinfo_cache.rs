@@ -1,24 +1,36 @@
-//! Cache em memória do `game:sysinfo`.
+//! Cache em memória das consultas de catálogo por jogo.
 //!
 //! ## O problema que resolve
 //!
-//! Abrir a página de um jogo disparava `game:sysinfo`, que fazia `store.suggest()`
-//! (uma ida à rede) e depois um GET em `/catalog/v1/sysinfo/{appid}` (outra).
-//! Medido nesta máquina: **1,4 s a 2,2 s** por clique, sempre. Voltar ao mesmo
-//! jogo custava o mesmo de novo, porque o resultado nunca era guardado.
+//! Abrir a página de um jogo disparava três canais caros, todos indo à rede
+//! toda vez, sem guardar nada:
+//!
+//! ```text
+//! game:sysinfo    1,4–2,2 s   store.suggest + GET /catalog/v1/sysinfo
+//! game:stats      1,48 s      GET /catalog/v1/stats + /catalog/v1/reviews
+//! game:protondb   348 ms      GET de compatibilidade
+//! ```
+//!
+//! Voltar ao mesmo jogo custava o mesmo de novo. O cache é chaveado com
+//! prefixo (`sysinfo:`, `stats:`, `protondb:`) para os três dividirem um mapa
+//! sem colidir no appid.
+//!
+//! ## O que NÃO entra
+//!
+//! `achievements:get` e `community:reviews`: são por conta. Cachear misturaria
+//! o progresso de um usuário com o de outro.
 //!
 //! ## Por que em memória e não em disco
 //!
-//! Requisitos do sistema e tamanho de download não mudam entre sessões do app,
-//! mas mudam quando o jogo recebe patch. Um cache com TTL curto cobre a sessão
-//! inteira (é onde o usuário clica repetido) e expira sozinho, sem inventar
-//! invalidação por evento.
+//! Requisitos, stats e notas de compatibilidade não mudam entre sessões do app,
+//! mas mudam quando o jogo recebe patch ou a comunidade reporta. Um TTL curto
+//! cobre a sessão (é onde o usuário clica repetido) e expira sozinho.
 //!
 //! ## Negativos também são cacheados
 //!
 //! `ok: true, info: null` — jogo sem appid Steam, catálogo fora do ar — é
 //! resposta legítima e igualmente cara. Sem cachear o negativo, todo clique num
-//! jogo fora da Steam pagava duas idas à rede de novo.
+//! jogo fora da Steam pagava a rede de novo.
 
 use std::collections::HashMap;
 use std::sync::Mutex;

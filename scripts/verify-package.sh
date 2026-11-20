@@ -174,13 +174,27 @@ if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
             fi
         done
 
-        if [ -e "$sq/usr/lib/libopenh264.so.8" ]; then
-            ok "AppImage embarca libopenh264.so.8"
-        else
-            # O `.so` versionado pode não existir num build feito em distro que
-            # entrega só o SONAME sem o arquivo real. O que decide se o trailer
-            # toca é o plugin carregar — testado logo abaixo.
-            skip "libopenh264.so.8 ausente; o plugin será validado pelo teste de carga"
+        # A versão do libopenh264 NÃO é fixa: cada distro compila o
+        # gst-plugins-bad contra a SONAME da sua época. O plugin do CI
+        # (Ubuntu 22.04) pede `libopenh264.so.6`; um build local em Arch pede
+        # `.so.8`. Fixar um nome deixou o AppImage publicado com o decoder
+        # quebrado — o vídeo ficava em buffering infinito sem erro visível,
+        # porque o plugin simplesmente não carregava.
+        #
+        # A pergunta certa é: o pacote tem TUDO que o plugin pede?
+        plugin_so="$gst/libgstopenh264.so"
+        if [ -e "$plugin_so" ]; then
+            missing=""
+            for so in $(ldd "$plugin_so" 2>/dev/null | awk '/not found/ {print $1}' | sort -u); do
+                # O loader do AppImage resolve por usr/lib; o plugin tem RPATH
+                # $ORIGIN/.., então o arquivo precisa estar lá.
+                [ -e "$sq/usr/lib/$so" ] || missing="$missing $so"
+            done
+            if [ -z "$missing" ]; then
+                ok "libopenh264 completa para o plugin embarcado"
+            else
+                bad "AppImage sem$missing (o decoder H.264 não vai carregar)"
+            fi
         fi
 
         # Carrega os plugins num ambiente limpo: se resolver pelo host, o teste

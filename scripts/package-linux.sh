@@ -51,7 +51,13 @@ APPDIR="$BUNDLE/appimage/Arcadia.AppDir"
 
 # Plugin GStreamer que precisa ser embarcado: nome do .so no AppDir.
 GST_PLUGINS=(libgstopenh264.so libgsthls.so)
-# Bibliotecas de sistema que esses plugins exigem, quando não estiverem lá.
+# Bibliotecas de sistema que esses plugins exigem. A versão NÃO é fixa: o
+# plugin vem do host que empacota, e cada distro compila contra a SONAME da
+# sua época. Fixar `libopenh264.so.8` deixou o AppImage do CI (Ubuntu 22.04)
+# com um `libgstopenh264.so` que pedia `.so.6` e nunca carregava — o decoder
+# H.264 simplesmente não existia em runtime e o vídeo ficava em buffering
+# infinito. `resolver_gst_libs` lê o `ldd` do próprio plugin e descobre o nome
+# certo; a lista acima fica só como fallback quando o ldd não roda.
 GST_LIBS=(libopenh264.so.8)
 
 DO_DEB=0
@@ -216,13 +222,60 @@ inject_appimage_codecs() {
         fi
         echo "    + $p"
         injected=$((injected + 1))
+
+        # A SONAME que o plugin pede, lida do binário. Cada distro compila o
+        # gst-plugins-bad contra a libopenh264 da sua época: o plugin do CI
+        # (Ubuntu 22.04) pede `libopenh264.so.6`, o de um Arch atual pede
+        # `.so.8`. Fixar um nome deixou o AppImage publicado com o decoder
+        # quebrado — o vídeo ficava em buffering infinito, sem erro visível.
+        #
+        # Estratégia em duas etapas:
+        #   1. se a SONAME exata existe no host, copia;
+        #   2. se não existe, copia a versão que houver e cria um symlink com
+        #      o nome pedido. A ABI do libopenh264 é estável entre essas
+        #      versões (o decoder só é chamado pelo plugin), e é isso ou
+        #      entregar um pacote sem H.264.
+        local faltando
+        faltando="$(ldd "$dst/$p" 2>/dev/null | awk '/not found/ {print $1}' | sort -u)"
+        for so in $faltando; do
+            local alvo=""
+            for dir in /usr/lib /usr/lib/x86_64-linux-gnu /lib /lib/x86_64-linux-gnu \
+                       "$HOME/.local/lib" "$HOME/.local/lib64"; do
+                [ -e "$dir/$so" ] && { alvo="$dir/$so"; break; }
+            done
+            if [ -n "$alvo" ]; then
+                cp -fL "$alvo" "$APPDIR/usr/lib/$so"
+                echo "    + $so (de $alvo)"
+                injected=$((injected + 1))
+                continue
+            fi
+            # Etapa 2: procura qualquer versão do mesmo nome-base.
+            local base="${so%%.so*}"
+            local outra=""
+            for dir in /usr/lib /usr/lib/x86_64-linux-gnu /lib /lib/x86_64-linux-gnu \
+                       "$HOME/.local/lib" "$HOME/.local/lib64"; do
+                outra="$(find "$dir" -maxdepth 1 -name "${base}.so.*" 2>/dev/null | sort -V | tail -1)"
+                [ -n "$outra" ] && break
+            done
+            if [ -n "$outra" ]; then
+                cp -fL "$outra" "$APPDIR/usr/lib/$(basename "$outra")"
+                ln -sf "$(basename "$outra")" "$APPDIR/usr/lib/$so"
+                echo "    + $so -> $(basename "$outra") (mesma ABI, nome ajustado)"
+                injected=$((injected + 1))
+            else
+                echo "    AVISO: $p precisa de $so e nenhuma versão está no host" >&2
+            fi
+        done
     done
 
+    # Fallback: a lista fixa cobre o caso em que o ldd acima não resolve nada
+    # (host sem o plugin de origem). Só adiciona o que ainda faltar.
     for lib in "${GST_LIBS[@]}"; do
+        [ -e "$APPDIR/usr/lib/$lib" ] && continue
         local real; real="$(readlink -f "/usr/lib/$lib" 2>/dev/null || true)"
         [ -n "$real" ] && [ -e "$real" ] || continue
         cp -fL "$real" "$APPDIR/usr/lib/$lib"
-        echo "    + $lib"
+        echo "    + $lib (fallback)"
         injected=$((injected + 1))
     done
 
