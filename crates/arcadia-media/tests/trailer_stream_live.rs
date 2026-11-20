@@ -37,6 +37,44 @@ fn ligado() -> bool {
     std::env::var("ARCADIA_LIVE_TESTS").ok().as_deref() == Some("1")
 }
 
+/// Block de bot do YouTube: IPs de datacenter (runners de CI, VPS) recebem
+/// "Sign in to confirm you're not a bot" em vez de vídeo. Isso NÃO é regressão
+/// do nosso seletor — é o YouTube recusando o IP. Distinguir os dois é o que
+/// evita o CI falhar para sempre por um motivo que não está no código, e ao
+/// mesmo tempo evita marcar como "pulado" uma falha real de formato.
+fn bloqueio_de_bot(stderr: &str) -> bool {
+    stderr.contains("Sign in to confirm")
+        || stderr.contains("confirm you’re not a bot")
+        || stderr.contains("confirm you're not a bot")
+        || stderr.contains("cookies-from-browser")
+}
+
+/// Falha que É do nosso código: o YouTube respondeu, mas o seletor não casou
+/// com nenhum formato. Esse é o erro que precisa quebrar o build.
+fn seletor_invalido(stderr: &str) -> bool {
+    stderr.contains("Requested format is not available")
+}
+
+#[test]
+fn classificador_separa_block_de_bot_de_seletor_invalido() {
+    // Estes dois erros chegam os dois como "sem stream" no parse, mas a causa é
+    // oposta: um é o ambiente (IP de datacenter bloqueado), o outro é bug nosso.
+    // Confundir os dois é o que faz o CI falhar para sempre OU passar em
+    // silêncio com o seletor quebrado.
+    let bot = "ERROR: [youtube] x: Sign in to confirm you’re not a bot. \
+               Use --cookies-from-browser or --cookies for the authentication.";
+    assert!(bloqueio_de_bot(bot), "block de bot não reconhecido");
+    assert!(!seletor_invalido(bot), "block de bot marcado como bug do seletor");
+
+    let formato = "ERROR: [youtube] x: Requested format is not available. \
+                   Use --list-formats for a list of available formats";
+    assert!(seletor_invalido(formato), "erro de formato não reconhecido");
+    assert!(
+        !bloqueio_de_bot(formato),
+        "erro de formato marcado como block de IP — mascararia a regressão"
+    );
+}
+
 #[test]
 fn stream_url_devolve_url_que_o_player_consegue_tocar() {
     if !ligado() {
@@ -56,10 +94,21 @@ fn stream_url_devolve_url_que_o_player_consegue_tocar() {
     let stdout = String::from_utf8_lossy(&saida.stdout);
     let stderr = String::from_utf8_lossy(&saida.stderr);
 
+    // Bloqueio de bot: o IP do runner é recusado. Não é regressão do seletor —
+    // é o ambiente. Sai sem falhar, mas grita no log para não passar batido.
+    if bloqueio_de_bot(&stderr) {
+        eprintln!(
+            "PULADO: o YouTube recusou este IP com desafio de bot.\n\
+             Isso acontece em runners de CI e VPS. O seletor não foi exercitado.\n\
+             stderr: {stderr}"
+        );
+        return;
+    }
+
     // A mensagem exata que o seletor antigo produzia, e que virava buffering
-    // infinito porque a UI não tinha erro para mostrar.
+    // infinito porque a UI não tinha erro para mostrar. Essa é SEMPRE falha.
     assert!(
-        !stderr.contains("Requested format is not available"),
+        !seletor_invalido(&stderr),
         "o seletor {STREAM_FORMAT} não casa com nenhum formato que o YouTube \
          serve. Era essa a causa do buffering infinito.\nstderr: {stderr}"
     );
@@ -115,10 +164,19 @@ fn download_do_trailer_produz_arquivo_reproduzivel() {
         .output()
         .expect("falha ao executar yt-dlp");
 
+    let stderr_dl = String::from_utf8_lossy(&saida.stderr);
+    if bloqueio_de_bot(&stderr_dl) {
+        eprintln!(
+            "PULADO: o YouTube recusou este IP com desafio de bot (runner de CI).\n\
+             O download real não foi exercitado. stderr: {stderr_dl}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+
     assert!(
         saida.status.success(),
-        "download falhou — o player ficaria sem arquivo.\nstderr: {}",
-        String::from_utf8_lossy(&saida.stderr)
+        "download falhou — o player ficaria sem arquivo.\nstderr: {stderr_dl}"
     );
 
     let baixado = std::fs::read_dir(&dir)
