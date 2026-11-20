@@ -11,19 +11,27 @@ use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.sources;
-    let header = views::page_header(
-        "Fontes",
-        "Catálogos locais usados pela busca de repacks e jogos.",
-        Some(format!("{} fonte(s)", state.items.len())),
+    let i18n = &app.i18n;
+    let header = views::page_header_labeled(
+        i18n.t("sidebar.fontes"),
+        i18n.t("native.sources.subtitle"),
+        Some(i18n.t_args(
+            "native.sources.count",
+            &[("count", &state.items.len().to_string())],
+        )),
         Some(Message::Refresh(Section::Sources)),
+        i18n.t("native.refresh"),
     );
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => views::loading_state("Carregando fontes..."),
-        LoadStatus::Error(error) => container(views::error_state(
-            "Não foi possível carregar as fontes",
+        LoadStatus::Idle | LoadStatus::Loading => {
+            views::loading_state(i18n.t("native.sources.loading"))
+        }
+        LoadStatus::Error(error) => container(views::error_state_labeled(
+            i18n.t("native.sources.load_error"),
             error,
             Message::Refresh(Section::Sources),
+            i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .padding([theme::SPACE_2, theme::PAGE_PADDING])
@@ -36,9 +44,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 fn ready_body(app: &App) -> Element<'_, Message> {
     let state = &app.sources;
+    let i18n = &app.i18n;
 
     let add = row![
-        text_input("https://exemplo/catalogo.json", &state.url_draft)
+        text_input(i18n.t("native.sources.url_placeholder"), &state.url_draft)
             .on_input(Message::SourceUrlChanged)
             .padding([10.0, 14.0])
             .size(12)
@@ -46,7 +55,12 @@ fn ready_body(app: &App) -> Element<'_, Message> {
             .style(theme::search_input),
         {
             let mut control: iced::widget::Button<'_, Message> =
-                button(text("Adicionar").size(12).font(theme::FONT_MEDIUM)).padding([10.0, 18.0]);
+                button(
+                    text(i18n.t("fontes.adicionar"))
+                        .size(12)
+                        .font(theme::FONT_MEDIUM),
+                )
+                .padding([10.0, 18.0]);
             if !state.busy && !state.url_draft.trim().is_empty() {
                 control = control.on_press(Message::SourceAdd);
             }
@@ -59,7 +73,7 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
     let mut content = column![
         add,
-        text("O catálogo é validado e indexado localmente; nada é hospedado pelo Arcadia.")
+        text(i18n.t("native.sources.note"))
             .size(11)
             .color(theme::TEXT_3),
     ]
@@ -71,23 +85,30 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
     if state.items.is_empty() {
         content = content.push(inline_empty(
-            "Nenhuma fonte adicionada",
-            "Cole a URL de um catálogo JSON acima. O formato é o mesmo lido pela UI web.",
+            i18n.t("native.sources.empty_title"),
+            i18n.t("native.sources.empty_desc"),
         ));
     } else {
         let mut actions = row![].spacing(8).align_y(iced::Center);
         if !state.busy {
             actions = actions.push(
-                button(text("Sincronizar").size(11).font(theme::FONT_MEDIUM))
+                button(
+                    text(i18n.t("fontes.sincronizar"))
+                        .size(11)
+                        .font(theme::FONT_MEDIUM),
+                )
                     .on_press(Message::SourceSync)
                     .padding([7.0, 13.0])
                     .style(theme::ghost_button),
             );
         }
         actions = actions.push(
-            text(format!("{} fonte(s) registradas", state.items.len()))
-                .size(11)
-                .color(theme::TEXT_3),
+            text(i18n.t_args(
+                "native.sources.registered",
+                &[("count", &state.items.len().to_string())],
+            ))
+            .size(11)
+            .color(theme::TEXT_3),
         );
 
         content = content.push(
@@ -98,7 +119,7 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
         let mut list = column![].spacing(theme::SPACE_2);
         for item in &state.items {
-            list = list.push(source_card(item, state.busy));
+            list = list.push(source_card(app, item, state.busy));
         }
         content = content.push(list);
     }
@@ -113,21 +134,23 @@ fn ready_body(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn source_card(item: &SourceItem, busy: bool) -> Element<'_, Message> {
+fn source_card<'a>(app: &'a App, item: &'a SourceItem, busy: bool) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut remove: iced::widget::Button<'_, Message> =
-        button(text("Remover").size(11).font(theme::FONT_MEDIUM)).padding([6.0, 12.0]);
+        button(text(i18n.t("common.remover")).size(11).font(theme::FONT_MEDIUM))
+            .padding([6.0, 12.0]);
     if !busy {
         remove = remove.on_press(Message::SourceRemove(item.id.clone()));
     }
 
     let meta = row![
-        text(item.status_label())
+        text(source_status_label(i18n, item))
             .size(11)
             .font(theme::FONT_MEDIUM)
             .color(theme::ACCENT),
         text("·").size(11).color(theme::TEXT_3),
         text(if item.url.is_empty() {
-            "URL ausente"
+            i18n.t("native.sources.url_missing")
         } else {
             item.url.as_str()
         })
@@ -158,7 +181,14 @@ fn source_card(item: &SourceItem, busy: bool) -> Element<'_, Message> {
     .into()
 }
 
-fn inline_empty(title: &'static str, message: &'static str) -> Element<'static, Message> {
+fn source_status_label<'a>(i18n: &'a crate::i18n::I18n, item: &SourceItem) -> String {
+    match item.count {
+        Some(count) => i18n.t_args("native.sources.games", &[("count", &count.to_string())]),
+        None => i18n.t("native.sources.no_index").to_string(),
+    }
+}
+
+fn inline_empty<'a>(title: &'a str, message: &'a str) -> Element<'a, Message> {
     container(
         column![
             text(title)

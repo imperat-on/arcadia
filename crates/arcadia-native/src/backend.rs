@@ -133,8 +133,40 @@ impl Game {
         urls
     }
 
+    #[allow(dead_code)]
     pub fn playtime_label(&self) -> String {
         format_playtime(self.playtime_minutes)
+    }
+
+    /// Versão localizada de [`Game::playtime_label`] para as telas que já
+    /// recebem o `I18n` do shell.
+    pub fn playtime_label_i18n(&self, i18n: &crate::i18n::I18n) -> String {
+        if self.playtime_minutes == 0 {
+            return i18n.t("native.game.playtime.never").to_string();
+        }
+        let minutes = self.playtime_minutes;
+        if minutes < 60 {
+            return i18n.t_args(
+                "native.game.playtime.minutes",
+                &[("minutes", &minutes.to_string())],
+            );
+        }
+        let hours = minutes / 60;
+        let rest = minutes % 60;
+        if rest == 0 {
+            i18n.t_args(
+                "native.game.playtime.hours",
+                &[("hours", &hours.to_string())],
+            )
+        } else {
+            i18n.t_args(
+                "native.game.playtime.hours_minutes",
+                &[
+                    ("hours", &hours.to_string()),
+                    ("minutes", &format!("{rest:02}")),
+                ],
+            )
+        }
     }
 
     /// Appid Steam do jogo (`steam:<appid>` ou id numérico com launcher Steam).
@@ -164,6 +196,15 @@ impl Game {
 
     /// Linha de metadados da página do jogo: ano · desenvolvedor · gênero.
     pub fn metadata_line(&self) -> String {
+        self.metadata_line_with_fallback("Metadados não disponíveis")
+    }
+
+    /// Versão localizada do fallback de [`Game::metadata_line`].
+    pub fn metadata_line_i18n(&self, i18n: &crate::i18n::I18n) -> String {
+        self.metadata_line_with_fallback(i18n.t("native.game.metadata_missing"))
+    }
+
+    fn metadata_line_with_fallback(&self, fallback: &str) -> String {
         let mut parts = Vec::new();
         if let Some(year) = self.year.as_ref().filter(|year| !year.is_empty()) {
             parts.push(year.clone());
@@ -181,7 +222,7 @@ impl Game {
         }
 
         if parts.is_empty() {
-            "Metadados não disponíveis".to_string()
+            fallback.to_string()
         } else {
             parts.join("  ·  ")
         }
@@ -794,13 +835,30 @@ impl RetroGame {
     }
 
     /// Rótulo humano do sistema; cai no id cru quando não é um dos conhecidos.
+    #[allow(dead_code)]
     pub fn system_label(&self) -> String {
+        self.system_label_with_fallback("Sistema não informado")
+    }
+
+    /// Versão localizada do rótulo do sistema.
+    pub fn system_label_i18n(&self, i18n: &crate::i18n::I18n) -> String {
+        self.system_label_with_fallback(i18n.t("native.retro.system_unknown"))
+    }
+
+    fn system_label_with_fallback(&self, fallback: &str) -> String {
         let raw = self
             .system_id
             .as_deref()
             .or(self.platform.as_deref())
             .unwrap_or_default();
-        retro_system_label(raw)
+        if let Some(system) = RETRO_SYSTEMS.iter().find(|system| system.id == raw) {
+            return system.label.to_string();
+        }
+        if raw.is_empty() {
+            fallback.to_string()
+        } else {
+            raw.to_string()
+        }
     }
 
     /// Linha ano · desenvolvedor · gêneros para o card.
@@ -1077,6 +1135,7 @@ pub fn parse_retro_offer_detail(value: Value) -> Result<RetroOfferDetail, String
     Ok(RetroOfferDetail { id, uris })
 }
 
+#[allow(dead_code)]
 fn retro_system_label(raw: &str) -> String {
     if let Some(system) = RETRO_SYSTEMS.iter().find(|system| system.id == raw) {
         return system.label.to_string();
@@ -1727,10 +1786,20 @@ pub struct NewsItem {
 impl NewsItem {
     /// Data legível; feeds sem data válida mostram um rótulo explícito ou o
     /// texto bruto quando ele não é RFC 3339.
+    #[allow(dead_code)]
     pub fn date_label(&self) -> String {
+        self.date_label_with_empty("Data não informada")
+    }
+
+    /// Versão localizada do rótulo de data do feed.
+    pub fn date_label_i18n(&self, i18n: &crate::i18n::I18n) -> String {
+        self.date_label_with_empty(i18n.t("native.console.date_missing"))
+    }
+
+    fn date_label_with_empty(&self, empty: &str) -> String {
         let raw = self.date.trim();
         if raw.is_empty() {
-            return "Data não informada".to_string();
+            return empty.to_string();
         }
         chrono::DateTime::parse_from_rfc3339(raw)
             .map(|date| {
@@ -2138,6 +2207,7 @@ pub enum DownloadKind {
 }
 
 impl DownloadKind {
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             DownloadKind::Epic => "Epic",
@@ -2162,6 +2232,7 @@ pub enum DownloadStatus {
 }
 
 impl DownloadStatus {
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             DownloadStatus::Active => "Baixando",
@@ -2197,6 +2268,7 @@ pub enum DownloadAction {
 }
 
 impl DownloadAction {
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             DownloadAction::Pause => "Pausar",
@@ -2616,6 +2688,7 @@ pub struct SourceItem {
 }
 
 impl SourceItem {
+    #[allow(dead_code)]
     pub fn status_label(&self) -> String {
         match self.count {
             Some(1) => "1 jogo".to_string(),
@@ -2858,6 +2931,7 @@ impl FriendItem {
             .unwrap_or(&self.username)
     }
 
+    #[allow(dead_code)]
     pub fn initial(&self) -> String {
         self.username
             .chars()
@@ -3190,6 +3264,7 @@ impl PluginAction {
         }
     }
 
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             Self::Enable => "Ativar",
@@ -3200,6 +3275,18 @@ impl PluginAction {
         }
     }
 
+    /// Rótulo da ação na UI, no idioma ativo.
+    pub fn label_i18n<'a>(self, i18n: &'a crate::i18n::I18n) -> &'a str {
+        match self {
+            Self::Enable => i18n.t("native.components.enable"),
+            Self::Disable => i18n.t("native.components.disable"),
+            Self::Install => i18n.t("native.components.install"),
+            Self::Remove => i18n.t("common.remover"),
+            Self::Unregister => i18n.t("native.components.unregister"),
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn success_message(self) -> &'static str {
         match self {
             Self::Enable => "Componente ativado.",
@@ -3207,6 +3294,17 @@ impl PluginAction {
             Self::Install => "Componente detectado e ativado.",
             Self::Remove => "Componente desativado; o arquivo do sistema foi preservado.",
             Self::Unregister => "Componente removido do registro.",
+        }
+    }
+
+    /// Aviso de sucesso no idioma ativo.
+    pub fn success_message_i18n<'a>(self, i18n: &'a crate::i18n::I18n) -> &'a str {
+        match self {
+            Self::Enable => i18n.t("native.components.success.enable"),
+            Self::Disable => i18n.t("native.components.success.disable"),
+            Self::Install => i18n.t("native.components.success.install"),
+            Self::Remove => i18n.t("native.components.success.remove"),
+            Self::Unregister => i18n.t("native.components.success.unregister"),
         }
     }
 }
@@ -3885,6 +3983,7 @@ pub fn strip_html(input: &str) -> String {
 }
 
 /// `0` => "Nunca jogado"; abaixo de 1 h mostra minutos; acima, horas e minutos.
+#[allow(dead_code)]
 pub fn format_playtime(minutes: u64) -> String {
     match minutes {
         0 => "Nunca jogado".to_string(),

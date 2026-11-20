@@ -88,6 +88,13 @@ pub enum ConsoleZone {
     StoreDetail,
 }
 
+/// Avisos do console que precisam de tradução no `App`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsoleNotice {
+    NotInstalled(String),
+    NoGameSelected,
+}
+
 /// Efeito de alto nível pedido pela navegação. O `App` decide como executar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsoleEffect {
@@ -103,7 +110,7 @@ pub enum ConsoleEffect {
     /// Abre/alterna o trailer do jogo no player GStreamer.
     Trailer(String),
     /// Aviso curto no rodapé do painel.
-    Notice(String),
+    Notice(ConsoleNotice),
     /// Abre a ficha da loja para o item `usize` da lista atual.
     OpenStoreDetail(usize),
     /// Fecha a ficha da loja e volta à grade.
@@ -1002,10 +1009,9 @@ impl BigPicture {
         };
 
         match index {
-            ACTION_PLAY if !game.installed => ConsoleEffect::Notice(format!(
-                "\"{}\" não está instalado — instale pela tela desktop nesta onda.",
-                game.title
-            )),
+            ACTION_PLAY if !game.installed => {
+                ConsoleEffect::Notice(ConsoleNotice::NotInstalled(game.title.clone()))
+            }
             ACTION_PLAY => ConsoleEffect::LaunchGame(game.id.clone()),
             ACTION_TRAILER => ConsoleEffect::Trailer(game.id.clone()),
             ACTION_FAVORITE => ConsoleEffect::ToggleFavorite(game.id.clone()),
@@ -1065,7 +1071,7 @@ impl BigPicture {
         }
         match self.selected(games) {
             Some(game) => ConsoleEffect::ToggleFavorite(game.id.clone()),
-            None => ConsoleEffect::Notice("Nenhum jogo selecionado.".to_string()),
+            None => ConsoleEffect::Notice(ConsoleNotice::NoGameSelected),
         }
     }
 }

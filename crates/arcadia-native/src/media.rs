@@ -13,6 +13,7 @@ use arcadia_native_media::{Frame, Player, PlayerState};
 use iced::widget::image::Handle;
 
 /// Aviso exibido na UI: o player desta onda é mudo de propósito.
+#[allow(dead_code)]
 pub const AUDIO_NOTE: &str =
     "Sem áudio nesta fase: o GStreamer usa fakesink e o trailer toca mudo.";
 
@@ -62,6 +63,7 @@ impl MediaStatus {
     }
 
     /// Texto curto para a UI. Erros carregam a mensagem do GStreamer.
+    #[allow(dead_code)]
     pub fn label(&self) -> &str {
         match self {
             Self::Idle => "Nenhum trailer carregado.",

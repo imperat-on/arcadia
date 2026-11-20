@@ -14,8 +14,7 @@ use iced::widget::{
 use iced::{Color, ContentFit, Element, Fill, Length, Padding};
 
 use crate::app::{
-    App, LoadStatus, Message, Section, StoreBrowseState, StoreDetailState, StoreSearchState,
-    StoreState, StoreTab,
+    App, LoadStatus, Message, Section, StoreDetailState, StoreSearchState, StoreTab,
 };
 use crate::backend::{StoreDepot, StoreGame, StoreInfo, StoreInstallInfo};
 use crate::covers::CoverCache;
@@ -33,18 +32,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 
     let state = &app.store;
-    let tabs = tab_strip(state.tab);
+    let tabs = tab_strip(app);
     match state.tab {
         StoreTab::Retro => column![tabs, views::retro::view(app)]
             .width(Fill)
             .height(Fill)
             .into(),
         StoreTab::Steam => {
-            let header = views::page_header(
-                "Lojas",
-                "Busque no catálogo Steam/Hubcap; clique num resultado para abrir a ficha.",
-                store_count_label(state),
+            let header = views::page_header_labeled(
+                app.i18n.t("sidebar.lojas"),
+                app.i18n.t("native.store.subtitle"),
+                store_count_label(app),
                 Some(Message::Refresh(Section::Stores)),
+                app.i18n.t("native.refresh"),
             );
             column![tabs, header, steam_body(app)]
                 .width(Fill)
@@ -54,27 +54,42 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 }
 
-fn store_count_label(state: &StoreState) -> Option<String> {
+fn store_count_label(app: &App) -> Option<String> {
+    let state = &app.store;
+    let i18n = &app.i18n;
     match &state.search {
-        Some(search) => search
-            .result
-            .as_ref()
-            .map(|result| format!("{} resultado(s)", result.games.len())),
+        Some(search) => search.result.as_ref().map(|result| {
+            i18n.t_args(
+                "native.store.search_results_count",
+                &[("count", &result.games.len().to_string())],
+            )
+        }),
         None => state
             .browse
             .total
-            .map(|total| format!("{total} jogo(s)"))
-            .or_else(|| Some(format!("{} jogo(s)", state.browse.games.len()))),
+            .map(|total| {
+                i18n.t_args(
+                    "native.store.games_count",
+                    &[("count", &total.to_string())],
+                )
+            })
+            .or_else(|| {
+                Some(i18n.t_args(
+                    "native.store.games_count",
+                    &[("count", &state.browse.games.len().to_string())],
+                ))
+            }),
     }
 }
 
 // ── Segmented control ───────────────────────────────────────────────────────
 
-fn tab_strip(active: StoreTab) -> Element<'static, Message> {
+fn tab_strip(app: &App) -> Element<'_, Message> {
+    let active = app.store.tab;
     let control = container(
         row![
-            tab_button(StoreTab::Steam.label(), StoreTab::Steam, active),
-            tab_button(StoreTab::Retro.label(), StoreTab::Retro, active),
+            tab_button(app, StoreTab::Steam, active),
+            tab_button(app, StoreTab::Retro, active),
         ]
         .spacing(2),
     )
@@ -92,8 +107,13 @@ fn tab_strip(active: StoreTab) -> Element<'static, Message> {
         .into()
 }
 
-fn tab_button(label: &'static str, tab: StoreTab, active: StoreTab) -> Element<'static, Message> {
+fn tab_label<'a>(app: &'a App, tab: StoreTab) -> &'a str {
+    tab.label(&app.i18n)
+}
+
+fn tab_button<'a>(app: &'a App, tab: StoreTab, active: StoreTab) -> Element<'a, Message> {
     let selected = tab == active;
+    let label = tab_label(app, tab);
     button(
         text(label)
             .size(12)
@@ -114,7 +134,7 @@ fn tab_button(label: &'static str, tab: StoreTab, active: StoreTab) -> Element<'
 
 fn steam_body(app: &App) -> Element<'_, Message> {
     let state = &app.store;
-    let mut content = column![search_section(state)]
+    let mut content = column![search_section(app)]
         .width(Fill)
         .spacing(theme::SPACE_3);
 
@@ -122,7 +142,7 @@ fn steam_body(app: &App) -> Element<'_, Message> {
         content = content.push(suggestions_panel(app));
     }
 
-    content = content.push(results_heading(state));
+    content = content.push(results_heading(app));
 
     if let Some(search) = state.search.as_ref() {
         if let Some(result) = search.result.as_ref() {
@@ -150,11 +170,13 @@ fn steam_body(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn search_section(state: &StoreState) -> Element<'_, Message> {
+fn search_section(app: &App) -> Element<'_, Message> {
+    let state = &app.store;
+    let i18n = &app.i18n;
     let input = Stack::new()
         .width(Fill)
         .push(
-            text_input("Buscar na loja...", &state.query)
+            text_input(i18n.t("native.store.search_placeholder"), &state.query)
                 .on_input(Message::StoreQueryChanged)
                 .on_submit(Message::StoreSearchSubmitted)
                 .padding(Padding {
@@ -182,16 +204,24 @@ fn search_section(state: &StoreState) -> Element<'_, Message> {
         .is_some_and(|search| search.status == LoadStatus::Loading);
 
     let mut search_button = button(
-        text(if busy { "Buscando..." } else { "Buscar" })
-            .size(12)
-            .font(theme::FONT_MEDIUM),
+        text(if busy {
+            i18n.t("native.store.searching")
+        } else {
+            i18n.t("store.buscar")
+        })
+        .size(12)
+        .font(theme::FONT_MEDIUM),
     )
     .padding([10.0, 18.0]);
     if !busy && !state.query.trim().is_empty() {
         search_button = search_button.on_press(Message::StoreSearchSubmitted);
     }
 
-    let mut clear_button = button(text("Limpar").size(12).font(theme::FONT_MEDIUM))
+    let mut clear_button = button(
+        text(i18n.t("native.console.store.clear"))
+            .size(12)
+            .font(theme::FONT_MEDIUM),
+    )
         .padding([10.0, 14.0])
         .style(theme::ghost_button);
     if !state.query.is_empty() || state.search.is_some() {
@@ -211,7 +241,7 @@ fn search_section(state: &StoreState) -> Element<'_, Message> {
 fn suggestions_panel(app: &App) -> Element<'_, Message> {
     let mut list = column![].spacing(1).width(Fill);
     for game in &app.store.suggestions {
-        list = list.push(suggestion_row(game, &app.covers));
+        list = list.push(suggestion_row(&app.i18n, game, &app.covers));
     }
 
     container(list)
@@ -221,7 +251,11 @@ fn suggestions_panel(app: &App) -> Element<'_, Message> {
         .into()
 }
 
-fn suggestion_row<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'a, Message> {
+fn suggestion_row<'a>(
+    i18n: &'a crate::i18n::I18n,
+    game: &'a StoreGame,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
     let thumb: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
         Some(handle) => image(handle.clone())
             .width(48)
@@ -251,7 +285,7 @@ fn suggestion_row<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'a
                 .color(theme::TEXT_STRONG)
                 .wrapping(Wrapping::None),
             Space::new().width(Fill),
-            text("Buscar").size(10).color(theme::TEXT_3),
+            text(i18n.t("store.buscar")).size(10).color(theme::TEXT_3),
         ]
         .spacing(10)
         .align_y(iced::Center),
@@ -263,13 +297,15 @@ fn suggestion_row<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'a
     .into()
 }
 
-fn results_heading(state: &StoreState) -> Element<'_, Message> {
+fn results_heading(app: &App) -> Element<'_, Message> {
+    let state = &app.store;
+    let i18n = &app.i18n;
     let (label, count) = match &state.search {
         Some(search) => (
-            "Resultados da busca",
+            i18n.t("native.store.results_heading"),
             search.result.as_ref().map(|result| result.games.len()),
         ),
-        None => ("Catálogo", Some(state.browse.games.len())),
+        None => (i18n.t("native.store.catalog_heading"), Some(state.browse.games.len())),
     };
 
     let mut heading = row![
@@ -288,9 +324,12 @@ fn results_heading(state: &StoreState) -> Element<'_, Message> {
 
     if let Some(search) = state.search.as_ref() {
         heading = heading.push(
-            text(format!("para “{}”", search.query))
-                .size(11)
-                .color(theme::TEXT_3),
+            text(i18n.t_args(
+                "native.store.results_for",
+                &[("query", &search.query)],
+            ))
+            .size(11)
+            .color(theme::TEXT_3),
         );
         if let Some(source) = search
             .result
@@ -301,7 +340,7 @@ fn results_heading(state: &StoreState) -> Element<'_, Message> {
         }
     } else {
         heading = heading.push(
-            text("Catálogo paginado de store:recent")
+            text(i18n.t("native.store.catalog_note"))
                 .size(11)
                 .color(theme::TEXT_3),
         );
@@ -320,40 +359,42 @@ fn results_body(app: &App) -> Element<'_, Message> {
     let browse = &state.browse;
     match browse.status {
         LoadStatus::Idle | LoadStatus::Loading if browse.games.is_empty() => {
-            views::loading_state("Carregando catálogo da loja...")
+            views::loading_state(app.i18n.t("native.store.catalog_loading"))
         }
-        LoadStatus::Error(_) => container(views::error_state(
-            "Não foi possível carregar o catálogo",
+        LoadStatus::Error(_) => container(views::error_state_labeled(
+            app.i18n.t("native.store.catalog_error"),
             browse
                 .error
                 .as_deref()
-                .unwrap_or("O dispatcher não respondeu store:recent."),
+                .unwrap_or(app.i18n.t("native.store.catalog_error_detail")),
             Message::Refresh(Section::Stores),
+            app.i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .into(),
         _ if browse.games.is_empty() => inline_empty(
-            "Catálogo vazio",
-            "store:recent respondeu sem jogos. Tente atualizar ou buscar por um título.",
+            app.i18n.t("native.store.catalog_empty_title"),
+            app.i18n.t("native.store.catalog_empty_desc"),
         ),
-        _ => browse_grid(browse, &app.covers),
+        _ => browse_grid(app),
     }
 }
 
 fn search_results<'a>(app: &'a App, search: &'a StoreSearchState) -> Element<'a, Message> {
     match search.status {
-        LoadStatus::Loading => views::loading_state("Buscando na loja..."),
-        LoadStatus::Error(_) => container(views::error_state(
-            "Não foi possível buscar na loja",
+        LoadStatus::Loading => views::loading_state(app.i18n.t("native.store.searching")),
+        LoadStatus::Error(_) => container(views::error_state_labeled(
+            app.i18n.t("native.store.search_error"),
             search
                 .error
                 .as_deref()
-                .unwrap_or("O dispatcher não respondeu store:search."),
+                .unwrap_or(app.i18n.t("native.store.search_error_detail")),
             Message::StoreSearchSubmitted,
+            app.i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .into(),
-        LoadStatus::Idle => views::loading_state("Preparando a busca..."),
+        LoadStatus::Idle => views::loading_state(app.i18n.t("native.store.preparing_search")),
         LoadStatus::Ready => {
             let games = search
                 .result
@@ -362,8 +403,8 @@ fn search_results<'a>(app: &'a App, search: &'a StoreSearchState) -> Element<'a,
                 .unwrap_or_default();
             if games.is_empty() {
                 inline_empty(
-                    "Nenhum jogo encontrado",
-                    "Tente outro termo, confira a grafia ou limpe a busca para voltar ao catálogo.",
+                    app.i18n.t("native.store.empty_title"),
+                    app.i18n.t("native.store.empty_desc"),
                 )
             } else {
                 store_grid(games, &app.covers)
@@ -372,16 +413,17 @@ fn search_results<'a>(app: &'a App, search: &'a StoreSearchState) -> Element<'a,
     }
 }
 
-fn browse_grid<'a>(browse: &'a StoreBrowseState, covers: &'a CoverCache) -> Element<'a, Message> {
-    let mut content = column![store_grid(&browse.games, covers)]
+fn browse_grid(app: &App) -> Element<'_, Message> {
+    let browse = &app.store.browse;
+    let mut content = column![store_grid(&browse.games, &app.covers)]
         .width(Fill)
         .spacing(theme::SPACE_3);
 
     if browse.has_more {
         let label = if browse.loading_more {
-            "Carregando..."
+            app.i18n.t("native.store.loading_more")
         } else {
-            "Carregar mais"
+            app.i18n.t("native.store.load_more")
         };
         let mut more = button(text(label).size(12).font(theme::FONT_MEDIUM)).padding([9.0, 18.0]);
         if !browse.loading_more {
@@ -394,7 +436,11 @@ fn browse_grid<'a>(browse: &'a StoreBrowseState, covers: &'a CoverCache) -> Elem
         );
     } else {
         content = content.push(
-            container(text("Fim do catálogo.").size(11).color(theme::TEXT_3))
+            container(
+                text(app.i18n.t("native.store.end_catalog"))
+                    .size(11)
+                    .color(theme::TEXT_3),
+            )
                 .width(Fill)
                 .center_x(Fill),
         );
@@ -544,13 +590,20 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
                 .color(theme::SUCCESS),
         );
     } else {
-        meta = meta.push(text("Preço não informado").size(12).color(theme::TEXT_3));
+        meta = meta.push(
+            text(app.i18n.t("native.console.store.price_missing"))
+                .size(12)
+                .color(theme::TEXT_3),
+        );
     }
     if let Some(source) = game.source.as_deref() {
         meta = meta.push(badge(source, theme::TEXT_2));
     }
     if game.manifest {
-        meta = meta.push(badge("Manifesto disponível", theme::ACCENT));
+        meta = meta.push(badge(
+            app.i18n.t("native.console.store.manifest"),
+            theme::ACCENT,
+        ));
     }
 
     let hero_copy = container(
@@ -563,7 +616,10 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::WordOrGlyph),
                 meta,
-                text(format!("appid Steam · {}", game.appid))
+                text(app.i18n.t_args(
+                    "native.console.store.detail_meta",
+                    &[("appid", game.appid.as_str())],
+                ))
                     .size(11)
                     .color(theme::TEXT_3),
             ]
@@ -595,7 +651,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
             button(
                 row![
                     text("‹").size(18).color(theme::TEXT_1),
-                    text("Voltar para a loja")
+                    text(app.i18n.t("native.store.back"))
                         .size(12)
                         .font(theme::FONT_MEDIUM)
                         .color(theme::TEXT_1),
@@ -629,14 +685,14 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
         );
     }
 
-    let description = detail_description(detail, info);
-    let install = install_panel(detail);
+    let description = detail_description(app, detail, info);
+    let install = install_panel(app, detail);
     let details = container(
         row![
             column![description, install]
                 .spacing(theme::SPACE_4)
                 .width(Fill),
-            info_panel(info, game, detail.status == LoadStatus::Loading),
+            info_panel(app, info, game, detail.status == LoadStatus::Loading),
         ]
         .spacing(theme::SPACE_5)
         .align_y(iced::Top),
@@ -649,7 +705,11 @@ fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Me
     let community_appid = crate::backend::community_appid(&game.appid);
     if let Some(community) = app.community.get(&community_appid) {
         content = content.push(
-            container(views::community::panel(game.title.as_str(), community))
+            container(views::community::panel(
+                &app.i18n,
+                game.title.as_str(),
+                community,
+            ))
                 .width(Fill)
                 .padding(Padding {
                     top: 0.0,
@@ -691,18 +751,20 @@ fn detail_portrait<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'
 }
 
 fn detail_description<'a>(
+    app: &'a App,
     detail: &'a StoreDetailState,
     info: Option<&'a StoreInfo>,
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let body: Element<'a, Message> = match (
         detail.status.clone(),
         info.and_then(|info| info.description.as_deref()),
     ) {
-        (LoadStatus::Loading, _) => text("Carregando descrição da loja...")
+        (LoadStatus::Loading, _) => text(i18n.t("native.console.store.description_loading"))
             .size(12)
             .color(theme::TEXT_2)
             .into(),
-        (LoadStatus::Error(_), _) => text("Não foi possível carregar a descrição.")
+        (LoadStatus::Error(_), _) => text(i18n.t("native.console.store.description_error"))
             .size(12)
             .color(theme::TEXT_2)
             .into(),
@@ -711,49 +773,59 @@ fn detail_description<'a>(
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.74))
             .wrapping(Wrapping::WordOrGlyph)
             .into(),
-        (_, None) => text("A loja não informou uma descrição para este jogo.")
+        (_, None) => text(i18n.t("native.console.store.description_empty"))
             .size(12)
             .color(theme::TEXT_3)
             .into(),
     };
 
-    container(column![views::section_label("Sobre o jogo"), body,].spacing(theme::SPACE_3))
+    container(
+        column![
+            views::section_label(i18n.t("native.game.about")),
+            body,
+        ]
+        .spacing(theme::SPACE_3),
+    )
         .width(Fill)
         .padding(theme::SPACE_5)
         .style(theme::panel)
         .into()
 }
 
-fn install_panel<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
-    let mut content = column![views::section_label("Instalação")].spacing(theme::SPACE_3);
+fn install_panel<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let mut content =
+        column![views::section_label(i18n.t("native.store.install_section"))]
+            .spacing(theme::SPACE_3);
 
     match detail.install_status {
         LoadStatus::Idle | LoadStatus::Loading => {
             content = content.push(
-                text("Consultando o manifesto de instalação (store:installInfo)...")
+                text(i18n.t("native.store.install_loading"))
                     .size(12)
                     .color(theme::TEXT_2)
                     .wrapping(Wrapping::WordOrGlyph),
             );
         }
         LoadStatus::Error(_) => {
-            content = content.push(views::action_error_banner(
+            content = content.push(views::action_error_banner_labeled(
                 detail
                     .install_error
                     .as_deref()
-                    .unwrap_or("O dispatcher não respondeu store:installInfo para este jogo."),
+                    .unwrap_or(i18n.t("native.store.install_error_detail")),
                 Some(Message::StoreOpenDetail(detail.game.clone())),
+                i18n.t("downloads.tentar_novamente"),
             ));
         }
         LoadStatus::Ready => {
             if let Some(info) = detail.install.as_ref() {
-                content = content.push(install_summary(info));
-                content = content.push(libraries_block(detail));
-                content = content.push(depot_picker(detail, info));
-                content = content.push(install_actions(detail));
+                content = content.push(install_summary(app, info));
+                content = content.push(libraries_block(app, detail));
+                content = content.push(depot_picker(app, detail, info));
+                content = content.push(install_actions(app, detail));
             } else {
                 content = content.push(
-                    text("store:installInfo respondeu sem manifesto utilizável para este jogo.")
+                    text(i18n.t("native.store.install_empty_manifest"))
                         .size(12)
                         .color(theme::TEXT_3),
                 );
@@ -782,32 +854,35 @@ fn install_panel<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
         .into()
 }
 
-fn install_summary(info: &StoreInstallInfo) -> Element<'_, Message> {
+fn install_summary<'a>(app: &'a App, info: &'a StoreInstallInfo) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut rows = column![].spacing(theme::SPACE_2);
     rows = rows.push(info_row(
-        "Manifesto",
-        format!(
-            "{} depot(s) · {} no total",
-            info.depots.len(),
-            format_bytes(info.total_size())
+        i18n.t("native.store.manifest_row"),
+        i18n.t_args(
+            "native.store.manifest_row_value",
+            &[
+                ("depots", &info.depots.len().to_string()),
+                ("size", &format_bytes(info.total_size())),
+            ],
         ),
     ));
     if let Some(source) = info.source.as_deref().filter(|source| !source.is_empty()) {
-        rows = rows.push(info_row("Fonte", source.to_string()));
+        rows = rows.push(info_row(i18n.t("native.store.source"), source.to_string()));
     }
     if let Some(dir) = info
         .install_dir
         .as_deref()
         .filter(|dir| !dir.trim().is_empty())
     {
-        rows = rows.push(info_row("Pasta sugerida", dir.to_string()));
+        rows = rows.push(info_row(i18n.t("native.store.suggested_folder"), dir.to_string()));
     }
     rows = rows.push(info_row(
-        "Token",
+        i18n.t("native.store.token"),
         if info.token.as_deref().is_some_and(|token| !token.is_empty()) {
-            "presente no manifesto".to_string()
+            i18n.t("native.store.token_present").to_string()
         } else {
-            "não informado".to_string()
+            i18n.t("native.store.token_missing").to_string()
         },
     ));
 
@@ -818,35 +893,35 @@ fn install_summary(info: &StoreInstallInfo) -> Element<'_, Message> {
         .into()
 }
 
-fn libraries_block<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
-    let mut content = column![views::section_label("Bibliotecas Steam")].spacing(theme::SPACE_2);
+fn libraries_block<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let mut content = column![views::section_label(i18n.t("native.store.libraries_title"))]
+        .spacing(theme::SPACE_2);
 
     match detail.libraries_status {
         LoadStatus::Idle | LoadStatus::Loading => {
             content = content.push(
-                text("Consultando bibliotecas (store:libraries)...")
+                text(i18n.t("native.store.libraries_loading"))
                     .size(12)
                     .color(theme::TEXT_2),
             );
         }
         LoadStatus::Error(_) => {
-            content = content.push(views::action_error_banner(
+            content = content.push(views::action_error_banner_labeled(
                 detail
                     .libraries_error
                     .as_deref()
-                    .unwrap_or("O dispatcher não respondeu store:libraries."),
+                    .unwrap_or(i18n.t("native.store.libraries_error_detail")),
                 Some(Message::StoreOpenDetail(detail.game.clone())),
+                i18n.t("downloads.tentar_novamente"),
             ));
         }
         LoadStatus::Ready if detail.libraries.is_empty() => {
             content = content.push(
-                text(
-                    "Nenhuma biblioteca Steam encontrada. Sem steamapps não há como \
-                     enfileirar o store:install.",
-                )
-                .size(12)
-                .color(theme::TEXT_3)
-                .wrapping(Wrapping::WordOrGlyph),
+                text(i18n.t("native.store.libraries_empty"))
+                    .size(12)
+                    .color(theme::TEXT_3)
+                    .wrapping(Wrapping::WordOrGlyph),
             );
         }
         LoadStatus::Ready => {
@@ -865,8 +940,11 @@ fn libraries_block<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
                                     })
                                     .wrapping(Wrapping::WordOrGlyph),
                                 text(format!(
-                                    "{} livres · {}",
-                                    format_bytes(library.free),
+                                    "{} · {}",
+                                    i18n.t_args(
+                                        "native.store.free",
+                                        &[("free", &format_bytes(library.free))],
+                                    ),
                                     ellipsize(&library.path, 64)
                                 ))
                                 .size(10)
@@ -875,7 +953,11 @@ fn libraries_block<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
                             ]
                             .spacing(2)
                             .width(Fill),
-                            text(if selected { "Selecionada" } else { "Usar" })
+                            text(if selected {
+                                i18n.t("native.store.selected")
+                            } else {
+                                i18n.t("native.store.use")
+                            })
                                 .size(10)
                                 .font(theme::FONT_MEDIUM)
                                 .color(if selected { theme::ACCENT } else { theme::TEXT_3 }),
@@ -902,9 +984,11 @@ fn libraries_block<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
 }
 
 fn depot_picker<'a>(
+    app: &'a App,
     detail: &'a StoreDetailState,
     info: &'a StoreInstallInfo,
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let relevant = info.relevant_depots();
     let hidden = info.depots.len().saturating_sub(relevant.len());
     let selected_size: u64 = info
@@ -916,17 +1000,23 @@ fn depot_picker<'a>(
 
     let mut content = column![
         row![
-            views::section_label("Depots"),
+            views::section_label(i18n.t("native.store.depots_title")),
             Space::new().width(Fill),
-            text(format!(
-                "{} de {} · {}",
-                detail
-                    .selected_depots
-                    .iter()
-                    .filter(|id| info.depots.iter().any(|depot| &depot.depot_id == *id))
-                    .count(),
-                info.depots.len(),
-                format_bytes(selected_size)
+            text(i18n.t_args(
+                "native.store.depots_selected",
+                &[
+                    (
+                        "selected",
+                        &detail
+                            .selected_depots
+                            .iter()
+                            .filter(|id| info.depots.iter().any(|depot| &depot.depot_id == *id))
+                            .count()
+                            .to_string(),
+                    ),
+                    ("total", &info.depots.len().to_string()),
+                    ("size", &format_bytes(selected_size)),
+                ],
             ))
             .size(10)
             .color(theme::TEXT_3),
@@ -934,11 +1024,19 @@ fn depot_picker<'a>(
         .spacing(theme::SPACE_2)
         .align_y(iced::Center),
         row![
-            button(text("Recomendados").size(10).font(theme::FONT_MEDIUM))
+            button(
+                text(i18n.t("native.store.depots_recommended"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM),
+            )
                 .on_press(Message::StoreRecommendedDepots)
                 .padding([4.0, 9.0])
                 .style(theme::ghost_button),
-            button(text("Limpar").size(10).font(theme::FONT_MEDIUM))
+            button(
+                text(i18n.t("native.console.store.clear"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM),
+            )
                 .on_press(Message::StoreClearDepots)
                 .padding([4.0, 9.0])
                 .style(theme::ghost_button),
@@ -949,7 +1047,7 @@ fn depot_picker<'a>(
 
     if relevant.is_empty() {
         content = content.push(
-            text("O manifesto não listou depots utilizáveis para este jogo.")
+            text(i18n.t("native.store.depots_none"))
                 .size(12)
                 .color(theme::TEXT_3)
                 .wrapping(Wrapping::WordOrGlyph),
@@ -973,7 +1071,7 @@ fn depot_picker<'a>(
                             })
                             .wrapping(Wrapping::None),
                         Space::new().width(Fill),
-                        text(depot_meta(depot)).size(10).color(theme::TEXT_3),
+                        text(depot_meta(i18n, depot)).size(10).color(theme::TEXT_3),
                     ]
                     .spacing(theme::SPACE_2)
                     .align_y(iced::Center),
@@ -990,8 +1088,9 @@ fn depot_picker<'a>(
 
     if hidden > 0 {
         content = content.push(
-            text(format!(
-                "{hidden} depot(s) sem metadados, compartilhado(s) ou de macOS fora da lista."
+            text(i18n.t_args(
+                "native.store.depots_hidden",
+                &[("count", &hidden.to_string())],
             ))
             .size(10)
             .color(theme::TEXT_3),
@@ -1005,12 +1104,13 @@ fn depot_picker<'a>(
         .into()
 }
 
-fn install_actions<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
-    let blocked = install_block_reason(detail);
+fn install_actions<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let blocked = install_block_reason(i18n, detail);
     let label = if detail.install_busy {
-        "Enfileirando..."
+        i18n.t("native.store.enqueueing")
     } else {
-        "Instalar"
+        i18n.t("native.console.store.install")
     };
     let mut install = button(text(label).size(12).font(theme::FONT_MEDIUM)).padding([9.0, 18.0]);
     if blocked.is_none() {
@@ -1033,46 +1133,47 @@ fn install_actions<'a>(detail: &'a StoreDetailState) -> Element<'a, Message> {
     actions.into()
 }
 
-fn install_block_reason(detail: &StoreDetailState) -> Option<String> {
+fn install_block_reason(
+    i18n: &crate::i18n::I18n,
+    detail: &StoreDetailState,
+) -> Option<String> {
     if detail.install_busy {
-        return Some("Aguardando o dispatcher aceitar o pedido de instalação.".to_string());
+        return Some(i18n.t("native.store.install_pending").to_string());
     }
     match detail.install_status {
         LoadStatus::Idle | LoadStatus::Loading => {
-            return Some("Consultando store:installInfo...".to_string())
+            return Some(i18n.t("native.store.install_loading").to_string())
         }
         LoadStatus::Error(_) => {
-            return Some(
-                "Manifesto indisponível; o motivo do dispatcher aparece acima.".to_string(),
-            )
+            return Some(i18n.t("native.store.install_manifest_unavailable").to_string())
         }
         LoadStatus::Ready => {}
     }
 
     match detail.libraries_status {
         LoadStatus::Idle | LoadStatus::Loading => {
-            return Some("Consultando store:libraries...".to_string())
+            return Some(i18n.t("native.store.libraries_loading").to_string())
         }
         LoadStatus::Error(_) => {
-            return Some("Bibliotecas indisponíveis; o motivo do dispatcher aparece acima.".to_string())
+            return Some(i18n.t("native.store.install_libraries_unavailable").to_string())
         }
         LoadStatus::Ready => {}
     }
     if detail.libraries.is_empty() {
-        return Some("Nenhuma biblioteca Steam em store:libraries.".to_string());
+        return Some(i18n.t("native.store.install_no_library").to_string());
     }
     let Some(info) = detail.install.as_ref() else {
-        return Some("Manifesto de instalação ausente.".to_string());
+        return Some(i18n.t("native.store.install_manifest_missing").to_string());
     };
     if info.depots.is_empty() {
-        return Some("store:installInfo não retornou depots para este jogo.".to_string());
+        return Some(i18n.t("native.store.install_no_depots").to_string());
     }
     if !info
         .depots
         .iter()
         .any(|depot| detail.selected_depots.contains(&depot.depot_id))
     {
-        return Some("Selecione ao menos um depot.".to_string());
+        return Some(i18n.t("native.store.install_select_depot").to_string());
     }
     None
 }
@@ -1094,14 +1195,14 @@ fn depot_label(depot: &StoreDepot) -> String {
     format!("Depot {}", depot.depot_id)
 }
 
-fn depot_meta(depot: &StoreDepot) -> String {
+fn depot_meta(i18n: &crate::i18n::I18n, depot: &StoreDepot) -> String {
     let mut parts = Vec::with_capacity(3);
     if let Some(os) = depot.os.as_deref().filter(|os| !os.is_empty()) {
         parts.push(os.to_uppercase());
     }
     parts.push(format_bytes(depot.size));
     if depot.optional {
-        parts.push("opcional".to_string());
+        parts.push(i18n.t("native.store.optional").to_string());
     }
     parts.join(" · ")
 }
@@ -1118,44 +1219,64 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 fn info_panel<'a>(
+    app: &'a App,
     info: Option<&'a StoreInfo>,
     game: &'a StoreGame,
     loading: bool,
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut rows = column![].spacing(theme::SPACE_2);
     let mut has_row = false;
 
     if let Some(info) = info {
         if !info.developers.is_empty() {
-            rows = rows.push(info_row("Desenvolvedora", info.developers.join(", ")));
+            rows = rows.push(info_row(
+                i18n.t("native.console.store.developer"),
+                info.developers.join(", "),
+            ));
             has_row = true;
         }
         if !info.publishers.is_empty() {
-            rows = rows.push(info_row("Publicadora", info.publishers.join(", ")));
+            rows = rows.push(info_row(
+                i18n.t("native.console.store.publisher"),
+                info.publishers.join(", "),
+            ));
             has_row = true;
         }
         if let Some(release) = info.release_date.as_deref() {
-            rows = rows.push(info_row("Lançamento", release.to_string()));
+            rows = rows.push(info_row(
+                i18n.t("native.console.store.release"),
+                release.to_string(),
+            ));
             has_row = true;
         }
     }
     if !game.genres.is_empty() {
-        rows = rows.push(info_row("Gêneros", game.genres.join(", ")));
+        rows = rows.push(info_row(
+            i18n.t("native.console.store.genres"),
+            game.genres.join(", "),
+        ));
         has_row = true;
     }
     if !has_row {
         rows = rows.push(
             text(if loading {
-                "Consultando metadados em game:sysinfo..."
+                i18n.t("native.store.info_meta")
             } else {
-                "A loja não retornou metadados adicionais."
+                i18n.t("native.console.store.info_empty")
             })
             .size(12)
             .color(theme::TEXT_3),
         );
     }
 
-    container(column![views::section_label("Ficha"), rows].spacing(theme::SPACE_3))
+    container(
+        column![
+            views::section_label(i18n.t("native.store.info_title")),
+            rows,
+        ]
+        .spacing(theme::SPACE_3),
+    )
         .width(Length::Fixed(320.0))
         .padding(theme::SPACE_5)
         .style(theme::panel)

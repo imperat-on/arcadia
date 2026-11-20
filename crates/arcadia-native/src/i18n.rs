@@ -223,10 +223,12 @@ mod tests {
         assert_eq!(i18n.lang(), Lang::EnUs);
         assert_eq!(i18n.t("settings.title"), "Settings");
         assert_eq!(i18n.t("sidebar.biblioteca"), "Library");
+        assert_eq!(i18n.t("native.game.screenshots"), "Screenshots");
 
         i18n.set_lang(Lang::EsEs);
         assert_eq!(i18n.t("settings.title"), "Configuración");
         assert_eq!(i18n.t("sidebar.biblioteca"), "Biblioteca");
+        assert_eq!(i18n.t("native.game.screenshots"), "Capturas de pantalla");
     }
 
     #[test]
@@ -241,8 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn chaves_das_telas_migradas_existem_nos_tres_idiomas() {
-        const KEYS: &[&str] = &[
+    fn chaves_das_telas_migradas_existem_nos_tres_idiomas() {        const KEYS: &[&str] = &[
             // Sidebar e shell.
             "app.name",
             "sidebar.inicio",
@@ -426,5 +427,102 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Toda chave literal usada por `t`/`t_args` no shell nativo precisa
+    /// existir nos três idiomas, sem depender de manter listas à mão.
+    #[test]
+    fn chaves_literais_das_telas_existem_nos_tres_idiomas() {
+        const SOURCES: &[&str] = &[
+            include_str!("app.rs"),
+            include_str!("backend.rs"),
+            include_str!("views/auth.rs"),
+            include_str!("views/big_picture.rs"),
+            include_str!("views/components.rs"),
+            include_str!("views/community.rs"),
+            include_str!("views/downloads.rs"),
+            include_str!("views/emulation.rs"),
+            include_str!("views/friends.rs"),
+            include_str!("views/game.rs"),
+            include_str!("views/home.rs"),
+            include_str!("views/library.rs"),
+            include_str!("views/mod.rs"),
+            include_str!("views/overlays.rs"),
+            include_str!("views/profile.rs"),
+            include_str!("views/retro.rs"),
+            include_str!("views/settings.rs"),
+            include_str!("views/sidebar.rs"),
+            include_str!("views/sources.rs"),
+            include_str!("views/store.rs"),
+        ];
+
+        let mut keys = std::collections::BTreeSet::new();
+        for source in SOURCES {
+            for needle in [".t(\"", "t_args(\""] {
+                let mut rest = *source;
+                while let Some(index) = rest.find(needle) {
+                    let after = &rest[index + needle.len()..];
+                    if let Some(end) = after.find('"') {
+                        let key = &after[..end];
+                        if !key.is_empty() && !key.contains('\\') && !key.contains('{') {
+                            keys.insert(key.to_string());
+                        }
+                        rest = &after[end..];
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(keys.len() > 200, "apenas {} chaves encontradas", keys.len());
+        for lang in Lang::ALL {
+            let i18n = I18n::new(lang);
+            for key in &keys {
+                assert_ne!(
+                    i18n.t(key),
+                    key.as_str(),
+                    "{} não traduz a chave {key}",
+                    lang.code()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn interpola_chaves_novas_em_todos_os_idiomas() {
+        let pt = I18n::new(Lang::PtBr);
+        assert_eq!(
+            pt.t_args(
+                "native.game.screenshot_counter",
+                &[("index", "2"), ("total", "5")]
+            ),
+            "Captura 2 de 5"
+        );
+
+        let en = I18n::new(Lang::EnUs);
+        assert_eq!(
+            en.t_args(
+                "native.game.screenshot_counter",
+                &[("index", "2"), ("total", "5")]
+            ),
+            "Screenshot 2 of 5"
+        );
+        assert_eq!(
+            en.t_args(
+                "native.console.notice.favorite_failed",
+                &[("title", "Hades"), ("error", "timeout")]
+            ),
+            "Failed to favorite \"Hades\": timeout"
+        );
+
+        let es = I18n::new(Lang::EsEs);
+        assert_eq!(
+            es.t_args(
+                "native.game.playtime.hours_minutes",
+                &[("hours", "3"), ("minutes", "07")]
+            ),
+            "3h 07min"
+        );
     }
 }

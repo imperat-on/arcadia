@@ -13,30 +13,38 @@ use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.friends;
+    let i18n = &app.i18n;
     let count = match state.data.as_ref() {
-        Some(FriendsLoad::Ready(data)) => Some(format!("{} amigo(s)", data.friends.len())),
+        Some(FriendsLoad::Ready(data)) => Some(i18n.t_args(
+            "native.friends.count",
+            &[("count", &data.friends.len().to_string())],
+        )),
         _ => None,
     };
-    let header = views::page_header(
-        "Amigos",
-        "Busca, pedidos e lista viva da sessão atual.",
+    let header = views::page_header_labeled(
+        i18n.t("amigos.titulo"),
+        i18n.t("native.friends.subtitle"),
         count,
         app.account
             .is_signed_in()
             .then_some(Message::Refresh(Section::Friends)),
+        i18n.t("native.refresh"),
     );
 
     let body: Element<'_, Message> = if !app.account.is_signed_in() {
-        not_logged_in()
+        not_logged_in(app)
     } else if state.profile.is_some() {
         friend_profile_card(app)
     } else {
         match &state.status {
-            LoadStatus::Idle | LoadStatus::Loading => views::loading_state("Carregando amigos..."),
-            LoadStatus::Error(error) => container(views::error_state(
-                "Não foi possível carregar os amigos",
+            LoadStatus::Idle | LoadStatus::Loading => {
+                views::loading_state(i18n.t("native.friends.loading"))
+            }
+            LoadStatus::Error(error) => container(views::error_state_labeled(
+                i18n.t("native.friends.load_error"),
                 error,
                 Message::Refresh(Section::Friends),
+                i18n.t("downloads.tentar_novamente"),
             ))
             .width(Fill)
             .padding([theme::SPACE_2, theme::PAGE_PADDING])
@@ -48,21 +56,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
     column![header, body].width(Fill).height(Fill).into()
 }
 
-fn not_logged_in() -> Element<'static, Message> {
+fn not_logged_in(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
     container(
         column![
-            text("Entre na sua conta para usar os amigos")
+            text(i18n.t("amigos.nao_logado"))
                 .size(20)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text("Busca, convites e lista dependem da sessão do backend. Sem login nada é inventado nesta tela.")
+            text(i18n.t("native.friends.not_logged_desc"))
                 .size(13)
                 .color(theme::TEXT_2)
                 .width(Fill),
-            button(text("Entrar").size(13).font(theme::FONT_SEMIBOLD))
-                .on_press(Message::OpenAuth { required: false })
-                .padding([10.0, 18.0])
-                .style(theme::primary_button),
+            button(
+                text(i18n.t("account.entrar_btn"))
+                    .size(13)
+                    .font(theme::FONT_SEMIBOLD)
+            )
+            .on_press(Message::OpenAuth { required: false })
+            .padding([10.0, 18.0])
+            .style(theme::primary_button),
         ]
         .spacing(theme::SPACE_3)
         .max_width(520),
@@ -88,12 +101,16 @@ fn ready_body<'a>(app: &'a App, state: &'a FriendsState) -> Element<'a, Message>
     if let Some(results) = state.search_results.as_ref() {
         content = content.push(search_results(app, results));
     } else if state.search_status == LoadStatus::Loading {
-        content = content.push(text("Buscando usuários…").size(12).color(theme::TEXT_2));
+        content = content.push(
+            text(app.i18n.t("native.friends.searching"))
+                .size(12)
+                .color(theme::TEXT_2),
+        );
     }
 
     match state.data.as_ref() {
         Some(FriendsLoad::Ready(data)) => content = content.push(friends_body(app, data)),
-        Some(FriendsLoad::NotLoggedIn) => content = content.push(not_logged_in_hint()),
+        Some(FriendsLoad::NotLoggedIn) => content = content.push(not_logged_in_hint(app)),
         None => {}
     }
 
@@ -107,15 +124,16 @@ fn ready_body<'a>(app: &'a App, state: &'a FriendsState) -> Element<'a, Message>
     .into()
 }
 
-fn not_logged_in_hint() -> Element<'static, Message> {
-    views::warning_banner("A sessão não está disponível; entre novamente para ver a lista.")
+fn not_logged_in_hint(app: &App) -> Element<'_, Message> {
+    views::warning_banner(app.i18n.t("native.friends.session_unavailable"))
 }
 
 fn search_bar(app: &App) -> Element<'_, Message> {
     let state = &app.friends;
+    let i18n = &app.i18n;
     let busy = state.action_busy.is_some();
     row![
-        text_input("Buscar usuário…", &state.search_query)
+        text_input(i18n.t("amigos.busca_placeholder"), &state.search_query)
             .on_input(Message::FriendSearchChanged)
             .on_submit(Message::FriendSearchSubmitted)
             .padding([9.0, 12.0])
@@ -124,9 +142,9 @@ fn search_bar(app: &App) -> Element<'_, Message> {
             .style(theme::search_input),
         button(
             text(if state.search_status == LoadStatus::Loading {
-                "Buscando…"
+                i18n.t("common.pesquisando")
             } else {
-                "Buscar"
+                i18n.t("store.buscar")
             })
             .size(12)
             .font(theme::FONT_MEDIUM)
@@ -144,25 +162,29 @@ fn search_results<'a>(
     app: &'a App,
     results: &'a [crate::backend::FriendSearchResult],
 ) -> Element<'a, Message> {
-    let mut group = column![views::section_label("Resultados")]
+    let mut group = column![views::section_label(app.i18n.t("amigos.resultados"))]
         .spacing(theme::SPACE_2)
         .width(Fill);
 
     if results.is_empty() {
-        group = group.push(text("Ninguém encontrado.").size(12).color(theme::TEXT_2));
+        group = group.push(
+            text(app.i18n.t("amigos.sem_resultados"))
+                .size(12)
+                .color(theme::TEXT_2),
+        );
     }
 
     for result in results {
         let status = result.status.as_deref();
         let actions: Element<'a, Message> = match status {
             Some("accepted") => action_button(
-                "Ver perfil",
+                app.i18n.t("amigos.ver_perfil"),
                 Message::FriendProfileRequested(result.id.clone()),
                 true,
                 app.friends.action_busy.is_none(),
             ),
             Some("pending") if result.incoming => action_button(
-                "Aceitar",
+                app.i18n.t("amigos.aceitar"),
                 Message::FriendActionRequested {
                     id: result.id.clone(),
                     action: FriendAction::Accept,
@@ -170,9 +192,12 @@ fn search_results<'a>(
                 true,
                 app.friends.action_busy.is_none(),
             ),
-            Some("pending") => text("Pendente").size(11).color(theme::WARNING).into(),
+            Some("pending") => text(app.i18n.t("amigos.pendente"))
+                .size(11)
+                .color(theme::WARNING)
+                .into(),
             _ => action_button(
-                "Adicionar",
+                app.i18n.t("amigos.adicionar"),
                 Message::FriendActionRequested {
                     id: result.id.clone(),
                     action: FriendAction::Send,
@@ -183,6 +208,7 @@ fn search_results<'a>(
         };
 
         group = group.push(person_card(
+            &app.i18n,
             &result.username,
             result.display(),
             result.avatar_url.as_deref(),
@@ -195,24 +221,33 @@ fn search_results<'a>(
 }
 
 fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let busy = app.friends.action_busy.is_none();
     let summary = row![
-        counter("Amigos", data.friends.len(), theme::ACCENT),
-        counter("Recebidos", data.incoming.len(), theme::WARNING),
-        counter("Enviados", data.outgoing.len(), theme::TEXT_2),
+        counter(i18n.t("amigos.lista"), data.friends.len(), theme::ACCENT),
+        counter(
+            i18n.t("native.friends.received"),
+            data.incoming.len(),
+            theme::WARNING
+        ),
+        counter(
+            i18n.t("native.friends.sent"),
+            data.outgoing.len(),
+            theme::TEXT_2
+        ),
     ]
     .spacing(theme::SPACE_2);
 
     let mut content = column![summary].spacing(theme::SPACE_5).width(Fill);
 
     if !data.incoming.is_empty() {
-        let mut group = column![views::section_label("Pedidos recebidos")]
+        let mut group = column![views::section_label(i18n.t("amigos.pedidos_recebidos"))]
             .spacing(theme::SPACE_2)
             .width(Fill);
         for friend in &data.incoming {
             let actions: Element<'a, Message> = row![
                 action_button(
-                    "Aceitar",
+                    i18n.t("amigos.aceitar"),
                     Message::FriendActionRequested {
                         id: friend.id.clone(),
                         action: FriendAction::Accept,
@@ -221,7 +256,7 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
                     busy,
                 ),
                 action_button(
-                    "Recusar",
+                    i18n.t("amigos.recusar"),
                     Message::FriendActionRequested {
                         id: friend.id.clone(),
                         action: FriendAction::Cancel,
@@ -233,6 +268,7 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
             .spacing(theme::SPACE_2)
             .into();
             group = group.push(person_card(
+                i18n,
                 &friend.username,
                 friend.display(),
                 friend.avatar_url.as_deref(),
@@ -244,12 +280,12 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
     }
 
     if !data.outgoing.is_empty() {
-        let mut group = column![views::section_label("Pedidos enviados")]
+        let mut group = column![views::section_label(i18n.t("amigos.pedidos_enviados"))]
             .spacing(theme::SPACE_2)
             .width(Fill);
         for friend in &data.outgoing {
             let actions: Element<'a, Message> = action_button(
-                "Cancelar",
+                i18n.t("common.cancelar"),
                 Message::FriendActionRequested {
                     id: friend.id.clone(),
                     action: FriendAction::Cancel,
@@ -258,6 +294,7 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
                 busy,
             );
             group = group.push(person_card(
+                i18n,
                 &friend.username,
                 friend.display(),
                 friend.avatar_url.as_deref(),
@@ -268,13 +305,13 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
         content = content.push(group);
     }
 
-    let mut friends = column![views::section_label("Amigos")]
+    let mut friends = column![views::section_label(i18n.t("amigos.lista"))]
         .spacing(theme::SPACE_2)
         .width(Fill);
     if data.friends.is_empty() {
         friends = friends.push(
             container(
-                text("Nenhum amigo ainda. Adicione pela busca.")
+                text(i18n.t("amigos.vazio"))
                     .size(12)
                     .color(theme::TEXT_2),
             )
@@ -286,13 +323,13 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
         for friend in &data.friends {
             let actions: Element<'a, Message> = row![
                 action_button(
-                    "Ver perfil",
+                    i18n.t("amigos.ver_perfil"),
                     Message::FriendProfileRequested(friend.id.clone()),
                     false,
                     busy,
                 ),
                 action_button(
-                    "Remover",
+                    i18n.t("common.remover"),
                     Message::FriendActionRequested {
                         id: friend.id.clone(),
                         action: FriendAction::Remove,
@@ -304,6 +341,7 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
             .spacing(theme::SPACE_2)
             .into();
             friends = friends.push(person_card(
+                i18n,
                 &friend.username,
                 friend.display(),
                 friend.avatar_url.as_deref(),
@@ -318,6 +356,7 @@ fn friends_body<'a>(app: &'a App, data: &'a FriendsData) -> Element<'a, Message>
 }
 
 fn person_card<'a>(
+    i18n: &'a crate::i18n::I18n,
     username: &'a str,
     display: &'a str,
     _avatar_url: Option<&'a str>,
@@ -355,8 +394,8 @@ fn person_card<'a>(
     }
 
     let since = since
-        .map(|date| format!("Desde {date}"))
-        .unwrap_or_else(|| "Sem data de amizade".to_string());
+        .map(|date| i18n.t_args("native.friends.since", &[("date", &date)]))
+        .unwrap_or_else(|| i18n.t("native.friends.no_since").to_string());
 
     container(
         row![
@@ -377,7 +416,10 @@ fn person_card<'a>(
 
 fn friend_profile_card(app: &App) -> Element<'_, Message> {
     let Some(state) = app.friends.profile.as_ref() else {
-        return views::empty_state("Nenhum perfil aberto", "Volte para a lista.");
+        return views::empty_state(
+            app.i18n.t("native.friends.no_profile"),
+            app.i18n.t("native.friends.back_to_list"),
+        );
     };
     let is_friend = matches!(
         app.friends.data.as_ref(),
@@ -385,14 +427,18 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
     );
 
     let mut content = column![row![
-        button(text("← Voltar").size(12).font(theme::FONT_MEDIUM))
+        button(
+            text(format!("← {}", app.i18n.t("common.voltar")))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
             .on_press(Message::FriendProfileClosed)
             .padding([7.0, 12.0])
             .style(theme::ghost_button),
         Space::new().width(Fill),
         if is_friend {
             action_button(
-                "Remover amigo",
+                app.i18n.t("amigos.remover"),
                 Message::FriendActionRequested {
                     id: state.id.clone(),
                     action: FriendAction::Remove,
@@ -410,14 +456,16 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
 
     match state.status {
         LoadStatus::Idle | LoadStatus::Loading => {
-            content = content.push(views::loading_state("Carregando perfil do amigo..."));
+            content = content.push(views::loading_state(
+                app.i18n.t("native.friends.loading_profile"),
+            ));
         }
         LoadStatus::Error(ref error) => {
             content = content.push(views::action_error_banner(error, None));
         }
         LoadStatus::Ready => {
             if let Some(profile) = state.profile.as_ref() {
-                content = content.push(profile_details(profile));
+                content = content.push(profile_details(app, profile));
             }
         }
     }
@@ -432,7 +480,7 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn profile_details(profile: &FriendProfile) -> Element<'_, Message> {
+fn profile_details<'a>(app: &'a App, profile: &'a FriendProfile) -> Element<'a, Message> {
     let avatar = container(
         text(profile.initial())
             .size(28)
@@ -461,13 +509,21 @@ fn profile_details(profile: &FriendProfile) -> Element<'_, Message> {
 
     let mut stats = row![].spacing(theme::SPACE_2);
     if let Some(games) = profile.games {
-        stats = stats.push(counter("Jogos", games as usize, theme::ACCENT));
+        stats = stats.push(counter(app.i18n.t("amigos.jogos"), games as usize, theme::ACCENT));
     }
     if let Some(hours) = profile.playtime_hours {
-        stats = stats.push(counter("Horas", hours as usize, theme::TEXT_2));
+        stats = stats.push(counter(
+            app.i18n.t("native.friends.hours"),
+            hours as usize,
+            theme::TEXT_2,
+        ));
     }
     if let Some(friends) = profile.friends {
-        stats = stats.push(counter("Amigos", friends as usize, theme::TEXT_2));
+        stats = stats.push(counter(
+            app.i18n.t("amigos.lista"),
+            friends as usize,
+            theme::TEXT_2,
+        ));
     }
 
     container(
@@ -480,7 +536,7 @@ fn profile_details(profile: &FriendProfile) -> Element<'_, Message> {
                     .summary
                     .as_deref()
                     .filter(|summary| !summary.trim().is_empty())
-                    .unwrap_or("Sem resumo público.")
+                    .unwrap_or(app.i18n.t("native.profile.no_summary"))
             )
             .size(13)
             .color(theme::TEXT_2)
@@ -495,12 +551,12 @@ fn profile_details(profile: &FriendProfile) -> Element<'_, Message> {
     .into()
 }
 
-fn action_button(
-    label: &'static str,
+fn action_button<'a>(
+    label: &'a str,
     message: Message,
     primary: bool,
     enabled: bool,
-) -> Element<'static, Message> {
+) -> Element<'a, Message> {
     button(text(label).size(11).font(theme::FONT_MEDIUM))
         .on_press_maybe(enabled.then_some(message))
         .padding([6.0, 10.0])

@@ -652,7 +652,7 @@ impl GameLaunchState {
     }
 
     /// Aplica um evento do `LaunchRuntime` sem consultar o processo.
-    fn apply_event(&mut self, event: LaunchEvent) {
+    fn apply_event(&mut self, event: LaunchEvent, i18n: &I18n) {
         match event {
             LaunchEvent::Running(running) => {
                 if running {
@@ -728,7 +728,10 @@ impl GameLaunchState {
                 if self.matches_game(game_id.as_deref()) {
                     self.status = GameRunStatus::Idle;
                     self.game_id = game_id;
-                    self.error = Some(format!("Falha ao abrir o jogo: {error}"));
+                    self.error = Some(i18n.t_args(
+                        "native.game.launch_failed",
+                        &[("error", &error)],
+                    ));
                 }
             }
         }
@@ -1011,16 +1014,17 @@ pub enum ProfileField {
 }
 
 impl ProfileField {
-    pub fn label(self) -> &'static str {
-        match self {
-            ProfileField::DisplayName => "Nome de exibição",
-            ProfileField::Summary => "Sobre você",
-            ProfileField::Country => "País",
-            ProfileField::City => "Cidade",
-            ProfileField::Showcase => "Vitrine (appids separados por vírgula)",
-            ProfileField::BackgroundUrl => "URL do fundo",
-            ProfileField::BannerUrl => "URL do banner",
-        }
+    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            ProfileField::DisplayName => "native.profile.display_name_field",
+            ProfileField::Summary => "native.profile.summary_field",
+            ProfileField::Country => "native.profile.country_field",
+            ProfileField::City => "native.profile.city_field",
+            ProfileField::Showcase => "native.profile.showcase_field",
+            ProfileField::BackgroundUrl => "native.profile.background_field",
+            ProfileField::BannerUrl => "native.profile.banner_field",
+        };
+        i18n.t(key)
     }
 }
 
@@ -1228,13 +1232,14 @@ impl FriendAction {
         }
     }
 
-    pub fn success_message(self) -> &'static str {
-        match self {
-            FriendAction::Send => "Pedido enviado!",
-            FriendAction::Accept => "Agora vocês são amigos!",
-            FriendAction::Cancel => "Pedido removido.",
-            FriendAction::Remove => "Amigo removido.",
-        }
+    pub fn success_message<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            FriendAction::Send => "amigos.pedido_enviado",
+            FriendAction::Accept => "amigos.aceito",
+            FriendAction::Cancel => "amigos.recusado",
+            FriendAction::Remove => "amigos.removido",
+        };
+        i18n.t(key)
     }
 }
 
@@ -1297,11 +1302,12 @@ pub enum StoreTab {
 }
 
 impl StoreTab {
-    pub fn label(self) -> &'static str {
-        match self {
-            StoreTab::Steam => "Loja",
-            StoreTab::Retro => "Retro",
-        }
+    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            StoreTab::Steam => "store.titulo",
+            StoreTab::Retro => "store.retro_tab",
+        };
+        i18n.t(key)
     }
 }
 
@@ -2126,7 +2132,8 @@ impl App {
                 }
                 let url = self.sources.url_draft.trim().to_string();
                 if url.is_empty() {
-                    self.sources.action_error = Some("Informe a URL do catálogo.".to_string());
+                    self.sources.action_error =
+                        Some(self.i18n.t("native.sources.url_required").to_string());
                     return Task::none();
                 }
                 self.sources.busy = true;
@@ -2231,15 +2238,15 @@ impl App {
                             id,
                             PluginNotice {
                                 ok: true,
-                                message: action.success_message().to_string(),
+                                message: action.success_message_i18n(&self.i18n).to_string(),
                             },
                         );
                         self.reload_components()
                     }
                     Ok(PluginActionOutcome::NotDetected) => {
-                        let message = format!(
-                            "{}: arquivo do componente não encontrado no sistema; nada foi baixado.",
-                            action.label()
+                        let message = self.i18n.t_args(
+                            "native.components.action_not_detected",
+                            &[("action", action.label_i18n(&self.i18n))],
                         );
                         self.components.notices.insert(
                             id,
@@ -2255,7 +2262,10 @@ impl App {
                         self.reload_components()
                     }
                     Err(error) => {
-                        let message = format!("{}: {error}", action.label());
+                        let message = self.i18n.t_args(
+                            "native.components.action_failed",
+                            &[("action", action.label_i18n(&self.i18n)), ("error", &error)],
+                        );
                         self.components.notices.insert(
                             id,
                             PluginNotice {
@@ -2297,7 +2307,7 @@ impl App {
                             id,
                             PluginNotice {
                                 ok,
-                                message: verification_summary(&verification),
+                                message: verification_summary(&self.i18n, &verification),
                             },
                         );
                     }
@@ -2311,7 +2321,10 @@ impl App {
                         );
                         self.components.banner = Some(PluginNotice {
                             ok: false,
-                            message: format!("Verificar: {error}"),
+                            message: self.i18n.t_args(
+                                "native.components.verify_failed",
+                                &[("error", &error)],
+                            ),
                         });
                     }
                 }
@@ -2371,7 +2384,9 @@ impl App {
                 if path.is_empty() {
                     self.components.banner = Some(PluginNotice {
                         ok: false,
-                        message: "Informe o caminho da pasta ou do manifesto do componente."
+                        message: self
+                            .i18n
+                            .t("native.components.path_required")
                             .to_string(),
                     });
                     return Task::none();
@@ -2392,11 +2407,17 @@ impl App {
                         let message = if registration.name.is_empty()
                             || registration.name == registration.id
                         {
-                            format!("Componente {} registrado.", registration.id)
+                            self.i18n.t_args(
+                                "native.components.registered",
+                                &[("id", &registration.id)],
+                            )
                         } else {
-                            format!(
-                                "Componente {} ({}) registrado.",
-                                registration.name, registration.id
+                            self.i18n.t_args(
+                                "native.components.registered_named",
+                                &[
+                                    ("name", &registration.name),
+                                    ("id", &registration.id),
+                                ],
                             )
                         };
                         self.components.banner = Some(PluginNotice { ok: true, message });
@@ -2405,7 +2426,10 @@ impl App {
                     Err(error) => {
                         self.components.banner = Some(PluginNotice {
                             ok: false,
-                            message: format!("Registrar componente: {error}"),
+                            message: self.i18n.t_args(
+                                "native.components.register_failed",
+                                &[("error", &error)],
+                            ),
                         });
                         Task::none()
                     }
@@ -2791,13 +2815,17 @@ impl App {
                 }
                 let Some(info) = detail.install.as_ref() else {
                     detail.install_error = Some(
-                        "O manifesto de store:installInfo ainda não foi carregado.".to_string(),
+                        self.i18n
+                            .t("native.store.install_manifest_not_loaded")
+                            .to_string(),
                     );
                     return Task::none();
                 };
                 let Some(library) = detail.libraries.get(detail.selected_library) else {
                     detail.install_error = Some(
-                        "Nenhuma biblioteca Steam encontrada para o store:install.".to_string(),
+                        self.i18n
+                            .t("native.store.install_no_steam_library")
+                            .to_string(),
                     );
                     return Task::none();
                 };
@@ -2808,7 +2836,8 @@ impl App {
                     .cloned()
                     .collect();
                 if depots.is_empty() {
-                    detail.install_error = Some("Selecione ao menos um depot.".to_string());
+                    detail.install_error =
+                        Some(self.i18n.t("native.store.install_select_depot").to_string());
                     return Task::none();
                 }
 
@@ -2843,9 +2872,9 @@ impl App {
                             detail.game.title
                         );
                         detail.install_error = None;
-                        detail.install_message = Some(format!(
-                            "“{}” entrou na fila de downloads. Acompanhe em Downloads.",
-                            detail.game.title
+                        detail.install_message = Some(self.i18n.t_args(
+                            "native.store.queued",
+                            &[("title", &detail.game.title)],
                         ));
                     }
                     Err(error) => {
@@ -3130,9 +3159,15 @@ impl App {
                             .map(|game| (game.title.clone(), game.favorite))
                             .unwrap_or_else(|| (id.clone(), false));
                         self.big_picture.set_notice(if favorite {
-                            format!("\"{title}\" adicionado aos favoritos.")
+                            self.i18n.t_args(
+                                "native.console.notice.favorite_added",
+                                &[("title", &title)],
+                            )
                         } else {
-                            format!("\"{title}\" removido dos favoritos.")
+                            self.i18n.t_args(
+                                "native.console.notice.favorite_removed",
+                                &[("title", &title)],
+                            )
                         });
                         let urls = self.library.image_urls();
                         self.cover_tasks(urls)
@@ -3144,8 +3179,10 @@ impl App {
                             .game(&id)
                             .map(|game| game.title.clone())
                             .unwrap_or(id);
-                        self.big_picture
-                            .set_notice(format!("Falha ao favoritar \"{title}\": {error}"));
+                        self.big_picture.set_notice(self.i18n.t_args(
+                            "native.console.notice.favorite_failed",
+                            &[("title", &title), ("error", &error)],
+                        ));
                         Task::none()
                     }
                 }
@@ -3569,8 +3606,11 @@ impl App {
                             .as_ref()
                             .map_or(true, |settings| settings.exe_path.trim().is_empty())
                     {
-                        self.launch_options.error =
-                            Some("Informe o executável antes de escolher o modo exe.".to_string());
+                        self.launch_options.error = Some(
+                            self.i18n
+                                .t("native.game.exe_required_mode")
+                                .to_string(),
+                        );
                         return Task::none();
                     }
                 }
@@ -3797,7 +3837,10 @@ impl App {
                         self.account.auth.error = None;
                         self.account.error = None;
                         self.account.notice = success.username_real.map(|username| {
-                            format!("Conta criada. Seu nome de usuário é @{username}.")
+                            self.i18n.t_args(
+                                "native.account.created",
+                                &[("username", &username)],
+                            )
                         });
                         self.account.status = AccountStatus::Loading;
                         // A conta mudou o escopo da biblioteca e dos amigos.
@@ -3914,7 +3957,8 @@ impl App {
                     Ok(()) => {
                         self.account.editor.editing = false;
                         self.account.editor.error = None;
-                        self.account.editor.notice = Some("Perfil atualizado.".to_string());
+                        self.account.editor.notice =
+                            Some(self.i18n.t("native.profile.updated").to_string());
                         self.account.notice = None;
                         self.account_profile_task()
                     }
@@ -3935,7 +3979,11 @@ impl App {
                 let path = self.account.editor.avatar_path.trim().to_string();
                 if path.is_empty() {
                     self.account.editor.error =
-                        Some("Informe o caminho de uma imagem de avatar.".to_string());
+                        Some(
+                            self.i18n
+                                .t("native.profile.avatar_path_required")
+                                .to_string(),
+                        );
                     return Task::none();
                 }
                 self.account.editor.uploading_avatar = true;
@@ -3952,7 +4000,8 @@ impl App {
                 match result {
                     Ok(url) => {
                         self.account.editor.avatar_path.clear();
-                        self.account.editor.notice = Some("Avatar atualizado.".to_string());
+                        self.account.editor.notice =
+                            Some(self.i18n.t("native.profile.avatar_updated").to_string());
                         self.account.avatar_url = Some(url.clone());
                         if let Some(profile) = self.account.profile.as_mut() {
                             profile.avatar_url = Some(url.clone());
@@ -3992,7 +4041,7 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.friends.action_error = None;
-                        self.friends.notice = Some(action.success_message().to_string());
+                        self.friends.notice = Some(action.success_message(&self.i18n).to_string());
                         if action == FriendAction::Remove
                             && self
                                 .friends
@@ -4103,9 +4152,9 @@ impl App {
         let error = match self.account.auth.mode {
             AuthMode::SignIn => {
                 if username.is_empty() {
-                    Some("Informe o nome de usuário.".to_string())
+                    Some(self.i18n.t("native.auth.username_required").to_string())
                 } else if password.is_empty() {
-                    Some("Informe a senha.".to_string())
+                    Some(self.i18n.t("native.auth.password_required").to_string())
                 } else {
                     None
                 }
@@ -4114,7 +4163,7 @@ impl App {
                 if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
                     Some(self.i18n.t("account.erro_email").to_string())
                 } else if username.is_empty() {
-                    Some("Informe o nome de usuário.".to_string())
+                    Some(self.i18n.t("native.auth.username_required").to_string())
                 } else if password.chars().count() < 6 {
                     Some(self.i18n.t("account.erro_senha_curta").to_string())
                 } else {
@@ -4375,7 +4424,7 @@ impl App {
         if query.is_empty() {
             self.trailer_picker.results.clear();
             self.trailer_picker.status = LoadStatus::Error(
-                "Informe o nome do jogo ou do vídeo para buscar.".to_string(),
+                self.i18n.t("native.game.trailer_search_empty").to_string(),
             );
             return Task::none();
         }
@@ -4446,7 +4495,7 @@ impl App {
         let mut icon_tasks = Vec::new();
         for event in events {
             match event {
-                UiEvent::Launch(event) => self.launch.apply_event(event),
+                UiEvent::Launch(event) => self.launch.apply_event(event, &self.i18n),
                 UiEvent::Achievement(achievement) => {
                     if !self.notifications_enabled {
                         continue;
@@ -4971,7 +5020,11 @@ impl App {
     fn add_launch_env_var(&mut self) {
         let name = self.launch_options.env_name.trim().to_string();
         if name.is_empty() {
-            self.launch_options.error = Some("Informe o nome da variável.".to_string());
+            self.launch_options.error = Some(
+                self.i18n
+                    .t("native.game.env_name_required")
+                    .to_string(),
+            );
             return;
         }
         let Some(settings) = self.launch_options.settings.as_mut() else {
@@ -4997,8 +5050,11 @@ impl App {
         };
         if self.launch_options.mode.as_deref() == Some("exe") && settings.exe_path.trim().is_empty()
         {
-            self.launch_options.error =
-                Some("Informe o executável antes de salvar o modo exe.".to_string());
+            self.launch_options.error = Some(
+                self.i18n
+                    .t("native.game.exe_required_save")
+                    .to_string(),
+            );
             return Task::none();
         }
 
@@ -5048,7 +5104,10 @@ impl App {
                 .game(&running)
                 .map(|game| game.title.clone())
                 .unwrap_or(running);
-            self.launch.error = Some(format!("Feche \"{title}\" antes de abrir outro jogo."));
+            self.launch.error = Some(self.i18n.t_args(
+                "native.game.close_running",
+                &[("title", &title)],
+            ));
             return Task::none();
         }
 
@@ -5056,7 +5115,10 @@ impl App {
             return Task::none();
         };
         if !game.installed {
-            self.launch.error = Some(format!("\"{}\" não está instalado.", game.title));
+            self.launch.error = Some(self.i18n.t_args(
+                "native.game.not_installed_title",
+                &[("title", &game.title)],
+            ));
             return Task::none();
         }
 
@@ -5109,7 +5171,10 @@ impl App {
                 eprintln!("[arcadia-native] falha ao abrir jogo: {error}");
                 self.launch.status = GameRunStatus::Idle;
                 self.launch.game_id = None;
-                self.launch.error = Some(format!("Falha ao abrir o jogo: {error}"));
+                self.launch.error = Some(self.i18n.t_args(
+                    "native.game.launch_failed",
+                    &[("error", &error)],
+                ));
                 Task::none()
             }
         }
@@ -5127,7 +5192,10 @@ impl App {
             Err(error) => {
                 eprintln!("[arcadia-native] falha ao parar jogo: {error}");
                 self.launch.status = GameRunStatus::Running;
-                self.launch.error = Some(format!("Falha ao parar o jogo: {error}"));
+                self.launch.error = Some(self.i18n.t_args(
+                    "native.game.stop_failed",
+                    &[("error", &error)],
+                ));
                 Task::none()
             }
         }
@@ -5356,7 +5424,18 @@ impl App {
             ConsoleEffect::OpenGameDetail(id) => self.open_game_from_console(id),
             ConsoleEffect::ToggleFavorite(id) => self.toggle_console_favorite(id),
             ConsoleEffect::Trailer(id) => self.console_trailer(id),
-            ConsoleEffect::Notice(text) => {
+            ConsoleEffect::Notice(notice) => {
+                let text = match notice {
+                    crate::big_picture::ConsoleNotice::NotInstalled(title) => {
+                        self.i18n.t_args(
+                            "native.console.notice.not_installed",
+                            &[("title", &title)],
+                        )
+                    }
+                    crate::big_picture::ConsoleNotice::NoGameSelected => {
+                        self.i18n.t("native.console.notice.no_game").to_string()
+                    }
+                };
                 self.big_picture.set_notice(text);
                 Task::none()
             }
@@ -5456,13 +5535,21 @@ impl App {
     fn toggle_console_favorite(&mut self, id: String) -> Task<Message> {
         if self.favorite_busy.is_some() {
             self.big_picture
-                .set_notice("Aguarde a gravação do favorito atual.".to_string());
+                .set_notice(
+                    self.i18n
+                        .t("native.console.notice.favorite_wait")
+                        .to_string(),
+                );
             return Task::none();
         }
 
         let Some(game) = self.library.game(&id).cloned() else {
             self.big_picture
-                .set_notice("O jogo saiu da biblioteca antes de favoritar.".to_string());
+                .set_notice(
+                    self.i18n
+                        .t("native.console.notice.favorite_missing")
+                        .to_string(),
+                );
             return Task::none();
         };
         let favorite = !game.favorite;
@@ -5470,9 +5557,15 @@ impl App {
         // O painel continua mostrando o estado antigo até o dispatcher
         // responder com a biblioteca atualizada.
         self.big_picture.set_notice(if favorite {
-            format!("Adicionando \"{}\" aos favoritos…", game.title)
+            self.i18n.t_args(
+                "native.console.notice.favorite_adding",
+                &[("title", &game.title)],
+            )
         } else {
-            format!("Removendo \"{}\" dos favoritos…", game.title)
+            self.i18n.t_args(
+                "native.console.notice.favorite_removing",
+                &[("title", &game.title)],
+            )
         });
 
         let backend = self.backend.clone();
@@ -5519,12 +5612,20 @@ impl App {
                 .game_media
                 .as_ref()
                 .and_then(|media| media.notice.clone())
-                .unwrap_or_else(|| "Este jogo não tem trailer disponível.".to_string());
+                .unwrap_or_else(|| {
+                    self.i18n
+                        .t("native.game.trailer_unavailable")
+                        .to_string()
+                });
             self.big_picture.set_notice(notice);
             Task::none()
         } else {
             self.big_picture
-                .set_notice("O trailer ainda está carregando…".to_string());
+                .set_notice(
+                    self.i18n
+                        .t("native.game.trailer_still_loading")
+                        .to_string(),
+                );
             Task::none()
         }
     }
@@ -5657,6 +5758,7 @@ impl App {
                             &self.launch,
                             &self.trailer_picker,
                             &self.launch_options,
+                            &self.i18n,
                         )
                     }
                     None => views::missing_game(&self.i18n),
@@ -6335,10 +6437,10 @@ impl App {
             panels.achievements.status = LoadStatus::Loading;
             panels.proton.status = LoadStatus::Ready;
             panels.proton.note =
-                Some("ProtonDB cobre jogos da Steam; não se aplica a este título retro.".to_string());
+                Some(self.i18n.t("native.game.note.retro_proton").to_string());
             panels.stats.status = LoadStatus::Ready;
             panels.stats.note =
-                Some("Estatísticas da loja Steam não se aplicam a jogos retro.".to_string());
+                Some(self.i18n.t("native.game.note.retro_stats").to_string());
 
             let backend = self.backend.clone();
             let game_id = game.id.clone();
@@ -6354,20 +6456,27 @@ impl App {
             ));
         } else {
             let launcher = if game.launcher.trim().is_empty() {
-                "desconhecido"
+                self.i18n.t("native.game.launcher_unknown")
             } else {
                 game.launcher.as_str()
             };
             panels.achievements.status = LoadStatus::Ready;
-            panels.achievements.note = Some(format!(
-                "Conquistas não estão disponíveis para o launcher \"{launcher}\" nesta build."
+            panels.achievements.note = Some(self.i18n.t_args(
+                "native.game.note.achievements_launcher",
+                &[("launcher", launcher)],
             ));
             panels.proton.status = LoadStatus::Ready;
-            panels.proton.note =
-                Some("ProtonDB só tem relatórios para jogos com appid da Steam.".to_string());
+            panels.proton.note = Some(
+                self.i18n
+                    .t("native.game.note.proton_steam_only")
+                    .to_string(),
+            );
             panels.stats.status = LoadStatus::Ready;
-            panels.stats.note =
-                Some("Estatísticas e reviews da loja Steam não se aplicam a este jogo.".to_string());
+            panels.stats.note = Some(
+                self.i18n
+                    .t("native.game.note.stats_steam_only")
+                    .to_string(),
+            );
         }
 
         self.game_panels.insert(game.id.clone(), panels);
@@ -6394,20 +6503,23 @@ impl App {
     }
 }
 
-fn verification_summary(verification: &PluginVerification) -> String {
+fn verification_summary(i18n: &I18n, verification: &PluginVerification) -> String {
     if !verification.ok || !verification.valid {
         return if verification.error.is_empty() {
-            "Verificação falhou sem detalhes.".to_string()
+            i18n.t("native.components.verify_failed_no_detail").to_string()
         } else {
-            format!("Verificação falhou: {}", verification.error)
+            i18n.t_args(
+                "native.components.verify_failed_detail",
+                &[("error", &verification.error)],
+            )
         };
     }
     if verification.verified {
-        "Componente válido e digest verificado.".to_string()
+        i18n.t("native.components.verify_ok_digest").to_string()
     } else if verification.declared {
-        "Componente válido; assinatura declarada não verificada.".to_string()
+        i18n.t("native.components.verify_ok_declared").to_string()
     } else {
-        "Componente válido; sem assinatura declarada.".to_string()
+        i18n.t("native.components.verify_ok_unsigned").to_string()
     }
 }
 
@@ -6479,6 +6591,10 @@ fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_i18n() -> I18n {
+        I18n::new(crate::i18n::Lang::PtBr)
+    }
 
     fn game(id: &str, title: &str, favorite: bool, hidden: bool) -> Game {
         Game {
@@ -6586,7 +6702,7 @@ mod tests {
             &json!({ "state": "starting", "gameId": "steam:10", "token": 1 }),
         )
         .expect("starting");
-        launch.apply_event(starting);
+        launch.apply_event(starting, &test_i18n());
         assert!(launch.is_launching("steam:10"));
         assert!(!launch.is_running("steam:10"));
 
@@ -6595,19 +6711,19 @@ mod tests {
             &json!({ "gameId": "steam:10", "warnings": ["gamemoderun ausente"] }),
         )
         .expect("warning");
-        launch.apply_event(warning);
+        launch.apply_event(warning, &test_i18n());
         assert_eq!(launch.warnings_for("steam:10"), ["gamemoderun ausente"]);
         assert!(launch.warnings_for("steam:11").is_empty());
 
         let running = crate::backend::parse_launch_event("game:running", &json!(true))
             .expect("running");
-        launch.apply_event(running);
+        launch.apply_event(running, &test_i18n());
         assert!(launch.is_running("steam:10"));
 
         // `game:running(false)` é a transição natural de fim do monitor.
         let stopped = crate::backend::parse_launch_event("game:running", &json!(false))
             .expect("stopped");
-        launch.apply_event(stopped);
+        launch.apply_event(stopped, &test_i18n());
         assert_eq!(launch.status, GameRunStatus::Idle);
         assert!(launch.game_id.is_none());
 
@@ -6623,7 +6739,7 @@ mod tests {
             &json!({ "rodando": true, "gameId": "steam:10" }),
         )
         .expect("active");
-        launch.apply_event(active);
+        launch.apply_event(active, &test_i18n());
         assert!(launch.is_running("steam:10"));
 
         let idle = crate::backend::parse_launch_event(
@@ -6631,7 +6747,7 @@ mod tests {
             &json!({ "state": "idle", "gameId": "steam:10", "token": 1 }),
         )
         .expect("idle");
-        launch.apply_event(idle);
+        launch.apply_event(idle, &test_i18n());
         assert_eq!(launch.status, GameRunStatus::Idle);
         assert!(launch.game_id.is_none());
     }
@@ -6645,7 +6761,7 @@ mod tests {
             &json!({ "state": "starting", "gameId": "steam:11" }),
         )
         .expect("starting novo");
-        launch.apply_event(starting);
+        launch.apply_event(starting, &test_i18n());
         assert!(launch.is_launching("steam:11"));
 
         // Monitor do jogo anterior termina depois do novo `starting`.
@@ -6654,13 +6770,13 @@ mod tests {
             &json!({ "state": "idle", "gameId": "steam:10" }),
         )
         .expect("idle antigo");
-        launch.apply_event(stale_idle);
+        launch.apply_event(stale_idle, &test_i18n());
         assert!(launch.is_launching("steam:11"));
 
         let stale_running_off =
             crate::backend::parse_launch_event("game:running", &json!(false))
                 .expect("running false antigo");
-        launch.apply_event(stale_running_off);
+        launch.apply_event(stale_running_off, &test_i18n());
         assert!(launch.is_launching("steam:11"));
     }
 
@@ -6676,7 +6792,7 @@ mod tests {
             &json!({ "gameId": "steam:10", "error": "No such file or directory" }),
         )
         .expect("erro");
-        launch.apply_event(error);
+        launch.apply_event(error, &test_i18n());
         assert_eq!(launch.status, GameRunStatus::Idle);
         let message = launch.error.as_deref().expect("mensagem");
         assert!(message.contains("No such file"), "{message}");
@@ -6713,13 +6829,16 @@ mod tests {
 
     #[test]
     fn plugin_action_messages_follow_the_registry_semantics() {
+        let i18n = I18n::new(crate::i18n::Lang::PtBr);
+        assert_eq!(PluginAction::Install.label_i18n(&i18n), "Instalar");
+        assert_eq!(PluginAction::Remove.label_i18n(&i18n), "Remover");
         assert_eq!(PluginAction::Install.label(), "Instalar");
         assert_eq!(PluginAction::Remove.label(), "Remover");
         assert!(PluginAction::Remove
-            .success_message()
+            .success_message_i18n(&i18n)
             .contains("preservado"));
         assert!(PluginAction::Unregister
-            .success_message()
+            .success_message_i18n(&i18n)
             .contains("registro"));
 
         let verified = PluginVerification {
@@ -6731,14 +6850,15 @@ mod tests {
             source: "local".to_string(),
             error: String::new(),
         };
-        assert!(verification_summary(&verified).contains("digest"));
+        let i18n = I18n::new(crate::i18n::Lang::PtBr);
+        assert!(verification_summary(&i18n, &verified).contains("digest"));
 
         let failed = PluginVerification {
             valid: false,
             error: "digest divergente".to_string(),
             ..verified
         };
-        assert!(verification_summary(&failed).contains("digest divergente"));
+        assert!(verification_summary(&i18n, &failed).contains("digest divergente"));
     }
 
     #[test]

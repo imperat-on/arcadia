@@ -11,9 +11,8 @@ use iced::widget::{
 };
 use iced::{Color, ContentFit, Element, Fill, Length, Padding};
 
-use crate::app::{App, LoadStatus, Message, RetroDetailState, RetroState, Section};
-use crate::backend::{retro_system_filters, RetroGame, RetroSource};
-use crate::covers::CoverCache;
+use crate::app::{App, LoadStatus, Message, RetroDetailState, Section};
+use crate::backend::{retro_system_filters, RetroGame, RetroSource, RetroSystemInfo};
 use crate::theme;
 use crate::views;
 use crate::views::cards;
@@ -24,12 +23,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         return detail_view(app, detail);
     }
 
-    let state = &app.retro;
-    let header = views::page_header(
-        "Retro",
-        "Catálogo de clássicos das fontes Hydra marcadas Classics.",
-        retro_count_label(state),
+    let header = views::page_header_labeled(
+        app.i18n.t("store.retro_tab"),
+        app.i18n.t("native.retro.subtitle"),
+        retro_count_label(app),
         Some(Message::Refresh(Section::Stores)),
+        app.i18n.t("native.refresh"),
     );
 
     let body = scrollable(container(body_content(app)).width(Fill).padding(Padding {
@@ -44,25 +43,38 @@ pub fn view(app: &App) -> Element<'_, Message> {
     column![header, body].width(Fill).height(Fill).into()
 }
 
-fn retro_count_label(state: &RetroState) -> Option<String> {
+fn retro_count_label(app: &App) -> Option<String> {
+    let state = &app.retro;
     let total = state.total?;
     Some(match state.total_offers {
-        Some(offers) => format!("{total} jogos · {offers} ofertas"),
-        None => format!("{total} jogos"),
+        Some(offers) => app.i18n.t_args(
+            "native.retro.count",
+            &[
+                ("games", &total.to_string()),
+                ("offers", &offers.to_string()),
+            ],
+        ),
+        None => app.i18n.t_args(
+            "native.retro.count_no_offers",
+            &[("games", &total.to_string())],
+        ),
     })
 }
 
 fn body_content(app: &App) -> Element<'_, Message> {
     let state = &app.retro;
-    let mut content = column![search_controls(state)]
+    let mut content = column![search_controls(app)]
         .width(Fill)
         .spacing(theme::SPACE_3);
 
     if !state.applied_query.is_empty() && state.status != LoadStatus::Loading {
         content = content.push(
-            text(format!("Resultados para “{}”", state.applied_query))
-                .size(11)
-                .color(theme::TEXT_3),
+            text(app.i18n.t_args(
+                "native.retro.results_for",
+                &[("query", &state.applied_query)],
+            ))
+            .size(11)
+            .color(theme::TEXT_3),
         );
     }
 
@@ -78,12 +90,39 @@ fn body_content(app: &App) -> Element<'_, Message> {
     content.into()
 }
 
-fn search_controls(state: &RetroState) -> Element<'_, Message> {
-    let systems = pick_list(
-        retro_system_filters(),
-        Some(state.system),
-        Message::RetroSystemChanged,
-    )
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SystemChoice {
+    system: RetroSystemInfo,
+    label: String,
+}
+
+impl std::fmt::Display for SystemChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.label)
+    }
+}
+
+fn search_controls(app: &App) -> Element<'_, Message> {
+    let state = &app.retro;
+    let i18n = &app.i18n;
+    let systems: Vec<SystemChoice> = retro_system_filters()
+        .into_iter()
+        .map(|system| SystemChoice {
+            label: if system.id.is_empty() {
+                i18n.t("native.retro.all_systems").to_string()
+            } else {
+                system.label.to_string()
+            },
+            system,
+        })
+        .collect();
+    let selected = systems
+        .iter()
+        .find(|choice| choice.system == state.system)
+        .cloned();
+    let systems = pick_list(systems, selected, |choice: SystemChoice| {
+        Message::RetroSystemChanged(choice.system)
+    })
     .width(Length::Fixed(190.0))
     .padding([10.0, 12.0])
     .text_size(12)
@@ -93,7 +132,7 @@ fn search_controls(state: &RetroState) -> Element<'_, Message> {
     let input = Stack::new()
         .width(Fill)
         .push(
-            text_input("Buscar no catálogo Retro...", &state.query)
+            text_input(i18n.t("native.retro.search_placeholder"), &state.query)
                 .on_input(Message::RetroQueryChanged)
                 .on_submit(Message::RetroSearchSubmitted)
                 .padding(Padding {
@@ -117,7 +156,11 @@ fn search_controls(state: &RetroState) -> Element<'_, Message> {
 
     let loading = state.status == LoadStatus::Loading;
     let mut search_button = button(
-        text(if loading { "Buscando..." } else { "Buscar" })
+        text(if loading {
+            i18n.t("native.retro.searching")
+        } else {
+            i18n.t("store.buscar")
+        })
             .size(12)
             .font(theme::FONT_MEDIUM),
     )
@@ -126,7 +169,11 @@ fn search_controls(state: &RetroState) -> Element<'_, Message> {
         search_button = search_button.on_press(Message::RetroSearchSubmitted);
     }
 
-    let mut clear_button = button(text("Limpar").size(12).font(theme::FONT_MEDIUM))
+    let mut clear_button = button(
+        text(i18n.t("native.console.store.clear"))
+            .size(12)
+            .font(theme::FONT_MEDIUM),
+    )
         .padding([10.0, 14.0])
         .style(theme::ghost_button);
     if !state.query.is_empty() {
@@ -150,28 +197,29 @@ fn retro_body(app: &App) -> Element<'_, Message> {
     if state.games.is_empty() {
         return match state.status {
             LoadStatus::Idle | LoadStatus::Loading => {
-                views::loading_state("Carregando catálogo Retro...")
+                views::loading_state(app.i18n.t("native.retro.loading"))
             }
-            LoadStatus::Error(_) => container(views::error_state(
-                "Não foi possível carregar o catálogo Retro",
+            LoadStatus::Error(_) => container(views::error_state_labeled(
+                app.i18n.t("native.retro.load_error"),
                 state
                     .error
                     .as_deref()
-                    .unwrap_or("O dispatcher não respondeu retro:list."),
+                    .unwrap_or(app.i18n.t("native.retro.load_error_detail")),
                 Message::RetroSearchSubmitted,
+                app.i18n.t("downloads.tentar_novamente"),
             ))
             .width(Fill)
             .into(),
             LoadStatus::Ready => {
                 if state.applied_query.is_empty() {
                     inline_empty(
-                        "Catálogo Retro vazio",
-                        "retro:list respondeu sem jogos. Verifique as fontes Classics ou tente atualizar.",
+                        app.i18n.t("native.retro.empty_title"),
+                        app.i18n.t("native.retro.empty_desc"),
                     )
                 } else {
                     inline_empty(
-                        "Nenhum jogo Retro encontrado",
-                        "Tente outro título ou troque o filtro de sistema.",
+                        app.i18n.t("native.retro.no_results_title"),
+                        app.i18n.t("native.retro.no_results_desc"),
                     )
                 }
             }
@@ -181,20 +229,26 @@ fn retro_body(app: &App) -> Element<'_, Message> {
     let cards: Vec<Element<'_, Message>> = state
         .games
         .iter()
-        .map(|game| retro_card(game, &app.covers))
+        .map(|game| retro_card(app, game))
         .collect();
 
     let mut content = column![].width(Fill).spacing(theme::SPACE_3);
     if state.status == LoadStatus::Loading {
-        content = content.push(text("Carregando página...").size(11).color(theme::TEXT_3));
+        content = content.push(
+            text(app.i18n.t("native.retro.loading_page"))
+                .size(11)
+                .color(theme::TEXT_3),
+        );
     }
     content = content.push(cards::grid(cards, (2.0, 3.55)));
-    content = content.push(pagination(state));
+    content = content.push(pagination(app));
 
     content.into()
 }
 
-fn retro_card<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Message> {
+fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let covers = &app.covers;
     let cover: Element<'a, Message> = match covers
         .ready(game.cover_url.as_deref())
         .or_else(|| covers.ready(game.fallback_cover_url.as_deref()))
@@ -206,11 +260,11 @@ fn retro_card<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Me
             .into(),
         None => container(
             column![
-                text(initial(game))
+                text(initial(i18n, game))
                     .size(30)
                     .font(theme::FONT_BOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30)),
-                text(game.system_label())
+                text(game.system_label_i18n(i18n))
                     .size(9)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_3)
@@ -229,7 +283,7 @@ fn retro_card<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Me
     };
 
     let mut meta = row![
-        text(game.system_label())
+        text(game.system_label_i18n(i18n))
             .size(10)
             .color(theme::TEXT_3)
             .wrapping(Wrapping::None),
@@ -239,7 +293,10 @@ fn retro_card<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Me
 
     if let Some(offers) = game.offer_count.filter(|count| *count > 0) {
         meta = meta.push(
-            text(format!("{offers} oferta(s)"))
+            text(i18n.t_args(
+                "native.retro.offers_count",
+                &[("count", &offers.to_string())],
+            ))
                 .size(10)
                 .color(theme::TEXT_3),
         );
@@ -290,7 +347,8 @@ fn retro_card<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Me
     .into()
 }
 
-fn pagination(state: &RetroState) -> Element<'_, Message> {
+fn pagination(app: &App) -> Element<'_, Message> {
+    let state = &app.retro;
     let loading = state.status == LoadStatus::Loading;
     let page = state.offset / crate::app::RETRO_PAGE_SIZE + 1;
     let total_pages = state.total.map(|total| {
@@ -298,8 +356,11 @@ fn pagination(state: &RetroState) -> Element<'_, Message> {
     });
 
     let page_label = match total_pages {
-        Some(total) => format!("Página {page} de {total}"),
-        None => format!("Página {page}"),
+        Some(total) => app.i18n.t_args(
+            "native.retro.page_of",
+            &[("page", &page.to_string()), ("total", &total.to_string())],
+        ),
+        None => app.i18n.t_args("native.retro.page", &[("page", &page.to_string())]),
     };
 
     let mut previous = button(text("‹").size(18).color(theme::TEXT_2)).padding([4.0, 12.0]);
@@ -360,7 +421,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
     };
 
     let mut meta = row![
-        text(game.system_label())
+        text(game.system_label_i18n(&app.i18n))
             .size(12)
             .color(theme::TEXT_2)
             .wrapping(Wrapping::None),
@@ -379,7 +440,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
 
     let hero_copy = container(
         row![
-            retro_portrait(game, &app.covers),
+            retro_portrait(app, game),
             column![
                 text(game.title.as_str())
                     .size(34)
@@ -387,7 +448,10 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::WordOrGlyph),
                 meta,
-                text(format!("id do catálogo · {}", game.id))
+                text(app.i18n.t_args(
+                    "native.retro.id_line",
+                    &[("id", game.id.as_str())],
+                ))
                     .size(11)
                     .color(theme::TEXT_3),
             ]
@@ -419,7 +483,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
             button(
                 row![
                     text("‹").size(18).color(theme::TEXT_1),
-                    text("Voltar para o catálogo Retro")
+                    text(app.i18n.t("native.retro.back"))
                         .size(12)
                         .font(theme::FONT_MEDIUM)
                         .color(theme::TEXT_1),
@@ -455,7 +519,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
     if detail.status == LoadStatus::Loading {
         content = content.push(
             container(
-                text("Carregando a ficha completa em retro:game...")
+                text(app.i18n.t("native.retro.loading_detail"))
                     .size(12)
                     .color(theme::TEXT_2),
             )
@@ -472,12 +536,12 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
     let details = container(
         row![
             column![
-                retro_description(detail, game),
-                retro_offers_panel(detail)
+                retro_description(app, detail, game),
+                retro_offers_panel(app, detail)
             ]
             .spacing(theme::SPACE_4)
             .width(Fill),
-            retro_info_panel(detail, game, &app.retro.sources),
+            retro_info_panel(app, detail, game),
         ]
         .spacing(theme::SPACE_5)
         .align_y(iced::Top),
@@ -493,9 +557,9 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
         .into()
 }
 
-fn retro_portrait<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a, Message> {
+fn retro_portrait<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
     let url = game.cover_url.as_deref().or(game.fallback_cover_url.as_deref());
-    match covers.ready(url) {
+    match app.covers.ready(url) {
         Some(handle) => image(handle.clone())
             .width(116)
             .height(164)
@@ -503,7 +567,7 @@ fn retro_portrait<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a
             .border_radius(3)
             .into(),
         None => container(
-            text(initial(game))
+            text(initial(&app.i18n, game))
                 .size(34)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_2),
@@ -518,9 +582,11 @@ fn retro_portrait<'a>(game: &'a RetroGame, covers: &'a CoverCache) -> Element<'a
 }
 
 fn retro_description<'a>(
+    app: &'a App,
     detail: &'a RetroDetailState,
     game: &'a RetroGame,
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let description = detail
         .detail
         .as_ref()
@@ -532,18 +598,24 @@ fn retro_description<'a>(
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.74))
             .wrapping(Wrapping::WordOrGlyph)
             .into(),
-        None if detail.status == LoadStatus::Loading => text("Carregando descrição...")
-            .size(12)
-            .color(theme::TEXT_2)
-            .into(),
-        None => text("O catálogo não informou uma descrição para este jogo.")
+        None if detail.status == LoadStatus::Loading => {
+            text(i18n.t("native.retro.description_loading"))
+                .size(12)
+                .color(theme::TEXT_2)
+                .into()
+        }
+        None => text(i18n.t("native.retro.description_empty"))
             .size(12)
             .color(theme::TEXT_3)
             .into(),
     };
 
     container(
-        column![views::section_label("Sobre o jogo"), body].spacing(theme::SPACE_3),
+        column![
+            views::section_label(i18n.t("native.game.about")),
+            body,
+        ]
+        .spacing(theme::SPACE_3),
     )
     .width(Fill)
     .padding(theme::SPACE_5)
@@ -552,41 +624,43 @@ fn retro_description<'a>(
 }
 
 fn retro_info_panel<'a>(
+    app: &'a App,
     detail: &'a RetroDetailState,
     game: &'a RetroGame,
-    page_sources: &'a [RetroSource],
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let page_sources: &'a [RetroSource] = &app.retro.sources;
     let mut rows = column![].spacing(theme::SPACE_2);
     let mut has_row = true;
 
-    let system_label = game.system_label();
-    rows = rows.push(info_row("Sistema", system_label.clone()));
+    let system_label = game.system_label_i18n(i18n);
+    rows = rows.push(info_row(i18n.t("native.retro.system"), system_label.clone()));
     if let Some(platform) = game
         .platform
         .as_deref()
         .filter(|platform| *platform != system_label.as_str())
     {
-        rows = rows.push(info_row("Plataforma", platform.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.platform"), platform.to_string()));
         has_row = true;
     }
     if let Some(year) = game.release_year {
-        rows = rows.push(info_row("Lançamento", year.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.release"), year.to_string()));
         has_row = true;
     }
     if let Some(developer) = game.developer.as_deref() {
-        rows = rows.push(info_row("Desenvolvedora", developer.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.developer"), developer.to_string()));
         has_row = true;
     }
     if let Some(publisher) = game.publisher.as_deref() {
-        rows = rows.push(info_row("Distribuidora", publisher.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.publisher"), publisher.to_string()));
         has_row = true;
     }
     if !game.genres.is_empty() {
-        rows = rows.push(info_row("Gêneros", game.genres.join(", ")));
+        rows = rows.push(info_row(i18n.t("native.retro.genres"), game.genres.join(", ")));
         has_row = true;
     }
     if let Some(size) = game.file_size.as_deref() {
-        rows = rows.push(info_row("Tamanho", size.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.size"), size.to_string()));
         has_row = true;
     }
     let offer_count = detail
@@ -596,44 +670,51 @@ fn retro_info_panel<'a>(
         .filter(|count| *count > 0)
         .or(game.offer_count);
     if let Some(count) = offer_count {
-        rows = rows.push(info_row("Ofertas", count.to_string()));
+        rows = rows.push(info_row(i18n.t("native.retro.offers"), count.to_string()));
         has_row = true;
     }
     let sources = detail_sources(detail, page_sources);
     if !sources.is_empty() {
-        rows = rows.push(info_row("Fontes", sources.join(", ")));
+        rows = rows.push(info_row(i18n.t("native.retro.sources"), sources.join(", ")));
         has_row = true;
     }
     if !has_row {
         rows = rows.push(
-            text("O catálogo não retornou metadados adicionais.")
+            text(i18n.t("native.retro.no_metadata"))
                 .size(12)
                 .color(theme::TEXT_3),
         );
     }
 
-    container(column![views::section_label("Ficha"), rows].spacing(theme::SPACE_3))
+    container(
+        column![
+            views::section_label(i18n.t("native.store.info_title")),
+            rows,
+        ]
+        .spacing(theme::SPACE_3),
+    )
         .width(Length::Fixed(320.0))
         .padding(theme::SPACE_5)
         .style(theme::panel)
         .into()
 }
 
-fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> {
+fn retro_offers_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let offers = detail
         .detail
         .as_ref()
         .map(|full| full.offers.as_slice())
         .unwrap_or_default();
-    let mut content =
-        column![views::section_label("Ofertas e fontes")].spacing(theme::SPACE_2);
+    let mut content = column![views::section_label(i18n.t("native.retro.offers_title"))]
+        .spacing(theme::SPACE_2);
 
     if offers.is_empty() {
         content = content.push(
             text(if detail.status == LoadStatus::Loading {
-                "Consultando ofertas em retro:game..."
+                i18n.t("native.retro.offers_loading")
             } else {
-                "O catálogo não retornou ofertas para este jogo."
+                i18n.t("native.retro.offers_empty")
             })
             .size(12)
             .color(theme::TEXT_3),
@@ -649,7 +730,7 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
                 .source_title
                 .as_deref()
                 .or(offer.source_id.as_deref())
-                .unwrap_or("Fonte não informada");
+                .unwrap_or_else(|| i18n.t("native.retro.source_unknown"));
             let mut meta = Vec::new();
             if let Some(size) = offer.file_size.as_deref() {
                 meta.push(size.to_string());
@@ -658,11 +739,14 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
                 meta.push(date.to_string());
             }
             if offer.uri_count > 0 {
-                meta.push(format!("{} link(s)", offer.uri_count));
+                meta.push(i18n.t_args(
+                    "native.retro.links_count",
+                    &[("count", &offer.uri_count.to_string())],
+                ));
             } else if offer.has_uris {
-                meta.push("links disponíveis".to_string());
+                meta.push(i18n.t("native.retro.links_available").to_string());
             } else {
-                meta.push("sem links".to_string());
+                meta.push(i18n.t("native.retro.links_none").to_string());
             }
 
             content = content.push(
@@ -674,7 +758,10 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
                                 .font(theme::FONT_MEDIUM)
                                 .color(theme::TEXT_STRONG)
                                 .wrapping(Wrapping::WordOrGlyph),
-                            text(format!("Fonte: {source}"))
+                            text(i18n.t_args(
+                                "native.retro.source_line",
+                                &[("source", source)],
+                            ))
                                 .size(10)
                                 .color(theme::TEXT_3)
                                 .wrapping(Wrapping::WordOrGlyph),
@@ -682,7 +769,11 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
                         ]
                         .spacing(2)
                         .width(Fill),
-                        button(text("Ver links").size(10).font(theme::FONT_MEDIUM))
+                        button(
+                            text(i18n.t("native.retro.view_links"))
+                                .size(10)
+                                .font(theme::FONT_MEDIUM),
+                        )
                             .on_press(Message::RetroOfferRequested(offer.id.clone()))
                             .padding([5.0, 9.0])
                             .style(theme::ghost_button),
@@ -698,7 +789,7 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
     }
 
     if detail.selected_offer.is_some() {
-        content = content.push(offer_links_panel(detail));
+        content = content.push(offer_links_panel(app, detail));
     }
 
     container(content)
@@ -708,42 +799,51 @@ fn retro_offers_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> 
         .into()
 }
 
-fn offer_links_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> {
+fn offer_links_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let mut content = column![].spacing(theme::SPACE_2);
     match detail.offer_status {
         LoadStatus::Idle => {
-            content = content.push(text("Selecione uma oferta.").size(11).color(theme::TEXT_3));
+            content = content.push(
+                text(i18n.t("native.retro.select_offer"))
+                    .size(11)
+                    .color(theme::TEXT_3),
+            );
         }
         LoadStatus::Loading => {
             content = content.push(
-                text("Consultando links em retro:offer...")
+                text(i18n.t("native.retro.offer_loading"))
                     .size(11)
                     .color(theme::TEXT_2),
             );
         }
         LoadStatus::Error(_) => {
-            content = content.push(views::action_error_banner(
+            content = content.push(views::action_error_banner_labeled(
                 detail
                     .offer_error
                     .as_deref()
-                    .unwrap_or("O dispatcher não respondeu retro:offer."),
+                    .unwrap_or(i18n.t("native.retro.offer_error_detail")),
                 detail
                     .selected_offer
                     .clone()
                     .map(Message::RetroOfferRequested),
+                i18n.t("downloads.tentar_novamente"),
             ));
         }
         LoadStatus::Ready => match detail.offer_detail.as_ref() {
             Some(offer) if offer.uris.is_empty() => {
                 content = content.push(
-                    text("A oferta não retornou URIs (magnet ou HTTP).")
+                    text(i18n.t("native.retro.offer_no_uris"))
                         .size(11)
                         .color(theme::TEXT_3),
                 );
             }
             Some(offer) => {
                 content = content.push(
-                    text(format!("Links da oferta {} (retro:offer):", offer.id))
+                    text(i18n.t_args(
+                        "native.retro.offer_links_title",
+                        &[("id", offer.id.as_str())],
+                    ))
                         .size(10)
                         .color(theme::TEXT_3),
                 );
@@ -756,9 +856,7 @@ fn offer_links_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> {
                     );
                 }
                 content = content.push(
-                    text(
-                        "Links apenas informativos: esta build não inicia download retrô pela ficha.",
-                    )
+                    text(i18n.t("native.retro.offer_links_note"))
                     .size(10)
                     .color(theme::TEXT_3)
                     .wrapping(Wrapping::WordOrGlyph),
@@ -766,7 +864,7 @@ fn offer_links_panel<'a>(detail: &'a RetroDetailState) -> Element<'a, Message> {
             }
             None => {
                 content = content.push(
-                    text("O dispatcher não retornou detalhes desta oferta.")
+                    text(i18n.t("native.retro.offer_no_detail"))
                         .size(11)
                         .color(theme::TEXT_3),
                 );
@@ -854,9 +952,9 @@ fn ellipsize(text: &str, limit: usize) -> String {
     short
 }
 
-fn initial(game: &RetroGame) -> String {
+fn initial(i18n: &crate::i18n::I18n, game: &RetroGame) -> String {
     let platform = game
-        .system_label()
+        .system_label_i18n(i18n)
         .replace("Nintendo ", "")
         .replace("Sony ", "");
     let initials: String = platform

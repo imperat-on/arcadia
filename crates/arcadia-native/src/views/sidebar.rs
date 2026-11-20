@@ -325,19 +325,31 @@ fn profile_block(app: &App) -> Element<'_, Message> {
 
     let actions: Element<'_, Message> = if signed_in {
         row![
-            button(text("Perfil").size(10).font(theme::FONT_MEDIUM))
-                .on_press(Message::OpenProfile)
-                .padding([4.0, 8.0])
-                .style(theme::ghost_button),
-            button(text("Sair").size(10).font(theme::FONT_MEDIUM))
-                .on_press(Message::SignOutRequested)
-                .padding([4.0, 8.0])
-                .style(theme::ghost_button),
+            button(
+                text(app.i18n.t("topbar.perfil"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press(Message::OpenProfile)
+            .padding([4.0, 8.0])
+            .style(theme::ghost_button),
+            button(
+                text(app.i18n.t("native.sidebar.logout"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press(Message::SignOutRequested)
+            .padding([4.0, 8.0])
+            .style(theme::ghost_button),
         ]
         .spacing(6)
         .into()
     } else {
-        button(text("Entrar").size(10).font(theme::FONT_MEDIUM))
+        button(
+            text(app.i18n.t("account.entrar_btn"))
+                .size(10)
+                .font(theme::FONT_MEDIUM),
+        )
             .on_press(Message::OpenAuth { required: false })
             .padding([4.0, 10.0])
             .style(theme::ghost_button)

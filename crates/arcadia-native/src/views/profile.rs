@@ -9,26 +9,28 @@ use crate::theme;
 use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    let header = views::page_header(
-        "Meu perfil",
-        "Dados da conta online; a edição grava somente os campos aceitos pelo IPC.",
+    let i18n = &app.i18n;
+    let header = views::page_header_labeled(
+        i18n.t("profile.meu_perfil"),
+        i18n.t("native.profile.subtitle"),
         None,
         Some(Message::ReloadAccount),
+        i18n.t("native.refresh"),
     );
 
     if !app.account.is_signed_in() {
         let body = container(
             column![
-                text("Entre para ver seu perfil")
+                text(i18n.t("native.profile.signin_title"))
                     .size(20)
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_1),
-                text("Com uma conta você edita nome, resumo, país/cidade e avatar. Sem sessão o launcher continua no perfil local.")
+                text(i18n.t("native.profile.signin_desc"))
                     .size(13)
                     .color(theme::TEXT_2)
                     .width(Fill),
                 button(
-                    text("Entrar")
+                    text(i18n.t("account.entrar_btn"))
                         .size(13)
                         .font(theme::FONT_SEMIBOLD)
                 )
@@ -98,7 +100,7 @@ fn profile_card(app: &App) -> Element<'_, Message> {
     let summary = profile
         .and_then(|profile| profile.summary.as_deref())
         .filter(|summary| !summary.trim().is_empty())
-        .unwrap_or("Sem resumo público.");
+        .unwrap_or_else(|| app.i18n.t("native.profile.no_summary"));
     let email = app
         .account
         .session
@@ -122,22 +124,34 @@ fn profile_card(app: &App) -> Element<'_, Message> {
     }
 
     let mut actions = row![
-        button(text("Editar perfil").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::ProfileEditToggled)
-            .padding([8.0, 14.0])
-            .style(theme::ghost_button),
-        button(text("Sair da conta").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::SignOutRequested)
-            .padding([8.0, 14.0])
-            .style(theme::ghost_button),
+        button(
+            text(app.i18n.t("profile.editar_perfil"))
+                .size(12)
+                .font(theme::FONT_MEDIUM)
+        )
+        .on_press(Message::ProfileEditToggled)
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button),
+        button(
+            text(app.i18n.t("account.sair"))
+                .size(12)
+                .font(theme::FONT_MEDIUM)
+        )
+        .on_press(Message::SignOutRequested)
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button),
     ]
     .spacing(theme::SPACE_2);
 
     actions = actions.push(Space::new().width(Fill)).push(
-        button(text("Atualizar").size(12).font(theme::FONT_MEDIUM))
-            .on_press(Message::ReloadAccount)
-            .padding([8.0, 14.0])
-            .style(theme::ghost_button),
+        button(
+            text(app.i18n.t("native.refresh"))
+                .size(12)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::ReloadAccount)
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button),
     );
 
     container(
@@ -182,42 +196,56 @@ fn avatar(app: &App) -> Element<'_, Message> {
 
 fn edit_form(app: &App) -> Element<'_, Message> {
     let editor = &app.account.editor;
+    let i18n = &app.i18n;
     let mut form = column![
-        text("Editar perfil")
+        text(i18n.t("profile.editar_perfil"))
             .size(18)
             .font(theme::FONT_BOLD)
             .color(theme::TEXT_1),
-        text("Campos abaixo são exatamente os aceitos por account:updateProfile.")
+        text(i18n.t("native.profile.edit_desc"))
             .size(11)
             .color(theme::TEXT_3),
     ]
     .spacing(theme::SPACE_3)
     .width(Fill);
 
-    form = form.push(field_input(ProfileField::DisplayName, &editor.display_name));
-    form = form.push(field_input(ProfileField::Summary, &editor.summary));
+    form = form.push(field_input(
+        i18n,
+        ProfileField::DisplayName,
+        &editor.display_name,
+    ));
+    form = form.push(field_input(i18n, ProfileField::Summary, &editor.summary));
     form = form.push(
         row![
-            field_input(ProfileField::Country, &editor.country),
-            field_input(ProfileField::City, &editor.city),
+            field_input(i18n, ProfileField::Country, &editor.country),
+            field_input(i18n, ProfileField::City, &editor.city),
         ]
         .spacing(theme::SPACE_3),
     );
-    form = form.push(field_input(ProfileField::Showcase, &editor.showcase));
+    form = form.push(field_input(
+        i18n,
+        ProfileField::Showcase,
+        &editor.showcase,
+    ));
     form = form.push(
-        text("A vitrine é uma lista de appids separada por vírgulas.")
+        text(i18n.t("native.profile.showcase_hint"))
             .size(10)
             .color(theme::TEXT_3),
     );
     form = form.push(field_input(
+        i18n,
         ProfileField::BackgroundUrl,
         &editor.background_url,
     ));
-    form = form.push(field_input(ProfileField::BannerUrl, &editor.banner_url));
+    form = form.push(field_input(
+        i18n,
+        ProfileField::BannerUrl,
+        &editor.banner_url,
+    ));
 
     let avatar_row = row![
         text_input(
-            "Caminho do arquivo (ex.: /home/você/foto.png)",
+            i18n.t("native.profile.avatar_path_placeholder"),
             &editor.avatar_path,
         )
         .on_input(Message::AvatarPathChanged)
@@ -227,9 +255,9 @@ fn edit_form(app: &App) -> Element<'_, Message> {
         .style(theme::search_input),
         button(
             text(if editor.uploading_avatar {
-                "Enviando…"
+                i18n.t("native.profile.uploading")
             } else {
-                "Usar este avatar"
+                i18n.t("native.profile.use_avatar")
             })
             .size(12)
             .font(theme::FONT_MEDIUM)
@@ -244,7 +272,7 @@ fn edit_form(app: &App) -> Element<'_, Message> {
     form = form
         .push(avatar_row)
         .push(
-            text("O seletor nativo de arquivos do shell Tauri (profile:pickImage) não existe no IPC; informe o caminho manualmente.")
+            text(i18n.t("native.profile.avatar_note"))
                 .size(10)
                 .color(theme::TEXT_3),
         )
@@ -252,9 +280,9 @@ fn edit_form(app: &App) -> Element<'_, Message> {
             row![
                 button(
                     text(if editor.saving {
-                        "Salvando…"
+                        i18n.t("common.salvando")
                     } else {
-                        "Salvar perfil"
+                        i18n.t("native.profile.save")
                     })
                     .size(12)
                     .font(theme::FONT_SEMIBOLD)
@@ -262,10 +290,14 @@ fn edit_form(app: &App) -> Element<'_, Message> {
                 .on_press_maybe((!editor.saving).then_some(Message::ProfileSave))
                 .padding([9.0, 16.0])
                 .style(theme::primary_button),
-                button(text("Cancelar").size(12).font(theme::FONT_MEDIUM))
-                    .on_press(Message::ProfileEditToggled)
-                    .padding([9.0, 16.0])
-                    .style(theme::ghost_button),
+                button(
+                    text(i18n.t("common.cancelar"))
+                        .size(12)
+                        .font(theme::FONT_MEDIUM),
+                )
+                .on_press(Message::ProfileEditToggled)
+                .padding([9.0, 16.0])
+                .style(theme::ghost_button),
             ]
             .spacing(theme::SPACE_2),
         );
@@ -277,10 +309,15 @@ fn edit_form(app: &App) -> Element<'_, Message> {
         .into()
 }
 
-fn field_input<'a>(field: ProfileField, value: &'a str) -> Element<'a, Message> {
+fn field_input<'a>(
+    i18n: &'a crate::i18n::I18n,
+    field: ProfileField,
+    value: &'a str,
+) -> Element<'a, Message> {
+    let label = field.label(i18n);
     column![
-        text(field.label()).size(11).color(theme::TEXT_2),
-        text_input(field.label(), value)
+        text(label).size(11).color(theme::TEXT_2),
+        text_input(label, value)
             .on_input(move |value| Message::ProfileFieldChanged { field, value })
             .padding([8.0, 10.0])
             .size(12)

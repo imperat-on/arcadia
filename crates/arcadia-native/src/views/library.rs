@@ -65,7 +65,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         LibraryStatus::Ready => {
             let cards: Vec<Element<'_, Message>> = games
                 .into_iter()
-                .map(|game| cards::game_card(game, &app.covers))
+                .map(|game| cards::game_card(&app.i18n, game, &app.covers))
                 .collect();
 
             scrollable(
