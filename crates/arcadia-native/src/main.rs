@@ -14,6 +14,7 @@ mod media;
 mod rich_text;
 mod shell;
 mod theme;
+mod toast;
 mod views;
 
 use std::sync::Arc;

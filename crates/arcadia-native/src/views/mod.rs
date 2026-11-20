@@ -12,6 +12,7 @@ pub mod game;
 pub mod home;
 pub mod icons;
 pub mod library;
+pub mod overlays;
 pub mod retro;
 pub mod settings;
 pub mod sidebar;

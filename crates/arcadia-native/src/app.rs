@@ -5,7 +5,9 @@
 //! que desenha.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::time::Duration;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use arcadia_native_input::NavEvent;
 use iced::widget::image::Handle;
@@ -17,11 +19,12 @@ use crate::backend::{
     CommunityReviewsPage, DownloadAction, DownloadItem, DownloadsData, EmulationLoad, EmulatorInfo,
     EmulatorProfile, EmulatorRomEntry, EmulatorRomFolder, EmulatorRomIndexEntry, EmulatorScanResult,
     EmulatorStatus, FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats,
-    LaunchEvent, LaunchToggle, NewsItem, PluginAction, PluginActionOutcome, PluginDetails,
-    PluginItem, PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame, RetroGameDetail,
-    RetroOfferDetail, RetroPage,
-    RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
-    StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
+    LaunchEvent, LaunchToggle, NewsItem, PackagedPhase, PackagedState, PluginAction,
+    PluginActionOutcome, PluginDetails, PluginItem, PluginRegistration, PluginVerification,
+    ProtonDbInfo, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage, RetroSource,
+    RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo, StoreInstallInfo,
+    StoreLibrary, StorePage, StoreSearch, TrailerResult, UiEvent, UpdateActionResult, UpdateCheck,
+    UpdateCheckReport, UpdateSnapshot,
 };
 use crate::big_picture::{
     home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
@@ -31,6 +34,7 @@ use crate::covers::CoverCache;
 use crate::i18n::{I18n, Lang};
 use crate::media::{self, MediaPlayer};
 use crate::theme;
+use crate::toast::ToastQueue;
 use crate::views;
 use crate::views::community::{CommunityCache, CommunityTab};
 
@@ -131,6 +135,40 @@ pub enum Message {
     LaunchEventsTick,
     /// `config:get` silencioso no boot para saber se minimiza ao lançar.
     LaunchConfigLoaded(Result<SettingsConfig, String>),
+    /// Bytes de `boot:video` já gravados num arquivo temporário.
+    BootVideoReady(Result<Option<PathBuf>, String>),
+    /// Tick de ~60 fps do splash de boot.
+    BootVideoTick,
+    /// Qualquer tecla fecha o splash.
+    BootVideoKey(keyboard::Event),
+    DismissSplash,
+    /// Snapshot de `update:packaged:state` + `update:state` carregado no boot.
+    UpdateSnapshotLoaded(Result<UpdateSnapshot, String>),
+    /// `true` = checagem manual (abre o diálogo mesmo se já avisado).
+    CheckUpdates(bool),
+    UpdateCheckDone {
+        manual: bool,
+        result: Result<UpdateCheckReport, String>,
+    },
+    UpdateDialogDismiss,
+    /// Clique bloqueado no backdrop enquanto o updater trabalha.
+    UpdateNoop,
+    UpdateDownloadRequested,
+    UpdateInstallRequested,
+    UpdateRetry,
+    UpdateActionDone {
+        action: UpdateAction,
+        result: Result<UpdateActionResult, String>,
+    },
+    UpdatePollTick,
+    UpdateSnapshotPolled(Result<PackagedState, String>),
+    UpdateAdvisedDone(Result<(), String>),
+    /// Relógio dos toasts de conquista (só roda com a fila não vazia).
+    ToastTick,
+    DismissToast(u64),
+    /// Poll de conquistas a cada 15 s, como o loop do shell Tauri.
+    AchievementsPoll,
+    AchievementsPollDone,
     /// Abre o diálogo de opções de inicialização do jogo.
     OpenLaunchOptions(String),
     CloseLaunchOptions,
@@ -329,6 +367,14 @@ pub enum Message {
     ConsoleFavorite,
     ConsoleMore,
     ConsoleCloseOverview,
+}
+
+/// Ação do updater em voo; define a mensagem de erro/retry do diálogo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateAction {
+    Download,
+    Install,
+    ApplyGit,
 }
 
 /// Itens fixos da sidebar. Biblioteca, Home e Lojas têm tela real; Big
@@ -1034,6 +1080,82 @@ impl Default for RetroState {
     }
 }
 
+/// Tipo de update que o diálogo está mostrando.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateDialogKind {
+    Packaged,
+    Git,
+}
+
+/// Estágio em que uma ação do updater está (ações ficam desabilitadas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateStage {
+    Downloading,
+    Applying,
+    Installing,
+    Restarting,
+}
+
+/// Conteúdo congelado do diálogo; o snapshot vivo só substitui `packaged`.
+#[derive(Debug, Clone)]
+pub struct UpdateDialogState {
+    pub kind: UpdateDialogKind,
+    pub channel: String,
+    pub git: Option<UpdateCheck>,
+    pub packaged: Option<PackagedState>,
+    pub stage: Option<UpdateStage>,
+    pub error: Option<String>,
+}
+
+impl UpdateDialogState {
+    pub fn is_busy(&self) -> bool {
+        self.stage.is_some()
+    }
+}
+
+/// Estado de atualização compartilhado pelo diálogo e pela aba Sobre.
+#[derive(Debug, Default)]
+pub struct UpdateUiState {
+    pub snapshot: Option<UpdateSnapshot>,
+    pub checking: bool,
+    pub last_check: Option<String>,
+    pub last_error: Option<String>,
+    pub available_version: Option<String>,
+    pub last_motivo: Option<String>,
+    /// Versão dispensada nesta sessão; não reabre sozinha.
+    pub dismissed_version: Option<String>,
+    pub dialog: Option<UpdateDialogState>,
+    /// Evita empilhar polls de snapshot enquanto o updater está ocupado.
+    pub poll_in_flight: bool,
+}
+
+/// Overlay de boot; o player é separado do trailer para não roubá-lo.
+pub struct BootSplash {
+    pub active: bool,
+    pub media: MediaPlayer,
+    pub started: Instant,
+    pub path: Option<String>,
+}
+
+impl Default for BootSplash {
+    fn default() -> Self {
+        Self {
+            active: false,
+            media: MediaPlayer::new(),
+            started: Instant::now(),
+            path: None,
+        }
+    }
+}
+
+/// O splash roda no máximo uma vez por processo, mesmo que o iced recrie a
+/// janela. Não há como reiniciar o processo nos testes.
+static SPLASH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+
+fn claim_splash() -> bool {
+    !SPLASH_ATTEMPTED.swap(true, Ordering::SeqCst)
+}
+
 pub const STORE_PAGE_SIZE: u64 = 24;
 pub const RETRO_PAGE_SIZE: u64 = 24;
 
@@ -1086,11 +1208,19 @@ pub struct App {
     pub launch_options: LaunchOptionsState,
     /// Tela desktop a restaurar quando o console for fechado.
     pub previous_screen: Option<Screen>,
+    /// Splash de boot (vídeo opcional, no máximo uma vez por processo).
+    pub boot: BootSplash,
+    /// Estado de atualização compartilhado pelo diálogo e pela aba Sobre.
+    pub update: UpdateUiState,
+    /// Toasts de conquista; vazio quando `notifications_enabled=false`.
+    pub toasts: ToastQueue,
+    pub notifications_enabled: bool,
+    pub hide_changelog_on_start: bool,
 }
 
 impl App {
     pub fn boot(backend: Backend) -> (Self, Task<Message>) {
-        let app = Self {
+        let mut app = Self {
             backend,
             screen: Screen::Library,
             library: Library::loading(),
@@ -1123,6 +1253,11 @@ impl App {
             launch: GameLaunchState::default(),
             launch_options: LaunchOptionsState::default(),
             previous_screen: None,
+            boot: BootSplash::default(),
+            update: UpdateUiState::default(),
+            toasts: ToastQueue::new(),
+            notifications_enabled: true,
+            hide_changelog_on_start: false,
         };
         let launch_config = {
             let backend = app.backend.clone();
@@ -1131,10 +1266,30 @@ impl App {
                 Message::LaunchConfigLoaded,
             )
         };
+        let boot_video = if claim_splash() {
+            app.boot.active = true;
+            app.boot.started = Instant::now();
+            let backend = app.backend.clone();
+            Task::perform(
+                async move { backend.load_boot_video().await },
+                Message::BootVideoReady,
+            )
+        } else {
+            Task::none()
+        };
+        let update_snapshot = {
+            let backend = app.backend.clone();
+            Task::perform(
+                async move { backend.load_update_snapshot().await },
+                Message::UpdateSnapshotLoaded,
+            )
+        };
         let task = Task::batch([
             app.reload_task(),
             window::latest().map(Message::WindowReady),
             launch_config,
+            boot_video,
+            update_snapshot,
         ]);
         (app, task)
     }
@@ -1244,6 +1399,11 @@ impl App {
                             .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.settings.accent_draft = config.accent.clone();
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
+                        self.notifications_enabled = config.notifications_enabled;
+                        self.hide_changelog_on_start = config.hide_changelog_on_start;
+                        if !config.notifications_enabled {
+                            self.toasts.clear();
+                        }
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
                     }
@@ -1262,6 +1422,11 @@ impl App {
                             .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.settings.accent_draft = config.accent.clone();
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
+                        self.notifications_enabled = config.notifications_enabled;
+                        self.hide_changelog_on_start = config.hide_changelog_on_start;
+                        if !config.notifications_enabled {
+                            self.toasts.clear();
+                        }
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
                         self.settings.save_error = None;
@@ -3097,12 +3262,21 @@ impl App {
                 Task::none()
             }
             Message::LaunchConfigLoaded(result) => {
+                let mut check_task = Task::none();
                 match result {
                     Ok(config) => {
                         self.i18n
                             .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.big_picture.set_motion(!config.no_anim);
+                        self.notifications_enabled = config.notifications_enabled;
+                        self.hide_changelog_on_start = config.hide_changelog_on_start;
+                        if !config.notifications_enabled {
+                            self.toasts.clear();
+                        }
+                        if config.check_updates_on_start {
+                            check_task = self.start_update_check(false);
+                        }
                     }
                     Err(error) => {
                         // Preferência opcional: sem config, não minimiza e o
@@ -3110,8 +3284,98 @@ impl App {
                         eprintln!("[arcadia-native] minimize_on_game_launch indisponível: {error}");
                     }
                 }
+                check_task
+            }
+            Message::BootVideoReady(result) => {
+                if !self.boot.active {
+                    return Task::none();
+                }
+                match result {
+                    Ok(Some(path)) => {
+                        let local = path.to_string_lossy().into_owned();
+                        self.boot.path = Some(local.clone());
+                        if let Err(error) = self.boot.media.open_local(local) {
+                            eprintln!("[arcadia-native] vídeo de boot indisponível: {error}");
+                            self.dismiss_splash();
+                        }
+                    }
+                    Ok(None) => self.dismiss_splash(),
+                    Err(error) => {
+                        eprintln!("[arcadia-native] boot:video falhou: {error}");
+                        self.dismiss_splash();
+                    }
+                }
                 Task::none()
             }
+            Message::BootVideoTick => {
+                if self.boot.active {
+                    self.boot_tick();
+                }
+                Task::none()
+            }
+            Message::BootVideoKey(event) => {
+                if self.boot.active && matches!(event, keyboard::Event::KeyPressed { .. }) {
+                    self.dismiss_splash();
+                }
+                Task::none()
+            }
+            Message::DismissSplash => {
+                self.dismiss_splash();
+                Task::none()
+            }
+            Message::UpdateSnapshotLoaded(result) => {
+                match result {
+                    Ok(snapshot) => {
+                        if let Some(error) = snapshot.error.clone() {
+                            eprintln!("[arcadia-native] update snapshot parcial: {error}");
+                        }
+                        self.update.snapshot = Some(snapshot);
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] update snapshot falhou: {error}");
+                        self.update.last_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::CheckUpdates(manual) => self.start_update_check(manual),
+            Message::UpdateCheckDone { manual, result } => {
+                self.finish_update_check(manual, result)
+            }
+            Message::UpdateDialogDismiss => self.dismiss_update_dialog(),
+            Message::UpdateNoop => Task::none(),
+            Message::UpdateDownloadRequested => self.start_update_download(),
+            Message::UpdateInstallRequested => self.start_update_install(),
+            Message::UpdateRetry => self.retry_update(),
+            Message::UpdateActionDone { action, result } => {
+                self.finish_update_action(action, result)
+            }
+            Message::UpdatePollTick => self.poll_update_snapshot(),
+            Message::UpdateSnapshotPolled(result) => {
+                self.apply_polled_snapshot(result);
+                Task::none()
+            }
+            Message::UpdateAdvisedDone(result) => {
+                if let Err(error) = result {
+                    eprintln!("[arcadia-native] update:packaged:jaAvisado falhou: {error}");
+                }
+                Task::none()
+            }
+            Message::ToastTick => {
+                self.toasts.advance(50);
+                Task::none()
+            }
+            Message::DismissToast(id) => {
+                self.toasts.dismiss(id);
+                Task::none()
+            }
+            Message::AchievementsPoll => {
+                let backend = self.backend.clone();
+                Task::perform(async move { backend.achievements_tick().await }, |_| {
+                    Message::AchievementsPollDone
+                })
+            }
+            Message::AchievementsPollDone => Task::none(),
         }
     }
 
@@ -3302,26 +3566,499 @@ impl App {
         Task::batch([covers, media, panels, community])
     }
 
-    /// Drena a fila do `NativeShell` e aplica os eventos de lançamento.
+    /// Drena a fila do `NativeShell` e aplica os eventos de lançamento e de
+    /// conquista.
     ///
     /// A Subscription chama isto a cada ~150 ms; não há consulta ao processo.
     fn drain_launch_events(&mut self) -> Task<Message> {
-        let events = self.backend.drain_launch_events();
+        let events = self.backend.drain_ui_events();
         if events.is_empty() {
             return Task::none();
         }
 
         let was_running = self.launch.status == GameRunStatus::Running;
+        let mut icon_tasks = Vec::new();
         for event in events {
-            self.launch.apply_event(event);
+            match event {
+                UiEvent::Launch(event) => self.launch.apply_event(event),
+                UiEvent::Achievement(achievement) => {
+                    if !self.notifications_enabled {
+                        continue;
+                    }
+                    if let Some(icon) = achievement.icon.clone() {
+                        if self.covers.request(&icon) {
+                            let backend = self.backend.clone();
+                            let fetch_url = icon.clone();
+                            let message_url = icon.clone();
+                            icon_tasks.push(Task::perform(
+                                async move { backend.fetch_cover(fetch_url).await },
+                                move |handle| Message::CoverLoaded {
+                                    url: message_url,
+                                    handle,
+                                },
+                            ));
+                        }
+                    }
+                    self.toasts.push(achievement);
+                }
+            }
         }
 
-        if was_running && self.launch.status == GameRunStatus::Idle {
+        let restore = if was_running && self.launch.status == GameRunStatus::Idle {
             self.restore_window_task()
         } else {
             Task::none()
+        };
+        Task::batch([restore, Task::batch(icon_tasks)])
+    }
+
+    fn dismiss_splash(&mut self) {
+        self.boot.active = false;
+        self.boot.media.clear();
+    }
+
+    /// Tick do splash: drena frames e fecha no fim, erro ou timeout.
+    fn boot_tick(&mut self) {
+        self.boot.media.tick();
+        if self.boot.path.is_some() {
+            match self.boot.media.status() {
+                media::MediaStatus::Ended | media::MediaStatus::Error(_) => {
+                    self.dismiss_splash();
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // Sem arquivo, o `boot:video` ainda está em voo; o limite evita que um
+        // IPC travado deixe o splash eterno. Com vídeo, o pipeline local ganha
+        // mais folga para o pré-roll.
+        let timeout = if self.boot.path.is_some() {
+            Duration::from_secs(20)
+        } else {
+            Duration::from_secs(4)
+        };
+        if self.boot.started.elapsed() > timeout {
+            eprintln!("[arcadia-native] splash de boot excedeu o tempo; seguindo para a UI");
+            self.dismiss_splash();
         }
     }
+
+    /// Inicia a checagem; `manual` abre o diálogo mesmo se a versão já foi
+    /// avisada, como no botão da aba Sobre.
+    fn start_update_check(&mut self, manual: bool) -> Task<Message> {
+        if self.update.checking {
+            return Task::none();
+        }
+        self.update.checking = true;
+        self.update.last_error = None;
+        self.update.last_motivo = None;
+        self.update.available_version = None;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.check_updates(manual).await },
+            move |result| Message::UpdateCheckDone { manual, result },
+        )
+    }
+
+    fn finish_update_check(
+        &mut self,
+        manual: bool,
+        result: Result<UpdateCheckReport, String>,
+    ) -> Task<Message> {
+        self.update.checking = false;
+        self.update.last_check = Some(now_label());
+
+        let report = match result {
+            Ok(report) => report,
+            Err(error) => {
+                self.update.last_error = Some(error.clone());
+                if manual {
+                    let channel = self.update_channel();
+                    self.update.dialog = Some(UpdateDialogState {
+                        kind: UpdateDialogKind::Packaged,
+                        channel,
+                        git: None,
+                        packaged: None,
+                        stage: None,
+                        error: Some(error),
+                    });
+                }
+                return Task::none();
+            }
+        };
+
+        if let Some(error) = report.check.erro.clone() {
+            self.update.last_error = Some(error.clone());
+            if manual {
+                let channel = report.channel.clone();
+                self.update.dialog = Some(UpdateDialogState {
+                    kind: if report.channel == "fonte" {
+                        UpdateDialogKind::Git
+                    } else {
+                        UpdateDialogKind::Packaged
+                    },
+                    channel: channel.clone(),
+                    git: (report.channel == "fonte").then(|| report.check.clone()),
+                    packaged: report.snapshot.packaged.clone(),
+                    stage: None,
+                    error: Some(error),
+                });
+                return Task::none();
+            }
+        }
+
+        self.update.snapshot = Some(report.snapshot.clone());
+        self.update.available_version = report
+            .check
+            .versao
+            .clone()
+            .or_else(|| {
+                report
+                    .snapshot
+                    .packaged
+                    .as_ref()
+                    .and_then(|state| state.versao_nova.clone())
+            });
+        self.update.last_motivo = report.check.motivo.clone();
+
+        if report.check.disponivel {
+            self.update.last_error = None;
+            self.open_update_dialog(&report, manual);
+            return Task::none();
+        }
+
+        // Manual também mostra o motivo (sem suporte/jogo rodando) e erros de
+        // ação; a checagem automática silencia para não interromper o boot.
+        if manual {
+            if let Some(motivo) = report.check.motivo.as_deref() {
+                if motivo != "jogo_rodando" || report.snapshot.packaged.is_some() {
+                    self.open_update_dialog(&report, true);
+                }
+            }
+        }
+        Task::none()
+    }
+
+    fn update_channel(&self) -> String {
+        self.update
+            .snapshot
+            .as_ref()
+            .and_then(UpdateSnapshot::channel)
+            .unwrap_or("sem_suporte")
+            .to_string()
+    }
+
+    /// Monta o diálogo respeitando `jaAvisado`/dispensa e a preferência de
+    /// changelog.
+    fn open_update_dialog(&mut self, report: &UpdateCheckReport, manual: bool) {
+        let is_git = report.channel == "fonte";
+        let version = report
+            .check
+            .versao
+            .clone()
+            .or_else(|| {
+                report
+                    .snapshot
+                    .packaged
+                    .as_ref()
+                    .and_then(|state| state.versao_nova.clone())
+            })
+            .unwrap_or_default();
+
+        if !manual && self.update.dismissed_version.as_deref() == Some(version.as_str()) {
+            return;
+        }
+
+        let packaged = report.snapshot.packaged.clone();
+        if !is_git {
+            if let Some(state) = packaged.as_ref() {
+                if !manual && state.ja_avisado {
+                    return;
+                }
+            }
+        }
+
+        let state = if is_git {
+            None
+        } else {
+            packaged.clone().or_else(|| {
+                Some(PackagedState {
+                    canal: report.channel.clone(),
+                    suportado: report.check.ok,
+                    versao_atual: String::new(),
+                    versao_nova: report.check.versao.clone(),
+                    tamanho: report.check.tamanho,
+                    fase: if report.check.disponivel {
+                        PackagedPhase::Disponivel
+                    } else if report.check.motivo.as_deref() == Some("canal_nao_suportado") {
+                        PackagedPhase::SemSuporte
+                    } else {
+                        PackagedPhase::Erro
+                    },
+                    progresso: 0,
+                    erro: report.check.erro.clone(),
+                    erro_de_fundo: false,
+                    erro_acao: None,
+                    ja_avisado: false,
+                    jogo_rodando: report
+                        .check
+                        .motivo
+                        .as_deref()
+                        .is_some_and(|motivo| motivo == "jogo_rodando"),
+                })
+            })
+        };
+
+        self.update.dialog = Some(UpdateDialogState {
+            kind: if is_git {
+                UpdateDialogKind::Git
+            } else {
+                UpdateDialogKind::Packaged
+            },
+            channel: report.channel.clone(),
+            git: is_git.then(|| report.check.clone()),
+            packaged: state,
+            stage: None,
+            error: None,
+        });
+    }
+
+    fn dismiss_update_dialog(&mut self) -> Task<Message> {
+        let Some(dialog) = self.update.dialog.take() else {
+            return Task::none();
+        };
+        if dialog.is_busy() {
+            self.update.dialog = Some(dialog);
+            return Task::none();
+        }
+
+        let version = dialog
+            .packaged
+            .as_ref()
+            .and_then(|state| state.versao_nova.clone())
+            .or_else(|| dialog.git.as_ref().and_then(|check| check.versao.clone()))
+            .unwrap_or_default();
+        self.update.dismissed_version = (!version.is_empty()).then_some(version.clone());
+
+        // "Depois" no canal empacotado persiste `jaAvisado`, como na web.
+        if dialog.kind == UpdateDialogKind::Packaged {
+            if let Some(state) = self.update.snapshot.as_mut().and_then(|snap| snap.packaged.as_mut()) {
+                state.ja_avisado = true;
+            }
+            if !version.is_empty() {
+                let backend = self.backend.clone();
+                return Task::perform(
+                    async move { backend.mark_update_advised(version).await },
+                    Message::UpdateAdvisedDone,
+                );
+            }
+        }
+        Task::none()
+    }
+
+    fn start_update_download(&mut self) -> Task<Message> {
+        let backend = self.backend.clone();
+        let Some(dialog) = self.update.dialog.as_mut() else {
+            return Task::none();
+        };
+        if dialog.is_busy() {
+            return Task::none();
+        }
+
+        match dialog.kind {
+            UpdateDialogKind::Git => {
+                let deps = dialog
+                    .git
+                    .as_ref()
+                    .map(|check| check.deps_mudaram)
+                    .unwrap_or(false);
+                dialog.stage = Some(UpdateStage::Applying);
+                dialog.error = None;
+                Task::perform(
+                    async move { backend.apply_git_update(deps).await },
+                    move |result| Message::UpdateActionDone {
+                        action: UpdateAction::ApplyGit,
+                        result,
+                    },
+                )
+            }
+            UpdateDialogKind::Packaged => {
+                dialog.stage = Some(UpdateStage::Downloading);
+                dialog.error = None;
+                Task::perform(
+                    async move { backend.download_packaged_update().await },
+                    move |result| Message::UpdateActionDone {
+                        action: UpdateAction::Download,
+                        result,
+                    },
+                )
+            }
+        }
+    }
+
+    fn start_update_install(&mut self) -> Task<Message> {
+        let backend = self.backend.clone();
+        let Some(dialog) = self.update.dialog.as_mut() else {
+            return Task::none();
+        };
+        if dialog.is_busy() {
+            return Task::none();
+        }
+        let Some(state) = dialog.packaged.as_ref() else {
+            return Task::none();
+        };
+        if state.fase != PackagedPhase::Pronto || !state.suportado {
+            return Task::none();
+        }
+
+        dialog.stage = Some(UpdateStage::Installing);
+        dialog.error = None;
+        Task::perform(
+            async move { backend.install_packaged_update().await },
+            move |result| Message::UpdateActionDone {
+                action: UpdateAction::Install,
+                result,
+            },
+        )
+    }
+
+    fn retry_update(&mut self) -> Task<Message> {
+        let Some(dialog) = self.update.dialog.as_ref() else {
+            return Task::none();
+        };
+        if dialog.is_busy() {
+            return Task::none();
+        }
+        // Erro de instalação/cache volta pelo check manual, como o "tentar" da
+        // web; erro de download repete a ação explícita.
+        let retry_download = dialog
+            .packaged
+            .as_ref()
+            .is_some_and(|state| state.erro_acao.as_deref() == Some("baixar"));
+        if retry_download {
+            self.start_update_download()
+        } else {
+            self.start_update_check(true)
+        }
+    }
+
+    fn finish_update_action(
+        &mut self,
+        action: UpdateAction,
+        result: Result<UpdateActionResult, String>,
+    ) -> Task<Message> {
+        let backend = self.backend.clone();
+        let fallback = self.i18n.t("update.erro_generico").to_string();
+        let Some(dialog) = self.update.dialog.as_mut() else {
+            return Task::none();
+        };
+
+        match result {
+            Ok(result) if result.ok => match action {
+                UpdateAction::Download => {
+                    dialog.stage = None;
+                    dialog.error = None;
+                    if let Some(state) = dialog.packaged.as_mut() {
+                        state.fase = PackagedPhase::Pronto;
+                        state.progresso = 100;
+                    }
+                    Task::perform(
+                        async move { backend.load_packaged_state().await },
+                        Message::UpdateSnapshotPolled,
+                    )
+                }
+                UpdateAction::Install => {
+                    dialog.stage = Some(UpdateStage::Restarting);
+                    dialog.error = None;
+                    Task::none()
+                }
+                UpdateAction::ApplyGit => {
+                    dialog.stage = Some(UpdateStage::Restarting);
+                    dialog.error = None;
+                    Task::none()
+                }
+            },
+            Ok(result) => {
+                let message = result.erro.unwrap_or(fallback);
+                dialog.stage = None;
+                dialog.error = Some(message.clone());
+                if action == UpdateAction::Download {
+                    if let Some(state) = dialog.packaged.as_mut() {
+                        state.fase = PackagedPhase::Erro;
+                        state.erro = Some(message);
+                        state.erro_acao = Some("baixar".to_string());
+                    }
+                } else if action == UpdateAction::Install {
+                    if let Some(state) = dialog.packaged.as_mut() {
+                        state.fase = PackagedPhase::Erro;
+                        state.erro = Some(message);
+                        state.erro_acao = Some("instalar".to_string());
+                    }
+                }
+                Task::none()
+            }
+            Err(error) => {
+                dialog.stage = None;
+                dialog.error = Some(error.clone());
+                if action == UpdateAction::Download {
+                    if let Some(state) = dialog.packaged.as_mut() {
+                        state.fase = PackagedPhase::Erro;
+                        state.erro = Some(error);
+                        state.erro_acao = Some("baixar".to_string());
+                    }
+                }
+                Task::none()
+            }
+        }
+    }
+
+    /// Uma consulta de snapshot por vez enquanto o diálogo está ocupado.
+    fn poll_update_snapshot(&mut self) -> Task<Message> {
+        let should_poll = self.update.dialog.as_ref().is_some_and(|dialog| {
+            dialog.is_busy() && dialog.kind == UpdateDialogKind::Packaged
+        });
+        if !should_poll || self.update.poll_in_flight {
+            return Task::none();
+        }
+        self.update.poll_in_flight = true;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_packaged_state().await },
+            Message::UpdateSnapshotPolled,
+        )
+    }
+
+    fn apply_polled_snapshot(&mut self, result: Result<PackagedState, String>) {
+        self.update.poll_in_flight = false;
+        let Ok(state) = result else {
+            return;
+        };
+        if let Some(snapshot) = self.update.snapshot.as_mut() {
+            snapshot.packaged = Some(state.clone());
+        } else {
+            self.update.snapshot = Some(UpdateSnapshot {
+                packaged: Some(state.clone()),
+                ..UpdateSnapshot::default()
+            });
+        }
+
+        let Some(dialog) = self.update.dialog.as_mut() else {
+            return;
+        };
+        if dialog.kind != UpdateDialogKind::Packaged {
+            return;
+        }
+        dialog.packaged = Some(state.clone());
+        if !state.fase.is_busy() {
+            dialog.stage = None;
+            if state.fase == PackagedPhase::Erro {
+                dialog.error = state.erro.clone();
+            }
+        } else if let Some(error) = state.erro.clone() {
+            dialog.error = Some(error);
+        }
+    }
+
 
     /// Abre o diálogo e carrega `gamesettings:get`.
     fn open_launch_options(&mut self, id: String) -> Task<Message> {
@@ -3968,6 +4705,13 @@ impl App {
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::new();
 
+        if self.boot.active {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(16)).map(|_| Message::BootVideoTick),
+            );
+            subscriptions.push(iced::keyboard::listen().map(Message::BootVideoKey));
+        }
+
         if matches!(self.screen, Screen::BigPicture) {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick),
@@ -3985,67 +4729,90 @@ impl App {
             );
         }
 
+        if self
+            .update
+            .dialog
+            .as_ref()
+            .is_some_and(|dialog| dialog.is_busy() && dialog.kind == UpdateDialogKind::Packaged)
+        {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(500)).map(|_| Message::UpdatePollTick),
+            );
+        }
+
         subscriptions.push(
             iced::time::every(Duration::from_millis(150)).map(|_| Message::LaunchEventsTick),
+        );
+
+        if !self.toasts.is_empty() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(50)).map(|_| Message::ToastTick),
+            );
+        }
+
+        subscriptions.push(
+            iced::time::every(Duration::from_secs(15)).map(|_| Message::AchievementsPoll),
         );
 
         Subscription::batch(subscriptions)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        if matches!(self.screen, Screen::BigPicture) {
-            return views::big_picture::view(self);
-        }
+        let base: Element<'_, Message> = if matches!(self.screen, Screen::BigPicture) {
+            views::big_picture::view(self)
+        } else {
+            let sidebar = views::sidebar::view(self);
+            let content: Element<'_, Message> = match &self.screen {
+                Screen::Library => views::library::view(self),
+                Screen::Game(id) => match self.library.game(id) {
+                    Some(game) => {
+                        let community = game
+                            .steam_appid()
+                            .and_then(|appid| self.community.get(appid));
+                        views::game::view(
+                            game,
+                            &self.covers,
+                            &self.media,
+                            self.game_media.as_ref(),
+                            self.game_panels.get(id),
+                            community,
+                            self.selected_screenshot,
+                            &self.launch,
+                            &self.trailer_picker,
+                            &self.launch_options,
+                        )
+                    }
+                    None => views::missing_game(&self.i18n),
+                },
+                Screen::Section(Section::Downloads) => views::downloads::view(self),
+                Screen::Section(Section::Settings) => views::settings::view(self),
+                Screen::Section(Section::Sources) => views::sources::view(self),
+                Screen::Section(Section::Friends) => views::friends::view(self),
+                Screen::Section(Section::Components) => views::components::view(self),
+                Screen::Section(Section::Home) => views::home::view(self),
+                Screen::Section(Section::Stores) => views::store::view(self),
+                Screen::Section(section) => views::section_placeholder(*section, &self.i18n),
+                Screen::BigPicture => views::big_picture::view(self),
+            };
 
-        let sidebar = views::sidebar::view(self);
-        let content: Element<'_, Message> = match &self.screen {
-            Screen::Library => views::library::view(self),
-            Screen::Game(id) => match self.library.game(id) {
-                Some(game) => {
-                    let community = game
-                        .steam_appid()
-                        .and_then(|appid| self.community.get(appid));
-                    views::game::view(
-                        game,
-                        &self.covers,
-                        &self.media,
-                        self.game_media.as_ref(),
-                        self.game_panels.get(id),
-                        community,
-                        self.selected_screenshot,
-                        &self.launch,
-                        &self.trailer_picker,
-                        &self.launch_options,
-                    )
-                }
-                None => views::missing_game(&self.i18n),
-            },
-            Screen::Section(Section::Downloads) => views::downloads::view(self),
-            Screen::Section(Section::Settings) => views::settings::view(self),
-            Screen::Section(Section::Sources) => views::sources::view(self),
-            Screen::Section(Section::Friends) => views::friends::view(self),
-            Screen::Section(Section::Components) => views::components::view(self),
-            Screen::Section(Section::Home) => views::home::view(self),
-            Screen::Section(Section::Stores) => views::store::view(self),
-            Screen::Section(section) => views::section_placeholder(*section, &self.i18n),
-            Screen::BigPicture => views::big_picture::view(self),
-        };
-
-        iced::widget::column![
-            views::chrome::top_bar(),
-            iced::widget::row![
-                sidebar,
-                iced::widget::container(content)
-                    .width(Fill)
-                    .height(Fill)
-                    .style(theme::app_background)
+            iced::widget::column![
+                views::chrome::top_bar(),
+                iced::widget::row![
+                    sidebar,
+                    iced::widget::container(content)
+                        .width(Fill)
+                        .height(Fill)
+                        .style(theme::app_background)
+                ]
+                .width(Fill)
+                .height(Fill)
             ]
             .width(Fill)
             .height(Fill)
-        ]
-        .width(Fill)
-        .height(Fill)
-        .into()
+            .into()
+        };
+
+        views::overlays::stack(self, base)
     }
 
     /// Carrega catálogo, status, perfis e índice sem bloquear a UI. `detect`
@@ -4758,6 +5525,11 @@ fn verification_summary(verification: &PluginVerification) -> String {
     } else {
         "Componente válido; sem assinatura declarada.".to_string()
     }
+}
+
+/// Horário curto da última checagem de update, exibido na aba Sobre.
+fn now_label() -> String {
+    chrono::Local::now().format("%H:%M").to_string()
 }
 
 /// Teclado do console: mesmas intenções do gamepad (`NavEvent`).

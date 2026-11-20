@@ -2,12 +2,13 @@
 //!
 //! Nesta fatia os métodos de janela são no-op: o controle de janela ainda é do
 //! SO (decorações nativas). `emit` registra no stderr e, para os eventos de
-//! lançamento, alimenta uma fila thread-safe que o `App` drena numa
-//! `Subscription` de baixa frequência. O mesmo sink é usado pelo
+//! lançamento e conquista, alimenta uma fila thread-safe que o `App` drena
+//! numa `Subscription` de baixa frequência. O mesmo sink é usado pelo
 //! `LaunchRuntime` do IPC, que emite `game:running`/`game:active`/
 //! `game:launchState`/`game:launchWarning` em threads de background.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use arcadia_ipc::Shell;
@@ -26,12 +27,24 @@ pub const LAUNCH_EVENTS: &[&str] = &[
     "game:launchError",
 ];
 
+/// Eventos de conquista que viram toast na UI nativa.
+pub const ACHIEVEMENT_EVENTS: &[&str] = &["achievement:unlocked"];
+
 /// Teto da fila: um consumidor parado (por exemplo, durante um frame lento)
 /// não pode acumular eventos sem limite. Eventos antigos são descartados.
 const MAX_PENDING_EVENTS: usize = 128;
 
 pub fn is_launch_event(event: &str) -> bool {
     LAUNCH_EVENTS.contains(&event)
+}
+
+pub fn is_achievement_event(event: &str) -> bool {
+    ACHIEVEMENT_EVENTS.contains(&event)
+}
+
+/// Eventos que a fila da UI aceita (lançamento + conquista).
+pub fn is_ui_event(event: &str) -> bool {
+    is_launch_event(event) || is_achievement_event(event)
 }
 
 /// Evento cru vindo do shell ou do sink de background do IPC.
@@ -54,9 +67,9 @@ impl EventQueue {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Enfileira somente eventos de lançamento; o resto é ignorado.
+    /// Enfileira eventos de lançamento e conquista; o resto é ignorado.
     pub fn push(&self, event: &str, payload: Value) {
-        if !is_launch_event(event) {
+        if !is_ui_event(event) {
             return;
         }
 
@@ -84,16 +97,46 @@ impl EventQueue {
 #[derive(Debug, Clone, Default)]
 pub struct NativeShell {
     events: EventQueue,
+    data_dir: Option<PathBuf>,
 }
 
 impl NativeShell {
+    #[allow(dead_code)] // usado pelos testes e por integrações sem data dir.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Shell com o data dir do app, usado na busca do `boot.mp4`.
+    pub fn with_data_dir(data_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            events: EventQueue::default(),
+            data_dir: Some(data_dir.into()),
+        }
     }
 
     /// Handle clonável para o app drenar a fila na Subscription.
     pub fn events(&self) -> EventQueue {
         self.events.clone()
+    }
+
+    /// Candidatos de `boot.mp4` na mesma ordem do `TauriShell`: mídia ao lado
+    /// do executável/checkout, resources do `src-tauri` e, por fim, o data dir.
+    pub fn boot_video_candidates(&self) -> Vec<PathBuf> {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut candidates = Vec::new();
+
+        if let Ok(executable) = std::env::current_exe() {
+            if let Some(dir) = executable.parent() {
+                candidates.push(dir.join("boot.mp4"));
+                candidates.push(dir.join("resources").join("boot.mp4"));
+            }
+        }
+        candidates.push(manifest.join("../../boot.mp4"));
+        candidates.push(manifest.join("../../src-tauri/resources/boot.mp4"));
+        if let Some(data_dir) = self.data_dir.clone() {
+            candidates.push(data_dir.join("boot.mp4"));
+        }
+        candidates
     }
 }
 
@@ -121,8 +164,9 @@ impl Shell for NativeShell {
     }
 
     fn boot_video(&self) -> Option<Vec<u8>> {
-        // O vídeo de boot (GStreamer/mpv) fica para a onda de mídia.
-        None
+        self.boot_video_candidates()
+            .into_iter()
+            .find_map(|path| std::fs::read(path).ok())
     }
 
     fn emit(&self, event: &str, payload: Value) {
@@ -151,6 +195,25 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event, "game:running");
         assert_eq!(events[0].payload, json!(true));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn achievement_events_enter_the_queue_and_unrelated_ones_stay_out() {
+        let shell = NativeShell::new();
+        let queue = shell.events();
+
+        shell.emit(
+            "achievement:unlocked",
+            json!({ "appid": "10", "key": "ACH", "title": "Conquista" }),
+        );
+        shell.emit("library:changed", json!({ "source": "teste" }));
+        shell.emit("update:packaged:changed", json!({ "fase": "disponivel" }));
+
+        let events = queue.drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, "achievement:unlocked");
+        assert_eq!(events[0].payload["title"], "Conquista");
         assert!(queue.is_empty());
     }
 
