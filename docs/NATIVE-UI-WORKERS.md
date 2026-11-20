@@ -40,3 +40,10 @@ Se desconfiar de artefato velho, rode `cargo clean -p arcadia-native`.
   `ui/`, nem em crates de outra onda.
 - Não commite `Cargo.lock`; o coordenador regenera e commita.
 - Commits no branch do worktree, sem push.
+
+## Build release e empacotamento
+
+O tarball portátil do binário nativo (`scripts/package-native-linux.sh`), as
+dependências de runtime e o job `native` da CI estão documentados em
+[NATIVE-PACKAGING.md](NATIVE-PACKAGING.md). O `scripts/package-linux.sh`
+continua sendo exclusivo do app Tauri.

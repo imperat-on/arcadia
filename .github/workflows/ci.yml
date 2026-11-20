@@ -184,3 +184,38 @@ jobs:
             target/x86_64-pc-windows-gnu/release/WebView2Loader.dll
             target/x86_64-pc-windows-gnu/release/bundle/nsis/*.exe
           retention-days: 14
+
+  # Nativo (iced/GStreamer, sem webview): testa e empacota o tarball portátil.
+  # Independente dos jobs Tauri de propósito: não instala GTK/WebKit e não toca
+  # em src-tauri/ui. Só entram as dependências que o workspace realmente usa:
+  # GStreamer core/base (arcadia-native-media) e libudev (gilrs/gamepad).
+  native:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev libudev-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Testes do nativo
+        run: cargo test -p arcadia-native
+
+      - name: Empacotar nativo
+        run: ./scripts/package-native-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcadia-native-linux
+          path: |
+            dist/native-linux/*.tar.gz
+            dist/native-linux/SHA256SUMS
+          retention-days: 14
