@@ -229,7 +229,8 @@ sem ele o app abre direto na interface.
 ## Limitações
 
 - Não há instalador nem auto-update neste tarball; é um pacote portátil.
-- Windows ainda não tem pacote nativo (o frontend nativo é Linux-first).
+- Windows tem pacote portátil próprio em `.zip`; veja
+  `scripts/package-native-windows.ps1` e `docs/NATIVE-PACKAGING.md`.
 - O binário exige a glibc do host que compilou. Os artefatos oficiais saem do
   CI em Ubuntu 22.04 (glibc 2.35); distribuições mais antigas podem recusar.
 EOF

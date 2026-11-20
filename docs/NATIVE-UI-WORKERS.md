@@ -43,7 +43,8 @@ Se desconfiar de artefato velho, rode `cargo clean -p arcadia-native`.
 
 ## Build release e empacotamento
 
-O tarball portátil do binário nativo (`scripts/package-native-linux.sh`), as
-dependências de runtime e o job `native` da CI estão documentados em
+Os pacotes portáteis do binário nativo (`scripts/package-native-linux.sh` e
+`scripts/package-native-windows.ps1`), as dependências de runtime e os jobs
+`native`/`native-windows` da CI estão documentados em
 [NATIVE-PACKAGING.md](NATIVE-PACKAGING.md). O `scripts/package-linux.sh`
 continua sendo exclusivo do app Tauri.
