@@ -4332,6 +4332,19 @@ fn steam_cover_url(id: &str) -> Option<String> {
     })
 }
 
+/// Backdrop largo usado pelo herói da Home, no mesmo formato da UI web.
+pub fn store_hero_url(game: &StoreGame) -> Option<String> {
+    game.hero_url.clone().or_else(|| {
+        let appid = game.appid.trim();
+        (!appid.is_empty() && appid.chars().all(|character| character.is_ascii_digit()))
+            .then(|| {
+                format!(
+                    "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
+                )
+            })
+    })
+}
+
 fn decode_entities(input: &str) -> String {
     input
         .replace("&amp;", "&")
@@ -6368,8 +6381,23 @@ impl Backend {
 
     /// Catálogo navegável paginado (`store:recent` com `lista: "all"`).
     pub async fn load_store_recent(&self, offset: u64, limit: u64) -> Result<StorePage, String> {
+        self.load_store_recent_for("all", offset, limit).await
+    }
+
+    /// Lista fixa da Home (`top100in2weeks`, a mesma da `HomeView.tsx`).
+    pub async fn load_home_recent(&self, limit: u64) -> Result<StorePage, String> {
+        self.load_store_recent_for("top100in2weeks", 0, limit)
+            .await
+    }
+
+    async fn load_store_recent_for(
+        &self,
+        lista: &str,
+        offset: u64,
+        limit: u64,
+    ) -> Result<StorePage, String> {
         let payload = json!({
-            "lista": "all",
+            "lista": lista,
             "limite": limit,
             "offset": offset,
         });

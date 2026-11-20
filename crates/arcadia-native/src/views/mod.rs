@@ -49,7 +49,7 @@ pub(crate) fn page_header_labeled<'a>(
     refresh_label: &'a str,
 ) -> Element<'a, Message> {
     let mut title_row = row![text(title)
-        .size(30)
+        .size(32)
         .font(theme::FONT_BOLD)
         .color(theme::TEXT_1)]
     .spacing(10)
@@ -68,10 +68,10 @@ pub(crate) fn page_header_labeled<'a>(
         );
     }
 
-    let heading = column![title_row, text(subtitle).size(13).color(theme::TEXT_2),].spacing(4);
+    let heading = column![title_row, text(subtitle).size(14).color(theme::TEXT_2),].spacing(4);
 
     let right: Element<'a, Message> = match refresh {
-        Some(message) => button(text(refresh_label).size(12).font(theme::FONT_MEDIUM))
+        Some(message) => button(text(refresh_label).size(13).font(theme::FONT_MEDIUM))
             .on_press(message)
             .padding([8.0, 14.0])
             .style(theme::ghost_button)

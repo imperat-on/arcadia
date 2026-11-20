@@ -65,7 +65,7 @@ pub fn game_card<'a>(
         column![
             container(
                 text(ellipsize(&game.title, 20))
-                    .size(14)
+                    .size(15)
                     .font(theme::FONT_MEDIUM)
                     .color(TITLE_COLOR)
                     .wrapping(Wrapping::None),
@@ -129,7 +129,7 @@ pub fn section_heading<'a>(
     action: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
     let mut heading = row![text(title.to_uppercase())
-        .size(19)
+        .size(20)
         .font(theme::FONT_BOLD)
         .color(theme::TEXT_1),]
     .spacing(10)
@@ -164,66 +164,3 @@ pub fn grid<'a>(cards: Vec<Element<'a, Message>>, aspect: (f32, f32)) -> Element
         .into()
 }
 
-/// Card horizontal usado nos trilhos da Home (capa pequena + texto).
-pub fn compact_card<'a>(
-    i18n: &'a I18n,
-    game: &'a Game,
-    covers: &'a CoverCache,
-) -> Element<'a, Message> {
-    let cover: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
-        Some(handle) => image(handle.clone())
-            .width(46)
-            .height(62)
-            .content_fit(ContentFit::Cover)
-            .border_radius(2)
-            .into(),
-        None => container(
-            text(
-                game.title
-                    .chars()
-                    .next()
-                    .map(|character| character.to_uppercase().to_string())
-                    .unwrap_or_else(|| "?".to_string()),
-            )
-            .size(16)
-            .font(theme::FONT_BOLD)
-            .color(theme::TEXT_2),
-        )
-        .width(46)
-        .height(62)
-        .align_x(iced::Center)
-        .align_y(iced::Center)
-        .style(theme::game_icon_placeholder)
-        .into(),
-    };
-
-    button(
-        row![
-            cover,
-            column![
-                container(
-                    text(ellipsize(&game.title, 24))
-                        .size(13)
-                        .font(theme::FONT_MEDIUM)
-                        .color(TITLE_COLOR)
-                        .wrapping(Wrapping::None),
-                )
-                .width(Fill)
-                .height(18)
-                .clip(true),
-                text(game.playtime_label_i18n(i18n))
-                    .size(11)
-                    .color(theme::TEXT_3),
-            ]
-            .spacing(3)
-            .width(Fill),
-        ]
-        .spacing(10)
-        .align_y(iced::Center),
-    )
-    .on_press(Message::OpenGame(game.id.clone()))
-    .width(Length::Fixed(250.0))
-    .padding(8)
-    .style(theme::home_card)
-    .into()
-}

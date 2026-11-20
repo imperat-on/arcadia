@@ -17,12 +17,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let brand = container(
         text("ARCADIA")
-            .size(19)
+            .size(21)
             .font(theme::FONT_BOLD)
             .color(theme::TEXT_1),
     )
     .width(Fill)
-    .height(37)
+    .height(42)
     .align_x(iced::Center)
     .align_y(iced::Center)
     .style(theme::sidebar_brand);
@@ -44,7 +44,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(0)
                 .style(theme::plain_button),
             text(i18n.t("sidebar.jogos").to_uppercase())
-                .size(11)
+                .size(12)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.50)),
             container(
@@ -70,8 +70,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let games_search = container(
             text_input(i18n.t("library.buscar"), &app.sidebar_search)
                 .on_input(Message::SidebarSearchChanged)
-                .padding([4.0, 8.0])
-                .size(11)
+                .padding([5.0, 8.0])
+                .size(12)
                 .width(Fill)
                 .style(theme::sidebar_search_input),
         )
@@ -92,7 +92,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     } else {
                         i18n.t("library.vazio")
                     })
-                    .size(11)
+                    .size(12)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30))
                     .align_x(iced::Center),
                 )
@@ -117,7 +117,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         row![
             icons::icon(Icon::Monitor, 16.0, 0.75),
             text(i18n.t("sidebar.bigpicture"))
-                .size(12)
+                .size(13)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.70)),
         ]
@@ -135,11 +135,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             i18n.t("app.name"),
             i18n.t("sidebar.modo_desktop")
         ))
-        .size(10)
+        .size(11)
         .color(theme::TEXT_3),
         Space::new().width(Fill),
         text(env!("CARGO_PKG_VERSION"))
-            .size(10)
+            .size(11)
             .color(theme::TEXT_3),
     ]
     .align_y(iced::Center);
@@ -163,7 +163,7 @@ fn nav_item(app: &App, section: Section) -> Element<'_, Message> {
         theme::transparent_bar
     });
 
-    let label = text(section.label(&app.i18n)).size(13).color(if active {
+    let label = text(section.label(&app.i18n)).size(14).color(if active {
         theme::TEXT_1
     } else {
         Color::from_rgba(1.0, 1.0, 1.0, 0.85)
@@ -180,7 +180,7 @@ fn nav_item(app: &App, section: Section) -> Element<'_, Message> {
     )
     .on_press(Message::Navigate(section))
     .width(Fill)
-    .height(35)
+    .height(38)
     .padding([0.0, 4.0])
     .style(move |style_theme, status| theme::sidebar_item(style_theme, status, active))
     .into()
@@ -221,7 +221,7 @@ fn game_item<'a>(app: &'a App, game: &'a crate::backend::Game) -> Element<'a, Me
             cover,
             container(
                 text(ellipsize(&game.title, 22))
-                    .size(12)
+                    .size(13)
                     .color(if active {
                         theme::TEXT_1
                     } else {
@@ -304,7 +304,7 @@ fn profile_block(app: &App) -> Element<'_, Message> {
             avatar,
             container(
                 text(ellipsize(name, 18))
-                    .size(13)
+                    .size(14)
                     .font(theme::FONT_MEDIUM)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
             )
@@ -327,7 +327,7 @@ fn profile_block(app: &App) -> Element<'_, Message> {
         row![
             button(
                 text(app.i18n.t("topbar.perfil"))
-                    .size(10)
+                    .size(11)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::OpenProfile)
@@ -335,7 +335,7 @@ fn profile_block(app: &App) -> Element<'_, Message> {
             .style(theme::ghost_button),
             button(
                 text(app.i18n.t("native.sidebar.logout"))
-                    .size(10)
+                    .size(11)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::SignOutRequested)
@@ -347,7 +347,7 @@ fn profile_block(app: &App) -> Element<'_, Message> {
     } else {
         button(
             text(app.i18n.t("account.entrar_btn"))
-                .size(10)
+                .size(11)
                 .font(theme::FONT_MEDIUM),
         )
             .on_press(Message::OpenAuth { required: false })

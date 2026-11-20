@@ -547,7 +547,10 @@ fn store_card<'a>(game: &'a StoreGame, covers: &'a CoverCache) -> Element<'a, Me
 
 // ── Ficha da loja ───────────────────────────────────────────────────────────
 
-fn detail_view<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Message> {
+pub(crate) fn detail_view<'a>(
+    app: &'a App,
+    detail: &'a StoreDetailState,
+) -> Element<'a, Message> {
     let game = &detail.game;
     let info = detail.info.as_ref();
     let backdrop = info

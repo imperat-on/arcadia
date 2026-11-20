@@ -394,6 +394,14 @@ pub enum Message {
     StoreLoadMore,
     StoreOpenDetail(StoreGame),
     StoreCloseDetail,
+    /// Vitrine inicial da Home (`store:recent` top100in2weeks).
+    HomeLoaded(Result<StorePage, String>),
+    HomeHeroInfoLoaded {
+        appid: String,
+        result: Result<StoreInfo, String>,
+    },
+    /// Abre um jogo aleatório da vitrine ("Roll the dice").
+    HomeRollDice,
     StoreDetailLoaded {
         appid: String,
         result: Result<StoreInfo, String>,
@@ -1644,6 +1652,19 @@ pub struct StoreState {
     pub detail: Option<StoreDetailState>,
 }
 
+/// Vitrine da Home (`store:recent` de `top100in2weeks`), separada da Loja
+/// para que navegar entre as duas abas não descarte a lista uma da outra.
+#[derive(Debug, Clone, Default)]
+pub struct HomeState {
+    pub games: Vec<StoreGame>,
+    pub status: LoadStatus,
+    pub error: Option<String>,
+    /// `game:sysinfo` do herói em exibição (descrição/backdrop da loja).
+    pub hero_appid: Option<String>,
+    pub hero_info: Option<StoreInfo>,
+    pub hero_status: LoadStatus,
+}
+
 #[derive(Debug, Clone)]
 pub struct RetroState {
     pub query: String,
@@ -1793,6 +1814,7 @@ pub struct App {
     pub components: ComponentsState,
     pub community: CommunityCache,
     pub store: StoreState,
+    pub home: HomeState,
     pub retro: RetroState,
     pub sidebar_search: String,
     pub sidebar_games_open: bool,
@@ -1827,7 +1849,7 @@ impl App {
     pub fn boot(backend: Backend) -> (Self, Task<Message>) {
         let mut app = Self {
             backend,
-            screen: Screen::Library,
+            screen: Screen::Section(Section::Home),
             library: Library::loading(),
             covers: CoverCache::default(),
             search: String::new(),
@@ -1847,11 +1869,12 @@ impl App {
             components: ComponentsState::default(),
             community: CommunityCache::default(),
             store: StoreState::default(),
+            home: HomeState::default(),
             retro: RetroState::default(),
             sidebar_search: String::new(),
             sidebar_games_open: true,
             window: None,
-            window_size: Size::new(1600.0, 900.0),
+            window_size: Size::new(1280.0, 800.0),
             big_picture: BigPicture::new(),
             console_news: NewsState::default(),
             console_media_id: None,
@@ -1897,8 +1920,10 @@ impl App {
                 Message::AccountStatusLoaded,
             )
         };
+        let home_task = app.load_section(Section::Home, false);
         let task = Task::batch([
             app.reload_task(),
+            home_task,
             window::latest().map(Message::WindowReady),
             launch_config,
             boot_video,
@@ -3171,6 +3196,79 @@ impl App {
             Message::StoreCloseDetail => {
                 self.store.detail = None;
                 Task::none()
+            }
+            Message::HomeLoaded(result) => {
+                self.home.hero_status = LoadStatus::Loading;
+                match result {
+                    Ok(page) => {
+                        let urls: Vec<String> = page
+                            .games
+                            .iter()
+                            .flat_map(StoreGame::image_urls)
+                            .chain(
+                                page.games
+                                    .iter()
+                                    .filter_map(crate::backend::store_hero_url),
+                            )
+                            .collect();
+                        eprintln!(
+                            "[arcadia-native] home: {} jogo(s) em alta",
+                            page.games.len()
+                        );
+                        self.home.games = page.games;
+                        self.home.status = LoadStatus::Ready;
+                        self.home.error = None;
+                        let cover_task = self.cover_tasks(urls);
+                        let hero_game = self.home.games.first().cloned();
+                        let hero_task = match hero_game {
+                            Some(game) => self.home_hero_info_task(&game),
+                            None => {
+                                self.home.hero_status = LoadStatus::Ready;
+                                Task::none()
+                            }
+                        };
+                        Task::batch([cover_task, hero_task])
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] home: {error}");
+                        self.home.games.clear();
+                        self.home.status = LoadStatus::Error(error.clone());
+                        self.home.error = Some(error.clone());
+                        self.home.hero_status = LoadStatus::Error(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::HomeHeroInfoLoaded { appid, result } => {
+                if self.home.hero_appid.as_deref() != Some(appid.as_str()) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(info) => {
+                        let urls = info.image_urls();
+                        self.home.hero_info = Some(info);
+                        self.home.hero_status = LoadStatus::Ready;
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] home (herói): {error}");
+                        self.home.hero_info = None;
+                        self.home.hero_status = LoadStatus::Error(error.clone());
+                        Task::none()
+                    }
+                }
+            }
+            Message::HomeRollDice => {
+                if self.home.games.is_empty() {
+                    return Task::none();
+                }
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.subsec_nanos() as usize)
+                    .unwrap_or(0);
+                let index = nanos % self.home.games.len();
+                let game = self.home.games[index].clone();
+                self.open_store_detail(game)
             }
             Message::StoreDetailLoaded { appid, result } => {
                 let Some(detail) = self.store.detail.as_mut() else {
@@ -6765,6 +6863,15 @@ impl App {
     /// cache em memória evita refazer IPC a cada troca de aba.
     fn load_section(&mut self, section: Section, force: bool) -> Task<Message> {
         match section {
+            Section::Home if force || matches!(self.home.status, LoadStatus::Idle) => {
+                self.home.status = LoadStatus::Loading;
+                self.home.error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_home_recent(24).await },
+                    Message::HomeLoaded,
+                )
+            }
             Section::Downloads if force || matches!(self.downloads.status, LoadStatus::Idle) => {
                 self.downloads.status = LoadStatus::Loading;
                 self.downloads.action_error = None;
@@ -7028,6 +7135,23 @@ impl App {
         Task::perform(
             async move { backend.load_store_info(appid, title).await },
             move |result| Message::StoreDetailLoaded {
+                appid: message_appid,
+                result,
+            },
+        )
+    }
+
+    fn home_hero_info_task(&mut self, game: &StoreGame) -> Task<Message> {
+        self.home.hero_appid = Some(game.appid.clone());
+        self.home.hero_info = None;
+        self.home.hero_status = LoadStatus::Loading;
+        let backend = self.backend.clone();
+        let appid = game.appid.clone();
+        let message_appid = appid.clone();
+        let title = game.title.clone();
+        Task::perform(
+            async move { backend.load_store_info(appid, title).await },
+            move |result| Message::HomeHeroInfoLoaded {
                 appid: message_appid,
                 result,
             },

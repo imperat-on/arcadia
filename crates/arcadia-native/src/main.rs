@@ -74,8 +74,8 @@ fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-Bold.ttf").as_slice())
         .window(window::Settings {
-            size: Size::new(1600.0, 900.0),
-            min_size: Some(Size::new(960.0, 540.0)),
+            size: Size::new(1280.0, 800.0),
+            min_size: Some(Size::new(1024.0, 640.0)),
             decorations: false,
             ..window::Settings::default()
         })

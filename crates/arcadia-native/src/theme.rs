@@ -302,26 +302,6 @@ pub fn card(_theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
-pub fn home_card(_theme: &Theme, status: button::Status) -> button::Style {
-    let (background, border_color) = match status {
-        button::Status::Hovered => (CARD_BG, Color::from_rgba8(0x22, 0xd3, 0xee, 0.50)),
-        button::Status::Pressed => (CARD_BG, ACCENT),
-        button::Status::Disabled => (SURFACE_1, BORDER),
-        button::Status::Active => (CARD_BG, SIDEBAR_LINE),
-    };
-
-    button::Style {
-        background: Some(background.into()),
-        text_color: TEXT_1,
-        border: rounded_border(border_color, 1.0, CARD_RADIUS),
-        shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.30),
-            offset: Vector::new(0.0, 8.0),
-            blur_radius: 20.0,
-        },
-        ..button::Style::default()
-    }
-}
 
 pub fn plain_button(_theme: &Theme, _status: button::Status) -> button::Style {
     button::Style {
@@ -409,6 +389,49 @@ pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
         text_color: BACKGROUND,
         border: Border::default().rounded(3),
         ..button::Style::default()
+    }
+}
+
+/// Pílula ativa da Home (“Trending now”): branca com texto preto.
+pub fn home_pill(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgb8(0xe8, 0xea, 0xef),
+        button::Status::Pressed => Color::from_rgb8(0xcf, 0xd4, 0xdd),
+        _ => Color::from_rgb8(0xff, 0xff, 0xff),
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: BACKGROUND,
+        border: Border::default().rounded(6),
+        ..button::Style::default()
+    }
+}
+
+/// Botão “Na biblioteca”: contorno ciano, como o `CartaoLoja` da web.
+pub fn library_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let (background, border_color) = match status {
+        button::Status::Hovered | button::Status::Pressed => {
+            (Some(ACCENT_SOFT.into()), ACCENT)
+        }
+        _ => (None, ACCENT_BORDER),
+    };
+
+    button::Style {
+        background,
+        text_color: ACCENT,
+        border: rounded_border(border_color, 1.0, 6.0),
+        ..button::Style::default()
+    }
+}
+
+/// Cartão da vitrine da Home (arte + título + ação).
+pub fn home_store_card(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(CARD_BG.into()),
+        border: rounded_border(CARD_BORDER, 1.0, 8.0),
+        ..container::Style::default()
     }
 }
 
