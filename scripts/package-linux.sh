@@ -3,8 +3,11 @@
 #
 # Gera .deb e AppImage com o ambiente de mídia correto.
 #
-# O PROBLEMA QUE ESTE SCRIPT RESOLVE
-# ----------------------------------
+# DOIS PROBLEMAS QUE ESTE SCRIPT RESOLVE
+# -------------------------------------
+#
+# 1. CODECS QUE FALTAM
+#
 # O `<video>` da UI usa WebKitGTK, que no Linux delega toda decodificação ao
 # GStreamer do sistema. O `bundleMediaFramework` do Tauri embarca os plugins
 # básicos (~194), mas deixa de fora justamente os patenteados:
@@ -17,6 +20,21 @@
 # openh264 + hls + libopenh264 dentro do AppDir e reempacota. openh264 vem
 # no lugar do libav de propósito: cobre H.264 com 143 KB em vez de arrastar
 # o ffmpeg inteiro.
+#
+# 2. A PILHA GRÁFICA DO HOST DE BUILD
+#
+# O linuxdeploy copia para `<AppDir>/usr/lib` uma pilha GTK/WebKit/glib inteira
+# do host que construiu o pacote, e o runtime do AppImage prefixa `usr/lib` no
+# LD_LIBRARY_PATH — então tudo que está lá VENCE o sistema do usuário.
+# Empacotado no CI (Ubuntu 22.04) isso significa entregar WebKitGTK 2.36 de
+# 2022 e glib 2.72 para quem roda Arch com WebKit 2.54 e glib 2.90: o
+# compositor briga entre duas pilhas gráficas e a interface fica arrastada.
+# Medido antes da correção: 81% de um núcleo em repouso; depois: 2%.
+#
+# `trim_appdir_graphics` remove essa pilha depois do bundle. WebKit, GTK,
+# GStreamer e glib passam a vir do sistema (casados com driver de vídeo e
+# compositor), e o AppImage leva só o binário e os codecs. Efeito colateral
+# bem-vindo: 147 MB -> 39 MB.
 #
 # USO
 #   ./scripts/package-linux.sh              # deb + appimage + rpm
@@ -132,6 +150,48 @@ bundles=()
 echo "==> compilando e empacotando: ${bundles[*]}"
 cd "$ROOT/src-tauri"
 "$TAURI" build --bundles "$(IFS=,; echo "${bundles[*]}")"
+
+# --- Remove a pilha gráfica do AppDir --------------------------------------
+#
+# O linuxdeploy copia para `<AppDir>/usr/lib` uma pilha GTK/WebKit/glib inteira
+# do host que construiu o pacote. O runtime do AppImage prefixa `usr/lib` no
+# LD_LIBRARY_PATH, então **tudo que está lá vence o sistema**. Empacotado no CI
+# (Ubuntu 22.04) isso significa entregar WebKitGTK 2.36 de 2022, GTK 3.24.33 e
+# glib 2.72 para quem roda Arch com WebKit 2.54 e glib 2.90 — medido: 3x mais
+# CPU em repouso e a interface arrastada, com o compositor brigando entre duas
+# pilhas gráficas.
+#
+# A pilha gráfica é responsabilidade do sistema: WebKitGTK, GTK3, GStreamer e
+# glib precisam ser os do host, casados com o driver de vídeo e o compositor.
+# O que o AppImage deve carregar é só o binário do app e os codecs que faltam.
+trim_appdir_graphics() {
+    [ -d "$APPDIR" ] || { echo "aviso: AppDir ausente, pulando limpeza"; return 0; }
+
+    local lib="$APPDIR/usr/lib"
+    local antes; antes="$(find "$lib" -name '*.so*' 2>/dev/null | wc -l)"
+
+    # Tudo que é biblioteca de sistema sai. O binário do app fica em usr/bin e
+    # os recursos em usr/share — nenhum dos dois é tocado aqui.
+    find "$lib" -maxdepth 1 -name '*.so*' -delete 2>/dev/null || true
+    rm -rf "$lib"/x86_64-linux-gnu "$lib"/gdk-pixbuf-2.0 "$lib"/gtk-3.0 \
+           "$lib"/gio "$lib"/girepository-1.0 2>/dev/null || true
+
+    # O hook do linuxdeploy aponta GTK_PATH/GDK_PIXBUF_MODULE_FILE para dentro
+    # do bundle. Sem as libs correspondentes ele só aponta para o vazio, então
+    # sai junto.
+    if [ -f "$APPDIR/AppRun" ]; then
+        sed -i '/linuxdeploy-plugin-gtk/d' "$APPDIR/AppRun" 2>/dev/null || true
+    fi
+    rm -f "$APPDIR"/apprun-hooks/linuxdeploy-plugin-gtk.sh 2>/dev/null || true
+
+    local depois; depois="$(find "$lib" -name '*.so*' 2>/dev/null | wc -l)"
+    echo "==> pilha gráfica removida do AppDir: $antes -> $depois bibliotecas"
+    echo "    WebKit/GTK/GStreamer/glib passam a vir do sistema do usuário"
+}
+
+if [ $DO_APPIMAGE -eq 1 ]; then
+    trim_appdir_graphics
+fi
 
 # --- Injeta os codecs no AppDir --------------------------------------------
 

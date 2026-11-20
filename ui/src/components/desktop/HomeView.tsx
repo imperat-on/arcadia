@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { Game } from "../ps5-launcher/types"
 import {
   CartaoLoja,
@@ -192,17 +192,36 @@ function HomeHero({ jogo, onOpen }: { jogo: ItemLoja; onOpen: () => void }) {
   const desc = info?.short_description || ""
   const hero = `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/library_hero.jpg`
   const header = jogo.cover || `https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`
+
+  // O carrossel troca de jogo a cada 6 s. Se o <img> fosse remontado a cada
+  // troca, o WebKit redecodificaria uma imagem de 1920x620 (até 414 KB) do
+  // zero toda vez — medido: pico de 300 ticks/3 s no compositor, ~25% de um
+  // núcleo em média. Mantendo o elemento montado e só trocando `src`, o
+  // decodificador reaproveita o buffer e a troca custa quase nada.
+  //
+  // `imgRef` também evita o loop do fallback: `onError` aponta uma vez para o
+  // header e para de tentar, em vez de reescrever `src` a cada render.
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  useEffect(() => {
+    const img = imgRef.current
+    if (!img) return
+    img.onerror = () => {
+      if (img.src !== header) img.src = header
+    }
+    img.src = hero
+    return () => {
+      if (img) img.onerror = null
+    }
+  }, [hero, header])
+
   return (
     <button onClick={onOpen} className="desktop-classic-home-hero relative block h-[44vh] min-h-[330px] w-full overflow-hidden bg-black text-left">
       <img
-        src={hero}
+        ref={imgRef}
         alt=""
         decoding="async"
         className="h-full w-full object-cover opacity-90"
         draggable={false}
-        onError={(e) => {
-          ;(e.currentTarget as HTMLImageElement).src = header
-        }}
       />
       <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/25 to-black/35" />
       <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--surface-1)] via-transparent to-transparent" />

@@ -445,7 +445,18 @@ fn aplicar_correcoes_de_video() {
     // `ARCADIA_GST_LOCAL=off` desliga o diretório inteiro: o app perde os
     // codecs extras e cai no GStreamer do sistema, que tem menos plugins mas
     // nenhum quebrado. É a saída para quem sente o boot lento.
-    if std::env::var_os("GST_PLUGIN_PATH").is_none() {
+    //
+    // NUNCA sobrepõe um GStreamer já configurado. O AppRun do AppImage define
+    // `GST_PLUGIN_PATH_1_0` (com o sufixo de versão que o GStreamer usa como
+    // precedência) apontando para os 239 plugins do bundle, que casam com o
+    // GStreamer embarcado. Checar só `GST_PLUGIN_PATH` deixava essa variável
+    // passar despercebida, e o diretório de `~/.local` — 65 plugins construídos
+    // contra outro GStreamer — era injetado por cima. Resultado: o scanner morre
+    // plugin a plugin no boot, e a UI fica arrastada enquanto isso.
+    let gst_ja_configurado = std::env::var_os("GST_PLUGIN_PATH").is_some()
+        || std::env::var_os("GST_PLUGIN_PATH_1_0").is_some()
+        || std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0").is_some();
+    if !gst_ja_configurado {
         let desligado = std::env::var("ARCADIA_GST_LOCAL")
             .map(|valor| valor.eq_ignore_ascii_case("off") || valor == "0")
             .unwrap_or(false);
