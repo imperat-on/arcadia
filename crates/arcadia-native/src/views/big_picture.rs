@@ -102,6 +102,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         }
     }
 
+    if app.launch_options.open {
+        if let Some(game) = app.library.game(&app.launch_options.game_id) {
+            layers = layers.push(super::game::launch_options_overlay(
+                &app.launch_options,
+                game,
+            ));
+        }
+    }
+
     layers.into()
 }
 
@@ -823,6 +832,20 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             theme::console_round(style_theme, status, focused(ACTION_MORE))
         });
 
+    // Entrada mouse para o diálogo de opções; a navegação por gamepad fica
+    // nas quatro ações do `FocusGrid` (escopo desta onda).
+    let launch_options = button(
+        text("Opções")
+            .size(13)
+            .font(theme::FONT_MEDIUM)
+            .color(theme::TEXT_1),
+    )
+    .on_press(Message::OpenLaunchOptions(game.id.clone()))
+    .padding([10.0, 16.0])
+    .style(|style_theme, status| {
+        theme::console_action(style_theme, status, false)
+    });
+
     let tag = game
         .genre
         .as_deref()
@@ -870,6 +893,10 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     if let Some(error) = app.launch.error.as_deref() {
         activity = activity.push(super::action_error_banner(error, None));
     }
+    let warnings = app.launch.warnings_for(&game.id);
+    if !warnings.is_empty() {
+        activity = activity.push(super::game::launch_warning_banner(warnings.join("  ·  ")));
+    }
 
     activity = activity.push(
         row![
@@ -894,7 +921,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     );
 
     activity = activity.push(
-        row![play, trailer, favorite, more]
+        row![play, trailer, favorite, more, launch_options]
             .spacing(16)
             .align_y(iced::Center),
     );
