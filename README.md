@@ -108,7 +108,8 @@ resolves the dev server and opens a blank window.
 Download from the [releases page](https://github.com/imperat-on/arcadia/releases):
 
 - `Arcadia_<version>_x64-setup.exe` — NSIS installer.
-- `arcadia.exe` — portable, no installation.
+- `Arcadia_<version>_windows_portable.zip` — portable; extract `arcadia.exe`
+  and `WebView2Loader.dll` to the same folder.
 
 The installer is unsigned, so SmartScreen shows a warning on first run.
 
