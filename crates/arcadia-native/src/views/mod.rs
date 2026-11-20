@@ -20,6 +20,7 @@ use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Fill};
 
 use crate::app::{Message, Section};
+use crate::i18n::I18n;
 use crate::theme;
 
 /// Cabeçalho comum: título, subtítulo, contador e ação de atualizar.
@@ -28,6 +29,18 @@ pub(crate) fn page_header<'a>(
     subtitle: &'a str,
     count: Option<String>,
     refresh: Option<Message>,
+) -> Element<'a, Message> {
+    page_header_labeled(title, subtitle, count, refresh, "Atualizar")
+}
+
+/// Igual a [`page_header`], mas com o rótulo da ação vindo do i18n. As telas
+/// ainda não migradas continuam usando o wrapper acima.
+pub(crate) fn page_header_labeled<'a>(
+    title: &'a str,
+    subtitle: &'a str,
+    count: Option<String>,
+    refresh: Option<Message>,
+    refresh_label: &'a str,
 ) -> Element<'a, Message> {
     let mut title_row = row![text(title)
         .size(30)
@@ -52,7 +65,7 @@ pub(crate) fn page_header<'a>(
     let heading = column![title_row, text(subtitle).size(13).color(theme::TEXT_2),].spacing(4);
 
     let right: Element<'a, Message> = match refresh {
-        Some(message) => button(text("Atualizar").size(12).font(theme::FONT_MEDIUM))
+        Some(message) => button(text(refresh_label).size(12).font(theme::FONT_MEDIUM))
             .on_press(message)
             .padding([8.0, 14.0])
             .style(theme::ghost_button)
@@ -78,11 +91,11 @@ pub(crate) fn section_label(title: &str) -> Element<'_, Message> {
         .into()
 }
 
-pub(crate) fn loading_state(message: &'static str) -> Element<'static, Message> {
+pub(crate) fn loading_state(message: &str) -> Element<'_, Message> {
     centered_message(message)
 }
 
-pub(crate) fn empty_state(title: &'static str, message: &'static str) -> Element<'static, Message> {
+pub(crate) fn empty_state<'a>(title: &'a str, message: &'a str) -> Element<'a, Message> {
     container(
         column![
             text(title)
@@ -107,6 +120,16 @@ pub(crate) fn error_state<'a>(
     error: &'a str,
     retry: Message,
 ) -> Element<'a, Message> {
+    error_state_labeled(title, error, retry, "Tentar novamente")
+}
+
+/// Igual a [`error_state`], com o rótulo de retry vindo do i18n.
+pub(crate) fn error_state_labeled<'a>(
+    title: &'a str,
+    error: &'a str,
+    retry: Message,
+    retry_label: &'a str,
+) -> Element<'a, Message> {
     container(
         column![
             text(title)
@@ -114,7 +137,7 @@ pub(crate) fn error_state<'a>(
                 .font(theme::FONT_BOLD)
                 .color(theme::DANGER),
             text(error).size(13).color(theme::TEXT_2).width(Fill),
-            button(text("Tentar novamente").size(13).font(theme::FONT_MEDIUM))
+            button(text(retry_label).size(13).font(theme::FONT_MEDIUM))
                 .on_press(retry)
                 .padding([10.0, 18.0])
                 .style(theme::primary_button),
@@ -156,7 +179,7 @@ pub(crate) fn action_error_banner(message: &str, retry: Option<Message>) -> Elem
         .into()
 }
 
-fn centered_message(message: &'static str) -> Element<'static, Message> {
+fn centered_message(message: &str) -> Element<'_, Message> {
     container(text(message).size(14).color(theme::TEXT_2))
         .width(Fill)
         .height(Fill)
@@ -167,20 +190,22 @@ fn centered_message(message: &'static str) -> Element<'static, Message> {
 }
 
 /// Placeholder honesto para telas que ainda não foram portadas.
-pub fn section_placeholder(section: Section) -> Element<'static, Message> {
+pub fn section_placeholder<'a>(section: Section, i18n: &'a I18n) -> Element<'a, Message> {
     container(
         iced::widget::column![
-            text(section.label())
+            text(section.label(i18n))
                 .size(30)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text("Ainda não portado")
+            text(i18n.t("native.section.not_ported"))
                 .size(11)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::ACCENT),
-            text(section.stub_message()).size(14).color(theme::TEXT_2),
+            text(section.stub_message(i18n))
+                .size(14)
+                .color(theme::TEXT_2),
             button(
-                text("Voltar para a Biblioteca")
+                text(i18n.t("native.section.back_library"))
                     .size(13)
                     .font(theme::FONT_MEDIUM)
             )
@@ -197,18 +222,18 @@ pub fn section_placeholder(section: Section) -> Element<'static, Message> {
     .into()
 }
 
-pub fn missing_game() -> Element<'static, Message> {
+pub fn missing_game<'a>(i18n: &'a I18n) -> Element<'a, Message> {
     container(
         iced::widget::column![
-            text("Jogo não encontrado")
+            text(i18n.t("native.game.not_found"))
                 .size(26)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
-            text("O jogo pode ter saído da biblioteca ou o id não existe mais.")
+            text(i18n.t("native.game.not_found_desc"))
                 .size(14)
                 .color(theme::TEXT_2),
             button(
-                text("Voltar para a Biblioteca")
+                text(i18n.t("native.section.back_library"))
                     .size(13)
                     .font(theme::FONT_MEDIUM)
             )

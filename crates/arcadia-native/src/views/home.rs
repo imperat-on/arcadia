@@ -111,12 +111,11 @@ fn hero<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
 
 fn empty_hero(app: &App) -> Element<'static, Message> {
     let message = match &app.library.status {
-        LibraryStatus::Loading => "Carregando biblioteca...",
-        LibraryStatus::Error(_) => {
-            "A biblioteca não carregou. Abra a Biblioteca para tentar de novo."
-        }
-        LibraryStatus::Ready => "Sua biblioteca está vazia. Adicione jogos no Arcadia web/desktop.",
+        LibraryStatus::Loading => app.i18n.t("common.carregando"),
+        LibraryStatus::Error(_) => app.i18n.t("native.home.library_error"),
+        LibraryStatus::Ready => app.i18n.t("ps5.biblioteca.vazia"),
     };
+    let message = message.to_string();
 
     container(
         column![
@@ -151,7 +150,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     let mut content = column![].spacing(16);
 
     content = content.push(cards::section_heading(
-        "Continuar jogando",
+        app.i18n.t("native.home.continue_playing"),
         Some(playing.len()),
         None,
     ));
@@ -160,11 +159,9 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
         content = content.push(
             container(
                 text(match &app.library.status {
-                    LibraryStatus::Loading => "Carregando o histórico local...",
-                    LibraryStatus::Error(_) => "Falha ao carregar o histórico local.",
-                    LibraryStatus::Ready => {
-                        "Nenhuma sessão registrada nesta instalação — abra um jogo para começar o histórico."
-                    }
+                    LibraryStatus::Loading => app.i18n.t("native.home.history_loading"),
+                    LibraryStatus::Error(_) => app.i18n.t("native.home.history_error"),
+                    LibraryStatus::Ready => app.i18n.t("profile.nenhum_jogado"),
                 })
                 .size(13)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.42)),
@@ -184,7 +181,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     content = content.push(Space::new().height(12));
 
     let library_action = button(
-        text("Ver biblioteca")
+        text(app.i18n.t("native.home.view_library"))
             .size(12)
             .font(theme::FONT_MEDIUM)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.78)),
@@ -194,7 +191,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     .style(theme::ghost_button);
 
     content = content.push(cards::section_heading(
-        "Na sua biblioteca",
+        app.i18n.t("native.home.in_library"),
         Some(games.len()),
         Some(library_action.into()),
     ));
@@ -202,7 +199,7 @@ fn body<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     if games.is_empty() {
         content = content.push(
             container(
-                text("A grade aparece assim que a biblioteca tiver jogos.")
+                text(app.i18n.t("native.home.grid_empty"))
                     .size(13)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.42)),
             )

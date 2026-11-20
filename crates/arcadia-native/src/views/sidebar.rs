@@ -13,6 +13,8 @@ use crate::theme;
 use crate::views::icons::{self, Icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
+
     let brand = container(
         text("ARCADIA")
             .size(19)
@@ -30,7 +32,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let profile = container(
         row![
             container(
-                text(initial("Jogador"))
+                text(initial(i18n.t("native.profile.local")))
                     .size(14)
                     .font(theme::FONT_SEMIBOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
@@ -40,7 +42,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .align_x(iced::Center)
             .align_y(iced::Center)
             .style(theme::avatar),
-            text("Jogador local")
+            text(i18n.t("native.profile.local"))
                 .size(13)
                 .font(theme::FONT_MEDIUM)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
@@ -63,7 +65,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .on_press(Message::ToggleSidebarGames)
                 .padding(0)
                 .style(theme::plain_button),
-            text("JOGOS")
+            text(i18n.t("sidebar.jogos").to_uppercase())
                 .size(11)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.50)),
@@ -88,7 +90,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     if app.sidebar_games_open {
         let games_search = container(
-            text_input("Buscar jogos...", &app.sidebar_search)
+            text_input(i18n.t("library.buscar"), &app.sidebar_search)
                 .on_input(Message::SidebarSearchChanged)
                 .padding([4.0, 8.0])
                 .size(11)
@@ -108,9 +110,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
             game_list = game_list.push(
                 container(
                     text(if app.library.games.is_empty() {
-                        "Biblioteca vazia"
+                        i18n.t("library.vazia")
                     } else {
-                        "Nenhum jogo encontrado"
+                        i18n.t("library.vazio")
                     })
                     .size(11)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30))
@@ -136,7 +138,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let big_picture = button(
         row![
             icons::icon(Icon::Monitor, 16.0, 0.75),
-            text("Big Picture")
+            text(i18n.t("sidebar.bigpicture"))
                 .size(12)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.70)),
@@ -150,7 +152,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .style(theme::big_picture);
 
     let version = row![
-        text("Arcadia · Modo desktop").size(10).color(theme::TEXT_3),
+        text(format!(
+            "{} · {}",
+            i18n.t("app.name"),
+            i18n.t("sidebar.modo_desktop")
+        ))
+        .size(10)
+        .color(theme::TEXT_3),
         Space::new().width(Fill),
         text(env!("CARGO_PKG_VERSION"))
             .size(10)
@@ -177,7 +185,7 @@ fn nav_item(app: &App, section: Section) -> Element<'_, Message> {
         theme::transparent_bar
     });
 
-    let label = text(section.label()).size(13).color(if active {
+    let label = text(section.label(&app.i18n)).size(13).color(if active {
         theme::TEXT_1
     } else {
         Color::from_rgba(1.0, 1.0, 1.0, 0.85)

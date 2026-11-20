@@ -8,6 +8,7 @@ mod app;
 mod backend;
 mod big_picture;
 mod covers;
+mod i18n;
 mod input;
 mod media;
 mod shell;

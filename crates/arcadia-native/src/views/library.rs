@@ -5,17 +5,19 @@ use iced::widget::{button, column, container, row, scrollable, text, text_input,
 use iced::{Element, Fill, Padding};
 
 use crate::app::{App, LibraryStatus, Message};
+use crate::i18n::I18n;
 use crate::theme;
 use crate::views::cards;
 use crate::views::icons::{self, Icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
     let games = app.library.visible_games(&app.search);
 
     let search = Stack::new()
         .width(Fill)
         .push(
-            text_input("Buscar na biblioteca...", &app.search)
+            text_input(i18n.t("library.buscar"), &app.search)
                 .on_input(Message::SearchChanged)
                 .padding(Padding {
                     top: 10.0,
@@ -44,7 +46,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     });
 
     let heading = container(cards::section_heading(
-        "Todos os jogos",
+        i18n.t("library.todos_jogos"),
         Some(games.len()),
         None,
     ))
@@ -52,13 +54,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .padding([0.0, theme::PAGE_PADDING]);
 
     let body: Element<'_, Message> = match &app.library.status {
-        LibraryStatus::Loading => centered_message("Carregando biblioteca..."),
-        LibraryStatus::Error(error) => error_state(error),
+        LibraryStatus::Loading => centered_message(i18n.t("common.carregando")),
+        LibraryStatus::Error(error) => error_state(error, i18n),
         LibraryStatus::Ready if app.library.games.is_empty() => {
-            centered_message("Sua biblioteca está vazia. Adicione jogos no Arcadia web/desktop.")
+            centered_message(i18n.t("ps5.biblioteca.vazia"))
         }
         LibraryStatus::Ready if games.is_empty() => {
-            centered_message("Nenhum jogo corresponde à busca.")
+            centered_message(i18n.t("library.vazio"))
         }
         LibraryStatus::Ready => {
             let cards: Vec<Element<'_, Message>> = games
@@ -106,20 +108,24 @@ fn centered_message(message: &str) -> Element<'_, Message> {
     .into()
 }
 
-fn error_state(error: &str) -> Element<'_, Message> {
+fn error_state<'a>(error: &'a str, i18n: &'a I18n) -> Element<'a, Message> {
     container(
         container(
             column![
-                text("Não foi possível carregar a biblioteca")
+                text(i18n.t("native.library.load_error"))
                     .size(20)
                     .font(theme::FONT_BOLD)
                     .color(theme::DANGER),
                 text(error).size(13).color(theme::TEXT_2),
                 row![
-                    button(text("Tentar novamente").size(13).font(theme::FONT_MEDIUM))
-                        .on_press(Message::Reload)
-                        .padding([10.0, 18.0])
-                        .style(theme::primary_button),
+                    button(
+                        text(i18n.t("downloads.tentar_novamente"))
+                            .size(13)
+                            .font(theme::FONT_MEDIUM)
+                    )
+                    .on_press(Message::Reload)
+                    .padding([10.0, 18.0])
+                    .style(theme::primary_button),
                     Space::new().width(theme::SPACE_2),
                 ],
             ]

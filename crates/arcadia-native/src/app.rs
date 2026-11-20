@@ -22,6 +22,7 @@ use crate::big_picture::{
     ACTION_TRAILER,
 };
 use crate::covers::CoverCache;
+use crate::i18n::{I18n, Lang};
 use crate::media::{self, MediaPlayer};
 use crate::theme;
 use crate::views;
@@ -215,32 +216,34 @@ impl Section {
         Section::Settings,
     ];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Section::Home => "Início",
-            Section::Library => "Biblioteca",
-            Section::Stores => "Lojas",
-            Section::Components => "Componentes",
-            Section::Downloads => "Downloads",
-            Section::Sources => "Fontes",
-            Section::Friends => "Amigos",
-            Section::Settings => "Configurações",
-            Section::BigPicture => "Big Picture",
-        }
+    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            Section::Home => "sidebar.inicio",
+            Section::Library => "sidebar.biblioteca",
+            Section::Stores => "sidebar.lojas",
+            Section::Components => "sidebar.plugins",
+            Section::Downloads => "sidebar.downloads",
+            Section::Sources => "sidebar.fontes",
+            Section::Friends => "amigos.titulo",
+            Section::Settings => "settings.title",
+            Section::BigPicture => "sidebar.bigpicture",
+        };
+        i18n.t(key)
     }
 
-    pub fn stub_message(self) -> &'static str {
-        match self {
-            Section::Home => "A Home nativa usa os dados locais da biblioteca.",
-            Section::Library => "Biblioteca local carregada via `library:get`.",
-            Section::Stores => "As abas Loja e Retro usam store:search/recent e retro:list.",
-            Section::Components => "Plugins e componentes ainda não têm tela nativa.",
-            Section::Downloads => "Fila de downloads chega junto com o serviço de download.",
-            Section::Sources => "Catálogos e fontes extras entram numa onda própria.",
-            Section::Friends => "Amigos e presença dependem da sessão/realtime.",
-            Section::Settings => "Configurações nativas serão portadas depois da biblioteca.",
-            Section::BigPicture => "O modo console abre em tela cheia pelo botão Big Picture.",
-        }
+    pub fn stub_message<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            Section::Home => "native.section.stub.home",
+            Section::Library => "native.section.stub.library",
+            Section::Stores => "native.section.stub.stores",
+            Section::Components => "native.section.stub.components",
+            Section::Downloads => "native.section.stub.downloads",
+            Section::Sources => "native.section.stub.sources",
+            Section::Friends => "native.section.stub.friends",
+            Section::Settings => "native.section.stub.settings",
+            Section::BigPicture => "desktop.big_picture_desc",
+        };
+        i18n.t(key)
     }
 }
 
@@ -476,15 +479,16 @@ impl SettingsTab {
         SettingsTab::About,
     ];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            SettingsTab::General => "Geral",
-            SettingsTab::Appearance => "Aparência",
-            SettingsTab::Downloads => "Downloads",
-            SettingsTab::Playback => "Trailers e mídia",
-            SettingsTab::Integrations => "Integrações",
-            SettingsTab::About => "Sobre",
-        }
+    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            SettingsTab::General => "settings.general",
+            SettingsTab::Appearance => "native.settings.appearance",
+            SettingsTab::Downloads => "sidebar.downloads",
+            SettingsTab::Playback => "native.settings.playback",
+            SettingsTab::Integrations => "settings.integracoes",
+            SettingsTab::About => "about.titulo",
+        };
+        i18n.t(key)
     }
 }
 
@@ -644,6 +648,8 @@ pub struct App {
     pub library: Library,
     pub covers: CoverCache,
     pub search: String,
+    /// Idioma ativo do shell; carregado do `config:get` no boot.
+    pub i18n: I18n,
     pub media: MediaPlayer,
     /// `None` enquanto o `game:sysinfo` está em voo.
     pub game_media: Option<GameMedia>,
@@ -686,6 +692,7 @@ impl App {
             library: Library::loading(),
             covers: CoverCache::default(),
             search: String::new(),
+            i18n: I18n::default(),
             media: MediaPlayer::new(),
             game_media: None,
             trailer_picker: TrailerPickerState::default(),
@@ -823,6 +830,8 @@ impl App {
             Message::SettingsLoaded(result) => {
                 match result {
                     Ok(config) => {
+                        self.i18n
+                            .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.settings.accent_draft = config.accent.clone();
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.settings.config = Some(config);
@@ -839,6 +848,8 @@ impl App {
                 self.settings.saving = None;
                 match result {
                     Ok(config) => {
+                        self.i18n
+                            .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.settings.accent_draft = config.accent.clone();
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.settings.config = Some(config);
@@ -846,7 +857,19 @@ impl App {
                         self.settings.save_error = None;
                     }
                     Err(error) => {
-                        self.settings.save_error = Some(format!("Falha ao salvar {key}: {error}"));
+                        // O seletor trocou o idioma antes do round-trip; se o
+                        // config:set falhou, volta para o valor persistido.
+                        if key == "language" {
+                            if let Some(config) = &self.settings.config {
+                                self.i18n.set_lang(
+                                    Lang::from_code(&config.language).unwrap_or_default(),
+                                );
+                            }
+                        }
+                        self.settings.save_error = Some(self.i18n.t_args(
+                            "native.settings.save_error",
+                            &[("key", &key), ("error", &error)],
+                        ));
                     }
                 }
                 Task::none()
@@ -864,6 +887,9 @@ impl App {
                 self.save_setting("accent", Value::String(accent))
             }
             Message::LanguageChanged(language) => {
+                if let Some(lang) = Lang::from_code(&language) {
+                    self.i18n.set_lang(lang);
+                }
                 self.save_setting("language", Value::String(language))
             }
             Message::SettingToggled { key, value } => self.save_setting(key, Value::Bool(value)),
@@ -1602,11 +1628,13 @@ impl App {
             Message::LaunchConfigLoaded(result) => {
                 match result {
                     Ok(config) => {
+                        self.i18n
+                            .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
                     }
                     Err(error) => {
                         // Preferência opcional: sem config, não minimiza e o
-                        // resto do app segue normalmente.
+                        // resto do app segue normalmente (pt-BR de fallback).
                         eprintln!("[arcadia-native] minimize_on_game_launch indisponível: {error}");
                     }
                 }
@@ -2287,7 +2315,7 @@ impl App {
                     &self.launch,
                     &self.trailer_picker,
                 ),
-                None => views::missing_game(),
+                None => views::missing_game(&self.i18n),
             },
             Screen::Section(Section::Downloads) => views::downloads::view(self),
             Screen::Section(Section::Settings) => views::settings::view(self),
@@ -2296,7 +2324,7 @@ impl App {
             Screen::Section(Section::Components) => views::components::view(self),
             Screen::Section(Section::Home) => views::home::view(self),
             Screen::Section(Section::Stores) => views::store::view(self),
-            Screen::Section(section) => views::section_placeholder(*section),
+            Screen::Section(section) => views::section_placeholder(*section, &self.i18n),
             Screen::BigPicture => views::big_picture::view(self),
         };
 
@@ -2619,6 +2647,20 @@ mod tests {
 
         assert!(library.game("4").is_some());
         assert_eq!(library.visible_all().len(), 3);
+    }
+
+    #[test]
+    fn section_e_abas_de_configuracoes_seguem_o_idioma() {
+        let pt = I18n::new(Lang::PtBr);
+        let en = I18n::new(Lang::EnUs);
+        let es = I18n::new(Lang::EsEs);
+
+        assert_eq!(Section::Library.label(&pt), "Biblioteca");
+        assert_eq!(Section::Library.label(&en), "Library");
+        assert_eq!(Section::Settings.label(&en), "Settings");
+        assert_eq!(Section::Home.label(&es), "Inicio");
+        assert_eq!(SettingsTab::General.label(&en), "General Settings");
+        assert_eq!(SettingsTab::Appearance.label(&es), "Apariencia");
     }
 
     #[test]

@@ -8,26 +8,30 @@ use iced::{Border, Color, Element, Fill};
 
 use crate::app::{App, LoadStatus, Message, Section, SettingsTab};
 use crate::backend::SettingsConfig;
+use crate::i18n::{I18n, Lang};
 use crate::theme;
 use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
     let state = &app.settings;
-    let header = views::page_header(
-        "Configurações",
-        "Preferências de config.json; alterações simples gravam via config:set.",
+    let header = views::page_header_labeled(
+        i18n.t("settings.title"),
+        i18n.t("native.settings.subtitle"),
         None,
         Some(Message::Refresh(Section::Settings)),
+        i18n.t("native.refresh"),
     );
 
     let body: Element<'_, Message> = match &state.status {
         LoadStatus::Idle | LoadStatus::Loading => {
-            views::loading_state("Carregando configurações...")
+            views::loading_state(i18n.t("common.carregando"))
         }
-        LoadStatus::Error(error) => container(views::error_state(
-            "Não foi possível carregar as configurações",
+        LoadStatus::Error(error) => container(views::error_state_labeled(
+            i18n.t("native.settings.load_error"),
             error,
             Message::Refresh(Section::Settings),
+            i18n.t("downloads.tentar_novamente"),
         ))
         .width(Fill)
         .padding([theme::SPACE_2, theme::PAGE_PADDING])
@@ -39,18 +43,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn ready_body(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
     let state = &app.settings;
     let Some(config) = state.config.as_ref() else {
         return views::empty_state(
-            "Configuração vazia",
-            "O dispatcher respondeu sem objeto de config; tente atualizar.",
+            i18n.t("native.settings.empty_title"),
+            i18n.t("native.settings.empty_desc"),
         );
     };
 
     let tabs = container(
         row(SettingsTab::ALL
             .iter()
-            .map(|tab| tab_button(*tab, state.tab == *tab))
+            .map(|tab| tab_button(*tab, state.tab == *tab, i18n))
             .collect::<Vec<_>>())
         .spacing(4),
     )
@@ -59,18 +64,18 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
     let disabled = state.saving.is_some();
     let content = match state.tab {
-        SettingsTab::General => general_tab(config, disabled),
-        SettingsTab::Appearance => appearance_tab(config, &state.accent_draft, disabled),
-        SettingsTab::Downloads => downloads_tab(config, disabled),
-        SettingsTab::Playback => playback_tab(config, disabled),
-        SettingsTab::Integrations => integrations_tab(config),
+        SettingsTab::General => general_tab(app, config, disabled),
+        SettingsTab::Appearance => appearance_tab(app, config, &state.accent_draft, disabled),
+        SettingsTab::Downloads => downloads_tab(app, config, disabled),
+        SettingsTab::Playback => playback_tab(app, config, disabled),
+        SettingsTab::Integrations => integrations_tab(app, config),
         SettingsTab::About => about_tab(app, config),
     };
 
     let mut page = column![].spacing(theme::SPACE_3);
     if let Some(saving) = state.saving.as_deref() {
         page = page.push(
-            text(format!("Salvando {saving}..."))
+            text(i18n.t_args("native.settings.saving", &[("key", saving)]))
                 .size(12)
                 .color(theme::ACCENT),
         );
@@ -91,9 +96,9 @@ fn ready_body(app: &App) -> Element<'_, Message> {
     column![tabs, body].width(Fill).height(Fill).into()
 }
 
-fn tab_button(tab: SettingsTab, active: bool) -> Element<'static, Message> {
+fn tab_button(tab: SettingsTab, active: bool, i18n: &I18n) -> Element<'_, Message> {
     button(
-        text(tab.label())
+        text(tab.label(i18n))
             .size(12)
             .font(if active {
                 theme::FONT_MEDIUM
@@ -108,117 +113,117 @@ fn tab_button(tab: SettingsTab, active: bool) -> Element<'static, Message> {
     .into()
 }
 
-fn general_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
-    let language = row![]
-        .spacing(6)
-        .push(language_button(
-            "pt-BR",
-            "Português (Brasil)",
-            config,
-            disabled,
-        ))
-        .push(language_button("en-US", "English (US)", config, disabled))
-        .push(language_button("es-ES", "Español", config, disabled));
+fn general_tab<'a>(app: &'a App, config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let mut language = row![].spacing(6);
+    for lang in Lang::ALL {
+        language = language.push(language_button(lang, i18n.lang(), disabled));
+    }
 
     let behavior = column![
         setting_row(
-            "Verificar atualizações ao iniciar",
-            "Consulta o canal configurado sem bloquear o boot.",
+            i18n.t("settings.check_updates.label"),
+            i18n.t("settings.check_updates.desc"),
             toggle(
                 "check_updates_on_start",
                 config.check_updates_on_start,
-                disabled
+                disabled,
+                i18n,
             ),
         ),
         setting_row(
-            "Iniciar em modo console",
-            "Abre o shell no modo console quando disponível.",
+            i18n.t("settings.console_mode.label"),
+            i18n.t("settings.console_mode.desc"),
             toggle(
                 "start_in_console_mode",
                 config.start_in_console_mode,
-                disabled
+                disabled,
+                i18n,
             ),
         ),
         setting_row(
-            "Esconder changelog ao iniciar",
-            "Pula a janela de novidades das primeiras execuções.",
+            i18n.t("settings.hide_changelog.label"),
+            i18n.t("settings.hide_changelog.desc"),
             toggle(
                 "hide_changelog_on_start",
                 config.hide_changelog_on_start,
                 disabled,
+                i18n,
             ),
         ),
         setting_row(
-            "Minimizar ao abrir um jogo",
-            "Libera a janela principal durante o jogo.",
+            i18n.t("settings.minimize_on_launch.label"),
+            i18n.t("settings.minimize_on_launch.desc"),
             toggle(
                 "minimize_on_game_launch",
                 config.minimize_on_game_launch,
                 disabled,
+                i18n,
             ),
         ),
         setting_row(
-            "Desativar registro de tempo",
-            "Não conta horas de jogo enquanto esta opção estiver ligada.",
+            i18n.t("settings.disable_playtime.label"),
+            i18n.t("settings.disable_playtime.desc"),
             toggle(
                 "disable_playtime_tracking",
                 config.disable_playtime_tracking,
                 disabled,
+                i18n,
             ),
         ),
         setting_row(
-            "Discord Rich Presence",
-            "Publica o jogo aberto no Discord, quando configurado.",
+            i18n.t("settings.discord_rpc.label"),
+            i18n.t("settings.discord_rpc.desc"),
             toggle(
                 "discord_rich_presence",
                 config.discord_rich_presence,
                 disabled,
+                i18n,
             ),
         ),
     ]
     .spacing(theme::SPACE_2);
 
-    let steam_path = path_text(&config.steam_path);
-    let install_path = path_text(&config.default_install_path);
+    let steam_path = path_text(&config.steam_path, i18n);
+    let install_path = path_text(&config.default_install_path, i18n);
     let client_id = if config.discord_client_id.trim().is_empty() {
-        "Padrão do aplicativo".to_string()
+        i18n.t("common.padrao").to_string()
     } else {
         config.discord_client_id.clone()
     };
 
     column![
-        group("Idioma", language.into()),
+        group(i18n.t("idioma.idioma"), language.into()),
         group(
-            "Caminhos",
+            i18n.t("settings.paths"),
             column![
                 setting_row(
-                    "Pasta de instalação padrão",
-                    "Usada por lojas e downloads que não escolhem destino.",
+                    i18n.t("settings.install_path.label"),
+                    i18n.t("settings.install_path.desc"),
                     value_text(&install_path),
                 ),
                 setting_row(
-                    "Pasta da Steam",
-                    "Detectada pelo sistema quando não há override.",
+                    i18n.t("settings.steam_path.label"),
+                    i18n.t("settings.steam_path.desc"),
                     value_text(&steam_path),
                 ),
                 setting_row(
                     "Discord Client ID",
-                    "Application ID público; tokens e chaves nunca aparecem aqui.",
+                    i18n.t("native.settings.discord_client_id_desc"),
                     value_text(&client_id),
                 ),
             ]
             .spacing(theme::SPACE_2)
             .into(),
         ),
-        group("Comportamento", behavior.into()),
-        note(
-            "Caminhos e pastas ainda são somente leitura nesta passada; \
-             o seletor nativo de diretórios entra numa onda própria.",
-        ),
-        note(&format!(
-            "Idioma ativo: {}. Tema ativo: {}.",
-            config.language_label(),
-            config.theme_name
+        group(i18n.t("settings.behavior"), behavior.into()),
+        note(i18n.t("native.settings.paths_note")),
+        note(&i18n.t_args(
+            "native.settings.active_note",
+            &[
+                ("language", config.language_label()),
+                ("theme", &config.theme_name),
+            ],
         )),
     ]
     .spacing(theme::SPACE_5)
@@ -226,10 +231,12 @@ fn general_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, Me
 }
 
 fn appearance_tab<'a>(
+    app: &'a App,
     config: &'a SettingsConfig,
     accent_draft: &'a str,
     disabled: bool,
 ) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let swatch: Element<'a, Message> = parse_hex_color(accent_draft)
         .map(|color| {
             container(Space::new().width(18).height(18))
@@ -244,7 +251,12 @@ fn appearance_tab<'a>(
                 })
                 .into()
         })
-        .unwrap_or_else(|| text("cor inválida").size(11).color(theme::WARNING).into());
+        .unwrap_or_else(|| {
+            text(i18n.t("native.settings.invalid_color"))
+                .size(11)
+                .color(theme::WARNING)
+                .into()
+        });
 
     let accent = row![
         text_input("#22d3ee", accent_draft)
@@ -256,7 +268,8 @@ fn appearance_tab<'a>(
         swatch,
         {
             let mut save: iced::widget::Button<'_, Message> =
-                button(text("Salvar").size(11).font(theme::FONT_MEDIUM)).padding([8.0, 14.0]);
+                button(text(i18n.t("common.salvar")).size(11).font(theme::FONT_MEDIUM))
+                    .padding([8.0, 14.0]);
             if !disabled {
                 save = save.on_press(Message::AccentSave);
             }
@@ -269,32 +282,32 @@ fn appearance_tab<'a>(
 
     column![
         group(
-            "Tema",
+            i18n.t("native.settings.theme_group"),
             column![setting_row(
-                "Tema",
-                "O shell nativo usa os tokens de theme.rs; este é o mesmo tema da UI web.",
+                i18n.t("settings.theme.label"),
+                i18n.t("settings.theme.desc"),
                 value_text("Midnight Mirage (midnight)"),
             )]
             .spacing(theme::SPACE_2)
             .into(),
         ),
         group(
-            "Cor de destaque",
+            i18n.t("native.settings.accent_group"),
             column![
                 setting_row(
-                    "Accent",
-                    "Gravado em config.accent. Aceita hexadecimal (#rrggbb).",
+                    i18n.t("native.settings.accent"),
+                    i18n.t("native.settings.accent_desc"),
                     accent.into(),
                 ),
                 setting_row(
-                    "Títulos sempre visíveis",
-                    "Mantém o título dos cards visível mesmo sem hover.",
-                    toggle("always_titles", config.always_titles, disabled),
+                    i18n.t("accessibility.sempre_titulos"),
+                    i18n.t("native.settings.always_titles_desc"),
+                    toggle("always_titles", config.always_titles, disabled, i18n),
                 ),
                 setting_row(
-                    "Reduzir animações",
-                    "Desliga transições decorativas no cliente web; o nativo já é estático.",
-                    toggle("no_anim", config.no_anim, disabled),
+                    i18n.t("accessibility.desativar_animacoes"),
+                    i18n.t("native.settings.no_anim_desc"),
+                    toggle("no_anim", config.no_anim, disabled, i18n),
                 ),
             ]
             .spacing(theme::SPACE_2)
@@ -305,12 +318,16 @@ fn appearance_tab<'a>(
     .into()
 }
 
-fn downloads_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
-    let install_path = path_text(&config.default_install_path);
+fn downloads_tab<'a>(app: &'a App, config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let install_path = path_text(&config.default_install_path, i18n);
     let cores = if config.download_cpu_cores == 0 {
-        "Automático (máximo)".to_string()
+        i18n.t("native.settings.auto_max").to_string()
     } else {
-        format!("{} núcleo(s)", config.download_cpu_cores)
+        i18n.t_args(
+            "native.settings.cores",
+            &[("count", &config.download_cpu_cores.to_string())],
+        )
     };
 
     let stepper = row![
@@ -323,28 +340,24 @@ fn downloads_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, 
 
     column![
         group(
-            "Destino",
+            i18n.t("native.settings.destination"),
             column![setting_row(
-                "Pasta de instalação padrão",
-                "Também usada pela fila Epic/Steam.",
+                i18n.t("settings.install_path.label"),
+                i18n.t("settings.install_path.desc"),
                 value_text(&install_path),
             )]
             .spacing(theme::SPACE_2)
             .into(),
         ),
         group(
-            "Desempenho",
+            i18n.t("native.settings.performance"),
             column![
                 setting_row(
-                    "Núcleos de CPU para downloads",
-                    "0 usa o máximo disponível; o limite é aplicado pelo serviço de download.",
+                    i18n.t("settings.download_cores.label"),
+                    i18n.t("settings.download_cores.desc"),
                     stepper.into(),
                 ),
-                note(
-                    "Limite de banda e downloads simultâneos existem no contrato \
-                     (download_limit/max_concurrent_downloads) mas ainda não têm \
-                     controle nativo nesta passada.",
-                ),
+                note(i18n.t("native.settings.downloads_note")),
             ]
             .spacing(theme::SPACE_2)
             .into(),
@@ -354,139 +367,130 @@ fn downloads_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, 
     .into()
 }
 
-fn playback_tab<'a>(config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
+fn playback_tab<'a>(app: &'a App, config: &'a SettingsConfig, disabled: bool) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     column![
         group(
-            "Trailers",
+            i18n.t("settings.trailers"),
             column![setting_row(
-                "Reproduzir trailer automaticamente",
-                "Abre o trailer ao visitar a página de um jogo.",
-                toggle("trailer_auto", config.trailer_auto, disabled),
+                i18n.t("settings.trailers.auto_tocar"),
+                i18n.t("native.settings.trailer_auto_desc"),
+                toggle("trailer_auto", config.trailer_auto, disabled, i18n),
             )]
             .spacing(theme::SPACE_2)
             .into(),
         ),
         group(
-            "Notificações e música",
+            i18n.t("native.settings.notifications_music"),
             column![
                 setting_row(
-                    "Notificações",
-                    "Avisos do launcher, downloads e conquistas.",
+                    i18n.t("native.settings.notifications"),
+                    i18n.t("native.settings.notifications_desc"),
                     toggle(
                         "notifications_enabled",
                         config.notifications_enabled,
                         disabled,
+                        i18n,
                     ),
                 ),
                 setting_row(
-                    "Música de fundo",
-                    "Trilha do launcher nas telas de navegação.",
-                    toggle("music_enabled", config.music_enabled, disabled),
+                    i18n.t("native.settings.music"),
+                    i18n.t("native.settings.music_desc"),
+                    toggle("music_enabled", config.music_enabled, disabled, i18n),
                 ),
             ]
             .spacing(theme::SPACE_2)
             .into(),
         ),
-        note("Volume, playlist e trailer automático por jogo ainda dependem da UI web."),
+        note(i18n.t("native.settings.playback_note")),
     ]
     .spacing(theme::SPACE_5)
     .into()
 }
 
-fn integrations_tab<'a>(config: &'a SettingsConfig) -> Element<'a, Message> {
+fn integrations_tab<'a>(app: &'a App, config: &'a SettingsConfig) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     let discord = if config.discord_rich_presence {
-        "Rich Presence ligado (config.discord_rich_presence)."
+        i18n.t("native.settings.discord_on")
     } else {
-        "Rich Presence desligado (config.discord_rich_presence)."
+        i18n.t("native.settings.discord_off")
     };
 
     column![
         group(
-            "Chaves e tokens",
+            i18n.t("native.settings.keys_tokens"),
             column![
-                note(
-                    "config:get devolve tokens mascarados/omitidos e esta tela não os \
-                     lê. Steam, SteamGridDB, Hubcap e serviços debrid continuam sendo \
-                     configurados na UI web por enquanto.",
-                ),
+                note(i18n.t("native.settings.keys_note")),
                 note(discord),
             ]
             .spacing(theme::SPACE_2)
             .into(),
         ),
         group(
-            "Contas",
+            i18n.t("native.settings.accounts"),
             column![
                 setting_row(
-                    "Idioma das lojas",
-                    "Também define o país usado nas consultas de preço.",
+                    i18n.t("native.settings.store_language"),
+                    i18n.t("native.settings.store_language_desc"),
                     value_text(config.language_label()),
                 ),
                 setting_row(
-                    "Pasta da Steam",
-                    "Override opcional para a biblioteca Steam detectada.",
-                    value_text(&path_text(&config.steam_path)),
+                    i18n.t("settings.steam_path.label"),
+                    i18n.t("settings.steam_path.desc"),
+                    value_text(&path_text(&config.steam_path, i18n)),
                 ),
             ]
             .spacing(theme::SPACE_2)
             .into(),
         ),
-        note("Login, sync e emuladores ainda não têm tela nativa."),
+        note(i18n.t("native.settings.integrations_note")),
     ]
     .spacing(theme::SPACE_5)
     .into()
 }
 
 fn about_tab<'a>(app: &'a App, config: &'a SettingsConfig) -> Element<'a, Message> {
+    let i18n = &app.i18n;
     column![
         group(
             "Arcadia Native",
             column![
                 setting_row(
-                    "Versão",
-                    "Crate arcadia-native (shell iced, sem webview).",
+                    i18n.t("native.settings.version"),
+                    i18n.t("native.settings.version_desc"),
                     value_text(env!("CARGO_PKG_VERSION")),
                 ),
                 setting_row(
-                    "Data dir",
-                    "Mesmo diretório usado pelo dispatcher e pela UI web.",
+                    i18n.t("native.settings.data_dir"),
+                    i18n.t("native.settings.data_dir_desc"),
                     value_text(&app.backend.data_dir().display().to_string()),
                 ),
                 setting_row(
-                    "Tema",
-                    "Tokens visuais portados de ui/src/index.css.",
+                    i18n.t("settings.theme.label"),
+                    i18n.t("native.settings.about_theme_desc"),
                     value_text(&config.theme_name),
                 ),
                 setting_row(
-                    "Idioma",
-                    "Preferência salva em config.language.",
+                    i18n.t("idioma.idioma"),
+                    i18n.t("native.settings.language_desc"),
                     value_text(config.language_label()),
                 ),
             ]
             .spacing(theme::SPACE_2)
             .into(),
         ),
-        note(
-            "Primeira passada das telas de seção: Biblioteca, Downloads, \
-             Configurações, Fontes, Amigos e Componentes usam IPC real. \
-             Home, Lojas e Big Picture seguem em placeholder.",
-        ),
+        note(i18n.t("native.settings.about_note")),
     ]
     .spacing(theme::SPACE_5)
     .into()
 }
 
-fn language_button(
-    id: &'static str,
-    label: &'static str,
-    config: &SettingsConfig,
-    disabled: bool,
-) -> Element<'static, Message> {
-    let active = config.language == id;
+fn language_button(lang: Lang, active_lang: Lang, disabled: bool) -> Element<'static, Message> {
+    let active = active_lang == lang;
     let mut control: iced::widget::Button<'_, Message> =
-        button(text(label).size(11).font(theme::FONT_MEDIUM)).padding([7.0, 12.0]);
+        button(text(lang.label()).size(11).font(theme::FONT_MEDIUM)).padding([7.0, 12.0]);
     if !active && !disabled {
-        control = control.on_press(Message::LanguageChanged(id.to_string()));
+        control = control.on_press(Message::LanguageChanged(lang.code().to_string()));
     }
     if active {
         control.style(theme::primary_button).into()
@@ -495,8 +499,17 @@ fn language_button(
     }
 }
 
-fn toggle<'a>(key: &'static str, value: bool, disabled: bool) -> Element<'a, Message> {
-    let label = if value { "Ativado" } else { "Desativado" };
+fn toggle<'a>(
+    key: &'static str,
+    value: bool,
+    disabled: bool,
+    i18n: &'a I18n,
+) -> Element<'a, Message> {
+    let label = if value {
+        i18n.t("common.ativado")
+    } else {
+        i18n.t("common.desativado")
+    };
     let mut control: iced::widget::Button<'_, Message> =
         button(text(label).size(11).font(theme::FONT_MEDIUM)).padding([6.0, 12.0]);
     if !disabled {
@@ -564,9 +577,9 @@ fn note(message: impl AsRef<str>) -> Element<'static, Message> {
         .into()
 }
 
-fn path_text(value: &str) -> String {
+fn path_text(value: &str, i18n: &I18n) -> String {
     if value.trim().is_empty() {
-        "Padrão do sistema".to_string()
+        i18n.t("common.padrao").to_string()
     } else {
         value.to_string()
     }
