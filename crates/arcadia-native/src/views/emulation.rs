@@ -268,6 +268,19 @@ fn editor_view<'a>(
     if let Some(error) = editor.error.as_deref() {
         content = content.push(views::action_error_banner(error, None));
     }
+    if let Some(notice) = editor.notice.as_deref() {
+        content = content.push(
+            container(
+                text(notice)
+                    .size(11)
+                    .color(theme::SUCCESS)
+                    .width(Fill),
+            )
+            .width(Fill)
+            .padding([9.0, 12.0])
+            .style(theme::stub_panel),
+        );
+    }
 
     content = content.push(field(
         i18n.t("emulador.executavel_label"),
@@ -559,7 +572,7 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
     }
 
     for rom in editor.preview_roms.iter().take(64) {
-        content = content.push(rom_row(rom));
+        content = content.push(rom_row(i18n, rom, editor));
     }
     if editor.preview_roms.len() > 64 {
         let remaining = (editor.preview_roms.len() - 64).to_string();
@@ -578,12 +591,34 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
     content.into()
 }
 
-fn rom_row<'a>(rom: &'a EmulatorRomEntry) -> Element<'a, Message> {
+fn rom_row<'a>(
+    i18n: &'a I18n,
+    rom: &'a EmulatorRomEntry,
+    editor: &'a EmulationEditorState,
+) -> Element<'a, Message> {
     let extension = if rom.extension.trim().is_empty() {
         rom.kind.to_uppercase()
     } else {
         rom.extension.to_uppercase()
     };
+    let importing = editor.importing_rom.as_deref() == Some(rom.path.as_str());
+    let mut import = button(
+        text(if importing {
+            i18n.t("native.emulation.importing_rom")
+        } else {
+            i18n.t("native.emulation.import_rom")
+        })
+        .size(10)
+        .font(theme::FONT_MEDIUM),
+    )
+    .padding([4.0, 8.0])
+    .style(theme::ghost_button);
+    if editor.importing_rom.is_none() {
+        import = import.on_press(Message::EmulationImportRom {
+            path: rom.path.clone(),
+            name: rom.name.clone(),
+        });
+    }
     container(
         column![
             row![
@@ -595,6 +630,7 @@ fn rom_row<'a>(rom: &'a EmulatorRomEntry) -> Element<'a, Message> {
                 text(format_size(rom.size_bytes))
                     .size(10)
                     .color(theme::TEXT_3),
+                import,
             ]
             .spacing(8)
             .align_y(iced::Center),

@@ -19,10 +19,14 @@ pub enum PickPurpose {
     EmulatorCore(String),
     EmulatorBios(String),
     RomFolder(String),
-    /// Pronto para a fatia de lançamento por emulador; hoje não há campo de ROM
-    /// única no editor nativo.
+    /// ROM única do editor de emulação.
     #[allow(dead_code)]
     RomFile(String),
+    /// ROM da seção "Emulador" das opções do jogo. Leva jogo e emulador para um
+    /// resultado atrasado não preencher outro jogo/configuração.
+    GameRom { game_id: String, emulator_id: String },
+    /// Core libretro da seção "Emulador" das opções do jogo.
+    GameCore { game_id: String, emulator_id: String },
 }
 
 /// Campo/estado de destino de um [`PickPurpose`], independente do diálogo.
@@ -36,6 +40,8 @@ pub enum PickTarget {
     EmulatorBios,
     RomFolder,
     RomFile,
+    GameRom,
+    GameCore,
 }
 
 impl PickPurpose {
@@ -49,6 +55,8 @@ impl PickPurpose {
             Self::EmulatorBios(_) => PickTarget::EmulatorBios,
             Self::RomFolder(_) => PickTarget::RomFolder,
             Self::RomFile(_) => PickTarget::RomFile,
+            Self::GameRom { .. } => PickTarget::GameRom,
+            Self::GameCore { .. } => PickTarget::GameCore,
         }
     }
 
@@ -59,7 +67,18 @@ impl PickPurpose {
             | Self::EmulatorBios(id)
             | Self::RomFolder(id)
             | Self::RomFile(id) => Some(id),
+            Self::GameRom { emulator_id, .. } | Self::GameCore { emulator_id, .. } => {
+                Some(emulator_id)
+            }
             Self::Avatar | Self::Background | Self::Banner => None,
+        }
+    }
+
+    /// Jogo dono do alvo, quando o seletor pertence às opções da ficha.
+    pub fn game_id(&self) -> Option<&str> {
+        match self {
+            Self::GameRom { game_id, .. } | Self::GameCore { game_id, .. } => Some(game_id),
+            _ => None,
         }
     }
 
@@ -188,7 +207,24 @@ mod tests {
         assert_eq!(rom.target(), PickTarget::RomFile);
         assert_eq!(rom.emulator_id(), Some("dolphin"));
 
+        let game_rom = PickPurpose::GameRom {
+            game_id: "custom:demo".to_string(),
+            emulator_id: "retroarch".to_string(),
+        };
+        assert_eq!(game_rom.target(), PickTarget::GameRom);
+        assert_eq!(game_rom.game_id(), Some("custom:demo"));
+        assert_eq!(game_rom.emulator_id(), Some("retroarch"));
+        assert!(!game_rom.is_folder() && !game_rom.is_image());
+
+        let game_core = PickPurpose::GameCore {
+            game_id: "custom:demo".to_string(),
+            emulator_id: "retroarch".to_string(),
+        };
+        assert_eq!(game_core.target(), PickTarget::GameCore);
+        assert_eq!(game_core.game_id(), Some("custom:demo"));
+
         assert_eq!(PickPurpose::Background.emulator_id(), None);
+        assert_eq!(PickPurpose::Background.game_id(), None);
     }
 
     #[cfg(target_os = "linux")]
