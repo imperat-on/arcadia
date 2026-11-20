@@ -320,6 +320,7 @@ dependencies = [
  "arcadia-native-input",
  "arcadia-native-media",
  "arcadia-store",
+ "base64 0.23.1",
  "chrono",
  "iced",
  "image",

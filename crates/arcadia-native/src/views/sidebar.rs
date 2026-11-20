@@ -1,5 +1,5 @@
 //! Sidebar fixa de 212 px, espelhando a `Sidebar.tsx` do shell desktop:
-//! wordmark, perfil local, navegação com ícones, lista de jogos com busca,
+//! wordmark, perfil da conta, navegação com ícones, lista de jogos com busca,
 //! Big Picture e versão.
 
 use iced::widget::text::Wrapping;
@@ -29,29 +29,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let brand_line = container(Space::new().width(Fill).height(1)).style(theme::divider_accent);
 
-    let profile = container(
-        row![
-            container(
-                text(initial(i18n.t("native.profile.local")))
-                    .size(14)
-                    .font(theme::FONT_SEMIBOLD)
-                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
-            )
-            .width(36)
-            .height(36)
-            .align_x(iced::Center)
-            .align_y(iced::Center)
-            .style(theme::avatar),
-            text(i18n.t("native.profile.local"))
-                .size(13)
-                .font(theme::FONT_MEDIUM)
-                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
-        ]
-        .spacing(12)
-        .align_y(iced::Center),
-    )
-    .width(Fill)
-    .padding([12.0, 20.0]);
+    let profile = profile_block(app);
 
     let mut nav = Column::new().spacing(2).padding([0.0, 8.0]);
     for section in Section::ALL {
@@ -296,10 +274,87 @@ fn initial(title: &str) -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
+fn profile_block(app: &App) -> Element<'_, Message> {
+    let signed_in = app.account.is_signed_in();
+    let name = app.account.display_name(app.i18n.t("native.profile.local"));
+
+    let avatar: Element<'_, Message> = match app.account.avatar.as_ref() {
+        Some(handle) => image(handle.clone())
+            .width(36)
+            .height(36)
+            .content_fit(ContentFit::Cover)
+            .border_radius(8)
+            .into(),
+        None => container(
+            text(app.account.initial(app.i18n.t("native.profile.local")))
+                .size(14)
+                .font(theme::FONT_SEMIBOLD)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
+        )
+        .width(36)
+        .height(36)
+        .align_x(iced::Center)
+        .align_y(iced::Center)
+        .style(theme::avatar)
+        .into(),
+    };
+
+    let identity = button(
+        row![
+            avatar,
+            container(
+                text(ellipsize(name, 18))
+                    .size(13)
+                    .font(theme::FONT_MEDIUM)
+                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
+            )
+            .width(Fill)
+            .clip(true),
+        ]
+        .spacing(12)
+        .align_y(iced::Center),
+    )
+    .on_press(if signed_in {
+        Message::OpenProfile
+    } else {
+        Message::OpenAuth { required: false }
+    })
+    .width(Fill)
+    .padding([2.0, 0.0])
+    .style(theme::plain_button);
+
+    let actions: Element<'_, Message> = if signed_in {
+        row![
+            button(text("Perfil").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::OpenProfile)
+                .padding([4.0, 8.0])
+                .style(theme::ghost_button),
+            button(text("Sair").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::SignOutRequested)
+                .padding([4.0, 8.0])
+                .style(theme::ghost_button),
+        ]
+        .spacing(6)
+        .into()
+    } else {
+        button(text("Entrar").size(10).font(theme::FONT_MEDIUM))
+            .on_press(Message::OpenAuth { required: false })
+            .padding([4.0, 10.0])
+            .style(theme::ghost_button)
+            .into()
+    };
+
+    container(column![identity, actions].spacing(6))
+        .width(Fill)
+        .padding([12.0, 20.0])
+        .into()
+}
+
 fn is_active(app: &App, section: Section) -> bool {
     match &app.screen {
         Screen::Library | Screen::Game(_) => section == Section::Library,
         Screen::Section(current) => *current == section,
+        Screen::Profile => false,
         Screen::BigPicture => section == Section::BigPicture,
     }
 }

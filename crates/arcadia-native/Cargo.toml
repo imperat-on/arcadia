@@ -30,4 +30,7 @@ image = { version = "0.25", default-features = false, features = [
     "jpeg",
     "png",
     "webp",
+    "gif",
 ] }
+# `avatar:load` devolve data URL; o Handle do iced recebe os bytes decodificados.
+base64 = "0.23"
