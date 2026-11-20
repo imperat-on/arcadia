@@ -6,6 +6,7 @@
 
 mod app;
 mod backend;
+mod big_picture;
 mod covers;
 mod input;
 mod media;

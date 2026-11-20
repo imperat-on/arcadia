@@ -8,8 +8,11 @@ description = "Frontend nativo do Arcadia em Rust puro (iced), sem Tauri e sem w
 [dependencies]
 arcadia-api = { path = "../arcadia-api" }
 arcadia-ipc = { path = "../arcadia-ipc" }
+arcadia-native-input = { path = "../arcadia-native-input" }
 arcadia-native-media = { path = "../arcadia-native-media" }
 arcadia-store = { path = "../arcadia-store" }
+# Relógio da top bar do Big Picture.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # `tokio` habilita `iced::time::every`, usado pela Subscription que drena os
 # frames do player a ~60 fps (o backend default do iced não tem timer).
 iced = { version = "0.14", features = ["image", "advanced", "tokio"] }

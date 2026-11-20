@@ -463,6 +463,251 @@ pub fn window_dot(fill: Color, ring: Color, status: button::Status) -> button::S
     }
 }
 
+// ── Modo console (Big Picture) ──────────────────────────────────────────────
+/// Top bar translúcida por cima do hero, como o gradiente do `ps5-topbar`.
+pub fn console_topbar(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(Color::from_rgba8(2, 9, 21, 0.68).into()),
+        border: Border {
+            color: Color::from_rgba(1.0, 1.0, 1.0, 0.06),
+            width: 1.0,
+            radius: Radius::default(),
+        },
+        ..container::Style::default()
+    }
+}
+
+/// Escurecimento geral sobre o hero para o texto continuar legível.
+pub fn console_wash(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.34).into()),
+        ..container::Style::default()
+    }
+}
+
+/// Faixa inferior mais densa, equivalente ao gradiente para o trilho.
+pub fn console_bottom_wash(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.58).into()),
+        ..container::Style::default()
+    }
+}
+
+/// Camada do painel do jogo (Game Overview): fundo escuro quase opaco.
+pub fn console_overview(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.82).into()),
+        ..container::Style::default()
+    }
+}
+
+pub fn console_panel(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(TEXT_1),
+        background: Some(Color::from_rgba8(8, 12, 17, 0.94).into()),
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 1.0, 10.0),
+        ..container::Style::default()
+    }
+}
+
+pub fn console_profile(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.06).into()),
+        border: rounded_border(Color::from_rgba(1.0, 1.0, 1.0, 0.10), 1.0, 20.0),
+        ..container::Style::default()
+    }
+}
+
+/// Bolinha do indicador de conexão; o diâmetro vem do widget.
+pub fn console_status_dot(color: Color) -> container::Style {
+    container::Style {
+        background: Some(color.into()),
+        border: Border {
+            color: color,
+            width: 0.0,
+            radius: 5.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn console_tab(
+    _theme: &Theme,
+    status: button::Status,
+    active: bool,
+    focused: bool,
+) -> button::Style {
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let background = if focused {
+        Some(Color::from_rgba(1.0, 1.0, 1.0, 0.12).into())
+    } else if hovered {
+        Some(Color::from_rgba(1.0, 1.0, 1.0, 0.07).into())
+    } else {
+        None
+    };
+
+    button::Style {
+        background,
+        text_color: if active {
+            TEXT_1
+        } else {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.64)
+        },
+        border: rounded_border(
+            if focused {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.85)
+            } else {
+                TRANSPARENT
+            },
+            if focused { 2.0 } else { 0.0 },
+            6.0,
+        ),
+        ..button::Style::default()
+    }
+}
+
+pub fn console_tab_underline(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(TEXT_1.into()),
+        border: Border::default().rounded(2),
+        ..container::Style::default()
+    }
+}
+
+/// Card do trilho: o foco ganha a moldura branca do `retro-library-card`.
+pub fn console_card(
+    _theme: &Theme,
+    status: button::Status,
+    selected: bool,
+    focused: bool,
+) -> button::Style {
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let background = if selected {
+        Color::from_rgba8(13, 16, 21, 0.92)
+    } else if hovered {
+        Color::from_rgb8(0x16, 0x16, 0x1b)
+    } else {
+        Color::from_rgba(0.0, 0.0, 0.0, 0.42)
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: TEXT_1,
+        border: rounded_border(
+            if focused {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.78)
+            } else if selected {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.30)
+            } else {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.10)
+            },
+            if focused { 2.0 } else { 1.0 },
+            8.0,
+        ),
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, if selected { 0.45 } else { 0.25 }),
+            offset: Vector::new(0.0, 10.0),
+            blur_radius: 24.0,
+        },
+        ..button::Style::default()
+    }
+}
+
+/// Botão principal "Jogar": pílula branca do `ps5-overview-play`.
+pub fn console_play(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgb8(0xe6, 0xe6, 0xe6),
+        button::Status::Pressed => Color::from_rgb8(0xcf, 0xcf, 0xcf),
+        button::Status::Disabled => SURFACE_3,
+        button::Status::Active => TEXT_1,
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: BACKGROUND,
+        border: Border {
+            color: if focused { ACCENT } else { TRANSPARENT },
+            width: if focused { 2.0 } else { 0.0 },
+            radius: 26.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
+            offset: Vector::new(0.0, 8.0),
+            blur_radius: 22.0,
+        },
+        ..button::Style::default()
+    }
+}
+
+/// Botões redondos do painel (♥ e •••).
+pub fn console_round(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.24),
+        _ => Color::from_rgba(1.0, 1.0, 1.0, 0.12),
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color: TEXT_1,
+        border: Border {
+            color: if focused {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.90)
+            } else {
+                TRANSPARENT
+            },
+            width: if focused { 2.0 } else { 0.0 },
+            radius: 26.0.into(),
+        },
+        ..button::Style::default()
+    }
+}
+
+/// Ação secundária do painel (Trailer), com foco visível.
+pub fn console_action(_theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+    let (background, text_color) = match status {
+        button::Status::Hovered | button::Status::Pressed => {
+            (Color::from_rgba(1.0, 1.0, 1.0, 0.18), TEXT_1)
+        }
+        _ => (Color::from_rgba(1.0, 1.0, 1.0, 0.08), TEXT_STRONG),
+    };
+
+    button::Style {
+        background: Some(background.into()),
+        text_color,
+        border: rounded_border(
+            if focused {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.90)
+            } else {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.18)
+            },
+            2.0,
+            22.0,
+        ),
+        ..button::Style::default()
+    }
+}
+
+pub fn console_scrollable(
+    theme: &Theme,
+    status: scrollable_widget::Status,
+) -> scrollable_widget::Style {
+    let mut style = scrollable(theme, status);
+    let rail = scrollable_widget::Rail {
+        background: Some(TRANSPARENT.into()),
+        border: Border::default(),
+        scroller: scrollable_widget::Scroller {
+            background: Color::from_rgba(1.0, 1.0, 1.0, 0.22).into(),
+            border: Border::default().rounded(2),
+        },
+    };
+
+    style.vertical_rail = rail;
+    style.horizontal_rail = rail;
+    style
+}
+
 // ── Inputs e scroll ─────────────────────────────────────────────────────────
 pub fn search_input(_theme: &Theme, status: text_input::Status) -> text_input::Style {
     let focused = matches!(

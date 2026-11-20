@@ -7,13 +7,18 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use arcadia_native_input::NavEvent;
 use iced::widget::image::Handle;
-use iced::{window, Element, Fill, Subscription, Task};
+use iced::{keyboard, window, Element, Fill, Size, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
     Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
     PluginItem, SettingsConfig, SourceItem,
+};
+use crate::big_picture::{
+    BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
+    ACTION_TRAILER,
 };
 use crate::covers::CoverCache;
 use crate::media::{self, MediaPlayer};
@@ -75,6 +80,25 @@ pub enum Message {
     WindowMinimize,
     WindowToggleMaximize,
     WindowClose,
+    WindowEvent(window::Event),
+    WindowResized(Size),
+    /// Entra no modo console (tela cheia + navegação por foco).
+    EnterBigPicture,
+    /// Volta ao desktop exatamente na tela em que o modo console foi aberto.
+    ExitBigPicture,
+    /// Tick de ~60 fps: drena o gamepad via `NavInput::tick`.
+    ConsoleTick,
+    /// Teclado do modo console (setas, Enter, Esc, Tab).
+    ConsoleKey(keyboard::Event),
+    /// Clique num card do trilho; o segundo clique no card focado abre o painel.
+    ConsoleSelectGame(usize),
+    /// Clique numa aba da top bar.
+    ConsoleSelectTab(ConsoleTab),
+    ConsolePlay,
+    ConsoleTrailer,
+    ConsoleFavorite,
+    ConsoleMore,
+    ConsoleCloseOverview,
 }
 
 /// Itens fixos da sidebar. Biblioteca, Home e as seções desta onda têm tela
@@ -128,7 +152,7 @@ impl Section {
             Section::Sources => "Catálogos e fontes extras entram numa onda própria.",
             Section::Friends => "Amigos e presença dependem da sessão/realtime.",
             Section::Settings => "Configurações nativas serão portadas depois da biblioteca.",
-            Section::BigPicture => "O modo Big Picture será portado junto com o input de gamepad.",
+            Section::BigPicture => "O modo console abre em tela cheia pelo botão Big Picture.",
         }
     }
 }
@@ -138,6 +162,8 @@ pub enum Screen {
     Library,
     Game(String),
     Section(Section),
+    /// Modo console em tela cheia; o desktop fica guardado em `previous_screen`.
+    BigPicture,
 }
 
 impl Screen {
@@ -346,6 +372,12 @@ pub struct App {
     pub sidebar_search: String,
     pub sidebar_games_open: bool,
     pub window: Option<window::Id>,
+    /// Tamanho atual da janela; alimenta o scroll centralizado do trilho.
+    pub window_size: Size,
+    /// Estado do modo console (gamepad, foco, aba, painel).
+    pub big_picture: BigPicture,
+    /// Tela desktop a restaurar quando o console for fechado.
+    pub previous_screen: Option<Screen>,
 }
 
 impl App {
@@ -366,6 +398,9 @@ impl App {
             sidebar_search: String::new(),
             sidebar_games_open: true,
             window: None,
+            window_size: Size::new(1600.0, 900.0),
+            big_picture: BigPicture::new(),
+            previous_screen: None,
         };
         let task = Task::batch([
             app.reload_task(),
@@ -379,6 +414,8 @@ impl App {
             Message::LibraryLoaded(Ok(games)) => {
                 eprintln!("[arcadia-native] biblioteca: {} jogo(s)", games.len());
                 self.library.ready(games);
+                self.big_picture
+                    .sync_games(self.library.visible_all().len());
                 let urls = self.library.image_urls();
                 self.cover_tasks(urls)
             }
@@ -403,24 +440,15 @@ impl App {
                 Task::none()
             }
             Message::Navigate(section) => {
+                if section == Section::BigPicture {
+                    return self.enter_big_picture();
+                }
                 self.media.clear();
                 self.game_media = None;
                 self.screen = Screen::for_section(section);
                 self.load_section(section, false)
             }
-            Message::OpenGame(id) => {
-                let game = self.library.game(&id).cloned();
-                let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
-                self.screen = Screen::Game(id);
-                // Troca de jogo nunca reaproveita o pipeline anterior.
-                self.media.clear();
-                self.game_media = None;
-                let covers = self.cover_tasks(urls);
-                let media = game
-                    .map(|game| self.game_media_task(&game))
-                    .unwrap_or_else(Task::none);
-                Task::batch([covers, media])
-            }
+            Message::OpenGame(id) => self.open_game(id),
             Message::BackToLibrary => {
                 self.media.clear();
                 self.game_media = None;
@@ -644,12 +672,40 @@ impl App {
             }
             Message::WindowReady(id) => {
                 self.window = id;
-                Task::none()
+                match id {
+                    Some(id) if matches!(self.screen, Screen::BigPicture) => {
+                        window::set_mode(id, window::Mode::Fullscreen)
+                    }
+                    _ => Task::none(),
+                }
             }
             Message::WindowDrag => self.window_task(window::drag),
             Message::WindowMinimize => self.window_task(|id| window::minimize(id, true)),
             Message::WindowToggleMaximize => self.window_task(window::toggle_maximize),
             Message::WindowClose => self.window_task(window::close),
+            Message::WindowEvent(event) => self.window_event(event),
+            Message::WindowResized(size) => {
+                self.window_size = size;
+                if matches!(self.screen, Screen::BigPicture) {
+                    self.console_rail_scroll()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::EnterBigPicture => self.enter_big_picture(),
+            Message::ExitBigPicture => self.exit_big_picture(),
+            Message::ConsoleTick => self.console_tick(),
+            Message::ConsoleKey(event) => self.console_key(event),
+            Message::ConsoleSelectGame(index) => self.console_select_game(index),
+            Message::ConsoleSelectTab(tab) => self.console_select_tab(tab),
+            Message::ConsolePlay => self.console_action(ACTION_PLAY),
+            Message::ConsoleTrailer => self.console_action(ACTION_TRAILER),
+            Message::ConsoleFavorite => self.console_action(ACTION_FAVORITE),
+            Message::ConsoleMore => self.console_action(ACTION_MORE),
+            Message::ConsoleCloseOverview => {
+                self.big_picture.close_overview();
+                Task::none()
+            }
             Message::MediaLoaded(game_media) => {
                 eprintln!(
                     "[arcadia-native] trailer: {} movie(s){}",
@@ -699,12 +755,230 @@ impl App {
         }
     }
 
+    /// Entra no Big Picture guardando a tela desktop para restaurar ao sair.
+    fn enter_big_picture(&mut self) -> Task<Message> {
+        if matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        self.previous_screen = Some(self.screen.clone());
+        // O pipeline de trailer para ao entrar: o console não toca áudio nesta
+        // onda e não deve deixar um processo rodando atrás da tela cheia.
+        self.media.clear();
+        self.game_media = None;
+        self.screen = Screen::BigPicture;
+
+        let count = self.library.visible_all().len();
+        self.big_picture.enter(count);
+        eprintln!("[arcadia-native] Big Picture: {count} jogo(s)");
+
+        let urls = self.library.image_urls();
+        let mut tasks = vec![self.cover_tasks(urls)];
+        if let Some(window) = self.window {
+            tasks.push(window::set_mode(window, window::Mode::Fullscreen));
+            tasks.push(window::size(window).map(Message::WindowResized));
+        }
+        Task::batch(tasks)
+    }
+
+    /// Volta ao desktop na tela em que o console foi aberto.
+    fn exit_big_picture(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let previous = self.previous_screen.take().unwrap_or(Screen::Library);
+        self.big_picture.leave();
+        self.screen = previous;
+        eprintln!("[arcadia-native] Big Picture encerrado");
+
+        let mut tasks = Vec::new();
+        if let Some(window) = self.window {
+            tasks.push(window::set_mode(window, window::Mode::Windowed));
+        }
+
+        // A ficha restaurada precisa do trailer de novo: ao entrar no console
+        // o pipeline foi descartado junto com o `game_media`.
+        if let Screen::Game(id) = self.screen.clone() {
+            let game = self.library.game(&id).cloned();
+            let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
+            self.media.clear();
+            self.game_media = None;
+            tasks.push(self.cover_tasks(urls));
+            if let Some(game) = game {
+                tasks.push(self.game_media_task(&game));
+            }
+        }
+
+        Task::batch(tasks)
+    }
+
+    /// Abre a ficha do jogo no desktop (mesmo caminho do clique na biblioteca).
+    fn open_game(&mut self, id: String) -> Task<Message> {
+        let game = self.library.game(&id).cloned();
+        let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
+        self.screen = Screen::Game(id);
+        // Troca de jogo nunca reaproveita o pipeline anterior.
+        self.media.clear();
+        self.game_media = None;
+        let covers = self.cover_tasks(urls);
+        let media = game
+            .map(|game| self.game_media_task(&game))
+            .unwrap_or_else(Task::none);
+        Task::batch([covers, media])
+    }
+
+    /// "Jogar" no console: volta a janela ao modo normal e abre a ficha.
+    ///
+    /// Este frontend ainda não dispara `game:launch`; o lançamento de fato fica
+    /// para uma onda seguinte. O botão leva à ficha real do jogo.
+    fn open_game_from_console(&mut self, id: String) -> Task<Message> {
+        self.previous_screen = None;
+        let mut tasks = vec![self.open_game(id)];
+        if let Some(window) = self.window {
+            tasks.push(window::set_mode(window, window::Mode::Windowed));
+        }
+        Task::batch(tasks)
+    }
+
+    fn window_event(&mut self, event: window::Event) -> Task<Message> {
+        match event {
+            window::Event::Resized(size) => {
+                self.window_size = size;
+                if matches!(self.screen, Screen::BigPicture) {
+                    self.console_rail_scroll()
+                } else {
+                    Task::none()
+                }
+            }
+            window::Event::Unfocused => {
+                // Direção segurada não deve continuar repetindo ao voltar.
+                self.big_picture.reset_input();
+                Task::none()
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// ~60 fps: drena os eventos do gamepad e aplica um por um.
+    fn console_tick(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        self.big_picture.refresh_clock();
+        let events = self.big_picture.tick(Duration::from_millis(16));
+        Task::batch(
+            events
+                .into_iter()
+                .map(|event| self.console_nav(event))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn console_key(&mut self, event: keyboard::Event) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        if let keyboard::Event::KeyPressed { key, .. } = &event {
+            if matches!(key, keyboard::Key::Named(keyboard::key::Named::F5)) {
+                self.library.set_loading();
+                return self.reload_task();
+            }
+        }
+
+        match console_nav_from_key(&event) {
+            Some(nav) => self.console_nav(nav),
+            None => Task::none(),
+        }
+    }
+
+    fn console_nav(&mut self, event: NavEvent) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let games = self.library.visible_all();
+        let before = self.big_picture.rail_index();
+        let effect = self.big_picture.handle(event, &games);
+        let moved = before != self.big_picture.rail_index();
+        let scroll = if moved {
+            self.console_rail_scroll()
+        } else {
+            Task::none()
+        };
+        Task::batch([scroll, self.console_effect(effect)])
+    }
+
+    fn console_select_game(&mut self, index: usize) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let games = self.library.visible_all();
+        let (moved, effect) = self.big_picture.press_game(index, &games);
+        let scroll = if moved {
+            self.console_rail_scroll()
+        } else {
+            Task::none()
+        };
+        Task::batch([scroll, self.console_effect(effect)])
+    }
+
+    fn console_select_tab(&mut self, tab: ConsoleTab) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let games = self.library.visible_all();
+        self.big_picture.select_tab(tab, &games);
+        self.console_rail_scroll()
+    }
+
+    fn console_action(&mut self, index: usize) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let games = self.library.visible_all();
+        let effect = self.big_picture.press_action(index, &games);
+        self.console_effect(effect)
+    }
+
+    fn console_effect(&mut self, effect: ConsoleEffect) -> Task<Message> {
+        match effect {
+            ConsoleEffect::None => Task::none(),
+            ConsoleEffect::Exit => self.exit_big_picture(),
+            ConsoleEffect::OpenGame(id) => self.open_game_from_console(id),
+            ConsoleEffect::Notice(text) => {
+                self.big_picture.set_notice(text);
+                Task::none()
+            }
+        }
+    }
+
+    fn console_rail_scroll(&self) -> Task<Message> {
+        views::big_picture::rail_scroll_task(self.big_picture.rail_index(), self.window_size.width)
+    }
+
     /// Timer de ~60 fps que drena os frames do GStreamer.
     ///
     /// Só existe na página do jogo e depois que o pipeline foi criado; fora
     /// isso o app não acorda à toa.
     pub fn subscription(&self) -> Subscription<Message> {
-        if matches!(self.screen, Screen::Game(_)) && self.media.is_active() {
+        if matches!(self.screen, Screen::BigPicture) {
+            Subscription::batch([
+                iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick),
+                iced::keyboard::listen().map(Message::ConsoleKey),
+                window::events().filter_map(|(_, event)| match event {
+                    window::Event::Resized(_) | window::Event::Unfocused => {
+                        Some(Message::WindowEvent(event))
+                    }
+                    _ => None,
+                }),
+            ])
+        } else if matches!(self.screen, Screen::Game(_)) && self.media.is_active() {
             iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick)
         } else {
             Subscription::none()
@@ -712,6 +986,10 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        if matches!(self.screen, Screen::BigPicture) {
+            return views::big_picture::view(self);
+        }
+
         let sidebar = views::sidebar::view(self);
         let content: Element<'_, Message> = match &self.screen {
             Screen::Library => views::library::view(self),
@@ -731,6 +1009,7 @@ impl App {
             Screen::Section(Section::Components) => views::components::view(self),
             Screen::Section(Section::Home) => views::home::view(self),
             Screen::Section(section) => views::section_placeholder(*section),
+            Screen::BigPicture => views::big_picture::view(self),
         };
 
         iced::widget::column![
@@ -865,6 +1144,32 @@ impl App {
         }
 
         Task::batch(tasks)
+    }
+}
+
+/// Teclado do console: mesmas intenções do gamepad (`NavEvent`).
+fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
+    let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
+        return None;
+    };
+
+    use keyboard::key::Named;
+
+    match key {
+        keyboard::Key::Named(Named::ArrowUp) => Some(NavEvent::Up),
+        keyboard::Key::Named(Named::ArrowDown) => Some(NavEvent::Down),
+        keyboard::Key::Named(Named::ArrowLeft) => Some(NavEvent::Left),
+        keyboard::Key::Named(Named::ArrowRight) => Some(NavEvent::Right),
+        keyboard::Key::Named(Named::Enter) | keyboard::Key::Named(Named::Space) => {
+            Some(NavEvent::Confirm)
+        }
+        keyboard::Key::Named(Named::Escape) => Some(NavEvent::Back),
+        keyboard::Key::Named(Named::Tab) => Some(if modifiers.shift() {
+            NavEvent::PageLeft
+        } else {
+            NavEvent::PageRight
+        }),
+        _ => None,
     }
 }
 

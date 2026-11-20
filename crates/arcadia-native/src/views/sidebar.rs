@@ -144,7 +144,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .spacing(10)
         .align_y(iced::Center),
     )
-    .on_press(Message::Navigate(Section::BigPicture))
+    .on_press(Message::EnterBigPicture)
     .width(Fill)
     .padding([9.0, 10.0])
     .style(theme::big_picture);
@@ -292,5 +292,6 @@ fn is_active(app: &App, section: Section) -> bool {
     match &app.screen {
         Screen::Library | Screen::Game(_) => section == Section::Library,
         Screen::Section(current) => *current == section,
+        Screen::BigPicture => section == Section::BigPicture,
     }
 }
