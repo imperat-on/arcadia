@@ -35,7 +35,14 @@ export function ProfileBridge({
       // Logado: o servidor é a fonte da verdade — SEM fallback pro local,
       // senão a conta anterior vaza campos (summary/país/avatar...).
       name: perfil.display_name || perfil.username || "",
-      avatar: perfil.avatar_url || "",
+      // O avatar NÃO é zerado quando `avatar_url` vem nulo. O `perfilInicial`
+      // do AccountContext nasce com `avatar_url: null` e é aplicado antes da
+      // resposta de `account:profile` (que leva ~2,3 s na primeira chamada).
+      // Com `|| ""` o avatar local era apagado nessa janela e a Sidebar caía
+      // na letra até a resposta chegar — o piscar que o usuário via. Manter o
+      // valor anterior faz a foto sobreviver ao intervalo; o servidor só a
+      // substitui quando tem uma URL de verdade.
+      avatar: perfil.avatar_url || p.avatar || "",
       summary: perfil.summary ?? "",
       country: perfil.country ?? "",
       city: perfil.city ?? "",

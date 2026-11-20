@@ -15,6 +15,7 @@ pub mod news;
 pub mod protondb;
 pub mod realtime;
 pub mod cover_cache;
+pub mod sysinfo_cache;
 pub mod discord_rpc;
 pub mod updater_backend;
 pub mod updater_service;
@@ -134,6 +135,9 @@ pub struct AppState {
     pub realtime: crate::realtime::Realtime,
     /// Cache local das capas Retro (baixa uma vez, reduz, guarda em disco).
     pub covers: crate::cover_cache::CoverCache,
+    /// Requisitos e tamanho por jogo. Sem ele cada clique na página de um jogo
+    /// pagava 1,4–2,2 s de rede; ver `sysinfo_cache`.
+    pub sysinfo: crate::sysinfo_cache::SysinfoCache,
     /// Processo do wrapper XInput, quando ativo. `gamepadStatus` lê daqui em
     /// vez de devolver um stub — antes o canal sempre dizia `running: false`.
     pub gamepad: Mutex<Option<std::process::Child>>,
@@ -271,6 +275,7 @@ impl AppState {
             discord,
             realtime: crate::realtime::Realtime::new(),
             covers: crate::cover_cache::CoverCache::new(&dir_covers),
+            sysinfo: crate::sysinfo_cache::SysinfoCache::new(),
             gamepad: Mutex::new(None),
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
@@ -2258,8 +2263,26 @@ async fn dispatch_async_inner(
         }
         "game:sysinfo" => {
             let game = args.first().cloned().unwrap_or_else(|| json!({}));
+            // A chave é o id do jogo — estável e já no payload. Um clique
+            // repetido no mesmo jogo responde em memória em vez de gastar as
+            // duas idas à rede (`store.suggest` + catálogo) que custavam
+            // 1,4–2,2 s medidas.
+            let chave = game
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            if chave.is_empty() {
+                let store = state.store_client(channel).ok();
+                return Ok(catalog_service::game_sysinfo(state, store.as_deref(), &game).await);
+            }
+            if let Some(cacheado) = state.sysinfo.get(&chave) {
+                return Ok(cacheado);
+            }
             let store = state.store_client(channel).ok();
-            Ok(catalog_service::game_sysinfo(state, store.as_deref(), &game).await)
+            let resposta = catalog_service::game_sysinfo(state, store.as_deref(), &game).await;
+            state.sysinfo.put(chave, resposta.clone());
+            Ok(resposta)
         }
         "game:stats" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();

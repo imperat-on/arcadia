@@ -1,7 +1,7 @@
 "use client"
 
 // Sidebar do modo desktop (estilo Heroic, adaptada ao tema do Arcadia).
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
@@ -99,15 +99,20 @@ export function Sidebar({
     ? contaPerfil?.display_name || contaSession?.user?.username || contaPerfil?.username || profile.name || t("profile.jogador")
     : profile.name || t("profile.jogador")
   const avatarUrl = logado ? contaPerfil?.avatar_url || profile.avatar : profile.avatar
+  // O avatar piscava porque `account:profile` leva ~2,3 s na primeira chamada e
+  // cada resposta do backend recria o objeto `perfil`. Nas janelas em que
+  // `avatar_url` vinha nulo, o `||` caía num `profile.avatar` já zerado pelo
+  // ProfileBridge, e a Sidebar renderizava a letra por um frame — voltando à
+  // foto no seguinte. Um ref com o último valor NÃO-VAZIO visto faz a imagem
+  // sobreviver a qualquer resposta atrasada: uma vez pintada, só troca por
+  // outra URL, nunca por vazio.
+  const ultimoAvatar = useRef<string>("")
+  if (avatarUrl) ultimoAvatar.current = avatarUrl
+  const urlEstavel = avatarUrl || ultimoAvatar.current
   // Estado de erro chaveado pela URL: se a imagem falhou e a URL NÃO mudou,
   // continua escondida. Só uma URL nova reabre a tentativa.
   const [avatarFalhou, setAvatarFalhou] = useState<string | null>(null)
-  const avatarErro = Boolean(avatarUrl) && avatarFalhou === avatarUrl
-
-  // Um novo avatar pode chegar enquanto a Sidebar continua montada. Só uma URL
-  // diferente reabre a tentativa: o `onError` abaixo marca a URL que falhou, e
-  // comparar por valor evita o loop que existia quando o erro era um booleano
-  // resetado a cada render (o avatar piscava entre a foto e a inicial).
+  const avatarErro = Boolean(urlEstavel) && avatarFalhou === urlEstavel
 
   const jogos = useMemo(() => {
     const l = games.filter((g) => !g.hidden)
@@ -139,9 +144,9 @@ export function Sidebar({
                 identidade nova de `perfil` a cada resposta do backend — é o que
                 fazia o avatar piscar entre a foto e a inicial. */}
             <span aria-hidden="true">{nome[0]?.toUpperCase()}</span>
-            {avatarUrl ? (
+            {urlEstavel ? (
               <img
-                src={avatarUrl}
+                src={urlEstavel}
                 alt=""
                 className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-150 ${
                   avatarErro ? "opacity-0" : "opacity-100"
@@ -150,7 +155,7 @@ export function Sidebar({
                 // Marca a URL que falhou. Como o erro é comparado por valor, o
                 // mesmo endereço não é tentado de novo — e uma URL nova
                 // (avatar trocado) reabre a tentativa sozinha.
-                onError={() => setAvatarFalhou(avatarUrl ?? null)}
+                onError={() => setAvatarFalhou(urlEstavel)}
               />
             ) : null}
           </div>

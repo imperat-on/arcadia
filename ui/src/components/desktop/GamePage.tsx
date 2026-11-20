@@ -102,12 +102,22 @@ export function GamePage({
   const abrindo = abrindoExterno ?? abrindoLocal
 
   // Dados reais: tamanhos (legendary, Epic) e requisitos (Steam appdetails).
+  //
+  // O painel aparece na hora com o que já estiver em memória e só mostra
+  // spinner quando não há nada. Antes ele trocava por um spinner por
+  // 1,4–2,2 s — o tempo que o `game:sysinfo` levava sem cache. Com o cache no
+  // backend a resposta volta instantânea; manter o spinner ligado
+  // transformaria um clique rápido numa tela vazia piscando.
   useEffect(() => {
-    setSysBusy(true)
+    let vivo = true
     window.launcherAPI?.gameSysinfo(g).then((r) => {
+      if (!vivo) return
       setSys(r?.info || {})
       setSysBusy(false)
     })
+    return () => {
+      vivo = false
+    }
   }, [g.id])
 
   // Path de instalação (pra FixesPanel saber onde extrair) e estado dos plugins.
