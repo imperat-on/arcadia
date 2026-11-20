@@ -644,15 +644,26 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     ]
     .align_y(iced::Center);
 
+    let running = app.launch.is_running(&game.id);
+    let (play_glyph, play_label, play_message) = if app.launch.is_launching(&game.id) {
+        ("▶", "Abrindo…".to_string(), None)
+    } else if running {
+        ("■", "Parar".to_string(), Some(Message::StopGame))
+    } else if app.launch.is_stopping(&game.id) {
+        ("■", "Parando…".to_string(), None)
+    } else {
+        ("▶", "Jogar".to_string(), Some(Message::ConsolePlay))
+    };
+
     let play = button(
         row![
-            text("▶").size(12),
-            text("Jogar").size(16).font(theme::FONT_SEMIBOLD),
+            text(play_glyph).size(12),
+            text(play_label).size(16).font(theme::FONT_SEMIBOLD),
         ]
         .spacing(10)
         .align_y(iced::Center),
     )
-    .on_press(Message::ConsolePlay)
+    .on_press_maybe(play_message)
     .padding([13.0, 26.0])
     .style(move |style_theme, status| {
         theme::console_play(style_theme, status, focused(ACTION_PLAY))
@@ -731,6 +742,10 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         activity = activity.push(super::warning_banner(notice));
     }
 
+    if let Some(error) = app.launch.error.as_deref() {
+        activity = activity.push(super::action_error_banner(error, None));
+    }
+
     activity = activity.push(
         row![
             text(game.playtime_label()).size(12).color(MUTED),
@@ -758,6 +773,14 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             .spacing(16)
             .align_y(iced::Center),
     );
+
+    if running {
+        activity = activity.push(
+            text("Em execução — Parar encerra o processo.")
+                .size(11)
+                .color(theme::SUCCESS),
+        );
+    }
 
     activity = activity.push(
         text("◀ ▶ ações · A confirmar · B voltar · Guide sair do Big Picture")

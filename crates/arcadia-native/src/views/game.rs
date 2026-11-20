@@ -5,7 +5,7 @@ use iced::widget::{
 };
 use iced::{ContentFit, Element, Fill};
 
-use crate::app::Message;
+use crate::app::{GameLaunchState, Message};
 use crate::backend::{Game, GameMedia};
 use crate::covers::CoverCache;
 use crate::input;
@@ -17,6 +17,7 @@ pub fn view<'a>(
     covers: &'a CoverCache,
     media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
+    launch: &'a GameLaunchState,
 ) -> Element<'a, Message> {
     let hero_url = game.hero_url.as_deref().or(game.cover_url.as_deref());
 
@@ -48,7 +49,7 @@ pub fn view<'a>(
     .padding([6.0, 12.0])
     .style(theme::ghost_button);
 
-    let meta = column![
+    let mut meta = column![
         text(game.title.as_str())
             .size(40)
             .font(theme::FONT_BOLD)
@@ -74,6 +75,11 @@ pub fn view<'a>(
         .spacing(8),
     ]
     .spacing(6);
+
+    meta = meta.push(launch_controls(game, launch));
+    if let Some(error) = launch.error.as_deref() {
+        meta = meta.push(super::action_error_banner(error, None));
+    }
 
     let overlay = container(
         column![back, Space::new().height(Fill), meta,]
@@ -159,6 +165,67 @@ pub fn view<'a>(
         .height(Fill);
 
     column![hero, body].width(Fill).height(Fill).into()
+}
+
+/// Botão Jogar/Parar da ficha, com o estado da sessão ao lado.
+fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'a, Message> {
+    let running = launch.is_running(&game.id);
+    let (label, message) = if !game.installed {
+        ("Instale para jogar".to_string(), None)
+    } else if launch.is_launching(&game.id) {
+        ("Abrindo…".to_string(), None)
+    } else if running {
+        ("■  Parar".to_string(), Some(Message::StopGame))
+    } else if launch.is_stopping(&game.id) {
+        ("Parando…".to_string(), None)
+    } else if launch.busy_with_other(&game.id) {
+        ("Jogar".to_string(), None)
+    } else {
+        (
+            "▶  Jogar".to_string(),
+            Some(Message::LaunchGame(game.id.clone())),
+        )
+    };
+
+    let play_style: fn(&iced::Theme, button::Status) -> button::Style = if running {
+        theme::ghost_button
+    } else {
+        theme::primary_button
+    };
+
+    let play = button(text(label).size(13).font(theme::FONT_SEMIBOLD))
+        .on_press_maybe(message)
+        .padding([10.0, 22.0])
+        .style(play_style);
+
+    let status: Element<'a, Message> = if running {
+        text("Em execução — Parar encerra o processo.")
+            .size(11)
+            .color(theme::SUCCESS)
+            .into()
+    } else if launch.is_launching(&game.id) {
+        text("Aguardando o processo do jogo…")
+            .size(11)
+            .color(theme::TEXT_2)
+            .into()
+    } else if launch.is_stopping(&game.id) {
+        text("Encerrando o processo…")
+            .size(11)
+            .color(theme::TEXT_2)
+            .into()
+    } else if launch.busy_with_other(&game.id) {
+        text("Feche o jogo em execução antes de abrir este.")
+            .size(11)
+            .color(theme::TEXT_3)
+            .into()
+    } else {
+        Space::new().width(0).into()
+    };
+
+    row![play, status]
+        .spacing(theme::SPACE_3)
+        .align_y(iced::Center)
+        .into()
 }
 
 fn placeholder_card<'a>(title: &'a str, message: &'a str) -> Element<'a, Message> {

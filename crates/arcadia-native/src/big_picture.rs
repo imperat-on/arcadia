@@ -74,8 +74,8 @@ pub enum ConsoleEffect {
     None,
     /// Sai do modo console e volta ao desktop (janela em `Windowed`).
     Exit,
-    /// Abre a ficha do jogo no desktop (o nativo ainda não lança processos).
-    OpenGame(String),
+    /// Inicia o jogo selecionado de verdade via `game:launch`.
+    LaunchGame(String),
     /// Aviso curto no rodapé do painel (stub explícito).
     Notice(String),
 }
@@ -432,7 +432,7 @@ impl BigPicture {
                 "\"{}\" não está instalado — instale pela tela desktop nesta onda.",
                 game.title
             )),
-            ACTION_PLAY => ConsoleEffect::OpenGame(game.id.clone()),
+            ACTION_PLAY => ConsoleEffect::LaunchGame(game.id.clone()),
             ACTION_TRAILER => ConsoleEffect::Notice(
                 "O player de trailer do console chega na próxima onda; abra a ficha do jogo no desktop para assistir."
                     .to_string(),
@@ -473,6 +473,7 @@ mod tests {
             id: id.to_string(),
             title: format!("Jogo {id}"),
             launcher: "custom".to_string(),
+            launch_cmd: Vec::new(),
             cover_url: None,
             hero_url: None,
             description: None,
@@ -523,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn down_opens_the_panel_and_confirm_opens_the_game() {
+    fn down_opens_the_panel_and_confirm_launches_the_game() {
         let library = games(2);
         let refs: Vec<&Game> = library.iter().collect();
         let mut state = state(2);
@@ -535,7 +536,7 @@ mod tests {
 
         assert_eq!(
             state.handle(NavEvent::Confirm, &refs),
-            ConsoleEffect::OpenGame("0".to_string())
+            ConsoleEffect::LaunchGame("0".to_string())
         );
     }
 
@@ -638,7 +639,7 @@ mod tests {
         state.handle(NavEvent::Down, &refs);
         assert!(matches!(
             state.handle(NavEvent::Confirm, &refs),
-            ConsoleEffect::OpenGame(_)
+            ConsoleEffect::LaunchGame(_)
         ));
 
         state.set_notice("teste");

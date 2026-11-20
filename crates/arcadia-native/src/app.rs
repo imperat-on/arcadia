@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
-    PluginItem, SettingsConfig, SourceItem,
+    LaunchSnapshot, PluginItem, SettingsConfig, SourceItem,
 };
 use crate::big_picture::{
     BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
@@ -44,6 +44,19 @@ pub enum Message {
     MediaTogglePlayback,
     MediaSeek(f64),
     MediaError(String),
+    /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
+    LaunchGame(String),
+    /// "Parar": encerra o processo atual via `game:close`.
+    StopGame,
+    LaunchGameDone {
+        id: String,
+        result: Result<(), String>,
+    },
+    StopGameDone(Result<(), String>),
+    /// Polling do runtime de launch enquanto houver jogo abrindo/rodando.
+    LaunchPoll,
+    /// `config:get` silencioso no boot para saber se minimiza ao lançar.
+    LaunchConfigLoaded(Result<SettingsConfig, String>),
     Refresh(Section),
     DownloadsLoaded(Result<DownloadsData, String>),
     DownloadActionRequested {
@@ -260,6 +273,80 @@ impl Library {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameRunStatus {
+    #[default]
+    Idle,
+    Launching,
+    Running,
+    Stopping,
+}
+
+/// Sessão de jogo vista pela UI nativa.
+///
+/// O `LaunchRuntime` do IPC só aceita um jogo por vez; `game_id` diz a qual
+/// jogo o estado atual pertence. `error` é sempre exibido na ficha e no painel
+/// do Big Picture — falha de launch não fica só no stderr.
+#[derive(Debug, Clone, Default)]
+pub struct GameLaunchState {
+    pub status: GameRunStatus,
+    pub game_id: Option<String>,
+    pub pid: Option<u32>,
+    pub error: Option<String>,
+    /// Preferência `minimize_on_game_launch`, carregada no boot.
+    pub minimize_on_launch: bool,
+    /// `true` enquanto fomos nós que minimizamos; restaura ao encerrar.
+    pub minimized: bool,
+}
+
+impl GameLaunchState {
+    pub fn is_launching(&self, id: &str) -> bool {
+        self.status == GameRunStatus::Launching && self.game_id.as_deref() == Some(id)
+    }
+
+    pub fn is_running(&self, id: &str) -> bool {
+        self.status == GameRunStatus::Running && self.game_id.as_deref() == Some(id)
+    }
+
+    pub fn is_stopping(&self, id: &str) -> bool {
+        self.status == GameRunStatus::Stopping && self.game_id.as_deref() == Some(id)
+    }
+
+    /// Outro jogo está abrindo/rodando; o runtime só aceita uma sessão.
+    pub fn busy_with_other(&self, id: &str) -> bool {
+        self.status != GameRunStatus::Idle && self.game_id.as_deref() != Some(id)
+    }
+
+    pub fn needs_poll(&self) -> bool {
+        self.status != GameRunStatus::Idle
+    }
+
+    /// Aplica o polling sem atropelar um `game:launch`/`game:close` em voo.
+    fn apply_snapshot(&mut self, snapshot: LaunchSnapshot) {
+        if matches!(
+            self.status,
+            GameRunStatus::Launching | GameRunStatus::Stopping
+        ) {
+            return;
+        }
+
+        if snapshot.running {
+            self.status = GameRunStatus::Running;
+            if let Some(id) = snapshot.game_id {
+                self.game_id = Some(id);
+            }
+            self.pid = snapshot.pid;
+            return;
+        }
+
+        if self.status == GameRunStatus::Running {
+            self.status = GameRunStatus::Idle;
+            self.game_id = None;
+            self.pid = None;
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum LoadStatus {
     #[default]
@@ -376,6 +463,8 @@ pub struct App {
     pub window_size: Size,
     /// Estado do modo console (gamepad, foco, aba, painel).
     pub big_picture: BigPicture,
+    /// Sessão de jogo: abrindo, rodando, parando e última falha.
+    pub launch: GameLaunchState,
     /// Tela desktop a restaurar quando o console for fechado.
     pub previous_screen: Option<Screen>,
 }
@@ -400,11 +489,20 @@ impl App {
             window: None,
             window_size: Size::new(1600.0, 900.0),
             big_picture: BigPicture::new(),
+            launch: GameLaunchState::default(),
             previous_screen: None,
+        };
+        let launch_config = {
+            let backend = app.backend.clone();
+            Task::perform(
+                async move { backend.load_settings().await },
+                Message::LaunchConfigLoaded,
+            )
         };
         let task = Task::batch([
             app.reload_task(),
             window::latest().map(Message::WindowReady),
+            launch_config,
         ]);
         (app, task)
     }
@@ -505,6 +603,7 @@ impl App {
                 match result {
                     Ok(config) => {
                         self.settings.accent_draft = config.accent.clone();
+                        self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
                     }
@@ -520,6 +619,7 @@ impl App {
                 match result {
                     Ok(config) => {
                         self.settings.accent_draft = config.accent.clone();
+                        self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
                         self.settings.save_error = None;
@@ -752,6 +852,32 @@ impl App {
                 self.media.report_error(error);
                 Task::none()
             }
+            Message::LaunchGame(id) => self.request_launch(id),
+            Message::StopGame => self.request_stop(),
+            Message::LaunchGameDone { id, result } => self.finish_launch(id, result),
+            Message::StopGameDone(result) => self.finish_stop(result),
+            Message::LaunchPoll => {
+                let was_running = self.launch.status == GameRunStatus::Running;
+                self.launch.apply_snapshot(self.backend.launch_state());
+                if was_running && self.launch.status == GameRunStatus::Idle {
+                    self.restore_window_task()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::LaunchConfigLoaded(result) => {
+                match result {
+                    Ok(config) => {
+                        self.launch.minimize_on_launch = config.minimize_on_game_launch;
+                    }
+                    Err(error) => {
+                        // Preferência opcional: sem config, não minimiza e o
+                        // resto do app segue normalmente.
+                        eprintln!("[arcadia-native] minimize_on_game_launch indisponível: {error}");
+                    }
+                }
+                Task::none()
+            }
         }
     }
 
@@ -828,17 +954,126 @@ impl App {
         Task::batch([covers, media])
     }
 
-    /// "Jogar" no console: volta a janela ao modo normal e abre a ficha.
+    /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
     ///
-    /// Este frontend ainda não dispara `game:launch`; o lançamento de fato fica
-    /// para uma onda seguinte. O botão leva à ficha real do jogo.
-    fn open_game_from_console(&mut self, id: String) -> Task<Message> {
-        self.previous_screen = None;
-        let mut tasks = vec![self.open_game(id)];
-        if let Some(window) = self.window {
-            tasks.push(window::set_mode(window, window::Mode::Windowed));
+    /// O runtime só aceita uma sessão; um segundo jogo é recusado na UI com
+    /// mensagem explícita antes de chegar ao backend. `minimize_on_game_launch`
+    /// é aplicado só depois do `ok:true`, para uma falha continuar visível.
+    fn request_launch(&mut self, id: String) -> Task<Message> {
+        if matches!(
+            self.launch.status,
+            GameRunStatus::Launching | GameRunStatus::Stopping
+        ) {
+            return Task::none();
         }
-        Task::batch(tasks)
+
+        if self.launch.status == GameRunStatus::Running
+            && self.launch.game_id.as_deref() == Some(id.as_str())
+        {
+            return Task::none();
+        }
+
+        if self.launch.busy_with_other(&id) {
+            let running = self.launch.game_id.clone().unwrap_or_default();
+            let title = self
+                .library
+                .game(&running)
+                .map(|game| game.title.clone())
+                .unwrap_or(running);
+            self.launch.error = Some(format!("Feche \"{title}\" antes de abrir outro jogo."));
+            return Task::none();
+        }
+
+        let Some(game) = self.library.game(&id).cloned() else {
+            return Task::none();
+        };
+        if !game.installed {
+            self.launch.error = Some(format!("\"{}\" não está instalado.", game.title));
+            return Task::none();
+        }
+
+        self.launch.status = GameRunStatus::Launching;
+        self.launch.game_id = Some(id.clone());
+        self.launch.pid = None;
+        self.launch.error = None;
+
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.launch_game(&game, None).await },
+            move |result| Message::LaunchGameDone { id, result },
+        )
+    }
+
+    /// "Parar": `game:close` encerra o processo e a árvore dele.
+    fn request_stop(&mut self) -> Task<Message> {
+        if self.launch.status != GameRunStatus::Running {
+            return Task::none();
+        }
+
+        self.launch.status = GameRunStatus::Stopping;
+        self.launch.error = None;
+        let backend = self.backend.clone();
+        Task::perform(async move { backend.close_game().await }, Message::StopGameDone)
+    }
+
+    fn finish_launch(&mut self, id: String, result: Result<(), String>) -> Task<Message> {
+        // Uma resposta atrasada não pode reabrir uma sessão que já mudou.
+        if !self.launch.is_launching(&id) {
+            return Task::none();
+        }
+
+        match result {
+            Ok(()) => {
+                eprintln!("[arcadia-native] jogo iniciado: {id}");
+                self.launch.status = GameRunStatus::Running;
+                self.launch.game_id = Some(id);
+                self.launch.pid = None;
+                self.launch.error = None;
+                if self.launch.minimize_on_launch && self.window.is_some() {
+                    self.launch.minimized = true;
+                    self.window_task(|window| window::minimize(window, true))
+                } else {
+                    Task::none()
+                }
+            }
+            Err(error) => {
+                eprintln!("[arcadia-native] falha ao abrir jogo: {error}");
+                self.launch.status = GameRunStatus::Idle;
+                self.launch.game_id = None;
+                self.launch.pid = None;
+                self.launch.error = Some(format!("Falha ao abrir o jogo: {error}"));
+                Task::none()
+            }
+        }
+    }
+
+    fn finish_stop(&mut self, result: Result<(), String>) -> Task<Message> {
+        match result {
+            Ok(()) => {
+                eprintln!("[arcadia-native] jogo encerrado");
+                self.launch.status = GameRunStatus::Idle;
+                self.launch.game_id = None;
+                self.launch.pid = None;
+                self.launch.error = None;
+                self.restore_window_task()
+            }
+            Err(error) => {
+                eprintln!("[arcadia-native] falha ao parar jogo: {error}");
+                self.launch.status = GameRunStatus::Running;
+                self.launch.error = Some(format!("Falha ao parar o jogo: {error}"));
+                Task::none()
+            }
+        }
+    }
+
+    /// Desfaz só a minimização feita pelo launch; não mexe se o usuário
+    /// minimizou a janela por conta própria.
+    fn restore_window_task(&mut self) -> Task<Message> {
+        if !self.launch.minimized {
+            return Task::none();
+        }
+        self.launch.minimized = false;
+        self.window_task(|window| window::minimize(window, false))
     }
 
     fn window_event(&mut self, event: window::Event) -> Task<Message> {
@@ -950,7 +1185,13 @@ impl App {
         match effect {
             ConsoleEffect::None => Task::none(),
             ConsoleEffect::Exit => self.exit_big_picture(),
-            ConsoleEffect::OpenGame(id) => self.open_game_from_console(id),
+            ConsoleEffect::LaunchGame(id) => {
+                if self.launch.is_running(&id) {
+                    self.request_stop()
+                } else {
+                    self.request_launch(id)
+                }
+            }
             ConsoleEffect::Notice(text) => {
                 self.big_picture.set_notice(text);
                 Task::none()
@@ -962,27 +1203,39 @@ impl App {
         views::big_picture::rail_scroll_task(self.big_picture.rail_index(), self.window_size.width)
     }
 
-    /// Timer de ~60 fps que drena os frames do GStreamer.
+    /// Timer de ~60 fps que drena os frames do GStreamer, o gamepad do console
+    /// e o polling da sessão de jogo.
     ///
-    /// Só existe na página do jogo e depois que o pipeline foi criado; fora
-    /// isso o app não acorda à toa.
+    /// O polling só existe enquanto há jogo abrindo/rodando; fora isso o app
+    /// não acorda à toa. Os eventos `game:running` do IPC ainda não têm canal
+    /// no shell nativo, então `LaunchRuntime::state_json` é a fonte de verdade.
     pub fn subscription(&self) -> Subscription<Message> {
+        let mut subscriptions = Vec::new();
+
         if matches!(self.screen, Screen::BigPicture) {
-            Subscription::batch([
+            subscriptions.push(
                 iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick),
-                iced::keyboard::listen().map(Message::ConsoleKey),
-                window::events().filter_map(|(_, event)| match event {
-                    window::Event::Resized(_) | window::Event::Unfocused => {
-                        Some(Message::WindowEvent(event))
-                    }
-                    _ => None,
-                }),
-            ])
+            );
+            subscriptions.push(iced::keyboard::listen().map(Message::ConsoleKey));
+            subscriptions.push(window::events().filter_map(|(_, event)| match event {
+                window::Event::Resized(_) | window::Event::Unfocused => {
+                    Some(Message::WindowEvent(event))
+                }
+                _ => None,
+            }));
         } else if matches!(self.screen, Screen::Game(_)) && self.media.is_active() {
-            iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick)
-        } else {
-            Subscription::none()
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick),
+            );
         }
+
+        if self.launch.needs_poll() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(1500)).map(|_| Message::LaunchPoll),
+            );
+        }
+
+        Subscription::batch(subscriptions)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -999,6 +1252,7 @@ impl App {
                     &self.covers,
                     &self.media,
                     self.game_media.as_ref(),
+                    &self.launch,
                 ),
                 None => views::missing_game(),
             },
@@ -1182,6 +1436,7 @@ mod tests {
             id: id.to_string(),
             title: title.to_string(),
             launcher: "custom".to_string(),
+            launch_cmd: Vec::new(),
             cover_url: None,
             hero_url: None,
             description: None,
@@ -1255,5 +1510,49 @@ mod tests {
                 "https://example.test/b.jpg".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn launch_state_is_per_game_and_survives_polling_while_launching() {
+        let mut launch = GameLaunchState {
+            status: GameRunStatus::Launching,
+            game_id: Some("steam:10".to_string()),
+            ..GameLaunchState::default()
+        };
+        assert!(launch.is_launching("steam:10"));
+        assert!(!launch.is_running("steam:10"));
+        assert!(launch.needs_poll());
+
+        // O processo ainda não existe durante o `game:launch`: um snapshot
+        // vazio não pode cancelar o estado "Abrindo…".
+        launch.apply_snapshot(LaunchSnapshot::default());
+        assert!(launch.is_launching("steam:10"));
+
+        launch.status = GameRunStatus::Running;
+        launch.pid = Some(42);
+        launch.apply_snapshot(LaunchSnapshot {
+            running: true,
+            game_id: Some("steam:10".to_string()),
+            pid: Some(42),
+        });
+        assert!(launch.is_running("steam:10"));
+        assert_eq!(launch.pid, Some(42));
+
+        // Processo terminou sozinho: o polling devolve a UI para Idle.
+        launch.apply_snapshot(LaunchSnapshot::default());
+        assert_eq!(launch.status, GameRunStatus::Idle);
+        assert!(launch.game_id.is_none());
+        assert!(!launch.needs_poll());
+    }
+
+    #[test]
+    fn another_game_cannot_launch_over_a_running_session() {
+        let launch = GameLaunchState {
+            status: GameRunStatus::Running,
+            game_id: Some("steam:10".to_string()),
+            ..GameLaunchState::default()
+        };
+        assert!(launch.busy_with_other("custom:1"));
+        assert!(!launch.busy_with_other("steam:10"));
     }
 }

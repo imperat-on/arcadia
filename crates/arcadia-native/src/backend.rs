@@ -22,6 +22,10 @@ pub struct Game {
     pub id: String,
     pub title: String,
     pub launcher: String,
+    /// Comando que a UI web manda em `game:launch` (`cmd` do `useGameActions`).
+    /// O resolver do IPC prioriza o `gameId`, mas o payload da renderer inclui
+    /// o comando — mantemos o mesmo contrato para os modos futuros.
+    pub launch_cmd: Vec<String>,
     pub cover_url: Option<String>,
     pub hero_url: Option<String>,
     pub description: Option<String>,
@@ -44,6 +48,8 @@ struct RawGame {
     title: Option<String>,
     #[serde(default)]
     launcher: Option<String>,
+    #[serde(default)]
+    launch_cmd: Vec<String>,
     #[serde(default)]
     cover: Option<String>,
     #[serde(default)]
@@ -85,6 +91,7 @@ impl Game {
 
         Some(Self {
             launcher: clean(raw.launcher).unwrap_or_else(|| "custom".to_string()),
+            launch_cmd: raw.launch_cmd,
             cover_url,
             hero_url,
             description: clean(raw.description)
@@ -298,6 +305,53 @@ fn media_url(input: &str) -> Option<String> {
     }
     let lower = normalized.to_ascii_lowercase();
     (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
+}
+
+// ── Lançamento de jogos ─────────────────────────────────────────────────────
+
+/// Snapshot de `LaunchRuntime::state_json` — a fonte de verdade do processo.
+///
+/// O shell nativo ainda não entrega os eventos `game:running`/`game:active`;
+/// enquanto isso, o app consulta este estado em polling de baixa frequência.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LaunchSnapshot {
+    pub running: bool,
+    pub game_id: Option<String>,
+    pub pid: Option<u32>,
+}
+
+pub fn parse_launch_snapshot(value: &Value) -> LaunchSnapshot {
+    if value.get("running").and_then(Value::as_bool) != Some(true) {
+        return LaunchSnapshot::default();
+    }
+
+    LaunchSnapshot {
+        running: true,
+        game_id: optional_text_field(value, "gameId"),
+        pid: value
+            .get("pid")
+            .and_then(Value::as_u64)
+            .and_then(|pid| u32::try_from(pid).ok()),
+    }
+}
+
+/// Payload de `game:launch`, igual ao do `useGameActions.ts`:
+/// `{ cmd, gameId, mode? }`. `mode` só entra quando a UI oferecer a escolha
+/// Steam/exe (a próxima onda); launch options de Wine/Proton continuam
+/// resolvidas pelo `arcadia-ipc`, não pelo frontend.
+pub fn launch_payload(game: &Game, mode: Option<&str>) -> Value {
+    let mut payload = serde_json::Map::new();
+    payload.insert("cmd".to_string(), json!(game.launch_cmd));
+    payload.insert("gameId".to_string(), json!(game.id));
+    if let Some(mode) = mode {
+        payload.insert("mode".to_string(), json!(mode));
+    }
+    Value::Object(payload)
+}
+
+/// `{ok:false,error}` do `game:launch` vira um erro legível para a UI.
+fn check_game_launch(value: &Value) -> Result<(), String> {
+    check_envelope(value, "game:launch")
 }
 
 // ── Downloads ───────────────────────────────────────────────────────────────
@@ -1216,6 +1270,33 @@ impl Backend {
         }
     }
 
+    /// Inicia um jogo pelo mesmo canal do Electron (`game:launch`).
+    ///
+    /// O payload é o do [`launch_payload`]; `mode` é o ponto de extensão para o
+    /// seletor Steam/exe da UI web, que o nativo ainda não oferece. Erros do
+    /// dispatcher (`ok:false`) e do spawn do processo chegam como `Err` para a
+    /// UI mostrar na ficha, não só no stderr.
+    pub async fn launch_game(&self, game: &Game, mode: Option<&str>) -> Result<(), String> {
+        let value = self
+            .dispatch("game:launch", vec![launch_payload(game, mode)])
+            .await?;
+        check_game_launch(&value)
+    }
+
+    /// `game:close` — encerra o processo (e a árvore) do jogo atual.
+    pub async fn close_game(&self) -> Result<(), String> {
+        let value = self.dispatch("game:close", Vec::new()).await?;
+        check_envelope(&value, "game:close")
+    }
+
+    /// Estado atual do processo, direto do runtime de launch.
+    ///
+    /// `state_json` já faz `try_wait`, então a consulta reflete um jogo que
+    /// terminou sozinho — não é só o último resultado do nosso `game:launch`.
+    pub fn launch_state(&self) -> LaunchSnapshot {
+        parse_launch_snapshot(&self.state.launch.state_json())
+    }
+
     /// `dm:queue` + `torrent:list` em paralelo. Uma falha parcial não apaga a
     /// outra fonte: vira aviso na tela, com os itens que responderam.
     pub async fn load_downloads(&self) -> Result<DownloadsData, String> {
@@ -1363,6 +1444,7 @@ mod tests {
                 "id": "steam:10",
                 "title": "Half-Life",
                 "launcher": "steam",
+                "launch_cmd": ["steam", "steam://run/10"],
                 "cover": "https://example.test/hl.jpg",
                 "hero": "https://example.test/hl-hero.jpg",
                 "description": "<p>Hello<br>world &amp; friends</p>",
@@ -1391,6 +1473,10 @@ mod tests {
         let half_life = &games[0];
         assert_eq!(half_life.id, "steam:10");
         assert_eq!(half_life.year.as_deref(), Some("1998"));
+        assert_eq!(
+            half_life.launch_cmd,
+            vec!["steam".to_string(), "steam://run/10".to_string()]
+        );
         assert_eq!(
             half_life.description.as_deref(),
             Some("Hello\nworld & friends")
@@ -1441,6 +1527,7 @@ mod tests {
             id: "steam:1".to_string(),
             title: "Teste".to_string(),
             launcher: "steam".to_string(),
+            launch_cmd: Vec::new(),
             cover_url: Some("https://example.test/cover.jpg".to_string()),
             hero_url: Some("https://example.test/cover.jpg".to_string()),
             description: None,
@@ -1732,5 +1819,86 @@ mod tests {
         let media = parse_game_media(json!(["não é objeto"]));
         assert!(media.movies.is_empty());
         assert!(media.notice.is_some());
+    }
+
+    fn launch_game_fixture() -> Game {
+        Game {
+            id: "steam:10".to_string(),
+            title: "Half-Life".to_string(),
+            launcher: "steam".to_string(),
+            launch_cmd: vec!["steam".to_string(), "steam://run/10".to_string()],
+            cover_url: None,
+            hero_url: None,
+            description: None,
+            developer: None,
+            publisher: None,
+            genre: None,
+            year: None,
+            playtime_minutes: 0,
+            installed: true,
+            hidden: false,
+            favorite: false,
+            categories: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn launch_payload_matches_the_web_bridge_contract() {
+        let game = launch_game_fixture();
+
+        // useGameActions.launch(command, gameId) → preload `{ cmd, gameId }`.
+        // Nenhum campo de launch options é inventado nesta onda.
+        assert_eq!(
+            launch_payload(&game, None),
+            json!({
+                "cmd": ["steam", "steam://run/10"],
+                "gameId": "steam:10"
+            })
+        );
+
+        // Ponto de extensão do seletor Steam/exe; ainda não usado pela UI.
+        assert_eq!(
+            launch_payload(&game, Some("exe")),
+            json!({
+                "cmd": ["steam", "steam://run/10"],
+                "gameId": "steam:10",
+                "mode": "exe"
+            })
+        );
+    }
+
+    #[test]
+    fn launch_errors_from_the_dispatcher_are_readable() {
+        let error = check_game_launch(&json!({
+            "ok": false,
+            "error": "Já existe um lançamento ou jogo em execução."
+        }))
+        .expect_err("ok:false deve virar Err");
+        assert!(error.contains("game:launch"), "{error}");
+        assert!(error.contains("Já existe"), "{error}");
+
+        assert!(check_game_launch(&json!({ "ok": true, "pid": 42 })).is_ok());
+    }
+
+    #[test]
+    fn launch_snapshot_reads_the_runtime_state() {
+        assert_eq!(
+            parse_launch_snapshot(&json!({ "running": false })),
+            LaunchSnapshot::default()
+        );
+
+        assert_eq!(
+            parse_launch_snapshot(&json!({
+                "running": true,
+                "gameId": "steam:10",
+                "pid": 4242,
+                "seconds": 12
+            })),
+            LaunchSnapshot {
+                running: true,
+                game_id: Some("steam:10".to_string()),
+                pid: Some(4242),
+            }
+        );
     }
 }
