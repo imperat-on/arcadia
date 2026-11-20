@@ -83,7 +83,7 @@ jobs:
       - run: npm --prefix ui ci
 
       - name: Empacotar e verificar
-        run: ./scripts/package-linux.sh --verify
+        run: ./scripts/package-linux.sh --appimage --verify
 
       - uses: actions/upload-artifact@v4
         with:

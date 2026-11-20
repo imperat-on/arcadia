@@ -47,7 +47,7 @@ if [ -n "$DEB" ] && [ -f "$DEB" ]; then
         bad ".deb suspeito de vazio (${size}B)"
     fi
 else
-    bad ".deb não encontrado em $BUNDLE/deb"
+    skip ".deb não encontrado (build só de AppImage)"
 fi
 
 if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
