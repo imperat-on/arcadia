@@ -1,4 +1,4 @@
-//! Arcadia Native — primeira fatia do frontend em Rust puro (iced).
+//! Arcadia Native — frontend em Rust puro (iced) do shell desktop.
 //!
 //! Sem Tauri e sem webview: `AppState` e `dispatch_async` do `arcadia-ipc` são
 //! chamados diretamente, num runtime tokio próprio, e a biblioteca real vira
@@ -60,11 +60,17 @@ fn main() -> iced::Result {
     );
 
     let result = iced::application(move || App::boot(backend.clone()), App::update, App::view)
-        .title("Arcadia")
+        .title("ARCADIA")
         .theme(theme::arcadia())
+        .default_font(theme::FONT)
+        .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-Medium.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-SemiBold.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-Bold.ttf").as_slice())
         .window(window::Settings {
             size: Size::new(1600.0, 900.0),
             min_size: Some(Size::new(960.0, 540.0)),
+            decorations: false,
             ..window::Settings::default()
         })
         .antialiasing(true)

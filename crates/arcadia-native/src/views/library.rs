@@ -1,59 +1,55 @@
-//! Biblioteca: grade responsiva de capas 2:3 com título e horas.
+//! Biblioteca: mesma top bar de busca, cabeçalho e grade `minmax(170px, 1fr)`
+//! da `LibraryView.tsx`, com capa 2:3, título e horas.
 
-use iced::border::Radius;
-use iced::widget::{
-    button, column, container, image, row, scrollable, text, text_input, Grid, Space,
-};
-use iced::{ContentFit, Element, Fill};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space, Stack};
+use iced::{Element, Fill, Padding};
 
 use crate::app::{App, LibraryStatus, Message};
-use crate::backend::Game;
-use crate::covers::CoverCache;
 use crate::theme;
+use crate::views::cards;
+use crate::views::icons::{self, Icon};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let games = app.library.visible_games(&app.search);
 
-    let title = row![
-        text("Biblioteca")
-            .size(30)
-            .font(theme::FONT_BOLD)
-            .color(theme::TEXT_1),
-        container(
-            text(format!("{}", games.len()))
-                .size(12)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_2)
+    let search = Stack::new()
+        .width(Fill)
+        .push(
+            text_input("Buscar na biblioteca...", &app.search)
+                .on_input(Message::SearchChanged)
+                .padding(Padding {
+                    top: 10.0,
+                    right: 14.0,
+                    bottom: 10.0,
+                    left: 38.0,
+                })
+                .size(14)
+                .width(Fill)
+                .style(theme::search_input),
         )
-        .padding([3.0, 8.0])
-        .style(theme::badge),
-    ]
-    .spacing(10)
-    .align_y(iced::Center);
+        .push(
+            container(icons::icon(Icon::Search, 16.0, 0.40))
+                .width(Fill)
+                .height(Fill)
+                .align_x(iced::Left)
+                .align_y(iced::Center)
+                .padding([0.0, 14.0]),
+        );
 
-    let heading = column![
-        title,
-        text("Sua coleção real, carregada pelo dispatcher Rust do Arcadia.")
-            .size(13)
-            .color(theme::TEXT_2),
-    ]
-    .spacing(4)
-    .width(Fill);
+    let search_row = container(search).width(Fill).padding(Padding {
+        top: 24.0,
+        right: theme::PAGE_PADDING,
+        bottom: 16.0,
+        left: theme::PAGE_PADDING,
+    });
 
-    let search = text_input("Buscar na biblioteca...", &app.search)
-        .on_input(Message::SearchChanged)
-        .padding([10.0, 14.0])
-        .size(13)
-        .width(340)
-        .style(theme::search_input);
-
-    let header = container(
-        row![heading, search]
-            .spacing(theme::SPACE_4)
-            .align_y(iced::Center),
-    )
+    let heading = container(cards::section_heading(
+        "Todos os jogos",
+        Some(games.len()),
+        None,
+    ))
     .width(Fill)
-    .padding([24.0, theme::PAGE_PADDING]);
+    .padding([0.0, theme::PAGE_PADDING]);
 
     let body: Element<'_, Message> = match &app.library.status {
         LibraryStatus::Loading => centered_message("Carregando biblioteca..."),
@@ -67,18 +63,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
         LibraryStatus::Ready => {
             let cards: Vec<Element<'_, Message>> = games
                 .into_iter()
-                .map(|game| card(game, &app.covers))
+                .map(|game| cards::game_card(game, &app.covers))
                 .collect();
 
-            let grid = Grid::with_children(cards)
-                .fluid(theme::CARD_WIDTH)
-                .spacing(theme::CARD_GAP)
-                .height(iced::widget::grid::aspect_ratio(2.0, 3.6));
-
             scrollable(
-                container(grid)
+                container(cards::grid(cards, (2.0, 3.55)))
                     .width(Fill)
-                    .padding([4.0, theme::PAGE_PADDING]),
+                    .padding(Padding {
+                        top: 8.0,
+                        right: theme::PAGE_PADDING,
+                        bottom: theme::PAGE_PADDING,
+                        left: theme::PAGE_PADDING,
+                    }),
             )
             .height(Fill)
             .style(theme::scrollable)
@@ -86,111 +82,58 @@ pub fn view(app: &App) -> Element<'_, Message> {
         }
     };
 
-    column![header, body].width(Fill).height(Fill).into()
-}
-
-fn card<'a>(game: &'a Game, covers: &'a CoverCache) -> Element<'a, Message> {
-    let cover: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
-        Some(handle) => image(handle.clone())
-            .width(Fill)
-            .height(Fill)
-            .content_fit(ContentFit::Cover)
-            .border_radius(Radius {
-                top_left: theme::CARD_RADIUS,
-                top_right: theme::CARD_RADIUS,
-                ..Radius::default()
-            })
-            .into(),
-        None => cover_placeholder(game),
-    };
-
-    let info = container(
-        column![
-            text(game.title.as_str())
-                .size(13)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_1),
-            text(game.playtime_label()).size(11).color(theme::TEXT_3),
-        ]
-        .spacing(2),
-    )
-    .width(Fill)
-    .padding([8.0, 10.0]);
-
-    let content = column![container(cover).width(Fill).height(Fill).clip(true), info,]
-        .width(Fill)
-        .height(Fill);
-
-    button(content)
-        .on_press(Message::OpenGame(game.id.clone()))
+    column![search_row, heading, Space::new().height(12), body]
         .width(Fill)
         .height(Fill)
-        .padding(0)
-        .style(theme::card)
         .into()
 }
 
-fn cover_placeholder(game: &Game) -> Element<'_, Message> {
-    let initial = game
-        .title
-        .chars()
-        .next()
-        .map(|character| character.to_uppercase().to_string())
-        .unwrap_or_else(|| "?".to_string());
-
+fn centered_message(message: &str) -> Element<'_, Message> {
     container(
-        column![
-            text(initial)
-                .size(42)
-                .font(theme::FONT_BOLD)
-                .color(theme::ACCENT),
-            text("SEM CAPA")
-                .size(9)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_3),
-        ]
-        .spacing(6)
-        .align_x(iced::Center),
+        container(
+            text(message)
+                .size(14)
+                .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.35)),
+        )
+        .width(Fill)
+        .height(Fill)
+        .center_x(Fill)
+        .center_y(Fill)
+        .padding(theme::PAGE_PADDING),
+    )
+    .width(Fill)
+    .height(Fill)
+    .into()
+}
+
+fn error_state(error: &str) -> Element<'_, Message> {
+    container(
+        container(
+            column![
+                text("Não foi possível carregar a biblioteca")
+                    .size(20)
+                    .font(theme::FONT_BOLD)
+                    .color(theme::DANGER),
+                text(error).size(13).color(theme::TEXT_2),
+                row![
+                    button(text("Tentar novamente").size(13).font(theme::FONT_MEDIUM))
+                        .on_press(Message::Reload)
+                        .padding([10.0, 18.0])
+                        .style(theme::primary_button),
+                    Space::new().width(theme::SPACE_2),
+                ],
+            ]
+            .spacing(theme::SPACE_3),
+        )
+        .width(Fill)
+        .max_width(720)
+        .padding(theme::SPACE_5)
+        .style(theme::error_panel),
     )
     .width(Fill)
     .height(Fill)
     .center_x(Fill)
     .center_y(Fill)
-    .style(theme::cover_placeholder)
-    .into()
-}
-
-fn centered_message(message: &str) -> Element<'_, Message> {
-    container(text(message).size(14).color(theme::TEXT_2))
-        .width(Fill)
-        .height(Fill)
-        .center_x(Fill)
-        .center_y(Fill)
-        .padding(theme::PAGE_PADDING)
-        .into()
-}
-
-fn error_state(error: &str) -> Element<'_, Message> {
-    container(
-        column![
-            text("Não foi possível carregar a biblioteca")
-                .size(20)
-                .font(theme::FONT_BOLD)
-                .color(theme::DANGER),
-            text(error).size(13).color(theme::TEXT_2),
-            row![
-                button(text("Tentar novamente").size(13).font(theme::FONT_MEDIUM))
-                    .on_press(Message::Reload)
-                    .padding([10.0, 18.0])
-                    .style(theme::primary_button),
-                Space::new().width(theme::SPACE_2),
-            ],
-        ]
-        .spacing(theme::SPACE_3),
-    )
-    .width(Fill)
-    .max_width(720)
-    .padding(theme::SPACE_5)
-    .style(theme::error_panel)
+    .padding(theme::PAGE_PADDING)
     .into()
 }

@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use iced::widget::image::Handle;
-use iced::{Element, Fill, Task};
+use iced::{window, Element, Fill, Task};
 
 use crate::backend::{Backend, Game};
 use crate::covers::CoverCache;
@@ -23,10 +23,17 @@ pub enum Message {
     Navigate(Section),
     OpenGame(String),
     BackToLibrary,
+    SidebarSearchChanged(String),
+    ToggleSidebarGames,
+    WindowReady(Option<window::Id>),
+    WindowDrag,
+    WindowMinimize,
+    WindowToggleMaximize,
+    WindowClose,
 }
 
-/// Itens fixos da sidebar. Apenas Biblioteca tem conteúdo nesta primeira fatia;
-/// as demais abrem um placeholder explícito (nunca uma tela vazia sem contexto).
+/// Itens fixos da sidebar. Home e Biblioteca têm conteúdo; as demais seções
+/// abrem um placeholder explícito (nunca uma tela vazia sem contexto).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Home,
@@ -68,7 +75,7 @@ impl Section {
 
     pub fn stub_message(self) -> &'static str {
         match self {
-            Section::Home => "A Home nativa entra na próxima onda. A Biblioteca já está funcional.",
+            Section::Home => "A Home nativa usa os dados locais da biblioteca.",
             Section::Library => "Biblioteca local carregada via `library:get`.",
             Section::Stores => "A vitrine de lojas ainda não foi portada para o iced.",
             Section::Components => "Plugins e componentes ainda não têm tela nativa.",
@@ -188,6 +195,9 @@ pub struct App {
     pub library: Library,
     pub covers: CoverCache,
     pub search: String,
+    pub sidebar_search: String,
+    pub sidebar_games_open: bool,
+    pub window: Option<window::Id>,
 }
 
 impl App {
@@ -198,8 +208,14 @@ impl App {
             library: Library::loading(),
             covers: CoverCache::default(),
             search: String::new(),
+            sidebar_search: String::new(),
+            sidebar_games_open: true,
+            window: None,
         };
-        let task = app.reload_task();
+        let task = Task::batch([
+            app.reload_task(),
+            window::latest().map(Message::WindowReady),
+        ]);
         (app, task)
     }
 
@@ -248,6 +264,22 @@ impl App {
                 self.screen.back_to_library();
                 Task::none()
             }
+            Message::SidebarSearchChanged(search) => {
+                self.sidebar_search = search;
+                Task::none()
+            }
+            Message::ToggleSidebarGames => {
+                self.sidebar_games_open = !self.sidebar_games_open;
+                Task::none()
+            }
+            Message::WindowReady(id) => {
+                self.window = id;
+                Task::none()
+            }
+            Message::WindowDrag => self.window_task(window::drag),
+            Message::WindowMinimize => self.window_task(|id| window::minimize(id, true)),
+            Message::WindowToggleMaximize => self.window_task(window::toggle_maximize),
+            Message::WindowClose => self.window_task(window::close),
         }
     }
 
@@ -259,19 +291,32 @@ impl App {
                 Some(game) => views::game::view(game, &self.covers),
                 None => views::missing_game(),
             },
+            Screen::Section(Section::Home) => views::home::view(self),
             Screen::Section(section) => views::section_placeholder(*section),
         };
 
-        iced::widget::row![
-            sidebar,
-            iced::widget::container(content)
-                .width(Fill)
-                .height(Fill)
-                .style(theme::app_background)
+        iced::widget::column![
+            views::chrome::top_bar(),
+            iced::widget::row![
+                sidebar,
+                iced::widget::container(content)
+                    .width(Fill)
+                    .height(Fill)
+                    .style(theme::app_background)
+            ]
+            .width(Fill)
+            .height(Fill)
         ]
         .width(Fill)
         .height(Fill)
         .into()
+    }
+
+    fn window_task<F>(&self, action: F) -> Task<Message>
+    where
+        F: FnOnce(window::Id) -> Task<Message>,
+    {
+        self.window.map(action).unwrap_or_else(Task::none)
     }
 
     fn reload_task(&self) -> Task<Message> {

@@ -1,6 +1,10 @@
 //! Telas do shell nativo. Cada tela recebe apenas o que precisa para desenhar.
 
+pub mod cards;
+pub mod chrome;
 pub mod game;
+pub mod home;
+pub mod icons;
 pub mod library;
 pub mod sidebar;
 
