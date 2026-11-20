@@ -196,6 +196,31 @@ trim_appdir_graphics() {
     fi
     rm -f "$APPDIR"/apprun-hooks/linuxdeploy-plugin-gtk.sh 2>/dev/null || true
 
+    # O `linuxdeploy-plugin-gstreamer` copia os `.so` mas nem sempre o
+    # `gst-plugin-scanner`. Sem ele o GStreamer não registra plugin dinâmico
+    # nenhum, e o `openh264dec` que está no pacote nunca aparece. O host de
+    # build tem o scanner da mesma versão dos plugins; copia se faltar.
+    local scanner="$APPDIR/usr/lib/gstreamer-1.0/gst-plugin-scanner"
+    if [ ! -x "$scanner" ]; then
+        local origem_scanner=""
+        for cand in \
+            /usr/lib/x86_64-linux-gnu/gstreamer1.0/gst-plugin-scanner \
+            /usr/lib/gstreamer1.0/gst-plugin-scanner \
+            /usr/lib64/gstreamer1.0/gst-plugin-scanner \
+            /usr/lib/gstreamer-1.0/gst-plugin-scanner \
+            "$HOME/.local/lib/gstreamer-1.0/gst-plugin-scanner"; do
+            [ -x "$cand" ] && { origem_scanner="$cand"; break; }
+        done
+        if [ -n "$origem_scanner" ]; then
+            mkdir -p "$(dirname "$scanner")"
+            cp -f "$origem_scanner" "$scanner"
+            chmod +x "$scanner"
+            echo "==> gst-plugin-scanner copiado do host: $origem_scanner"
+        else
+            echo "aviso: gst-plugin-scanner não encontrado — plugins dinâmicos não vão registrar" >&2
+        fi
+    fi
+
     # --- Hook do GStreamer: caminho do scanner está errado ------------------
     #
     # O `linuxdeploy-plugin-gstreamer` gera este hook com um diretório
