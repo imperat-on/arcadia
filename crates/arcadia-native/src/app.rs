@@ -8,8 +8,12 @@ use std::collections::BTreeSet;
 
 use iced::widget::image::Handle;
 use iced::{Element, Fill, Task};
+use serde_json::{json, Value};
 
-use crate::backend::{Backend, Game};
+use crate::backend::{
+    Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, PluginItem,
+    SettingsConfig, SourceItem,
+};
 use crate::covers::CoverCache;
 use crate::theme;
 use crate::views;
@@ -17,16 +21,48 @@ use crate::views;
 #[derive(Debug, Clone)]
 pub enum Message {
     LibraryLoaded(Result<Vec<Game>, String>),
-    CoverLoaded { url: String, handle: Option<Handle> },
+    CoverLoaded {
+        url: String,
+        handle: Option<Handle>,
+    },
     Reload,
     SearchChanged(String),
     Navigate(Section),
     OpenGame(String),
     BackToLibrary,
+    Refresh(Section),
+    DownloadsLoaded(Result<DownloadsData, String>),
+    DownloadActionRequested {
+        item: DownloadItem,
+        action: DownloadAction,
+    },
+    DownloadActionDone(Result<(), String>),
+    SettingsLoaded(Result<SettingsConfig, String>),
+    SettingsSaved {
+        key: String,
+        result: Result<SettingsConfig, String>,
+    },
+    SettingsTabChanged(SettingsTab),
+    AccentChanged(String),
+    AccentSave,
+    LanguageChanged(String),
+    SettingToggled {
+        key: &'static str,
+        value: bool,
+    },
+    CpuCoresChanged(i64),
+    SourcesLoaded(Result<Vec<SourceItem>, String>),
+    SourceUrlChanged(String),
+    SourceAdd,
+    SourceRemove(String),
+    SourceSync,
+    SourcesActionDone(Result<(), String>),
+    FriendsLoaded(Result<FriendsLoad, String>),
+    ComponentsLoaded(Result<Vec<PluginItem>, String>),
 }
 
-/// Itens fixos da sidebar. Apenas Biblioteca tem conteúdo nesta primeira fatia;
-/// as demais abrem um placeholder explícito (nunca uma tela vazia sem contexto).
+/// Itens fixos da sidebar. Biblioteca e as seções desta onda têm tela real;
+/// Home, Lojas e Big Picture ainda abrem um placeholder explícito.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Home,
@@ -182,12 +218,112 @@ impl Library {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum LoadStatus {
+    #[default]
+    Idle,
+    Loading,
+    Ready,
+    Error(String),
+}
+
+/// Aba interna das Configurações, equivalente à sub-navegação da UI web.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsTab {
+    #[default]
+    General,
+    Appearance,
+    Downloads,
+    Playback,
+    Integrations,
+    About,
+}
+
+impl SettingsTab {
+    pub const ALL: [SettingsTab; 6] = [
+        SettingsTab::General,
+        SettingsTab::Appearance,
+        SettingsTab::Downloads,
+        SettingsTab::Playback,
+        SettingsTab::Integrations,
+        SettingsTab::About,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingsTab::General => "Geral",
+            SettingsTab::Appearance => "Aparência",
+            SettingsTab::Downloads => "Downloads",
+            SettingsTab::Playback => "Trailers e mídia",
+            SettingsTab::Integrations => "Integrações",
+            SettingsTab::About => "Sobre",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DownloadsState {
+    pub data: DownloadsData,
+    pub status: LoadStatus,
+    pub busy_id: Option<String>,
+    pub action_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SettingsState {
+    pub config: Option<SettingsConfig>,
+    pub status: LoadStatus,
+    pub tab: SettingsTab,
+    pub accent_draft: String,
+    pub save_error: Option<String>,
+    pub saving: Option<String>,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            config: None,
+            status: LoadStatus::Idle,
+            tab: SettingsTab::General,
+            accent_draft: String::new(),
+            save_error: None,
+            saving: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SourcesState {
+    pub items: Vec<SourceItem>,
+    pub status: LoadStatus,
+    pub url_draft: String,
+    pub busy: bool,
+    pub action_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FriendsState {
+    pub data: Option<FriendsLoad>,
+    pub status: LoadStatus,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ComponentsState {
+    pub plugins: Vec<PluginItem>,
+    pub status: LoadStatus,
+}
+
 pub struct App {
     pub backend: Backend,
     pub screen: Screen,
     pub library: Library,
     pub covers: CoverCache,
     pub search: String,
+    pub downloads: DownloadsState,
+    pub settings: SettingsState,
+    pub sources: SourcesState,
+    pub friends: FriendsState,
+    pub components: ComponentsState,
 }
 
 impl App {
@@ -198,6 +334,11 @@ impl App {
             library: Library::loading(),
             covers: CoverCache::default(),
             search: String::new(),
+            downloads: DownloadsState::default(),
+            settings: SettingsState::default(),
+            sources: SourcesState::default(),
+            friends: FriendsState::default(),
+            components: ComponentsState::default(),
         };
         let task = app.reload_task();
         (app, task)
@@ -233,7 +374,7 @@ impl App {
             }
             Message::Navigate(section) => {
                 self.screen = Screen::for_section(section);
-                Task::none()
+                self.load_section(section, false)
             }
             Message::OpenGame(id) => {
                 let urls = self
@@ -248,6 +389,213 @@ impl App {
                 self.screen.back_to_library();
                 Task::none()
             }
+            Message::Refresh(section) => self.load_section(section, true),
+            Message::DownloadsLoaded(result) => {
+                match result {
+                    Ok(data) => {
+                        self.downloads.data = data;
+                        self.downloads.status = LoadStatus::Ready;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] downloads: {error}");
+                        self.downloads.status = LoadStatus::Error(error);
+                    }
+                }
+                self.downloads.busy_id = None;
+                Task::none()
+            }
+            Message::DownloadActionRequested { item, action } => {
+                if self.downloads.busy_id.is_some() {
+                    return Task::none();
+                }
+                self.downloads.busy_id = Some(item.id.clone());
+                self.downloads.action_error = None;
+                let backend = self.backend.clone();
+                let id = item.id;
+                let is_torrent = item.is_torrent;
+                Task::perform(
+                    async move { backend.run_download_action(id, is_torrent, action).await },
+                    Message::DownloadActionDone,
+                )
+            }
+            Message::DownloadActionDone(result) => {
+                self.downloads.busy_id = None;
+                match result {
+                    Ok(()) => {
+                        self.downloads.status = LoadStatus::Loading;
+                        let backend = self.backend.clone();
+                        Task::perform(
+                            async move { backend.load_downloads().await },
+                            Message::DownloadsLoaded,
+                        )
+                    }
+                    Err(error) => {
+                        self.downloads.action_error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::SettingsLoaded(result) => {
+                match result {
+                    Ok(config) => {
+                        self.settings.accent_draft = config.accent.clone();
+                        self.settings.config = Some(config);
+                        self.settings.status = LoadStatus::Ready;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] configurações: {error}");
+                        self.settings.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::SettingsSaved { key, result } => {
+                self.settings.saving = None;
+                match result {
+                    Ok(config) => {
+                        self.settings.accent_draft = config.accent.clone();
+                        self.settings.config = Some(config);
+                        self.settings.status = LoadStatus::Ready;
+                        self.settings.save_error = None;
+                    }
+                    Err(error) => {
+                        self.settings.save_error = Some(format!("Falha ao salvar {key}: {error}"));
+                    }
+                }
+                Task::none()
+            }
+            Message::SettingsTabChanged(tab) => {
+                self.settings.tab = tab;
+                Task::none()
+            }
+            Message::AccentChanged(accent) => {
+                self.settings.accent_draft = accent;
+                Task::none()
+            }
+            Message::AccentSave => {
+                let accent = self.settings.accent_draft.trim().to_string();
+                self.save_setting("accent", Value::String(accent))
+            }
+            Message::LanguageChanged(language) => {
+                self.save_setting("language", Value::String(language))
+            }
+            Message::SettingToggled { key, value } => self.save_setting(key, Value::Bool(value)),
+            Message::CpuCoresChanged(delta) => {
+                let current = self
+                    .settings
+                    .config
+                    .as_ref()
+                    .map(|config| config.download_cpu_cores)
+                    .unwrap_or(0) as i64;
+                let next = (current + delta).clamp(0, 64);
+                if next == current {
+                    return Task::none();
+                }
+                self.save_setting("download_cpu_cores", json!(next))
+            }
+            Message::SourcesLoaded(result) => {
+                self.sources.busy = false;
+                match result {
+                    Ok(items) => {
+                        self.sources.items = items;
+                        self.sources.status = LoadStatus::Ready;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] fontes: {error}");
+                        self.sources.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::SourceUrlChanged(url) => {
+                self.sources.url_draft = url;
+                Task::none()
+            }
+            Message::SourceAdd => {
+                if self.sources.busy {
+                    return Task::none();
+                }
+                let url = self.sources.url_draft.trim().to_string();
+                if url.is_empty() {
+                    self.sources.action_error = Some("Informe a URL do catálogo.".to_string());
+                    return Task::none();
+                }
+                self.sources.busy = true;
+                self.sources.action_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.add_source(url).await },
+                    Message::SourcesActionDone,
+                )
+            }
+            Message::SourceRemove(id) => {
+                if self.sources.busy {
+                    return Task::none();
+                }
+                self.sources.busy = true;
+                self.sources.action_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.remove_source(id).await },
+                    Message::SourcesActionDone,
+                )
+            }
+            Message::SourceSync => {
+                if self.sources.busy {
+                    return Task::none();
+                }
+                self.sources.busy = true;
+                self.sources.action_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.sync_sources().await },
+                    Message::SourcesActionDone,
+                )
+            }
+            Message::SourcesActionDone(result) => {
+                self.sources.busy = false;
+                match result {
+                    Ok(()) => {
+                        self.sources.url_draft.clear();
+                        self.sources.status = LoadStatus::Loading;
+                        let backend = self.backend.clone();
+                        Task::perform(
+                            async move { backend.load_sources().await },
+                            Message::SourcesLoaded,
+                        )
+                    }
+                    Err(error) => {
+                        self.sources.action_error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::FriendsLoaded(result) => {
+                match result {
+                    Ok(data) => {
+                        self.friends.data = Some(data);
+                        self.friends.status = LoadStatus::Ready;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] amigos: {error}");
+                        self.friends.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::ComponentsLoaded(result) => {
+                match result {
+                    Ok(plugins) => {
+                        self.components.plugins = plugins;
+                        self.components.status = LoadStatus::Ready;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] componentes: {error}");
+                        self.components.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
         }
     }
 
@@ -259,6 +607,11 @@ impl App {
                 Some(game) => views::game::view(game, &self.covers),
                 None => views::missing_game(),
             },
+            Screen::Section(Section::Downloads) => views::downloads::view(self),
+            Screen::Section(Section::Settings) => views::settings::view(self),
+            Screen::Section(Section::Sources) => views::sources::view(self),
+            Screen::Section(Section::Friends) => views::friends::view(self),
+            Screen::Section(Section::Components) => views::components::view(self),
             Screen::Section(section) => views::section_placeholder(*section),
         };
 
@@ -272,6 +625,79 @@ impl App {
         .width(Fill)
         .height(Fill)
         .into()
+    }
+
+    /// Carrega a seção sob demanda. `force` é o botão "Atualizar"; sem ele, o
+    /// cache em memória evita refazer IPC a cada troca de aba.
+    fn load_section(&mut self, section: Section, force: bool) -> Task<Message> {
+        match section {
+            Section::Downloads if force || matches!(self.downloads.status, LoadStatus::Idle) => {
+                self.downloads.status = LoadStatus::Loading;
+                self.downloads.action_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_downloads().await },
+                    Message::DownloadsLoaded,
+                )
+            }
+            Section::Settings if force || matches!(self.settings.status, LoadStatus::Idle) => {
+                self.settings.status = LoadStatus::Loading;
+                self.settings.save_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_settings().await },
+                    Message::SettingsLoaded,
+                )
+            }
+            Section::Sources if force || matches!(self.sources.status, LoadStatus::Idle) => {
+                self.sources.status = LoadStatus::Loading;
+                self.sources.action_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_sources().await },
+                    Message::SourcesLoaded,
+                )
+            }
+            Section::Friends if force || matches!(self.friends.status, LoadStatus::Idle) => {
+                self.friends.status = LoadStatus::Loading;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_friends(force).await },
+                    Message::FriendsLoaded,
+                )
+            }
+            Section::Components if force || matches!(self.components.status, LoadStatus::Idle) => {
+                self.components.status = LoadStatus::Loading;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.load_plugins().await },
+                    Message::ComponentsLoaded,
+                )
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// Envelopa um patch `config:set` em uma única chave e recarrega o estado
+    /// tipado com a resposta redigida do dispatcher.
+    fn save_setting(&mut self, key: &'static str, value: Value) -> Task<Message> {
+        if self.settings.saving.is_some() {
+            return Task::none();
+        }
+        self.settings.saving = Some(key.to_string());
+        self.settings.save_error = None;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move {
+                let mut patch = serde_json::Map::new();
+                patch.insert(key.to_string(), value);
+                backend.save_config(Value::Object(patch)).await
+            },
+            move |result| Message::SettingsSaved {
+                key: key.to_string(),
+                result,
+            },
+        )
     }
 
     fn reload_task(&self) -> Task<Message> {
