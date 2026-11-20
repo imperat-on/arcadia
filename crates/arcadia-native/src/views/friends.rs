@@ -3,11 +3,11 @@
 //! Todas as ações usam `friends:*` de verdade; falha aparece em banner e nunca
 //! vira sucesso simulado.
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
-use iced::{Color, Element, Fill};
+use iced::widget::{image, button, column, container, row, scrollable, text, text_input, Space};
+use iced::{Color, ContentFit, Element, Fill};
 
 use crate::app::{App, FriendAction, FriendsState, LoadStatus, Message, Section};
-use crate::backend::{FriendProfile, FriendsData, FriendsLoad};
+use crate::backend::{FriendAchievements, FriendProfile, FriendsData, FriendsLoad};
 use crate::theme;
 use crate::views;
 
@@ -421,10 +421,11 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
             app.i18n.t("native.friends.back_to_list"),
         );
     };
-    let is_friend = matches!(
-        app.friends.data.as_ref(),
-        Some(FriendsLoad::Ready(data)) if data.friends.iter().any(|friend| friend.id == state.id)
-    );
+    let is_friend = state.is_friend
+        || matches!(
+            app.friends.data.as_ref(),
+            Some(FriendsLoad::Ready(data)) if data.friends.iter().any(|friend| friend.id == state.id)
+        );
 
     let mut content = column![row![
         button(
@@ -469,6 +470,7 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
             }
         }
     }
+    content = content.push(achievements_section(app, state, is_friend));
 
     scrollable(
         container(content)
@@ -478,6 +480,198 @@ fn friend_profile_card(app: &App) -> Element<'_, Message> {
     .height(Fill)
     .style(theme::scrollable)
     .into()
+}
+
+fn achievements_section<'a>(
+    app: &'a App,
+    state: &'a crate::app::FriendProfileState,
+    is_friend: bool,
+) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+    let mut content = column![].spacing(theme::SPACE_2).width(Fill);
+    let count = state
+        .achievements
+        .as_ref()
+        .map(|achievements| format!(" ({})", achievements.items.len()))
+        .unwrap_or_default();
+    content = content.push(
+        text(format!(
+            "{}{count}",
+            i18n.t("amigos.conquistas_recentes")
+        ))
+        .size(13)
+        .font(theme::FONT_MEDIUM)
+        .color(theme::TEXT_1),
+    );
+
+    if !is_friend {
+        return content
+            .push(hint(
+                i18n.t("native.friends.achievements_private"),
+                theme::TEXT_3,
+            ))
+            .into();
+    }
+
+    match state.achievements_status {
+        LoadStatus::Idle | LoadStatus::Loading => content = content.push(hint(
+            i18n.t("native.friends.achievements_loading"),
+            theme::TEXT_3,
+        )),
+        LoadStatus::Error(ref error) => {
+            content = content.push(views::action_error_banner(error, None));
+        }
+        LoadStatus::Ready => {
+            let Some(achievements) = state.achievements.as_ref() else {
+                content = content.push(hint(i18n.t("amigos.sem_conquistas"), theme::TEXT_3));
+                return content.into();
+            };
+            if achievements.items.is_empty() {
+                content = content.push(hint(i18n.t("amigos.sem_conquistas"), theme::TEXT_3));
+            } else {
+                content = content.push(achievements_summary(i18n, achievements));
+                content = content.push(achievement_grid(app, achievements));
+            }
+        }
+    }
+
+    content.into()
+}
+
+fn achievements_summary<'a>(
+    i18n: &'a crate::i18n::I18n,
+    achievements: &'a FriendAchievements,
+) -> Element<'a, Message> {
+    let summary = achievements.summary();
+    let platinum = summary
+        .platinum_percent
+        .map(|percent| format!("{percent}%"))
+        .unwrap_or_else(|| "—".to_string());
+    row![
+        achievement_stat(i18n.t("amigos.total_conquistas"), summary.total.to_string(), theme::ACCENT),
+        achievement_stat(i18n.t("amigos.platinadas"), platinum, theme::SUCCESS),
+        achievement_stat(i18n.t("amigos.jogos"), summary.games.to_string(), theme::WARNING),
+    ]
+    .spacing(theme::SPACE_2)
+    .width(Fill)
+    .into()
+}
+
+fn achievement_stat<'a>(
+    label: &'a str,
+    value: String,
+    color: Color,
+) -> Element<'a, Message> {
+    container(
+        column![
+            text(value)
+                .size(18)
+                .font(theme::FONT_BOLD)
+                .color(color),
+            text(label).size(10).color(theme::TEXT_3),
+        ]
+        .spacing(1)
+        .align_x(iced::Center),
+    )
+    .width(Fill)
+    .padding([8.0, 12.0])
+    .style(theme::badge)
+    .into()
+}
+
+fn achievement_grid<'a>(
+    app: &'a App,
+    achievements: &'a FriendAchievements,
+) -> Element<'a, Message> {
+    let mut grid = column![].spacing(theme::SPACE_2).width(Fill);
+    for chunk in achievements.items.chunks(3) {
+        let mut line = row![].spacing(theme::SPACE_2).width(Fill);
+        for item in chunk {
+            line = line.push(achievement_card(app, item));
+        }
+        grid = grid.push(line);
+    }
+    grid.into()
+}
+
+fn achievement_card<'a>(
+    app: &'a App,
+    item: &'a crate::backend::FriendAchievement,
+) -> Element<'a, Message> {
+    let icon: Element<'a, Message> = match app.covers.ready(item.icon.as_deref()) {
+        Some(handle) => image(handle.clone())
+            .width(40)
+            .height(40)
+            .content_fit(ContentFit::Cover)
+            .border_radius(6)
+            .into(),
+        None => container(text("🏆").size(18))
+            .width(40)
+            .height(40)
+            .center_x(Fill)
+            .center_y(Fill)
+            .style(theme::cover_placeholder)
+            .into(),
+    };
+
+    let percent: Element<'a, Message> = match item.percent {
+        Some(percent) if percent.is_finite() => badge(
+            format!("{:.0}%", percent),
+            if percent >= 100.0 {
+                theme::SUCCESS
+            } else {
+                theme::TEXT_2
+            },
+        ),
+        _ => Space::new().width(0).into(),
+    };
+
+    container(
+        column![
+            row![
+                icon,
+                column![
+                    text(item.title.as_str())
+                        .size(11)
+                        .font(theme::FONT_MEDIUM)
+                        .color(theme::TEXT_1),
+                    text(item.appid.as_str()).size(9).color(theme::TEXT_3),
+                ]
+                .spacing(2)
+                .width(Fill),
+                percent,
+            ]
+            .spacing(theme::SPACE_2)
+            .align_y(iced::Center),
+            text(if item.unlocked {
+                app.i18n.t("native.game.achievement_unlocked")
+            } else {
+                app.i18n.t("native.game.achievement_locked")
+            })
+            .size(9)
+            .color(if item.unlocked {
+                theme::SUCCESS
+            } else {
+                theme::TEXT_3
+            }),
+        ]
+        .spacing(4),
+    )
+    .width(Fill)
+    .padding(10)
+    .style(theme::empty_panel)
+    .into()
+}
+
+fn hint(message: impl Into<String>, color: Color) -> Element<'static, Message> {
+    text(message.into()).size(11).color(color).into()
+}
+
+fn badge(label: String, color: Color) -> Element<'static, Message> {
+    container(text(label).size(9).font(theme::FONT_MEDIUM).color(color))
+        .padding([2.0, 6.0])
+        .style(theme::badge)
+        .into()
 }
 
 fn profile_details<'a>(app: &'a App, profile: &'a FriendProfile) -> Element<'a, Message> {

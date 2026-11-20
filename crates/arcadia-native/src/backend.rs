@@ -3169,9 +3169,143 @@ pub fn parse_friends_action(value: Value) -> Result<(), String> {
 fn friends_error_message(code: &str) -> String {
     match code {
         "nao_logado" => "Entre na sua conta para usar amigos.".to_string(),
+        "token_invalido" => "Sua sessão expirou. Entre novamente.".to_string(),
+        "conta_trocada" => "A conta ativa mudou durante a consulta. Tente novamente.".to_string(),
+        "rede_indisponivel" => "Sem conexão com o serviço de amigos. Tente novamente.".to_string(),
         "destino_invalido" => "Destino do pedido inválido.".to_string(),
         "perfil_indisponivel" => "O perfil deste amigo não está disponível.".to_string(),
         other => format!("friends: {other}"),
+    }
+}
+
+/// Conquista pública de um amigo (`friends:achievements`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FriendAchievement {
+    pub appid: String,
+    pub apiname: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub percent: Option<f64>,
+    pub unlocked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FriendAchievements {
+    pub items: Vec<FriendAchievement>,
+    pub from_cache: bool,
+}
+
+/// Resumo exibido no cartão do amigo; mesma leitura da UI web.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FriendAchievementsSummary {
+    pub total: usize,
+    pub platinum: usize,
+    pub games: usize,
+    /// `None` quando não há conquista 100% (a web mostra "—").
+    pub platinum_percent: Option<u32>,
+}
+
+impl FriendAchievements {
+    pub fn summary(&self) -> FriendAchievementsSummary {
+        let total = self.items.len();
+        let platinum = self
+            .items
+            .iter()
+            .filter(|item| item.percent.is_some_and(|percent| percent >= 100.0))
+            .count();
+        let mut games: Vec<&str> = self
+            .items
+            .iter()
+            .map(|item| item.appid.as_str())
+            .filter(|appid| !appid.is_empty())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let platinum_percent = (total > 0 && platinum > 0).then(|| {
+            ((platinum as f64 / total as f64) * 100.0).round() as u32
+        });
+        FriendAchievementsSummary {
+            total,
+            platinum,
+            games: games.len(),
+            platinum_percent,
+        }
+    }
+}
+
+/// `friends:achievements` — `{ ok, achievements, deCache? }`.
+pub fn parse_friend_achievements(value: Value) -> Result<FriendAchievements, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(friends_error_message(&code));
+    }
+    let raw = match value.get("achievements") {
+        Some(Value::Array(items)) => items,
+        Some(Value::Null) | None => {
+            // `null` é lista vazia; ausência do campo também não inventa dados.
+            return Ok(FriendAchievements {
+                items: Vec::new(),
+                from_cache: value
+                    .get("deCache")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            });
+        }
+        Some(other) => {
+            other
+                .get("items")
+                .or_else(|| other.get("achievements"))
+                .and_then(Value::as_array)
+                .ok_or_else(|| "friends:achievements devolveu uma lista inválida".to_string())?
+        }
+    };
+    let items = raw.iter().filter_map(friend_achievement).collect();
+    Ok(FriendAchievements {
+        items,
+        from_cache: value
+            .get("deCache")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn friend_achievement(value: &Value) -> Option<FriendAchievement> {
+    let appid = text_field_any(value, "appid")?;
+    let apiname = text_field_any(value, "apiname")
+        .or_else(|| text_field_any(value, "key"))
+        .or_else(|| text_field_any(value, "apiName"))?;
+    let title = optional_text_field(value, "title")
+        .or_else(|| optional_text_field(value, "name"))
+        .unwrap_or_else(|| apiname.clone());
+    let unlocked = value
+        .get("unlock")
+        .or_else(|| value.get("unlocked"))
+        .and_then(value_truthy)
+        .unwrap_or(false);
+    Some(FriendAchievement {
+        appid,
+        apiname,
+        title,
+        description: optional_text_field(value, "desc")
+            .or_else(|| optional_text_field(value, "description")),
+        icon: optional_image_url_from(value.get("icon")),
+        percent: value_f64(value.get("percent")),
+        unlocked,
+    })
+}
+
+/// `unlock` chega como bool, número (timestamp) ou string nas variações do
+/// backend; só o que é inequivocamente verdadeiro conta como desbloqueado.
+fn value_truthy(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::Number(number) => number.as_f64().map(|number| number != 0.0),
+        Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "sim" | "yes" => Some(true),
+            "false" | "0" | "nao" | "não" | "no" | "" => Some(false),
+            _ => Some(true),
+        },
+        _ => None,
     }
 }
 
@@ -3512,6 +3646,8 @@ pub struct CommunityReview {
     pub positive: Option<bool>,
     pub hours: Option<f64>,
     pub created_at: Option<String>,
+    /// Autor da review; usado para habilitar edição/remoção só na própria.
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3530,6 +3666,8 @@ pub struct CommunityCollection {
     pub owner: String,
     pub item_count: u64,
     pub items: Vec<CommunityCollectionItem>,
+    /// Dono da coleção; `mine=true` também habilita as mutações.
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -3667,6 +3805,11 @@ fn community_review(value: &Value) -> Option<CommunityReview> {
         hours: value_f64(value.get("hours")),
         created_at: optional_text_field(value, "created_at")
             .or_else(|| optional_text_field(value, "createdAt")),
+        user_id: text_field_any(value, "user_id").or_else(|| {
+            value
+                .get("author")
+                .and_then(|author| text_field_any(author, "id"))
+        }),
     })
 }
 
@@ -3709,6 +3852,11 @@ fn community_collection(value: &Value) -> Option<CommunityCollection> {
         owner,
         item_count,
         items,
+        user_id: text_field_any(value, "user_id").or_else(|| {
+            value
+                .get("owner")
+                .and_then(|owner| text_field_any(owner, "id"))
+        }),
     })
 }
 
@@ -3779,6 +3927,106 @@ fn community_envelope_error(value: &Value, channel: &str, offline: bool) -> Comm
         message,
         offline,
         code,
+    }
+}
+
+/// Resultado de uma mutação de comunidade. O objeto alterado vem preenchido
+/// quando o envelope o devolve; remoções/denúncias só confirmam `ok`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CommunityMutation {
+    pub review: Option<CommunityReview>,
+    pub collection: Option<CommunityCollection>,
+}
+
+pub fn parse_community_review_mutation(
+    value: Value,
+) -> Result<CommunityMutation, CommunityError> {
+    let offline = community_offline(&value);
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(community_envelope_error(
+            &value,
+            "community:review",
+            offline,
+        ));
+    }
+    let review = value
+        .get("review")
+        .or_else(|| value.get("data"))
+        .and_then(community_review)
+        .or_else(|| {
+            value
+                .get("data")
+                .and_then(|data| data.get("review"))
+                .and_then(community_review)
+        })
+        .ok_or_else(|| CommunityError {
+            message: "community:review não devolveu a avaliação salva.".to_string(),
+            offline,
+            code: None,
+        })?;
+    Ok(CommunityMutation {
+        review: Some(review),
+        collection: None,
+    })
+}
+
+pub fn parse_community_collection_mutation(
+    value: Value,
+) -> Result<CommunityMutation, CommunityError> {
+    let offline = community_offline(&value);
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(community_envelope_error(
+            &value,
+            "community:collection",
+            offline,
+        ));
+    }
+    let collection = value
+        .get("collection")
+        .or_else(|| value.get("data"))
+        .and_then(community_collection)
+        .or_else(|| {
+            value
+                .get("data")
+                .and_then(|data| data.get("collection"))
+                .and_then(community_collection)
+        })
+        .ok_or_else(|| CommunityError {
+            message: "community:collection não devolveu a coleção salva.".to_string(),
+            offline,
+            code: None,
+        })?;
+    Ok(CommunityMutation {
+        review: None,
+        collection: Some(collection),
+    })
+}
+
+/// Remoções, denúncias e mutações de item confirmam com `ok` e o chamador
+/// recarrega a lista; não há objeto obrigatório no envelope.
+pub fn parse_community_action(
+    value: Value,
+    channel: &str,
+) -> Result<CommunityMutation, CommunityError> {
+    let offline = community_offline(&value);
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(community_envelope_error(&value, channel, offline));
+    }
+    Ok(CommunityMutation::default())
+}
+
+fn community_offline(value: &Value) -> bool {
+    value
+        .get("offline")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn community_dispatch_error(message: String) -> CommunityError {
+    CommunityError {
+        message,
+        offline: false,
+        code: None,
     }
 }
 
@@ -5476,6 +5724,17 @@ impl Backend {
         parse_friend_profile(value)
     }
 
+    /// `friends:achievements` — só deve ser chamado para amigo aceito.
+    pub async fn load_friend_achievements(
+        &self,
+        user_id: String,
+    ) -> Result<FriendAchievements, String> {
+        let value = self
+            .dispatch("friends:achievements", vec![Value::String(user_id)])
+            .await?;
+        parse_friend_achievements(value)
+    }
+
     /// Leitura de `account:status`; `Ok(None)` é sessão ausente (não é erro).
     pub async fn load_account_status(&self) -> Result<Option<AccountSession>, String> {
         let value = self.dispatch("account:status", Vec::new()).await?;
@@ -5617,16 +5876,18 @@ impl Backend {
         parse_community_reviews(value)
     }
 
-    /// Página de coleções públicas (`community:collections`).
+    /// Página de coleções públicas (`community:collections`); `mine` usa o
+    /// contrato existente para listar as coleções da sessão.
     pub async fn load_community_collections(
         &self,
         offset: u64,
         limit: u64,
+        mine: bool,
     ) -> Result<CommunityCollectionsPage, CommunityError> {
         let value = self
             .dispatch(
                 "community:collections",
-                vec![json!({ "limit": limit, "offset": offset })],
+                vec![json!({ "limit": limit, "offset": offset, "mine": mine })],
             )
             .await
             .map_err(|message| CommunityError {
@@ -5635,6 +5896,138 @@ impl Backend {
                 code: None,
             })?;
         parse_community_collections(value)
+    }
+
+    /// `community:review:create` — payload cru validado pelo chamador.
+    pub async fn create_community_review(
+        &self,
+        payload: Value,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch("community:review:create", vec![payload])
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_review_mutation(value)
+    }
+
+    pub async fn update_community_review(
+        &self,
+        id: String,
+        payload: Value,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch("community:review:update", vec![Value::String(id), payload])
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_review_mutation(value)
+    }
+
+    pub async fn remove_community_review(
+        &self,
+        id: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch("community:review:remove", vec![Value::String(id)])
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:review:remove")
+    }
+
+    pub async fn report_community_review(
+        &self,
+        id: String,
+        reason: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:review:report",
+                vec![Value::String(id), json!({ "reason": reason })],
+            )
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:review:report")
+    }
+
+    pub async fn create_community_collection(
+        &self,
+        payload: Value,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch("community:collection:create", vec![payload])
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_collection_mutation(value)
+    }
+
+    pub async fn update_community_collection(
+        &self,
+        id: String,
+        payload: Value,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:collection:update",
+                vec![Value::String(id), payload],
+            )
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_collection_mutation(value)
+    }
+
+    pub async fn remove_community_collection(
+        &self,
+        id: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch("community:collection:remove", vec![Value::String(id)])
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:collection:remove")
+    }
+
+    pub async fn report_community_collection(
+        &self,
+        id: String,
+        reason: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:collection:report",
+                vec![Value::String(id), json!({ "reason": reason })],
+            )
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:collection:report")
+    }
+
+    pub async fn add_community_collection_item(
+        &self,
+        id: String,
+        appid: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:collection:item:add",
+                vec![Value::String(id), Value::String(appid)],
+            )
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:collection:item:add")
+    }
+
+    pub async fn remove_community_collection_item(
+        &self,
+        id: String,
+        appid: String,
+    ) -> Result<CommunityMutation, CommunityError> {
+        let value = self
+            .dispatch(
+                "community:collection:item:remove",
+                vec![Value::String(id), Value::String(appid)],
+            )
+            .await
+            .map_err(community_dispatch_error)?;
+        parse_community_action(value, "community:collection:item:remove")
     }
 
     /// Busca no catálogo da loja (`store:search`), como a aba Lojas da web.
@@ -7571,6 +7964,157 @@ mod tests {
             "{}",
             login.message
         );
+    }
+
+    #[test]
+    fn parses_review_and_collection_mutation_success() {
+        let review = parse_community_review_mutation(json!({
+            "ok": true,
+            "review": { "id": 7, "text": "Bom", "rating": 5, "user_id": "u1" },
+            "data": { "id": 7 }
+        }))
+        .expect("review salva");
+        let review = review.review.expect("review no envelope");
+        assert_eq!(review.id, "7");
+        assert_eq!(review.user_id.as_deref(), Some("u1"));
+
+        let collection = parse_community_collection_mutation(json!({
+            "ok": true,
+            "collection": { "id": "c1", "title": "Lista", "user_id": "u1" },
+            "data": { "id": "c1" }
+        }))
+        .expect("coleção salva");
+        let collection = collection.collection.expect("coleção no envelope");
+        assert_eq!(collection.id, "c1");
+        assert_eq!(collection.user_id.as_deref(), Some("u1"));
+
+        assert!(parse_community_action(
+            json!({ "ok": true }),
+            "community:collection:item:add"
+        )
+        .is_ok());
+        assert!(parse_community_action(
+            json!({ "ok": true }),
+            "community:collection:item:remove"
+        )
+        .is_ok());
+        let item_login = parse_community_action(
+            json!({ "ok": false, "error": "nao_logado", "code": "nao_logado" }),
+            "community:collection:item:add",
+        )
+        .expect_err("sessão ausente no item");
+        assert!(
+            item_login.message.contains("Entre na sua conta"),
+            "{}",
+            item_login.message
+        );
+    }
+
+    #[test]
+    fn community_mutations_surface_login_offline_and_real_errors() {
+        let login = parse_community_review_mutation(json!({
+            "ok": false,
+            "error": "nao_logado",
+            "code": "nao_logado"
+        }))
+        .expect_err("sem sessão");
+        assert!(login.message.contains("Entre na sua conta"), "{}", login.message);
+
+        let offline = parse_community_action(
+            json!({
+                "ok": false,
+                "offline": true,
+                "error": "offline",
+                "code": "offline",
+                "message": "connect refused"
+            }),
+            "community:review:remove",
+        )
+        .expect_err("offline");
+        assert!(offline.offline);
+        assert!(offline.message.contains("Sem conexão"), "{}", offline.message);
+
+        let backend = parse_community_collection_mutation(json!({
+            "ok": false,
+            "error": "sem_permissao",
+            "code": "42501",
+            "message": "sem permissão"
+        }))
+        .expect_err("erro real");
+        assert_eq!(backend.message, "sem permissão");
+        assert!(!backend.offline);
+    }
+
+    #[test]
+    fn parses_friend_achievements_and_aggregates_summary() {
+        let achievements = parse_friend_achievements(json!({
+            "ok": true,
+            "deCache": true,
+            "achievements": [
+                {
+                    "appid": "10",
+                    "apiname": "A",
+                    "name": "Um",
+                    "desc": "Primeira",
+                    "icon": "//cdn.example/a.jpg",
+                    "percent": 100,
+                    "unlock": true
+                },
+                {
+                    "appid": 20,
+                    "key": "B",
+                    "title": "Dois",
+                    "percent": "50",
+                    "unlock": 0
+                },
+                {
+                    "appid": "20",
+                    "apiname": "C",
+                    "title": "Três",
+                    "percent": 0,
+                    "unlock": "1"
+                },
+                { "sem_appid": true }
+            ]
+        }))
+        .expect("conquistas válidas");
+        assert!(achievements.from_cache);
+        assert_eq!(achievements.items.len(), 3);
+        assert_eq!(
+            achievements.items[0].icon.as_deref(),
+            Some("https://cdn.example/a.jpg")
+        );
+        assert!(achievements.items[0].unlocked);
+        assert!(!achievements.items[1].unlocked);
+        assert!(achievements.items[2].unlocked);
+
+        let summary = achievements.summary();
+        assert_eq!(summary.total, 3);
+        assert_eq!(summary.platinum, 1);
+        assert_eq!(summary.games, 2);
+        assert_eq!(summary.platinum_percent, Some(33));
+
+        let empty = parse_friend_achievements(json!({
+            "ok": true,
+            "achievements": []
+        }))
+        .expect("vazio");
+        assert_eq!(empty.summary().total, 0);
+        assert_eq!(empty.summary().platinum_percent, None);
+
+        let login = parse_friend_achievements(json!({
+            "ok": false,
+            "error": "nao_logado"
+        }))
+        .expect_err("sem sessão");
+        assert!(login.contains("Entre na sua conta"), "{login}");
+
+        let offline = parse_friend_achievements(json!({
+            "ok": false,
+            "error": "rede_indisponivel"
+        }))
+        .expect_err("offline");
+        assert!(offline.contains("Sem conexão"), "{offline}");
     }
 
     #[test]

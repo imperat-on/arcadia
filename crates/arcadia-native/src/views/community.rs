@@ -1,12 +1,12 @@
 //! Painel de Comunidade reutilizável pela ficha do jogo e pelo detalhe da loja.
 //!
-//! Somente leitura nesta onda: reviews e coleções públicas com paginação
-//! explícita, estado offline e cache por appid na sessão. Mutações exigem
-//! sessão e ficam para a fatia seguinte.
+//! Reviews e coleções públicas com paginação explícita, estado offline e cache
+//! por appid na sessão. Mutações usam os canais reais e só aparecem com sessão;
+//! falhas de login/offline viram banner com a mensagem do backend.
 
 use std::collections::HashMap;
 
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Fill};
 
 use crate::app::{LoadStatus, Message};
@@ -34,6 +34,219 @@ impl CommunityTab {
     }
 }
 
+/// Alvo de confirmação/denúncia; o id fica ao lado no estado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommunityTarget {
+    Review,
+    Collection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CommunityVisibility {
+    #[default]
+    Public,
+    Unlisted,
+    Private,
+}
+
+impl CommunityVisibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Unlisted => "unlisted",
+            Self::Private => "private",
+        }
+    }
+
+    pub fn label<'a>(self, i18n: &'a crate::i18n::I18n) -> &'a str {
+        match self {
+            Self::Public => i18n.t("community.visibilidade.publica"),
+            Self::Unlisted => i18n.t("community.visibilidade.nao_listada"),
+            Self::Private => i18n.t("community.visibilidade.privada"),
+        }
+    }
+
+    pub fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("unlisted") => Self::Unlisted,
+            Some("private") => Self::Private,
+            _ => Self::Public,
+        }
+    }
+}
+
+/// Rascunho validado, pronto para virar payload de `community:review:*`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommunityReviewDraft {
+    pub title: Option<String>,
+    pub text: String,
+    pub rating: u8,
+    pub hours: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewFormState {
+    /// `Some(id)` edita a review existente; `None` cria uma nova.
+    pub editing: Option<String>,
+    pub title: String,
+    pub text: String,
+    pub rating: u8,
+    pub hours: String,
+}
+
+impl Default for ReviewFormState {
+    fn default() -> Self {
+        Self {
+            editing: None,
+            title: String::new(),
+            text: String::new(),
+            rating: 5,
+            hours: String::new(),
+        }
+    }
+}
+
+impl ReviewFormState {
+    pub fn for_review(review: &CommunityReview) -> Self {
+        let rating = review
+            .rating
+            .filter(|rating| rating.is_finite() && *rating > 0.0)
+            .map(|rating| rating.round().clamp(1.0, 5.0) as u8)
+            .unwrap_or(if review.positive == Some(false) { 1 } else { 5 });
+        Self {
+            editing: Some(review.id.clone()),
+            title: review.title.clone().unwrap_or_default(),
+            text: review.text.clone(),
+            rating,
+            hours: review
+                .hours
+                .filter(|hours| hours.is_finite() && *hours > 0.0)
+                .map(|hours| {
+                    if hours.fract().abs() < 0.05 {
+                        format!("{hours:.0}")
+                    } else {
+                        format!("{hours:.1}")
+                    }
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<CommunityReviewDraft, CommunityFormError> {
+        let text = self.text.trim();
+        if text.is_empty() {
+            return Err(CommunityFormError::EmptyReviewText);
+        }
+        if !(1..=5).contains(&self.rating) {
+            return Err(CommunityFormError::InvalidRating);
+        }
+        let title = self.title.trim();
+        let hours = self.hours.trim();
+        let hours = if hours.is_empty() {
+            0.0
+        } else {
+            hours
+                .parse::<f64>()
+                .ok()
+                .filter(|hours| hours.is_finite())
+                .map(|hours| hours.max(0.0))
+                .ok_or(CommunityFormError::InvalidHours)?
+        };
+        Ok(CommunityReviewDraft {
+            title: (!title.is_empty()).then(|| title.to_string()),
+            text: text.to_string(),
+            rating: self.rating,
+            hours,
+        })
+    }
+}
+
+/// Rascunho validado de coleção; `visibility` já é o valor do contrato.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommunityCollectionDraft {
+    pub title: String,
+    pub description: Option<String>,
+    pub visibility: CommunityVisibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionFormState {
+    /// `Some(id)` edita a coleção existente; `None` cria uma nova.
+    pub editing: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub visibility: CommunityVisibility,
+}
+
+impl Default for CollectionFormState {
+    fn default() -> Self {
+        Self {
+            editing: None,
+            title: String::new(),
+            description: String::new(),
+            visibility: CommunityVisibility::Public,
+        }
+    }
+}
+
+impl CollectionFormState {
+    pub fn for_collection(collection: &CommunityCollection) -> Self {
+        Self {
+            editing: Some(collection.id.clone()),
+            title: collection.title.clone(),
+            description: collection.description.clone().unwrap_or_default(),
+            visibility: CommunityVisibility::from_value(collection.visibility.as_deref()),
+        }
+    }
+
+    pub fn validate(&self) -> Result<CommunityCollectionDraft, CommunityFormError> {
+        let title = self.title.trim();
+        if title.is_empty() {
+            return Err(CommunityFormError::EmptyCollectionTitle);
+        }
+        let description = self.description.trim();
+        Ok(CommunityCollectionDraft {
+            title: title.to_string(),
+            description: (!description.is_empty()).then(|| description.to_string()),
+            visibility: self.visibility,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommunityFormError {
+    EmptyReviewText,
+    InvalidRating,
+    InvalidHours,
+    EmptyCollectionTitle,
+    EmptyReportReason,
+}
+
+impl CommunityFormError {
+    pub fn message<'a>(self, i18n: &'a crate::i18n::I18n) -> &'a str {
+        match self {
+            Self::EmptyReviewText => i18n.t("community.erro_texto_avaliacao"),
+            Self::InvalidRating => i18n.t("native.community.invalid_rating"),
+            Self::InvalidHours => i18n.t("native.community.invalid_hours"),
+            Self::EmptyCollectionTitle => i18n.t("community.erro_titulo_colecao"),
+            Self::EmptyReportReason => i18n.t("native.community.report_reason_required"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommunityReportState {
+    pub target: CommunityTarget,
+    pub id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommunityConfirm {
+    Review(String),
+    Collection(String),
+}
+
 /// Estado de uma lista paginada; `offline` é independente de `status` para
 /// continuar visível junto dos itens que vieram do cache.
 #[derive(Debug, Clone)]
@@ -44,6 +257,8 @@ pub struct CommunityList<T> {
     pub offline: bool,
     pub has_more: bool,
     pub next_offset: u64,
+    /// Offset da última página aplicada; recarregar após mutar usa este valor.
+    pub page_offset: u64,
     pub total: Option<u64>,
     pub loading_more: bool,
 }
@@ -57,6 +272,7 @@ impl<T> Default for CommunityList<T> {
             offline: false,
             has_more: false,
             next_offset: 0,
+            page_offset: 0,
             total: None,
             loading_more: false,
         }
@@ -68,9 +284,49 @@ pub struct CommunityState {
     pub tab: CommunityTab,
     pub reviews: CommunityList<CommunityReview>,
     pub collections: CommunityList<CommunityCollection>,
+    /// Appid normalizado (sem `steam:`) desta ficha.
+    pub appid: String,
+    /// Sessão que pode mutar; `None` mantém os botões desabilitados.
+    pub viewer_id: Option<String>,
+    /// Lista restrita às coleções da sessão via `mine=true`.
+    pub mine_only: bool,
+    pub review_form: Option<ReviewFormState>,
+    pub collection_form: Option<CollectionFormState>,
+    pub confirm: Option<CommunityConfirm>,
+    pub report: Option<CommunityReportState>,
+    pub mutation_busy: bool,
+    pub mutation_error: Option<String>,
+    pub mutation_notice: Option<String>,
 }
 
 impl CommunityState {
+    pub fn is_signed_in(&self) -> bool {
+        self.viewer_id.is_some()
+    }
+
+    pub fn is_own_review(&self, review: &CommunityReview) -> bool {
+        review
+            .user_id
+            .as_deref()
+            .is_some_and(|id| self.viewer_id.as_deref() == Some(id))
+    }
+
+    pub fn is_own_collection(&self, collection: &CommunityCollection) -> bool {
+        self.mine_only
+            || collection
+                .user_id
+                .as_deref()
+                .is_some_and(|id| self.viewer_id.as_deref() == Some(id))
+    }
+
+    pub fn has_current_game(&self, collection: &CommunityCollection) -> bool {
+        !self.appid.is_empty()
+            && collection
+                .items
+                .iter()
+                .any(|item| item.appid == self.appid)
+    }
+
     pub fn apply_reviews_page(
         &mut self,
         page: CommunityReviewsPage,
@@ -110,9 +366,22 @@ impl CommunityState {
 #[derive(Debug, Clone, Default)]
 pub struct CommunityCache {
     entries: HashMap<String, CommunityState>,
+    viewer_id: Option<String>,
 }
 
 impl CommunityCache {
+    /// Atualiza a sessão visível nos painéis em cache. Quando a identidade
+    /// muda (login, logout ou troca de conta), o cache é descartado: dados e
+    /// formulários da sessão anterior não podem reaparecer para outra conta.
+    pub fn set_viewer(&mut self, viewer_id: Option<String>) -> bool {
+        if self.viewer_id == viewer_id {
+            return false;
+        }
+        self.viewer_id = viewer_id;
+        self.entries.clear();
+        true
+    }
+
     /// Devolve o estado do appid e se ele acabou de ser criado (primeira
     /// carga). O chamador usa `true` para disparar as duas primeiras páginas.
     pub fn ensure(&mut self, appid: &str) -> (&mut CommunityState, bool) {
@@ -121,12 +390,14 @@ impl CommunityCache {
             self.entries
                 .insert(appid.to_string(), CommunityState::default());
         }
-        (
-            self.entries
-                .get_mut(appid)
-                .expect("estado recém-inserido"),
-            fresh,
-        )
+        let viewer_id = self.viewer_id.clone();
+        let state = self
+            .entries
+            .get_mut(appid)
+            .expect("estado recém-inserido");
+        state.appid = appid.to_string();
+        state.viewer_id = viewer_id;
+        (state, fresh)
     }
 
     pub fn get(&self, appid: &str) -> Option<&CommunityState> {
@@ -171,6 +442,7 @@ fn apply_page<T: CommunityItemKey>(
     list.offline = offline;
     list.has_more = has_more && incoming_len > 0 && (!append || added > 0);
     list.next_offset = offset.saturating_add(incoming_len);
+    list.page_offset = offset;
     list.total = total;
     list.loading_more = false;
 }
@@ -244,11 +516,20 @@ pub fn panel<'a>(
     .align_y(iced::Center);
 
     let body = match state.tab {
-        CommunityTab::Reviews => reviews_body(i18n, &state.reviews),
-        CommunityTab::Collections => collections_body(i18n, &state.collections),
+        CommunityTab::Reviews => reviews_body(i18n, state),
+        CommunityTab::Collections => collections_body(i18n, title, state),
     };
 
-    container(column![header, body].spacing(theme::SPACE_3).width(Fill))
+    let mut content = column![header].spacing(theme::SPACE_3).width(Fill);
+    if let Some(error) = state.mutation_error.as_deref() {
+        content = content.push(views::action_error_banner(error, None));
+    }
+    if let Some(notice) = state.mutation_notice.as_deref() {
+        content = content.push(success_banner(notice));
+    }
+    content = content.push(body);
+
+    container(content)
         .width(Fill)
         .padding(theme::SPACE_4)
         .style(theme::stub_panel)
@@ -273,9 +554,14 @@ fn tab_button<'a>(label: &'a str, tab: CommunityTab, active: CommunityTab) -> El
 
 fn reviews_body<'a>(
     i18n: &'a crate::i18n::I18n,
-    list: &'a CommunityList<CommunityReview>,
+    state: &'a CommunityState,
 ) -> Element<'a, Message> {
+    let list = &state.reviews;
     let mut content = column![].spacing(theme::SPACE_2).width(Fill);
+    content = content.push(reviews_controls(i18n, state));
+    if let Some(form) = state.review_form.as_ref() {
+        content = content.push(review_form(i18n, form, state.mutation_busy));
+    }
     content = content.push(status_banner(
         i18n,
         &list.status,
@@ -297,7 +583,7 @@ fn reviews_body<'a>(
         }
     } else {
         for review in &list.items {
-            content = content.push(review_card(i18n, review));
+            content = content.push(review_card(i18n, review, state));
         }
         if let Some(error) = list.error.as_deref() {
             content = content.push(views::action_error_banner_labeled(
@@ -328,9 +614,15 @@ fn reviews_body<'a>(
 
 fn collections_body<'a>(
     i18n: &'a crate::i18n::I18n,
-    list: &'a CommunityList<CommunityCollection>,
+    title: &'a str,
+    state: &'a CommunityState,
 ) -> Element<'a, Message> {
+    let list = &state.collections;
     let mut content = column![].spacing(theme::SPACE_2).width(Fill);
+    content = content.push(collections_controls(i18n, state));
+    if let Some(form) = state.collection_form.as_ref() {
+        content = content.push(collection_form(i18n, title, state, form));
+    }
     content = content.push(status_banner(
         i18n,
         &list.status,
@@ -352,7 +644,7 @@ fn collections_body<'a>(
         }
     } else {
         for collection in &list.items {
-            content = content.push(collection_card(i18n, collection));
+            content = content.push(collection_card(i18n, collection, state));
         }
         if let Some(error) = list.error.as_deref() {
             content = content.push(views::action_error_banner_labeled(
@@ -379,6 +671,386 @@ fn collections_body<'a>(
     }
 
     content.into()
+}
+
+fn reviews_controls<'a>(
+    i18n: &'a crate::i18n::I18n,
+    state: &'a CommunityState,
+) -> Element<'a, Message> {
+    let open = state.review_form.is_some();
+    let label = if !state.is_signed_in() {
+        i18n.t("native.community.login_cta")
+    } else if open {
+        i18n.t("common.cancelar")
+    } else {
+        i18n.t("community.escrever_avaliacao")
+    };
+    let message = if !state.is_signed_in() {
+        None
+    } else if open {
+        Some(Message::CommunityReviewFormClosed)
+    } else {
+        Some(Message::CommunityReviewFormOpened)
+    };
+    row![
+        Space::new().width(Fill),
+        button(text(label).size(11).font(theme::FONT_MEDIUM))
+            .on_press_maybe(message)
+            .padding([7.0, 12.0])
+            .style(theme::primary_button),
+    ]
+    .width(Fill)
+    .into()
+}
+
+fn collections_controls<'a>(
+    i18n: &'a crate::i18n::I18n,
+    state: &'a CommunityState,
+) -> Element<'a, Message> {
+    let mut controls = row![].spacing(6);
+    if state.is_signed_in() {
+        controls = controls.push(segment_action(
+            i18n.t("community.minhas_colecoes"),
+            Message::CommunityMineToggled(!state.mine_only),
+            state.mine_only,
+            !state.mutation_busy,
+        ));
+    }
+    let open = state.collection_form.is_some();
+    let label = if !state.is_signed_in() {
+        i18n.t("native.community.login_cta")
+    } else if open {
+        i18n.t("common.cancelar")
+    } else {
+        i18n.t("community.criar_colecao")
+    };
+    let message = if !state.is_signed_in() {
+        None
+    } else if open {
+        Some(Message::CommunityCollectionFormClosed)
+    } else {
+        Some(Message::CommunityCollectionFormOpened)
+    };
+    controls = controls.push(Space::new().width(Fill));
+    controls = controls.push(
+        button(text(label).size(11).font(theme::FONT_MEDIUM))
+            .on_press_maybe(message)
+            .padding([7.0, 12.0])
+            .style(theme::primary_button),
+    );
+    controls.width(Fill).into()
+}
+
+fn segment_action<'a>(
+    label: &'a str,
+    message: Message,
+    active: bool,
+    enabled: bool,
+) -> Element<'a, Message> {
+    button(
+        text(label)
+            .size(11)
+            .font(theme::FONT_MEDIUM)
+            .color(if active { theme::TEXT_1 } else { theme::TEXT_2 }),
+    )
+    .on_press_maybe(enabled.then_some(message))
+    .padding([7.0, 12.0])
+    .style(move |style_theme, status| {
+        theme::segment_button(style_theme, status, active)
+    })
+    .into()
+}
+
+fn review_form<'a>(
+    i18n: &'a crate::i18n::I18n,
+    form: &'a ReviewFormState,
+    busy: bool,
+) -> Element<'a, Message> {
+    let mut rating = row![].spacing(4);
+    for value in 1..=5u8 {
+        rating = rating.push(
+            button(
+                text(value.to_string())
+                    .size(11)
+                    .font(theme::FONT_MEDIUM)
+                    .color(if form.rating == value {
+                        theme::TEXT_1
+                    } else {
+                        theme::TEXT_2
+                    }),
+            )
+            .on_press_maybe((!busy).then_some(Message::CommunityReviewRatingChanged(value)))
+            .padding([6.0, 10.0])
+            .style(move |style_theme, status| {
+                theme::segment_button(style_theme, status, form.rating == value)
+            }),
+        );
+    }
+
+    let submit = if form.editing.is_some() {
+        i18n.t("community.salvar_alteracoes")
+    } else {
+        i18n.t("community.publicar")
+    };
+
+    container(
+        column![
+            row![
+                column![
+                    text(i18n.t("community.titulo_opcional"))
+                        .size(10)
+                        .color(theme::TEXT_3),
+                    text_input(i18n.t("community.titulo_opcional"), &form.title)
+                        .on_input(Message::CommunityReviewTitleChanged)
+                        .padding([7.0, 10.0])
+                        .size(12)
+                        .width(Fill)
+                        .style(theme::search_input),
+                ]
+                .spacing(3)
+                .width(Fill),
+                column![
+                    text(i18n.t("community.nota")).size(10).color(theme::TEXT_3),
+                    rating,
+                ]
+                .spacing(3),
+                column![
+                    text(i18n.t("community.horas")).size(10).color(theme::TEXT_3),
+                    text_input("0.0", &form.hours)
+                        .on_input(Message::CommunityReviewHoursChanged)
+                        .padding([7.0, 10.0])
+                        .size(12)
+                        .width(90)
+                        .style(theme::search_input),
+                ]
+                .spacing(3),
+            ]
+            .spacing(theme::SPACE_2)
+            .align_y(iced::Bottom),
+            text_input(i18n.t("community.avaliacao"), &form.text)
+                .on_input(Message::CommunityReviewTextChanged)
+                .padding([7.0, 10.0])
+                .size(12)
+                .width(Fill)
+                .style(theme::search_input),
+            row![
+                Space::new().width(Fill),
+                button(
+                    text(i18n.t("common.cancelar"))
+                        .size(11)
+                        .font(theme::FONT_MEDIUM)
+                )
+                .on_press(Message::CommunityReviewFormClosed)
+                .padding([7.0, 12.0])
+                .style(theme::ghost_button),
+                button(text(submit).size(11).font(theme::FONT_MEDIUM))
+                    .on_press_maybe((!busy).then_some(Message::CommunityReviewSubmit))
+                    .padding([7.0, 12.0])
+                    .style(theme::primary_button),
+            ]
+            .spacing(theme::SPACE_2),
+        ]
+        .spacing(theme::SPACE_2),
+    )
+    .width(Fill)
+    .padding(theme::SPACE_3)
+    .style(theme::empty_panel)
+    .into()
+}
+
+fn collection_form<'a>(
+    i18n: &'a crate::i18n::I18n,
+    game_title: &'a str,
+    state: &'a CommunityState,
+    form: &'a CollectionFormState,
+) -> Element<'a, Message> {
+    let mut visibility = row![].spacing(4);
+    for option in [
+        CommunityVisibility::Public,
+        CommunityVisibility::Unlisted,
+        CommunityVisibility::Private,
+    ] {
+        visibility = visibility.push(
+            button(
+                text(option.label(i18n))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM)
+                    .color(if form.visibility == option {
+                        theme::TEXT_1
+                    } else {
+                        theme::TEXT_2
+                    }),
+            )
+            .on_press_maybe(
+                (!state.mutation_busy)
+                    .then_some(Message::CommunityCollectionVisibilityChanged(option)),
+            )
+            .padding([6.0, 9.0])
+            .style(move |style_theme, status| {
+                theme::segment_button(style_theme, status, form.visibility == option)
+            }),
+        );
+    }
+
+    let mut content = column![
+        row![
+            column![
+                text(i18n.t("community.titulo_colecao"))
+                    .size(10)
+                    .color(theme::TEXT_3),
+                text_input(i18n.t("community.titulo_colecao"), &form.title)
+                    .on_input(Message::CommunityCollectionTitleChanged)
+                    .padding([7.0, 10.0])
+                    .size(12)
+                    .width(Fill)
+                    .style(theme::search_input),
+            ]
+            .spacing(3)
+            .width(Fill),
+            column![
+                text(i18n.t("community.visibilidade"))
+                    .size(10)
+                    .color(theme::TEXT_3),
+                visibility,
+            ]
+            .spacing(3),
+        ]
+        .spacing(theme::SPACE_2)
+        .align_y(iced::Bottom),
+        text_input(i18n.t("community.descricao_opcional"), &form.description)
+            .on_input(Message::CommunityCollectionDescriptionChanged)
+            .padding([7.0, 10.0])
+            .size(12)
+            .width(Fill)
+            .style(theme::search_input),
+    ]
+    .spacing(theme::SPACE_2);
+    if form.editing.is_none() {
+        let game = if game_title.trim().is_empty() {
+            i18n.t_args("community.para_jogo", &[("appid", &state.appid)])
+        } else {
+            game_title.to_string()
+        };
+        content = content.push(hint(
+            i18n.t_args("community.colecao_comeca", &[("game", &game)]),
+            theme::TEXT_3,
+        ));
+    }
+    let submit = if form.editing.is_some() {
+        i18n.t("community.salvar_alteracoes")
+    } else {
+        i18n.t("community.criar")
+    };
+    content = content.push(
+        row![
+            Space::new().width(Fill),
+            button(
+                text(i18n.t("common.cancelar"))
+                    .size(11)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press(Message::CommunityCollectionFormClosed)
+            .padding([7.0, 12.0])
+            .style(theme::ghost_button),
+            button(text(submit).size(11).font(theme::FONT_MEDIUM))
+                .on_press_maybe(
+                    (!state.mutation_busy).then_some(Message::CommunityCollectionSubmit),
+                )
+                .padding([7.0, 12.0])
+                .style(theme::primary_button),
+        ]
+        .spacing(theme::SPACE_2),
+    );
+
+    container(content)
+        .width(Fill)
+        .padding(theme::SPACE_3)
+        .style(theme::empty_panel)
+        .into()
+}
+
+fn confirm_row<'a>(
+    i18n: &'a crate::i18n::I18n,
+    target: CommunityTarget,
+    busy: bool,
+) -> Element<'a, Message> {
+    let question = match target {
+        CommunityTarget::Review => i18n.t("community.confirmar_remover_avaliacao"),
+        CommunityTarget::Collection => i18n.t("community.confirmar_remover_colecao"),
+    };
+    row![
+        text(question).size(10).color(theme::TEXT_2),
+        button(
+            text(i18n.t("community.remover"))
+                .size(10)
+                .font(theme::FONT_MEDIUM)
+        )
+        .on_press_maybe((!busy).then_some(Message::CommunityConfirmAccepted))
+        .padding([5.0, 9.0])
+        .style(theme::ghost_button),
+        button(
+            text(i18n.t("common.cancelar"))
+                .size(10)
+                .font(theme::FONT_MEDIUM)
+        )
+        .on_press(Message::CommunityConfirmCancelled)
+        .padding([5.0, 9.0])
+        .style(theme::ghost_button),
+    ]
+    .spacing(6)
+    .align_y(iced::Center)
+    .into()
+}
+
+fn report_form<'a>(
+    i18n: &'a crate::i18n::I18n,
+    report: &'a CommunityReportState,
+    busy: bool,
+) -> Element<'a, Message> {
+    let prompt = match report.target {
+        CommunityTarget::Review => i18n.t("community.prompt_denunciar"),
+        CommunityTarget::Collection => i18n.t("community.prompt_denunciar_colecao"),
+    };
+    column![
+        text(prompt).size(10).color(theme::TEXT_2),
+        row![
+            text_input(i18n.t("community.conteudo_inadequado"), &report.reason)
+                .on_input(Message::CommunityReportReasonChanged)
+                .padding([6.0, 9.0])
+                .size(11)
+                .width(Fill)
+                .style(theme::search_input),
+            button(
+                text(i18n.t("community.denunciar"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press_maybe((!busy).then_some(Message::CommunityReportSubmit))
+            .padding([5.0, 9.0])
+            .style(theme::primary_button),
+            button(
+                text(i18n.t("common.cancelar"))
+                    .size(10)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press(Message::CommunityReportCancelled)
+            .padding([5.0, 9.0])
+            .style(theme::ghost_button),
+        ]
+        .spacing(6)
+        .align_y(iced::Center),
+    ]
+    .spacing(3)
+    .width(Fill)
+    .into()
+}
+
+fn success_banner(message: &str) -> Element<'_, Message> {
+    container(text(message).size(12).color(theme::SUCCESS).width(Fill))
+        .width(Fill)
+        .padding([10.0, 14.0])
+        .style(theme::stub_panel)
+        .into()
 }
 
 fn status_banner<'a>(
@@ -418,6 +1090,7 @@ fn load_more_button<'a>(
 fn review_card<'a>(
     i18n: &'a crate::i18n::I18n,
     review: &'a CommunityReview,
+    state: &'a CommunityState,
 ) -> Element<'a, Message> {
     let stars = rating_stars(review);
     let date = review
@@ -479,6 +1152,9 @@ fn review_card<'a>(
     if !hours.is_empty() {
         content = content.push(text(hours).size(10).color(theme::TEXT_3));
     }
+    if state.is_signed_in() {
+        content = content.push(review_actions(i18n, review, state));
+    }
 
     container(content)
         .width(Fill)
@@ -487,9 +1163,66 @@ fn review_card<'a>(
         .into()
 }
 
+fn review_actions<'a>(
+    i18n: &'a crate::i18n::I18n,
+    review: &'a CommunityReview,
+    state: &'a CommunityState,
+) -> Element<'a, Message> {
+    if matches!(
+        state.confirm.as_ref(),
+        Some(CommunityConfirm::Review(id)) if id == &review.id
+    ) {
+        return confirm_row(i18n, CommunityTarget::Review, state.mutation_busy);
+    }
+    if state.report.as_ref().is_some_and(|report| {
+        report.target == CommunityTarget::Review && report.id == review.id
+    }) {
+        if let Some(report) = state.report.as_ref() {
+            return report_form(i18n, report, state.mutation_busy);
+        }
+    }
+
+    let enabled = !state.mutation_busy;
+    let mut actions = row![].spacing(8);
+    if state.is_own_review(review) {
+        actions = actions.push(text_action(
+            i18n.t("community.editar"),
+            Message::CommunityReviewEditRequested(review.id.clone()),
+            enabled,
+        ));
+        actions = actions.push(text_action(
+            i18n.t("community.remover"),
+            Message::CommunityConfirmRequested(
+                CommunityTarget::Review,
+                review.id.clone(),
+            ),
+            enabled,
+        ));
+    }
+    actions = actions.push(text_action(
+        i18n.t("community.denunciar"),
+        Message::CommunityReportRequested(CommunityTarget::Review, review.id.clone()),
+        enabled,
+    ));
+    actions.into()
+}
+
+fn text_action<'a>(
+    label: &'a str,
+    message: Message,
+    enabled: bool,
+) -> Element<'a, Message> {
+    button(text(label).size(10).font(theme::FONT_MEDIUM))
+        .on_press_maybe(enabled.then_some(message))
+        .padding([4.0, 6.0])
+        .style(theme::ghost_button)
+        .into()
+}
+
 fn collection_card<'a>(
     i18n: &'a crate::i18n::I18n,
     collection: &'a CommunityCollection,
+    state: &'a CommunityState,
 ) -> Element<'a, Message> {
     let visibility = collection
         .visibility
@@ -556,11 +1289,78 @@ fn collection_card<'a>(
         );
     }
 
+    if state.is_signed_in() {
+        content = content.push(collection_actions(i18n, collection, state));
+    }
+
     container(content)
         .width(Fill)
         .padding(12)
         .style(theme::empty_panel)
         .into()
+}
+
+fn collection_actions<'a>(
+    i18n: &'a crate::i18n::I18n,
+    collection: &'a CommunityCollection,
+    state: &'a CommunityState,
+) -> Element<'a, Message> {
+    if matches!(
+        state.confirm.as_ref(),
+        Some(CommunityConfirm::Collection(id)) if id == &collection.id
+    ) {
+        return confirm_row(i18n, CommunityTarget::Collection, state.mutation_busy);
+    }
+    if state.report.as_ref().is_some_and(|report| {
+        report.target == CommunityTarget::Collection && report.id == collection.id
+    }) {
+        if let Some(report) = state.report.as_ref() {
+            return report_form(i18n, report, state.mutation_busy);
+        }
+    }
+
+    let enabled = !state.mutation_busy;
+    let own = state.is_own_collection(collection);
+    let mut actions = row![].spacing(8);
+    if own {
+        actions = actions.push(text_action(
+            i18n.t("community.editar"),
+            Message::CommunityCollectionEditRequested(collection.id.clone()),
+            enabled,
+        ));
+        actions = actions.push(text_action(
+            i18n.t("community.remover"),
+            Message::CommunityConfirmRequested(
+                CommunityTarget::Collection,
+                collection.id.clone(),
+            ),
+            enabled,
+        ));
+        if !state.appid.is_empty() {
+            if state.has_current_game(collection) {
+                actions = actions.push(text_action(
+                    i18n.t("native.community.remove_current_game"),
+                    Message::CommunityCollectionItemRemove(collection.id.clone()),
+                    enabled,
+                ));
+            } else {
+                actions = actions.push(text_action(
+                    i18n.t("native.community.add_current_game"),
+                    Message::CommunityCollectionItemAdd(collection.id.clone()),
+                    enabled,
+                ));
+            }
+        }
+    }
+    actions = actions.push(text_action(
+        i18n.t("community.denunciar"),
+        Message::CommunityReportRequested(
+            CommunityTarget::Collection,
+            collection.id.clone(),
+        ),
+        enabled,
+    ));
+    actions.into()
 }
 
 fn badge<'a>(label: impl Into<String>, color: iced::Color) -> Element<'a, Message> {
@@ -635,6 +1435,7 @@ mod tests {
             positive: Some(true),
             hours: Some(2.0),
             created_at: None,
+            user_id: None,
         }
     }
 
@@ -647,6 +1448,7 @@ mod tests {
             owner: "Dono".to_string(),
             item_count: 1,
             items: Vec::new(),
+            user_id: None,
         }
     }
 
@@ -723,6 +1525,7 @@ mod tests {
         assert!(state.reviews.offline);
         assert!(!state.reviews.has_more);
         assert_eq!(state.reviews.next_offset, 3);
+        assert_eq!(state.reviews.page_offset, 2);
     }
 
     #[test]
@@ -795,5 +1598,131 @@ mod tests {
         assert_eq!(state.collections.items.len(), 2);
         assert_eq!(state.collections.items[1].title, "Coleção b");
         assert!(state.collections.offline);
+    }
+
+    #[test]
+    fn review_form_rejects_empty_text_and_invalid_rating() {
+        let form = ReviewFormState::default();
+        assert_eq!(form.validate(), Err(CommunityFormError::EmptyReviewText));
+
+        let form = ReviewFormState {
+            text: "Bom jogo".to_string(),
+            rating: 0,
+            ..ReviewFormState::default()
+        };
+        assert_eq!(form.validate(), Err(CommunityFormError::InvalidRating));
+
+        let form = ReviewFormState {
+            text: "Bom jogo".to_string(),
+            rating: 6,
+            ..ReviewFormState::default()
+        };
+        assert_eq!(form.validate(), Err(CommunityFormError::InvalidRating));
+    }
+
+    #[test]
+    fn review_form_normalizes_title_hours_and_rating() {
+        let form = ReviewFormState {
+            title: "  Vale a pena  ".to_string(),
+            text: "  Texto  ".to_string(),
+            rating: 4,
+            hours: " 12.5 ".to_string(),
+            ..ReviewFormState::default()
+        };
+        let draft = form.validate().expect("formulário válido");
+        assert_eq!(draft.title.as_deref(), Some("Vale a pena"));
+        assert_eq!(draft.text, "Texto");
+        assert_eq!(draft.rating, 4);
+        assert_eq!(draft.hours, 12.5);
+
+        let no_hours = ReviewFormState {
+            text: "Texto".to_string(),
+            ..ReviewFormState::default()
+        };
+        assert_eq!(no_hours.validate().expect("horas vazias").hours, 0.0);
+
+        let invalid_hours = ReviewFormState {
+            text: "Texto".to_string(),
+            hours: "muitas".to_string(),
+            ..ReviewFormState::default()
+        };
+        assert_eq!(
+            invalid_hours.validate(),
+            Err(CommunityFormError::InvalidHours)
+        );
+    }
+
+    #[test]
+    fn review_form_from_review_prefills_editable_fields() {
+        let mut source = review("r1");
+        source.title = Some("Título".to_string());
+        source.text = "Texto".to_string();
+        source.rating = Some(3.0);
+        source.hours = Some(7.5);
+        let form = ReviewFormState::for_review(&source);
+        assert_eq!(form.editing.as_deref(), Some("r1"));
+        assert_eq!(form.title, "Título");
+        assert_eq!(form.rating, 3);
+        assert_eq!(form.hours, "7.5");
+    }
+
+    #[test]
+    fn collection_form_requires_title_and_keeps_visibility() {
+        let form = CollectionFormState::default();
+        assert_eq!(
+            form.validate(),
+            Err(CommunityFormError::EmptyCollectionTitle)
+        );
+
+        let form = CollectionFormState {
+            title: " Minha lista ".to_string(),
+            description: "  ".to_string(),
+            visibility: CommunityVisibility::Private,
+            ..CollectionFormState::default()
+        };
+        let draft = form.validate().expect("coleção válida");
+        assert_eq!(draft.title, "Minha lista");
+        assert_eq!(draft.description, None);
+        assert_eq!(draft.visibility.as_str(), "private");
+    }
+
+    #[test]
+    fn ownership_checks_use_viewer_and_mine_listing() {
+        let mut target = review("r1");
+        target.user_id = Some("u1".to_string());
+        let collection = collection("c1");
+        let mut state = CommunityState {
+            viewer_id: Some("u1".to_string()),
+            mine_only: true,
+            appid: "10".to_string(),
+            ..CommunityState::default()
+        };
+        assert!(state.is_own_review(&target));
+        assert!(state.is_own_collection(&collection));
+        assert!(!state.has_current_game(&collection));
+
+        state.viewer_id = Some("u2".to_string());
+        state.mine_only = false;
+        assert!(!state.is_own_review(&target));
+        assert!(!state.is_own_collection(&collection));
+    }
+
+    #[test]
+    fn leaving_the_session_clears_private_form_state() {
+        let mut cache = CommunityCache::default();
+        assert!(cache.set_viewer(Some("u1".to_string())));
+        {
+            let (state, _) = cache.ensure("10");
+            state.mine_only = true;
+            state.review_form = Some(ReviewFormState::default());
+            state.collection_form = Some(CollectionFormState::default());
+        }
+        assert!(cache.set_viewer(None));
+        assert!(cache.get("10").is_none());
+        let (state, _) = cache.ensure("10");
+        assert!(!state.mine_only);
+        assert!(state.review_form.is_none());
+        assert!(state.collection_form.is_none());
+        assert!(!state.is_signed_in());
     }
 }
