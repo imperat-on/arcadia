@@ -1349,7 +1349,17 @@ declare global {
         id: string,
         url: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
-      /** Baixa todos os trailers que faltam. Devolve quantos baixou. */
+      /**
+       * Baixa o HLS da Steam (`movies[].hls_h264`) para um MP4 local.
+       *
+       * O WebKitGTK não implementa Media Source Extensions para vídeo, então o
+       * hls.js nunca consegue tocar o manifesto e o player fica girando. O
+       * backend usa ffmpeg para juntar os segmentos num arquivo progressivo.
+       */
+      trailerCacheHls: (
+        id: string,
+        url: string,
+      ) => Promise<{ ok: boolean; path?: string; cached?: boolean; error?: string }>
       trailerDownloadAll: () => Promise<{ ok: boolean; count?: number; error?: string }>
       /** Escolhe o arquivo cookies.txt do YouTube (restrição de idade). */
       trailerPickCookies: () => Promise<{ ok: boolean; path?: string }>

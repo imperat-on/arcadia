@@ -84,6 +84,7 @@
     "trailer:search",
     "trailer:streamUrl",
     "trailer:downloadUrl",
+    "trailer:cacheHls",
     "trailer:downloadAll",
     "trailer:pickCookies",
     "sources:list",

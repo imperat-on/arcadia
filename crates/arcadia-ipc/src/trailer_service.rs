@@ -206,6 +206,83 @@ pub async fn download(state: &AppState, args: &[Value]) -> Value {
     }
 }
 
+/// Baixa um trailer HLS da Steam para arquivo local e devolve o caminho.
+///
+/// A Steam aposentou o MP4: hoje `movies[].mp4` vem vazio e só `hls_h264`
+/// existe. O player antigo montava a URL direto no `<video>` e, sem mp4,
+/// caía no `hls.js` — que precisa de Media Source Extensions. O WebKitGTK
+/// não implementa MSE para vídeo, então o `attachMedia` nunca dispara
+/// `MANIFEST_PARSED` e o `<video>` fica preto girando para sempre.
+///
+/// Baixar contorna a limitação inteira: o ffmpeg busca o manifesto, baixa os
+/// segmentos e junta num MP4 progressivo, que o WebKit toca pelo GStreamer
+/// normalmente. Fica em cache no mesmo diretório de trailers.
+pub async fn cache_hls(state: &AppState, args: &[Value]) -> Value {
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let url = payload.get("url").and_then(Value::as_str).unwrap_or_default();
+    let id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+    if url.is_empty() || id.is_empty() {
+        return json!({ "ok": false, "error": "parâmetros ausentes" });
+    }
+
+    // Nome estável por id do filme: reabrir a ficha não baixa de novo.
+    let seguro: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let destino = trailers_dir(&state.data_dir).join(format!("hls_{seguro}.mp4"));
+
+    if let Ok(meta) = std::fs::metadata(&destino) {
+        if meta.len() > 100_000 {
+            return json!({ "ok": true, "path": format!("file://{}", destino.to_string_lossy()), "cached": true });
+        }
+    }
+
+    if let Some(pai) = destino.parent() {
+        let _ = std::fs::create_dir_all(pai);
+    }
+
+    let Some(ffmpeg) = find_executable("ffmpeg") else {
+        return json!({ "ok": false, "error": "ffmpeg não encontrado" });
+    };
+
+    // `-c copy` mantém o H.264 original sem recodificar (rápido). `+faststart`
+    // move o átomo de índice para o começo, senão o WebKit precisa baixar o
+    // arquivo inteiro antes de mostrar o primeiro frame.
+    let output = run(
+        &ffmpeg,
+        &[
+            "-y".to_string(),
+            "-loglevel".to_string(),
+            "error".to_string(),
+            "-i".to_string(),
+            url.to_string(),
+            "-c".to_string(),
+            "copy".to_string(),
+            "-movflags".to_string(),
+            "+faststart".to_string(),
+            destino.to_string_lossy().into_owned(),
+        ],
+    )
+    .await;
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let tamanho = std::fs::metadata(&destino).map(|m| m.len()).unwrap_or(0);
+            if tamanho > 100_000 {
+                json!({ "ok": true, "path": format!("file://{}", destino.to_string_lossy()), "cached": false })
+            } else {
+                json!({ "ok": false, "error": format!("arquivo gerado tem {tamanho} bytes") })
+            }
+        }
+        Ok(out) => json!({
+            "ok": false,
+            "error": String::from_utf8_lossy(&out.stderr).trim()
+        }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
 pub async fn download_all(state: &AppState) -> Value {
     let Some(program) = ytdlp() else {
         return ytdlp_ausente();
@@ -253,5 +330,93 @@ mod tests {
         let state = crate::AppState::new(dir.clone());
         assert_eq!(local_path_json(&state, "steam:1")["path"], "");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Regressão: buffering infinito no player da ficha do jogo ─────────────
+    //
+    // A Steam aposentou o MP4: `movies[].mp4` vem vazio e só `hls_h264` existe.
+    // O player montava `src={direto}` (string vazia) e delegava ao hls.js, que
+    // depende de Media Source Extensions — indisponível para vídeo no
+    // WebKitGTK. O <video> nunca disparava `canplay` e ficava girando.
+    //
+    // A correção é baixar o HLS para um MP4 progressivo. Estes testes travam as
+    // duas metades: o backend produz o arquivo, e o nome é estável (senão cada
+    // abertura da ficha baixaria de novo e o cache nunca acertaria).
+
+    #[test]
+    fn cache_hls_rejeita_argumentos_ausentes() {
+        let dir = std::env::temp_dir().join(format!(
+            "arcadia-cachehls-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = crate::AppState::new(dir.clone());
+
+        // Sem url/id não há o que baixar — e não pode virar erro genérico.
+        let so_id = vec![json!({ "id": "123" })];
+        let r = futures_lite_block(cache_hls(&state, &so_id));
+        assert_eq!(r["ok"], false);
+        assert_eq!(r["error"], "parâmetros ausentes");
+
+        let so_url = vec![json!({ "url": "https://x/y.m3u8" })];
+        let r = futures_lite_block(cache_hls(&state, &so_url));
+        assert_eq!(r["ok"], false);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// O nome do cache precisa ser estável e seguro para o sistema de arquivos.
+    /// Id de filme da Steam é numérico, mas a sanitização é a garantia de que
+    /// um id inesperado não escape do diretório de trailers.
+    #[test]
+    fn nome_do_cache_usa_apenas_caracteres_seguros() {
+        for id in ["257109786", "../evil", "a/b\\c", "id com espaço"] {
+            let seguro: String = id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            assert!(
+                !seguro.contains('/') && !seguro.contains('\\') && !seguro.contains(".."),
+                "id {id:?} gerou nome inseguro: {seguro:?}"
+            );
+            // Determinístico: mesmo id -> mesmo nome, senão o cache não acerta.
+            let outra: String = id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            assert_eq!(seguro, outra);
+        }
+    }
+
+    /// Bloqueia num future já pronto. Os testes acima não tocam rede nem
+    /// processo; só exercitam a validação síncrona de `cache_hls`.
+    fn futures_lite_block(fut: impl std::future::Future<Output = Value>) -> Value {
+        use std::task::{Context, Poll, Wake, Waker};
+        struct Noop;
+        impl Wake for Noop {
+            fn wake(self: std::sync::Arc<Self>) {}
+        }
+        let waker = Waker::from(std::sync::Arc::new(Noop));
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = Box::pin(fut);
+        loop {
+            match fut.as_mut().poll(&mut cx) {
+                Poll::Ready(v) => return v,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
     }
 }

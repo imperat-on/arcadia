@@ -5,9 +5,23 @@
 // ProtonDB. Todos os dados vêm de IPC já existente (gameSysinfo, gameProtonDb).
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import Hls from "hls.js"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useI18n } from "../../i18n/I18nContext"
 import { fmtNotaSteam, fmtNum } from "../format"
+
+/**
+ * `trailerCacheHls` devolve `file:///caminho/x.mp4`. O WebKit só serve o
+ * arquivo pela URL do assetProtocol, que o `convertFileSrc` monta — passar a
+ * URL crua faz o <video> falhar sem erro visível.
+ */
+function urlReproduzivel(caminhoOuUrl: string): string {
+  if (!caminhoOuUrl.startsWith("file://")) return caminhoOuUrl
+  try {
+    return convertFileSrc(caminhoOuUrl.slice("file://".length))
+  } catch {
+    return caminhoOuUrl
+  }
+}
 
 type Movie = { id: number; name: string; thumb: string; mp4: string; webm: string; hls?: string }
 type Shot = { thumb: string; full: string }
@@ -32,13 +46,42 @@ export function GameMediaGallery({
     setSel(temMovie ? { tipo: "movie", idx: 0 } : { tipo: "shot", idx: 0 })
   }, [temMovie, movies.length, screenshots.length])
 
-  // Steam trocou trailers p/ HLS (.m3u8); mp4 só existe em jogos antigos.
-  // Sem mp4 → anexa hls.js ao <video> (Chromium não toca HLS nativo).
+  // A Steam aposentou o MP4: `movies[].mp4` vem vazio e só `hls_h264` existe.
+  //
+  // O player antigo tentava hls.js, que precisa de Media Source Extensions. O
+  // WebKitGTK não implementa MSE para vídeo, então `attachMedia` nunca dispara
+  // `MANIFEST_PARSED` e o <video> fica preto girando para sempre — era o
+  // "carregando infinito" ao clicar no jogo.
+  //
+  // Agora o HLS é baixado pelo backend (ffmpeg junta os segmentos num MP4
+  // progressivo) e tocado do disco. Deixa de depender de MSE.
   const mov = sel.tipo === "movie" ? movies[sel.idx] : undefined
   const direto = mov?.mp4 || mov?.webm || ""
+  const [hlsLocal, setHlsLocal] = useState<string | null>(null)
+  const [hlsErro, setHlsErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    setHlsLocal(null)
+    setHlsErro(null)
+    if (!mov || direto || !mov.hls) return
+    let vivo = true
+    window.launcherAPI
+      ?.trailerCacheHls(String(mov.id), mov.hls)
+      .then((r) => {
+        if (!vivo) return
+        if (r?.ok && r.path) setHlsLocal(urlReproduzivel(r.path))
+        else setHlsErro(r?.error || "falha ao preparar o vídeo")
+      })
+      .catch((e) => vivo && setHlsErro(String(e)))
+    return () => {
+      vivo = false
+    }
+  }, [mov?.id, mov?.hls, direto])
+
+  const src = direto || hlsLocal || undefined
   useEffect(() => {
     const v = vidRef.current
-    if (!v || !mov) return
+    if (!v || !mov || !src) return
     let live = true
     const iniciar = () => {
       if (!live) return
@@ -53,26 +96,9 @@ export function GameMediaGallery({
       v.removeEventListener("loadedmetadata", iniciar)
       v.removeEventListener("canplay", iniciar)
     }
-    if (direto) {
-      iniciar()
-      return limpar
-    }
-    if (!mov.hls) return limpar
-    if (!Hls.isSupported()) {
-      v.src = mov.hls
-      v.load()
-      iniciar()
-      return limpar
-    }
-    const hls = new Hls()
-    hls.loadSource(mov.hls)
-    hls.attachMedia(v)
-    hls.on(Hls.Events.MANIFEST_PARSED, iniciar)
-    return () => {
-      limpar()
-      hls.destroy()
-    }
-  }, [mov?.id, mov?.hls, direto])
+    iniciar()
+    return limpar
+  }, [mov?.id, src])
 
   if (!temMovie && screenshots.length === 0) return null
 
@@ -88,7 +114,7 @@ export function GameMediaGallery({
           <video
             ref={vidRef}
             key={movies[sel.idx].id}
-            src={direto || undefined}
+            src={src}
             poster={movies[sel.idx].thumb}
             controls
             autoPlay
@@ -97,6 +123,16 @@ export function GameMediaGallery({
             preload="auto"
             className="h-full w-full object-contain"
           />
+        ) : hlsErro ? (
+          <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-[color:var(--text-2)]">
+            {hlsErro}
+          </div>
+        ) : mov?.hls ? (
+          // O HLS precisa virar arquivo antes de tocar (WebKitGTK não tem MSE).
+          // Sem este estado a espera era indistinguível de travamento.
+          <div className="flex h-full w-full items-center justify-center text-sm text-[color:var(--text-2)]">
+            preparando vídeo…
+          </div>
         ) : screenshots[sel.idx] ? (
           <img
             src={screenshots[sel.idx].full}
