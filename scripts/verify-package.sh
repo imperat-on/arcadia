@@ -166,11 +166,11 @@ if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
         sq="$work/squashfs-root"
         gst="$sq/usr/lib/gstreamer-1.0"
 
-        for p in libgstopenh264.so libgsthls.so; do
+        for p in libgstopenh264.so libgsthls.so libgstisomp4.so libgstvideoparsersbad.so; do
             if [ -e "$gst/$p" ]; then
                 ok "AppImage embarca $p"
             else
-                bad "AppImage SEM $p — trailer quebra"
+                bad "AppImage SEM $p — trailer/MSE quebra"
             fi
         done
 
@@ -250,6 +250,20 @@ if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
                         ok "pipeline H.264 decodifica com os codecs do pacote"
                     else
                         bad "pipeline H.264 FALHA dentro do pacote"
+                    fi
+
+                    # O <video> do WebKit não monta o pipeline à mão: ele usa o
+                    # auto-plugger (decodebin/MSE). Este teste prova que o
+                    # decodebin do pacote escolhe um decoder que resolve, e não
+                    # um plugin de maior prioridade que não carrega.
+                    if env -i HOME="$work" PATH=/usr/bin:/bin \
+                       LD_LIBRARY_PATH="$sq/usr/lib" \
+                       GST_PLUGIN_PATH="$gst" \
+                       GST_PLUGIN_SYSTEM_PATH_1_0="$gst" \
+                       timeout 60 gst-launch-1.0 -q filesrc location="$sample" ! decodebin ! fakesink >/dev/null 2>&1; then
+                        ok "decodebin monta o pipeline de vídeo com o pacote"
+                    else
+                        bad "decodebin FALHA dentro do pacote (MSE não tocaria)"
                     fi
                 else
                     skip "sem amostra de vídeo para o teste de decode"

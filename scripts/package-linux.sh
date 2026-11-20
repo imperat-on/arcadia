@@ -12,14 +12,16 @@
 # GStreamer do sistema. O `bundleMediaFramework` do Tauri embarca os plugins
 # básicos (~194), mas deixa de fora justamente os patenteados:
 #
-#   libgstopenh264.so   decoder H.264       <- trailers da Steam
-#   libgsthls.so        demuxer HLS         <- todo trailer moderno
+#   libgstopenh264.so   decoder H.264       <- trailer da Steam (via MSE)
+#   libgsthls.so        demuxer HLS         <- fallback de HLS nativo
 #   libgstlibav.so      decoder via ffmpeg  (alternativa, ~130 libs)
 #
-# Sem eles o trailer é uma tela preta silenciosa. Este script injeta
-# openh264 + hls + libopenh264 dentro do AppDir e reempacota. openh264 vem
-# no lugar do libav de propósito: cobre H.264 com 143 KB em vez de arrastar
-# o ffmpeg inteiro.
+# A ficha do jogo toca o HLS da Steam com hls.js/MSE: o JavaScript baixa os
+# segmentos e o WebKit só desmultiplexa/decodifica o MP4. O que não pode
+# faltar é o decoder H.264 e os plugins de MP4 (isomp4/videoparsersbad, já no
+# bundle). Este script injeta openh264 + hls + libopenh264 no AppDir e
+# reempacota. openh264 vem no lugar do libav de propósito: cobre H.264 com
+# 143 KB em vez de arrastar o ffmpeg inteiro.
 #
 # 2. A PILHA GRÁFICA DO HOST DE BUILD
 #

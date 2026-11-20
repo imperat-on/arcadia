@@ -16,14 +16,29 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/covers/**", "$APPDATA/trailers/**"]
+        "scope": [
+          "$APPDATA/covers/**",
+          "$APPDATA/trailers/**",
+          "$HOME/.local/share/arcadia/covers/**",
+          "$HOME/.local/share/arcadia/trailers/**",
+          "$HOME/AppData/Local/arcadia/covers/**",
+          "$HOME/AppData/Local/arcadia/trailers/**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "deb", "appimage", "rpm"],
-    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "targets": [
+      "nsis",
+      "deb",
+      "appimage",
+      "rpm"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "resources": {
       "resources/boot.mp4": "resources/boot.mp4",
       "resources/torrent_rpc/main.py": "resources/torrent_rpc/main.py",

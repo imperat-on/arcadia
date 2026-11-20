@@ -409,28 +409,19 @@ mod tests {
 /// `AppRun`. Um `export` num launcher externo não chega até aqui — só o próprio
 /// processo garante o ambiente para os filhos (WebKitWebProcess herda).
 ///
-/// O problema: com driver NVIDIA proprietário, o sink GL do WebKitGTK entrega o
-/// frame de vídeo sem converter YUV→RGB, e o trailer aparece como retângulo
-/// verde (a duração e a timeline ficam corretas — é falha de conversão, não de
-/// decode).
+/// O sink GL do WebKitGTK é desligado por padrão, igual ao `arcadia-tauri.sh`.
+/// Com driver NVIDIA proprietário ele entrega o frame de vídeo sem converter
+/// YUV→RGB (retângulo verde); o caminho de software do vídeo não afeta o
+/// compositing da UI. `ARCADIA_KEEP_GL_SINK=1` mantém o sink GL para quem
+/// preferir.
 ///
-/// A correção é desligar SÓ o GL sink do vídeo. `WEBKIT_DISABLE_DMABUF_RENDERER`
-/// também resolve o verde, mas desliga o zero-copy do compositing inteiro e
-/// deixa a UI arrastada — já testado e descartado.
+/// `WEBKIT_DISABLE_DMABUF_RENDERER` não entra: desliga o zero-copy do
+/// compositing inteiro e deixa a UI arrastada — já testado e descartado.
 fn aplicar_correcoes_de_video() {
-    // Detecta o driver proprietário da NVIDIA: ele registra /proc/driver/nvidia
-    // e não é o `nouveau`. É onde o sink GL entrega o frame sem converter.
-    //
-    // Intel, AMD e NVIDIA aberto (nouveau) não têm esse arquivo e ficam
-    // intocados — o vídeo funciona nativamente lá.
-    let driver_nvidia = std::path::Path::new("/proc/driver/nvidia/version").is_file();
-    let forcar = std::env::var("ARCADIA_FORCE_GL_SINK_OFF").is_ok();
-    let manter = std::env::var("ARCADIA_KEEP_GL_SINK").is_ok();
-
-    if manter {
-        return;
-    }
-    if forcar || driver_nvidia {
+    // O arranque por `arcadia-tauri.sh` já fazia isso; `.deb`/AppImage executam
+    // o binário direto, então a decisão precisa morar aqui para os três
+    // caminhos se comportarem igual.
+    if std::env::var("ARCADIA_KEEP_GL_SINK").is_err() {
         std::env::set_var("WEBKIT_GST_DISABLE_GL_SINK", "1");
     }
 
@@ -581,6 +572,30 @@ fn main() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![arcadia_ipc])
         .setup(move |app| {
+            // Libera o diretório de dados REAL no escopo do assetProtocol.
+            //
+            // O escopo declarado no `tauri.conf.json` usa `$APPDATA`, que o
+            // Tauri resolve pelo identifier (`…/io.github.imperat-on.arcadia.rust`).
+            // O app grava em `~/.local/share/arcadia` — diretórios diferentes.
+            // Resultado: `convertFileSrc` gerava uma URL que o WebView negava, e
+            // o `<video>` ficava preto sem erro claro.
+            //
+            // Aqui o caminho verdadeiro entra em runtime, então não depende de
+            // adivinhar a variável certa no config nem do identifier.
+            {
+                use tauri::Manager;
+                if let Some(state) = app.try_state::<AppState>() {
+                    let raiz = state.data_dir.clone();
+                    let escopo = app.asset_protocol_scope();
+                    for sub in ["trailers", "covers"] {
+                        let alvo = raiz.join(sub);
+                        let _ = std::fs::create_dir_all(&alvo);
+                        if let Err(erro) = escopo.allow_directory(&alvo, true) {
+                            eprintln!("escopo de asset: {} -> {erro}", alvo.display());
+                        }
+                    }
+                }
+            }
             // Eventos de background do launch (game:running/active/launchState)
             // saem pelo AppHandle, fora do ciclo request/response do IPC.
             {

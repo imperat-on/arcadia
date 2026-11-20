@@ -1,26 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import type { Game } from "./types"
 import type { YoutubeResult } from "../../global"
 import { useGamepadNav } from "./useGamepadNav"
 import { useI18n } from "../../i18n/I18nContext"
-
-/**
- * `trailerDownloadUrl` devolve `file:///caminho/x.mp4`. O WebKit só toca esse
- * arquivo pela URL do assetProtocol, que o `convertFileSrc` monta. Devolver a
- * URL crua faz o <video> falhar sem erro visível — outro caminho para o
- * loading infinito.
- */
-function urlReproduzivel(caminhoOuUrl: string): string {
-  if (!caminhoOuUrl.startsWith("file://")) return caminhoOuUrl
-  try {
-    return convertFileSrc(caminhoOuUrl.slice("file://".length))
-  } catch {
-    return caminhoOuUrl
-  }
-}
 
 interface TrailerPickerProps {
   game: Game | null
@@ -108,31 +92,22 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
     return () => window.removeEventListener("keydown", onKey)
   }, [open, preview, downloading, onClose])
 
-  // Ao abrir o player, baixa o trailer e toca do disco.
-  //
-  // Antes pedia `trailerStreamUrl` e punha a URL num <video src>. Duas coisas
-  // quebravam: o YouTube deixou de servir formato progressivo (vídeo+áudio num
-  // arquivo só) e passou a mandar DASH separado, então a URL vinha só de vídeo
-  // — ou não vinha, porque o seletor antigo pedia justamente o progressivo e
-  // respondia "Requested format is not available". Em qualquer dos casos a UI
-  // ficava com `streamLoading` true para sempre: era o buffering infinito.
-  //
-  // Baixar resolve os dois: o yt-dlp mescla vídeo+áudio em mp4 e o arquivo
-  // local toca sem depender de codec do WebKit nem de rede. O progresso já
-  // existe (`onTrailerDlProgress`), então a espera é visível.
+  // Ao abrir o player, pede só a URL de vídeo do YouTube (720p, sem áudio) e
+  // toca na hora. Antes baixava o vídeo inteiro com yt-dlp só para prévia — e
+  // depois baixava de novo no "Baixar e aplicar".
   const abrirPreview = async (v: YoutubeResult) => {
     setPreview(v)
     setStreamUrl(null)
     setStreamErr(null)
     setDlError(null)
     setStreamLoading(true)
-    const r = await window.launcherAPI?.trailerDownloadUrl(game!.id, v.url)
+    const r = await window.launcherAPI?.trailerStreamUrl(v.url)
     setStreamLoading(false)
-    if (r?.ok && r.path) {
-      setStreamUrl(urlReproduzivel(r.path))
+    if (r?.ok && r.url) {
+      setStreamUrl(r.url)
       return
     }
-    setStreamErr(r?.error === "age" ? AGE_MSG : r?.error || t("trailer.falha_baixar"))
+    setStreamErr(r?.error === "age" ? AGE_MSG : r?.error || t("trailer.sem_previa"))
   }
 
   if (!game) return null
@@ -240,8 +215,10 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 <video
                   className="w-full h-full object-contain"
                   src={streamUrl}
+                  poster={preview.thumbnail}
                   controls
                   autoPlay
+                  muted
                   playsInline
                 />
               ) : (
@@ -250,6 +227,7 @@ export function TrailerPicker({ game, onClose, onPicked }: TrailerPickerProps) {
                 </div>
               )}
             </div>
+            <div className="text-xs text-[color:var(--text-2)] mt-2">{t("trailer.previa_muda")}</div>
             <div className="flex items-center justify-between gap-4 mt-4 shrink-0">
               <div className="min-w-0">
                 <div className="text-white font-semibold line-clamp-1">{preview.title}</div>

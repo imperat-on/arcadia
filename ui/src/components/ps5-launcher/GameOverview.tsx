@@ -7,6 +7,8 @@ import { userLocale } from "../../i18n/locale"
 import type { Game } from "./types"
 import { horasCombinadas, useSteamHoras } from "../steamHoras"
 import { useFriends } from "../account/FriendsContext"
+import { useHlsTrailer } from "../../hooks/useHlsTrailer"
+import { useLocalTrailer } from "../../hooks/useLocalTrailer"
 
 type OverviewInfo = {
   short_description?: string
@@ -18,7 +20,7 @@ type OverviewInfo = {
   header?: string
   background?: string
   screenshots?: { thumb: string; full: string }[]
-  movies?: { id: number; name: string; thumb: string; mp4?: string; webm?: string }[]
+  movies?: { id: number; name: string; thumb: string; mp4?: string; webm?: string; hls?: string }[]
 }
 
 type Achievement = {
@@ -108,7 +110,8 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const minutes = horasCombinadas(steamHoras, [game.id, game.appid], game.playtime_minutes)
   const mediaGame = game as OverviewGame
   const [meta, setMeta] = useState<OverviewInfo | null>(null)
-  const [trailer, setTrailer] = useState<string | null>(null)
+  const [trailerRemoto, setTrailerRemoto] = useState<string | null>(null)
+  const [trailerHls, setTrailerHls] = useState<string | null>(null)
   const [media, setMedia] = useState("hero")
   const [achievements, setAchievements] = useState<Achievement[] | null>(null)
   const [retroProgress, setRetroProgress] = useState<{ unlocked: number; total: number } | null>(
@@ -118,7 +121,10 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   // subir. Dispará-las no primeiro frame roubava tempo da animação.
   const [ready, setReady] = useState(false)
   const backRef = useRef<HTMLButtonElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  // O trailer baixado só vira blob quando o usuário abre a mídia: carregar
+  // 40 MB de base64 ao abrir a ficha inteira atrasaria o painel à toa.
+  const [temTrailerLocal, setTemTrailerLocal] = useState(false)
+  const trailerLocal = useLocalTrailer(game.id, ready && media === "trailer")
 
   useEffect(() => {
     if (!visible) return
@@ -157,17 +163,12 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
 
   useEffect(() => {
     let live = true
-    setTrailer(null)
+    setTemTrailerLocal(false)
     if (!ready) return () => { live = false }
-    const api = window.launcherAPI
-    if (!api)
-      return () => {
-        live = false
-      }
-    api
-      .trailerPath(game.id)
+    window.launcherAPI
+      ?.trailerPath(game.id)
       .then((result) => {
-        if (live) setTrailer(result?.path || null)
+        if (live) setTemTrailerLocal(Boolean(result?.path))
       })
       .catch(() => {})
     return () => {
@@ -176,11 +177,19 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   }, [game.id, ready])
 
   useEffect(() => {
-    if (trailer || !meta?.movies?.length) return
+    setTrailerRemoto(null)
+    setTrailerHls(null)
+    // Trailer baixado tem prioridade; o HLS da Steam só entra quando não há
+    // arquivo local.
+    if (trailerLocal || temTrailerLocal || !meta?.movies?.length) return
     const movie = meta.movies[0]
-    const source = movie.mp4 || movie.webm || null
-    if (source) setTrailer(source)
-  }, [meta, trailer])
+    // A Steam aposentou o MP4; quando só existe HLS, o player usa hls.js.
+    const direto = movie.mp4 || movie.webm || null
+    if (direto) setTrailerRemoto(direto)
+    else if (movie.hls) setTrailerHls(movie.hls)
+  }, [meta, trailerLocal, temTrailerLocal])
+
+  const trailer = trailerLocal || trailerRemoto
 
   useEffect(() => {
     let live = true
@@ -235,13 +244,6 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     setMedia("hero")
   }, [game.id])
 
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || media !== "trailer" || !trailer || !appFocused) return
-    video.muted = true
-    void video.play().catch(() => {})
-  }, [media, trailer, appFocused])
-
   const backdrop = game.hero || meta?.background || meta?.header || game.cover || ""
   const cover = game.cover || meta?.header || backdrop
   const description =
@@ -271,7 +273,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const mediaItems = useMemo<MediaItem[]>(
     () =>
       [
-        ...(trailer
+        ...(trailer || trailerHls || temTrailerLocal
           ? [
               {
                 src: meta?.movies?.[0]?.thumb || backdrop || cover,
@@ -287,7 +289,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           label: `Imagem ${index + 1}`,
         })),
       ].filter((item): item is MediaItem => Boolean(item.src)),
-    [trailer, meta?.movies, backdrop, cover, screenshots, t],
+    [trailer, trailerHls, temTrailerLocal, meta?.movies, backdrop, cover, screenshots, t],
   )
 
   const relatedNews = useMemo(() => {
@@ -306,7 +308,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const total = retroProgress?.total ?? achievements?.length ?? 0
   const progress = total ? Math.round((unlocked / total) * 100) : 0
   const preview = media !== "trailer" && media !== "hero" ? media : backdrop || cover
-  const showingTrailer = media === "trailer" && Boolean(trailer) && appFocused
+  const showingTrailer = media === "trailer" && Boolean(trailer || trailerHls || temTrailerLocal) && appFocused
   const overviewTime = new Date().toLocaleTimeString(userLocale(), { hour: "2-digit", minute: "2-digit" })
 
   return (
@@ -363,7 +365,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
                     : t("gameoverview.jogar_agora")}
             </button>
             <button type="button" onClick={onMore} className="ps5-overview-more" aria-label={t("console.options")}>•••</button>
-            {trailer && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
+            {(trailer || trailerHls || temTrailerLocal) && <button type="button" onClick={() => setMedia("trailer")} className="ps5-overview-link">{t("gameoverview.trailer")}</button>}
           </div>
         </section>
         <aside className="ps5-overview-product">
@@ -382,7 +384,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
             <div><h3>{item.title}</h3><p>{item.desc}</p><small>{t(item.achieved ? "console.unlocked" : "console.locked")}</small></div>
           </article>)}</div> : <p>{t("conquistas.vazio")}</p>}
         </section>
-        {mediaItems.length > 0 && <section className="console-media"><h2>{t("gameoverview.trailer")}</h2><div>{mediaItems.map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} aria-label={item.label}><img src={item.src} alt=""/><span>{item.label}</span></button>)}</div>{media !== "hero" && (showingTrailer && trailer ? <video ref={videoRef} src={trailer} controls autoPlay muted playsInline /> : <img className="console-media-preview" src={preview} alt={game.title} />)}</section>}
+        {mediaItems.length > 0 && <section className="console-media"><h2>{t("gameoverview.trailer")}</h2><div>{mediaItems.map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} aria-label={item.label}><img src={item.src} alt=""/><span>{item.label}</span></button>)}</div>{media !== "hero" && (showingTrailer ? <ConsoleTrailer src={trailer} hls={temTrailerLocal ? null : trailerHls} /> : <img className="console-media-preview" src={preview} alt={game.title} />)}</section>}
         <section className="console-related"><h2>{t("gameoverview.detalhes")}</h2><p>{description}</p><p>{[developer, publisher, platform, release, ...tags].filter(Boolean).join(" · ")}</p></section>
         <section className="console-related"><h2>{t("console.friends")}</h2><button type="button" onClick={onOpenFriends}>{friendsData?.friends?.length ? friendsData.friends.map(friend => friend.display_name || friend.username).join(" · ") : t("gameoverview.nenhum_amigo")}</button></section>
         {relatedNews.length > 0 && <section className="console-related"><h2>{t("topbar.noticias")}</h2>{relatedNews.map(item => <button key={item.url} type="button" onClick={() => onOpenNews(item.url)}>{item.title}</button>)}</section>}
@@ -391,6 +393,19 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     </div>
   )
 })
+
+/**
+ * Player do trailer do console: arquivo local (blob) ou HLS da Steam.
+ *
+ * A ficha no Big Picture usava `file://` direto, que o WebKit recusa a partir
+ * de `tauri://` (erro 4). Com `src` local o componente toca o blob; sem ele,
+ * cai no hls.js — o mesmo caminho rápido da ficha desktop.
+ */
+function ConsoleTrailer({ src, hls }: { src?: string | null; hls?: string | null }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  useHlsTrailer(ref, src ? null : hls, true)
+  return <video ref={ref} src={src || undefined} controls autoPlay muted playsInline />
+}
 
 function DataRow({ label, value }: { label: string; value: string }) {
   return (

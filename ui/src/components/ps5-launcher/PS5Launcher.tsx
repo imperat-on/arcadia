@@ -11,6 +11,7 @@ import ProfileSelect from "./ProfileSelect"
 import { DownloadManager } from "./DownloadManager"
 import { GameOverview } from "./GameOverview"
 import { useGamepadNav } from "./useGamepadNav"
+import { blobDeTrailer } from "../../hooks/useLocalTrailer"
 import { useAccountOptional, OWNER_USERNAME } from "../account/AccountContext"
 import { GameContextMenu } from "./GameContextMenu"
 import { TrailerPicker } from "./TrailerPicker"
@@ -454,9 +455,12 @@ export function PS5Launcher() {
     return typeof sair === "function" ? sair : undefined
   }, [])
 
-  // Trailer no fundo: ao focar um jogo por ~1,5s, toca o trailer. Se não estiver
-  // baixado ainda, busca no YouTube em segundo plano e toca quando pronto (desde
-  // que você ainda esteja no mesmo jogo). Trocar de jogo corta o trailer na hora.
+  // Trailer no fundo: ao focar um jogo por ~1,5s, toca o trailer JÁ baixado.
+  //
+  // Antes, se não houvesse arquivo local, o app disparava um yt-dlp em segundo
+  // plano e só tocava depois do download inteiro — dezenas de segundos de rede
+  // para um preview. Agora o fundo só usa o que está no disco; sem trailer
+  // local, a arte do jogo continua. Quem quiser baixar usa o menu do jogo.
   const selId = selectedGame?.id
   useEffect(() => {
     setTrailerUrl(null)
@@ -476,21 +480,21 @@ export function PS5Launcher() {
     if (boot || perfilGate) return // boot/seleção de perfil: nada de trailer
     if (newsMode || storeMode) return // essas abas têm visual próprio
     let cancelled = false
+    let urlCriada: string | null = null
     const t = setTimeout(async () => {
       const { path } = await api.trailerPath(g.id)
+      if (cancelled || !path) return
+      const dados = await api.trailerLocalData?.(g.id)
       if (cancelled) return
-      if (path) {
-        setTrailerUrl(path)
-        return
-      }
-      const r = await api.trailerDownload(g.id, g.title)
-      if (!cancelled && r.ok && r.path && selectedGameRef.current?.id === g.id) {
-        setTrailerUrl(r.path)
-      }
+      const blob = blobDeTrailer(dados || {})
+      if (!blob) return
+      urlCriada = blob
+      if (selectedGameRef.current?.id === g.id) setTrailerUrl(blob)
     }, 1500)
     return () => {
       cancelled = true
       clearTimeout(t)
+      if (urlCriada) URL.revokeObjectURL(urlCriada)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1763,10 +1767,12 @@ export function PS5Launcher() {
       <TrailerPicker
         game={trailerPickGame}
         onClose={() => setTrailerPickGame(null)}
-        onPicked={(gameId, path) => {
+        onPicked={(gameId, _path) => {
           setToast({ title: t("ps5.toast.trailer_aplicado"), visible: true })
           setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
-          if (selectedGameRef.current?.id === gameId) setTrailerUrl(path)
+          // O efeito do fundo relê o arquivo e monta o blob quando o seletor
+          // fecha; `path` é `file://` e não toca a partir de `tauri://`.
+          if (selectedGameRef.current?.id === gameId) setTrailerUrl(null)
         }}
       />
 

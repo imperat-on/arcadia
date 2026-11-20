@@ -1342,7 +1342,7 @@ declare global {
       trailerSearch: (
         query: string,
       ) => Promise<{ ok: boolean; results?: YoutubeResult[]; error?: string }>
-      /** URL direta (mp4) para pré-visualizar o vídeo num <video>. */
+      /** URL direta (vídeo 720p, sem áudio) para pré-visualizar num <video>. */
       trailerStreamUrl: (url: string) => Promise<{ ok: boolean; url?: string; error?: string }>
       /** Baixa um vídeo específico do YouTube como trailer do jogo. */
       trailerDownloadUrl: (
@@ -1350,16 +1350,21 @@ declare global {
         url: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>
       /**
-       * Baixa o HLS da Steam (`movies[].hls_h264`) para um MP4 local.
+       * Conteúdo do trailer já baixado, em base64, para a UI montar um blob.
        *
-       * O WebKitGTK não implementa Media Source Extensions para vídeo, então o
-       * hls.js nunca consegue tocar o manifesto e o player fica girando. O
-       * backend usa ffmpeg para juntar os segmentos num arquivo progressivo.
+       * A origem `tauri://` recusa `file://` no `<video>` (erro 4) e o
+       * assetProtocol só serve imagens. Blob é o caminho que funciona — o
+       * mesmo do `boot:video`.
        */
-      trailerCacheHls: (
+      trailerLocalData: (
         id: string,
-        url: string,
-      ) => Promise<{ ok: boolean; path?: string; cached?: boolean; error?: string }>
+      ) => Promise<{
+        ok: boolean
+        data?: string
+        mime?: string
+        path?: string
+        error?: string
+      }>
       trailerDownloadAll: () => Promise<{ ok: boolean; count?: number; error?: string }>
       /** Escolhe o arquivo cookies.txt do YouTube (restrição de idade). */
       trailerPickCookies: () => Promise<{ ok: boolean; path?: string }>

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react"
 
 const FADE_MS = 500
 function isVideo(url: string): boolean {
-  return /\.(webm|mp4|mov)(?:[?#]|$)/i.test(url)
+  // Blob não tem extensão: o trailer baixado chega como blob URL.
+  return url.startsWith("blob:") || /\.(webm|mp4|mov)(?:[?#]|$)/i.test(url)
 }
 interface HeroBackgroundProps {
   preto?: boolean

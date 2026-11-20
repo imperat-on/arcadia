@@ -2325,8 +2325,8 @@ async fn dispatch_async_inner(
         }
         "trailer:search" => Ok(trailer_service::search(state, &args).await),
         "trailer:streamUrl" => Ok(trailer_service::stream_url(state, &args).await),
-        "trailer:downloadUrl" => Ok(trailer_service::download_url(state, &args).await),
-        "trailer:cacheHls" => Ok(trailer_service::cache_hls(state, &args).await),
+        "trailer:downloadUrl" => Ok(trailer_service::download_url(state, shell, &args).await),
+        "trailer:localData" => Ok(trailer_service::local_data(state, &args)),
         "trailer:download" => Ok(trailer_service::download(state, &args).await),
         "trailer:downloadAll" => Ok(trailer_service::download_all(state).await),
         "meta:art" => Ok(media_service::meta_art(state, &args).await),

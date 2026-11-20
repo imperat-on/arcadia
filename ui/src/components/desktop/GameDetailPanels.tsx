@@ -4,26 +4,11 @@
 // BIBLIOTECA (GamePage), no estilo Hydra: galeria (trailer+screenshots) e
 // ProtonDB. Todos os dados vêm de IPC já existente (gameSysinfo, gameProtonDb).
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { useEffect, useMemo, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
+import { TrailerPlayer, type TrailerMovie } from "./TrailerPlayer"
 import { fmtNotaSteam, fmtNum } from "../format"
 
-/**
- * `trailerCacheHls` devolve `file:///caminho/x.mp4`. O WebKit só serve o
- * arquivo pela URL do assetProtocol, que o `convertFileSrc` monta — passar a
- * URL crua faz o <video> falhar sem erro visível.
- */
-function urlReproduzivel(caminhoOuUrl: string): string {
-  if (!caminhoOuUrl.startsWith("file://")) return caminhoOuUrl
-  try {
-    return convertFileSrc(caminhoOuUrl.slice("file://".length))
-  } catch {
-    return caminhoOuUrl
-  }
-}
-
-type Movie = { id: number; name: string; thumb: string; mp4: string; webm: string; hls?: string }
 type Shot = { thumb: string; full: string }
 
 // Galeria: player de trailer + faixa de miniaturas (trailers e screenshots).
@@ -31,7 +16,7 @@ export function GameMediaGallery({
   movies = [],
   screenshots = [],
 }: {
-  movies?: Movie[]
+  movies?: TrailerMovie[]
   screenshots?: Shot[]
 }) {
   // Item selecionado: { tipo: "movie"|"shot", idx }. Começa no 1º trailer, ou
@@ -40,67 +25,15 @@ export function GameMediaGallery({
   const [sel, setSel] = useState<{ tipo: "movie" | "shot"; idx: number }>(
     temMovie ? { tipo: "movie", idx: 0 } : { tipo: "shot", idx: 0 },
   )
-  const vidRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
     setSel(temMovie ? { tipo: "movie", idx: 0 } : { tipo: "shot", idx: 0 })
   }, [temMovie, movies.length, screenshots.length])
 
-  // A Steam aposentou o MP4: `movies[].mp4` vem vazio e só `hls_h264` existe.
-  //
-  // O player antigo tentava hls.js, que precisa de Media Source Extensions. O
-  // WebKitGTK não implementa MSE para vídeo, então `attachMedia` nunca dispara
-  // `MANIFEST_PARSED` e o <video> fica preto girando para sempre — era o
-  // "carregando infinito" ao clicar no jogo.
-  //
-  // Agora o HLS é baixado pelo backend (ffmpeg junta os segmentos num MP4
-  // progressivo) e tocado do disco. Deixa de depender de MSE.
-  const mov = sel.tipo === "movie" ? movies[sel.idx] : undefined
-  const direto = mov?.mp4 || mov?.webm || ""
-  const [hlsLocal, setHlsLocal] = useState<string | null>(null)
-  const [hlsErro, setHlsErro] = useState<string | null>(null)
-
-  useEffect(() => {
-    setHlsLocal(null)
-    setHlsErro(null)
-    if (!mov || direto || !mov.hls) return
-    let vivo = true
-    window.launcherAPI
-      ?.trailerCacheHls(String(mov.id), mov.hls)
-      .then((r) => {
-        if (!vivo) return
-        if (r?.ok && r.path) setHlsLocal(urlReproduzivel(r.path))
-        else setHlsErro(r?.error || "falha ao preparar o vídeo")
-      })
-      .catch((e) => vivo && setHlsErro(String(e)))
-    return () => {
-      vivo = false
-    }
-  }, [mov?.id, mov?.hls, direto])
-
-  const src = direto || hlsLocal || undefined
-  useEffect(() => {
-    const v = vidRef.current
-    if (!v || !mov || !src) return
-    let live = true
-    const iniciar = () => {
-      if (!live) return
-      v.defaultMuted = true
-      v.muted = true
-      void v.play().catch(() => {})
-    }
-    v.addEventListener("loadedmetadata", iniciar)
-    v.addEventListener("canplay", iniciar)
-    const limpar = () => {
-      live = false
-      v.removeEventListener("loadedmetadata", iniciar)
-      v.removeEventListener("canplay", iniciar)
-    }
-    iniciar()
-    return limpar
-  }, [mov?.id, src])
-
   if (!temMovie && screenshots.length === 0) return null
+
+  const mov = sel.tipo === "movie" ? movies[sel.idx] : undefined
+  const temFonte = Boolean(mov && (mov.mp4 || mov.webm || mov.hls))
 
   const thumbs = [
     ...movies.map((m, i) => ({ tipo: "movie" as const, idx: i, src: m.thumb, play: true })),
@@ -110,29 +43,17 @@ export function GameMediaGallery({
   return (
     <div className="flex flex-col gap-2">
       <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
-        {sel.tipo === "movie" && movies[sel.idx] ? (
-          <video
-            ref={vidRef}
-            key={movies[sel.idx].id}
-            src={src}
-            poster={movies[sel.idx].thumb}
-            controls
-            autoPlay
-            muted
-            playsInline
-            preload="auto"
+        {sel.tipo === "movie" && mov && temFonte ? (
+          // hls.js/MSE: o trailer começa em ~0,6 s, sem baixar o arquivo
+          // inteiro. O poster da Steam cobre a espera.
+          <TrailerPlayer key={mov.id} movie={mov} />
+        ) : mov?.thumb ? (
+          <img
+            src={mov.thumb}
+            alt=""
             className="h-full w-full object-contain"
+            draggable={false}
           />
-        ) : hlsErro ? (
-          <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-[color:var(--text-2)]">
-            {hlsErro}
-          </div>
-        ) : mov?.hls ? (
-          // O HLS precisa virar arquivo antes de tocar (WebKitGTK não tem MSE).
-          // Sem este estado a espera era indistinguível de travamento.
-          <div className="flex h-full w-full items-center justify-center text-sm text-[color:var(--text-2)]">
-            preparando vídeo…
-          </div>
         ) : screenshots[sel.idx] ? (
           <img
             src={screenshots[sel.idx].full}

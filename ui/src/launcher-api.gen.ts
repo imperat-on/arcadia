@@ -168,7 +168,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   trailerSearch: (query) => ipcRenderer.invoke("trailer:search", { query }),
   trailerStreamUrl: (url) => ipcRenderer.invoke("trailer:streamUrl", { url }),
   trailerDownloadUrl: (id, url) => ipcRenderer.invoke("trailer:downloadUrl", { id, url }),
-  trailerCacheHls: (id, url) => ipcRenderer.invoke("trailer:cacheHls", { id, url }),
+  trailerLocalData: (id) => ipcRenderer.invoke("trailer:localData", { id }),
   trailerDownloadAll: () => ipcRenderer.invoke("trailer:downloadAll"),
   trailerPickCookies: () => ipcRenderer.invoke("trailer:pickCookies"),
   sourcesList: () => ipcRenderer.invoke("sources:list"),
