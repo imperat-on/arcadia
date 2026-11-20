@@ -8,8 +8,13 @@ use iced::widget::{
 };
 use iced::{Color, ContentFit, Element, Fill};
 
-use crate::app::{GameLaunchState, GamePanels, LoadStatus, Message, TrailerPickerState};
-use crate::backend::{Achievement, Game, GameMedia, GameStats, Screenshot, TrailerResult};
+use crate::app::{
+    GameLaunchState, GamePanels, LaunchOptionsState, LoadStatus, Message, TrailerPickerState,
+};
+use crate::backend::{
+    Achievement, EnvVarSetting, Game, GameMedia, GameSettingsView, GameStats, LaunchToggle,
+    Screenshot, TrailerResult,
+};
 use crate::covers::CoverCache;
 use crate::input;
 use crate::media::{self, MediaPlayer, MediaStatus};
@@ -25,6 +30,7 @@ pub fn view<'a>(
     selected_screenshot: usize,
     launch: &'a GameLaunchState,
     trailer_picker: &'a TrailerPickerState,
+    launch_options: &'a LaunchOptionsState,
 ) -> Element<'a, Message> {
     let hero_url = game.hero_url.as_deref().or(game.cover_url.as_deref());
 
@@ -87,6 +93,10 @@ pub fn view<'a>(
     if let Some(error) = launch.error.as_deref() {
         meta = meta.push(super::action_error_banner(error, None));
     }
+    let warnings = launch.warnings_for(&game.id);
+    if !warnings.is_empty() {
+        meta = meta.push(launch_warning_banner(warnings.join("  ·  ")));
+    }
 
     let overlay = container(
         column![back, Space::new().height(Fill), meta,]
@@ -142,16 +152,17 @@ pub fn view<'a>(
 
     let page = column![hero, body].width(Fill).height(Fill);
 
+    let mut layers = Stack::new()
+        .width(Fill)
+        .height(Fill)
+        .push(page);
     if trailer_picker.open {
-        Stack::new()
-            .width(Fill)
-            .height(Fill)
-            .push(page)
-            .push(trailer_picker_overlay(trailer_picker, covers))
-            .into()
-    } else {
-        page.into()
+        layers = layers.push(trailer_picker_overlay(trailer_picker, covers));
     }
+    if launch_options.open && launch_options.game_id == game.id {
+        layers = layers.push(launch_options_overlay(launch_options, game));
+    }
+    layers.into()
 }
 
 /// Botão Jogar/Parar da ficha, com o estado da sessão ao lado.
@@ -185,6 +196,15 @@ fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'
         .padding([10.0, 22.0])
         .style(play_style);
 
+    let options = button(
+        text("Opções de inicialização")
+            .size(11)
+            .font(theme::FONT_MEDIUM),
+    )
+    .on_press(Message::OpenLaunchOptions(game.id.clone()))
+    .padding([10.0, 14.0])
+    .style(theme::ghost_button);
+
     let status: Element<'a, Message> = if running {
         text("Em execução — Parar encerra o processo.")
             .size(11)
@@ -209,10 +229,555 @@ fn launch_controls<'a>(game: &'a Game, launch: &'a GameLaunchState) -> Element<'
         Space::new().width(0).into()
     };
 
-    row![play, status]
+    row![play, status, Space::new().width(Fill), options]
         .spacing(theme::SPACE_3)
         .align_y(iced::Center)
         .into()
+}
+
+
+// ── Opções de inicialização (overlay) ──────────────────────────────────────
+
+/// Banner de aviso com texto próprio: `warning_banner` recebe `&str` e o texto
+/// é montado em runtime (`warnings.join`), então a versão local guarda a
+/// `String` dentro do widget.
+pub(crate) fn launch_warning_banner(message: String) -> Element<'static, Message> {
+    container(text(message).size(12).color(theme::WARNING).width(Fill))
+        .width(Fill)
+        .padding([10.0, 14.0])
+        .style(theme::stub_panel)
+        .into()
+}
+
+/// Diálogo de opções de inicialização: overlay desenhado sobre a ficha e
+/// reutilizado pelo Big Picture. Só envia `gamesettings:set`; o próximo
+/// `game:launch` lê o arquivo no `RuntimeDeps` do IPC.
+pub(crate) fn launch_options_overlay<'a>(
+    state: &'a LaunchOptionsState,
+    game: &'a Game,
+) -> Element<'a, Message> {
+    let header = row![
+        column![
+            text("Opções de inicialização")
+                .size(20)
+                .font(theme::FONT_BOLD)
+                .color(theme::TEXT_1),
+            text(format!(
+                "{} — salvas por jogo em game_settings.json",
+                state.game_title
+            ))
+            .size(11)
+            .color(theme::TEXT_2),
+        ]
+        .spacing(3)
+        .width(Fill),
+        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
+            .on_press(Message::CloseLaunchOptions)
+            .padding([7.0, 14.0])
+            .style(theme::ghost_button),
+    ]
+    .spacing(theme::SPACE_3)
+    .align_y(iced::Center);
+
+    let mut content = column![header].spacing(theme::SPACE_4);
+    if let Some(error) = state.error.as_deref() {
+        content = content.push(super::action_error_banner(error, None));
+    }
+
+    content = match (&state.status, state.settings.as_ref()) {
+        (LoadStatus::Idle | LoadStatus::Loading, _) => {
+            content.push(placeholder_panel("Carregando opções…", theme::TEXT_2))
+        }
+        (LoadStatus::Error(error), _) => content.push(launch_options_load_error(error, &game.id)),
+        (LoadStatus::Ready, Some(settings)) => content
+            .push(launch_options_form(state, settings, game))
+            .push(launch_options_footer(state)),
+        (LoadStatus::Ready, None) => content.push(placeholder_panel(
+            "As opções não estão disponíveis para este jogo.",
+            theme::TEXT_3,
+        )),
+    };
+
+    let card = container(content)
+        .width(Fill)
+        .max_width(860.0)
+        .padding(theme::SPACE_4)
+        .style(theme::panel);
+
+    Stack::new()
+        .width(Fill)
+        .height(Fill)
+        .push(
+            container(Space::new())
+                .width(Fill)
+                .height(Fill)
+                .style(theme::scrim),
+        )
+        .push(opaque(
+            container(card)
+                .width(Fill)
+                .height(Fill)
+                .center_x(Fill)
+                .center_y(Fill)
+                .padding(theme::SPACE_3),
+        ))
+        .into()
+}
+
+fn launch_options_load_error<'a>(error: &'a str, game_id: &'a str) -> Element<'a, Message> {
+    container(
+        column![
+            text("Não foi possível ler as opções deste jogo.")
+                .size(13)
+                .font(theme::FONT_MEDIUM)
+                .color(theme::DANGER),
+            text(shorten(error, 280)).size(11).color(theme::TEXT_2),
+            button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
+                .on_press(Message::OpenLaunchOptions(game_id.to_string()))
+                .padding([7.0, 13.0])
+                .style(theme::ghost_button),
+        ]
+        .spacing(theme::SPACE_2)
+        .align_x(iced::Center),
+    )
+    .width(Fill)
+    .height(240)
+    .center_x(Fill)
+    .center_y(Fill)
+    .into()
+}
+
+fn launch_options_form<'a>(
+    state: &'a LaunchOptionsState,
+    settings: &'a GameSettingsView,
+    game: &'a Game,
+) -> Element<'a, Message> {
+    let mode = state.mode.as_deref();
+    let steam_available = game.launcher == "steam";
+    let exe_available = !settings.exe_path.trim().is_empty();
+
+    let mode_section = option_section(
+        "MODO DE LANÇAMENTO",
+        column![
+            row![
+                mode_button(
+                    "Automático",
+                    mode.is_none(),
+                    Some(Message::LaunchOptionsModeChanged(None))
+                ),
+                mode_button(
+                    "Steam",
+                    mode == Some("steam"),
+                    steam_available.then_some(Message::LaunchOptionsModeChanged(Some(
+                        "steam".to_string()
+                    ))),
+                ),
+                mode_button(
+                    "Executável",
+                    mode == Some("exe"),
+                    exe_available.then_some(Message::LaunchOptionsModeChanged(Some(
+                        "exe".to_string()
+                    ))),
+                ),
+            ]
+            .spacing(8),
+            text(if steam_available {
+                "Vale só para os próximos lançamentos. Executável roda o caminho diretamente, sem montar wine/proton."
+            } else {
+                "Vale só para os próximos lançamentos. Executável roda o caminho diretamente, sem montar wine/proton; o modo Steam só existe em jogos Steam."
+            })
+            .size(10)
+            .color(theme::TEXT_3),
+        ]
+        .spacing(theme::SPACE_2)
+        .into(),
+    );
+
+    let default_prefix = if state.default_prefix.is_empty() {
+        "o prefixo padrão do Arcadia".to_string()
+    } else {
+        state.default_prefix.clone()
+    };
+    let wine_section = option_section(
+        "WINE E PREFIXO",
+        column![
+            field_label("Prefixo (WINEPREFIX)"),
+            text_input("Vazio usa o prefixo padrão", settings.prefix_path.as_str())
+                .on_input(Message::LaunchOptionsPrefixChanged)
+                .padding([8.0, 10.0])
+                .size(12)
+                .style(theme::search_input),
+            text(format!(
+                "Vazio: jogos custom usam {default_prefix}; os demais mantêm o WINEPREFIX do ambiente."
+            ))
+            .size(9)
+            .color(theme::TEXT_3),
+            disabled_option(
+                "Versão Wine/Proton",
+                settings
+                    .wine_version
+                    .clone()
+                    .unwrap_or_else(|| "Wine do sistema".to_string()),
+                "Indisponível no runtime nativo: o catálogo de Proton não é carregado no \
+                 LaunchRuntime e o resolver só aplica wineVersion em jogos Legendary. \
+                 O valor salvo é preservado.",
+            ),
+        ]
+        .spacing(theme::SPACE_2)
+        .into(),
+    );
+
+    let paths_section = option_section(
+        "EXECUTÁVEL E ARGUMENTOS",
+        column![
+            field_label("Executável do modo exe"),
+            text_input("Caminho completo do .exe (opcional)", settings.exe_path.as_str())
+                .on_input(Message::LaunchOptionsExeChanged)
+                .padding([8.0, 10.0])
+                .size(12)
+                .style(theme::search_input),
+            field_label("Argumentos extras"),
+            text_input(
+                "ex.: --windowed -novid",
+                settings.game_args.as_str()
+            )
+            .on_input(Message::LaunchOptionsArgsChanged)
+            .padding([8.0, 10.0])
+            .size(12)
+            .style(theme::search_input),
+            text("Não se aplicam a jogos Steam; entram depois do comando do jogo.")
+                .size(9)
+                .color(theme::TEXT_3),
+        ]
+        .spacing(theme::SPACE_2)
+        .into(),
+    );
+
+    let compatibility = option_section(
+        "COMPATIBILIDADE (WINE/PROTON)",
+        column![
+            toggle_row(&[
+                ("Esync", LaunchToggle::Esync, settings.esync),
+                ("Fsync", LaunchToggle::Fsync, settings.fsync),
+                ("Wayland", LaunchToggle::WineWayland, settings.wine_wayland),
+            ]),
+            toggle_row(&[
+                ("Wow64", LaunchToggle::Wow64, settings.wow64),
+                ("FSR hack", LaunchToggle::FsrHack, settings.fsr_hack),
+                ("NVAPI", LaunchToggle::AutoNvapi, settings.auto_nvapi),
+            ]),
+        ]
+        .spacing(6)
+        .into(),
+    );
+
+    let performance = option_section(
+        "DESEMPENHO",
+        column![
+            toggle_row(&[
+                ("MangoHud", LaunchToggle::Mangohud, settings.mangohud),
+                ("GameMode", LaunchToggle::Gamemode, settings.gamemode),
+                ("Gamescope", LaunchToggle::Gamescope, settings.gamescope),
+            ]),
+            toggle_row(&[
+                ("HDR (gamescope)", LaunchToggle::GsHdr, settings.gs_hdr),
+                ("Logs verbosos", LaunchToggle::VerboseLogs, settings.verbose_logs),
+            ]),
+            field_label("DXVK_HUD"),
+            text_input("ex.: fps, full (vazio desliga)", settings.dxvk_hud.as_str())
+                .on_input(Message::LaunchOptionsHudChanged)
+                .padding([8.0, 10.0])
+                .size(12)
+                .style(theme::search_input),
+            text("Gamescope/GameMode/MangoHud só se aplicam a jogos não-Steam e avisam quando o binário não existe. Logs verbosos ajustam WINEDEBUG/DXVK_HUD; o runtime nativo não grava stdout/stderr em arquivo.")
+                .size(9)
+                .color(theme::TEXT_3),
+        ]
+        .spacing(theme::SPACE_2)
+        .into(),
+    );
+
+    let env_section = launch_env_section(state, settings);
+
+    let disabled_section = option_section(
+        "NÃO EDITÁVEL NESTA TELA",
+        column![
+            disabled_option(
+                "autoDXVK / autoVKD3D",
+                format!(
+                    "DXVK {} · VKD3D {}",
+                    sim_nao(settings.auto_dxvk),
+                    sim_nao(settings.auto_vkd3d)
+                ),
+                "Só alimentam o pedido de bibliotecas gráficas do Legendary/Epic; \
+                 o runtime nativo ignora graphics_libs no spawn e não altera jogos \
+                 locais lançados por wine/proton.",
+            ),
+            disabled_option(
+                "Scripts pré/pós",
+                if settings.script_pre.is_empty() && settings.script_post.is_empty() {
+                    "não configurados".to_string()
+                } else {
+                    "configurados".to_string()
+                },
+                "O LaunchRuntime nativo ignora scriptPre/scriptPost no spawn; \
+                 use a UI web se precisar deles nesta versão.",
+            ),
+            disabled_option(
+                "Wrappers",
+                format!("{} configurado(s)", settings.wrapper_count),
+                "O planejador aplica wrappers, mas esta tela não edita a lista (adiado).",
+            ),
+            disabled_option(
+                "Emulador",
+                settings
+                    .emulator_id
+                    .clone()
+                    .unwrap_or_else(|| "não configurado".to_string()),
+                "ROM/emulador têm fluxo próprio na ficha retro; esta tela não edita \
+                 emulatorId, romPath nem emulatorArgs.",
+            ),
+        ]
+        .spacing(6)
+        .into(),
+    );
+
+    let form = column![
+        mode_section,
+        wine_section,
+        paths_section,
+        compatibility,
+        performance,
+        env_section,
+        disabled_section,
+    ]
+    .spacing(theme::SPACE_3)
+    .width(Fill);
+
+    scrollable(form)
+        .height(360.0)
+        .style(theme::scrollable)
+        .into()
+}
+
+fn launch_env_section<'a>(
+    state: &'a LaunchOptionsState,
+    settings: &'a GameSettingsView,
+) -> Element<'a, Message> {
+    let mut list = column![].spacing(4);
+    if settings.env_vars.is_empty() {
+        list = list.push(
+            text("Nenhuma variável extra configurada.")
+                .size(10)
+                .color(theme::TEXT_3),
+        );
+    }
+    for (index, variable) in settings.env_vars.iter().enumerate() {
+        list = list.push(env_var_row(variable, index));
+    }
+
+    let add = row![
+        text_input("NOME", state.env_name.as_str())
+            .on_input(Message::LaunchOptionsEnvNameChanged)
+            .padding([8.0, 10.0])
+            .size(11)
+            .width(Fill)
+            .style(theme::search_input),
+        text_input("valor", state.env_value.as_str())
+            .on_input(Message::LaunchOptionsEnvValueChanged)
+            .padding([8.0, 10.0])
+            .size(11)
+            .width(Fill)
+            .style(theme::search_input),
+        button(text("Adicionar").size(11).font(theme::FONT_MEDIUM))
+            .on_press(Message::LaunchOptionsEnvAdd)
+            .padding([8.0, 12.0])
+            .style(theme::ghost_button),
+    ]
+    .spacing(8)
+    .align_y(iced::Center);
+
+    option_section(
+        "VARIÁVEIS DE AMBIENTE",
+        column![list, add, text("Nomes inválidos são ignorados pelo planejador do IPC.").size(9).color(theme::TEXT_3)]
+            .spacing(theme::SPACE_2)
+            .into(),
+    )
+}
+
+fn env_var_row<'a>(variable: &'a EnvVarSetting, index: usize) -> Element<'a, Message> {
+    container(
+        row![
+            text(variable.name.as_str())
+                .size(11)
+                .color(theme::TEXT_1)
+                .width(Fill),
+            text(if variable.value.is_empty() {
+                "(vazio)"
+            } else {
+                variable.value.as_str()
+            })
+            .size(11)
+            .color(theme::TEXT_2)
+            .width(Fill),
+            button(text("Remover").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::LaunchOptionsEnvRemove(index))
+                .padding([4.0, 9.0])
+                .style(theme::ghost_button),
+        ]
+        .spacing(theme::SPACE_2)
+        .align_y(iced::Center),
+    )
+    .width(Fill)
+    .padding([5.0, 9.0])
+    .style(theme::stub_panel)
+    .into()
+}
+
+fn launch_options_footer<'a>(state: &'a LaunchOptionsState) -> Element<'a, Message> {
+    let mut save = button(
+        text(if state.saving { "Salvando…" } else { "Salvar" })
+            .size(12)
+            .font(theme::FONT_SEMIBOLD),
+    )
+    .padding([9.0, 18.0])
+    .style(theme::primary_button);
+    if !state.saving {
+        save = save.on_press(Message::LaunchOptionsSave);
+    }
+
+    let note = if state.saving {
+        "Gravando game_settings.json…"
+    } else if state.dirty {
+        "Há alterações não salvas; salve para aplicá-las (e liberar o modo) no próximo lançamento."
+    } else if state.saved {
+        "Salvo. As opções entram no próximo lançamento deste jogo."
+    } else {
+        "As opções entram no próximo lançamento deste jogo."
+    };
+
+    row![
+        text(note)
+            .size(10)
+            .color(if state.dirty {
+                theme::WARNING
+            } else if state.saved {
+                theme::SUCCESS
+            } else {
+                theme::TEXT_3
+            }),
+        Space::new().width(Fill),
+        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
+            .on_press(Message::CloseLaunchOptions)
+            .padding([9.0, 14.0])
+            .style(theme::ghost_button),
+        save,
+    ]
+    .spacing(theme::SPACE_2)
+    .align_y(iced::Center)
+    .into()
+}
+
+fn mode_button<'a>(
+    label: &'a str,
+    active: bool,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    let style: fn(&iced::Theme, button::Status) -> button::Style = if active {
+        theme::primary_button
+    } else {
+        theme::ghost_button
+    };
+    let mut control = button(text(label).size(11).font(theme::FONT_MEDIUM))
+        .padding([7.0, 12.0])
+        .style(style);
+    if let Some(message) = message {
+        control = control.on_press(message);
+    } else {
+        control = control.style(theme::ghost_button);
+    }
+    control.into()
+}
+
+fn toggle_row<'a>(items: &[(&'a str, LaunchToggle, bool)]) -> Element<'a, Message> {
+    let mut controls = row![].spacing(6);
+    for (label, key, value) in items {
+        controls = controls.push(toggle_button(label, *key, *value));
+    }
+    controls.into()
+}
+
+fn toggle_button<'a>(label: &'a str, key: LaunchToggle, value: bool) -> Element<'a, Message> {
+    let glyph = if value { "✓" } else { "○" };
+    let style: fn(&iced::Theme, button::Status) -> button::Style = if value {
+        theme::primary_button
+    } else {
+        theme::ghost_button
+    };
+    button(
+        text(format!("{glyph} {label}"))
+            .size(11)
+            .font(theme::FONT_MEDIUM),
+    )
+    .on_press(Message::LaunchOptionsToggle { key, value: !value })
+    .padding([7.0, 12.0])
+    .style(style)
+    .into()
+}
+
+fn option_section<'a>(title: &'a str, body: Element<'a, Message>) -> Element<'a, Message> {
+    container(
+        column![
+            crate::views::section_label(title),
+            body,
+        ]
+        .spacing(theme::SPACE_2),
+    )
+    .width(Fill)
+    .padding(theme::SPACE_3)
+    .style(theme::stub_panel)
+    .into()
+}
+
+fn field_label<'a>(label: &'a str) -> Element<'a, Message> {
+    text(label).size(11).color(theme::TEXT_2).into()
+}
+
+fn disabled_option<'a>(
+    label: &'a str,
+    value: String,
+    reason: &'a str,
+) -> Element<'a, Message> {
+    container(
+        column![
+            row![
+                text(label)
+                    .size(11)
+                    .font(theme::FONT_MEDIUM)
+                    .color(theme::TEXT_2),
+                Space::new().width(Fill),
+                text(value).size(10).color(theme::TEXT_3),
+            ]
+            .align_y(iced::Center),
+            text(reason)
+                .size(10)
+                .color(theme::TEXT_3)
+                .wrapping(Wrapping::WordOrGlyph),
+        ]
+        .spacing(3),
+    )
+    .width(Fill)
+    .padding([7.0, 10.0])
+    .style(theme::stub_panel)
+    .into()
+}
+
+fn sim_nao(value: bool) -> &'static str {
+    if value {
+        "ligado"
+    } else {
+        "desligado"
+    }
 }
 
 // ── Descrição rica ─────────────────────────────────────────────────────────

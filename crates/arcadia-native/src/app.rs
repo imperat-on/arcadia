@@ -14,10 +14,11 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     Achievement, AchievementsData, Backend, DownloadAction, DownloadItem, DownloadsData,
-    FriendsLoad, Game, GameMedia, GameStats, LaunchSnapshot, NewsItem, PluginItem, ProtonDbInfo,
-    RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo,
-    SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary,
-    StorePage, StoreSearch, TrailerResult,
+    FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent,
+    LaunchToggle, NewsItem, PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail,
+    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
+    StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage, StoreSearch,
+    TrailerResult,
 };
 use crate::big_picture::{
     home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
@@ -122,10 +123,35 @@ pub enum Message {
         result: Result<(), String>,
     },
     StopGameDone(Result<(), String>),
-    /// Polling do runtime de launch enquanto houver jogo abrindo/rodando.
-    LaunchPoll,
+    /// Tick de baixa frequência que drena a fila de eventos do `NativeShell`.
+    LaunchEventsTick,
     /// `config:get` silencioso no boot para saber se minimiza ao lançar.
     LaunchConfigLoaded(Result<SettingsConfig, String>),
+    /// Abre o diálogo de opções de inicialização do jogo.
+    OpenLaunchOptions(String),
+    CloseLaunchOptions,
+    LaunchOptionsLoaded {
+        id: String,
+        result: Result<GameSettingsEnvelope, String>,
+    },
+    LaunchOptionsPrefixChanged(String),
+    LaunchOptionsExeChanged(String),
+    LaunchOptionsArgsChanged(String),
+    LaunchOptionsHudChanged(String),
+    LaunchOptionsToggle {
+        key: LaunchToggle,
+        value: bool,
+    },
+    LaunchOptionsEnvNameChanged(String),
+    LaunchOptionsEnvValueChanged(String),
+    LaunchOptionsEnvAdd,
+    LaunchOptionsEnvRemove(usize),
+    LaunchOptionsModeChanged(Option<String>),
+    LaunchOptionsSave,
+    LaunchOptionsSaved {
+        id: String,
+        result: Result<GameSettingsView, String>,
+    },
     Refresh(Section),
     DownloadsLoaded(Result<DownloadsData, String>),
     DownloadActionRequested {
@@ -416,14 +442,17 @@ pub enum GameRunStatus {
 /// Sessão de jogo vista pela UI nativa.
 ///
 /// O `LaunchRuntime` do IPC só aceita um jogo por vez; `game_id` diz a qual
-/// jogo o estado atual pertence. `error` é sempre exibido na ficha e no painel
-/// do Big Picture — falha de launch não fica só no stderr.
+/// jogo o estado atual pertence. `error` e `warnings` vêm do dispatcher e são
+/// exibidos na ficha e no painel do Big Picture — nada fica só no stderr.
 #[derive(Debug, Clone, Default)]
 pub struct GameLaunchState {
     pub status: GameRunStatus,
     pub game_id: Option<String>,
-    pub pid: Option<u32>,
     pub error: Option<String>,
+    /// Avisos de `game:launchWarning` (ex.: Mangohud não instalado).
+    pub warnings: Vec<String>,
+    /// Jogo aos quais os avisos pertencem; `None` mostra no jogo aberto.
+    pub warnings_game_id: Option<String>,
     /// Preferência `minimize_on_game_launch`, carregada no boot.
     pub minimize_on_launch: bool,
     /// `true` enquanto fomos nós que minimizamos; restaura ao encerrar.
@@ -448,32 +477,102 @@ impl GameLaunchState {
         self.status != GameRunStatus::Idle && self.game_id.as_deref() != Some(id)
     }
 
-    pub fn needs_poll(&self) -> bool {
-        self.status != GameRunStatus::Idle
+    /// Avisos do lançamento para o jogo da ficha (vazio se forem de outro).
+    pub fn warnings_for(&self, id: &str) -> &[String] {
+        match self.warnings_game_id.as_deref() {
+            Some(warning_id) if warning_id != id => &[],
+            _ => &self.warnings,
+        }
     }
 
-    /// Aplica o polling sem atropelar um `game:launch`/`game:close` em voo.
-    fn apply_snapshot(&mut self, snapshot: LaunchSnapshot) {
-        if matches!(
-            self.status,
-            GameRunStatus::Launching | GameRunStatus::Stopping
-        ) {
-            return;
-        }
-
-        if snapshot.running {
-            self.status = GameRunStatus::Running;
-            if let Some(id) = snapshot.game_id {
-                self.game_id = Some(id);
+    /// Aplica um evento do `LaunchRuntime` sem consultar o processo.
+    fn apply_event(&mut self, event: LaunchEvent) {
+        match event {
+            LaunchEvent::Running(running) => {
+                if running {
+                    self.status = GameRunStatus::Running;
+                    self.error = None;
+                } else if !matches!(
+                    self.status,
+                    GameRunStatus::Launching | GameRunStatus::Idle
+                ) {
+                    // Durante "Abrindo…" o `idle` do launchState é a fonte de
+                    // verdade; um `game:running(false)` atrasado pode ser de
+                    // uma sessão anterior.
+                    self.status = GameRunStatus::Idle;
+                    self.game_id = None;
+                }
             }
-            self.pid = snapshot.pid;
-            return;
+            LaunchEvent::Active { running, game_id } => {
+                if running {
+                    self.status = GameRunStatus::Running;
+                    if game_id.is_some() {
+                        self.game_id = game_id;
+                    }
+                    self.error = None;
+                } else if self.matches_game(game_id.as_deref())
+                    && !matches!(
+                        self.status,
+                        GameRunStatus::Launching | GameRunStatus::Idle
+                    )
+                {
+                    self.status = GameRunStatus::Idle;
+                    self.game_id = None;
+                }
+            }
+            LaunchEvent::Phase { phase, game_id } => match phase {
+                crate::backend::LaunchPhase::Starting => {
+                    self.status = GameRunStatus::Launching;
+                    if game_id.is_some() {
+                        self.game_id = game_id;
+                    }
+                    self.error = None;
+                    self.warnings.clear();
+                    self.warnings_game_id = None;
+                }
+                crate::backend::LaunchPhase::Running => {
+                    if self.matches_game(game_id.as_deref()) {
+                        self.status = GameRunStatus::Running;
+                        if game_id.is_some() {
+                            self.game_id = game_id;
+                        }
+                        self.error = None;
+                    }
+                }
+                crate::backend::LaunchPhase::Stopping => {
+                    if self.matches_game(game_id.as_deref()) {
+                        self.status = GameRunStatus::Stopping;
+                        if game_id.is_some() {
+                            self.game_id = game_id;
+                        }
+                    }
+                }
+                crate::backend::LaunchPhase::Idle => {
+                    if self.matches_game(game_id.as_deref()) {
+                        self.status = GameRunStatus::Idle;
+                        self.game_id = None;
+                    }
+                }
+            },
+            LaunchEvent::Warning { game_id, warnings } => {
+                self.warnings = warnings;
+                self.warnings_game_id = game_id;
+            }
+            LaunchEvent::Error { game_id, error } => {
+                if self.matches_game(game_id.as_deref()) {
+                    self.status = GameRunStatus::Idle;
+                    self.game_id = game_id;
+                    self.error = Some(format!("Falha ao abrir o jogo: {error}"));
+                }
+            }
         }
+    }
 
-        if self.status == GameRunStatus::Running {
-            self.status = GameRunStatus::Idle;
-            self.game_id = None;
-            self.pid = None;
+    /// Evento sem `gameId` é aceito; com id, só altera a sessão atual.
+    fn matches_game(&self, game_id: Option<&str>) -> bool {
+        match (game_id, self.game_id.as_deref()) {
+            (Some(event_id), Some(current)) => event_id == current,
+            _ => true,
         }
     }
 }
@@ -485,6 +584,47 @@ pub enum LoadStatus {
     Loading,
     Ready,
     Error(String),
+}
+
+/// Estado do diálogo "Opções de inicialização".
+///
+/// `mode` é escolha de sessão (não existe em `game_settings.json`): vale para
+/// os próximos `game:launch` do jogo enquanto ele estiver aberto no diálogo.
+#[derive(Debug, Clone, Default)]
+pub struct LaunchOptionsState {
+    pub open: bool,
+    pub game_id: String,
+    pub game_title: String,
+    pub status: LoadStatus,
+    pub settings: Option<GameSettingsView>,
+    pub default_prefix: String,
+    pub mode: Option<String>,
+    pub env_name: String,
+    pub env_value: String,
+    pub saving: bool,
+    pub saved: bool,
+    /// Há edições no formulário que ainda não foram gravadas.
+    pub dirty: bool,
+    pub error: Option<String>,
+}
+
+impl LaunchOptionsState {
+    /// `mode` de `game:launch` para este jogo; `None` = automático.
+    ///
+    /// Só vale depois que as edições foram salvas: o `LaunchRuntime` lê o
+    /// `game_settings.json`, não o rascunho da UI.
+    pub fn mode_for(&self, id: &str) -> Option<&str> {
+        if self.game_id == id && !self.dirty && !self.saving {
+            self.mode.as_deref()
+        } else {
+            None
+        }
+    }
+
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+        self.saved = false;
+    }
 }
 
 /// Seletor de trailers do YouTube aberto sobre a ficha do jogo.
@@ -803,6 +943,8 @@ pub struct App {
     pub favorite_busy: Option<String>,
     /// Sessão de jogo: abrindo, rodando, parando e última falha.
     pub launch: GameLaunchState,
+    /// Diálogo de opções de inicialização (Wine/Proton, env, args).
+    pub launch_options: LaunchOptionsState,
     /// Tela desktop a restaurar quando o console for fechado.
     pub previous_screen: Option<Screen>,
 }
@@ -838,6 +980,7 @@ impl App {
             console_media_id: None,
             favorite_busy: None,
             launch: GameLaunchState::default(),
+            launch_options: LaunchOptionsState::default(),
             previous_screen: None,
         };
         let launch_config = {
@@ -2096,14 +2239,143 @@ impl App {
             Message::StopGame => self.request_stop(),
             Message::LaunchGameDone { id, result } => self.finish_launch(id, result),
             Message::StopGameDone(result) => self.finish_stop(result),
-            Message::LaunchPoll => {
-                let was_running = self.launch.status == GameRunStatus::Running;
-                self.launch.apply_snapshot(self.backend.launch_state());
-                if was_running && self.launch.status == GameRunStatus::Idle {
-                    self.restore_window_task()
-                } else {
-                    Task::none()
+            Message::LaunchEventsTick => self.drain_launch_events(),
+            Message::OpenLaunchOptions(id) => self.open_launch_options(id),
+            Message::CloseLaunchOptions => {
+                self.launch_options.open = false;
+                Task::none()
+            }
+            Message::LaunchOptionsLoaded { id, result } => {
+                if !self.launch_options.open || self.launch_options.game_id != id {
+                    return Task::none();
                 }
+                match result {
+                    Ok(envelope) => {
+                        // `envelope.default_prefix` é o default das ferramentas
+                        // Wine da UI web; o launch nativo tem fallback próprio
+                        // (já gravado no estado ao abrir o diálogo).
+                        if self.launch_options.mode.as_deref() == Some("exe")
+                            && envelope.settings.exe_path.trim().is_empty()
+                        {
+                            self.launch_options.mode = None;
+                        }
+                        self.launch_options.settings = Some(envelope.settings);
+                        self.launch_options.status = LoadStatus::Ready;
+                        self.launch_options.saved = false;
+                        self.launch_options.dirty = false;
+                        self.launch_options.error = None;
+                    }
+                    Err(error) => {
+                        self.launch_options.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsPrefixChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.prefix_path = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsExeChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    if value.trim().is_empty() && self.launch_options.mode.as_deref() == Some("exe")
+                    {
+                        self.launch_options.mode = None;
+                    }
+                    settings.exe_path = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsArgsChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.game_args = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsHudChanged(value) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.dxvk_hud = value;
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsToggle { key, value } => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    settings.set_toggle(key, value);
+                    self.launch_options.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsEnvNameChanged(value) => {
+                self.launch_options.env_name = value;
+                Task::none()
+            }
+            Message::LaunchOptionsEnvValueChanged(value) => {
+                self.launch_options.env_value = value;
+                Task::none()
+            }
+            Message::LaunchOptionsEnvAdd => {
+                self.add_launch_env_var();
+                Task::none()
+            }
+            Message::LaunchOptionsEnvRemove(index) => {
+                if let Some(settings) = self.launch_options.settings.as_mut() {
+                    if index < settings.env_vars.len() {
+                        settings.env_vars.remove(index);
+                        self.launch_options.mark_dirty();
+                    }
+                }
+                Task::none()
+            }
+            Message::LaunchOptionsModeChanged(mode) => {
+                if let Some(value) = mode.as_deref() {
+                    if !matches!(value, "steam" | "exe") {
+                        return Task::none();
+                    }
+                    if value == "exe"
+                        && self
+                            .launch_options
+                            .settings
+                            .as_ref()
+                            .map_or(true, |settings| settings.exe_path.trim().is_empty())
+                    {
+                        self.launch_options.error =
+                            Some("Informe o executável antes de escolher o modo exe.".to_string());
+                        return Task::none();
+                    }
+                }
+                self.launch_options.mode = mode;
+                self.launch_options.error = None;
+                Task::none()
+            }
+            Message::LaunchOptionsSave => self.save_launch_options(),
+            Message::LaunchOptionsSaved { id, result } => {
+                if self.launch_options.game_id != id {
+                    return Task::none();
+                }
+                self.launch_options.saving = false;
+                match result {
+                    Ok(settings) => {
+                        // Edições feitas enquanto o save estava em voo não
+                        // podem ser sobrescritas pela resposta do servidor.
+                        if !self.launch_options.dirty {
+                            self.launch_options.settings = Some(settings);
+                            self.launch_options.saved = true;
+                        }
+                        self.launch_options.status = LoadStatus::Ready;
+                        self.launch_options.error = None;
+                    }
+                    Err(error) => {
+                        self.launch_options.saved = false;
+                        self.launch_options.dirty = true;
+                        self.launch_options.error = Some(error);
+                    }
+                }
+                Task::none()
             }
             Message::LaunchConfigLoaded(result) => {
                 match result {
@@ -2306,6 +2578,123 @@ impl App {
         Task::batch([covers, media, panels])
     }
 
+    /// Drena a fila do `NativeShell` e aplica os eventos de lançamento.
+    ///
+    /// A Subscription chama isto a cada ~150 ms; não há consulta ao processo.
+    fn drain_launch_events(&mut self) -> Task<Message> {
+        let events = self.backend.drain_launch_events();
+        if events.is_empty() {
+            return Task::none();
+        }
+
+        let was_running = self.launch.status == GameRunStatus::Running;
+        for event in events {
+            self.launch.apply_event(event);
+        }
+
+        if was_running && self.launch.status == GameRunStatus::Idle {
+            self.restore_window_task()
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Abre o diálogo e carrega `gamesettings:get`.
+    fn open_launch_options(&mut self, id: String) -> Task<Message> {
+        let Some(game) = self.library.game(&id) else {
+            return Task::none();
+        };
+        let title = game.title.clone();
+        let default_prefix = self.backend.native_default_prefix(&id);
+        // Reabrir a mesma ficha preserva o modo já escolhido, desde que não
+        // haja rascunho pendente (nesse caso o modo não seria aplicável).
+        let previous_mode =
+            if self.launch_options.game_id == id && !self.launch_options.dirty {
+                self.launch_options.mode.clone()
+            } else {
+                None
+            };
+        self.launch_options = LaunchOptionsState {
+            open: true,
+            game_id: id.clone(),
+            game_title: title,
+            status: LoadStatus::Loading,
+            settings: None,
+            default_prefix,
+            mode: previous_mode,
+            env_name: String::new(),
+            env_value: String::new(),
+            saving: false,
+            saved: false,
+            dirty: false,
+            error: None,
+        };
+
+        let backend = self.backend.clone();
+        let message_id = id.clone();
+        Task::perform(
+            async move { backend.load_game_settings(id).await },
+            move |result| Message::LaunchOptionsLoaded {
+                id: message_id,
+                result,
+            },
+        )
+    }
+
+    fn add_launch_env_var(&mut self) {
+        let name = self.launch_options.env_name.trim().to_string();
+        if name.is_empty() {
+            self.launch_options.error = Some("Informe o nome da variável.".to_string());
+            return;
+        }
+        let Some(settings) = self.launch_options.settings.as_mut() else {
+            return;
+        };
+        let value = self.launch_options.env_value.clone();
+        settings.env_vars.retain(|variable| variable.name != name);
+        settings.env_vars.push(crate::backend::EnvVarSetting { name, value });
+        self.launch_options.env_name.clear();
+        self.launch_options.env_value.clear();
+        self.launch_options.error = None;
+        self.launch_options.mark_dirty();
+    }
+
+    /// Salva o patch via `gamesettings:set`; o próximo `game:launch` lê o
+    /// arquivo no `RuntimeDeps` do IPC, sem repetir as opções no payload.
+    fn save_launch_options(&mut self) -> Task<Message> {
+        if self.launch_options.saving {
+            return Task::none();
+        }
+        let Some(settings) = self.launch_options.settings.as_ref() else {
+            return Task::none();
+        };
+        if self.launch_options.mode.as_deref() == Some("exe") && settings.exe_path.trim().is_empty()
+        {
+            self.launch_options.error =
+                Some("Informe o executável antes de salvar o modo exe.".to_string());
+            return Task::none();
+        }
+
+        let id = self.launch_options.game_id.clone();
+        let patch = settings.to_patch();
+        self.launch_options.saving = true;
+        self.launch_options.saved = false;
+        // O patch cobre o estado atual; se algo for editado enquanto o save
+        // estiver em voo, `mark_dirty` volta a ligar o flag.
+        self.launch_options.dirty = false;
+        self.launch_options.error = None;
+
+        let backend = self.backend.clone();
+        let message_id = id.clone();
+        Task::perform(
+            async move { backend.save_game_settings(id, patch).await },
+            move |result| Message::LaunchOptionsSaved {
+                id: message_id,
+                result,
+            },
+        )
+    }
+
     /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
     ///
     /// O runtime só aceita uma sessão; um segundo jogo é recusado na UI com
@@ -2346,12 +2735,14 @@ impl App {
 
         self.launch.status = GameRunStatus::Launching;
         self.launch.game_id = Some(id.clone());
-        self.launch.pid = None;
         self.launch.error = None;
+        self.launch.warnings.clear();
+        self.launch.warnings_game_id = None;
+        let mode = self.launch_options.mode_for(&id).map(str::to_string);
 
         let backend = self.backend.clone();
         Task::perform(
-            async move { backend.launch_game(&game, None).await },
+            async move { backend.launch_game(&game, mode.as_deref()).await },
             move |result| Message::LaunchGameDone { id, result },
         )
     }
@@ -2379,7 +2770,6 @@ impl App {
                 eprintln!("[arcadia-native] jogo iniciado: {id}");
                 self.launch.status = GameRunStatus::Running;
                 self.launch.game_id = Some(id);
-                self.launch.pid = None;
                 self.launch.error = None;
                 if self.launch.minimize_on_launch && self.window.is_some() {
                     self.launch.minimized = true;
@@ -2392,7 +2782,6 @@ impl App {
                 eprintln!("[arcadia-native] falha ao abrir jogo: {error}");
                 self.launch.status = GameRunStatus::Idle;
                 self.launch.game_id = None;
-                self.launch.pid = None;
                 self.launch.error = Some(format!("Falha ao abrir o jogo: {error}"));
                 Task::none()
             }
@@ -2405,7 +2794,6 @@ impl App {
                 eprintln!("[arcadia-native] jogo encerrado");
                 self.launch.status = GameRunStatus::Idle;
                 self.launch.game_id = None;
-                self.launch.pid = None;
                 self.launch.error = None;
                 self.restore_window_task()
             }
@@ -2846,12 +3234,13 @@ impl App {
         )
     }
 
-    /// Timer de ~60 fps que drena os frames do GStreamer, o gamepad do console
-    /// e o polling da sessão de jogo.
+    /// Timer de ~60 fps que drena os frames do GStreamer e o gamepad do
+    /// console, mais o tick de ~150 ms que drena os eventos de lançamento.
     ///
-    /// O polling só existe enquanto há jogo abrindo/rodando; fora isso o app
-    /// não acorda à toa. Os eventos `game:running` do IPC ainda não têm canal
-    /// no shell nativo, então `LaunchRuntime::state_json` é a fonte de verdade.
+    /// O canal do `NativeShell` é a fonte de verdade da sessão de jogo: não há
+    /// mais consulta periódica ao `LaunchRuntime`. O tick de eventos existe em
+    /// qualquer tela (inclusive no Big Picture) e não acorda nada além de uma
+    /// fila em memória quando está vazia.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::new();
 
@@ -2872,11 +3261,9 @@ impl App {
             );
         }
 
-        if self.launch.needs_poll() {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(1500)).map(|_| Message::LaunchPoll),
-            );
-        }
+        subscriptions.push(
+            iced::time::every(Duration::from_millis(150)).map(|_| Message::LaunchEventsTick),
+        );
 
         Subscription::batch(subscriptions)
     }
@@ -2899,6 +3286,7 @@ impl App {
                     self.selected_screenshot,
                     &self.launch,
                     &self.trailer_picker,
+                    &self.launch_options,
                 ),
                 None => views::missing_game(&self.i18n),
             },
@@ -3517,36 +3905,126 @@ mod tests {
     }
 
     #[test]
-    fn launch_state_is_per_game_and_survives_polling_while_launching() {
+    fn launch_events_drive_the_status_without_polling() {
+        let mut launch = GameLaunchState::default();
+
+        let starting = crate::backend::parse_launch_event(
+            "game:launchState",
+            &json!({ "state": "starting", "gameId": "steam:10", "token": 1 }),
+        )
+        .expect("starting");
+        launch.apply_event(starting);
+        assert!(launch.is_launching("steam:10"));
+        assert!(!launch.is_running("steam:10"));
+
+        let warning = crate::backend::parse_launch_event(
+            "game:launchWarning",
+            &json!({ "gameId": "steam:10", "warnings": ["gamemoderun ausente"] }),
+        )
+        .expect("warning");
+        launch.apply_event(warning);
+        assert_eq!(launch.warnings_for("steam:10"), ["gamemoderun ausente"]);
+        assert!(launch.warnings_for("steam:11").is_empty());
+
+        let running = crate::backend::parse_launch_event("game:running", &json!(true))
+            .expect("running");
+        launch.apply_event(running);
+        assert!(launch.is_running("steam:10"));
+
+        // `game:running(false)` é a transição natural de fim do monitor.
+        let stopped = crate::backend::parse_launch_event("game:running", &json!(false))
+            .expect("stopped");
+        launch.apply_event(stopped);
+        assert_eq!(launch.status, GameRunStatus::Idle);
+        assert!(launch.game_id.is_none());
+
+        // Os avisos continuam disponíveis para o jogo depois do fim.
+        assert_eq!(launch.warnings_for("steam:10"), ["gamemoderun ausente"]);
+    }
+
+    #[test]
+    fn active_and_idle_events_carry_the_game_id() {
+        let mut launch = GameLaunchState::default();
+        let active = crate::backend::parse_launch_event(
+            "game:active",
+            &json!({ "rodando": true, "gameId": "steam:10" }),
+        )
+        .expect("active");
+        launch.apply_event(active);
+        assert!(launch.is_running("steam:10"));
+
+        let idle = crate::backend::parse_launch_event(
+            "game:launchState",
+            &json!({ "state": "idle", "gameId": "steam:10", "token": 1 }),
+        )
+        .expect("idle");
+        launch.apply_event(idle);
+        assert_eq!(launch.status, GameRunStatus::Idle);
+        assert!(launch.game_id.is_none());
+    }
+
+    #[test]
+    fn stale_events_from_a_previous_session_do_not_cancel_a_new_launch() {
+        let mut launch = GameLaunchState::default();
+
+        let starting = crate::backend::parse_launch_event(
+            "game:launchState",
+            &json!({ "state": "starting", "gameId": "steam:11" }),
+        )
+        .expect("starting novo");
+        launch.apply_event(starting);
+        assert!(launch.is_launching("steam:11"));
+
+        // Monitor do jogo anterior termina depois do novo `starting`.
+        let stale_idle = crate::backend::parse_launch_event(
+            "game:launchState",
+            &json!({ "state": "idle", "gameId": "steam:10" }),
+        )
+        .expect("idle antigo");
+        launch.apply_event(stale_idle);
+        assert!(launch.is_launching("steam:11"));
+
+        let stale_running_off =
+            crate::backend::parse_launch_event("game:running", &json!(false))
+                .expect("running false antigo");
+        launch.apply_event(stale_running_off);
+        assert!(launch.is_launching("steam:11"));
+    }
+
+    #[test]
+    fn launch_error_event_returns_to_idle_with_a_message() {
         let mut launch = GameLaunchState {
             status: GameRunStatus::Launching,
             game_id: Some("steam:10".to_string()),
             ..GameLaunchState::default()
         };
-        assert!(launch.is_launching("steam:10"));
-        assert!(!launch.is_running("steam:10"));
-        assert!(launch.needs_poll());
-
-        // O processo ainda não existe durante o `game:launch`: um snapshot
-        // vazio não pode cancelar o estado "Abrindo…".
-        launch.apply_snapshot(LaunchSnapshot::default());
-        assert!(launch.is_launching("steam:10"));
-
-        launch.status = GameRunStatus::Running;
-        launch.pid = Some(42);
-        launch.apply_snapshot(LaunchSnapshot {
-            running: true,
-            game_id: Some("steam:10".to_string()),
-            pid: Some(42),
-        });
-        assert!(launch.is_running("steam:10"));
-        assert_eq!(launch.pid, Some(42));
-
-        // Processo terminou sozinho: o polling devolve a UI para Idle.
-        launch.apply_snapshot(LaunchSnapshot::default());
+        let error = crate::backend::parse_launch_event(
+            "game:launchError",
+            &json!({ "gameId": "steam:10", "error": "No such file or directory" }),
+        )
+        .expect("erro");
+        launch.apply_event(error);
         assert_eq!(launch.status, GameRunStatus::Idle);
-        assert!(launch.game_id.is_none());
-        assert!(!launch.needs_poll());
+        let message = launch.error.as_deref().expect("mensagem");
+        assert!(message.contains("No such file"), "{message}");
+    }
+
+    #[test]
+    fn launch_options_mode_is_scoped_to_the_open_game_and_requires_saved_edits() {
+        let state = LaunchOptionsState {
+            game_id: "steam:10".to_string(),
+            mode: Some("exe".to_string()),
+            ..LaunchOptionsState::default()
+        };
+        assert_eq!(state.mode_for("steam:10"), Some("exe"));
+        assert_eq!(state.mode_for("steam:11"), None);
+
+        // Rascunho não salvo não vai no `game:launch`: o backend lê o disco.
+        let dirty = LaunchOptionsState {
+            dirty: true,
+            ..state
+        };
+        assert_eq!(dirty.mode_for("steam:10"), None);
     }
 
     #[test]

@@ -1771,36 +1771,108 @@ pub fn parse_news(value: Value) -> Result<Vec<NewsItem>, String> {
 
 // ── Lançamento de jogos ─────────────────────────────────────────────────────
 
-/// Snapshot de `LaunchRuntime::state_json` — a fonte de verdade do processo.
-///
-/// O shell nativo ainda não entrega os eventos `game:running`/`game:active`;
-/// enquanto isso, o app consulta este estado em polling de baixa frequência.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct LaunchSnapshot {
-    pub running: bool,
-    pub game_id: Option<String>,
-    pub pid: Option<u32>,
+/// Fase reportada por `game:launchState` (`LaunchRuntime::spawn_plan` e o
+/// monitor de saída do IPC).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchPhase {
+    Starting,
+    Running,
+    Stopping,
+    Idle,
 }
 
-pub fn parse_launch_snapshot(value: &Value) -> LaunchSnapshot {
-    if value.get("running").and_then(Value::as_bool) != Some(true) {
-        return LaunchSnapshot::default();
-    }
+/// Evento de lançamento já validado; a UI não olha mais o runtime em polling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchEvent {
+    /// `game:running` — booleano sem `gameId`.
+    Running(bool),
+    /// `game:active` — `{ rodando, gameId }`.
+    Active {
+        running: bool,
+        game_id: Option<String>,
+    },
+    /// `game:launchState` — `{ state, gameId, token }`.
+    Phase {
+        phase: LaunchPhase,
+        game_id: Option<String>,
+    },
+    /// `game:launchWarning` — avisos do planejador (wrapper ausente etc.).
+    Warning {
+        game_id: Option<String>,
+        warnings: Vec<String>,
+    },
+    /// `game:launchError` — falha de spawn antes de existir processo.
+    Error {
+        game_id: Option<String>,
+        error: String,
+    },
+}
 
-    LaunchSnapshot {
-        running: true,
-        game_id: optional_text_field(value, "gameId"),
-        pid: value
-            .get("pid")
-            .and_then(Value::as_u64)
-            .and_then(|pid| u32::try_from(pid).ok()),
+/// Converte um evento cru do `NativeShell`/`LaunchRuntime` no contrato da UI.
+///
+/// Payloads desconhecidos devolvem `None`: um evento novo do backend não pode
+/// derrubar a tela do jogo nem inventar estado.
+pub fn parse_launch_event(event: &str, payload: &Value) -> Option<LaunchEvent> {
+    match event {
+        "game:running" => payload.as_bool().map(LaunchEvent::Running),
+        "game:active" => {
+            let running = payload.get("rodando").and_then(Value::as_bool)?;
+            Some(LaunchEvent::Active {
+                running,
+                game_id: optional_text_field(payload, "gameId"),
+            })
+        }
+        "game:launchState" => {
+            let phase = match payload.get("state").and_then(Value::as_str)? {
+                "starting" => LaunchPhase::Starting,
+                "running" => LaunchPhase::Running,
+                "stopping" => LaunchPhase::Stopping,
+                "idle" => LaunchPhase::Idle,
+                _ => return None,
+            };
+            Some(LaunchEvent::Phase {
+                phase,
+                game_id: optional_text_field(payload, "gameId"),
+            })
+        }
+        "game:launchWarning" => {
+            let warnings = payload
+                .get("warnings")
+                .and_then(Value::as_array)?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|warning| !warning.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if warnings.is_empty() {
+                return None;
+            }
+            Some(LaunchEvent::Warning {
+                game_id: optional_text_field(payload, "gameId"),
+                warnings,
+            })
+        }
+        "game:launchError" => {
+            let error = payload
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|error| !error.is_empty())
+                .unwrap_or("falha desconhecida no lançamento")
+                .to_string();
+            Some(LaunchEvent::Error {
+                game_id: optional_text_field(payload, "gameId"),
+                error,
+            })
+        }
+        _ => None,
     }
 }
 
 /// Payload de `game:launch`, igual ao do `useGameActions.ts`:
-/// `{ cmd, gameId, mode? }`. `mode` só entra quando a UI oferecer a escolha
-/// Steam/exe (a próxima onda); launch options de Wine/Proton continuam
-/// resolvidas pelo `arcadia-ipc`, não pelo frontend.
+/// `{ cmd, gameId, mode? }`. As opções de Wine/Proton não vão no payload: o
+/// dispatcher lê `game_settings.json` via `gamesettings:get`/`RuntimeDeps`.
 pub fn launch_payload(game: &Game, mode: Option<&str>) -> Value {
     let mut payload = serde_json::Map::new();
     payload.insert("cmd".to_string(), json!(game.launch_cmd));
@@ -1814,6 +1886,241 @@ pub fn launch_payload(game: &Game, mode: Option<&str>) -> Value {
 /// `{ok:false,error}` do `game:launch` vira um erro legível para a UI.
 fn check_game_launch(value: &Value) -> Result<(), String> {
     check_envelope(value, "game:launch")
+}
+
+// ── Configurações de jogo (game_settings.json) ──────────────────────────────
+
+/// Variável de ambiente extra no shape do resolver (`EnvVar`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EnvVarSetting {
+    pub name: String,
+    pub value: String,
+}
+
+/// Subconjunto editável de `GameSettings` no diálogo nativo.
+///
+/// Só entram campos que o `plan_launch` do `arcadia-launch` consome de fato no
+/// caminho nativo. `wineVersion`, `autoDXVK`, `autoVKD3D` e os scripts são
+/// apenas lidos para exibir o valor salvo: o dispatcher atual não os aplica a
+/// jogos locais (ver `views::game`), então o diálogo os mostra desabilitados.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameSettingsView {
+    pub wine_version: Option<String>,
+    pub prefix_path: String,
+    pub exe_path: String,
+    pub game_args: String,
+    pub dxvk_hud: String,
+    pub env_vars: Vec<EnvVarSetting>,
+    pub esync: bool,
+    pub fsync: bool,
+    pub wine_wayland: bool,
+    pub wow64: bool,
+    pub fsr_hack: bool,
+    pub auto_nvapi: bool,
+    pub auto_dxvk: bool,
+    pub auto_vkd3d: bool,
+    pub mangohud: bool,
+    pub gamemode: bool,
+    pub gamescope: bool,
+    pub gs_hdr: bool,
+    pub verbose_logs: bool,
+    pub script_pre: String,
+    pub script_post: String,
+    pub wrapper_count: usize,
+    pub emulator_id: Option<String>,
+}
+
+impl Default for GameSettingsView {
+    fn default() -> Self {
+        Self {
+            wine_version: None,
+            prefix_path: String::new(),
+            exe_path: String::new(),
+            game_args: String::new(),
+            dxvk_hud: String::new(),
+            env_vars: Vec::new(),
+            esync: false,
+            fsync: false,
+            wine_wayland: false,
+            wow64: false,
+            fsr_hack: false,
+            auto_nvapi: false,
+            // `GameSettings::auto_dxvk` é `Option<bool>` e o resolver trata
+            // ausência como ligado; o formulário reflete esse padrão.
+            auto_dxvk: true,
+            auto_vkd3d: false,
+            mangohud: false,
+            gamemode: false,
+            gamescope: false,
+            gs_hdr: false,
+            verbose_logs: false,
+            script_pre: String::new(),
+            script_post: String::new(),
+            wrapper_count: 0,
+            emulator_id: None,
+        }
+    }
+}
+
+/// Resultado de `gamesettings:get`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GameSettingsEnvelope {
+    pub settings: GameSettingsView,
+    pub default_prefix: String,
+}
+
+/// Toggles suportados pelo diálogo; o `App` traduz cada um para o campo
+/// camelCase do contrato.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchToggle {
+    Esync,
+    Fsync,
+    WineWayland,
+    Wow64,
+    FsrHack,
+    AutoNvapi,
+    Mangohud,
+    Gamemode,
+    Gamescope,
+    GsHdr,
+    VerboseLogs,
+}
+
+impl GameSettingsView {
+    pub fn set_toggle(&mut self, toggle: LaunchToggle, value: bool) {
+        match toggle {
+            LaunchToggle::Esync => self.esync = value,
+            LaunchToggle::Fsync => self.fsync = value,
+            LaunchToggle::WineWayland => self.wine_wayland = value,
+            LaunchToggle::Wow64 => self.wow64 = value,
+            LaunchToggle::FsrHack => self.fsr_hack = value,
+            LaunchToggle::AutoNvapi => self.auto_nvapi = value,
+            LaunchToggle::Mangohud => self.mangohud = value,
+            LaunchToggle::Gamemode => self.gamemode = value,
+            LaunchToggle::Gamescope => self.gamescope = value,
+            LaunchToggle::GsHdr => self.gs_hdr = value,
+            LaunchToggle::VerboseLogs => self.verbose_logs = value,
+        }
+    }
+
+    /// Patch enviado a `gamesettings:set`.
+    ///
+    /// Todos os campos abaixo estão em `ALLOWED_GAME_SETTINGS` no
+    /// `arcadia-ipc`; os não editáveis não entram para não sobrescrever
+    /// configuração feita na UI web.
+    pub fn to_patch(&self) -> Value {
+        let env_vars = self
+            .env_vars
+            .iter()
+            .filter(|variable| !variable.name.trim().is_empty())
+            .map(|variable| {
+                json!({
+                    "name": variable.name.trim(),
+                    "value": variable.value,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        json!({
+            "prefixPath": self.prefix_path.trim(),
+            "exePath": self.exe_path.trim(),
+            "gameArgs": self.game_args.trim(),
+            "dxvkHud": self.dxvk_hud.trim(),
+            "envVars": env_vars,
+            "esync": self.esync,
+            "fsync": self.fsync,
+            "wineWayland": self.wine_wayland,
+            "wow64": self.wow64,
+            "fsrHack": self.fsr_hack,
+            "autoNVAPI": self.auto_nvapi,
+            "mangohud": self.mangohud,
+            "gamemode": self.gamemode,
+            "gamescope": self.gamescope,
+            "gsHdr": self.gs_hdr,
+            "verboseLogs": self.verbose_logs,
+        })
+    }
+}
+
+fn optional_string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|text| !text.trim().is_empty())
+}
+
+fn string_field(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn bool_field(value: &Value, key: &str, default: bool) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(default)
+}
+
+/// Lê o objeto de settings devolvido por `gamesettings:get`/`set`.
+pub fn parse_game_settings(value: &Value) -> GameSettingsView {
+    let env_vars = value
+        .get("envVars")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let name = item.get("name").and_then(Value::as_str)?.trim();
+                    if name.is_empty() {
+                        return None;
+                    }
+                    Some(EnvVarSetting {
+                        name: name.to_string(),
+                        value: string_field(item, "value"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    GameSettingsView {
+        wine_version: optional_string_field(value, "wineVersion"),
+        prefix_path: string_field(value, "prefixPath"),
+        exe_path: string_field(value, "exePath"),
+        game_args: string_field(value, "gameArgs"),
+        dxvk_hud: string_field(value, "dxvkHud"),
+        env_vars,
+        esync: bool_field(value, "esync", false),
+        fsync: bool_field(value, "fsync", false),
+        wine_wayland: bool_field(value, "wineWayland", false),
+        wow64: bool_field(value, "wow64", false),
+        fsr_hack: bool_field(value, "fsrHack", false),
+        auto_nvapi: bool_field(value, "autoNVAPI", false),
+        auto_dxvk: bool_field(value, "autoDXVK", true),
+        auto_vkd3d: bool_field(value, "autoVKD3D", false),
+        mangohud: bool_field(value, "mangohud", false),
+        gamemode: bool_field(value, "gamemode", false),
+        gamescope: bool_field(value, "gamescope", false),
+        gs_hdr: bool_field(value, "gsHdr", false),
+        verbose_logs: bool_field(value, "verboseLogs", false),
+        script_pre: string_field(value, "scriptPre"),
+        script_post: string_field(value, "scriptPost"),
+        wrapper_count: value
+            .get("wrappers")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        emulator_id: optional_string_field(value, "emulatorId"),
+    }
+}
+
+pub fn parse_game_settings_envelope(value: &Value) -> GameSettingsEnvelope {
+    let settings = value.get("settings").unwrap_or(value);
+    GameSettingsEnvelope {
+        settings: parse_game_settings(settings),
+        default_prefix: string_field(value, "defaultPrefix"),
+    }
 }
 
 // ── Downloads ───────────────────────────────────────────────────────────────
@@ -2821,16 +3128,75 @@ impl Backend {
                 .unwrap_or_else(|_| reqwest::Client::new())
         };
 
+        let shell = Arc::new(NativeShell::new());
+        // O launch roda no `LaunchRuntime` do IPC e publica pelo sink de
+        // background, não pelo `Shell::emit`. Os dois caminhos alimentam a
+        // mesma fila; o app drena numa Subscription de ~150 ms.
+        let events = shell.events();
+        state.set_event_sink(Arc::new(move |event: &str, payload: Value| {
+            events.push(event, payload);
+        }));
+
         Self {
             state: Arc::new(state),
-            shell: Arc::new(NativeShell::new()),
+            shell,
             runtime,
             http,
         }
     }
 
+    /// Eventos de lançamento pendentes, já convertidos no contrato tipado.
+    ///
+    /// Chamado pela Subscription de baixa frequência do app; não bloqueia e
+    /// não consulta o processo do jogo.
+    pub fn drain_launch_events(&self) -> Vec<LaunchEvent> {
+        let queue = self.shell.events();
+        if queue.is_empty() {
+            return Vec::new();
+        }
+        queue
+            .drain()
+            .into_iter()
+            .filter_map(|event| {
+                let parsed = parse_launch_event(&event.event, &event.payload);
+                if parsed.is_none() {
+                    eprintln!(
+                        "[arcadia-native] evento de lançamento sem payload reconhecido: {} {}",
+                        event.event, event.payload
+                    );
+                }
+                parsed
+            })
+            .collect()
+    }
+
     pub fn data_dir(&self) -> &Path {
         &self.state.data_dir
+    }
+
+    /// Prefixo que o `LaunchRuntime::build_environment` usa quando o jogo não
+    /// define `prefixPath` (mesma sanitização de lá). O `defaultPrefix` de
+    /// `gamesettings:get` é o das ferramentas Wine da UI web e pode diferir.
+    pub fn native_default_prefix(&self, id: &str) -> String {
+        let safe = id
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        self.data_dir()
+            .join("prefixes")
+            .join(if safe.is_empty() {
+                "game".to_string()
+            } else {
+                safe
+            })
+            .to_string_lossy()
+            .into_owned()
     }
 
     pub async fn load_library(&self) -> Result<Vec<Game>, String> {
@@ -2961,12 +3327,28 @@ impl Backend {
         check_envelope(&value, "game:close")
     }
 
-    /// Estado atual do processo, direto do runtime de launch.
+    /// `gamesettings:get` — settings persistidos do jogo + prefixo padrão.
+    pub async fn load_game_settings(&self, id: String) -> Result<GameSettingsEnvelope, String> {
+        let value = self
+            .dispatch("gamesettings:get", vec![Value::String(id)])
+            .await?;
+        Ok(parse_game_settings_envelope(&value))
+    }
+
+    /// `gamesettings:set` — grava o patch e devolve o objeto mesclado.
     ///
-    /// `state_json` já faz `try_wait`, então a consulta reflete um jogo que
-    /// terminou sozinho — não é só o último resultado do nosso `game:launch`.
-    pub fn launch_state(&self) -> LaunchSnapshot {
-        parse_launch_snapshot(&self.state.launch.state_json())
+    /// O retorno do canal é o próprio entry (sem envelope), então só checamos
+    /// `ok:false` por segurança e reinterpretamos como settings.
+    pub async fn save_game_settings(
+        &self,
+        id: String,
+        patch: Value,
+    ) -> Result<GameSettingsView, String> {
+        let value = self
+            .dispatch("gamesettings:set", vec![json!({ "id": id, "patch": patch })])
+            .await?;
+        check_envelope(&value, "gamesettings:set")?;
+        Ok(parse_game_settings(&value))
     }
 
     /// `dm:queue` + `torrent:list` em paralelo. Uma falha parcial não apaga a
@@ -3967,7 +4349,7 @@ mod tests {
         let game = launch_game_fixture();
 
         // useGameActions.launch(command, gameId) → preload `{ cmd, gameId }`.
-        // Nenhum campo de launch options é inventado nesta onda.
+        // As opções de Wine/Proton ficam no game_settings.json lido pelo IPC.
         assert_eq!(
             launch_payload(&game, None),
             json!({
@@ -3976,7 +4358,8 @@ mod tests {
             })
         );
 
-        // Ponto de extensão do seletor Steam/exe; ainda não usado pela UI.
+        // Seletor do diálogo: mode "steam" | "exe"; "custom" não existe no
+        // contrato do resolver (`LaunchRequest.mode`).
         assert_eq!(
             launch_payload(&game, Some("exe")),
             json!({
@@ -3984,6 +4367,10 @@ mod tests {
                 "gameId": "steam:10",
                 "mode": "exe"
             })
+        );
+        assert_eq!(
+            launch_payload(&game, Some("steam"))["mode"],
+            json!("steam")
         );
     }
 
@@ -4001,25 +4388,223 @@ mod tests {
     }
 
     #[test]
-    fn launch_snapshot_reads_the_runtime_state() {
+    fn parses_the_launch_event_contract() {
         assert_eq!(
-            parse_launch_snapshot(&json!({ "running": false })),
-            LaunchSnapshot::default()
+            parse_launch_event("game:running", &json!(true)),
+            Some(LaunchEvent::Running(true))
         );
-
         assert_eq!(
-            parse_launch_snapshot(&json!({
-                "running": true,
-                "gameId": "steam:10",
-                "pid": 4242,
-                "seconds": 12
-            })),
-            LaunchSnapshot {
+            parse_launch_event("game:running", &json!(false)),
+            Some(LaunchEvent::Running(false))
+        );
+        assert_eq!(
+            parse_launch_event("game:active", &json!({ "rodando": true, "gameId": "steam:10" })),
+            Some(LaunchEvent::Active {
                 running: true,
                 game_id: Some("steam:10".to_string()),
-                pid: Some(4242),
-            }
+            })
         );
+        assert_eq!(
+            parse_launch_event(
+                "game:launchState",
+                &json!({ "state": "starting", "gameId": "steam:10", "token": 7 })
+            ),
+            Some(LaunchEvent::Phase {
+                phase: LaunchPhase::Starting,
+                game_id: Some("steam:10".to_string()),
+            })
+        );
+        assert_eq!(
+            parse_launch_event(
+                "game:launchWarning",
+                &json!({
+                    "gameId": "steam:10",
+                    "warnings": ["mangohud não está instalado — iniciando sem ele", " "]
+                })
+            ),
+            Some(LaunchEvent::Warning {
+                game_id: Some("steam:10".to_string()),
+                warnings: vec!["mangohud não está instalado — iniciando sem ele".to_string()],
+            })
+        );
+        assert_eq!(
+            parse_launch_event(
+                "game:launchError",
+                &json!({ "gameId": "steam:10", "error": "No such file" })
+            ),
+            Some(LaunchEvent::Error {
+                game_id: Some("steam:10".to_string()),
+                error: "No such file".to_string(),
+            })
+        );
+
+        // Eventos fora do contrato ou payloads incompletos são ignorados.
+        assert_eq!(parse_launch_event("game:unknown", &json!({})), None);
+        assert_eq!(
+            parse_launch_event("game:launchState", &json!({ "state": "paused" })),
+            None
+        );
+        assert_eq!(
+            parse_launch_event("game:launchWarning", &json!({ "warnings": [] })),
+            None
+        );
+        assert_eq!(parse_launch_event("library:changed", &json!({})), None);
+    }
+
+    #[test]
+    fn parses_game_settings_and_default_prefix() {
+        let envelope = parse_game_settings_envelope(&json!({
+            "settings": {
+                "wineVersion": "steam:GE-Proton9-20",
+                "prefixPath": "/games/pfx",
+                "exePath": "/games/game.exe",
+                "gameArgs": "--windowed",
+                "dxvkHud": "fps",
+                "envVars": [
+                    { "name": "WINEDLLOVERRIDES", "value": "winmm=n,b" },
+                    { "name": "  ", "value": "ignorada" }
+                ],
+                "esync": true,
+                "fsync": true,
+                "wineWayland": true,
+                "wow64": true,
+                "fsrHack": true,
+                "autoNVAPI": true,
+                "autoDXVK": false,
+                "autoVKD3D": true,
+                "mangohud": true,
+                "gamemode": true,
+                "gamescope": true,
+                "gsHdr": true,
+                "verboseLogs": true,
+                "scriptPre": "/tmp/pre.sh",
+                "wrappers": [{ "cmd": "mangohud" }],
+                "emulatorId": "retroarch"
+            },
+            "defaultPrefix": "/home/user/Games/Arcadia/Prefixes/steam_10"
+        }));
+
+        let settings = envelope.settings;
+        assert_eq!(settings.wine_version.as_deref(), Some("steam:GE-Proton9-20"));
+        assert_eq!(settings.prefix_path, "/games/pfx");
+        assert_eq!(settings.exe_path, "/games/game.exe");
+        assert_eq!(settings.game_args, "--windowed");
+        assert_eq!(settings.dxvk_hud, "fps");
+        assert_eq!(settings.env_vars.len(), 1);
+        assert_eq!(settings.env_vars[0].name, "WINEDLLOVERRIDES");
+        assert_eq!(settings.env_vars[0].value, "winmm=n,b");
+        assert!(settings.esync && settings.fsync);
+        assert!(settings.wine_wayland && settings.wow64 && settings.fsr_hack);
+        assert!(settings.auto_nvapi);
+        assert!(!settings.auto_dxvk);
+        assert!(settings.auto_vkd3d);
+        assert!(settings.mangohud && settings.gamemode && settings.gamescope);
+        assert!(settings.gs_hdr && settings.verbose_logs);
+        assert_eq!(settings.script_pre, "/tmp/pre.sh");
+        assert_eq!(settings.wrapper_count, 1);
+        assert_eq!(settings.emulator_id.as_deref(), Some("retroarch"));
+        assert_eq!(
+            envelope.default_prefix,
+            "/home/user/Games/Arcadia/Prefixes/steam_10"
+        );
+
+        // Sem settings salvos: defaults do resolver (autoDXVK ausente = on).
+        let empty = parse_game_settings(&json!({}));
+        assert_eq!(empty, GameSettingsView::default());
+        assert!(empty.auto_dxvk);
+    }
+
+    #[test]
+    fn settings_patch_uses_only_the_supported_contract_fields() {
+        let mut settings = GameSettingsView {
+            wine_version: Some("steam:GE-Proton9-20".to_string()),
+            prefix_path: "  /games/pfx  ".to_string(),
+            exe_path: " /games/game.exe ".to_string(),
+            game_args: " --windowed ".to_string(),
+            dxvk_hud: " fps ".to_string(),
+            script_pre: "/tmp/ignorado.sh".to_string(),
+            auto_dxvk: false,
+            auto_vkd3d: true,
+            ..GameSettingsView::default()
+        };
+        settings.env_vars.push(EnvVarSetting {
+            name: "WINEDLLOVERRIDES".to_string(),
+            value: "winmm=n,b".to_string(),
+        });
+        settings.set_toggle(LaunchToggle::Esync, true);
+        settings.set_toggle(LaunchToggle::Gamescope, true);
+
+        let patch = settings.to_patch();
+        assert_eq!(patch["prefixPath"], "/games/pfx");
+        assert_eq!(patch["exePath"], "/games/game.exe");
+        assert_eq!(patch["gameArgs"], "--windowed");
+        assert_eq!(patch["dxvkHud"], "fps");
+        assert_eq!(patch["esync"], true);
+        assert_eq!(patch["gamescope"], true);
+        assert_eq!(patch["envVars"][0]["name"], "WINEDLLOVERRIDES");
+
+        // Campos não editáveis não são sobrescritos pelo diálogo nativo.
+        assert!(patch.get("wineVersion").is_none());
+        assert!(patch.get("autoDXVK").is_none());
+        assert!(patch.get("autoVKD3D").is_none());
+        assert!(patch.get("scriptPre").is_none());
+    }
+
+    #[test]
+    fn game_settings_roundtrip_preserves_fields_outside_the_dialog() {
+        let dir = std::env::temp_dir().join(format!(
+            "arcadia-native-settings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let backend = Backend::new(AppState::new(dir.clone()), runtime.handle().clone());
+
+        // Campos fora do diálogo (wineVersion/autoDXVK) chegam pela API real.
+        runtime
+            .block_on(backend.dispatch(
+                "gamesettings:set",
+                vec![json!({
+                    "id": "steam:10",
+                    "patch": {
+                        "wineVersion": "steam:GE-Proton9-20",
+                        "autoDXVK": false
+                    }
+                })],
+            ))
+            .unwrap();
+
+        let mut settings = GameSettingsView::default();
+        settings.prefix_path = "/games/pfx".to_string();
+        settings.set_toggle(LaunchToggle::Esync, true);
+        let saved = runtime
+            .block_on(backend.save_game_settings("steam:10".to_string(), settings.to_patch()))
+            .unwrap();
+        assert_eq!(saved.prefix_path, "/games/pfx");
+        assert!(saved.esync);
+
+        let loaded = runtime
+            .block_on(backend.load_game_settings("steam:10".to_string()))
+            .unwrap();
+        assert_eq!(loaded.settings.prefix_path, "/games/pfx");
+        assert!(loaded.settings.esync);
+        // O patch do diálogo não apaga o que a UI web gravou.
+        assert_eq!(
+            loaded.settings.wine_version.as_deref(),
+            Some("steam:GE-Proton9-20")
+        );
+        assert!(!loaded.settings.auto_dxvk);
+        assert!(!loaded.default_prefix.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
