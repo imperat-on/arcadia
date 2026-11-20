@@ -8,14 +8,18 @@
 
 use iced::widget::scrollable::{AbsoluteOffset, Direction, Scrollbar};
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, image, row, scrollable, text, Space, Stack};
+use iced::widget::{
+    button, column, container, image, mouse_area, row, scrollable, text, Space, Stack,
+};
 use iced::{Color, ContentFit, Element, Fill, Length, Padding, Task};
 
-use crate::app::{App, LibraryStatus, Message};
+use crate::app::{App, LibraryStatus, LoadStatus, Message};
 use crate::backend::Game;
 use crate::big_picture::{
     ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY, ACTION_TRAILER,
+    MENU_COUNT, MENU_FAVORITE, MENU_OPEN_DETAIL, MENU_TRAILER,
 };
+use crate::media;
 use crate::theme;
 
 /// Medidas do trilho compartilhadas com o cálculo de scroll.
@@ -92,6 +96,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.big_picture.overview_open() {
         if let Some(game) = selected {
             layers = layers.push(overview(app, game));
+            if app.big_picture.menu_open() {
+                layers = layers.push(more_menu(app, game));
+            }
         }
     }
 
@@ -253,6 +260,10 @@ fn connection(app: &App) -> Element<'_, Message> {
 fn copy_area<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Message> {
     let tab = app.big_picture.tab();
 
+    if tab == ConsoleTab::News {
+        return news_view(app);
+    }
+
     if !tab.is_library() {
         return tab_placeholder(tab);
     }
@@ -378,8 +389,8 @@ fn tab_placeholder(tab: ConsoleTab) -> Element<'static, Message> {
             "A vitrine de lojas continua apenas no desktop/web. Use a aba Biblioteca para navegar pelos seus jogos.",
         ),
         ConsoleTab::News => (
-            "Notícias dependem do feed da UI web",
-            "O RSS do launcher ainda não tem canal no nativo; a aba fica explícita em vez de mostrar uma lista vazia.",
+            "Notícias",
+            "A lista de notícias usa o feed `news:get`.",
         ),
         ConsoleTab::Library => ("Biblioteca", "Use o trilho para escolher um jogo."),
     };
@@ -419,6 +430,120 @@ fn tab_placeholder(tab: ConsoleTab) -> Element<'static, Message> {
     .center_x(Fill)
     .center_y(Fill)
     .into()
+}
+
+fn news_view(app: &App) -> Element<'_, Message> {
+    let state = &app.console_news;
+    let header = row![
+        column![
+            text("NOTÍCIAS")
+                .size(11)
+                .font(theme::FONT_SEMIBOLD)
+                .color(theme::ACCENT),
+            text("Feed via `news:get`; os links aparecem como texto porque o shell nativo ainda não expõe `app:openExternal`.")
+                .size(11)
+                .color(FAINT)
+                .wrapping(Wrapping::WordOrGlyph),
+        ]
+        .spacing(3),
+        Space::new().width(Fill),
+        button(text("Atualizar").size(12).font(theme::FONT_MEDIUM))
+            .on_press(Message::ConsoleNewsReload)
+            .padding([8.0, 14.0])
+            .style(theme::ghost_button),
+    ]
+    .align_y(iced::Center);
+
+    let body: Element<'_, Message> = match &state.status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            super::loading_state("Carregando notícias…")
+        }
+        LoadStatus::Error(error) => container(
+            column![
+                text("As notícias não carregaram")
+                    .size(20)
+                    .font(theme::FONT_BOLD)
+                    .color(theme::DANGER),
+                text(error.as_str())
+                    .size(13)
+                    .color(theme::TEXT_2)
+                    .wrapping(Wrapping::WordOrGlyph),
+                button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
+                    .on_press(Message::ConsoleNewsReload)
+                    .padding([8.0, 14.0])
+                    .style(theme::primary_button),
+            ]
+            .spacing(10)
+            .max_width(680),
+        )
+        .width(Fill)
+        .height(Fill)
+        .center_x(Fill)
+        .center_y(Fill)
+        .into(),
+        LoadStatus::Ready if state.items.is_empty() => super::empty_state(
+            "Nenhuma notícia no feed",
+            "O `news:get` respondeu sem itens. Isso pode ser falta de rede ou o filtro anti-oferta do feed; tente atualizar.",
+        ),
+        LoadStatus::Ready => {
+            let mut list = column![].spacing(8);
+            for (index, item) in state.items.iter().enumerate() {
+                let selected = app.big_picture.news_index() == index;
+                let mut content = column![
+                    text(item.title.clone())
+                        .size(15)
+                        .font(theme::FONT_MEDIUM)
+                        .color(theme::TEXT_1)
+                        .wrapping(Wrapping::WordOrGlyph),
+                    row![
+                        text(item.source.clone())
+                            .size(10)
+                            .font(theme::FONT_SEMIBOLD)
+                            .color(theme::ACCENT),
+                        text("·").size(10).color(FAINT),
+                        text(item.date_label()).size(10).color(MUTED),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Center),
+                    text(item.url.clone())
+                        .size(10)
+                        .color(FAINT)
+                        .wrapping(Wrapping::WordOrGlyph),
+                ]
+                .spacing(4);
+
+                if selected && !item.summary.is_empty() {
+                    content = content.push(
+                        text(shorten(&item.summary, 240))
+                            .size(12)
+                            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.74))
+                            .wrapping(Wrapping::WordOrGlyph),
+                    );
+                }
+
+                list = list.push(
+                    button(content)
+                        .on_press(Message::ConsoleNewsSelected(index))
+                        .width(Fill)
+                        .padding([10.0, 14.0])
+                        .style(move |style_theme, status| {
+                            theme::console_action(style_theme, status, selected)
+                        }),
+                );
+            }
+
+            scrollable(list)
+                .height(Fill)
+                .style(theme::console_scrollable)
+                .into()
+        }
+    };
+
+    container(column![header, body].spacing(14))
+        .width(Fill)
+        .height(Fill)
+        .padding([20.0, 0.0])
+        .into()
 }
 
 fn empty_panel<'a>(
@@ -788,66 +913,13 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             .color(FAINT),
     );
 
-    let poster: Element<'a, Message> = match app.covers.ready(game.cover_url.as_deref()) {
-        Some(handle) => image(handle.clone())
-            .width(Fill)
-            .height(260)
-            .content_fit(ContentFit::Cover)
-            .border_radius(8)
-            .into(),
-        None => container(
-            text(initial(&game.title))
-                .size(48)
-                .font(theme::FONT_BOLD)
-                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.18)),
-        )
-        .width(Fill)
-        .height(260)
-        .center_x(Fill)
-        .center_y(Fill)
-        .style(theme::cover_placeholder)
-        .into(),
-    };
-
-    let poster = container(
-        column![
-            container(poster).width(Fill).height(260).clip(true),
-            container(
-                column![
-                    text(if game.installed {
-                        "Na sua biblioteca"
-                    } else {
-                        "Instale pelo desktop"
-                    })
-                    .size(13)
-                    .font(theme::FONT_SEMIBOLD)
-                    .color(theme::TEXT_1),
-                    text(format!(
-                        "{} · {}",
-                        game.year.as_deref().unwrap_or("—"),
-                        game.developer
-                            .as_deref()
-                            .or(game.publisher.as_deref())
-                            .unwrap_or(&game.launcher)
-                    ))
-                    .size(11)
-                    .color(MUTED),
-                ]
-                .spacing(4),
-            )
-            .width(Fill)
-            .padding([10.0, 12.0]),
-        ]
-        .spacing(0),
-    )
-    .width(244)
-    .style(theme::console_panel);
+    let trailer = console_trailer(app, game);
 
     container(
         column![
             header,
             Space::new().height(Fill),
-            row![activity, Space::new().width(Fill), poster,]
+            row![activity, Space::new().width(Fill), trailer,]
                 .spacing(48)
                 .align_y(iced::Bottom),
         ]
@@ -859,6 +931,188 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     .padding([28.0, GUTTER])
     .style(theme::console_overview)
     .into()
+}
+
+/// Frame do GStreamer (ou poster do jogo) + play/pause no painel do console.
+fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
+    let media = &app.media;
+
+    let surface: Element<'a, Message> = match media.texture() {
+        Some(handle) => image(handle.clone())
+            .width(Fill)
+            .height(203)
+            .content_fit(ContentFit::Contain)
+            .into(),
+        None => match app.covers.ready(game.cover_url.as_deref()) {
+            Some(handle) => image(handle.clone())
+                .width(Fill)
+                .height(203)
+                .content_fit(ContentFit::Cover)
+                .border_radius(6)
+                .into(),
+            None => container(
+                text(initial(&game.title))
+                    .size(42)
+                    .font(theme::FONT_BOLD)
+                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.18)),
+            )
+            .width(Fill)
+            .height(203)
+            .center_x(Fill)
+            .center_y(Fill)
+            .style(theme::cover_placeholder)
+            .into(),
+        },
+    };
+
+    let notice = app
+        .game_media
+        .as_ref()
+        .and_then(|game_media| game_media.notice.as_deref());
+    let (status, status_color) = if let Some(notice) = notice {
+        (notice.to_string(), theme::WARNING)
+    } else if media.status().is_error() {
+        (media.status().label().to_string(), theme::DANGER)
+    } else if app.game_media.is_none() {
+        ("Consultando o trailer…".to_string(), MUTED)
+    } else {
+        (media.status().label().to_string(), MUTED)
+    };
+
+    let mut toggle = button(
+        text(if media.is_playing() {
+            "Pausar"
+        } else {
+            "Reproduzir"
+        })
+        .size(11)
+        .font(theme::FONT_MEDIUM),
+    )
+    .padding([6.0, 12.0])
+    .style(theme::ghost_button);
+    if media.can_control() {
+        toggle = toggle.on_press(Message::MediaTogglePlayback);
+    }
+
+    let mut controls = row![toggle].spacing(10).align_y(iced::Center);
+    let duration = media.duration_seconds();
+    if duration > 0.5 {
+        controls = controls.push(
+            text(format!(
+                "{} / {}",
+                media::format_seconds(media.position_seconds()),
+                media::format_seconds(duration)
+            ))
+            .size(10)
+            .color(MUTED),
+        );
+    } else {
+        controls = controls.push(
+            text("sem duração ainda")
+                .size(9)
+                .color(FAINT),
+        );
+    }
+
+    container(
+        column![
+            container(surface)
+                .width(Fill)
+                .height(203)
+                .clip(true)
+                .style(theme::cover_placeholder),
+            controls,
+            text(status)
+                .size(10)
+                .color(status_color)
+                .wrapping(Wrapping::WordOrGlyph),
+        ]
+        .spacing(8),
+    )
+    .width(340)
+    .padding(10)
+    .style(theme::console_panel)
+    .into()
+}
+
+/// Menu "•••" do painel: Abrir ficha, Favoritar/Desfavoritar e Trailer.
+fn more_menu<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
+    let bp = &app.big_picture;
+    let focused = |index: usize| bp.menu_index() == index;
+
+    let favorite_label = if game.favorite {
+        "Remover dos favoritos"
+    } else {
+        "Adicionar aos favoritos"
+    };
+    let trailer_label = if app.media.is_playing() {
+        "Pausar trailer"
+    } else {
+        "Reproduzir trailer"
+    };
+    let labels = ["Abrir ficha", favorite_label, trailer_label];
+    let actions = [MENU_OPEN_DETAIL, MENU_FAVORITE, MENU_TRAILER];
+
+    let mut items = column![].spacing(4);
+    for index in 0..MENU_COUNT {
+        let selected = focused(index);
+        items = items.push(
+            button(text(labels[index]).size(16).font(theme::FONT_MEDIUM))
+                .on_press(Message::ConsoleMenuAction(actions[index]))
+                .width(Fill)
+                .padding([12.0, 16.0])
+                .style(move |style_theme, status| {
+                    theme::console_action(style_theme, status, selected)
+                }),
+        );
+    }
+
+    let panel = container(
+        column![
+            container(
+                text(game.title.clone())
+                    .size(15)
+                    .font(theme::FONT_SEMIBOLD)
+                    .color(theme::TEXT_1)
+                    .wrapping(Wrapping::None),
+            )
+            .width(Fill)
+            .padding([12.0, 16.0])
+            .style(theme::console_topbar),
+            container(items).padding([8.0, 10.0]),
+            container(
+                text("↑↓ escolher · A confirmar · B fechar")
+                    .size(10)
+                    .color(FAINT),
+            )
+            .width(Fill)
+            .padding([8.0, 16.0]),
+        ]
+        .spacing(0),
+    )
+    .width(420)
+    .style(theme::console_panel);
+
+    let veil = mouse_area(
+        container(Space::new())
+            .width(Fill)
+            .height(Fill)
+            .style(theme::console_bottom_wash),
+    )
+    .on_press(Message::ConsoleCloseMenu);
+
+    let panel_layer = container(panel)
+        .width(Fill)
+        .height(Fill)
+        .center_x(Fill)
+        .center_y(Fill);
+
+    Stack::new()
+        .width(Fill)
+        .height(Fill)
+        .push(veil)
+        .push(panel_layer)
+        .into()
 }
 
 fn art_url(game: &Game) -> Option<&str> {

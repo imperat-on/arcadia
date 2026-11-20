@@ -14,14 +14,20 @@ use crate::backend::Game;
 
 /// Quantidade de ações do painel do jogo.
 pub const ACTION_COUNT: usize = 4;
-/// Jogar (abre a ficha do jogo no desktop).
+/// Jogar (ou parar, quando o jogo está em execução).
 pub const ACTION_PLAY: usize = 0;
-/// Trailer — stub desta onda; só exibe o aviso de próximo passo.
+/// Trailer: reproduz/pausa o pipeline aberto ao abrir o painel.
 pub const ACTION_TRAILER: usize = 1;
-/// Favorito — stub: a escrita de favoritos ainda não tem canal no nativo.
+/// Favorito: grava `favorite` via `overrides:set`.
 pub const ACTION_FAVORITE: usize = 2;
-/// "•••" — stub de opções do jogo.
+/// "•••": menu de contexto do jogo.
 pub const ACTION_MORE: usize = 3;
+
+/// Itens do menu "•••". A ordem é a mesma desenhada pela view.
+pub const MENU_COUNT: usize = 3;
+pub const MENU_OPEN_DETAIL: usize = 0;
+pub const MENU_FAVORITE: usize = 1;
+pub const MENU_TRAILER: usize = 2;
 
 /// Abas da top bar do console.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +82,13 @@ pub enum ConsoleEffect {
     Exit,
     /// Inicia o jogo selecionado de verdade via `game:launch`.
     LaunchGame(String),
-    /// Aviso curto no rodapé do painel (stub explícito).
+    /// Abre a ficha desktop do jogo (mesmo caminho de `OpenGame`).
+    OpenGameDetail(String),
+    /// Alterna o favorito via `overrides:set`.
+    ToggleFavorite(String),
+    /// Abre/alterna o trailer do jogo no player GStreamer.
+    Trailer(String),
+    /// Aviso curto no rodapé do painel.
     Notice(String),
 }
 
@@ -89,6 +101,11 @@ pub struct BigPicture {
     zone: ConsoleZone,
     tab: ConsoleTab,
     overview: bool,
+    /// Item focado no menu "•••"; `None` quando o menu está fechado.
+    menu: Option<usize>,
+    /// Seleção da lista de notícias e o tamanho atual do feed.
+    news_index: usize,
+    news_count: usize,
     clock: String,
     notice: Option<String>,
 }
@@ -106,6 +123,9 @@ impl BigPicture {
             zone: ConsoleZone::Rail,
             tab: ConsoleTab::Library,
             overview: false,
+            menu: None,
+            news_index: 0,
+            news_count: 0,
             clock: String::new(),
             notice: None,
         }
@@ -121,6 +141,7 @@ impl BigPicture {
 
         self.tab = ConsoleTab::Library;
         self.overview = false;
+        self.menu = None;
         self.zone = ConsoleZone::Rail;
         self.notice = None;
         self.tabs.set_index(ConsoleTab::Library.index());
@@ -136,6 +157,7 @@ impl BigPicture {
             input.reset();
         }
         self.overview = false;
+        self.menu = None;
         self.zone = ConsoleZone::Rail;
         self.notice = None;
     }
@@ -216,16 +238,74 @@ impl BigPicture {
         self.overview
     }
 
+    pub fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    pub fn menu_index(&self) -> usize {
+        self.menu.unwrap_or(0)
+    }
+
+    pub fn news_index(&self) -> usize {
+        self.news_index
+    }
+
+    /// Atualiza o tamanho do feed e mantém a seleção dentro dos limites.
+    pub fn sync_news(&mut self, count: usize) {
+        self.news_count = count;
+        if count == 0 {
+            self.news_index = 0;
+        } else {
+            self.news_index = self.news_index.min(count - 1);
+        }
+    }
+
+    /// Seleção vinda do clique numa linha da aba Notícias.
+    pub fn select_news(&mut self, index: usize) {
+        if index < self.news_count {
+            self.news_index = index;
+        }
+    }
+
+    /// Move o foco do trilho sem abrir o painel (usado ao refiltrar favoritos).
+    pub fn focus_rail(&mut self, index: usize) {
+        if self.rail.cols() == 0 {
+            return;
+        }
+        self.rail.set_index(index.min(self.rail.cols() - 1));
+    }
+
     pub fn selected<'g>(&self, games: &[&'g Game]) -> Option<&'g Game> {
         games.get(self.rail.index()).copied()
     }
 
     /// Consome um evento de navegação e devolve o efeito a executar.
     ///
-    /// `Back` fecha o painel quando ele está aberto; sem painel, sai do modo
-    /// (mesmo caminho de Esc no teclado). `Quit`/Guide sai sempre.
+    /// `Back` fecha primeiro o menu "•••", depois o painel; sem nenhum dos
+    /// dois, sai do modo (mesmo caminho de Esc no teclado). `Quit`/Guide sai
+    /// sempre.
     pub fn handle(&mut self, event: NavEvent, games: &[&Game]) -> ConsoleEffect {
         self.notice = None;
+
+        if self.menu.is_some() {
+            return self.handle_menu(event, games);
+        }
+
+        if self.tab == ConsoleTab::News {
+            match event {
+                NavEvent::Up => {
+                    self.news_index = self.news_index.saturating_sub(1);
+                    return ConsoleEffect::None;
+                }
+                NavEvent::Down => {
+                    if self.news_count > 0 {
+                        self.news_index = (self.news_index + 1).min(self.news_count - 1);
+                    }
+                    return ConsoleEffect::None;
+                }
+                _ => {}
+            }
+        }
 
         match event {
             NavEvent::Quit => ConsoleEffect::Exit,
@@ -268,7 +348,7 @@ impl BigPicture {
                 }
                 ConsoleEffect::None
             }
-            NavEvent::Options => self.favorite_notice(games),
+            NavEvent::Options => self.favorite_effect(games),
         }
     }
 
@@ -284,6 +364,7 @@ impl BigPicture {
         if self.overview {
             self.close_overview();
         }
+        self.menu = None;
         // O trilho pertence à Biblioteca: clicar num card em outra aba traz o
         // usuário de volta para a aba certa em vez de deixar o foco escondido.
         if self.tab != ConsoleTab::Library {
@@ -305,6 +386,7 @@ impl BigPicture {
     /// Clique do mouse numa aba da top bar.
     pub fn select_tab(&mut self, tab: ConsoleTab, games: &[&Game]) {
         self.overview = false;
+        self.menu = None;
         self.tabs.set_index(tab.index());
         self.tab = tab;
         self.notice = None;
@@ -323,12 +405,27 @@ impl BigPicture {
         self.actions.set_index(index);
         self.zone = ConsoleZone::Overview;
         self.overview = true;
+        self.menu = None;
         self.notice = None;
         self.activate_action(index, games)
     }
 
+    /// Clique/ativação de um item do menu "•••".
+    pub fn press_menu(&mut self, index: usize, games: &[&Game]) -> ConsoleEffect {
+        if index >= MENU_COUNT {
+            return ConsoleEffect::None;
+        }
+        self.menu = None;
+        self.menu_effect(index, games)
+    }
+
+    pub fn close_menu(&mut self) {
+        self.menu = None;
+    }
+
     pub fn close_overview(&mut self) {
         self.overview = false;
+        self.menu = None;
         self.zone = ConsoleZone::Rail;
     }
 
@@ -336,6 +433,7 @@ impl BigPicture {
         let count = ConsoleTab::ALL.len() as isize;
         let index = (self.tabs.index() as isize + delta).rem_euclid(count) as usize;
         self.overview = false;
+        self.menu = None;
         self.tabs.set_index(index);
         self.tab = ConsoleTab::ALL[index];
         self.notice = None;
@@ -417,6 +515,7 @@ impl BigPicture {
             return;
         }
         self.overview = true;
+        self.menu = None;
         self.zone = ConsoleZone::Overview;
         self.actions.set_index(ACTION_PLAY);
         self.notice = None;
@@ -433,26 +532,58 @@ impl BigPicture {
                 game.title
             )),
             ACTION_PLAY => ConsoleEffect::LaunchGame(game.id.clone()),
-            ACTION_TRAILER => ConsoleEffect::Notice(
-                "O player de trailer do console chega na próxima onda; abra a ficha do jogo no desktop para assistir."
-                    .to_string(),
-            ),
-            ACTION_FAVORITE => self.favorite_notice(games),
-            ACTION_MORE => ConsoleEffect::Notice(
-                "As opções do jogo (•••) ainda não têm menu no console; use a ficha do jogo no desktop."
-                    .to_string(),
-            ),
+            ACTION_TRAILER => ConsoleEffect::Trailer(game.id.clone()),
+            ACTION_FAVORITE => ConsoleEffect::ToggleFavorite(game.id.clone()),
+            ACTION_MORE => {
+                self.menu = Some(MENU_OPEN_DETAIL);
+                ConsoleEffect::None
+            }
             _ => ConsoleEffect::None,
         }
     }
 
-    fn favorite_notice(&mut self, games: &[&Game]) -> ConsoleEffect {
+    fn menu_effect(&mut self, index: usize, games: &[&Game]) -> ConsoleEffect {
+        let Some(game) = self.selected(games) else {
+            return ConsoleEffect::None;
+        };
+
+        match index {
+            MENU_OPEN_DETAIL => ConsoleEffect::OpenGameDetail(game.id.clone()),
+            MENU_FAVORITE => ConsoleEffect::ToggleFavorite(game.id.clone()),
+            MENU_TRAILER => ConsoleEffect::Trailer(game.id.clone()),
+            _ => ConsoleEffect::None,
+        }
+    }
+
+    fn handle_menu(&mut self, event: NavEvent, games: &[&Game]) -> ConsoleEffect {
+        match event {
+            NavEvent::Quit => ConsoleEffect::Exit,
+            NavEvent::Back => {
+                self.close_menu();
+                ConsoleEffect::None
+            }
+            NavEvent::Up => {
+                let index = self.menu_index();
+                self.menu = Some((index + MENU_COUNT - 1) % MENU_COUNT);
+                ConsoleEffect::None
+            }
+            NavEvent::Down => {
+                let index = self.menu_index();
+                self.menu = Some((index + 1) % MENU_COUNT);
+                ConsoleEffect::None
+            }
+            NavEvent::Confirm => {
+                let index = self.menu_index();
+                self.close_menu();
+                self.menu_effect(index, games)
+            }
+            _ => ConsoleEffect::None,
+        }
+    }
+
+    fn favorite_effect(&self, games: &[&Game]) -> ConsoleEffect {
         match self.selected(games) {
-            Some(game) => ConsoleEffect::Notice(format!(
-                "\"{}\" {} nos favoritos. Marcar/desmarcar pelo console ainda não persiste nesta onda.",
-                game.title,
-                if game.favorite { "está" } else { "não está" }
-            )),
+            Some(game) => ConsoleEffect::ToggleFavorite(game.id.clone()),
             None => ConsoleEffect::Notice("Nenhum jogo selecionado.".to_string()),
         }
     }
@@ -677,5 +808,141 @@ mod tests {
         assert_eq!(state.tab(), ConsoleTab::Library);
         assert_eq!(state.zone(), ConsoleZone::Rail);
         assert_eq!(state.rail_index(), 1);
+    }
+
+    #[test]
+    fn favorite_action_emits_toggle_for_the_selected_game() {
+        let library = games(2);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(2);
+
+        state.handle(NavEvent::Down, &refs);
+        state.handle(NavEvent::Right, &refs);
+        state.handle(NavEvent::Right, &refs);
+        assert_eq!(state.action_index(), ACTION_FAVORITE);
+
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::ToggleFavorite("0".to_string())
+        );
+    }
+
+    #[test]
+    fn options_button_toggles_favorite_without_opening_the_panel() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+
+        assert_eq!(
+            state.handle(NavEvent::Options, &refs),
+            ConsoleEffect::ToggleFavorite("0".to_string())
+        );
+        assert!(!state.overview_open());
+    }
+
+    #[test]
+    fn more_opens_menu_and_each_item_maps_to_an_effect() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+
+        state.handle(NavEvent::Down, &refs);
+        for _ in 0..ACTION_MORE {
+            state.handle(NavEvent::Right, &refs);
+        }
+        assert_eq!(state.action_index(), ACTION_MORE);
+        assert_eq!(state.handle(NavEvent::Confirm, &refs), ConsoleEffect::None);
+        assert!(state.menu_open());
+        assert_eq!(state.menu_index(), MENU_OPEN_DETAIL);
+
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::OpenGameDetail("0".to_string())
+        );
+        assert!(!state.menu_open());
+
+        state.press_action(ACTION_MORE, &refs);
+        assert!(state.menu_open());
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::ToggleFavorite("0".to_string())
+        );
+
+        state.press_action(ACTION_MORE, &refs);
+        state.handle(NavEvent::Down, &refs);
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::Trailer("0".to_string())
+        );
+    }
+
+    #[test]
+    fn back_closes_menu_before_the_overview() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+
+        state.handle(NavEvent::Down, &refs);
+        state.press_action(ACTION_MORE, &refs);
+        assert!(state.menu_open());
+
+        assert_eq!(state.handle(NavEvent::Back, &refs), ConsoleEffect::None);
+        assert!(!state.menu_open());
+        assert!(state.overview_open());
+
+        assert_eq!(state.handle(NavEvent::Back, &refs), ConsoleEffect::None);
+        assert!(!state.overview_open());
+        assert_eq!(state.handle(NavEvent::Back, &refs), ConsoleEffect::Exit);
+    }
+
+    #[test]
+    fn menu_navigation_wraps_between_items() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+
+        state.handle(NavEvent::Down, &refs);
+        state.press_action(ACTION_MORE, &refs);
+        assert_eq!(state.menu_index(), MENU_OPEN_DETAIL);
+
+        state.handle(NavEvent::Up, &refs);
+        assert_eq!(state.menu_index(), MENU_TRAILER);
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.menu_index(), MENU_OPEN_DETAIL);
+    }
+
+    #[test]
+    fn news_selection_moves_and_clamps_with_the_feed_size() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+        state.sync_news(3);
+        state.select_tab(ConsoleTab::News, &refs);
+
+        state.handle(NavEvent::Down, &refs);
+        state.handle(NavEvent::Down, &refs);
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.news_index(), 2);
+
+        state.handle(NavEvent::Up, &refs);
+        assert_eq!(state.news_index(), 1);
+        state.sync_news(0);
+        assert_eq!(state.news_index(), 0);
+    }
+
+    #[test]
+    fn focus_rail_keeps_the_same_game_after_the_favorite_sort() {
+        let library = games(3);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(3);
+
+        state.focus_rail(2);
+        assert_eq!(state.rail_index(), 2);
+        assert!(state.selected(&refs).is_some());
+
+        state.focus_rail(99);
+        assert_eq!(state.rail_index(), 2);
     }
 }
