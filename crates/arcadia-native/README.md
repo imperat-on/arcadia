@@ -10,8 +10,10 @@ sendo a referência e não são tocados por este crate.
 - Biblioteca com capas baixadas por `reqwest`, decodificadas pelo crate `image`
   e servidas ao iced como `image::Handle` em cache de memória.
 - Sidebar de navegação, lista de jogos, busca e grade responsiva de cards.
-- Página do jogo com hero, metadados, descrição em texto puro, horas e áreas
-  reservadas para Trailer/Conquistas/Controle.
+- Página do jogo com hero, metadados, descrição em texto puro, horas e trailer
+  real: `game:sysinfo` é consultado em task assíncrona, o player GStreamer toca
+  HLS (`hlsdemux`) ou MP4/WebM e entrega frames RGBA ao `iced`; play/pause e
+  seek são nativos. Sem áudio nesta fase (`fakesink`).
 - Estados de carregamento, biblioteca vazia, erro de IPC/rede e placeholder de
   capa. Nenhuma falha de rede vira panic.
 
@@ -28,7 +30,7 @@ sendo a referência e não são tocados por este crate.
 | `views/sidebar.rs` | Sidebar de ~240 px |
 | `views/library.rs` | Grade da biblioteca |
 | `views/game.rs` | Página do jogo |
-| `media.rs` | Stub do player GStreamer |
+| `media.rs` | Wrapper do `arcadia-native-media`: abre hls/mp4/webm, drena frames e expõe play/pause/seek |
 | `input.rs` | Stub do gamepad |
 
 ## Rodar
@@ -43,7 +45,7 @@ sessão, a biblioteca global/guest continua carregando.
 
 ## Próximas ondas
 
-1. Player GStreamer em `media.rs` (trailers HLS) e vídeo de boot.
+1. Áudio dos trailers (hoje o crate usa `fakesink`), galeria de screenshots e vídeo de boot.
 2. Input/gamepad em `input.rs` + Big Picture.
 3. Telas de Lojas, Downloads, Fontes, Amigos e Configurações.
 4. Tema com Inter embarcada: trocar as constantes `FONT*` em `theme.rs` e

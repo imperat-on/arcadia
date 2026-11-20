@@ -62,6 +62,7 @@ fn main() -> iced::Result {
     let result = iced::application(move || App::boot(backend.clone()), App::update, App::view)
         .title("Arcadia")
         .theme(theme::arcadia())
+        .subscription(App::subscription)
         .window(window::Settings {
             size: Size::new(1600.0, 900.0),
             min_size: Some(Size::new(960.0, 540.0)),
