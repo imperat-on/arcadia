@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arcadia_ipc::{dispatch_async, AppState};
+use base64::Engine as _;
 use iced::widget::image::Handle;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -2661,6 +2662,182 @@ pub fn parse_sources(value: Value) -> Result<Vec<SourceItem>, String> {
         .collect())
 }
 
+// ── Conta ───────────────────────────────────────────────────────────────────
+
+/// Sessão segura devolvida por `account:status` (sem tokens).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AccountSession {
+    pub id: String,
+    pub email: Option<String>,
+    pub username: Option<String>,
+}
+
+/// Perfil público de `account:profile`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AccountProfile {
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub display_name: Option<String>,
+    pub summary: Option<String>,
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub showcase: Vec<String>,
+    pub background_url: Option<String>,
+    pub banner_url: Option<String>,
+}
+
+impl AccountProfile {
+    /// `display_name` quando preenchido; senão o username.
+    pub fn display(&self) -> &str {
+        self.display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(&self.username)
+    }
+
+    /// "Cidade, País" com as partes disponíveis.
+    pub fn location(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(city) = self.city.as_deref().filter(|city| !city.trim().is_empty()) {
+            parts.push(city.trim().to_string());
+        }
+        if let Some(country) = self
+            .country
+            .as_deref()
+            .filter(|country| !country.trim().is_empty())
+        {
+            parts.push(country.trim().to_string());
+        }
+        (!parts.is_empty()).then(|| parts.join(", "))
+    }
+}
+
+/// Resultado de login/cadastro: `ok:true` (com eventual `usernameReal`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AuthSuccess {
+    pub username_real: Option<String>,
+}
+
+/// `account:status` — `{ session: <safe session|null>, error: null }`.
+pub fn parse_account_status(value: Value) -> Result<Option<AccountSession>, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "account:status devolveu um payload que não é um objeto".to_string())?;
+
+    if let Some(error) = object
+        .get("error")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|error| !error.is_empty())
+    {
+        return Err(error.to_string());
+    }
+
+    let Some(session) = object.get("session") else {
+        return Ok(None);
+    };
+    if session.is_null() {
+        return Ok(None);
+    }
+    let user = session
+        .get("user")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "account:status devolveu uma sessão sem user".to_string())?;
+    let id = optional_map_text_field(user, "id")
+        .ok_or_else(|| "account:status devolveu uma sessão sem id".to_string())?;
+
+    Ok(Some(AccountSession {
+        id,
+        email: optional_map_text_field(user, "email"),
+        username: optional_map_text_field(user, "username"),
+    }))
+}
+
+/// `account:profile` — `{ ok, profile: {…}, error? }`.
+pub fn parse_account_profile(value: Value) -> Result<AccountProfile, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(code);
+    }
+    let profile = value
+        .get("profile")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "account:profile não devolveu profile".to_string())?;
+
+    Ok(AccountProfile {
+        username: optional_map_text_field(profile, "username").unwrap_or_default(),
+        avatar_url: optional_image_url_from(profile.get("avatar_url")),
+        display_name: optional_map_text_field(profile, "display_name"),
+        summary: optional_map_text_field(profile, "summary"),
+        country: optional_map_text_field(profile, "country"),
+        city: optional_map_text_field(profile, "city"),
+        showcase: string_list(profile.get("showcase")),
+        background_url: optional_image_url_from(profile.get("background_url")),
+        banner_url: optional_image_url_from(profile.get("banner_url")),
+    })
+}
+
+/// `account:signIn`/`account:signUp` — `{ ok, usernameReal?, error? }`.
+pub fn parse_auth_result(value: Value) -> Result<AuthSuccess, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(code);
+    }
+    if !value.is_object() {
+        return Err("resposta de autenticação inválida".to_string());
+    }
+    Ok(AuthSuccess {
+        username_real: optional_text_field(&value, "usernameReal"),
+    })
+}
+
+/// Respostas de ação de conta (`signOut`, `updateProfile`, `setAvatar`).
+pub fn parse_account_action(value: Value) -> Result<(), String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(code);
+    }
+    if !value.is_object() {
+        return Err("resposta de conta inválida".to_string());
+    }
+    Ok(())
+}
+
+/// URL pública devolvida por `account:setAvatar`/`account:setAvatarBytes`.
+///
+/// O IPC atual responde `avatar_url` (o `url` existe em `account:setBackground`);
+/// aceitar as duas chaves mantém o parser alinhado ao contrato documentado.
+pub fn parse_avatar_upload(value: Value) -> Result<String, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(code);
+    }
+    optional_text_field(&value, "avatar_url")
+        .or_else(|| optional_text_field(&value, "url"))
+        .ok_or_else(|| "account:setAvatar não devolveu a URL do avatar".to_string())
+}
+
+/// Decodifica o data URL de `avatar:load` em um `Handle` do iced.
+pub fn avatar_handle_from_data_url(src: &str) -> Result<Handle, String> {
+    let (_, encoded) = src
+        .split_once(',')
+        .ok_or_else(|| "avatar:load devolveu um data URL inválido".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|error| format!("avatar:load devolveu base64 inválido: {error}"))?;
+    decode_cover(&bytes)
+        .map(|(width, height, pixels)| Handle::from_rgba(width, height, pixels))
+        .ok_or_else(|| "avatar:load devolveu uma imagem inválida".to_string())
+}
+
+fn action_error_code(value: &Value) -> Option<String> {
+    (value.get("ok").and_then(Value::as_bool) == Some(false)).then(|| {
+        value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|error| !error.is_empty())
+            .unwrap_or("erro_desconhecido")
+            .to_string()
+    })
+}
+
 // ── Amigos ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2763,6 +2940,164 @@ fn parse_friend_list(value: Option<&Value>) -> Vec<FriendItem> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Item de `friends:search`, com a relação atual (`status`/`incoming`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FriendSearchResult {
+    pub id: String,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub status: Option<String>,
+    pub incoming: bool,
+}
+
+impl FriendSearchResult {
+    pub fn display(&self) -> &str {
+        self.display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(&self.username)
+    }
+}
+
+/// `friends:search` — `{ ok, results: [...] }`.
+pub fn parse_friends_search(value: Value) -> Result<Vec<FriendSearchResult>, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(friends_error_message(&code));
+    }
+    let results = value
+        .get("results")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "friends:search não devolveu results".to_string())?;
+
+    Ok(results
+        .iter()
+        .filter_map(|item| {
+            let id = text_field(item, "id");
+            (!id.is_empty()).then(|| {
+                let username = text_field(item, "username");
+                FriendSearchResult {
+                    username: if username.is_empty() {
+                        "?".to_string()
+                    } else {
+                        username
+                    },
+                    display_name: optional_text_field(item, "display_name"),
+                    avatar_url: optional_text_field(item, "avatar_url"),
+                    status: optional_text_field(item, "status"),
+                    incoming: item
+                        .get("incoming")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    id,
+                }
+            })
+        })
+        .collect())
+}
+
+/// Perfil resumido devolvido por `friends:profile` (RPC `friend_profile`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FriendProfile {
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub summary: Option<String>,
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub background_url: Option<String>,
+    pub banner_url: Option<String>,
+    pub games: Option<u64>,
+    pub playtime_hours: Option<u64>,
+    pub friends: Option<u64>,
+}
+
+impl FriendProfile {
+    pub fn display(&self) -> &str {
+        self.display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(&self.username)
+    }
+
+    pub fn initial(&self) -> String {
+        self.display()
+            .chars()
+            .next()
+            .map(|character| character.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".to_string())
+    }
+
+    pub fn location(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(city) = self.city.as_deref().filter(|city| !city.trim().is_empty()) {
+            parts.push(city.trim().to_string());
+        }
+        if let Some(country) = self
+            .country
+            .as_deref()
+            .filter(|country| !country.trim().is_empty())
+        {
+            parts.push(country.trim().to_string());
+        }
+        (!parts.is_empty()).then(|| parts.join(", "))
+    }
+}
+
+/// `friends:profile` — `{ ok, profile, games?, friends?, stats? }`.
+pub fn parse_friend_profile(value: Value) -> Result<FriendProfile, String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(friends_error_message(&code));
+    }
+    let profile = value
+        .get("profile")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "friends:profile não devolveu profile".to_string())?;
+    let stats = value.get("stats").and_then(Value::as_object);
+
+    Ok(FriendProfile {
+        username: optional_map_text_field(profile, "username").unwrap_or_default(),
+        display_name: optional_map_text_field(profile, "display_name"),
+        avatar_url: optional_image_url_from(profile.get("avatar_url")),
+        summary: optional_map_text_field(profile, "summary"),
+        country: optional_map_text_field(profile, "country"),
+        city: optional_map_text_field(profile, "city"),
+        background_url: optional_image_url_from(profile.get("background_url")),
+        banner_url: optional_image_url_from(profile.get("banner_url")),
+        games: stats
+            .and_then(|stats| stats.get("games"))
+            .and_then(value_to_u64),
+        playtime_hours: stats
+            .and_then(|stats| stats.get("playtime_hours"))
+            .and_then(|value| value_f64(Some(value)))
+            .map(|hours| hours.max(0.0).round() as u64),
+        friends: value
+            .get("friends")
+            .and_then(Value::as_array)
+            .map(|friends| friends.len() as u64),
+    })
+}
+
+/// Ação de amizade (`send`/`accept`/`cancel`/`remove`).
+pub fn parse_friends_action(value: Value) -> Result<(), String> {
+    if let Some(code) = action_error_code(&value) {
+        return Err(friends_error_message(&code));
+    }
+    if !value.is_object() {
+        return Err("resposta de amigos inválida".to_string());
+    }
+    Ok(())
+}
+
+fn friends_error_message(code: &str) -> String {
+    match code {
+        "nao_logado" => "Entre na sua conta para usar amigos.".to_string(),
+        "destino_invalido" => "Destino do pedido inválido.".to_string(),
+        "perfil_indisponivel" => "O perfil deste amigo não está disponível.".to_string(),
+        other => format!("friends: {other}"),
+    }
 }
 
 // ── Componentes ─────────────────────────────────────────────────────────────
@@ -3451,6 +3786,105 @@ impl Backend {
             .dispatch("friends:list", vec![json!({ "forcar": force })])
             .await?;
         parse_friends(value)
+    }
+
+    /// `friends:search` — busca por prefixo de username na sessão atual.
+    pub async fn search_friends(&self, query: String) -> Result<Vec<FriendSearchResult>, String> {
+        let value = self
+            .dispatch("friends:search", vec![Value::String(query)])
+            .await?;
+        parse_friends_search(value)
+    }
+
+    /// Envia/aceita/cancela/remove uma relação de amizade.
+    pub async fn run_friend_action(&self, channel: &str, user_id: String) -> Result<(), String> {
+        let value = self.dispatch(channel, vec![Value::String(user_id)]).await?;
+        parse_friends_action(value)
+    }
+
+    /// `friends:profile` — RPC pública usada pelo cartão do amigo.
+    pub async fn load_friend_profile(&self, user_id: String) -> Result<FriendProfile, String> {
+        let value = self
+            .dispatch("friends:profile", vec![Value::String(user_id)])
+            .await?;
+        parse_friend_profile(value)
+    }
+
+    /// Leitura de `account:status`; `Ok(None)` é sessão ausente (não é erro).
+    pub async fn load_account_status(&self) -> Result<Option<AccountSession>, String> {
+        let value = self.dispatch("account:status", Vec::new()).await?;
+        parse_account_status(value)
+    }
+
+    /// Login por username/senha validado no dispatcher.
+    pub async fn sign_in(&self, username: String, password: String) -> Result<AuthSuccess, String> {
+        let value = self
+            .dispatch(
+                "account:signIn",
+                vec![json!({ "username": username, "password": password })],
+            )
+            .await?;
+        parse_auth_result(value)
+    }
+
+    /// Cadastro com email/username/senha.
+    pub async fn sign_up(
+        &self,
+        email: String,
+        username: String,
+        password: String,
+    ) -> Result<AuthSuccess, String> {
+        let value = self
+            .dispatch(
+                "account:signUp",
+                vec![json!({ "email": email, "username": username, "password": password })],
+            )
+            .await?;
+        parse_auth_result(value)
+    }
+
+    pub async fn sign_out(&self) -> Result<(), String> {
+        let value = self.dispatch("account:signOut", Vec::new()).await?;
+        parse_account_action(value)
+    }
+
+    pub async fn load_account_profile(&self) -> Result<AccountProfile, String> {
+        let value = self.dispatch("account:profile", Vec::new()).await?;
+        parse_account_profile(value)
+    }
+
+    /// Envia somente os campos aceitos por `account:updateProfile`.
+    pub async fn update_account_profile(&self, patch: Value) -> Result<(), String> {
+        let value = self.dispatch("account:updateProfile", vec![patch]).await?;
+        parse_account_action(value)
+    }
+
+    /// Envia o caminho de arquivo para `account:setAvatar` e devolve a URL.
+    pub async fn set_account_avatar(&self, path: String) -> Result<String, String> {
+        let value = self
+            .dispatch("account:setAvatar", vec![Value::String(path)])
+            .await?;
+        parse_avatar_upload(value)
+    }
+
+    /// `avatar:load` baixa a URL http(s) e devolve o Handle pronto para o iced.
+    pub async fn load_avatar(&self, url: String) -> Result<Handle, String> {
+        let value = self
+            .dispatch("avatar:load", vec![Value::String(url)])
+            .await?;
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(value
+                .get("error")
+                .and_then(Value::as_str)
+                .filter(|error| !error.trim().is_empty())
+                .unwrap_or("avatar:load não retornou a imagem")
+                .to_string());
+        }
+        let src = value
+            .get("src")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "avatar:load não devolveu src".to_string())?;
+        avatar_handle_from_data_url(src)
     }
 
     pub async fn load_plugins(&self) -> Result<Vec<PluginItem>, String> {
@@ -4976,5 +5410,142 @@ mod tests {
         assert!(failed.contains("Game not found"), "{failed}");
         assert!(parse_retro_game_detail(json!({ "ok": true })).is_err());
         assert!(parse_retro_offer_detail(json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_account_status_session_and_errors() {
+        assert_eq!(
+            parse_account_status(json!({ "session": null, "error": null })).unwrap(),
+            None
+        );
+
+        let session = parse_account_status(json!({
+            "session": {
+                "user": {
+                    "id": "user-1",
+                    "email": "ana@example.test",
+                    "username": "ana",
+                    "access_token": "NAO-DEVE-VAZAR"
+                }
+            },
+            "error": null
+        }))
+        .expect("sessão válida")
+        .expect("sessão presente");
+        assert_eq!(session.id, "user-1");
+        assert_eq!(session.username.as_deref(), Some("ana"));
+        assert_eq!(session.email.as_deref(), Some("ana@example.test"));
+        assert_eq!(
+            parse_account_status(json!({ "session": null, "error": "rede_indisponivel" }))
+                .expect_err("erro explícito"),
+            "rede_indisponivel"
+        );
+        assert!(parse_account_status(json!({ "session": { "user": {} } })).is_err());
+    }
+
+    #[test]
+    fn parses_account_profile_fields_and_error() {
+        let profile = parse_account_profile(json!({
+            "ok": true,
+            "profile": {
+                "username": "ana",
+                "avatar_url": "https://cdn.test/ana.png",
+                "display_name": "Ana",
+                "summary": "Só jogando",
+                "country": "Brasil",
+                "city": "Recife",
+                "showcase": ["steam:10", " "],
+                "background_url": null,
+                "banner_url": "https://cdn.test/banner.png"
+            }
+        }))
+        .expect("perfil válido");
+        assert_eq!(profile.username, "ana");
+        assert_eq!(profile.display(), "Ana");
+        assert_eq!(profile.location().as_deref(), Some("Recife, Brasil"));
+        assert_eq!(profile.showcase, vec!["steam:10"]);
+        assert_eq!(
+            profile.banner_url.as_deref(),
+            Some("https://cdn.test/banner.png")
+        );
+        assert_eq!(
+            parse_account_profile(json!({ "ok": false, "error": "nao_logado" }))
+                .expect_err("erro de sessão"),
+            "nao_logado"
+        );
+    }
+
+    #[test]
+    fn parses_auth_and_avatar_action_responses() {
+        let auth = parse_auth_result(json!({
+            "ok": true,
+            "usernameReal": "ana_1"
+        }))
+        .expect("cadastro válido");
+        assert_eq!(auth.username_real.as_deref(), Some("ana_1"));
+        assert_eq!(
+            parse_auth_result(json!({ "ok": false, "error": "credenciais_invalidas" }))
+                .expect_err("credenciais"),
+            "credenciais_invalidas"
+        );
+        assert_eq!(
+            parse_avatar_upload(json!({ "ok": true, "avatar_url": "https://cdn.test/a.png" }))
+                .expect("avatar"),
+            "https://cdn.test/a.png"
+        );
+        assert_eq!(
+            parse_avatar_upload(json!({ "ok": true, "url": "https://cdn.test/b.png" }))
+                .expect("url alternativa"),
+            "https://cdn.test/b.png"
+        );
+        assert!(parse_avatar_upload(json!({ "ok": false, "error": "avatar_grande" })).is_err());
+    }
+
+    #[test]
+    fn parses_friends_search_and_action_errors() {
+        let results = parse_friends_search(json!({
+            "ok": true,
+            "results": [{
+                "id": "u2",
+                "username": "bia",
+                "display_name": "Bia",
+                "avatar_url": null,
+                "status": "pending",
+                "incoming": true
+            }]
+        }))
+        .expect("busca válida");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].display(), "Bia");
+        assert!(results[0].incoming);
+        assert_eq!(results[0].status.as_deref(), Some("pending"));
+
+        let error = parse_friends_search(json!({ "ok": false, "error": "nao_logado" }))
+            .expect_err("sem sessão");
+        assert!(error.contains("Entre na sua conta"), "{error}");
+        assert!(parse_friends_action(json!({ "ok": true })).is_ok());
+        assert!(parse_friends_action(json!({ "ok": false, "error": "destino_invalido" })).is_err());
+    }
+
+    #[test]
+    fn parses_friend_profile_subset() {
+        let profile = parse_friend_profile(json!({
+            "ok": true,
+            "profile": {
+                "username": "bia",
+                "display_name": "Bia",
+                "summary": "Olá",
+                "country": "Brasil",
+                "city": "São Paulo"
+            },
+            "friends": [{ "id": "u1" }],
+            "stats": { "games": 12, "playtime_hours": 34.6 }
+        }))
+        .expect("perfil do amigo");
+        assert_eq!(profile.display(), "Bia");
+        assert_eq!(profile.location().as_deref(), Some("São Paulo, Brasil"));
+        assert_eq!(profile.games, Some(12));
+        assert_eq!(profile.playtime_hours, Some(35));
+        assert_eq!(profile.friends, Some(1));
     }
 }

@@ -13,12 +13,12 @@ use iced::{keyboard, window, Element, Fill, Size, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
-    Achievement, AchievementsData, Backend, DownloadAction, DownloadItem, DownloadsData,
-    FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent,
-    LaunchToggle, NewsItem, PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail,
-    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
-    StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage, StoreSearch,
-    TrailerResult,
+    AccountProfile, AccountSession, Achievement, AchievementsData, AuthSuccess, Backend,
+    DownloadAction, DownloadItem, DownloadsData, FriendProfile, FriendSearchResult, FriendsLoad,
+    Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent, LaunchToggle,
+    NewsItem, PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage,
+    RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
+    StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
     home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
@@ -267,6 +267,61 @@ pub enum Message {
     ConsoleFavorite,
     ConsoleMore,
     ConsoleCloseOverview,
+    /// `account:status` do boot ou de um reload pós-login/logout.
+    AccountStatusLoaded(Result<Option<AccountSession>, String>),
+    AccountProfileLoaded(Result<AccountProfile, String>),
+    /// Recarrega `account:status` + perfil (botão Atualizar do perfil).
+    ReloadAccount,
+    AccountAvatarLoaded {
+        url: String,
+        handle: Option<Handle>,
+    },
+    /// Abre o diálogo de login/cadastro. `required` = pós-logout: Esc/X não
+    /// dispensam o diálogo até entrar ou criar conta.
+    OpenAuth {
+        required: bool,
+    },
+    AuthClosed,
+    AuthModeChanged(AuthMode),
+    AuthEmailChanged(String),
+    AuthUsernameChanged(String),
+    AuthPasswordChanged(String),
+    AuthSubmit,
+    AuthDone(Result<AuthSuccess, String>),
+    /// Enter/Esc do overlay de autenticação.
+    AccountKey(keyboard::Event),
+    SignOutRequested,
+    SignOutDone(Result<(), String>),
+    /// Navega até a tela de perfil própria.
+    OpenProfile,
+    ProfileEditToggled,
+    ProfileFieldChanged {
+        field: ProfileField,
+        value: String,
+    },
+    ProfileSave,
+    ProfileSaved(Result<(), String>),
+    AvatarPathChanged(String),
+    AvatarUpload,
+    AvatarUploadDone(Result<String, String>),
+    FriendSearchChanged(String),
+    FriendSearchSubmitted,
+    FriendSearchDone(Result<Vec<FriendSearchResult>, String>),
+    FriendActionRequested {
+        id: String,
+        action: FriendAction,
+    },
+    FriendActionDone {
+        id: String,
+        action: FriendAction,
+        result: Result<(), String>,
+    },
+    FriendProfileRequested(String),
+    FriendProfileLoaded {
+        id: String,
+        result: Result<FriendProfile, String>,
+    },
+    FriendProfileClosed,
 }
 
 /// Itens fixos da sidebar. Biblioteca, Home e Lojas têm tela real; Big
@@ -332,6 +387,8 @@ pub enum Screen {
     Library,
     Game(String),
     Section(Section),
+    /// Perfil da conta logada, acessado pela sidebar (sem item de navegação).
+    Profile,
     /// Modo console em tela cheia; o desktop fica guardado em `previous_screen`.
     BigPicture,
 }
@@ -761,10 +818,284 @@ pub struct SourcesState {
     pub action_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AuthMode {
+    #[default]
+    SignIn,
+    SignUp,
+}
+
+/// Formulário do overlay de login/cadastro.
+#[derive(Debug, Clone, Default)]
+pub struct AuthState {
+    pub open: bool,
+    pub required: bool,
+    pub mode: AuthMode,
+    pub email: String,
+    pub username: String,
+    pub password: String,
+    pub error: Option<String>,
+    pub sending: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileField {
+    DisplayName,
+    Summary,
+    Country,
+    City,
+    Showcase,
+    BackgroundUrl,
+    BannerUrl,
+}
+
+impl ProfileField {
+    pub fn label(self) -> &'static str {
+        match self {
+            ProfileField::DisplayName => "Nome de exibição",
+            ProfileField::Summary => "Sobre você",
+            ProfileField::Country => "País",
+            ProfileField::City => "Cidade",
+            ProfileField::Showcase => "Vitrine (appids separados por vírgula)",
+            ProfileField::BackgroundUrl => "URL do fundo",
+            ProfileField::BannerUrl => "URL do banner",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProfileEditorState {
+    pub editing: bool,
+    pub display_name: String,
+    pub summary: String,
+    pub country: String,
+    pub city: String,
+    pub showcase: String,
+    pub background_url: String,
+    pub banner_url: String,
+    pub avatar_path: String,
+    pub saving: bool,
+    pub uploading_avatar: bool,
+    pub error: Option<String>,
+    pub notice: Option<String>,
+}
+
+impl ProfileEditorState {
+    pub fn from_profile(profile: &AccountProfile) -> Self {
+        Self {
+            editing: false,
+            display_name: profile.display_name.clone().unwrap_or_default(),
+            summary: profile.summary.clone().unwrap_or_default(),
+            country: profile.country.clone().unwrap_or_default(),
+            city: profile.city.clone().unwrap_or_default(),
+            showcase: profile.showcase.join(", "),
+            background_url: profile.background_url.clone().unwrap_or_default(),
+            banner_url: profile.banner_url.clone().unwrap_or_default(),
+            avatar_path: String::new(),
+            saving: false,
+            uploading_avatar: false,
+            error: None,
+            notice: None,
+        }
+    }
+
+    pub fn set(&mut self, field: ProfileField, value: String) {
+        match field {
+            ProfileField::DisplayName => self.display_name = value,
+            ProfileField::Summary => self.summary = value,
+            ProfileField::Country => self.country = value,
+            ProfileField::City => self.city = value,
+            ProfileField::Showcase => self.showcase = value,
+            ProfileField::BackgroundUrl => self.background_url = value,
+            ProfileField::BannerUrl => self.banner_url = value,
+        }
+    }
+}
+
+/// Estado da conta online. `Unknown` é o boot antes de `account:status`;
+/// `Loading` cobre login/reload do perfil. `Error` preserva a sessão quando
+/// ela existe — falha de perfil não expulsa o usuário.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum AccountStatus {
+    #[default]
+    Unknown,
+    SignedOut,
+    Loading,
+    SignedIn,
+    Error,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AccountState {
+    pub status: AccountStatus,
+    pub session: Option<AccountSession>,
+    pub profile: Option<AccountProfile>,
+    pub avatar: Option<Handle>,
+    pub avatar_url: Option<String>,
+    pub error: Option<String>,
+    pub notice: Option<String>,
+    pub auth: AuthState,
+    pub editor: ProfileEditorState,
+    /// Primeiro boot sem sessão já abriu o login (não reabrir sozinho).
+    pub auto_auth_shown: bool,
+}
+
+impl AccountState {
+    pub fn is_signed_in(&self) -> bool {
+        self.session.is_some()
+    }
+
+    /// Nome da sidebar: display_name > username da sessão > email > fallback.
+    pub fn display_name<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.profile
+            .as_ref()
+            .map(AccountProfile::display)
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| {
+                self.session
+                    .as_ref()
+                    .and_then(|session| session.username.as_deref())
+            })
+            .or_else(|| {
+                self.session
+                    .as_ref()
+                    .and_then(|session| session.email.as_deref())
+            })
+            .unwrap_or(fallback)
+    }
+
+    pub fn initial(&self, fallback: &str) -> String {
+        self.display_name(fallback)
+            .chars()
+            .next()
+            .map(|character| character.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".to_string())
+    }
+
+    /// Sessão restaurada/renovada: a identidade da sessão pinta na hora e o
+    /// perfil completo entra depois.
+    pub fn apply_session(&mut self, session: AccountSession) {
+        let username = session.username.clone().unwrap_or_default();
+        self.session = Some(session);
+        self.profile = Some(AccountProfile {
+            username,
+            ..AccountProfile::default()
+        });
+        self.avatar = None;
+        self.avatar_url = None;
+        self.error = None;
+        self.notice = None;
+        self.status = AccountStatus::Loading;
+    }
+
+    pub fn profile_ready(&mut self, profile: AccountProfile) {
+        if !self.editor.editing {
+            let notice = self.editor.notice.take();
+            let error = self.editor.error.take();
+            self.editor = ProfileEditorState::from_profile(&profile);
+            self.editor.notice = notice;
+            self.editor.error = error;
+        }
+        self.profile = Some(profile);
+        self.error = None;
+        self.status = AccountStatus::SignedIn;
+    }
+
+    pub fn profile_failed(&mut self, error: String) {
+        self.error = Some(error);
+        self.status = if self.is_signed_in() {
+            AccountStatus::Error
+        } else {
+            AccountStatus::SignedOut
+        };
+    }
+
+    pub fn signed_out(&mut self) {
+        self.status = AccountStatus::SignedOut;
+        self.session = None;
+        self.profile = None;
+        self.avatar = None;
+        self.avatar_url = None;
+        self.error = None;
+        self.notice = None;
+        self.editor = ProfileEditorState::default();
+    }
+
+    pub fn open_auth(&mut self, required: bool) {
+        self.auth.open = true;
+        self.auth.required = required;
+        self.auth.error = None;
+        self.auth.password.clear();
+    }
+
+    /// Fecha o overlay se ele não for obrigatório; devolve `true` quando fechou.
+    pub fn close_auth(&mut self) -> bool {
+        if self.auth.required || self.auth.sending {
+            return false;
+        }
+        self.auth.open = false;
+        self.auth.error = None;
+        self.auth.password.clear();
+        true
+    }
+
+    pub fn auth_failed(&mut self, error: String) {
+        self.auth.sending = false;
+        self.auth.error = Some(error.clone());
+        self.error = Some(error);
+        if !self.is_signed_in() {
+            self.status = AccountStatus::SignedOut;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FriendAction {
+    Send,
+    Accept,
+    Cancel,
+    Remove,
+}
+
+impl FriendAction {
+    pub fn channel(self) -> &'static str {
+        match self {
+            FriendAction::Send => "friends:send",
+            FriendAction::Accept => "friends:accept",
+            FriendAction::Cancel => "friends:cancel",
+            FriendAction::Remove => "friends:remove",
+        }
+    }
+
+    pub fn success_message(self) -> &'static str {
+        match self {
+            FriendAction::Send => "Pedido enviado!",
+            FriendAction::Accept => "Agora vocês são amigos!",
+            FriendAction::Cancel => "Pedido removido.",
+            FriendAction::Remove => "Amigo removido.",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FriendProfileState {
+    pub id: String,
+    pub status: LoadStatus,
+    pub profile: Option<FriendProfile>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FriendsState {
     pub data: Option<FriendsLoad>,
     pub status: LoadStatus,
+    pub search_query: String,
+    pub search_results: Option<Vec<FriendSearchResult>>,
+    pub search_status: LoadStatus,
+    pub action_busy: Option<String>,
+    pub action_error: Option<String>,
+    pub notice: Option<String>,
+    pub profile: Option<FriendProfileState>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -924,6 +1255,7 @@ pub struct App {
     pub downloads: DownloadsState,
     pub settings: SettingsState,
     pub sources: SourcesState,
+    pub account: AccountState,
     pub friends: FriendsState,
     pub components: ComponentsState,
     pub store: StoreState,
@@ -967,6 +1299,7 @@ impl App {
             downloads: DownloadsState::default(),
             settings: SettingsState::default(),
             sources: SourcesState::default(),
+            account: AccountState::default(),
             friends: FriendsState::default(),
             components: ComponentsState::default(),
             store: StoreState::default(),
@@ -990,10 +1323,18 @@ impl App {
                 Message::LaunchConfigLoaded,
             )
         };
+        let account_status = {
+            let backend = app.backend.clone();
+            Task::perform(
+                async move { backend.load_account_status().await },
+                Message::AccountStatusLoaded,
+            )
+        };
         let task = Task::batch([
             app.reload_task(),
             window::latest().map(Message::WindowReady),
             launch_config,
+            account_status,
         ]);
         (app, task)
     }
@@ -2393,7 +2734,531 @@ impl App {
                 }
                 Task::none()
             }
+            Message::AccountStatusLoaded(result) => match result {
+                Ok(Some(session)) => {
+                    self.account.apply_session(session);
+                    let profile = self.account_profile_task();
+                    if matches!(self.screen, Screen::Section(Section::Friends))
+                        && matches!(self.friends.status, LoadStatus::Idle)
+                    {
+                        Task::batch([profile, self.load_section(Section::Friends, false)])
+                    } else {
+                        profile
+                    }
+                }
+                Ok(None) => {
+                    self.account.signed_out();
+                    let mut tasks = Vec::new();
+                    if !self.account.auto_auth_shown {
+                        self.account.auto_auth_shown = true;
+                        self.account.open_auth(false);
+                        tasks.push(self.auth_focus_task());
+                    }
+                    Task::batch(tasks)
+                }
+                Err(error) => {
+                    eprintln!("[arcadia-native] conta: {error}");
+                    self.account.status = AccountStatus::Error;
+                    self.account.error = Some(account_error_text(&self.i18n, &error));
+                    let mut tasks = Vec::new();
+                    if !self.account.auto_auth_shown {
+                        self.account.auto_auth_shown = true;
+                        self.account.open_auth(false);
+                        self.account.auth.error = Some(account_error_text(&self.i18n, &error));
+                        tasks.push(self.auth_focus_task());
+                    }
+                    Task::batch(tasks)
+                }
+            },
+            Message::AccountProfileLoaded(result) => {
+                if !self.account.is_signed_in() {
+                    return Task::none();
+                }
+                match result {
+                    Ok(profile) => {
+                        let avatar_url = profile.avatar_url.clone();
+                        self.account.profile_ready(profile);
+                        match avatar_url {
+                            Some(url) if self.account.avatar_url.as_deref() != Some(url.as_str()) => {
+                                self.account.avatar_url = Some(url.clone());
+                                self.account.avatar = None;
+                                self.avatar_load_task(url)
+                            }
+                            Some(_) => Task::none(),
+                            None => {
+                                self.account.avatar_url = None;
+                                self.account.avatar = None;
+                                Task::none()
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] perfil da conta: {error}");
+                        self.account
+                            .profile_failed(account_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                }
+            }
+            Message::ReloadAccount => {
+                self.account.status = AccountStatus::Loading;
+                self.account.error = None;
+                self.account_status_task()
+            }
+            Message::AccountAvatarLoaded { url, handle } => {
+                if self.account.avatar_url.as_deref() == Some(url.as_str()) {
+                    self.account.avatar = handle;
+                }
+                Task::none()
+            }
+            Message::OpenAuth { required } => {
+                self.account.open_auth(required);
+                self.auth_focus_task()
+            }
+            Message::AuthClosed => {
+                self.account.close_auth();
+                Task::none()
+            }
+            Message::AuthModeChanged(mode) => {
+                if self.account.auth.mode == mode {
+                    return Task::none();
+                }
+                self.account.auth.mode = mode;
+                self.account.auth.error = None;
+                self.account.auth.password.clear();
+                self.auth_focus_task()
+            }
+            Message::AuthEmailChanged(email) => {
+                self.account.auth.email = email;
+                Task::none()
+            }
+            Message::AuthUsernameChanged(username) => {
+                self.account.auth.username = username;
+                Task::none()
+            }
+            Message::AuthPasswordChanged(password) => {
+                self.account.auth.password = password;
+                Task::none()
+            }
+            Message::AuthSubmit => self.submit_auth(),
+            Message::AuthDone(result) => {
+                self.account.auth.sending = false;
+                match result {
+                    Ok(success) => {
+                        self.account.auth.open = false;
+                        self.account.auth.required = false;
+                        self.account.auth.password.clear();
+                        self.account.auth.error = None;
+                        self.account.error = None;
+                        self.account.notice = success.username_real.map(|username| {
+                            format!("Conta criada. Seu nome de usuário é @{username}.")
+                        });
+                        self.account.status = AccountStatus::Loading;
+                        // A conta mudou o escopo da biblioteca e dos amigos.
+                        self.friends = FriendsState::default();
+                        self.account_status_task()
+                    }
+                    Err(error) => {
+                        let message = account_error_text(&self.i18n, &error);
+                        self.account.auth_failed(message);
+                        self.auth_focus_task()
+                    }
+                }
+            }
+            Message::AccountKey(event) => self.account_key(event),
+            Message::SignOutRequested => {
+                if !self.account.is_signed_in() || self.account.status == AccountStatus::Loading {
+                    return Task::none();
+                }
+                self.account.status = AccountStatus::Loading;
+                self.account.error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.sign_out().await },
+                    Message::SignOutDone,
+                )
+            }
+            Message::SignOutDone(result) => {
+                let error = result.err();
+                if let Some(error) = error.as_ref() {
+                    eprintln!("[arcadia-native] sair da conta: {error}");
+                }
+                self.account.signed_out();
+                self.account.auto_auth_shown = true;
+                self.account.open_auth(true);
+                self.account.auth.error = error.map(|error| account_error_text(&self.i18n, &error));
+                self.friends = FriendsState::default();
+                self.friends.status = LoadStatus::Ready;
+                self.friends.data = Some(FriendsLoad::NotLoggedIn);
+                if matches!(self.screen, Screen::Profile) {
+                    self.screen = Screen::Library;
+                }
+                self.auth_focus_task()
+            }
+            Message::OpenProfile => {
+                if self.account.is_signed_in() {
+                    self.screen = Screen::Profile;
+                } else {
+                    self.account.open_auth(false);
+                    return self.auth_focus_task();
+                }
+                Task::none()
+            }
+            Message::ProfileEditToggled => {
+                self.account.editor.editing = !self.account.editor.editing;
+                self.account.editor.error = None;
+                self.account.editor.notice = None;
+                if self.account.editor.editing {
+                    if let Some(profile) = self.account.profile.as_ref() {
+                        let avatar_path = self.account.editor.avatar_path.clone();
+                        let mut editor = ProfileEditorState::from_profile(profile);
+                        editor.editing = true;
+                        editor.avatar_path = avatar_path;
+                        self.account.editor = editor;
+                    }
+                }
+                Task::none()
+            }
+            Message::ProfileFieldChanged { field, value } => {
+                self.account.editor.set(field, value);
+                Task::none()
+            }
+            Message::ProfileSave => self.save_profile(),
+            Message::ProfileSaved(result) => {
+                self.account.editor.saving = false;
+                match result {
+                    Ok(()) => {
+                        self.account.editor.editing = false;
+                        self.account.editor.error = None;
+                        self.account.editor.notice = Some("Perfil atualizado.".to_string());
+                        self.account.notice = None;
+                        self.account_profile_task()
+                    }
+                    Err(error) => {
+                        self.account.editor.error = Some(account_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                }
+            }
+            Message::AvatarPathChanged(path) => {
+                self.account.editor.avatar_path = path;
+                Task::none()
+            }
+            Message::AvatarUpload => {
+                if self.account.editor.uploading_avatar {
+                    return Task::none();
+                }
+                let path = self.account.editor.avatar_path.trim().to_string();
+                if path.is_empty() {
+                    self.account.editor.error =
+                        Some("Informe o caminho de uma imagem de avatar.".to_string());
+                    return Task::none();
+                }
+                self.account.editor.uploading_avatar = true;
+                self.account.editor.error = None;
+                self.account.editor.notice = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.set_account_avatar(path).await },
+                    Message::AvatarUploadDone,
+                )
+            }
+            Message::AvatarUploadDone(result) => {
+                self.account.editor.uploading_avatar = false;
+                match result {
+                    Ok(url) => {
+                        self.account.editor.avatar_path.clear();
+                        self.account.editor.notice = Some("Avatar atualizado.".to_string());
+                        self.account.avatar_url = Some(url.clone());
+                        if let Some(profile) = self.account.profile.as_mut() {
+                            profile.avatar_url = Some(url.clone());
+                        }
+                        self.avatar_load_task(url)
+                    }
+                    Err(error) => {
+                        self.account.editor.error = Some(account_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                }
+            }
+            Message::FriendSearchChanged(query) => {
+                self.friends.search_query = query;
+                Task::none()
+            }
+            Message::FriendSearchSubmitted => self.submit_friend_search(),
+            Message::FriendSearchDone(result) => {
+                match result {
+                    Ok(results) => {
+                        self.friends.search_results = Some(results);
+                        self.friends.search_status = LoadStatus::Ready;
+                        self.friends.action_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] amigos (busca): {error}");
+                        self.friends.search_results = None;
+                        self.friends.search_status = LoadStatus::Error(error.clone());
+                        self.friends.action_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::FriendActionRequested { id, action } => self.request_friend_action(id, action),
+            Message::FriendActionDone { id, action, result } => {
+                self.friends.action_busy = None;
+                match result {
+                    Ok(()) => {
+                        self.friends.action_error = None;
+                        self.friends.notice = Some(action.success_message().to_string());
+                        if action == FriendAction::Remove
+                            && self
+                                .friends
+                                .profile
+                                .as_ref()
+                                .is_some_and(|profile| profile.id == id)
+                        {
+                            self.friends.profile = None;
+                        }
+                        let list = self.refresh_friends_list();
+                        let search = self.submit_friend_search();
+                        Task::batch([list, search])
+                    }
+                    Err(error) => {
+                        self.friends.action_error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::FriendProfileRequested(id) => {
+                self.friends.profile = Some(FriendProfileState {
+                    id: id.clone(),
+                    status: LoadStatus::Loading,
+                    profile: None,
+                    error: None,
+                });
+                let backend = self.backend.clone();
+                let request_id = id.clone();
+                Task::perform(
+                    async move { backend.load_friend_profile(request_id).await },
+                    move |result| Message::FriendProfileLoaded {
+                        id: id.clone(),
+                        result,
+                    },
+                )
+            }
+            Message::FriendProfileLoaded { id, result } => {
+                let Some(profile) = self.friends.profile.as_mut() else {
+                    return Task::none();
+                };
+                if profile.id != id {
+                    return Task::none();
+                }
+                match result {
+                    Ok(friend) => {
+                        profile.profile = Some(friend);
+                        profile.status = LoadStatus::Ready;
+                        profile.error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] amigos (perfil): {error}");
+                        profile.profile = None;
+                        profile.status = LoadStatus::Error(error.clone());
+                        profile.error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::FriendProfileClosed => {
+                self.friends.profile = None;
+                Task::none()
+            }
         }
+    }
+
+    fn account_status_task(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_account_status().await },
+            Message::AccountStatusLoaded,
+        )
+    }
+
+    fn account_profile_task(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_account_profile().await },
+            Message::AccountProfileLoaded,
+        )
+    }
+
+    fn avatar_load_task(&self, url: String) -> Task<Message> {
+        let backend = self.backend.clone();
+        let request_url = url.clone();
+        Task::perform(
+            async move { backend.load_avatar(request_url).await.ok() },
+            move |handle| Message::AccountAvatarLoaded { url, handle },
+        )
+    }
+
+    fn auth_focus_task(&self) -> Task<Message> {
+        let id = if self.account.auth.mode == AuthMode::SignUp {
+            iced::widget::Id::new(views::auth::EMAIL_ID)
+        } else {
+            iced::widget::Id::new(views::auth::USERNAME_ID)
+        };
+        iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus(id))
+    }
+
+    fn submit_auth(&mut self) -> Task<Message> {
+        if self.account.auth.sending {
+            return Task::none();
+        }
+        let username = self.account.auth.username.trim().to_string();
+        let email = self.account.auth.email.trim().to_string();
+        let password = self.account.auth.password.clone();
+
+        let error = match self.account.auth.mode {
+            AuthMode::SignIn => {
+                if username.is_empty() {
+                    Some("Informe o nome de usuário.".to_string())
+                } else if password.is_empty() {
+                    Some("Informe a senha.".to_string())
+                } else {
+                    None
+                }
+            }
+            AuthMode::SignUp => {
+                if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
+                    Some(self.i18n.t("account.erro_email").to_string())
+                } else if username.is_empty() {
+                    Some("Informe o nome de usuário.".to_string())
+                } else if password.chars().count() < 6 {
+                    Some(self.i18n.t("account.erro_senha_curta").to_string())
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(error) = error {
+            self.account.auth.error = Some(error);
+            return Task::none();
+        }
+
+        self.account.auth.sending = true;
+        self.account.auth.error = None;
+        let backend = self.backend.clone();
+        match self.account.auth.mode {
+            AuthMode::SignIn => Task::perform(
+                async move { backend.sign_in(username, password).await },
+                Message::AuthDone,
+            ),
+            AuthMode::SignUp => Task::perform(
+                async move { backend.sign_up(email, username, password).await },
+                Message::AuthDone,
+            ),
+        }
+    }
+
+    fn account_key(&mut self, event: keyboard::Event) -> Task<Message> {
+        if !self.account.auth.open {
+            return Task::none();
+        }
+        let keyboard::Event::KeyPressed { key, .. } = event else {
+            return Task::none();
+        };
+        use keyboard::key::Named;
+        match key {
+            keyboard::Key::Named(Named::Escape) => {
+                self.account.close_auth();
+                Task::none()
+            }
+            keyboard::Key::Named(Named::Enter) => self.submit_auth(),
+            _ => Task::none(),
+        }
+    }
+
+    fn save_profile(&mut self) -> Task<Message> {
+        if self.account.editor.saving {
+            return Task::none();
+        }
+        if !self.account.is_signed_in() {
+            self.account.open_auth(false);
+            return self.auth_focus_task();
+        }
+
+        let editor = &self.account.editor;
+        let showcase: Vec<String> = editor
+            .showcase
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect();
+        let patch = json!({
+            "display_name": editor.display_name.trim(),
+            "summary": editor.summary.trim(),
+            "country": editor.country.trim(),
+            "city": editor.city.trim(),
+            "showcase": showcase,
+            "background_url": editor.background_url.trim(),
+            "banner_url": editor.banner_url.trim(),
+        });
+        self.account.editor.saving = true;
+        self.account.editor.error = None;
+        self.account.editor.notice = None;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.update_account_profile(patch).await },
+            Message::ProfileSaved,
+        )
+    }
+
+    fn refresh_friends_list(&mut self) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        self.friends.status = LoadStatus::Loading;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_friends(true).await },
+            Message::FriendsLoaded,
+        )
+    }
+
+    fn submit_friend_search(&mut self) -> Task<Message> {
+        if !self.account.is_signed_in() {
+            return Task::none();
+        }
+        let query = self.friends.search_query.trim().to_string();
+        if query.is_empty() {
+            self.friends.search_results = None;
+            self.friends.search_status = LoadStatus::Idle;
+            return Task::none();
+        }
+        self.friends.search_status = LoadStatus::Loading;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.search_friends(query).await },
+            Message::FriendSearchDone,
+        )
+    }
+
+    fn request_friend_action(&mut self, id: String, action: FriendAction) -> Task<Message> {
+        if self.friends.action_busy.is_some() {
+            return Task::none();
+        }
+        self.friends.action_busy = Some(id.clone());
+        self.friends.action_error = None;
+        self.friends.notice = None;
+        let backend = self.backend.clone();
+        let request_id = id.clone();
+        Task::perform(
+            async move {
+                backend
+                    .run_friend_action(action.channel(), request_id)
+                    .await
+            },
+            move |result| Message::FriendActionDone { id, action, result },
+        )
     }
 
     /// Entra no Big Picture guardando a tela desktop para restaurar ao sair.
@@ -3265,12 +4130,19 @@ impl App {
             iced::time::every(Duration::from_millis(150)).map(|_| Message::LaunchEventsTick),
         );
 
+        if self.account.auth.open && !matches!(self.screen, Screen::BigPicture) {
+            subscriptions.push(iced::keyboard::listen().map(Message::AccountKey));
+        }
+
         Subscription::batch(subscriptions)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         if matches!(self.screen, Screen::BigPicture) {
             return views::big_picture::view(self);
+        }
+        if self.account.auth.open {
+            return views::auth::view(self);
         }
 
         let sidebar = views::sidebar::view(self);
@@ -3298,6 +4170,7 @@ impl App {
             Screen::Section(Section::Home) => views::home::view(self),
             Screen::Section(Section::Stores) => views::store::view(self),
             Screen::Section(section) => views::section_placeholder(*section, &self.i18n),
+            Screen::Profile => views::profile::view(self),
             Screen::BigPicture => views::big_picture::view(self),
         };
 
@@ -3350,7 +4223,13 @@ impl App {
                 )
             }
             Section::Friends if force || matches!(self.friends.status, LoadStatus::Idle) => {
+                if !self.account.is_signed_in() {
+                    self.friends.data = Some(FriendsLoad::NotLoggedIn);
+                    self.friends.status = LoadStatus::Ready;
+                    return Task::none();
+                }
                 self.friends.status = LoadStatus::Loading;
+                self.friends.action_error = None;
                 let backend = self.backend.clone();
                 Task::perform(
                     async move { backend.load_friends(force).await },
@@ -3783,6 +4662,34 @@ fn console_shelf_for<'a>(library: &'a Library, tab: ConsoleTab) -> Vec<&'a Game>
     }
 }
 
+fn account_error_text(i18n: &I18n, code: &str) -> String {
+    // Erros de `dispatch` chegam como "[api_unavailable] … (canal)"; o código
+    // entre colchetes é o que o mapa de mensagens entende.
+    let code = code
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .map(|(code, _)| code)
+        .unwrap_or(code);
+    let key = match code {
+        "credenciais_invalidas" => "account.erro_credenciais",
+        "username_invalido" => "account.erro_username",
+        "username_ocupado" => "account.erro_ocupado",
+        "email_invalido" => "account.erro_email",
+        "senha_curta" => "account.erro_senha_curta",
+        "confirmacao_necessaria" => "account.erro_confirmacao",
+        "rede_indisponivel" => "account.erro_rede",
+        "api_unavailable" => "native.account.erro_api",
+        "nao_logado" => "native.account.erro_nao_logado",
+        "avatar_ilegivel" | "avatar_nao_imagem" | "avatar_grande" | "arquivo_ilegivel" => {
+            "native.account.erro_avatar"
+        }
+        "sem_campos" => "native.account.erro_sem_campos",
+        "resposta_invalida" => "native.account.erro_resposta",
+        other => return format!("{} ({other})", i18n.t("account.erro_geral")),
+    };
+    i18n.t(key).to_string()
+}
+
 fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
     let keyboard::Event::KeyPressed { key, .. } = event else {
         return None;
@@ -4036,5 +4943,71 @@ mod tests {
         };
         assert!(launch.busy_with_other("custom:1"));
         assert!(!launch.busy_with_other("steam:10"));
+    }
+
+    #[test]
+    fn account_state_moves_from_signed_out_through_loading_to_signed_in() {
+        let mut account = AccountState::default();
+        assert_eq!(account.status, AccountStatus::Unknown);
+
+        account.signed_out();
+        assert_eq!(account.status, AccountStatus::SignedOut);
+        assert!(!account.is_signed_in());
+
+        account.auth_failed("credenciais_invalidas".to_string());
+        assert_eq!(account.status, AccountStatus::SignedOut);
+        assert_eq!(account.auth.error.as_deref(), Some("credenciais_invalidas"));
+        assert!(!account.auth.sending);
+
+        account.apply_session(AccountSession {
+            id: "user-1".to_string(),
+            email: Some("ana@example.test".to_string()),
+            username: Some("ana".to_string()),
+        });
+        assert_eq!(account.status, AccountStatus::Loading);
+        assert!(account.is_signed_in());
+        assert_eq!(account.display_name("Jogador local"), "ana");
+
+        account.profile_ready(AccountProfile {
+            username: "ana".to_string(),
+            display_name: Some("Ana".to_string()),
+            ..AccountProfile::default()
+        });
+        assert_eq!(account.status, AccountStatus::SignedIn);
+        assert_eq!(account.display_name("Jogador local"), "Ana");
+
+        account.profile_failed("rede_indisponivel".to_string());
+        assert_eq!(account.status, AccountStatus::Error);
+        assert!(account.is_signed_in(), "falha de perfil preserva a sessão");
+
+        account.signed_out();
+        assert_eq!(account.status, AccountStatus::SignedOut);
+        assert!(!account.is_signed_in());
+        assert!(account.profile.is_none());
+        assert!(account.avatar.is_none());
+    }
+
+    #[test]
+    fn required_auth_overlay_ignores_close_until_login() {
+        let mut account = AccountState::default();
+        account.open_auth(true);
+        assert!(account.auth.open);
+        assert!(!account.close_auth());
+        assert!(account.auth.open);
+
+        account.auth.required = false;
+        assert!(account.close_auth());
+        assert!(!account.auth.open);
+    }
+
+    #[test]
+    fn account_ipc_errors_are_mapped_to_human_messages() {
+        let i18n = I18n::new(Lang::PtBr);
+        let credentials = account_error_text(&i18n, "credenciais_invalidas");
+        assert!(credentials.contains("incorretos"), "{credentials}");
+        let api = account_error_text(&i18n, "[api_unavailable] sem cliente (account:signIn)");
+        assert!(api.contains("backend"), "{api}");
+        let unknown = account_error_text(&i18n, "erro_novo");
+        assert!(unknown.contains("erro_novo"), "{unknown}");
     }
 }
