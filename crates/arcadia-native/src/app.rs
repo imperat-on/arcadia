@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use crate::backend::{
     Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
     LaunchSnapshot, PluginItem, RetroGame, RetroPage, RetroSource, RetroSystemInfo,
-    SettingsConfig, SourceItem, StoreGame, StoreInfo, StorePage, StoreSearch,
+    SettingsConfig, SourceItem, StoreGame, StoreInfo, StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
     BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
@@ -45,6 +45,24 @@ pub enum Message {
     MediaTogglePlayback,
     MediaSeek(f64),
     MediaError(String),
+    /// Abre o seletor de trailers do YouTube sobre a ficha do jogo.
+    OpenTrailerPicker,
+    CloseTrailerPicker,
+    TrailerQueryChanged(String),
+    TrailerSearchSubmitted,
+    TrailerSearchDone {
+        query: String,
+        result: Result<Vec<TrailerResult>, String>,
+    },
+    TrailerPathLoaded {
+        game_id: String,
+        result: Result<Option<String>, String>,
+    },
+    /// Escolha de um vídeo no seletor; baixa via yt-dlp sem bloquear a UI.
+    TrailerDownloadRequested(TrailerResult),
+    TrailerDownloadDone(Result<String, String>),
+    /// "Abrir trailer baixado" quando `trailer:path` encontrou um arquivo.
+    TrailerOpenDownloaded,
     /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
     LaunchGame(String),
     /// "Parar": encerra o processo atual via `game:close`.
@@ -392,6 +410,23 @@ pub enum LoadStatus {
     Error(String),
 }
 
+/// Seletor de trailers do YouTube aberto sobre a ficha do jogo.
+#[derive(Debug, Clone, Default)]
+pub struct TrailerPickerState {
+    pub open: bool,
+    pub game_id: String,
+    pub game_title: String,
+    pub query: String,
+    pub results: Vec<TrailerResult>,
+    pub status: LoadStatus,
+    pub error: Option<String>,
+    /// `trailer:path` do jogo; `Some(file://…)` quando já existe download.
+    pub existing_path: Option<String>,
+    /// Vídeo em download (chamada longa do yt-dlp); a UI mostra "Baixando…".
+    pub downloading: Option<TrailerResult>,
+    pub download_error: Option<String>,
+}
+
 /// Aba interna das Configurações, equivalente à sub-navegação da UI web.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsTab {
@@ -585,6 +620,11 @@ pub struct App {
     pub media: MediaPlayer,
     /// `None` enquanto o `game:sysinfo` está em voo.
     pub game_media: Option<GameMedia>,
+    /// Seletor de trailers do YouTube sobre a ficha.
+    pub trailer_picker: TrailerPickerState,
+    /// O usuário abriu um trailer local; o `game:sysinfo` em voo não pode
+    /// trocar o pipeline pelo HLS da Steam.
+    pub trailer_override: bool,
     pub downloads: DownloadsState,
     pub settings: SettingsState,
     pub sources: SourcesState,
@@ -615,6 +655,8 @@ impl App {
             search: String::new(),
             media: MediaPlayer::new(),
             game_media: None,
+            trailer_picker: TrailerPickerState::default(),
+            trailer_override: false,
             downloads: DownloadsState::default(),
             settings: SettingsState::default(),
             sources: SourcesState::default(),
@@ -681,6 +723,7 @@ impl App {
                 }
                 self.media.clear();
                 self.game_media = None;
+                self.reset_trailer_state();
                 if section != Section::Stores {
                     self.store.detail = None;
                 }
@@ -691,6 +734,7 @@ impl App {
             Message::BackToLibrary => {
                 self.media.clear();
                 self.game_media = None;
+                self.reset_trailer_state();
                 self.screen.back_to_library();
                 Task::none()
             }
@@ -1241,6 +1285,11 @@ impl App {
                         .unwrap_or_default()
                 );
                 self.game_media = Some(game_media);
+                // Um trailer local escolhido pelo usuário tem prioridade sobre
+                // um `game:sysinfo` que ainda estava em voo.
+                if self.trailer_override {
+                    return Task::none();
+                }
                 // Prioridade hls → mp4 → webm fica no wrapper de mídia.
                 let sources = self
                     .game_media
@@ -1275,6 +1324,97 @@ impl App {
                 eprintln!("[arcadia-native] trailer: {error}");
                 self.media.report_error(error);
                 Task::none()
+            }
+            Message::OpenTrailerPicker => self.open_trailer_picker(),
+            Message::CloseTrailerPicker => {
+                self.trailer_picker.open = false;
+                Task::none()
+            }
+            Message::TrailerQueryChanged(query) => {
+                self.trailer_picker.query = query;
+                Task::none()
+            }
+            Message::TrailerSearchSubmitted => self.submit_trailer_search(),
+            Message::TrailerSearchDone { query, result } => {
+                if !self.trailer_picker.open
+                    || self.trailer_picker.downloading.is_some()
+                    || self.trailer_picker.query.trim() != query
+                {
+                    return Task::none();
+                }
+
+                match result {
+                    Ok(results) => {
+                        let thumbnails: Vec<String> = results
+                            .iter()
+                            .filter_map(|result| result.thumbnail.clone())
+                            .collect();
+                        eprintln!(
+                            "[arcadia-native] trailer: {} vídeo(s) para {query:?}",
+                            results.len()
+                        );
+                        self.trailer_picker.results = results;
+                        self.trailer_picker.status = LoadStatus::Ready;
+                        self.trailer_picker.error = None;
+                        self.cover_tasks(thumbnails)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] trailer: {error}");
+                        self.trailer_picker.results.clear();
+                        self.trailer_picker.status = LoadStatus::Error(error.clone());
+                        self.trailer_picker.error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::TrailerPathLoaded { game_id, result } => {
+                if !self.trailer_picker.open || self.trailer_picker.game_id != game_id {
+                    return Task::none();
+                }
+                match result {
+                    Ok(path) => self.trailer_picker.existing_path = path,
+                    Err(error) => eprintln!("[arcadia-native] trailer local: {error}"),
+                }
+                Task::none()
+            }
+            Message::TrailerDownloadRequested(video) => {
+                if !self.trailer_picker.open || self.trailer_picker.downloading.is_some() {
+                    return Task::none();
+                }
+                let id = self.trailer_picker.game_id.clone();
+                eprintln!(
+                    "[arcadia-native] trailer: baixando {:?} ({})",
+                    video.title, video.url
+                );
+                self.trailer_picker.downloading = Some(video.clone());
+                self.trailer_picker.download_error = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.download_trailer(id, video.url).await },
+                    Message::TrailerDownloadDone,
+                )
+            }
+            Message::TrailerDownloadDone(result) => {
+                self.trailer_picker.downloading = None;
+                match result {
+                    Ok(path) => {
+                        eprintln!("[arcadia-native] trailer baixado: {path}");
+                        self.trailer_picker.open = false;
+                        self.open_local_trailer(path)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] trailer: {error}");
+                        self.trailer_picker.download_error = Some(error);
+                        Task::none()
+                    }
+                }
+            }
+            Message::TrailerOpenDownloaded => {
+                let Some(path) = self.trailer_picker.existing_path.clone() else {
+                    return Task::none();
+                };
+                self.trailer_picker.open = false;
+                self.open_local_trailer(path)
             }
             Message::LaunchGame(id) => self.request_launch(id),
             Message::StopGame => self.request_stop(),
@@ -1316,6 +1456,7 @@ impl App {
         // onda e não deve deixar um processo rodando atrás da tela cheia.
         self.media.clear();
         self.game_media = None;
+        self.reset_trailer_state();
         self.screen = Screen::BigPicture;
 
         let count = self.library.visible_all().len();
@@ -1354,6 +1495,7 @@ impl App {
             let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
             self.media.clear();
             self.game_media = None;
+            self.reset_trailer_state();
             tasks.push(self.cover_tasks(urls));
             if let Some(game) = game {
                 tasks.push(self.game_media_task(&game));
@@ -1361,6 +1503,101 @@ impl App {
         }
 
         Task::batch(tasks)
+    }
+
+    /// Fecha o seletor e devolve o trailer padrão (`game:sysinfo`) ao estado
+    /// inicial sempre que a ficha deixa de ser a tela atual.
+    fn reset_trailer_state(&mut self) {
+        self.trailer_picker = TrailerPickerState::default();
+        self.trailer_override = false;
+    }
+
+    fn current_game(&self) -> Option<&Game> {
+        match &self.screen {
+            Screen::Game(id) => self.library.game(id),
+            _ => None,
+        }
+    }
+
+    /// Abre o seletor com busca automática pelo título do jogo e consulta em
+    /// paralelo se já existe trailer baixado (`trailer:path`).
+    fn open_trailer_picker(&mut self) -> Task<Message> {
+        let Some(game) = self.current_game().cloned() else {
+            return Task::none();
+        };
+
+        self.trailer_picker = TrailerPickerState {
+            open: true,
+            game_id: game.id.clone(),
+            game_title: game.title.clone(),
+            query: game.title.clone(),
+            status: LoadStatus::Loading,
+            ..TrailerPickerState::default()
+        };
+
+        let backend = self.backend.clone();
+        let path_id = game.id.clone();
+        let message_game_id = path_id.clone();
+        let path_task = Task::perform(
+            async move { backend.trailer_path(path_id).await },
+            move |result| Message::TrailerPathLoaded {
+                game_id: message_game_id,
+                result,
+            },
+        );
+
+        let backend = self.backend.clone();
+        let search_query = game.title;
+        let message_query = search_query.clone();
+        let search_task = Task::perform(
+            async move { backend.search_trailers(search_query).await },
+            move |result| Message::TrailerSearchDone {
+                query: message_query,
+                result,
+            },
+        );
+
+        Task::batch([path_task, search_task])
+    }
+
+    fn submit_trailer_search(&mut self) -> Task<Message> {
+        if !self.trailer_picker.open || self.trailer_picker.downloading.is_some() {
+            return Task::none();
+        }
+
+        let query = self.trailer_picker.query.trim().to_string();
+        if query.is_empty() {
+            self.trailer_picker.results.clear();
+            self.trailer_picker.status = LoadStatus::Ready;
+            self.trailer_picker.error =
+                Some("Informe o nome do jogo ou do vídeo para buscar.".to_string());
+            return Task::none();
+        }
+
+        self.trailer_picker.query = query.clone();
+        self.trailer_picker.results.clear();
+        self.trailer_picker.status = LoadStatus::Loading;
+        self.trailer_picker.error = None;
+        self.trailer_picker.download_error = None;
+
+        let backend = self.backend.clone();
+        let message_query = query.clone();
+        Task::perform(
+            async move { backend.search_trailers(query).await },
+            move |result| Message::TrailerSearchDone {
+                query: message_query,
+                result,
+            },
+        )
+    }
+
+    /// Troca o HLS da Steam pelo arquivo baixado escolhido explicitamente.
+    fn open_local_trailer(&mut self, path: String) -> Task<Message> {
+        self.trailer_override = true;
+        match self.media.open_local(path) {
+            Ok(()) => Task::none(),
+            Err(error) => Task::done(Message::MediaError(error)),
+        }
     }
 
     /// Abre a ficha do jogo no desktop (mesmo caminho do clique na biblioteca).
@@ -1371,6 +1608,7 @@ impl App {
         // Troca de jogo nunca reaproveita o pipeline anterior.
         self.media.clear();
         self.game_media = None;
+        self.reset_trailer_state();
         let covers = self.cover_tasks(urls);
         let media = game
             .map(|game| self.game_media_task(&game))
@@ -1677,6 +1915,7 @@ impl App {
                     &self.media,
                     self.game_media.as_ref(),
                     &self.launch,
+                    &self.trailer_picker,
                 ),
                 None => views::missing_game(),
             },

@@ -1,12 +1,13 @@
 //! Página do jogo: hero/backdrop, metadados, descrição e trailer GStreamer.
 
+use iced::widget::text::Wrapping;
 use iced::widget::{
-    button, column, container, image, row, scrollable, slider, text, Space, Stack,
+    button, column, container, image, row, scrollable, slider, text, text_input, Space, Stack,
 };
 use iced::{ContentFit, Element, Fill};
 
-use crate::app::{GameLaunchState, Message};
-use crate::backend::{Game, GameMedia};
+use crate::app::{GameLaunchState, LoadStatus, Message, TrailerPickerState};
+use crate::backend::{Game, GameMedia, TrailerResult};
 use crate::covers::CoverCache;
 use crate::input;
 use crate::media::{self, MediaPlayer, MediaStatus};
@@ -18,6 +19,7 @@ pub fn view<'a>(
     media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
     launch: &'a GameLaunchState,
+    trailer_picker: &'a TrailerPickerState,
 ) -> Element<'a, Message> {
     let hero_url = game.hero_url.as_deref().or(game.cover_url.as_deref());
 
@@ -164,7 +166,18 @@ pub fn view<'a>(
         .width(Fill)
         .height(Fill);
 
-    column![hero, body].width(Fill).height(Fill).into()
+    let page = column![hero, body].width(Fill).height(Fill);
+
+    if trailer_picker.open {
+        Stack::new()
+            .width(Fill)
+            .height(Fill)
+            .push(page)
+            .push(trailer_picker_overlay(trailer_picker, covers))
+            .into()
+    } else {
+        page.into()
+    }
 }
 
 /// Botão Jogar/Parar da ficha, com o estado da sessão ao lado.
@@ -315,6 +328,11 @@ fn trailer_card<'a>(
             text(source_label(media.uri()))
                 .size(9)
                 .color(theme::TEXT_3),
+            Space::new().width(Fill),
+            button(text("Escolher trailer").size(10).font(theme::FONT_MEDIUM))
+                .on_press(Message::OpenTrailerPicker)
+                .padding([5.0, 10.0])
+                .style(theme::ghost_button),
         ]
         .spacing(theme::SPACE_2)
         .align_y(iced::Center),
@@ -418,10 +436,306 @@ fn short_status(status: &MediaStatus) -> &'static str {
 /// Origem escolhida pelo wrapper (`hls` tem prioridade sobre `mp4`/`webm`).
 fn source_label(uri: Option<&str>) -> &'static str {
     match uri {
+        Some(uri) if uri.starts_with("file://") || !uri.contains("://") => {
+            "Arquivo local · GStreamer"
+        }
         Some(uri) if uri.to_ascii_lowercase().contains(".m3u8") => "HLS · GStreamer",
         Some(_) => "MP4/WebM · GStreamer",
         None => "GStreamer",
     }
+}
+
+// ── Seletor de trailers (overlay) ──────────────────────────────────────────
+
+/// Véu + cartão central do seletor; o player da ficha continua montado atrás.
+fn trailer_picker_overlay<'a>(
+    picker: &'a TrailerPickerState,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
+    let header = row![
+        column![
+            text("Escolher trailer")
+                .size(20)
+                .font(theme::FONT_BOLD)
+                .color(theme::TEXT_1),
+            text(format!("{} — vídeos do YouTube", picker.game_title))
+                .size(11)
+                .color(theme::TEXT_2),
+        ]
+        .spacing(3)
+        .width(Fill),
+        button(text("Fechar").size(12).font(theme::FONT_MEDIUM))
+            .on_press(Message::CloseTrailerPicker)
+            .padding([7.0, 14.0])
+            .style(theme::ghost_button),
+    ]
+    .spacing(theme::SPACE_3)
+    .align_y(iced::Center);
+
+    let search = row![
+        text_input("Buscar trailer no YouTube...", picker.query.as_str())
+            .on_input(Message::TrailerQueryChanged)
+            .on_submit(Message::TrailerSearchSubmitted)
+            .padding([9.0, 12.0])
+            .size(12)
+            .width(Fill)
+            .style(theme::search_input),
+        button(text("Buscar").size(12).font(theme::FONT_MEDIUM))
+            .on_press(Message::TrailerSearchSubmitted)
+            .padding([9.0, 16.0])
+            .style(theme::primary_button),
+    ]
+    .spacing(theme::SPACE_2)
+    .align_y(iced::Center);
+
+    let mut content = column![header, search].spacing(theme::SPACE_4);
+    if let Some(path) = picker.existing_path.as_deref() {
+        content = content.push(existing_trailer_panel(path));
+    }
+    if let Some(error) = picker.download_error.as_deref() {
+        content = content.push(super::action_error_banner(error, None));
+    }
+    if let Some(video) = picker.downloading.as_ref() {
+        content = content.push(downloading_panel(video, covers));
+    } else {
+        content = content.push(results_panel(picker, covers));
+    }
+
+    let card = container(content)
+        .width(Fill)
+        .max_width(840.0)
+        .max_height(700.0)
+        .padding(theme::SPACE_5)
+        .style(theme::panel);
+
+    Stack::new()
+        .width(Fill)
+        .height(Fill)
+        .push(
+            container(Space::new())
+                .width(Fill)
+                .height(Fill)
+                .style(theme::scrim),
+        )
+        .push(
+            container(card)
+                .width(Fill)
+                .height(Fill)
+                .center_x(Fill)
+                .center_y(Fill)
+                .padding(theme::SPACE_5),
+        )
+        .into()
+}
+
+fn placeholder_panel<'a>(message: &'a str, color: iced::Color) -> Element<'a, Message> {
+    container(text(message).size(12).color(color))
+        .width(Fill)
+        .height(320)
+        .center_x(Fill)
+        .center_y(Fill)
+        .into()
+}
+
+fn results_panel<'a>(
+    picker: &'a TrailerPickerState,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
+    match &picker.status {
+        LoadStatus::Idle | LoadStatus::Loading => {
+            placeholder_panel("Buscando vídeos no YouTube…", theme::TEXT_2)
+        }
+        LoadStatus::Error(error) => container(
+            column![
+                text("Falha ao buscar trailers")
+                    .size(13)
+                    .font(theme::FONT_MEDIUM)
+                    .color(theme::DANGER),
+                text(shorten(error, 260)).size(11).color(theme::TEXT_2),
+                button(text("Tentar novamente").size(12).font(theme::FONT_MEDIUM))
+                    .on_press(Message::TrailerSearchSubmitted)
+                    .padding([7.0, 13.0])
+                    .style(theme::ghost_button),
+            ]
+            .spacing(theme::SPACE_2)
+            .align_x(iced::Center),
+        )
+        .width(Fill)
+        .height(320)
+        .center_x(Fill)
+        .center_y(Fill)
+        .into(),
+        LoadStatus::Ready if picker.results.is_empty() => {
+            placeholder_panel("Nenhum vídeo encontrado para esta busca.", theme::TEXT_2)
+        }
+        LoadStatus::Ready => scrollable(
+            column(
+                picker
+                    .results
+                    .iter()
+                    .map(|result| trailer_result_row(result, covers))
+                    .collect::<Vec<_>>(),
+            )
+            .spacing(theme::SPACE_2)
+            .width(Fill),
+        )
+        .height(320)
+        .style(theme::scrollable)
+        .into(),
+    }
+}
+
+fn trailer_thumbnail<'a>(
+    video: &'a TrailerResult,
+    covers: &'a CoverCache,
+    width: f32,
+    height: f32,
+) -> Element<'a, Message> {
+    match covers.ready(video.thumbnail.as_deref()) {
+        Some(handle) => image(handle.clone())
+            .width(width)
+            .height(height)
+            .content_fit(ContentFit::Cover)
+            .into(),
+        None => container(
+            text(if video.thumbnail.is_some() {
+                "carregando…"
+            } else {
+                "sem prévia"
+            })
+            .size(9)
+            .color(theme::TEXT_3),
+        )
+        .width(width)
+        .height(height)
+        .center_x(Fill)
+        .center_y(Fill)
+        .style(theme::cover_placeholder)
+        .into(),
+    }
+}
+
+fn trailer_result_row<'a>(
+    video: &'a TrailerResult,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
+    let channel = if video.channel.trim().is_empty() {
+        "Canal não informado"
+    } else {
+        video.channel.as_str()
+    };
+    let mut meta = row![text(channel).size(10).color(theme::TEXT_2)].spacing(theme::SPACE_2);
+    if video.duration > 0 {
+        meta = meta.push(
+            text(media::format_seconds(video.duration as f64))
+                .size(10)
+                .color(theme::TEXT_3),
+        );
+    }
+
+    button(
+        row![
+            trailer_thumbnail(video, covers, 160.0, 90.0),
+            column![
+                text(video.title.as_str())
+                    .size(13)
+                    .font(theme::FONT_MEDIUM)
+                    .color(theme::TEXT_1)
+                    .wrapping(Wrapping::WordOrGlyph),
+                meta,
+                text("Clique para baixar e abrir no player")
+                    .size(9)
+                    .color(theme::TEXT_3),
+            ]
+            .spacing(5)
+            .width(Fill),
+        ]
+        .spacing(theme::SPACE_3)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::TrailerDownloadRequested(video.clone()))
+    .width(Fill)
+    .padding(theme::SPACE_2)
+    .style(theme::card)
+    .into()
+}
+
+fn downloading_panel<'a>(
+    video: &'a TrailerResult,
+    covers: &'a CoverCache,
+) -> Element<'a, Message> {
+    let channel = if video.channel.trim().is_empty() {
+        "Canal não informado"
+    } else {
+        video.channel.as_str()
+    };
+    let mut meta = row![text(channel).size(10).color(theme::TEXT_2)].spacing(theme::SPACE_2);
+    if video.duration > 0 {
+        meta = meta.push(
+            text(media::format_seconds(video.duration as f64))
+                .size(10)
+                .color(theme::TEXT_3),
+        );
+    }
+
+    container(
+        row![
+            trailer_thumbnail(video, covers, 200.0, 112.0),
+            column![
+                text("Baixando…")
+                    .size(14)
+                    .font(theme::FONT_BOLD)
+                    .color(theme::ACCENT),
+                text(video.title.as_str())
+                    .size(13)
+                    .font(theme::FONT_MEDIUM)
+                    .color(theme::TEXT_1)
+                    .wrapping(Wrapping::WordOrGlyph),
+                meta,
+                text("O yt-dlp baixa e remuxa o vídeo; isso pode levar alguns minutos.")
+                    .size(9)
+                    .color(theme::TEXT_3),
+            ]
+            .spacing(5)
+            .width(Fill),
+        ]
+        .spacing(theme::SPACE_4)
+        .align_y(iced::Center),
+    )
+    .width(Fill)
+    .padding(theme::SPACE_3)
+    .style(theme::stub_panel)
+    .into()
+}
+
+fn existing_trailer_panel(path: &str) -> Element<'_, Message> {
+    container(
+        row![
+            column![
+                text("Trailer baixado disponível")
+                    .size(12)
+                    .font(theme::FONT_MEDIUM)
+                    .color(theme::TEXT_1),
+                text(shorten(path, 110)).size(9).color(theme::TEXT_3),
+            ]
+            .spacing(3)
+            .width(Fill),
+            button(
+                text("Abrir trailer baixado")
+                    .size(11)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .on_press(Message::TrailerOpenDownloaded)
+            .padding([7.0, 12.0])
+            .style(theme::primary_button),
+        ]
+        .spacing(theme::SPACE_3)
+        .align_y(iced::Center),
+    )
+    .width(Fill)
+    .padding(theme::SPACE_3)
+    .style(theme::stub_panel)
+    .into()
 }
 
 fn shorten(text: &str, max_chars: usize) -> String {

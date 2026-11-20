@@ -797,6 +797,106 @@ fn media_url(input: &str) -> Option<String> {
     (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
 }
 
+// ── Seletor de trailers do YouTube ─────────────────────────────────────────
+
+/// Resultado de `trailer:search` — um vídeo do YouTube para escolher como
+/// trailer do jogo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrailerResult {
+    pub id: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    /// Duração em segundos; `0` quando o yt-dlp não informou.
+    pub duration: u64,
+    pub channel: String,
+    pub url: String,
+}
+
+/// Interpreta o envelope `{ ok, results }` de `trailer:search`.
+///
+/// `ok:false` (yt-dlp ausente, falha de rede, vídeo bloqueado) vira `Err` com a
+/// mensagem do dispatcher. Assim a tela nunca troca uma falha real por "nenhum
+/// vídeo encontrado".
+pub fn parse_trailer_search(value: Value) -> Result<Vec<TrailerResult>, String> {
+    let Some(object) = value.as_object() else {
+        return Err("trailer:search devolveu um payload que não é um objeto.".to_string());
+    };
+
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(trailer_error_message(&value, "trailer:search"));
+    }
+
+    let Some(items) = object.get("results").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items.iter().filter_map(trailer_result_from_value).collect())
+}
+
+fn trailer_result_from_value(value: &Value) -> Option<TrailerResult> {
+    let id = optional_text_field(value, "id").unwrap_or_default();
+    let url = optional_text_field(value, "url").or_else(|| {
+        (!id.is_empty()).then(|| format!("https://www.youtube.com/watch?v={id}"))
+    })?;
+
+    Some(TrailerResult {
+        id: if id.is_empty() { url.clone() } else { id },
+        title: optional_text_field(value, "title")
+            .unwrap_or_else(|| "Vídeo do YouTube".to_string()),
+        thumbnail: optional_text_field(value, "thumbnail"),
+        duration: trailer_duration(value.get("duration")),
+        channel: optional_text_field(value, "channel").unwrap_or_default(),
+        url,
+    })
+}
+
+fn trailer_duration(value: Option<&Value>) -> u64 {
+    let seconds = match value {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+
+    seconds
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+        .map(|seconds| seconds.round() as u64)
+        .unwrap_or(0)
+}
+
+/// Caminho de `trailer:path`; string vazia (trailer ausente) vira `None`.
+pub fn parse_trailer_path(value: &Value) -> Option<String> {
+    optional_text_field(value, "path")
+}
+
+/// Interpreta `trailer:downloadUrl` e devolve o `file://` do arquivo baixado.
+pub fn parse_trailer_download(value: Value) -> Result<String, String> {
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(trailer_error_message(&value, "trailer:downloadUrl"));
+    }
+
+    optional_text_field(&value, "path").ok_or_else(|| {
+        "trailer:downloadUrl não devolveu o caminho do trailer baixado.".to_string()
+    })
+}
+
+/// Mensagem legível para os envelopes de falha de `trailer:*`.
+///
+/// O dispatcher manda `error` (código curto ou stderr do yt-dlp) e, quando
+/// existe, `mensagem` com a explicação completa. `age` tem texto próprio para
+/// o usuário saber que o caminho é configurar cookies, não tentar de novo.
+fn trailer_error_message(value: &Value, channel: &str) -> String {
+    let code = optional_text_field(value, "error");
+    if code.as_deref() == Some("age") {
+        return "Vídeo com restrição de idade: configure os cookies do YouTube nas Configurações e tente de novo."
+            .to_string();
+    }
+
+    optional_text_field(value, "mensagem")
+        .or(code)
+        .map(|message| format!("{channel}: {message}"))
+        .unwrap_or_else(|| format!("{channel}: erro desconhecido"))
+}
+
 // ── Lançamento de jogos ─────────────────────────────────────────────────────
 
 /// Snapshot de `LaunchRuntime::state_json` — a fonte de verdade do processo.
@@ -1870,6 +1970,33 @@ impl Backend {
         }
     }
 
+    /// Busca vídeos do YouTube (`trailer:search`) para o seletor manual.
+    pub async fn search_trailers(&self, query: String) -> Result<Vec<TrailerResult>, String> {
+        let value = self
+            .dispatch("trailer:search", vec![json!({ "query": query })])
+            .await?;
+        parse_trailer_search(value)
+    }
+
+    /// Baixa um vídeo específico como trailer do jogo (`trailer:downloadUrl`).
+    ///
+    /// A chamada é longa (yt-dlp + remux), mas roda no runtime do backend; a UI
+    /// continua desenhando e recebe o caminho em `TrailerDownloadDone`.
+    pub async fn download_trailer(&self, id: String, url: String) -> Result<String, String> {
+        let value = self
+            .dispatch("trailer:downloadUrl", vec![json!({ "id": id, "url": url })])
+            .await?;
+        parse_trailer_download(value)
+    }
+
+    /// Trailer já baixado do jogo (`trailer:path`), ou `None` se não existir.
+    pub async fn trailer_path(&self, id: String) -> Result<Option<String>, String> {
+        let value = self
+            .dispatch("trailer:path", vec![Value::String(id)])
+            .await?;
+        Ok(parse_trailer_path(&value))
+    }
+
     /// Inicia um jogo pelo mesmo canal do Electron (`game:launch`).
     ///
     /// O payload é o do [`launch_payload`]; `mode` é o ponto de extensão para o
@@ -2486,6 +2613,77 @@ mod tests {
         let media = parse_game_media(json!(["não é objeto"]));
         assert!(media.movies.is_empty());
         assert!(media.notice.is_some());
+    }
+
+    #[test]
+    fn parses_youtube_trailer_search_and_reports_ok_false() {
+        let results = parse_trailer_search(json!({
+            "ok": true,
+            "results": [
+                {
+                    "id": "abc123",
+                    "title": "Trailer oficial",
+                    "thumbnail": "https://i.ytimg.test/abc123.jpg",
+                    "duration": 95,
+                    "channel": "Estúdio",
+                    "url": "https://www.youtube.com/watch?v=abc123"
+                },
+                {
+                    "id": "sem-url",
+                    "title": "Só id",
+                    "duration": "42.6"
+                },
+                { "title": "Sem id nem URL" }
+            ]
+        }))
+        .expect("busca válida");
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "abc123");
+        assert_eq!(results[0].duration, 95);
+        assert_eq!(results[0].channel, "Estúdio");
+        assert_eq!(results[0].thumbnail.as_deref(), Some("https://i.ytimg.test/abc123.jpg"));
+
+        assert_eq!(results[1].url, "https://www.youtube.com/watch?v=sem-url");
+        assert_eq!(results[1].duration, 43);
+        assert!(results[1].thumbnail.is_none());
+
+        let failed = parse_trailer_search(json!({
+            "ok": false,
+            "error": "yt_dlp_ausente",
+            "mensagem": "yt-dlp não está instalado"
+        }))
+        .expect_err("ok:false vira erro");
+        assert!(failed.contains("yt-dlp não está instalado"), "{failed}");
+
+        assert!(parse_trailer_search(json!(["não é objeto"])).is_err());
+    }
+
+    #[test]
+    fn parses_trailer_path_and_download_envelopes() {
+        let path = "file:///tmp/trailers/steam_10.mp4";
+        assert_eq!(
+            parse_trailer_path(&json!({ "path": path })),
+            Some(path.to_string())
+        );
+        assert_eq!(parse_trailer_path(&json!({ "path": "" })), None);
+
+        assert_eq!(
+            parse_trailer_download(json!({ "ok": true, "path": path })).unwrap(),
+            path
+        );
+        assert!(parse_trailer_download(json!({ "ok": true })).is_err());
+
+        let age = parse_trailer_download(json!({ "ok": false, "error": "age" }))
+            .expect_err("restrição de idade");
+        assert!(age.contains("restrição de idade"), "{age}");
+
+        let network = parse_trailer_download(json!({
+            "ok": false,
+            "error": "ERROR: unable to download video"
+        }))
+        .expect_err("falha de rede");
+        assert!(network.contains("unable to download"), "{network}");
     }
 
     fn launch_game_fixture() -> Game {

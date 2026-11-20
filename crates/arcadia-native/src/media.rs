@@ -121,6 +121,27 @@ impl MediaPlayer {
         Err(last_error)
     }
 
+    /// Abre um trailer já baixado (`file://…` ou caminho local).
+    ///
+    /// O caminho vem de `trailer:downloadUrl`/`trailer:path`; o `playbin` do
+    /// GStreamer aceita os dois formatos. Caminho vazio falha antes de criar
+    /// pipeline, para a UI não ficar presa num "carregando" sem mídia.
+    pub fn open_local(&mut self, path: impl Into<String>) -> Result<(), String> {
+        let path = path.into();
+        let uri = path.trim();
+        if uri.is_empty() {
+            let message = "O trailer baixado veio sem caminho local.".to_string();
+            self.status = MediaStatus::Error(message.clone());
+            return Err(message);
+        }
+
+        self.open(&TrailerSources {
+            hls: None,
+            mp4: Some(uri.to_string()),
+            webm: None,
+        })
+    }
+
     fn open_uri(&mut self, uri: &str) -> Result<(), String> {
         if self.player.is_none() {
             match Player::new() {
@@ -409,6 +430,15 @@ mod tests {
         let mut media = MediaPlayer::new();
         let error = media.open(&TrailerSources::default()).unwrap_err();
         assert!(error.contains("hls/mp4/webm"), "veio: {error}");
+        assert!(media.status().is_error());
+        assert!(!media.is_active());
+    }
+
+    #[test]
+    fn empty_local_trailer_path_fails_before_opening_a_pipeline() {
+        let mut media = MediaPlayer::new();
+        let error = media.open_local("   ").unwrap_err();
+        assert!(error.contains("sem caminho"), "veio: {error}");
         assert!(media.status().is_error());
         assert!(!media.is_active());
     }

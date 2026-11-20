@@ -223,6 +223,14 @@ pub fn cover_placeholder(_theme: &Theme) -> container::Style {
     }
 }
 
+/// Véu escuro atrás de overlays modais (seletor de trailer, confirmações).
+pub fn scrim(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.72).into()),
+        ..container::Style::default()
+    }
+}
+
 pub fn game_icon_placeholder(_theme: &Theme) -> container::Style {
     container::Style {
         text_color: Some(TEXT_2),
