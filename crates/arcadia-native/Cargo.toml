@@ -1,0 +1,27 @@
+[package]
+name = "arcadia-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Frontend nativo do Arcadia em Rust puro (iced), sem Tauri e sem webview"
+
+[dependencies]
+arcadia-api = { path = "../arcadia-api" }
+arcadia-ipc = { path = "../arcadia-ipc" }
+arcadia-store = { path = "../arcadia-store" }
+iced = { version = "0.14", features = ["image", "advanced"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "net",
+    "macros",
+] }
+serde.workspace = true
+serde_json.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
