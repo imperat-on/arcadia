@@ -16,7 +16,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/covers/**"]
+        "scope": ["$APPDATA/covers/**", "$APPDATA/trailers/**"]
       }
     }
   },

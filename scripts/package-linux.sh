@@ -194,6 +194,34 @@ trim_appdir_graphics() {
     fi
     rm -f "$APPDIR"/apprun-hooks/linuxdeploy-plugin-gtk.sh 2>/dev/null || true
 
+    # --- Hook do GStreamer: caminho do scanner está errado ------------------
+    #
+    # O `linuxdeploy-plugin-gstreamer` gera este hook com um diretório
+    # duplicado:
+    #
+    #     GST_PLUGIN_SCANNER_1_0=${APPDIR}/usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner
+    #     GST_PTP_HELPER_1_0=${APPDIR}/usr/lib/gstreamer1.0/gstreamer-1.0/gst-ptp-helper
+    #
+    # Mas os arquivos ficam em `usr/lib/gstreamer-1.0/`. O GStreamer procura no
+    # caminho quebrado, não acha, e desiste de registrar os plugins dinâmicos:
+    #
+    #     GStreamer-WARNING: External plugin loader failed.
+    #
+    # Sem o scanner, `openh264dec` nunca é registrado — o decoder está no
+    # pacote, resolve todas as libs, e mesmo assim o vídeo não toca. É o
+    # buffering infinito que sobrou depois de corrigir os codecs.
+    #
+    # Reescreve as duas variáveis para o caminho real. Só age se o hook existir
+    # e se o destino apontado estiver de fato ausente.
+    local hook="$APPDIR/apprun-hooks/linuxdeploy-plugin-gstreamer.sh"
+    if [ -f "$hook" ] && [ -x "$APPDIR/usr/lib/gstreamer-1.0/gst-plugin-scanner" ]; then
+        sed -i \
+            -e "s|\\\${APPDIR}/usr/lib/gstreamer1\\.0/gstreamer-1\\.0/|\\\${APPDIR}/usr/lib/gstreamer-1.0/|g" \
+            -e "s|\\\$APPDIR/usr/lib/gstreamer1\\.0/gstreamer-1\\.0/|\\\$APPDIR/usr/lib/gstreamer-1.0/|g" \
+            "$hook"
+        echo "==> hook do GStreamer: caminho do scanner corrigido (gstreamer1.0/gstreamer-1.0 -> gstreamer-1.0)"
+    fi
+
     local depois; depois="$(find "$lib" -name '*.so*' 2>/dev/null | wc -l)"
     echo "==> pilha gráfica removida do AppDir: $antes -> $depois bibliotecas"
     echo "    WebKit/GTK/GStreamer/glib passam a vir do sistema do usuário"
