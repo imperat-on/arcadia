@@ -5,6 +5,7 @@
 //! model que as telas consomem. Capas são baixadas e decodificadas neste módulo
 //! também, mas o cache fica em [`crate::covers`].
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -253,6 +254,89 @@ impl StoreInfo {
     }
 }
 
+/// Depot de `store:installInfo`, no mesmo formato que o `DepotPicker` da web.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreDepot {
+    pub depot_id: String,
+    pub manifest_id: String,
+    pub key: String,
+    pub size: u64,
+    pub name: Option<String>,
+    pub os: Option<String>,
+    pub language: Option<String>,
+    pub dlc_appid: Option<String>,
+    pub shared: bool,
+    pub optional: bool,
+}
+
+/// Manifesto de instalação devolvido por `store:installInfo`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreInstallInfo {
+    pub appid: Option<String>,
+    pub depots: Vec<StoreDepot>,
+    pub token: Option<String>,
+    pub dlcs: Vec<String>,
+    pub source: Option<String>,
+    pub install_dir: Option<String>,
+}
+
+impl StoreInstallInfo {
+    pub fn total_size(&self) -> u64 {
+        self.depots.iter().map(|depot| depot.size).sum()
+    }
+
+    /// Depots que o `DepotPicker` marca por padrão: base do Windows + idioma
+    /// inglês, sem DLCs, shared (runtimes) nem macOS. É a mesma regra do
+    /// `padrao()` da UI web; nada aqui inicia download.
+    pub fn recommended_depots(&self) -> BTreeSet<String> {
+        self.depots
+            .iter()
+            .filter(|depot| {
+                if depot.shared || depot.os.as_deref() == Some("macos") {
+                    return false;
+                }
+                if depot.dlc_appid.is_some() {
+                    return false;
+                }
+                match depot.language.as_deref() {
+                    Some("english") => true,
+                    Some(_) => false,
+                    None => depot.os.as_deref().map_or(true, |os| os == "windows"),
+                }
+            })
+            .map(|depot| depot.depot_id.clone())
+            .collect()
+    }
+
+    /// Lista mostrada no detalhe: base, idiomas e DLCs; shared e macOS ficam
+    /// de fora quando o manifesto tem metadados. Sem metadados, mostra tudo.
+    pub fn relevant_depots(&self) -> Vec<&StoreDepot> {
+        let no_metadata = self.depots.iter().all(|depot| {
+            depot.os.is_none() && depot.language.is_none() && depot.dlc_appid.is_none()
+        });
+        self.depots
+            .iter()
+            .filter(|depot| {
+                no_metadata
+                    || (!depot.shared
+                        && depot.os.as_deref() != Some("macos")
+                        && (depot.dlc_appid.is_some()
+                            || depot.language.is_some()
+                            || depot.os.is_some()))
+            })
+            .collect()
+    }
+}
+
+/// Biblioteca Steam devolvida por `store:libraries`. `path` aponta para
+/// `.../steamapps`; `steam_dir` é a raiz usada pelo `store:install`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreLibrary {
+    pub path: String,
+    pub steam_dir: String,
+    pub free: u64,
+}
+
 /// `store:search` — `{ ok, jogos, fonte, avisos, error? }`.
 pub fn parse_store_search(value: Value) -> Result<StoreSearch, String> {
     let object = value
@@ -374,6 +458,187 @@ pub fn parse_store_info(value: Value) -> Result<StoreInfo, String> {
         publishers: string_list(info.get("publishers")),
         release_date: optional_text_field_from(info.get("release_date")),
     })
+}
+
+/// `store:installInfo` — `{ ok, appid, depots, token, dlcs, fonte, installdir }`.
+pub fn parse_store_install_info(value: Value) -> Result<StoreInstallInfo, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "store:installInfo devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "store:installInfo")?;
+
+    let depots = object
+        .get("depots")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_store_depot).collect())
+        .unwrap_or_default();
+
+    Ok(StoreInstallInfo {
+        appid: optional_text_field(&value, "appid"),
+        depots,
+        token: optional_text_field(&value, "token"),
+        dlcs: string_list(object.get("dlcs")),
+        source: optional_text_field(&value, "fonte"),
+        install_dir: optional_text_field(&value, "installdir"),
+    })
+}
+
+fn parse_store_depot(value: &Value) -> Option<StoreDepot> {
+    let depot_id = text_field_any(value, "depotId")
+        .or_else(|| text_field_any(value, "depot_id"))
+        .or_else(|| text_field_any(value, "id"))?;
+    if depot_id.is_empty() {
+        return None;
+    }
+
+    Some(StoreDepot {
+        depot_id,
+        manifest_id: text_field_any(value, "manifestId")
+            .or_else(|| text_field_any(value, "manifest_id"))
+            .unwrap_or_default(),
+        key: text_field(value, "key"),
+        size: value.get("size").and_then(value_to_u64).unwrap_or_default(),
+        name: optional_text_field(value, "name"),
+        os: optional_text_field(value, "os").map(|os| os.to_ascii_lowercase()),
+        language: optional_text_field(value, "language"),
+        dlc_appid: optional_text_field(value, "dlcAppid")
+            .or_else(|| optional_text_field(value, "dlc_appid")),
+        shared: value
+            .get("shared")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        optional: value
+            .get("optional")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// `store:libraries` devolve um array cru de `{ path, steamDir, free }`.
+pub fn parse_store_libraries(value: Value) -> Result<Vec<StoreLibrary>, String> {
+    check_channel_ok(&value, "store:libraries")?;
+
+    let items = match &value {
+        Value::Array(items) => items,
+        Value::Object(object) => object
+            .get("libraries")
+            .or_else(|| object.get("bibliotecas"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                "store:libraries devolveu um objeto sem a lista `libraries`".to_string()
+            })?,
+        _ => return Err("store:libraries devolveu um payload que não é uma lista".to_string()),
+    };
+
+    Ok(items.iter().filter_map(parse_store_library).collect())
+}
+
+fn parse_store_library(value: &Value) -> Option<StoreLibrary> {
+    let steam_dir = text_field_any(value, "steamDir")
+        .or_else(|| text_field_any(value, "steam_dir"))
+        .or_else(|| text_field_any(value, "path"))?;
+    let path = text_field_any(value, "path").unwrap_or_else(|| {
+        Path::new(&steam_dir)
+            .join("steamapps")
+            .to_string_lossy()
+            .into_owned()
+    });
+
+    Some(StoreLibrary {
+        path,
+        steam_dir,
+        free: value.get("free").and_then(value_to_u64).unwrap_or_default(),
+    })
+}
+
+/// Envelope de `store:install`: `ok:true`, ou `plugin`/`error` explicando a
+/// recusa. O download em si é assíncrono e aparece em `dm:queue`.
+pub fn parse_store_install_response(value: Value) -> Result<(), String> {
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+
+    if let Some(plugin) = optional_text_field(&value, "plugin") {
+        return Err(format!(
+            "store:install requer o plugin {plugin} ativo no dispatcher."
+        ));
+    }
+
+    match optional_text_field(&value, "error") {
+        Some(error) => Err(format!("store:install: {error}")),
+        None => Err("store:install falhou sem detalhes do dispatcher.".to_string()),
+    }
+}
+
+/// Payload aceito por `store:install` (mesmos campos do `confirmarBaixar` da
+/// web). `steam_dir` deve ser a raiz da biblioteca escolhida em
+/// `store:libraries`; `depots` são os escolhidos na ficha.
+pub fn store_install_payload(
+    game: &StoreGame,
+    info: &StoreInstallInfo,
+    steam_dir: &str,
+    depots: &[StoreDepot],
+) -> Value {
+    let appid = game
+        .appid
+        .trim()
+        .strip_prefix("steam:")
+        .unwrap_or(game.appid.trim());
+    let installdir = info
+        .install_dir
+        .as_deref()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| store_install_dir(&game.title, appid));
+    let depots: Vec<Value> = depots
+        .iter()
+        .map(|depot| {
+            json!({
+                "depotId": depot.depot_id,
+                "manifestId": depot.manifest_id,
+                "key": depot.key,
+                "size": depot.size,
+            })
+        })
+        .collect();
+
+    json!({
+        "appid": appid,
+        "title": game.title,
+        "cover": game.portrait_url.clone().or_else(|| game.cover_url.clone()).unwrap_or_default(),
+        "installdir": installdir,
+        "depots": depots,
+        "token": info.token.clone().unwrap_or_default(),
+        "dlcs": info.dlcs.clone(),
+        "steamDir": steam_dir,
+    })
+}
+
+/// `Half-Life: 2` → `HalfLife2`, como o `jogo.title.replace(/[^A-Za-z0-9]/g, "")`
+/// de `useStoreActions`. Sem letras/números, cai no appid.
+pub fn store_install_dir(title: &str, appid: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect();
+    if cleaned.is_empty() {
+        appid.to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn value_to_u64(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(number) => number.as_u64().or_else(|| {
+            number
+                .as_f64()
+                .filter(|number| *number >= 0.0)
+                .map(|number| number as u64)
+        }),
+        Value::String(text) => text.trim().parse::<u64>().ok(),
+        _ => None,
+    }
 }
 
 // ── Catálogo Retro ──────────────────────────────────────────────────────────
@@ -649,6 +914,140 @@ fn parse_retro_source(value: &Value) -> Option<RetroSource> {
         title,
         url: optional_image_url(value, "url"),
     })
+}
+
+/// Oferta resumida de `retro:game` (sem URIs; `hasUris`/`uriCount` indicam se
+/// `retro:offer` tem links).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RetroOffer {
+    pub id: String,
+    pub source_id: Option<String>,
+    pub source_title: Option<String>,
+    pub original_title: Option<String>,
+    pub file_size: Option<String>,
+    pub upload_date: Option<String>,
+    pub has_uris: bool,
+    pub uri_count: u64,
+    pub personal: bool,
+}
+
+/// Resposta de `retro:game`: jogo completo + ofertas + fontes (quando o
+/// catálogo remoto as inclui).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RetroGameDetail {
+    pub game: RetroGame,
+    pub offers: Vec<RetroOffer>,
+    pub sources: Vec<RetroSource>,
+}
+
+impl RetroGameDetail {
+    pub fn image_urls(&self) -> Vec<String> {
+        self.game.image_urls()
+    }
+}
+
+/// Resposta de `retro:offer` com as URIs (magnet/HTTP) da oferta.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RetroOfferDetail {
+    pub id: String,
+    pub uris: Vec<String>,
+}
+
+/// `retro:game` — `{ ok, game, offers, sources? }`.
+pub fn parse_retro_game_detail(value: Value) -> Result<RetroGameDetail, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "retro:game devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "retro:game")?;
+
+    let game = object
+        .get("game")
+        .and_then(parse_retro_game)
+        .ok_or_else(|| "retro:game devolveu um jogo sem id ou título".to_string())?;
+    let offers = object
+        .get("offers")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_retro_offer).collect())
+        .unwrap_or_default();
+    let sources = object
+        .get("sources")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_retro_source).collect())
+        .unwrap_or_default();
+
+    Ok(RetroGameDetail {
+        game,
+        offers,
+        sources,
+    })
+}
+
+fn parse_retro_offer(value: &Value) -> Option<RetroOffer> {
+    let id = text_field_any(value, "id")?;
+    if id.is_empty() {
+        return None;
+    }
+
+    Some(RetroOffer {
+        id,
+        source_id: optional_text_field(value, "sourceId")
+            .or_else(|| optional_text_field(value, "source_id")),
+        source_title: optional_text_field(value, "sourceTitle")
+            .or_else(|| optional_text_field(value, "source_title")),
+        original_title: optional_text_field(value, "originalTitle")
+            .or_else(|| optional_text_field(value, "original_title")),
+        file_size: optional_text_field(value, "fileSize")
+            .or_else(|| optional_text_field(value, "file_size")),
+        upload_date: optional_text_field(value, "uploadDate")
+            .or_else(|| optional_text_field(value, "upload_date")),
+        has_uris: value
+            .get("hasUris")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        uri_count: value
+            .get("uriCount")
+            .and_then(value_to_u64)
+            .unwrap_or_default(),
+        personal: value
+            .get("personal")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// `retro:offer` — `{ ok, offer: { id, uris: [...] } }`.
+pub fn parse_retro_offer_detail(value: Value) -> Result<RetroOfferDetail, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "retro:offer devolveu um payload que não é um objeto".to_string())?;
+    check_channel_ok(&value, "retro:offer")?;
+
+    let offer = object
+        .get("offer")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "retro:offer devolveu um payload sem a oferta".to_string())?;
+    let id = offer
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "retro:offer devolveu uma oferta sem id".to_string())?
+        .to_string();
+    let uris = offer
+        .get("uris")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|uri| !uri.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(RetroOfferDetail { id, uris })
 }
 
 fn retro_system_label(raw: &str) -> String {
@@ -2250,6 +2649,28 @@ impl Backend {
         parse_store_info(value)
     }
 
+    /// Manifesto de instalação Steam (`store:installInfo`).
+    pub async fn load_store_install_info(&self, appid: String) -> Result<StoreInstallInfo, String> {
+        let value = self
+            .dispatch("store:installInfo", vec![Value::String(appid)])
+            .await?;
+        parse_store_install_info(value)
+    }
+
+    /// Bibliotecas Steam (`store:libraries`) usadas para escolher o `steamDir`.
+    pub async fn load_store_libraries(&self) -> Result<Vec<StoreLibrary>, String> {
+        let value = self.dispatch("store:libraries", Vec::new()).await?;
+        parse_store_libraries(value)
+    }
+
+    /// Enfileira a instalação (`store:install`) com um payload já montado por
+    /// [`store_install_payload`]. Não baixa nada nesta chamada: o dispatcher
+    /// apenas adiciona o item à fila.
+    pub async fn install_store_game(&self, payload: Value) -> Result<(), String> {
+        let value = self.dispatch("store:install", vec![payload]).await?;
+        parse_store_install_response(value)
+    }
+
     /// Página do catálogo Retro (`retro:list`). O filtro usa `system`, a mesma
     /// chave aceita pelo catálogo remoto e pela UI web.
     pub async fn load_retro_page(
@@ -2276,6 +2697,20 @@ impl Backend {
         }
         let value = self.dispatch("retro:list", vec![payload]).await?;
         parse_retro_page(value)
+    }
+
+    /// Ficha completa do catálogo Retro (`retro:game`).
+    pub async fn load_retro_game(&self, id: String) -> Result<RetroGameDetail, String> {
+        let value = self.dispatch("retro:game", vec![Value::String(id)]).await?;
+        parse_retro_game_detail(value)
+    }
+
+    /// URIs de uma oferta Retro (`retro:offer`), somente para exibição.
+    pub async fn load_retro_offer(&self, id: String) -> Result<RetroOfferDetail, String> {
+        let value = self
+            .dispatch("retro:offer", vec![Value::String(id)])
+            .await?;
+        parse_retro_offer_detail(value)
     }
 
     /// Baixa, decodifica e reduz a imagem para um `Handle` pronto para o iced.
@@ -3060,5 +3495,196 @@ mod tests {
         let failed = parse_store_info(json!({ "ok": false, "error": "api_indisponivel" }))
             .expect_err("ok:false");
         assert!(failed.contains("api_indisponivel"), "{failed}");
+    }
+
+    #[test]
+    fn parses_store_install_info_libraries_and_recommended_depots() {
+        let info = parse_store_install_info(json!({
+            "ok": true,
+            "appid": "10",
+            "fonte": "Hubcap",
+            "installdir": "HalfLife",
+            "token": "token-abc",
+            "dlcs": ["20"],
+            "depots": [
+                { "depotId": "11", "manifestId": "111", "key": "k1", "size": 100, "os": "windows" },
+                { "depotId": "12", "manifestId": "112", "key": "k2", "size": 200, "os": "windows", "language": "english" },
+                { "depotId": "13", "manifestId": "113", "key": "k3", "size": 300, "os": "windows", "language": "brazilian" },
+                { "depotId": "14", "manifestId": "114", "key": "k4", "size": 400, "os": "windows", "dlcAppid": "20" },
+                { "depotId": "15", "manifestId": "115", "key": "k5", "size": 500, "shared": true },
+                { "depotId": "16", "manifestId": "116", "key": "k6", "size": 600, "os": "macos" },
+                { "depotId": "17", "manifestId": "117", "key": "k7", "size": "700" }
+            ]
+        }))
+        .expect("manifesto válido");
+
+        assert_eq!(info.appid.as_deref(), Some("10"));
+        assert_eq!(info.source.as_deref(), Some("Hubcap"));
+        assert_eq!(info.install_dir.as_deref(), Some("HalfLife"));
+        assert_eq!(info.token.as_deref(), Some("token-abc"));
+        assert_eq!(info.dlcs, vec!["20"]);
+        assert_eq!(info.depots.len(), 7);
+        assert_eq!(info.total_size(), 2_800);
+        assert_eq!(
+            info.recommended_depots(),
+            ["11", "12", "17"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        );
+        let relevant: Vec<&str> = info
+            .relevant_depots()
+            .iter()
+            .map(|depot| depot.depot_id.as_str())
+            .collect();
+        assert_eq!(relevant, vec!["11", "12", "13", "14"]);
+
+        let failed = parse_store_install_info(json!({
+            "ok": false,
+            "error": "nenhum provedor disponível"
+        }))
+        .expect_err("ok:false deve virar erro");
+        assert!(failed.contains("nenhum provedor disponível"), "{failed}");
+
+        let libraries = parse_store_libraries(json!([
+            {
+                "path": "/games/SteamLibrary/steamapps",
+                "steamDir": "/games/SteamLibrary",
+                "free": 123456
+            }
+        ]))
+        .expect("bibliotecas válidas");
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].steam_dir, "/games/SteamLibrary");
+        assert_eq!(libraries[0].free, 123_456);
+        assert!(parse_store_libraries(json!({ "ok": true, "libraries": [] }))
+            .expect("objeto com libraries")
+            .is_empty());
+        assert!(parse_store_libraries(Value::Null).is_err());
+    }
+
+    #[test]
+    fn builds_store_install_payload_and_maps_dispatcher_errors() {
+        let game = StoreGame {
+            appid: "steam:10".to_string(),
+            title: "Half-Life: 2".to_string(),
+            cover_url: Some("https://cdn.test/header.jpg".to_string()),
+            portrait_url: Some("https://cdn.test/portrait.jpg".to_string()),
+            ..StoreGame::default()
+        };
+        let info = parse_store_install_info(json!({
+            "ok": true,
+            "installdir": "HalfLife2",
+            "token": "token",
+            "dlcs": ["20"],
+            "depots": [
+                { "depotId": "11", "manifestId": "111", "key": "k1", "size": 100 }
+            ]
+        }))
+        .expect("manifesto válido");
+        let depots: Vec<StoreDepot> = info.depots.clone();
+        let payload = store_install_payload(&game, &info, "/games/Steam", &depots);
+
+        assert_eq!(payload["appid"], "10");
+        assert_eq!(payload["title"], "Half-Life: 2");
+        assert_eq!(payload["cover"], "https://cdn.test/portrait.jpg");
+        assert_eq!(payload["installdir"], "HalfLife2");
+        assert_eq!(payload["steamDir"], "/games/Steam");
+        assert_eq!(payload["token"], "token");
+        assert_eq!(payload["dlcs"], json!(["20"]));
+        assert_eq!(payload["depots"][0]["depotId"], "11");
+        assert_eq!(payload["depots"][0]["manifestId"], "111");
+        assert_eq!(store_install_dir("???", "10"), "10");
+
+        assert!(parse_store_install_response(json!({ "ok": true })).is_ok());
+        let plugin = parse_store_install_response(json!({
+            "ok": false,
+            "plugin": "slssteam"
+        }))
+        .expect_err("plugin desligado");
+        assert!(plugin.contains("slssteam"), "{plugin}");
+        let failed = parse_store_install_response(json!({
+            "ok": false,
+            "error": "Steam não encontrada"
+        }))
+        .expect_err("erro do dispatcher");
+        assert!(failed.contains("Steam não encontrada"), "{failed}");
+    }
+
+    #[test]
+    fn parses_retro_game_detail_offers_and_offer_uris() {
+        let detail = parse_retro_game_detail(json!({
+            "ok": true,
+            "game": {
+                "id": "retro:1",
+                "title": "Chrono Trigger",
+                "systemId": "nintendo-snes",
+                "platform": "nintendo-snes",
+                "releaseYear": 1995,
+                "developer": ["Square"],
+                "publisher": ["Square"],
+                "genres": ["RPG", "Aventura"],
+                "description": "<p>Viagem no tempo</p>",
+                "offerCount": 2,
+                "fileSize": "4 MiB",
+                "artwork": {
+                    "cover": "//cdn.test/chrono.jpg",
+                    "backgrounds": ["https://cdn.test/chrono-hero.jpg"]
+                }
+            },
+            "offers": [
+                {
+                    "id": "offer:1",
+                    "sourceId": "src",
+                    "sourceTitle": "Fonte",
+                    "originalTitle": "Chrono Trigger (USA)",
+                    "fileSize": "4 MiB",
+                    "uploadDate": "2024-01-02",
+                    "hasUris": true,
+                    "uriCount": 2
+                }
+            ],
+            "sources": [
+                { "id": "src", "title": "Fonte", "url": "https://example.test/catalog" }
+            ]
+        }))
+        .expect("ficha Retro válida");
+
+        assert_eq!(detail.game.title, "Chrono Trigger");
+        assert_eq!(detail.game.release_year, Some(1995));
+        assert_eq!(detail.game.developer.as_deref(), Some("Square"));
+        assert_eq!(detail.game.genres, vec!["RPG", "Aventura"]);
+        assert_eq!(
+            detail.game.description.as_deref(),
+            Some("Viagem no tempo")
+        );
+        assert_eq!(
+            detail.game.hero_url.as_deref(),
+            Some("https://cdn.test/chrono-hero.jpg")
+        );
+        assert_eq!(detail.offers.len(), 1);
+        assert_eq!(detail.offers[0].uri_count, 2);
+        assert!(detail.offers[0].has_uris);
+        assert_eq!(detail.sources.len(), 1);
+
+        let offer = parse_retro_offer_detail(json!({
+            "ok": true,
+            "offer": {
+                "id": "offer:1",
+                "uris": ["magnet:?xt=urn:btih:abc", "https://example.test/rom.zip", " "]
+            }
+        }))
+        .expect("oferta válida");
+        assert_eq!(offer.id, "offer:1");
+        assert_eq!(offer.uris.len(), 2);
+
+        let failed = parse_retro_game_detail(json!({
+            "ok": false,
+            "error": "Game not found"
+        }))
+        .expect_err("ok:false deve virar erro");
+        assert!(failed.contains("Game not found"), "{failed}");
+        assert!(parse_retro_game_detail(json!({ "ok": true })).is_err());
+        assert!(parse_retro_offer_detail(json!({ "ok": true })).is_err());
     }
 }

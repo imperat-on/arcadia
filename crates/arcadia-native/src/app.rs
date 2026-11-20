@@ -14,8 +14,9 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
-    LaunchSnapshot, NewsItem, PluginItem, RetroGame, RetroPage, RetroSource, RetroSystemInfo,
-    SettingsConfig, SourceItem, StoreGame, StoreInfo, StorePage, StoreSearch, TrailerResult,
+    LaunchSnapshot, NewsItem, PluginItem, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage,
+    RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
+    StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
     BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
@@ -150,6 +151,20 @@ pub enum Message {
         appid: String,
         result: Result<StoreInfo, String>,
     },
+    StoreInstallInfoLoaded {
+        appid: String,
+        result: Result<StoreInstallInfo, String>,
+    },
+    StoreLibrariesLoaded(Result<Vec<StoreLibrary>, String>),
+    StoreDepotToggled(String),
+    StoreRecommendedDepots,
+    StoreClearDepots,
+    StoreLibrarySelected(usize),
+    StoreInstallRequested,
+    StoreInstallDone {
+        appid: String,
+        result: Result<(), String>,
+    },
     RetroQueryChanged(String),
     RetroSystemChanged(RetroSystemInfo),
     RetroSearchSubmitted,
@@ -161,6 +176,17 @@ pub enum Message {
     },
     RetroPrevPage,
     RetroNextPage,
+    RetroOpenDetail(RetroGame),
+    RetroCloseDetail,
+    RetroDetailLoaded {
+        id: String,
+        result: Result<RetroGameDetail, String>,
+    },
+    RetroOfferRequested(String),
+    RetroOfferLoaded {
+        offer_id: String,
+        result: Result<RetroOfferDetail, String>,
+    },
     SidebarSearchChanged(String),
     ToggleSidebarGames,
     WindowReady(Option<window::Id>),
@@ -588,6 +614,32 @@ pub struct StoreDetailState {
     pub info: Option<StoreInfo>,
     pub status: LoadStatus,
     pub error: Option<String>,
+    /// Manifesto de `store:installInfo` (depots, token, tamanho, installdir).
+    pub install: Option<StoreInstallInfo>,
+    pub install_status: LoadStatus,
+    pub install_error: Option<String>,
+    /// Bibliotecas de `store:libraries`, usadas para escolher o `steamDir`.
+    pub libraries: Vec<StoreLibrary>,
+    pub libraries_status: LoadStatus,
+    pub libraries_error: Option<String>,
+    pub selected_library: usize,
+    pub selected_depots: BTreeSet<String>,
+    pub install_busy: bool,
+    /// Confirmação exibida depois que `store:install` aceita o pedido.
+    pub install_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetroDetailState {
+    /// Jogo semeado pelo card; a ficha completa substitui/completa os campos.
+    pub game: RetroGame,
+    pub detail: Option<RetroGameDetail>,
+    pub status: LoadStatus,
+    pub error: Option<String>,
+    pub selected_offer: Option<String>,
+    pub offer_detail: Option<RetroOfferDetail>,
+    pub offer_status: LoadStatus,
+    pub offer_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -616,6 +668,8 @@ pub struct RetroState {
     pub offset: u64,
     pub has_more: bool,
     pub error: Option<String>,
+    /// Ficha aberta por clique num card; `None` na grade.
+    pub detail: Option<RetroDetailState>,
     /// Descarta respostas de uma página antiga quando o usuário pagina rápido.
     pub generation: u64,
 }
@@ -634,6 +688,7 @@ impl Default for RetroState {
             offset: 0,
             has_more: false,
             error: None,
+            detail: None,
             generation: 0,
         }
     }
@@ -769,6 +824,7 @@ impl App {
                 self.reset_trailer_state();
                 if section != Section::Stores {
                     self.store.detail = None;
+                    self.retro.detail = None;
                 }
                 self.screen = Screen::for_section(section);
                 self.load_section(section, false)
@@ -1014,6 +1070,8 @@ impl App {
                     return Task::none();
                 }
                 self.store.tab = tab;
+                self.store.detail = None;
+                self.retro.detail = None;
                 match tab {
                     StoreTab::Steam if matches!(self.store.browse.status, LoadStatus::Idle) => {
                         self.load_store_browse(false)
@@ -1191,13 +1249,31 @@ impl App {
             Message::StoreOpenDetail(game) => {
                 let urls = game.image_urls();
                 let info_task = self.store_info_task(&game);
+                let install_task = self.store_install_info_task(&game);
+                let libraries_task = self.store_libraries_task();
+                self.retro.detail = None;
                 self.store.detail = Some(StoreDetailState {
                     game,
                     info: None,
                     status: LoadStatus::Loading,
                     error: None,
+                    install: None,
+                    install_status: LoadStatus::Loading,
+                    install_error: None,
+                    libraries: Vec::new(),
+                    libraries_status: LoadStatus::Loading,
+                    libraries_error: None,
+                    selected_library: 0,
+                    selected_depots: BTreeSet::new(),
+                    install_busy: false,
+                    install_message: None,
                 });
-                Task::batch([self.cover_tasks(urls), info_task])
+                Task::batch([
+                    self.cover_tasks(urls),
+                    info_task,
+                    install_task,
+                    libraries_task,
+                ])
             }
             Message::StoreCloseDetail => {
                 self.store.detail = None;
@@ -1225,6 +1301,158 @@ impl App {
                         Task::none()
                     }
                 }
+            }
+            Message::StoreInstallInfoLoaded { appid, result } => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.appid != appid {
+                    return Task::none();
+                }
+                match result {
+                    Ok(info) => {
+                        detail.selected_depots = info.recommended_depots();
+                        detail.install = Some(info);
+                        detail.install_status = LoadStatus::Ready;
+                        detail.install_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (installInfo): {error}");
+                        detail.install = None;
+                        detail.install_status = LoadStatus::Error(error.clone());
+                        detail.install_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreLibrariesLoaded(result) => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                match result {
+                    Ok(libraries) => {
+                        detail.libraries = libraries;
+                        if detail.selected_library >= detail.libraries.len() {
+                            detail.selected_library = 0;
+                        }
+                        detail.libraries_status = LoadStatus::Ready;
+                        detail.libraries_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (libraries): {error}");
+                        detail.libraries.clear();
+                        detail.libraries_status = LoadStatus::Error(error.clone());
+                        detail.libraries_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreDepotToggled(depot_id) => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    if !detail.selected_depots.remove(&depot_id) {
+                        detail.selected_depots.insert(depot_id);
+                    }
+                    detail.install_message = None;
+                }
+                Task::none()
+            }
+            Message::StoreRecommendedDepots => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    if let Some(info) = detail.install.as_ref() {
+                        detail.selected_depots = info.recommended_depots();
+                        detail.install_message = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreClearDepots => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    detail.selected_depots.clear();
+                    detail.install_message = None;
+                }
+                Task::none()
+            }
+            Message::StoreLibrarySelected(index) => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    if index < detail.libraries.len() {
+                        detail.selected_library = index;
+                        detail.install_message = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreInstallRequested => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.install_busy {
+                    return Task::none();
+                }
+                let Some(info) = detail.install.as_ref() else {
+                    detail.install_error = Some(
+                        "O manifesto de store:installInfo ainda não foi carregado.".to_string(),
+                    );
+                    return Task::none();
+                };
+                let Some(library) = detail.libraries.get(detail.selected_library) else {
+                    detail.install_error = Some(
+                        "Nenhuma biblioteca Steam encontrada para o store:install.".to_string(),
+                    );
+                    return Task::none();
+                };
+                let depots: Vec<StoreDepot> = info
+                    .depots
+                    .iter()
+                    .filter(|depot| detail.selected_depots.contains(&depot.depot_id))
+                    .cloned()
+                    .collect();
+                if depots.is_empty() {
+                    detail.install_error = Some("Selecione ao menos um depot.".to_string());
+                    return Task::none();
+                }
+
+                let payload = crate::backend::store_install_payload(
+                    &detail.game,
+                    info,
+                    &library.steam_dir,
+                    &depots,
+                );
+                let appid = detail.game.appid.clone();
+                detail.install_busy = true;
+                detail.install_error = None;
+                detail.install_message = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.install_store_game(payload).await },
+                    move |result| Message::StoreInstallDone { appid, result },
+                )
+            }
+            Message::StoreInstallDone { appid, result } => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.appid != appid {
+                    return Task::none();
+                }
+                detail.install_busy = false;
+                match result {
+                    Ok(()) => {
+                        eprintln!(
+                            "[arcadia-native] loja: {} enfileirado em store:install",
+                            detail.game.title
+                        );
+                        detail.install_error = None;
+                        detail.install_message = Some(format!(
+                            "“{}” entrou na fila de downloads. Acompanhe em Downloads.",
+                            detail.game.title
+                        ));
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (install): {error}");
+                        detail.install_error = Some(error);
+                    }
+                }
+                Task::none()
             }
             Message::RetroQueryChanged(query) => {
                 self.retro.query = query;
@@ -1291,6 +1519,93 @@ impl App {
                 }
                 let offset = self.retro.offset + RETRO_PAGE_SIZE;
                 self.load_retro_page(offset)
+            }
+            Message::RetroOpenDetail(game) => {
+                let urls = game.image_urls();
+                let detail_task = self.retro_game_task(&game);
+                self.store.detail = None;
+                self.retro.detail = Some(RetroDetailState {
+                    game,
+                    detail: None,
+                    status: LoadStatus::Loading,
+                    error: None,
+                    selected_offer: None,
+                    offer_detail: None,
+                    offer_status: LoadStatus::Idle,
+                    offer_error: None,
+                });
+                Task::batch([self.cover_tasks(urls), detail_task])
+            }
+            Message::RetroCloseDetail => {
+                self.retro.detail = None;
+                Task::none()
+            }
+            Message::RetroDetailLoaded { id, result } => {
+                let Some(detail) = self.retro.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.id != id {
+                    return Task::none();
+                }
+                let urls = match result {
+                    Ok(full) => {
+                        let urls = full.image_urls();
+                        detail.game = full.game.clone();
+                        detail.detail = Some(full);
+                        detail.status = LoadStatus::Ready;
+                        detail.error = None;
+                        urls
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] retro (ficha): {error}");
+                        detail.status = LoadStatus::Error(error.clone());
+                        detail.error = Some(error);
+                        Vec::new()
+                    }
+                };
+                self.cover_tasks(urls)
+            }
+            Message::RetroOfferRequested(offer_id) => {
+                let Some(detail) = self.retro.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.offer_status == LoadStatus::Loading
+                    && detail.selected_offer.as_deref() == Some(offer_id.as_str())
+                {
+                    return Task::none();
+                }
+                detail.selected_offer = Some(offer_id.clone());
+                detail.offer_detail = None;
+                detail.offer_status = LoadStatus::Loading;
+                detail.offer_error = None;
+                let backend = self.backend.clone();
+                let request_id = offer_id.clone();
+                Task::perform(
+                    async move { backend.load_retro_offer(request_id).await },
+                    move |result| Message::RetroOfferLoaded { offer_id, result },
+                )
+            }
+            Message::RetroOfferLoaded { offer_id, result } => {
+                let Some(detail) = self.retro.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.selected_offer.as_deref() != Some(offer_id.as_str()) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(offer) => {
+                        detail.offer_detail = Some(offer);
+                        detail.offer_status = LoadStatus::Ready;
+                        detail.offer_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] retro (oferta): {error}");
+                        detail.offer_detail = None;
+                        detail.offer_status = LoadStatus::Error(error.clone());
+                        detail.offer_error = Some(error);
+                    }
+                }
+                Task::none()
             }
             Message::SidebarSearchChanged(search) => {
                 self.sidebar_search = search;
@@ -2490,7 +2805,8 @@ impl App {
         self.load_retro_page(0)
     }
 
-    fn store_info_task(&self, game: &StoreGame) -> Task<Message> {        let backend = self.backend.clone();
+    fn store_info_task(&self, game: &StoreGame) -> Task<Message> {
+        let backend = self.backend.clone();
         let appid = game.appid.clone();
         let message_appid = appid.clone();
         let title = game.title.clone();
@@ -2498,6 +2814,40 @@ impl App {
             async move { backend.load_store_info(appid, title).await },
             move |result| Message::StoreDetailLoaded {
                 appid: message_appid,
+                result,
+            },
+        )
+    }
+
+    fn store_install_info_task(&self, game: &StoreGame) -> Task<Message> {
+        let backend = self.backend.clone();
+        let appid = game.appid.clone();
+        let message_appid = appid.clone();
+        Task::perform(
+            async move { backend.load_store_install_info(appid).await },
+            move |result| Message::StoreInstallInfoLoaded {
+                appid: message_appid,
+                result,
+            },
+        )
+    }
+
+    fn store_libraries_task(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_store_libraries().await },
+            Message::StoreLibrariesLoaded,
+        )
+    }
+
+    fn retro_game_task(&self, game: &RetroGame) -> Task<Message> {
+        let backend = self.backend.clone();
+        let id = game.id.clone();
+        let message_id = id.clone();
+        Task::perform(
+            async move { backend.load_retro_game(id).await },
+            move |result| Message::RetroDetailLoaded {
+                id: message_id,
                 result,
             },
         )
