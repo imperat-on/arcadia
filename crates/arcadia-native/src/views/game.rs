@@ -27,6 +27,7 @@ pub fn view<'a>(
     media: &'a MediaPlayer,
     game_media: Option<&'a GameMedia>,
     panels: Option<&'a GamePanels>,
+    community: Option<&'a super::community::CommunityState>,
     selected_screenshot: usize,
     launch: &'a GameLaunchState,
     trailer_picker: &'a TrailerPickerState,
@@ -117,9 +118,12 @@ pub fn view<'a>(
     let description = description_panel(game, game_media);
     let gallery = gallery_panel(game_media, covers, selected_screenshot);
 
-    let left = column![description, gallery]
+    let mut left = column![description, gallery]
         .spacing(theme::SPACE_4)
         .width(iced::FillPortion(2));
+    if let Some(community) = community {
+        left = left.push(super::community::panel(game.title.as_str(), community));
+    }
 
     let mut gamepad = input::GamepadInput::new();
     let gamepad_state = gamepad.poll();

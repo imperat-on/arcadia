@@ -13,11 +13,13 @@ use iced::{keyboard, window, Element, Fill, Size, Subscription, Task};
 use serde_json::{json, Value};
 
 use crate::backend::{
-    Achievement, AchievementsData, Backend, DownloadAction, DownloadItem, DownloadsData,
-    EmulationLoad, EmulatorInfo, EmulatorProfile, EmulatorRomEntry, EmulatorRomFolder,
-    EmulatorRomIndexEntry, EmulatorScanResult, EmulatorStatus, FriendsLoad, Game, GameMedia,
-    GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent, LaunchToggle, NewsItem,
-    PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage,
+    Achievement, AchievementsData, Backend, CommunityCollectionsPage, CommunityError,
+    CommunityReviewsPage, DownloadAction, DownloadItem, DownloadsData, EmulationLoad, EmulatorInfo,
+    EmulatorProfile, EmulatorRomEntry, EmulatorRomFolder, EmulatorRomIndexEntry, EmulatorScanResult,
+    EmulatorStatus, FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats,
+    LaunchEvent, LaunchToggle, NewsItem, PluginAction, PluginActionOutcome, PluginDetails,
+    PluginItem, PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame, RetroGameDetail,
+    RetroOfferDetail, RetroPage,
     RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
     StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
 };
@@ -30,6 +32,7 @@ use crate::i18n::{I18n, Lang};
 use crate::media::{self, MediaPlayer};
 use crate::theme;
 use crate::views;
+use crate::views::community::{CommunityCache, CommunityTab};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -202,6 +205,44 @@ pub enum Message {
     SourcesActionDone(Result<(), String>),
     FriendsLoaded(Result<FriendsLoad, String>),
     ComponentsLoaded(Result<Vec<PluginItem>, String>),
+    PluginActionRequested {
+        id: String,
+        action: PluginAction,
+    },
+    PluginActionDone {
+        id: String,
+        action: PluginAction,
+        result: Result<PluginActionOutcome, String>,
+    },
+    PluginVerifyRequested(String),
+    PluginVerifyDone {
+        id: String,
+        result: Result<PluginVerification, String>,
+    },
+    PluginDetailsRequested(String),
+    PluginDetailsDone {
+        id: String,
+        result: Result<PluginDetails, String>,
+    },
+    PluginDetailsClose,
+    PluginPathChanged(String),
+    PluginRegisterRequested,
+    PluginRegisterDone(Result<PluginRegistration, String>),
+    CommunityTabChanged(CommunityTab),
+    CommunityRefresh(CommunityTab),
+    CommunityLoadMore(CommunityTab),
+    CommunityReviewsLoaded {
+        appid: String,
+        offset: u64,
+        append: bool,
+        result: Result<CommunityReviewsPage, CommunityError>,
+    },
+    CommunityCollectionsLoaded {
+        appid: String,
+        offset: u64,
+        append: bool,
+        result: Result<CommunityCollectionsPage, CommunityError>,
+    },
     StoreTabChanged(StoreTab),
     StoreQueryChanged(String),
     StoreSearchSubmitted,
@@ -840,10 +881,33 @@ pub struct FriendsState {
     pub status: LoadStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct PluginNotice {
+    pub ok: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PluginDetailsPanel {
+    pub id: String,
+    pub status: LoadStatus,
+    pub details: Option<PluginDetails>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ComponentsState {
     pub plugins: Vec<PluginItem>,
     pub status: LoadStatus,
+    pub path_draft: String,
+    pub registering: bool,
+    /// Ação em voo; evita dois IPCs concorrentes no mesmo registro.
+    pub busy: Option<String>,
+    /// Último resultado por plugin, exibido no card.
+    pub notices: HashMap<String, PluginNotice>,
+    /// Banner global de registro/erro de ação.
+    pub banner: Option<PluginNotice>,
+    pub details: Option<PluginDetailsPanel>,
 }
 
 /// Aba interna de Lojas: a mesma alternância `steam | retro` da web.
@@ -1000,6 +1064,7 @@ pub struct App {
     pub sources: SourcesState,
     pub friends: FriendsState,
     pub components: ComponentsState,
+    pub community: CommunityCache,
     pub store: StoreState,
     pub retro: RetroState,
     pub sidebar_search: String,
@@ -1044,6 +1109,7 @@ impl App {
             sources: SourcesState::default(),
             friends: FriendsState::default(),
             components: ComponentsState::default(),
+            community: CommunityCache::default(),
             store: StoreState::default(),
             retro: RetroState::default(),
             sidebar_search: String::new(),
@@ -1628,6 +1694,305 @@ impl App {
                     Err(error) => {
                         eprintln!("[arcadia-native] componentes: {error}");
                         self.components.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::PluginActionRequested { id, action } => {
+                if self.components.busy.is_some() || self.components.registering {
+                    return Task::none();
+                }
+                self.components.busy = Some(id.clone());
+                self.components.banner = None;
+                self.components.notices.remove(&id);
+                let backend = self.backend.clone();
+                let message_id = id.clone();
+                Task::perform(
+                    async move { backend.run_plugin_action(id, action).await },
+                    move |result| Message::PluginActionDone {
+                        id: message_id,
+                        action,
+                        result,
+                    },
+                )
+            }
+            Message::PluginActionDone { id, action, result } => {
+                self.components.busy = None;
+                match result {
+                    Ok(PluginActionOutcome::Success) => {
+                        self.components.notices.insert(
+                            id,
+                            PluginNotice {
+                                ok: true,
+                                message: action.success_message().to_string(),
+                            },
+                        );
+                        self.reload_components()
+                    }
+                    Ok(PluginActionOutcome::NotDetected) => {
+                        let message = format!(
+                            "{}: arquivo do componente não encontrado no sistema; nada foi baixado.",
+                            action.label()
+                        );
+                        self.components.notices.insert(
+                            id,
+                            PluginNotice {
+                                ok: false,
+                                message: message.clone(),
+                            },
+                        );
+                        self.components.banner = Some(PluginNotice {
+                            ok: false,
+                            message,
+                        });
+                        self.reload_components()
+                    }
+                    Err(error) => {
+                        let message = format!("{}: {error}", action.label());
+                        self.components.notices.insert(
+                            id,
+                            PluginNotice {
+                                ok: false,
+                                message: message.clone(),
+                            },
+                        );
+                        self.components.banner = Some(PluginNotice {
+                            ok: false,
+                            message,
+                        });
+                        self.reload_components()
+                    }
+                }
+            }
+            Message::PluginVerifyRequested(id) => {
+                if self.components.busy.is_some() || self.components.registering {
+                    return Task::none();
+                }
+                self.components.busy = Some(id.clone());
+                self.components.banner = None;
+                self.components.notices.remove(&id);
+                let backend = self.backend.clone();
+                let message_id = id.clone();
+                Task::perform(
+                    async move { backend.verify_plugin(id).await },
+                    move |result| Message::PluginVerifyDone {
+                        id: message_id,
+                        result,
+                    },
+                )
+            }
+            Message::PluginVerifyDone { id, result } => {
+                self.components.busy = None;
+                match result {
+                    Ok(verification) => {
+                        let ok = verification.ok && verification.valid;
+                        self.components.notices.insert(
+                            id,
+                            PluginNotice {
+                                ok,
+                                message: verification_summary(&verification),
+                            },
+                        );
+                    }
+                    Err(error) => {
+                        self.components.notices.insert(
+                            id,
+                            PluginNotice {
+                                ok: false,
+                                message: error.clone(),
+                            },
+                        );
+                        self.components.banner = Some(PluginNotice {
+                            ok: false,
+                            message: format!("Verificar: {error}"),
+                        });
+                    }
+                }
+                self.reload_components()
+            }
+            Message::PluginDetailsRequested(id) => {
+                self.components.details = Some(PluginDetailsPanel {
+                    id: id.clone(),
+                    status: LoadStatus::Loading,
+                    details: None,
+                    error: None,
+                });
+                let backend = self.backend.clone();
+                let message_id = id.clone();
+                Task::perform(
+                    async move { backend.load_plugin_details(id).await },
+                    move |result| Message::PluginDetailsDone {
+                        id: message_id,
+                        result,
+                    },
+                )
+            }
+            Message::PluginDetailsDone { id, result } => {
+                let Some(panel) = self.components.details.as_mut() else {
+                    return Task::none();
+                };
+                if panel.id != id {
+                    return Task::none();
+                }
+                match result {
+                    Ok(details) => {
+                        panel.details = Some(details);
+                        panel.status = LoadStatus::Ready;
+                        panel.error = None;
+                    }
+                    Err(error) => {
+                        panel.details = None;
+                        panel.status = LoadStatus::Error(error.clone());
+                        panel.error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::PluginDetailsClose => {
+                self.components.details = None;
+                Task::none()
+            }
+            Message::PluginPathChanged(path) => {
+                self.components.path_draft = path;
+                Task::none()
+            }
+            Message::PluginRegisterRequested => {
+                if self.components.registering || self.components.busy.is_some() {
+                    return Task::none();
+                }
+                let path = self.components.path_draft.trim().to_string();
+                if path.is_empty() {
+                    self.components.banner = Some(PluginNotice {
+                        ok: false,
+                        message: "Informe o caminho da pasta ou do manifesto do componente."
+                            .to_string(),
+                    });
+                    return Task::none();
+                }
+                self.components.registering = true;
+                self.components.banner = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.register_plugin(path).await },
+                    Message::PluginRegisterDone,
+                )
+            }
+            Message::PluginRegisterDone(result) => {
+                self.components.registering = false;
+                match result {
+                    Ok(registration) => {
+                        self.components.path_draft.clear();
+                        let message = if registration.name.is_empty()
+                            || registration.name == registration.id
+                        {
+                            format!("Componente {} registrado.", registration.id)
+                        } else {
+                            format!(
+                                "Componente {} ({}) registrado.",
+                                registration.name, registration.id
+                            )
+                        };
+                        self.components.banner = Some(PluginNotice { ok: true, message });
+                        self.reload_components()
+                    }
+                    Err(error) => {
+                        self.components.banner = Some(PluginNotice {
+                            ok: false,
+                            message: format!("Registrar componente: {error}"),
+                        });
+                        Task::none()
+                    }
+                }
+            }
+            Message::CommunityTabChanged(tab) => {
+                if let Some(appid) = self.current_community_appid() {
+                    if let Some(state) = self.community.get_mut(&appid) {
+                        state.tab = tab;
+                    }
+                }
+                Task::none()
+            }
+            Message::CommunityRefresh(tab) => {
+                let Some(appid) = self.current_community_appid() else {
+                    return Task::none();
+                };
+                match tab {
+                    CommunityTab::Reviews => self.load_community_reviews(&appid, 0, false),
+                    CommunityTab::Collections => {
+                        self.load_community_collections(&appid, 0, false)
+                    }
+                }
+            }
+            Message::CommunityLoadMore(tab) => {
+                let Some(appid) = self.current_community_appid() else {
+                    return Task::none();
+                };
+                let Some(state) = self.community.get(&appid) else {
+                    return Task::none();
+                };
+                let offset = match tab {
+                    CommunityTab::Reviews => state.reviews.next_offset,
+                    CommunityTab::Collections => state.collections.next_offset,
+                };
+                match tab {
+                    CommunityTab::Reviews => self.load_community_reviews(&appid, offset, true),
+                    CommunityTab::Collections => {
+                        self.load_community_collections(&appid, offset, true)
+                    }
+                }
+            }
+            Message::CommunityReviewsLoaded {
+                appid,
+                offset,
+                append,
+                result,
+            } => {
+                let Some(state) = self.community.get_mut(&appid) else {
+                    return Task::none();
+                };
+                state.reviews.loading_more = false;
+                match result {
+                    Ok(page) => state.apply_reviews_page(page, offset, append),
+                    Err(error) => {
+                        if append && !state.reviews.items.is_empty() {
+                            state.reviews.error = Some(error.message);
+                            state.reviews.offline = error.offline;
+                        } else {
+                            state.reviews.status = LoadStatus::Error(error.message.clone());
+                            state.reviews.error = Some(error.message);
+                            state.reviews.offline = error.offline;
+                            state.reviews.items.clear();
+                            state.reviews.has_more = false;
+                            state.reviews.next_offset = 0;
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::CommunityCollectionsLoaded {
+                appid,
+                offset,
+                append,
+                result,
+            } => {
+                let Some(state) = self.community.get_mut(&appid) else {
+                    return Task::none();
+                };
+                state.collections.loading_more = false;
+                match result {
+                    Ok(page) => state.apply_collections_page(page, offset, append),
+                    Err(error) => {
+                        if append && !state.collections.items.is_empty() {
+                            state.collections.error = Some(error.message);
+                            state.collections.offline = error.offline;
+                        } else {
+                            state.collections.status = LoadStatus::Error(error.message.clone());
+                            state.collections.error = Some(error.message);
+                            state.collections.offline = error.offline;
+                            state.collections.items.clear();
+                            state.collections.has_more = false;
+                            state.collections.next_offset = 0;
+                        }
                     }
                 }
                 Task::none()
@@ -2929,7 +3294,12 @@ impl App {
             .as_ref()
             .map(|game| self.game_panels_task(game))
             .unwrap_or_else(Task::none);
-        Task::batch([covers, media, panels])
+        let community = game
+            .as_ref()
+            .and_then(|game| game.steam_appid())
+            .map(|appid| self.community_tasks(appid))
+            .unwrap_or_else(Task::none);
+        Task::batch([covers, media, panels, community])
     }
 
     /// Drena a fila do `NativeShell` e aplica os eventos de lançamento.
@@ -3631,17 +4001,23 @@ impl App {
         let content: Element<'_, Message> = match &self.screen {
             Screen::Library => views::library::view(self),
             Screen::Game(id) => match self.library.game(id) {
-                Some(game) => views::game::view(
-                    game,
-                    &self.covers,
-                    &self.media,
-                    self.game_media.as_ref(),
-                    self.game_panels.get(id),
-                    self.selected_screenshot,
-                    &self.launch,
-                    &self.trailer_picker,
-                    &self.launch_options,
-                ),
+                Some(game) => {
+                    let community = game
+                        .steam_appid()
+                        .and_then(|appid| self.community.get(appid));
+                    views::game::view(
+                        game,
+                        &self.covers,
+                        &self.media,
+                        self.game_media.as_ref(),
+                        self.game_panels.get(id),
+                        community,
+                        self.selected_screenshot,
+                        &self.launch,
+                        &self.trailer_picker,
+                        &self.launch_options,
+                    )
+                }
                 None => views::missing_game(&self.i18n),
             },
             Screen::Section(Section::Downloads) => views::downloads::view(self),
@@ -3820,6 +4196,7 @@ impl App {
             }
             Section::Components if force || matches!(self.components.status, LoadStatus::Idle) => {
                 self.components.status = LoadStatus::Loading;
+                self.components.banner = None;
                 let backend = self.backend.clone();
                 Task::perform(
                     async move { backend.load_plugins().await },
@@ -3921,6 +4298,7 @@ impl App {
         let info_task = self.store_info_task(&game);
         let install_task = self.store_install_info_task(&game);
         let libraries_task = self.store_libraries_task();
+        let community_task = self.community_tasks(&game.appid);
         self.retro.detail = None;
         self.store.detail = Some(StoreDetailState {
             game,
@@ -3943,6 +4321,7 @@ impl App {
             info_task,
             install_task,
             libraries_task,
+            community_task,
         ])
     }
 
@@ -4106,6 +4485,136 @@ impl App {
         self.window.map(action).unwrap_or_else(Task::none)
     }
 
+    /// Recarrega `plugins:list` sem trocar a tela para "Carregando"; a lista
+    /// atual continua visível até o resultado chegar.
+    fn reload_components(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_plugins().await },
+            Message::ComponentsLoaded,
+        )
+    }
+
+    /// Estado de comunidade do jogo/loja atualmente aberto, já sem `steam:`.
+    fn current_community_appid(&self) -> Option<String> {
+        match &self.screen {
+            Screen::Game(id) => self
+                .library
+                .game(id)
+                .and_then(|game| game.steam_appid())
+                .map(crate::backend::community_appid),
+            Screen::Section(Section::Stores) => self
+                .store
+                .detail
+                .as_ref()
+                .map(|detail| crate::backend::community_appid(&detail.game.appid)),
+            _ => None,
+        }
+    }
+
+    /// Primeira carga do painel para um appid; o cache evita repetir o IPC ao
+    /// reabrir a mesma ficha na sessão.
+    fn community_tasks(&mut self, appid: &str) -> Task<Message> {
+        let appid = crate::backend::community_appid(appid);
+        if appid.is_empty() {
+            return Task::none();
+        }
+        let (_, fresh) = self.community.ensure(&appid);
+        if !fresh {
+            return Task::none();
+        }
+        let reviews = self.load_community_reviews(&appid, 0, false);
+        let collections = self.load_community_collections(&appid, 0, false);
+        Task::batch([reviews, collections])
+    }
+
+    fn load_community_reviews(
+        &mut self,
+        appid: &str,
+        offset: u64,
+        append: bool,
+    ) -> Task<Message> {
+        let Some(state) = self.community.get_mut(appid) else {
+            return Task::none();
+        };
+        if append {
+            if state.reviews.loading_more || !state.reviews.has_more {
+                return Task::none();
+            }
+            state.reviews.loading_more = true;
+            state.reviews.error = None;
+        } else {
+            state.reviews.status = LoadStatus::Loading;
+            state.reviews.error = None;
+            state.reviews.offline = false;
+            state.reviews.has_more = false;
+            state.reviews.next_offset = offset;
+            state.reviews.total = None;
+            state.reviews.loading_more = false;
+        }
+        let backend = self.backend.clone();
+        let request_appid = appid.to_string();
+        let message_appid = appid.to_string();
+        Task::perform(
+            async move {
+                backend
+                    .load_community_reviews(
+                        request_appid,
+                        offset,
+                        views::community::COMMUNITY_PAGE_SIZE,
+                    )
+                    .await
+            },
+            move |result| Message::CommunityReviewsLoaded {
+                appid: message_appid,
+                offset,
+                append,
+                result,
+            },
+        )
+    }
+
+    fn load_community_collections(
+        &mut self,
+        appid: &str,
+        offset: u64,
+        append: bool,
+    ) -> Task<Message> {
+        let Some(state) = self.community.get_mut(appid) else {
+            return Task::none();
+        };
+        if append {
+            if state.collections.loading_more || !state.collections.has_more {
+                return Task::none();
+            }
+            state.collections.loading_more = true;
+            state.collections.error = None;
+        } else {
+            state.collections.status = LoadStatus::Loading;
+            state.collections.error = None;
+            state.collections.offline = false;
+            state.collections.has_more = false;
+            state.collections.next_offset = offset;
+            state.collections.total = None;
+            state.collections.loading_more = false;
+        }
+        let backend = self.backend.clone();
+        let message_appid = appid.to_string();
+        Task::perform(
+            async move {
+                backend
+                    .load_community_collections(offset, views::community::COMMUNITY_PAGE_SIZE)
+                    .await
+            },
+            move |result| Message::CommunityCollectionsLoaded {
+                appid: message_appid,
+                offset,
+                append,
+                result,
+            },
+        )
+    }
+
     fn reload_task(&self) -> Task<Message> {
         let backend = self.backend.clone();
         Task::perform(
@@ -4231,6 +4740,23 @@ impl App {
         }
 
         Task::batch(tasks)
+    }
+}
+
+fn verification_summary(verification: &PluginVerification) -> String {
+    if !verification.ok || !verification.valid {
+        return if verification.error.is_empty() {
+            "Verificação falhou sem detalhes.".to_string()
+        } else {
+            format!("Verificação falhou: {}", verification.error)
+        };
+    }
+    if verification.verified {
+        "Componente válido e digest verificado.".to_string()
+    } else if verification.declared {
+        "Componente válido; assinatura declarada não verificada.".to_string()
+    } else {
+        "Componente válido; sem assinatura declarada.".to_string()
     }
 }
 
@@ -4499,5 +5025,35 @@ mod tests {
         };
         assert!(launch.busy_with_other("custom:1"));
         assert!(!launch.busy_with_other("steam:10"));
+    }
+
+    #[test]
+    fn plugin_action_messages_follow_the_registry_semantics() {
+        assert_eq!(PluginAction::Install.label(), "Instalar");
+        assert_eq!(PluginAction::Remove.label(), "Remover");
+        assert!(PluginAction::Remove
+            .success_message()
+            .contains("preservado"));
+        assert!(PluginAction::Unregister
+            .success_message()
+            .contains("registro"));
+
+        let verified = PluginVerification {
+            id: "demo".to_string(),
+            ok: true,
+            valid: true,
+            verified: true,
+            declared: true,
+            source: "local".to_string(),
+            error: String::new(),
+        };
+        assert!(verification_summary(&verified).contains("digest"));
+
+        let failed = PluginVerification {
+            valid: false,
+            error: "digest divergente".to_string(),
+            ..verified
+        };
+        assert!(verification_summary(&failed).contains("digest divergente"));
     }
 }

@@ -7,6 +7,7 @@ pub mod friends;
 pub mod big_picture;
 pub mod cards;
 pub mod chrome;
+pub mod community;
 pub mod game;
 pub mod home;
 pub mod icons;
