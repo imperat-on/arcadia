@@ -251,8 +251,9 @@ inject_appimage_codecs() {
                 # sistema, sempre presente ou já coberto pelo host
                 libc.so*|libm.so*|libdl.so*|libpthread.so*|librt.so*|ld-linux*) continue ;;
                 libgstreamer*|libgstvideo*|libgstbase*|libgstpbutils*|libgstaudio*) continue ;;
+                libgsttag*|libgstadaptivedemux*|libgsturidownloader*|libgstcodecparsers*) continue ;;
                 libglib*|libgobject*|libgio*|libgmodule*) continue ;;
-                libstdc++*|libgcc_s*) continue ;;
+                libstdc++*|libgcc_s*|libz.so*|libnettle*|libhogweed*|libgnutls*|libp11-kit*) continue ;;
                 # codecs: esses precisam viajar com o pacote
             esac
             [ -e "$APPDIR/usr/lib/$so" ] || faltando="$faltando $so"
