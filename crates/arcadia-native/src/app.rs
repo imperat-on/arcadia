@@ -20,8 +20,8 @@ use crate::backend::{
     StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
-    BigPicture, ConsoleEffect, ConsoleTab, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
-    ACTION_TRAILER,
+    home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
+    ACTION_PLAY, ACTION_TRAILER,
 };
 use crate::covers::CoverCache;
 use crate::i18n::{I18n, Lang};
@@ -81,6 +81,11 @@ pub enum Message {
     ConsoleNewsReload,
     ConsoleMenuAction(usize),
     ConsoleCloseMenu,
+    /// Foco programático na busca da Loja (clique ou A no campo).
+    ConsoleStoreFocus,
+    /// Abre a ficha da loja no console sem sair do Big Picture.
+    ConsoleStoreOpenDetail(StoreGame),
+    ConsoleStoreCloseDetail,
     /// Tick da Subscription: drena frames e sincroniza o estado do player.
     MediaTick,
     MediaTogglePlayback,
@@ -1181,6 +1186,7 @@ impl App {
                 self.store.suggestions.clear();
                 self.store.suggested_query.clear();
                 self.store.search = None;
+                self.sync_console_store();
                 Task::none()
             }
             Message::StoreSearchDone { query, result } => {
@@ -1201,6 +1207,7 @@ impl App {
                         search.result = Some(found);
                         search.status = LoadStatus::Ready;
                         search.error = None;
+                        self.sync_console_store();
                         self.cover_tasks(urls)
                     }
                     Err(error) => {
@@ -1208,6 +1215,7 @@ impl App {
                         search.result = None;
                         search.status = LoadStatus::Error(error.clone());
                         search.error = Some(error);
+                        self.sync_console_store();
                         Task::none()
                     }
                 }
@@ -1277,6 +1285,7 @@ impl App {
                         });
                         self.store.browse.status = LoadStatus::Ready;
                         self.store.browse.error = None;
+                        self.sync_console_store();
                         self.cover_tasks(urls)
                     }
                     Err(error) => {
@@ -1291,55 +1300,13 @@ impl App {
                             self.store.browse.has_more = false;
                             self.store.browse.next_offset = None;
                         }
+                        self.sync_console_store();
                         Task::none()
                     }
                 }
             }
-            Message::StoreLoadMore => {
-                let browse = &self.store.browse;
-                if browse.loading_more || !browse.has_more {
-                    return Task::none();
-                }
-                let offset = browse.next_offset.unwrap_or(browse.games.len() as u64);
-                self.store.browse.loading_more = true;
-                let backend = self.backend.clone();
-                Task::perform(
-                    async move { backend.load_store_recent(offset, STORE_PAGE_SIZE).await },
-                    |result| Message::StoreBrowseLoaded {
-                        append: true,
-                        result,
-                    },
-                )
-            }
-            Message::StoreOpenDetail(game) => {
-                let urls = game.image_urls();
-                let info_task = self.store_info_task(&game);
-                let install_task = self.store_install_info_task(&game);
-                let libraries_task = self.store_libraries_task();
-                self.retro.detail = None;
-                self.store.detail = Some(StoreDetailState {
-                    game,
-                    info: None,
-                    status: LoadStatus::Loading,
-                    error: None,
-                    install: None,
-                    install_status: LoadStatus::Loading,
-                    install_error: None,
-                    libraries: Vec::new(),
-                    libraries_status: LoadStatus::Loading,
-                    libraries_error: None,
-                    selected_library: 0,
-                    selected_depots: BTreeSet::new(),
-                    install_busy: false,
-                    install_message: None,
-                });
-                Task::batch([
-                    self.cover_tasks(urls),
-                    info_task,
-                    install_task,
-                    libraries_task,
-                ])
-            }
+            Message::StoreLoadMore => self.load_store_more(),
+            Message::StoreOpenDetail(game) => self.open_store_detail(game),
             Message::StoreCloseDetail => {
                 self.store.detail = None;
                 Task::none()
@@ -1720,12 +1687,30 @@ impl App {
                 ])
             }
             Message::ConsoleMenuAction(index) => {
-                let games = self.library.visible_all();
+                let games = console_shelf_for(&self.library, self.big_picture.tab());
                 let effect = self.big_picture.press_menu(index, &games);
                 self.console_effect(effect)
             }
             Message::ConsoleCloseMenu => {
                 self.big_picture.close_menu();
+                Task::none()
+            }
+            Message::ConsoleStoreFocus => {
+                if self.big_picture.tab() != ConsoleTab::Stores {
+                    return Task::none();
+                }
+                self.big_picture.begin_store_editing();
+                self.console_store_focus_task(true)
+            }
+            Message::ConsoleStoreOpenDetail(game) => {
+                if !self.big_picture.open_store_detail() {
+                    return Task::none();
+                }
+                self.open_store_detail(game)
+            }
+            Message::ConsoleStoreCloseDetail => {
+                self.big_picture.close_store_detail();
+                self.store.detail = None;
                 Task::none()
             }
             Message::ConsoleMediaLoaded { id, media } => {
@@ -2126,6 +2111,7 @@ impl App {
                         self.i18n
                             .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
+                        self.big_picture.set_motion(!config.no_anim);
                     }
                     Err(error) => {
                         // Preferência opcional: sem config, não minimiza e o
@@ -2485,10 +2471,55 @@ impl App {
             return Task::none();
         }
 
-        if let keyboard::Event::KeyPressed { key, .. } = &event {
-            if matches!(key, keyboard::Key::Named(keyboard::key::Named::F5)) {
-                self.library.set_loading();
-                return self.reload_task();
+        let keyboard::Event::KeyPressed {
+            key,
+            modifiers,
+            text,
+            ..
+        } = &event
+        else {
+            return Task::none();
+        };
+
+        use keyboard::key::Named;
+
+        if matches!(key, keyboard::Key::Named(Named::F5)) {
+            self.library.set_loading();
+            return self.reload_task();
+        }
+
+        // Tab/Shift+Tab percorrem a ordem de foco; L1/R1 (PageUp/PageDown no
+        // teclado) continuam trocando de aba.
+        if matches!(key, keyboard::Key::Named(Named::Tab)) {
+            return self.console_focus_step(!modifiers.shift());
+        }
+
+        if self.big_picture.tab() == ConsoleTab::Stores {
+            if self.big_picture.store_editing() {
+                return match key {
+                    keyboard::Key::Named(Named::Escape) => self.console_nav(NavEvent::Back),
+                    keyboard::Key::Named(Named::ArrowDown) => self.console_nav(NavEvent::Down),
+                    // Enter/Space são consumidos pelo `text_input` (on_submit
+                    // e edição do valor); não duplicar a busca aqui.
+                    _ => Task::none(),
+                };
+            }
+
+            if self.big_picture.zone() == ConsoleZone::StoreSearch && !modifiers.control() {
+                if let Some(text) = text {
+                    let typed: String = text.chars().filter(|c| !c.is_control()).collect();
+                    if !typed.is_empty() && !modifiers.alt() {
+                        // O campo ainda não tinha foco: o primeiro caractere é
+                        // aplicado direto e o `text_input` recebe o foco para o
+                        // restante da digitação.
+                        self.store.query.push_str(&typed);
+                        self.big_picture.begin_store_editing();
+                        let query = self.store.query.clone();
+                        let suggestions = self.update(Message::StoreQueryChanged(query));
+                        let focus = self.console_store_focus_task(true);
+                        return Task::batch([suggestions, focus]);
+                    }
+                }
             }
         }
 
@@ -2498,25 +2529,45 @@ impl App {
         }
     }
 
+    fn console_focus_step(&mut self, forward: bool) -> Task<Message> {
+        let was_editing = self.big_picture.store_editing();
+        self.big_picture.focus_step(forward);
+        let focus = if was_editing != self.big_picture.store_editing() {
+            self.console_store_focus_task(self.big_picture.store_editing())
+        } else {
+            Task::none()
+        };
+        Task::batch([focus, self.ensure_console_store()])
+    }
+
     fn console_nav(&mut self, event: NavEvent) -> Task<Message> {
         if !matches!(self.screen, Screen::BigPicture) {
             return Task::none();
         }
 
-        let games = self.library.visible_all();
-        let before = self.big_picture.rail_index();
+        let games = console_shelf_for(&self.library, self.big_picture.tab());
+        let before = self.big_picture.active_index();
+        let was_editing = self.big_picture.store_editing();
         let effect = self.big_picture.handle(event, &games);
-        let moved = before != self.big_picture.rail_index();
+        let moved = before != self.big_picture.active_index();
+        let editing_changed = was_editing != self.big_picture.store_editing();
         let scroll = if moved {
             self.console_rail_scroll()
         } else {
             Task::none()
         };
+        let focus = if editing_changed {
+            self.console_store_focus_task(self.big_picture.store_editing())
+        } else {
+            Task::none()
+        };
         Task::batch([
             scroll,
+            focus,
             self.console_effect(effect),
             self.console_sync_media(),
             self.ensure_console_news(),
+            self.ensure_console_store(),
         ])
     }
 
@@ -2525,7 +2576,7 @@ impl App {
             return Task::none();
         }
 
-        let games = self.library.visible_all();
+        let games = console_shelf_for(&self.library, self.big_picture.tab());
         let (moved, effect) = self.big_picture.press_game(index, &games);
         let scroll = if moved {
             self.console_rail_scroll()
@@ -2545,12 +2596,20 @@ impl App {
             return Task::none();
         }
 
-        let games = self.library.visible_all();
+        let games = console_shelf_for(&self.library, self.big_picture.tab());
+        let was_editing = self.big_picture.store_editing();
         self.big_picture.select_tab(tab, &games);
+        let focus = if was_editing && !self.big_picture.store_editing() {
+            self.console_store_focus_task(false)
+        } else {
+            Task::none()
+        };
         Task::batch([
+            focus,
             self.console_rail_scroll(),
             self.console_sync_media(),
             self.ensure_console_news(),
+            self.ensure_console_store(),
         ])
     }
 
@@ -2559,7 +2618,7 @@ impl App {
             return Task::none();
         }
 
-        let games = self.library.visible_all();
+        let games = console_shelf_for(&self.library, self.big_picture.tab());
         let effect = self.big_picture.press_action(index, &games);
         Task::batch([
             self.console_effect(effect),
@@ -2586,6 +2645,26 @@ impl App {
                 self.big_picture.set_notice(text);
                 Task::none()
             }
+            ConsoleEffect::OpenStoreDetail(index) => {
+                let game = self.console_store_games().get(index).copied().cloned();
+                match game {
+                    Some(game) if self.big_picture.open_store_detail() => {
+                        self.open_store_detail(game)
+                    }
+                    _ => Task::none(),
+                }
+            }
+            ConsoleEffect::CloseStoreDetail => {
+                self.big_picture.close_store_detail();
+                self.store.detail = None;
+                Task::none()
+            }
+            ConsoleEffect::StoreLoadMore => self.load_store_more(),
+            ConsoleEffect::StoreSearch => {
+                let task = self.submit_store_search();
+                let sync = self.ensure_console_store();
+                Task::batch([task, sync])
+            }
         }
     }
 
@@ -2598,7 +2677,7 @@ impl App {
         }
 
         let selected = if self.big_picture.overview_open() {
-            let games = self.library.visible_all();
+            let games = console_shelf_for(&self.library, self.big_picture.tab());
             self.big_picture
                 .selected(&games)
                 .map(|game| (game.id.clone(), game.title.clone()))
@@ -2754,14 +2833,17 @@ impl App {
     }
 
     fn focus_console_game(&mut self, id: &str) {
-        let games = self.library.visible_all();
+        let games = console_shelf_for(&self.library, self.big_picture.tab());
         if let Some(index) = games.iter().position(|game| game.id == id) {
             self.big_picture.focus_rail(index);
         }
     }
 
     fn console_rail_scroll(&self) -> Task<Message> {
-        views::big_picture::rail_scroll_task(self.big_picture.rail_index(), self.window_size.width)
+        views::big_picture::rail_scroll_task(
+            self.big_picture.active_index(),
+            self.window_size.width,
+        )
     }
 
     /// Timer de ~60 fps que drena os frames do GStreamer, o gamepad do console
@@ -2929,6 +3011,7 @@ impl App {
         if query.is_empty() {
             self.store.search = None;
             self.store.suggestions.clear();
+            self.sync_console_store();
             return Task::none();
         }
         self.store.suggestions.clear();
@@ -2938,6 +3021,7 @@ impl App {
             result: None,
             error: None,
         });
+        self.sync_console_store();
         let backend = self.backend.clone();
         let message_query = query.clone();
         Task::perform(
@@ -2964,6 +3048,109 @@ impl App {
                 result,
             },
         )
+    }
+
+    fn load_store_more(&mut self) -> Task<Message> {
+        let browse = &self.store.browse;
+        if browse.loading_more || !browse.has_more {
+            return Task::none();
+        }
+        let offset = browse.next_offset.unwrap_or(browse.games.len() as u64);
+        self.store.browse.loading_more = true;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_store_recent(offset, STORE_PAGE_SIZE).await },
+            |result| Message::StoreBrowseLoaded {
+                append: true,
+                result,
+            },
+        )
+    }
+
+    fn open_store_detail(&mut self, game: StoreGame) -> Task<Message> {
+        let urls = game.image_urls();
+        let info_task = self.store_info_task(&game);
+        let install_task = self.store_install_info_task(&game);
+        let libraries_task = self.store_libraries_task();
+        self.retro.detail = None;
+        self.store.detail = Some(StoreDetailState {
+            game,
+            info: None,
+            status: LoadStatus::Loading,
+            error: None,
+            install: None,
+            install_status: LoadStatus::Loading,
+            install_error: None,
+            libraries: Vec::new(),
+            libraries_status: LoadStatus::Loading,
+            libraries_error: None,
+            selected_library: 0,
+            selected_depots: BTreeSet::new(),
+            install_busy: false,
+            install_message: None,
+        });
+        Task::batch([
+            self.cover_tasks(urls),
+            info_task,
+            install_task,
+            libraries_task,
+        ])
+    }
+
+    /// Itens que a Loja do console desenha: resultado da busca quando existe,
+    /// senão o catálogo `store:recent` já acumulado.
+    fn console_store_games(&self) -> Vec<&StoreGame> {
+        if let Some(search) = self.store.search.as_ref() {
+            search
+                .result
+                .as_ref()
+                .map(|result| result.games.iter().collect())
+                .unwrap_or_default()
+        } else {
+            self.store.browse.games.iter().collect()
+        }
+    }
+
+    /// Mantém a grade/foco do console alinhados ao estado real da loja.
+    fn sync_console_store(&mut self) {
+        let count = self.console_store_games().len();
+        let has_more = self.store.search.is_none() && self.store.browse.has_more;
+        self.big_picture.sync_store(count, has_more);
+    }
+
+    /// Garante o catálogo Steam quando a aba Loja do console está ativa. A
+    /// aba Retro do desktop não é portada para o Big Picture nesta onda.
+    fn ensure_console_store(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture)
+            || self.big_picture.tab() != ConsoleTab::Stores
+        {
+            return Task::none();
+        }
+
+        if self.store.tab != StoreTab::Steam {
+            self.store.tab = StoreTab::Steam;
+        }
+        self.sync_console_store();
+
+        if self.store.search.is_none() && matches!(self.store.browse.status, LoadStatus::Idle) {
+            self.load_store_browse(false)
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Foco programático no campo de busca; `false` devolve o foco ao painel.
+    fn console_store_focus_task(&self, focused: bool) -> Task<Message> {
+        let id = iced::widget::Id::new(views::big_picture::STORE_SEARCH_ID);
+        if focused {
+            iced::advanced::widget::operate(
+                iced::advanced::widget::operation::focusable::focus(id),
+            )
+        } else {
+            iced::advanced::widget::operate(
+                iced::advanced::widget::operation::focusable::unfocus(),
+            )
+        }
     }
 
     fn load_retro_page(&mut self, offset: u64) -> Task<Message> {
@@ -3199,8 +3386,17 @@ impl App {
 }
 
 /// Teclado do console: mesmas intenções do gamepad (`NavEvent`).
+fn console_shelf_for<'a>(library: &'a Library, tab: ConsoleTab) -> Vec<&'a Game> {
+    let games = library.visible_all();
+    if tab == ConsoleTab::Home {
+        home_shelf(&games).0
+    } else {
+        games
+    }
+}
+
 fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
-    let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
+    let keyboard::Event::KeyPressed { key, .. } = event else {
         return None;
     };
 
@@ -3215,11 +3411,8 @@ fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
             Some(NavEvent::Confirm)
         }
         keyboard::Key::Named(Named::Escape) => Some(NavEvent::Back),
-        keyboard::Key::Named(Named::Tab) => Some(if modifiers.shift() {
-            NavEvent::PageLeft
-        } else {
-            NavEvent::PageRight
-        }),
+        keyboard::Key::Named(Named::PageUp) => Some(NavEvent::PageLeft),
+        keyboard::Key::Named(Named::PageDown) => Some(NavEvent::PageRight),
         _ => None,
     }
 }
