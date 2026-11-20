@@ -52,11 +52,29 @@ fi
 
 if [ -n "$APPIMG" ] && [ -f "$APPIMG" ]; then
     size=$(stat -c%s "$APPIMG")
-    if [ "$size" -gt 50000000 ]; then
-        ok "AppImage existe ($(numfmt --to=iec "$size"))"
-    else
+    # O limite é baixo de propósito: depois de `trim_appdir_graphics` o
+    # AppImage leva só o binário e os codecs (~39 MB). Um arquivo abaixo disso
+    # perdeu o binário ou o squashfs está truncado.
+    if [ "$size" -lt 15000000 ]; then
         bad "AppImage suspeito de incompleto (${size}B)"
+    else
+        ok "AppImage existe ($(numfmt --to=iec "$size"))"
     fi
+
+    # A pilha gráfica NÃO deve estar no pacote: ela vence o sistema via
+    # LD_LIBRARY_PATH do runtime e entrega o WebKit do host de build.
+    # O próprio AppImage extrai sem precisar de squashfs-tools.
+    appdir_tmp="$(mktemp -d)"
+    if ( cd "$appdir_tmp" && "$APPIMG" --appimage-extract >/dev/null 2>&1 ); then
+        if [ -e "$appdir_tmp/squashfs-root/usr/lib/libwebkit2gtk-4.1.so.0" ]; then
+            bad "AppImage embarca WebKitGTK do host de build (vence o sistema do usuário)"
+        else
+            ok "AppImage não embarca a pilha gráfica (usa a do sistema)"
+        fi
+    else
+        skip "não foi possível extrair o AppImage para inspecionar"
+    fi
+    rm -rf "$appdir_tmp"
 else
     bad "AppImage não encontrado em $BUNDLE/appimage"
 fi
