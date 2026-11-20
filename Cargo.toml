@@ -21,6 +21,7 @@ members = [
     "crates/arcadia-updater",
     "crates/arcadia-gamepad",
     "crates/arcadia-ipc",
+    "crates/arcadia-native-input",
     "src-tauri",
 ]
 

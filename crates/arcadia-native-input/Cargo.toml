@@ -1,0 +1,10 @@
+[package]
+name = "arcadia-native-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Gamepad navigation and focus model for Arcadia's native Rust UI"
+
+[dependencies]
+gilrs = "0.11"
