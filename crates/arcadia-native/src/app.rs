@@ -76,7 +76,11 @@ pub enum Message {
     },
     /// Escolha de um vídeo no seletor; baixa via yt-dlp sem bloquear a UI.
     TrailerDownloadRequested(TrailerResult),
-    TrailerDownloadDone(Result<String, String>),
+    TrailerDownloadDone {
+        game_id: String,
+        url: String,
+        result: Result<String, String>,
+    },
     /// "Abrir trailer baixado" quando `trailer:path` encontrou um arquivo.
     TrailerOpenDownloaded,
     /// "Jogar" na ficha ou no Big Picture: dispara `game:launch`.
@@ -435,7 +439,6 @@ pub struct TrailerPickerState {
     pub query: String,
     pub results: Vec<TrailerResult>,
     pub status: LoadStatus,
-    pub error: Option<String>,
     /// `trailer:path` do jogo; `Some(file://…)` quando já existe download.
     pub existing_path: Option<String>,
     /// Vídeo em download (chamada longa do yt-dlp); a UI mostra "Baixando…".
@@ -1498,14 +1501,12 @@ impl App {
                         );
                         self.trailer_picker.results = results;
                         self.trailer_picker.status = LoadStatus::Ready;
-                        self.trailer_picker.error = None;
                         self.cover_tasks(thumbnails)
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] trailer: {error}");
                         self.trailer_picker.results.clear();
-                        self.trailer_picker.status = LoadStatus::Error(error.clone());
-                        self.trailer_picker.error = Some(error);
+                        self.trailer_picker.status = LoadStatus::Error(error);
                         Task::none()
                     }
                 }
@@ -1532,12 +1533,38 @@ impl App {
                 self.trailer_picker.downloading = Some(video.clone());
                 self.trailer_picker.download_error = None;
                 let backend = self.backend.clone();
+                let message_game_id = id.clone();
+                let message_url = video.url.clone();
                 Task::perform(
                     async move { backend.download_trailer(id, video.url).await },
-                    Message::TrailerDownloadDone,
+                    move |result| Message::TrailerDownloadDone {
+                        game_id: message_game_id,
+                        url: message_url,
+                        result,
+                    },
                 )
             }
-            Message::TrailerDownloadDone(result) => {
+            Message::TrailerDownloadDone {
+                game_id,
+                url,
+                result,
+            } => {
+                let still_current = self.trailer_picker.open
+                    && self.trailer_picker.game_id == game_id
+                    && self
+                        .trailer_picker
+                        .downloading
+                        .as_ref()
+                        .is_some_and(|video| video.url == url);
+                if !still_current {
+                    // O usuário fechou/trocou de jogo durante o download: o
+                    // arquivo fica no disco para "Abrir trailer baixado".
+                    eprintln!(
+                        "[arcadia-native] trailer: download de {url} terminou fora do seletor"
+                    );
+                    return Task::none();
+                }
+
                 self.trailer_picker.downloading = None;
                 match result {
                     Ok(path) => {
@@ -1717,16 +1744,15 @@ impl App {
         let query = self.trailer_picker.query.trim().to_string();
         if query.is_empty() {
             self.trailer_picker.results.clear();
-            self.trailer_picker.status = LoadStatus::Ready;
-            self.trailer_picker.error =
-                Some("Informe o nome do jogo ou do vídeo para buscar.".to_string());
+            self.trailer_picker.status = LoadStatus::Error(
+                "Informe o nome do jogo ou do vídeo para buscar.".to_string(),
+            );
             return Task::none();
         }
 
         self.trailer_picker.query = query.clone();
         self.trailer_picker.results.clear();
         self.trailer_picker.status = LoadStatus::Loading;
-        self.trailer_picker.error = None;
         self.trailer_picker.download_error = None;
 
         let backend = self.backend.clone();

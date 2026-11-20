@@ -2,7 +2,8 @@
 
 use iced::widget::text::Wrapping;
 use iced::widget::{
-    button, column, container, image, row, scrollable, slider, text, text_input, Space, Stack,
+    button, column, container, image, opaque, row, scrollable, slider, text, text_input, Space,
+    Stack,
 };
 use iced::{ContentFit, Element, Fill};
 
@@ -517,14 +518,14 @@ fn trailer_picker_overlay<'a>(
                 .height(Fill)
                 .style(theme::scrim),
         )
-        .push(
+        .push(opaque(
             container(card)
                 .width(Fill)
                 .height(Fill)
                 .center_x(Fill)
                 .center_y(Fill)
                 .padding(theme::SPACE_5),
-        )
+        ))
         .into()
 }
 
