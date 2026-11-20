@@ -219,3 +219,89 @@ jobs:
             dist/native-linux/*.tar.gz
             dist/native-linux/SHA256SUMS
           retention-days: 14
+
+  # Nativo no Windows (iced/GStreamer MSVC, sem webview). Não usa GTK/WebKit e
+  # não toca nos jobs Tauri. O GStreamer oficial 1.28 é Inno Setup e instala
+  # runtime + headers + .pc com /TYPE=devel; a versão e o SHA-256 ficam pinados
+  # abaixo para o build não depender da "última" release do site.
+  native-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # O SDK do GStreamer costuma trazer pkg-config.exe em bin\, que já entra
+      # no PATH. Só instala o pkgconfiglite se o SDK não trouxer um.
+      - name: GStreamer 1.28.9 (MSVC x86_64, runtime + devel)
+        shell: pwsh
+        run: |
+          $version = "1.28.9"
+          $sha256 = "ce4008705e8c6fe92803535b82fb3d6551e183f438e6ef26682ac4d0aca61076"
+          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc/gstreamer-1.0-msvc-x86_64-$version.exe"
+          $installer = Join-Path $env:RUNNER_TEMP "gstreamer-$version.exe"
+          $root = Join-Path $env:RUNNER_TEMP "gstreamer"
+
+          curl.exe -fsSL --retry 3 -o $installer $url
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($hash -ne $sha256) {
+            throw "SHA-256 do GStreamer não confere: $hash"
+          }
+
+          $process = Start-Process -Wait -PassThru -FilePath $installer -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+            "/TYPE=devel", "/DIR=$root", "/CURRENTUSER"
+          )
+          if ($process.ExitCode -ne 0) {
+            throw "instalador do GStreamer saiu com código $($process.ExitCode)"
+          }
+
+          $coreDll = Join-Path $root "bin\gstreamer-1.0-0.dll"
+          $pkgConfig = Join-Path $root "lib\pkgconfig"
+          if (-not (Test-Path -LiteralPath $coreDll -PathType Leaf)) {
+            throw "GStreamer não foi instalado em $root (falta $coreDll)"
+          }
+          if (-not (Test-Path -LiteralPath $pkgConfig -PathType Container)) {
+            throw "SDK GStreamer incompleto: $pkgConfig não existe"
+          }
+
+          "GSTREAMER_ROOT_X86_64=$root" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$($pkgConfig -replace '\\', '/')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $root "bin") |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          # O GITHUB_* só vale nos próximos steps; valide o runtime já aqui.
+          $env:PATH = "$(Join-Path $root 'bin');$env:PATH"
+          & (Join-Path $root "bin\gst-inspect-1.0.exe") --version
+
+      - name: pkg-config
+        shell: pwsh
+        run: |
+          $pkgConfigExe = Join-Path $env:GSTREAMER_ROOT_X86_64 "bin\pkg-config.exe"
+          if (-not (Test-Path -LiteralPath $pkgConfigExe -PathType Leaf)) {
+            choco install pkgconfiglite -y --no-progress
+            $pkgConfigExe = Join-Path $env:ChocolateyInstall "bin\pkg-config.exe"
+          }
+          & $pkgConfigExe --version
+          & $pkgConfigExe --modversion gstreamer-1.0
+
+      # Só compila o crate nativo: src-tauri/ui não entram neste job.
+      - name: Check do nativo
+        run: cargo check -p arcadia-native
+
+      - name: Empacotar nativo
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/package-native-windows.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcadia-native-windows
+          path: |
+            dist/native-windows/*.zip
+            dist/native-windows/SHA256SUMS
+          retention-days: 14
