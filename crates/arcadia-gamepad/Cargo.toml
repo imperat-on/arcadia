@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+# Linux only: uinput/evdev são interfaces do kernel Linux. Não entra no bundle
+# Windows (o wrapper não faz sentido lá — o XInput é nativo), por isso o crate
+# é compilado apenas no host Linux.
 [[bin]]
 name = "arcadia-gamepad"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

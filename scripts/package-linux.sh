@@ -148,6 +148,10 @@ bundles=()
 [ $DO_RPM -eq 1 ] && bundles+=(rpm)
 
 echo "==> compilando e empacotando: ${bundles[*]}"
+# O binário do wrapper XInput é dependência do bundle: sem ele compilado, o
+# `tauri build` falha ao copiar o recurso. `-p arcadia` não o constrói porque
+# são binários separados do mesmo workspace.
+cargo build --release -p arcadia-gamepad
 cd "$ROOT/src-tauri"
 "$TAURI" build --bundles "$(IFS=,; echo "${bundles[*]}")"
 

@@ -40,6 +40,13 @@ jobs:
       - name: Front-end
         run: npm --prefix ui ci
 
+      # O bundle declara `arcadia-gamepad` como recurso e o build script do
+      # Tauri valida que o arquivo existe antes de compilar o crate `arcadia`.
+      # Sem este passo o `cargo test --workspace` falha com
+      # "resource path ../target/release/arcadia-gamepad doesn't exist".
+      - name: Wrapper XInput
+        run: cargo build --release -p arcadia-gamepad
+
       - name: Testes do workspace
         run: cargo test --workspace
 

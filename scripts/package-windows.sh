@@ -85,6 +85,14 @@ export RC=x86_64-w64-mingw32-windres
 # --- Build ------------------------------------------------------------------
 
 echo "==> compilando para $TARGET"
+# O bundle declara `arcadia-gamepad` como recurso, e o build script do Tauri
+# valida cada entrada de `resources` antes de compilar — inclusive num build
+# para Windows. O binário é Linux-only, então é gerado aqui no host Linux só
+# para o arquivo existir e a validação passar; ele não entra no `.exe` (o
+# XInput é nativo no Windows e o wrapper nunca é executado lá).
+if [ ! -f "$ROOT/target/release/arcadia-gamepad" ]; then
+    ( cd "$ROOT" && cargo build --release -p arcadia-gamepad )
+fi
 cd "$ROOT/src-tauri"
 if [ $DO_SETUP -eq 1 ]; then
     need makensis
@@ -110,7 +118,6 @@ else
     # Só o executável: `tauri build` sem bundle ainda passa pelo build script.
     "$TAURI" build --target "$TARGET"
 fi
-
 [ -f "$OUT/arcadia.exe" ] || { echo "erro: arcadia.exe não foi gerado" >&2; exit 1; }
 
 # --- Relatório --------------------------------------------------------------
