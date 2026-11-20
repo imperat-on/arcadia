@@ -797,6 +797,67 @@ fn media_url(input: &str) -> Option<String> {
     (lower.starts_with("https://") || lower.starts_with("http://")).then_some(normalized)
 }
 
+// ── Notícias ────────────────────────────────────────────────────────────────
+
+/// Item devolvido por `news:get` (feed RSS agregado pelo IPC).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NewsItem {
+    pub id: String,
+    pub title: String,
+    pub source: String,
+    pub date: String,
+    pub url: String,
+    pub summary: String,
+    pub image: Option<String>,
+}
+
+impl NewsItem {
+    /// Data legível; feeds sem data válida mostram um rótulo explícito ou o
+    /// texto bruto quando ele não é RFC 3339.
+    pub fn date_label(&self) -> String {
+        let raw = self.date.trim();
+        if raw.is_empty() {
+            return "Data não informada".to_string();
+        }
+        chrono::DateTime::parse_from_rfc3339(raw)
+            .map(|date| {
+                date.with_timezone(&chrono::Local)
+                    .format("%d/%m/%Y %H:%M")
+                    .to_string()
+            })
+            .unwrap_or_else(|_| raw.to_string())
+    }
+}
+
+/// `news:get` devolve o array já agregado e ordenado; itens sem título/URL
+/// são descartados em vez de virar linhas vazias na aba.
+pub fn parse_news(value: Value) -> Result<Vec<NewsItem>, String> {
+    let Value::Array(items) = value else {
+        return Err("news:get devolveu um payload que não é uma lista".to_string());
+    };
+
+    Ok(items
+        .into_iter()
+        .filter_map(|value| {
+            let title = text_field_any(&value, "title")?;
+            let url = text_field_any(&value, "url")?;
+            if title.is_empty() || url.is_empty() {
+                return None;
+            }
+            Some(NewsItem {
+                id: text_field_any(&value, "id").unwrap_or_else(|| url.clone()),
+                title,
+                source: text_field_any(&value, "source")
+                    .unwrap_or_else(|| "Feed".to_string()),
+                date: text_field_any(&value, "date").unwrap_or_default(),
+                url,
+                summary: text_field_any(&value, "summary").unwrap_or_default(),
+                image: optional_image_url(&value, "image"),
+            })
+        })
+        .collect())
+}
+
 // ── Lançamento de jogos ─────────────────────────────────────────────────────
 
 /// Snapshot de `LaunchRuntime::state_json` — a fonte de verdade do processo.
@@ -1855,6 +1916,25 @@ impl Backend {
         parse_library(value)
     }
 
+    /// Feed agregado da aba Notícias (`news:get`).
+    pub async fn load_news(&self) -> Result<Vec<NewsItem>, String> {
+        let value = self.dispatch("news:get", Vec::new()).await?;
+        parse_news(value)
+    }
+
+    /// Marca/desmarca o favorito e devolve a biblioteca reordenada pelo
+    /// dispatcher (`overrides:set` responde a lista inteira).
+    pub async fn set_favorite(&self, id: String, favorite: bool) -> Result<Vec<Game>, String> {
+        let patch = if favorite {
+            json!({ "favorite": true })
+        } else {
+            json!({ "favorite": null })
+        };
+        let payload = json!({ "id": id, "patch": patch });
+        let value = self.dispatch("overrides:set", vec![payload]).await?;
+        parse_library(value)
+    }
+
     /// Busca `info.movies[]` em `game:sysinfo` sem bloquear a UI.
     ///
     /// A chamada roda no runtime tokio do app. Falha de IPC vira `notice` na
@@ -2167,6 +2247,41 @@ mod tests {
     #[test]
     fn rejects_payload_that_is_not_a_list() {
         assert!(parse_library(json!({ "games": [] })).is_err());
+    }
+
+    #[test]
+    fn parses_news_and_drops_items_without_title_or_url() {
+        let news = parse_news(json!([
+            {
+                "id": "news_1",
+                "title": "Jogo novo anunciado",
+                "source": "Eurogamer",
+                "date": "2026-11-09T10:00:00+00:00",
+                "url": "https://example.test/noticia",
+                "summary": "Resumo curto",
+                "image": "https://example.test/foto.jpg"
+            },
+            {
+                "title": "Sem link"
+            },
+            {
+                "title": "Sem data",
+                "url": "https://example.test/sem-data"
+            }
+        ]))
+        .expect("lista de notícias");
+
+        assert_eq!(news.len(), 2);
+        assert_eq!(news[0].source, "Eurogamer");
+        assert_eq!(news[0].image.as_deref(), Some("https://example.test/foto.jpg"));
+        assert!(news[0].date_label().contains('/'));
+        assert_eq!(news[1].source, "Feed");
+        assert_eq!(news[1].date_label(), "Data não informada");
+    }
+
+    #[test]
+    fn news_payload_that_is_not_a_list_is_an_error() {
+        assert!(parse_news(json!({ "items": [] })).is_err());
     }
 
     #[test]

@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     Backend, DownloadAction, DownloadItem, DownloadsData, FriendsLoad, Game, GameMedia,
-    LaunchSnapshot, PluginItem, RetroGame, RetroPage, RetroSource, RetroSystemInfo,
+    LaunchSnapshot, NewsItem, PluginItem, RetroGame, RetroPage, RetroSource, RetroSystemInfo,
     SettingsConfig, SourceItem, StoreGame, StoreInfo, StorePage, StoreSearch,
 };
 use crate::big_picture::{
@@ -38,8 +38,24 @@ pub enum Message {
     Navigate(Section),
     OpenGame(String),
     BackToLibrary,
-    /// Resultado de `game:sysinfo` para o jogo aberto.
+    /// Resultado de `game:sysinfo` para o jogo aberto no desktop.
     MediaLoaded(GameMedia),
+    /// Resultado de `game:sysinfo` para o painel do Big Picture.
+    ConsoleMediaLoaded {
+        id: String,
+        media: GameMedia,
+    },
+    /// Resultado de `overrides:set` disparado pelo coração/menu do console.
+    ConsoleFavoriteDone {
+        id: String,
+        result: Result<Vec<Game>, String>,
+    },
+    /// `news:get` para a aba Notícias do console.
+    ConsoleNewsLoaded(Result<Vec<NewsItem>, String>),
+    ConsoleNewsSelected(usize),
+    ConsoleNewsReload,
+    ConsoleMenuAction(usize),
+    ConsoleCloseMenu,
     /// Tick da Subscription: drena frames e sincroniza o estado do player.
     MediaTick,
     MediaTogglePlayback,
@@ -392,6 +408,14 @@ pub enum LoadStatus {
     Error(String),
 }
 
+/// Aba Notícias do Big Picture: feed `news:get` + erro honesto da consulta.
+#[derive(Debug, Clone, Default)]
+pub struct NewsState {
+    pub items: Vec<NewsItem>,
+    pub status: LoadStatus,
+    pub error: Option<String>,
+}
+
 /// Aba interna das Configurações, equivalente à sub-navegação da UI web.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsTab {
@@ -599,6 +623,12 @@ pub struct App {
     pub window_size: Size,
     /// Estado do modo console (gamepad, foco, aba, painel).
     pub big_picture: BigPicture,
+    /// Feed da aba Notícias do console.
+    pub console_news: NewsState,
+    /// Jogo cujo `game:sysinfo` alimenta o trailer do painel do console.
+    pub console_media_id: Option<String>,
+    /// Escrita de favorito em voo; evita dois `overrides:set` concorrentes.
+    pub favorite_busy: Option<String>,
     /// Sessão de jogo: abrindo, rodando, parando e última falha.
     pub launch: GameLaunchState,
     /// Tela desktop a restaurar quando o console for fechado.
@@ -627,6 +657,9 @@ impl App {
             window: None,
             window_size: Size::new(1600.0, 900.0),
             big_picture: BigPicture::new(),
+            console_news: NewsState::default(),
+            console_media_id: None,
+            favorite_busy: None,
             launch: GameLaunchState::default(),
             previous_screen: None,
         };
@@ -1228,9 +1261,119 @@ impl App {
             Message::ConsoleMore => self.console_action(ACTION_MORE),
             Message::ConsoleCloseOverview => {
                 self.big_picture.close_overview();
+                Task::batch([
+                    self.console_sync_media(),
+                    self.ensure_console_news(),
+                ])
+            }
+            Message::ConsoleMenuAction(index) => {
+                let games = self.library.visible_all();
+                let effect = self.big_picture.press_menu(index, &games);
+                self.console_effect(effect)
+            }
+            Message::ConsoleCloseMenu => {
+                self.big_picture.close_menu();
                 Task::none()
             }
+            Message::ConsoleMediaLoaded { id, media } => {
+                if !matches!(self.screen, Screen::BigPicture)
+                    || !self.big_picture.overview_open()
+                    || self.console_media_id.as_deref() != Some(id.as_str())
+                {
+                    return Task::none();
+                }
+                eprintln!(
+                    "[arcadia-native] trailer (console): {} movie(s){}",
+                    media.movies.len(),
+                    media
+                        .notice
+                        .as_deref()
+                        .map(|notice| format!(" — {notice}"))
+                        .unwrap_or_default()
+                );
+                self.game_media = Some(media);
+                let sources = self
+                    .game_media
+                    .as_ref()
+                    .and_then(|game_media| game_media.movies.first())
+                    .map(|movie| media::TrailerSources {
+                        hls: movie.hls.clone(),
+                        mp4: movie.mp4.clone(),
+                        webm: movie.webm.clone(),
+                    });
+                match sources {
+                    Some(sources) => match self.media.open(&sources) {
+                        Ok(()) => Task::none(),
+                        Err(error) => Task::done(Message::MediaError(error)),
+                    },
+                    None => Task::none(),
+                }
+            }
+            Message::ConsoleFavoriteDone { id, result } => {
+                self.favorite_busy = None;
+                match result {
+                    Ok(games) => {
+                        self.library.ready(games);
+                        self.big_picture
+                            .sync_games(self.library.visible_all().len());
+                        self.focus_console_game(&id);
+                        let (title, favorite) = self
+                            .library
+                            .game(&id)
+                            .map(|game| (game.title.clone(), game.favorite))
+                            .unwrap_or_else(|| (id.clone(), false));
+                        self.big_picture.set_notice(if favorite {
+                            format!("\"{title}\" adicionado aos favoritos.")
+                        } else {
+                            format!("\"{title}\" removido dos favoritos.")
+                        });
+                        let urls = self.library.image_urls();
+                        self.cover_tasks(urls)
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] favorito: {error}");
+                        let title = self
+                            .library
+                            .game(&id)
+                            .map(|game| game.title.clone())
+                            .unwrap_or(id);
+                        self.big_picture
+                            .set_notice(format!("Falha ao favoritar \"{title}\": {error}"));
+                        Task::none()
+                    }
+                }
+            }
+            Message::ConsoleNewsLoaded(result) => {
+                match result {
+                    Ok(items) => {
+                        eprintln!("[arcadia-native] notícias: {} item(ns)", items.len());
+                        self.big_picture.sync_news(items.len());
+                        self.console_news.items = items;
+                        self.console_news.status = LoadStatus::Ready;
+                        self.console_news.error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] notícias: {error}");
+                        self.big_picture.sync_news(0);
+                        self.console_news.items.clear();
+                        self.console_news.status = LoadStatus::Error(error.clone());
+                        self.console_news.error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::ConsoleNewsSelected(index) => {
+                self.big_picture.select_news(index);
+                Task::none()
+            }
+            Message::ConsoleNewsReload => self.load_console_news(),
+
             Message::MediaLoaded(game_media) => {
+                // Resposta do trailer do desktop não pode abrir mídia por cima
+                // do painel do console; o console usa `ConsoleMediaLoaded`.
+                if matches!(self.screen, Screen::BigPicture) {
+                    return Task::none();
+                }
                 eprintln!(
                     "[arcadia-native] trailer: {} movie(s){}",
                     game_media.movies.len(),
@@ -1312,10 +1455,12 @@ impl App {
         }
 
         self.previous_screen = Some(self.screen.clone());
-        // O pipeline de trailer para ao entrar: o console não toca áudio nesta
-        // onda e não deve deixar um processo rodando atrás da tela cheia.
+        // O pipeline de trailer do desktop para ao entrar; o painel do console
+        // abre o trailer do jogo selecionado sob demanda.
         self.media.clear();
         self.game_media = None;
+        self.console_media_id = None;
+        self.favorite_busy = None;
         self.screen = Screen::BigPicture;
 
         let count = self.library.visible_all().len();
@@ -1339,6 +1484,10 @@ impl App {
 
         let previous = self.previous_screen.take().unwrap_or(Screen::Library);
         self.big_picture.leave();
+        self.media.clear();
+        self.game_media = None;
+        self.console_media_id = None;
+        self.favorite_busy = None;
         self.screen = previous;
         eprintln!("[arcadia-native] Big Picture encerrado");
 
@@ -1526,6 +1675,9 @@ impl App {
         }
 
         self.big_picture.refresh_clock();
+        if self.big_picture.overview_open() && self.media.is_active() {
+            self.media.tick();
+        }
         let events = self.big_picture.tick(Duration::from_millis(16));
         Task::batch(
             events
@@ -1567,7 +1719,12 @@ impl App {
         } else {
             Task::none()
         };
-        Task::batch([scroll, self.console_effect(effect)])
+        Task::batch([
+            scroll,
+            self.console_effect(effect),
+            self.console_sync_media(),
+            self.ensure_console_news(),
+        ])
     }
 
     fn console_select_game(&mut self, index: usize) -> Task<Message> {
@@ -1582,7 +1739,12 @@ impl App {
         } else {
             Task::none()
         };
-        Task::batch([scroll, self.console_effect(effect)])
+        Task::batch([
+            scroll,
+            self.console_effect(effect),
+            self.console_sync_media(),
+            self.ensure_console_news(),
+        ])
     }
 
     fn console_select_tab(&mut self, tab: ConsoleTab) -> Task<Message> {
@@ -1592,7 +1754,11 @@ impl App {
 
         let games = self.library.visible_all();
         self.big_picture.select_tab(tab, &games);
-        self.console_rail_scroll()
+        Task::batch([
+            self.console_rail_scroll(),
+            self.console_sync_media(),
+            self.ensure_console_news(),
+        ])
     }
 
     fn console_action(&mut self, index: usize) -> Task<Message> {
@@ -1602,7 +1768,11 @@ impl App {
 
         let games = self.library.visible_all();
         let effect = self.big_picture.press_action(index, &games);
-        self.console_effect(effect)
+        Task::batch([
+            self.console_effect(effect),
+            self.console_sync_media(),
+            self.ensure_console_news(),
+        ])
     }
 
     fn console_effect(&mut self, effect: ConsoleEffect) -> Task<Message> {
@@ -1616,10 +1786,184 @@ impl App {
                     self.request_launch(id)
                 }
             }
+            ConsoleEffect::OpenGameDetail(id) => self.open_game_from_console(id),
+            ConsoleEffect::ToggleFavorite(id) => self.toggle_console_favorite(id),
+            ConsoleEffect::Trailer(id) => self.console_trailer(id),
             ConsoleEffect::Notice(text) => {
                 self.big_picture.set_notice(text);
                 Task::none()
             }
+        }
+    }
+
+    /// Mantém o trailer do painel alinhado ao jogo selecionado. Ao fechar o
+    /// painel (ou trocar de aba) o pipeline é descartado; ao abrir/trocar de
+    /// jogo, um novo `game:sysinfo` é disparado sem bloquear a UI.
+    fn console_sync_media(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) {
+            return Task::none();
+        }
+
+        let selected = if self.big_picture.overview_open() {
+            let games = self.library.visible_all();
+            self.big_picture
+                .selected(&games)
+                .map(|game| (game.id.clone(), game.title.clone()))
+        } else {
+            None
+        };
+
+        let Some((id, title)) = selected else {
+            self.clear_console_media();
+            return Task::none();
+        };
+
+        if self.console_media_id.as_deref() == Some(id.as_str()) {
+            return Task::none();
+        }
+
+        self.media.clear();
+        self.game_media = None;
+        self.console_media_id = Some(id.clone());
+        let backend = self.backend.clone();
+        let request_id = id.clone();
+        Task::perform(
+            async move { backend.load_game_media(request_id, title).await },
+            move |media| Message::ConsoleMediaLoaded { id, media },
+        )
+    }
+
+    fn clear_console_media(&mut self) {
+        if self.console_media_id.take().is_some() {
+            self.media.clear();
+            self.game_media = None;
+        }
+    }
+
+    fn ensure_console_news(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture)
+            || self.big_picture.tab() != ConsoleTab::News
+        {
+            return Task::none();
+        }
+        if matches!(self.console_news.status, LoadStatus::Idle) {
+            self.load_console_news()
+        } else {
+            Task::none()
+        }
+    }
+
+    fn load_console_news(&mut self) -> Task<Message> {
+        if self.console_news.status == LoadStatus::Loading {
+            return Task::none();
+        }
+        self.console_news.status = LoadStatus::Loading;
+        self.console_news.error = None;
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_news().await },
+            Message::ConsoleNewsLoaded,
+        )
+    }
+
+    fn toggle_console_favorite(&mut self, id: String) -> Task<Message> {
+        if self.favorite_busy.is_some() {
+            self.big_picture
+                .set_notice("Aguarde a gravação do favorito atual.".to_string());
+            return Task::none();
+        }
+
+        let Some(game) = self.library.game(&id).cloned() else {
+            self.big_picture
+                .set_notice("O jogo saiu da biblioteca antes de favoritar.".to_string());
+            return Task::none();
+        };
+        let favorite = !game.favorite;
+        self.favorite_busy = Some(id.clone());
+        // O painel continua mostrando o estado antigo até o dispatcher
+        // responder com a biblioteca atualizada.
+        self.big_picture.set_notice(if favorite {
+            format!("Adicionando \"{}\" aos favoritos…", game.title)
+        } else {
+            format!("Removendo \"{}\" dos favoritos…", game.title)
+        });
+
+        let backend = self.backend.clone();
+        let message_id = id.clone();
+        Task::perform(
+            async move { backend.set_favorite(id, favorite).await },
+            move |result| Message::ConsoleFavoriteDone {
+                id: message_id,
+                result,
+            },
+        )
+    }
+
+    fn console_trailer(&mut self, id: String) -> Task<Message> {
+        if self.console_media_id.as_deref() != Some(id.as_str()) {
+            return self.console_sync_media();
+        }
+
+        if self.media.can_control() {
+            return match self.media.toggle() {
+                Ok(()) => Task::none(),
+                Err(error) => Task::done(Message::MediaError(error)),
+            };
+        }
+
+        let sources = self
+            .game_media
+            .as_ref()
+            .and_then(|media| media.movies.first())
+            .map(|movie| media::TrailerSources {
+                hls: movie.hls.clone(),
+                mp4: movie.mp4.clone(),
+                webm: movie.webm.clone(),
+            });
+        if let Some(sources) = sources {
+            return match self.media.open(&sources) {
+                Ok(()) => Task::none(),
+                Err(error) => Task::done(Message::MediaError(error)),
+            };
+        }
+
+        if self.game_media.is_some() {
+            let notice = self
+                .game_media
+                .as_ref()
+                .and_then(|media| media.notice.clone())
+                .unwrap_or_else(|| "Este jogo não tem trailer disponível.".to_string());
+            self.big_picture.set_notice(notice);
+            Task::none()
+        } else {
+            self.big_picture
+                .set_notice("O trailer ainda está carregando…".to_string());
+            Task::none()
+        }
+    }
+
+    /// Abre a ficha desktop saindo do console sem restaurar o trailer da tela
+    /// anterior (o `open_game` já dispara a mídia do jogo escolhido).
+    fn open_game_from_console(&mut self, id: String) -> Task<Message> {
+        let mut tasks = Vec::new();
+        if matches!(self.screen, Screen::BigPicture) {
+            self.previous_screen = None;
+            self.big_picture.leave();
+            self.media.clear();
+            self.game_media = None;
+            self.console_media_id = None;
+            if let Some(window) = self.window {
+                tasks.push(window::set_mode(window, window::Mode::Windowed));
+            }
+        }
+        tasks.push(self.open_game(id));
+        Task::batch(tasks)
+    }
+
+    fn focus_console_game(&mut self, id: &str) {
+        let games = self.library.visible_all();
+        if let Some(index) = games.iter().position(|game| game.id == id) {
+            self.big_picture.focus_rail(index);
         }
     }
 
