@@ -4,7 +4,7 @@
 //! mensagens voltam para `update` — nenhuma chamada bloqueante roda na thread
 //! que desenha.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
 use arcadia_native_input::NavEvent;
@@ -14,11 +14,12 @@ use serde_json::{json, Value};
 
 use crate::backend::{
     Achievement, AchievementsData, Backend, DownloadAction, DownloadItem, DownloadsData,
-    FriendsLoad, Game, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent,
-    LaunchToggle, NewsItem, PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail,
-    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
-    StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage, StoreSearch,
-    TrailerResult,
+    EmulationLoad, EmulatorInfo, EmulatorProfile, EmulatorRomEntry, EmulatorRomFolder,
+    EmulatorRomIndexEntry, EmulatorScanResult, EmulatorStatus, FriendsLoad, Game, GameMedia,
+    GameSettingsEnvelope, GameSettingsView, GameStats, LaunchEvent, LaunchToggle, NewsItem,
+    PluginItem, ProtonDbInfo, RetroGame, RetroGameDetail, RetroOfferDetail, RetroPage,
+    RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, StoreDepot, StoreGame, StoreInfo,
+    StoreInstallInfo, StoreLibrary, StorePage, StoreSearch, TrailerResult,
 };
 use crate::big_picture::{
     home_shelf, BigPicture, ConsoleEffect, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE,
@@ -173,6 +174,26 @@ pub enum Message {
         value: bool,
     },
     CpuCoresChanged(i64),
+    EmulationLoaded(Result<EmulationLoad, String>),
+    EmulationDetect,
+    EmulationOpenEditor(String),
+    EmulationCloseEditor,
+    EmulationExecutableChanged(String),
+    EmulationCorePathChanged(String),
+    EmulationBiosPathChanged(String),
+    EmulationArgsChanged(String),
+    EmulationFolderDraftChanged(String),
+    EmulationFolderAdd,
+    EmulationFolderRemove(usize),
+    EmulationFolderRecursiveToggled(usize),
+    EmulationProfileSave,
+    EmulationProfileSaved(Result<(), String>),
+    EmulationRemoveRequest,
+    EmulationRemoveCancel,
+    EmulationRemoveConfirm,
+    EmulationProfileRemoved(Result<(), String>),
+    EmulationScan,
+    EmulationScanDone(Result<EmulatorScanResult, String>),
     SourcesLoaded(Result<Vec<SourceItem>, String>),
     SourceUrlChanged(String),
     SourceAdd,
@@ -695,16 +716,18 @@ pub enum SettingsTab {
     Downloads,
     Playback,
     Integrations,
+    Emulation,
     About,
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 6] = [
+    pub const ALL: [SettingsTab; 7] = [
         SettingsTab::General,
         SettingsTab::Appearance,
         SettingsTab::Downloads,
         SettingsTab::Playback,
         SettingsTab::Integrations,
+        SettingsTab::Emulation,
         SettingsTab::About,
     ];
 
@@ -715,6 +738,7 @@ impl SettingsTab {
             SettingsTab::Downloads => "sidebar.downloads",
             SettingsTab::Playback => "native.settings.playback",
             SettingsTab::Integrations => "settings.integracoes",
+            SettingsTab::Emulation => "settings.emulacao",
             SettingsTab::About => "about.titulo",
         };
         i18n.t(key)
@@ -750,6 +774,55 @@ impl Default for SettingsState {
             saving: None,
         }
     }
+}
+
+/// Dados da aba Configurações > Emulação. O estado do editor fica aqui para a
+/// view ser somente leitura; nenhuma chamada de IPC sai do desenho.
+#[derive(Debug, Clone, Default)]
+pub struct EmulationState {
+    pub status: LoadStatus,
+    pub emulators: Vec<EmulatorInfo>,
+    pub statuses: Vec<EmulatorStatus>,
+    pub rom_index: BTreeMap<String, EmulatorRomIndexEntry>,
+    /// Falhas parciais de status/índice/perfis; o catálogo continua visível.
+    pub warnings: Vec<String>,
+    pub editor: Option<EmulationEditorState>,
+}
+
+impl EmulationState {
+    pub fn status_for(&self, id: &str) -> Option<&EmulatorStatus> {
+        self.statuses
+            .iter()
+            .find(|status| status.emulator_id == id)
+    }
+
+    pub fn rom_index_for(&self, id: &str) -> Option<&EmulatorRomIndexEntry> {
+        self.rom_index.get(id)
+    }
+}
+
+/// Rascunho do perfil aberto. `original` guarda o perfil persistido para
+/// preservar core/BIOS quando o formulário não os mostra.
+#[derive(Debug, Clone)]
+pub struct EmulationEditorState {
+    pub emulator_id: String,
+    pub executable: String,
+    pub core_path: String,
+    pub bios_path: String,
+    pub args_text: String,
+    pub rom_folders: Vec<EmulatorRomFolder>,
+    pub folder_draft: String,
+    pub original: Option<EmulatorProfile>,
+    pub requires_core: bool,
+    pub bios_required: bool,
+    pub saving: bool,
+    pub confirm_remove: bool,
+    pub error: Option<String>,
+    pub scanning: bool,
+    pub scan_error: Option<String>,
+    pub preview_available: bool,
+    pub preview_roms: Vec<EmulatorRomEntry>,
+    pub preview_truncated: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -923,6 +996,7 @@ pub struct App {
     pub trailer_override: bool,
     pub downloads: DownloadsState,
     pub settings: SettingsState,
+    pub emulation: EmulationState,
     pub sources: SourcesState,
     pub friends: FriendsState,
     pub components: ComponentsState,
@@ -966,6 +1040,7 @@ impl App {
             trailer_override: false,
             downloads: DownloadsState::default(),
             settings: SettingsState::default(),
+            emulation: EmulationState::default(),
             sources: SourcesState::default(),
             friends: FriendsState::default(),
             components: ComponentsState::default(),
@@ -1145,7 +1220,13 @@ impl App {
             }
             Message::SettingsTabChanged(tab) => {
                 self.settings.tab = tab;
-                Task::none()
+                if tab == SettingsTab::Emulation
+                    && matches!(self.emulation.status, LoadStatus::Idle)
+                {
+                    self.load_emulation(false)
+                } else {
+                    Task::none()
+                }
             }
             Message::AccentChanged(accent) => {
                 self.settings.accent_draft = accent;
@@ -1174,6 +1255,279 @@ impl App {
                     return Task::none();
                 }
                 self.save_setting("download_cpu_cores", json!(next))
+            }
+            Message::EmulationLoaded(result) => {
+                match result {
+                    Ok(load) => {
+                        self.emulation.emulators = load.emulators;
+                        self.emulation.statuses = load.statuses;
+                        self.emulation.rom_index = load.rom_index;
+                        self.emulation.warnings = load.warnings;
+                        self.emulation.status = LoadStatus::Ready;
+                        self.refresh_emulation_editor();
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] emuladores: {error}");
+                        self.emulation.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::EmulationDetect => self.load_emulation(true),
+            Message::EmulationOpenEditor(id) => {
+                self.open_emulation_editor(&id);
+                Task::none()
+            }
+            Message::EmulationCloseEditor => {
+                self.emulation.editor = None;
+                Task::none()
+            }
+            Message::EmulationExecutableChanged(value) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.executable = value;
+                }
+                Task::none()
+            }
+            Message::EmulationCorePathChanged(value) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.core_path = value;
+                }
+                Task::none()
+            }
+            Message::EmulationBiosPathChanged(value) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.bios_path = value;
+                }
+                Task::none()
+            }
+            Message::EmulationArgsChanged(value) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.args_text = value;
+                }
+                Task::none()
+            }
+            Message::EmulationFolderDraftChanged(value) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.folder_draft = value;
+                }
+                Task::none()
+            }
+            Message::EmulationFolderAdd => {
+                let invalid = self.i18n.t("native.emulation.folder_invalid").to_string();
+                let limit = self.i18n.t("native.emulation.folder_limit").to_string();
+                let duplicate = self.i18n.t("native.emulation.folder_duplicate").to_string();
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    let path = editor.folder_draft.trim().to_string();
+                    if path.is_empty() {
+                        editor.error = Some(invalid);
+                    } else if editor.rom_folders.len() >= crate::backend::MAX_EMULATOR_ROM_FOLDERS {
+                        editor.error = Some(limit);
+                    } else if editor
+                        .rom_folders
+                        .iter()
+                        .any(|folder| folder.path == path)
+                    {
+                        editor.error = Some(duplicate);
+                    } else {
+                        editor.rom_folders.push(EmulatorRomFolder {
+                            path,
+                            recursive: true,
+                        });
+                        editor.folder_draft.clear();
+                        editor.error = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::EmulationFolderRemove(index) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    if index < editor.rom_folders.len() {
+                        editor.rom_folders.remove(index);
+                    }
+                }
+                Task::none()
+            }
+            Message::EmulationFolderRecursiveToggled(index) => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    if let Some(folder) = editor.rom_folders.get_mut(index) {
+                        folder.recursive = !folder.recursive;
+                    }
+                }
+                Task::none()
+            }
+            Message::EmulationProfileSave => {
+                if self
+                    .emulation
+                    .editor
+                    .as_ref()
+                    .map(|editor| editor.saving)
+                    .unwrap_or(true)
+                {
+                    return Task::none();
+                }
+                if !crate::backend::valid_emulator_executable(
+                    &self
+                        .emulation
+                        .editor
+                        .as_ref()
+                        .map(|editor| editor.executable.as_str())
+                        .unwrap_or_default(),
+                ) {
+                    let message = self.i18n.t("emulacao.apontar_exe_emulador").to_string();
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.error = Some(message);
+                    }
+                    return Task::none();
+                }
+                let Some(editor) = self.emulation.editor.as_ref() else {
+                    return Task::none();
+                };
+                let executable = editor.executable.trim().to_string();
+                let args = crate::backend::emulator_args_from_text(
+                    &editor.args_text,
+                    editor.original.as_ref(),
+                );
+                let core_path = editor.requires_core.then_some(editor.core_path.trim());
+                let bios_path = editor.bios_required.then_some(editor.bios_path.trim());
+                let payload =
+                    crate::backend::emulator_profile_payload(&crate::backend::EmulatorProfileDraft {
+                        id: &editor.emulator_id,
+                        executable: &executable,
+                        core_path,
+                        bios_path,
+                        rom_folders: &editor.rom_folders,
+                        args: &args,
+                        existing: editor.original.as_ref(),
+                    });
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.saving = true;
+                    editor.confirm_remove = false;
+                    editor.error = None;
+                }
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.save_emulator_profile(payload).await },
+                    Message::EmulationProfileSaved,
+                )
+            }
+            Message::EmulationProfileSaved(result) => match result {
+                Ok(()) => {
+                    self.emulation.editor = None;
+                    self.load_emulation(false)
+                }
+                Err(error) => {
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.saving = false;
+                        editor.error = Some(error);
+                    }
+                    Task::none()
+                }
+            },
+            Message::EmulationRemoveRequest => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    if editor.original.is_some() && !editor.saving {
+                        editor.confirm_remove = true;
+                        editor.error = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::EmulationRemoveCancel => {
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.confirm_remove = false;
+                }
+                Task::none()
+            }
+            Message::EmulationRemoveConfirm => {
+                let Some(editor) = self.emulation.editor.as_ref() else {
+                    return Task::none();
+                };
+                if editor.saving {
+                    return Task::none();
+                }
+                let id = editor.emulator_id.clone();
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.saving = true;
+                    editor.confirm_remove = false;
+                    editor.error = None;
+                }
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.remove_emulator_profile(id).await },
+                    Message::EmulationProfileRemoved,
+                )
+            }
+            Message::EmulationProfileRemoved(result) => match result {
+                Ok(()) => {
+                    self.emulation.editor = None;
+                    self.load_emulation(false)
+                }
+                Err(error) => {
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.saving = false;
+                        editor.error = Some(error);
+                    }
+                    Task::none()
+                }
+            },
+            Message::EmulationScan => {
+                let Some(editor) = self.emulation.editor.as_ref() else {
+                    return Task::none();
+                };
+                if editor.scanning {
+                    return Task::none();
+                }
+                let saved_folders = editor
+                    .original
+                    .as_ref()
+                    .map(|profile| profile.rom_folders.as_slice())
+                    .unwrap_or_default();
+                if editor.rom_folders.is_empty() || editor.rom_folders.as_slice() != saved_folders
+                {
+                    let message = self
+                        .i18n
+                        .t("native.emulation.scan_need_save")
+                        .to_string();
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.scan_error = Some(message);
+                    }
+                    return Task::none();
+                }
+                let id = editor.emulator_id.clone();
+                if let Some(editor) = self.emulation.editor.as_mut() {
+                    editor.scanning = true;
+                    editor.scan_error = None;
+                }
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.scan_configured_emulator_roms(id).await },
+                    Message::EmulationScanDone,
+                )
+            }
+            Message::EmulationScanDone(result) => {
+                let empty_message = self.i18n.t("emulacao.nenhuma_rom_pastas").to_string();
+                match result {
+                    Ok(scan) => {
+                        if let Some(editor) = self.emulation.editor.as_mut() {
+                            editor.scanning = false;
+                            editor.scan_error = if scan.roms.is_empty() {
+                                Some(empty_message)
+                            } else {
+                                None
+                            };
+                            editor.preview_truncated = scan.truncated;
+                            editor.preview_available = true;
+                            editor.preview_roms = scan.roms;
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(editor) = self.emulation.editor.as_mut() {
+                            editor.scanning = false;
+                            editor.scan_error = Some(error);
+                        }
+                    }
+                }
+                Task::none()
             }
             Message::SourcesLoaded(result) => {
                 self.sources.busy = false;
@@ -3318,6 +3672,113 @@ impl App {
         .into()
     }
 
+    /// Carrega catálogo, status, perfis e índice sem bloquear a UI. `detect`
+    /// reaproveita a Subscription de tasks e força `emulators:detect`.
+    fn load_emulation(&mut self, detect: bool) -> Task<Message> {
+        if self.emulation.status == LoadStatus::Loading {
+            return Task::none();
+        }
+        self.emulation.status = LoadStatus::Loading;
+        self.emulation.warnings.clear();
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_emulation(detect).await },
+            Message::EmulationLoaded,
+        )
+    }
+
+    /// Abre o editor com o perfil persistido (ou o executável detectado) e a
+    /// prévia do índice de ROMs já salvo.
+    fn open_emulation_editor(&mut self, id: &str) {
+        let Some(item) = self
+            .emulation
+            .emulators
+            .iter()
+            .find(|item| item.id == id)
+        else {
+            return;
+        };
+        let profile = item.profile.clone();
+        let detected_args = item.detected_args.clone();
+        let executable = match profile.as_ref() {
+            Some(profile) if !profile.executable.trim().is_empty() => profile.executable.clone(),
+            _ => item.executable.clone(),
+        };
+        let args_text = match profile.as_ref() {
+            Some(profile) => profile.args.join(" "),
+            None => detected_args.join(" "),
+        };
+        let requires_core = item.requires_core || id == "retroarch";
+        let bios_required = self
+            .emulation
+            .status_for(id)
+            .map(|status| status.required)
+            .unwrap_or(false);
+        let preview = self.emulation.rom_index_for(id);
+        let preview_available = preview.is_some();
+        let preview_roms = preview.map(|entry| entry.roms.clone()).unwrap_or_default();
+        let preview_truncated = preview.map(|entry| entry.truncated).unwrap_or(false);
+        let (core_path, bios_path, rom_folders) = match profile.as_ref() {
+            Some(profile) => (
+                profile.core_path.clone(),
+                profile.bios_path.clone(),
+                profile.rom_folders.clone(),
+            ),
+            None => (String::new(), String::new(), Vec::new()),
+        };
+
+        self.emulation.editor = Some(EmulationEditorState {
+            emulator_id: id.to_string(),
+            executable,
+            core_path,
+            bios_path,
+            args_text,
+            rom_folders,
+            folder_draft: String::new(),
+            original: profile,
+            requires_core,
+            bios_required,
+            saving: false,
+            confirm_remove: false,
+            error: None,
+            scanning: false,
+            scan_error: None,
+            preview_available,
+            preview_roms,
+            preview_truncated,
+        });
+    }
+
+    /// Depois de listar/detectar, o perfil e o status podem ter mudado. O
+    /// rascunho do usuário fica intacto; só os campos derivados são renovados.
+    fn refresh_emulation_editor(&mut self) {
+        let Some(editor) = self.emulation.editor.as_ref() else {
+            return;
+        };
+        let id = editor.emulator_id.clone();
+        let Some(item) = self
+            .emulation
+            .emulators
+            .iter()
+            .find(|item| item.id == id)
+        else {
+            self.emulation.editor = None;
+            return;
+        };
+        let profile = item.profile.clone();
+        let requires_core = item.requires_core || id == "retroarch";
+        let bios_required = self
+            .emulation
+            .status_for(&id)
+            .map(|status| status.required)
+            .unwrap_or(false);
+        if let Some(editor) = self.emulation.editor.as_mut() {
+            editor.original = profile;
+            editor.requires_core = requires_core;
+            editor.bios_required = bios_required;
+        }
+    }
+
     /// Carrega a seção sob demanda. `force` é o botão "Atualizar"; sem ele, o
     /// cache em memória evita refazer IPC a cada troca de aba.
     fn load_section(&mut self, section: Section, force: bool) -> Task<Message> {
@@ -3870,6 +4331,8 @@ mod tests {
         assert_eq!(Section::Home.label(&es), "Inicio");
         assert_eq!(SettingsTab::General.label(&en), "General Settings");
         assert_eq!(SettingsTab::Appearance.label(&es), "Apariencia");
+        assert_eq!(SettingsTab::Emulation.label(&pt), "Emulação");
+        assert_eq!(SettingsTab::Emulation.label(&en), "Emulation");
     }
 
     #[test]
