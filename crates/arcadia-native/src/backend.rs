@@ -6,7 +6,8 @@
 //! também, mas o cache fica em [`crate::covers`].
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -3106,6 +3107,343 @@ async fn fetch_cover_http(http: reqwest::Client, url: String) -> Option<Handle> 
     decode_cover(&bytes).map(|(width, height, pixels)| Handle::from_rgba(width, height, pixels))
 }
 
+// ── Atualizações ───────────────────────────────────────────────────────────
+
+/// Fase do updater empacotado (`update:packaged:state.fase`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PackagedPhase {
+    #[default]
+    Ocioso,
+    Disponivel,
+    Baixando,
+    Pronto,
+    Erro,
+    SemSuporte,
+}
+
+impl PackagedPhase {
+    pub fn from_str(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "ocioso" => Some(Self::Ocioso),
+            "disponivel" => Some(Self::Disponivel),
+            "baixando" => Some(Self::Baixando),
+            "pronto" => Some(Self::Pronto),
+            "erro" => Some(Self::Erro),
+            "sem_suporte" => Some(Self::SemSuporte),
+            _ => None,
+        }
+    }
+
+    pub fn is_busy(self) -> bool {
+        matches!(self, Self::Baixando)
+    }
+}
+
+/// Snapshot de `update:packaged:state` no formato camelCase do IPC.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PackagedState {
+    pub canal: String,
+    pub suportado: bool,
+    pub versao_atual: String,
+    pub versao_nova: Option<String>,
+    pub tamanho: Option<u64>,
+    pub fase: PackagedPhase,
+    pub progresso: u8,
+    pub erro: Option<String>,
+    pub erro_de_fundo: bool,
+    pub erro_acao: Option<String>,
+    pub ja_avisado: bool,
+    pub jogo_rodando: bool,
+}
+
+impl PackagedState {
+    /// Versão oferecida (nova quando existe, senão a atual).
+    pub fn versao_oferecida(&self) -> &str {
+        self.versao_nova
+            .as_deref()
+            .filter(|versao| !versao.is_empty())
+            .unwrap_or(&self.versao_atual)
+    }
+
+    pub fn is_unsupported(&self) -> bool {
+        !self.suportado || self.fase == PackagedPhase::SemSuporte
+    }
+}
+
+/// Resumo de `update:state` (canal fonte/git e disponibilidade).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GitUpdateState {
+    pub canal: String,
+    pub suportado: bool,
+    pub versao: String,
+    pub disponivel: bool,
+}
+
+/// Estado de update que o `App` mantém em memória.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UpdateSnapshot {
+    pub packaged: Option<PackagedState>,
+    pub git: Option<GitUpdateState>,
+    /// Falha parcial de um dos canais; o outro segue utilizável.
+    pub error: Option<String>,
+}
+
+impl UpdateSnapshot {
+    pub fn channel(&self) -> Option<&str> {
+        self.packaged
+            .as_ref()
+            .map(|state| state.canal.as_str())
+            .or_else(|| self.git.as_ref().map(|state| state.canal.as_str()))
+            .filter(|canal| !canal.is_empty())
+    }
+
+    pub fn is_supported(&self) -> bool {
+        self.packaged.as_ref().map(|state| state.suportado).unwrap_or_else(|| {
+            self.git.as_ref().map(|state| state.suportado).unwrap_or(false)
+        })
+    }
+}
+
+/// Um commit do changelog do canal fonte.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UpdateCommit {
+    pub sha: String,
+    pub titulo: String,
+}
+
+/// Resultado de `update:check` / `update:packaged:check`.
+///
+/// Os dois canais têm campos em comum; os específicos do git (`atrasado`,
+/// `commits`, `depsMudaram`) ficam vazios no canal empacotado.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UpdateCheck {
+    pub ok: bool,
+    pub disponivel: bool,
+    pub atrasado: Option<i64>,
+    pub commits: Vec<UpdateCommit>,
+    pub deps_mudaram: bool,
+    pub erro: Option<String>,
+    pub motivo: Option<String>,
+    pub versao: Option<String>,
+    pub tamanho: Option<u64>,
+}
+
+/// Resultado de `update:packaged:download|install` e `update:apply`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UpdateActionResult {
+    pub ok: bool,
+    pub erro: Option<String>,
+}
+
+/// Retrato devolvido pela checagem manual/automática do `App`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCheckReport {
+    pub channel: String,
+    pub check: UpdateCheck,
+    pub snapshot: UpdateSnapshot,
+}
+
+/// Vídeo de boot devolvido por `boot:video`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootVideo {
+    pub mime: String,
+    pub data: Vec<u8>,
+    pub codecs: Vec<String>,
+}
+
+/// Payload de `achievement:unlocked` já validado para o toast.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AchievementToast {
+    pub appid: String,
+    pub key: String,
+    pub title: String,
+    pub desc: Option<String>,
+    pub icon: Option<String>,
+    pub percent: Option<f64>,
+    pub unlock: Option<i64>,
+}
+
+/// Parser de `update:packaged:state` (snapshot camelCase).
+pub fn parse_packaged_state(value: &Value) -> Result<PackagedState, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "update:packaged:state não devolveu um objeto".to_string())?;
+    let canal = object
+        .get("canal")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|canal| !canal.is_empty())
+        .ok_or_else(|| "update:packaged:state sem `canal`".to_string())?;
+    let fase_raw = object
+        .get("fase")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "update:packaged:state sem `fase`".to_string())?;
+    let fase = PackagedPhase::from_str(fase_raw)
+        .ok_or_else(|| format!("fase de update desconhecida: {fase_raw}"))?;
+
+    let progresso = object
+        .get("progresso")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .clamp(0.0, 100.0)
+        .round() as u8;
+
+    Ok(PackagedState {
+        canal: canal.to_string(),
+        suportado: bool_field(value, "suportado", false),
+        versao_atual: string_field(value, "versaoAtual"),
+        versao_nova: optional_text_field(value, "versaoNova"),
+        tamanho: object.get("tamanho").and_then(value_to_u64),
+        fase,
+        progresso,
+        erro: optional_text_field(value, "erro"),
+        erro_de_fundo: bool_field(value, "erroDeFundo", false),
+        erro_acao: optional_text_field(value, "erroAcao"),
+        ja_avisado: bool_field(value, "jaAvisado", false),
+        jogo_rodando: bool_field(value, "jogoRodando", false),
+    })
+}
+
+/// Parser de `update:state` (`{ canal, suportado, versao, disponivel }`).
+pub fn parse_update_state(value: &Value) -> Result<GitUpdateState, String> {
+    if !value.is_object() {
+        return Err("update:state não devolveu um objeto".to_string());
+    }
+    Ok(GitUpdateState {
+        canal: string_field(value, "canal"),
+        suportado: bool_field(value, "suportado", false),
+        versao: string_field(value, "versao"),
+        disponivel: bool_field(value, "disponivel", false),
+    })
+}
+
+/// Parser comum de `update:check` e `update:packaged:check`.
+pub fn parse_update_check(value: &Value) -> Result<UpdateCheck, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "checagem de update não devolveu um objeto".to_string())?;
+
+    let atrasado = object.get("atrasado").and_then(Value::as_i64);
+    let commits = object
+        .get("commits")
+        .and_then(Value::as_array)
+        .map(|commits| {
+            commits
+                .iter()
+                .filter_map(|commit| {
+                    let sha = commit
+                        .get("sha")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|sha| !sha.is_empty())?;
+                    let titulo = commit
+                        .get("titulo")
+                        .or_else(|| commit.get("title"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .unwrap_or_default();
+                    Some(UpdateCommit {
+                        sha: sha.to_string(),
+                        titulo: titulo.to_string(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let erro = optional_text_field(value, "erro").or_else(|| optional_text_field(value, "error"));
+    let disponivel = object
+        .get("disponivel")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| atrasado.unwrap_or(0) > 0 || !commits.is_empty());
+
+    Ok(UpdateCheck {
+        ok: bool_field(value, "ok", erro.is_none()),
+        disponivel,
+        atrasado,
+        commits,
+        deps_mudaram: bool_field(value, "depsMudaram", false),
+        erro,
+        motivo: optional_text_field(value, "motivo"),
+        versao: optional_text_field(value, "versao"),
+        tamanho: object.get("tamanho").and_then(value_to_u64),
+    })
+}
+
+/// Parser de `{ ok, erro? }` das ações do updater.
+pub fn parse_update_action(value: &Value) -> Result<UpdateActionResult, String> {
+    if !value.is_object() {
+        return Err("ação do updater não devolveu um objeto".to_string());
+    }
+    Ok(UpdateActionResult {
+        ok: bool_field(value, "ok", false),
+        erro: optional_text_field(value, "erro")
+            .or_else(|| optional_text_field(value, "error"))
+            .or_else(|| optional_text_field(value, "motivo")),
+    })
+}
+
+/// Parser de `boot:video`.
+///
+/// `{ ok: false }` é o contrato de "sem vídeo" e vira `Ok(None)`; bytes
+/// inválidos/vazios também caem no fallback da UI em vez de virar erro fatal.
+pub fn parse_boot_video(value: &Value) -> Result<Option<BootVideo>, String> {
+    if !bool_field(value, "ok", false) {
+        return Ok(None);
+    }
+    let data = value
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "boot:video ok sem `data`".to_string())?;
+
+    let mut bytes = Vec::with_capacity(data.len());
+    for byte in data {
+        let number = byte
+            .as_u64()
+            .filter(|number| *number <= u8::MAX as u64)
+            .ok_or_else(|| "boot:video com byte inválido".to_string())?;
+        bytes.push(number as u8);
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(BootVideo {
+        mime: optional_text_field(value, "mime")
+            .unwrap_or_else(|| "video/mp4".to_string()),
+        data: bytes,
+        codecs: string_list(value.get("codecs")),
+    }))
+}
+
+/// Parser de `achievement:unlocked`.
+pub fn parse_achievement_unlocked(payload: &Value) -> Option<AchievementToast> {
+    let appid = optional_text_field(payload, "appid")?;
+    let title = optional_text_field(payload, "title")
+        .or_else(|| optional_text_field(payload, "name"))?;
+    let key = optional_text_field(payload, "key")
+        .or_else(|| optional_text_field(payload, "apiname"))
+        .unwrap_or_else(|| title.clone());
+
+    Some(AchievementToast {
+        appid,
+        key,
+        title,
+        desc: optional_text_field(payload, "desc")
+            .or_else(|| optional_text_field(payload, "description")),
+        icon: optional_image_url(payload, "icon"),
+        percent: payload.get("percent").and_then(Value::as_f64),
+        unlock: payload.get("unlock").and_then(Value::as_i64),
+    })
+}
+
+/// Evento já convertido que o `App` aplica na UI.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiEvent {
+    Launch(LaunchEvent),
+    Achievement(AchievementToast),
+}
+
 /// Fachada compartilhada pelas tasks do iced.
 #[derive(Clone)]
 pub struct Backend {
@@ -3113,6 +3451,8 @@ pub struct Backend {
     shell: Arc<NativeShell>,
     runtime: tokio::runtime::Handle,
     http: reqwest::Client,
+    achievements_warmed: Arc<AtomicBool>,
+    achievements_running: Arc<AtomicBool>,
 }
 
 impl Backend {
@@ -3128,7 +3468,7 @@ impl Backend {
                 .unwrap_or_else(|_| reqwest::Client::new())
         };
 
-        let shell = Arc::new(NativeShell::new());
+        let shell = Arc::new(NativeShell::with_data_dir(state.data_dir.clone()));
         // O launch roda no `LaunchRuntime` do IPC e publica pelo sink de
         // background, não pelo `Shell::emit`. Os dois caminhos alimentam a
         // mesma fila; o app drena numa Subscription de ~150 ms.
@@ -3142,14 +3482,16 @@ impl Backend {
             shell,
             runtime,
             http,
+            achievements_warmed: Arc::new(AtomicBool::new(false)),
+            achievements_running: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// Eventos de lançamento pendentes, já convertidos no contrato tipado.
+    /// Drena a fila compartilhada já convertida em eventos de UI.
     ///
-    /// Chamado pela Subscription de baixa frequência do app; não bloqueia e
-    /// não consulta o processo do jogo.
-    pub fn drain_launch_events(&self) -> Vec<LaunchEvent> {
+    /// Eventos de conquista passam pelo mesmo parser do toast; um payload
+    /// desconhecido é registrado e descartado sem derrubar os demais.
+    pub fn drain_ui_events(&self) -> Vec<UiEvent> {
         let queue = self.shell.events();
         if queue.is_empty() {
             return Vec::new();
@@ -3158,20 +3500,215 @@ impl Backend {
             .drain()
             .into_iter()
             .filter_map(|event| {
+                if event.event == "achievement:unlocked" {
+                    let parsed = parse_achievement_unlocked(&event.payload);
+                    if parsed.is_none() {
+                        eprintln!(
+                            "[arcadia-native] achievement:unlocked sem payload reconhecido: {}",
+                            event.payload
+                        );
+                    }
+                    return parsed.map(UiEvent::Achievement);
+                }
+
                 let parsed = parse_launch_event(&event.event, &event.payload);
                 if parsed.is_none() {
                     eprintln!(
-                        "[arcadia-native] evento de lançamento sem payload reconhecido: {} {}",
+                        "[arcadia-native] evento de UI sem payload reconhecido: {} {}",
                         event.event, event.payload
                     );
                 }
-                parsed
+                parsed.map(UiEvent::Launch)
             })
             .collect()
     }
 
     pub fn data_dir(&self) -> &Path {
         &self.state.data_dir
+    }
+
+    /// Snapshot `update:packaged:state` + `update:state` em paralelo.
+    ///
+    /// Uma falha parcial não apaga o outro canal; só vira erro quando nenhum
+    /// dos dois respondeu.
+    pub async fn load_update_snapshot(&self) -> Result<UpdateSnapshot, String> {
+        let (packaged, git) = tokio::join!(
+            self.dispatch("update:packaged:state", Vec::new()),
+            self.dispatch("update:state", Vec::new())
+        );
+
+        let mut errors = Vec::new();
+        let packaged = match packaged {
+            Ok(value) => match parse_packaged_state(&value) {
+                Ok(state) => Some(state),
+                Err(error) => {
+                    errors.push(format!("update:packaged:state: {error}"));
+                    None
+                }
+            },
+            Err(error) => {
+                errors.push(format!("update:packaged:state: {error}"));
+                None
+            }
+        };
+        let git = match git {
+            Ok(value) => match parse_update_state(&value) {
+                Ok(state) => Some(state),
+                Err(error) => {
+                    errors.push(format!("update:state: {error}"));
+                    None
+                }
+            },
+            Err(error) => {
+                errors.push(format!("update:state: {error}"));
+                None
+            }
+        };
+
+        if packaged.is_none() && git.is_none() {
+            return Err(errors.join(" · "));
+        }
+
+        Ok(UpdateSnapshot {
+            packaged,
+            git,
+            error: (!errors.is_empty()).then(|| errors.join(" · ")),
+        })
+    }
+
+    /// Estado empacotado isolado, usado pelo poll do diálogo em download.
+    pub async fn load_packaged_state(&self) -> Result<PackagedState, String> {
+        let value = self.dispatch("update:packaged:state", Vec::new()).await?;
+        parse_packaged_state(&value)
+    }
+
+    /// Checagem manual/automática: escolhe o canal informado por `update:state`
+    /// e devolve o snapshot atualizado junto do resultado.
+    pub async fn check_updates(&self, manual: bool) -> Result<UpdateCheckReport, String> {
+        let snapshot = self
+            .load_update_snapshot()
+            .await
+            .unwrap_or_else(|error| UpdateSnapshot {
+                error: Some(error),
+                ..UpdateSnapshot::default()
+            });
+        let channel = snapshot
+            .channel()
+            .unwrap_or("sem_suporte")
+            .to_string();
+
+        let value = if channel == "fonte" {
+            self.dispatch("update:check", Vec::new()).await?
+        } else {
+            self.dispatch(
+                "update:packaged:check",
+                vec![json!({ "manual": manual })],
+            )
+            .await?
+        };
+        let check = parse_update_check(&value)?;
+
+        let packaged = self.load_packaged_state().await.ok();
+        let refreshed = UpdateSnapshot {
+            packaged,
+            git: snapshot.git,
+            error: snapshot.error,
+        };
+
+        Ok(UpdateCheckReport {
+            channel,
+            check,
+            snapshot: refreshed,
+        })
+    }
+
+    /// `update:packaged:download` — só deve ser chamado por ação do usuário.
+    pub async fn download_packaged_update(&self) -> Result<UpdateActionResult, String> {
+        let value = self
+            .dispatch("update:packaged:download", Vec::new())
+            .await?;
+        parse_update_action(&value)
+    }
+
+    /// `update:packaged:install` — encerra/reinicia o app; nunca automático.
+    pub async fn install_packaged_update(&self) -> Result<UpdateActionResult, String> {
+        let value = self
+            .dispatch("update:packaged:install", Vec::new())
+            .await?;
+        parse_update_action(&value)
+    }
+
+    /// `update:apply { depsMudaram }` do canal fonte/git.
+    pub async fn apply_git_update(&self, deps_mudaram: bool) -> Result<UpdateActionResult, String> {
+        let value = self
+            .dispatch(
+                "update:apply",
+                vec![json!({ "depsMudaram": deps_mudaram })],
+            )
+            .await?;
+        parse_update_action(&value)
+    }
+
+    /// Persiste que a versão já foi mostrada (`update:packaged:jaAvisado`).
+    pub async fn mark_update_advised(&self, versao: String) -> Result<(), String> {
+        let value = self
+            .dispatch(
+                "update:packaged:jaAvisado",
+                vec![json!({ "versao": versao })],
+            )
+            .await?;
+        let result = parse_update_action(&value)?;
+        if result.ok {
+            Ok(())
+        } else {
+            Err(result
+                .erro
+                .unwrap_or_else(|| "update:packaged:jaAvisado falhou".to_string()))
+        }
+    }
+
+    /// Pede `boot:video` e grava os bytes num arquivo temporário do data dir.
+    ///
+    /// A gravação roda dentro da task do iced (fora da thread de pintura) e o
+    /// `MediaPlayer` abre o caminho local depois. Sem vídeo, devolve `Ok(None)`.
+    pub async fn load_boot_video(&self) -> Result<Option<PathBuf>, String> {
+        let value = self.dispatch("boot:video", Vec::new()).await?;
+        let Some(video) = parse_boot_video(&value)? else {
+            return Ok(None);
+        };
+
+        let dir = self.data_dir().join("temp");
+        std::fs::create_dir_all(&dir)
+            .map_err(|error| format!("não foi possível criar {}: {error}", dir.display()))?;
+        let extension = match video.mime.as_str() {
+            "video/webm" => "webm",
+            "video/quicktime" => "mov",
+            _ => "mp4",
+        };
+        let path = dir.join(format!("arcadia-boot-{}.{}", std::process::id(), extension));
+        std::fs::write(&path, &video.data)
+            .map_err(|error| format!("não foi possível gravar {}: {error}", path.display()))?;
+        Ok(Some(path))
+    }
+
+    /// Aquece os schemas na primeira chamada e roda o tick de conquistas.
+    ///
+    /// O `App` chama isso num tick de 15 s, como o loop do shell Tauri. Roda em
+    /// `spawn_blocking` porque o runtime de conquistas lê arquivos do Steam.
+    pub async fn achievements_tick(&self) {
+        if self.achievements_running.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let warm = !self.achievements_warmed.swap(true, Ordering::SeqCst);
+        let join = self.runtime.spawn_blocking(move || {
+            if warm {
+                let _ = state.achievements_schemas_load();
+            }
+            let _ = state.achievements_tick();
+        });
+        let _ = join.await;
+        self.achievements_running.store(false, Ordering::SeqCst);
     }
 
     /// Prefixo que o `LaunchRuntime::build_environment` usa quando o jogo não
@@ -4976,5 +5513,224 @@ mod tests {
         assert!(failed.contains("Game not found"), "{failed}");
         assert!(parse_retro_game_detail(json!({ "ok": true })).is_err());
         assert!(parse_retro_offer_detail(json!({ "ok": true })).is_err());
+    }
+}
+
+#[cfg(test)]
+mod update_notification_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_packaged_state_snapshot() {
+        let state = parse_packaged_state(&json!({
+            "canal": "appimage",
+            "suportado": true,
+            "versaoAtual": "1.5.5",
+            "versaoNova": "1.6.0",
+            "tamanho": 52428800,
+            "fase": "disponivel",
+            "progresso": 0,
+            "erro": null,
+            "erroDeFundo": false,
+            "erroAcao": null,
+            "jaAvisado": false,
+            "jogoRodando": true
+        }))
+        .expect("snapshot válido");
+
+        assert_eq!(state.canal, "appimage");
+        assert!(state.suportado);
+        assert_eq!(state.versao_atual, "1.5.5");
+        assert_eq!(state.versao_nova.as_deref(), Some("1.6.0"));
+        assert_eq!(state.tamanho, Some(52_428_800));
+        assert_eq!(state.fase, PackagedPhase::Disponivel);
+        assert_eq!(state.versao_oferecida(), "1.6.0");
+        assert!(state.jogo_rodando);
+        assert!(!state.is_unsupported());
+
+        let downloading = parse_packaged_state(&json!({
+            "canal": "nsis",
+            "suportado": true,
+            "versaoAtual": "2.0.0",
+            "versaoNova": "2.1.0",
+            "fase": "baixando",
+            "progresso": 42.0,
+            "erroAcao": "baixar"
+        }))
+        .expect("download em andamento");
+        assert_eq!(downloading.fase, PackagedPhase::Baixando);
+        assert_eq!(downloading.progresso, 42);
+        assert_eq!(downloading.erro_acao.as_deref(), Some("baixar"));
+        assert!(downloading.fase.is_busy());
+    }
+
+    #[test]
+    fn packaged_state_rejects_unknown_phase_and_missing_channel() {
+        let error = parse_packaged_state(&json!({
+            "canal": "appimage",
+            "fase": "instalando"
+        }))
+        .unwrap_err();
+        assert!(error.contains("fase"), "{error}");
+
+        let error = parse_packaged_state(&json!({ "fase": "ocioso" })).unwrap_err();
+        assert!(error.contains("canal"), "{error}");
+        assert!(parse_packaged_state(&json!([])).is_err());
+    }
+
+    #[test]
+    fn parses_update_state_for_git_channel() {
+        let state = parse_update_state(&json!({
+            "canal": "fonte",
+            "suportado": true,
+            "versao": "9cea844",
+            "disponivel": false
+        }))
+        .expect("estado git válido");
+        assert_eq!(state.canal, "fonte");
+        assert!(state.suportado);
+        assert_eq!(state.versao, "9cea844");
+        assert!(!state.disponivel);
+        assert!(parse_update_state(&json!("fonte")).is_err());
+    }
+
+    #[test]
+    fn parses_git_update_check_with_commits_and_deps() {
+        let check = parse_update_check(&json!({
+            "ok": true,
+            "disponivel": true,
+            "atrasado": 2,
+            "commits": [
+                { "sha": "abc1234", "titulo": "feat: boot" },
+                { "sha": "def5678", "titulo": "fix: update" },
+                { "sha": " " , "titulo": "ignorado" }
+            ],
+            "depsMudaram": true
+        }))
+        .expect("check git válido");
+
+        assert!(check.ok);
+        assert!(check.disponivel);
+        assert_eq!(check.atrasado, Some(2));
+        assert_eq!(check.commits.len(), 2);
+        assert_eq!(check.commits[0].sha, "abc1234");
+        assert_eq!(check.commits[1].titulo, "fix: update");
+        assert!(check.deps_mudaram);
+        assert!(check.erro.is_none());
+
+        // `update:check` sem `disponivel` deriva de `atrasado`.
+        let derived = parse_update_check(&json!({
+            "ok": true,
+            "atrasado": 1,
+            "commits": [{ "sha": "abc", "titulo": "x" }]
+        }))
+        .expect("check sem campo disponivel");
+        assert!(derived.disponivel);
+    }
+
+    #[test]
+    fn parses_packaged_check_and_action_errors() {
+        let available = parse_update_check(&json!({
+            "ok": true,
+            "disponivel": true,
+            "versao": "1.7.0",
+            "tamanho": 100
+        }))
+        .expect("check empacotado");
+        assert_eq!(available.versao.as_deref(), Some("1.7.0"));
+        assert_eq!(available.tamanho, Some(100));
+
+        let unsupported = parse_update_check(&json!({
+            "ok": false,
+            "disponivel": false,
+            "motivo": "canal_nao_suportado"
+        }))
+        .expect("check sem suporte");
+        assert!(!unsupported.ok);
+        assert_eq!(unsupported.motivo.as_deref(), Some("canal_nao_suportado"));
+
+        let failed = parse_update_check(&json!({
+            "ok": false,
+            "disponivel": false,
+            "erro": "sem rede"
+        }))
+        .expect("check com erro");
+        assert_eq!(failed.erro.as_deref(), Some("sem rede"));
+
+        // O `git_channel` serializa a falha como `error`.
+        let git_failed = parse_update_check(&json!({
+            "ok": false,
+            "error": "sem git"
+        }))
+        .expect("check git com erro");
+        assert_eq!(git_failed.erro.as_deref(), Some("sem git"));
+
+        let action = parse_update_action(&json!({ "ok": false, "erro": "sem_download" }))
+            .expect("ação inválida");
+        assert!(!action.ok);
+        assert_eq!(action.erro.as_deref(), Some("sem_download"));
+        assert!(parse_update_action(&json!(null)).is_err());
+    }
+
+    #[test]
+    fn parses_boot_video_and_falls_back_without_bytes() {
+        let video = parse_boot_video(&json!({
+            "ok": true,
+            "mime": "video/mp4",
+            "data": [0, 1, 254, 255],
+            "codecs": ["avc1.42E01E", " "]
+        }))
+        .expect("vídeo válido")
+        .expect("vídeo presente");
+        assert_eq!(video.mime, "video/mp4");
+        assert_eq!(video.data, vec![0, 1, 254, 255]);
+        assert_eq!(video.codecs, vec!["avc1.42E01E"]);
+
+        assert!(parse_boot_video(&json!({ "ok": false }))
+            .expect("sem vídeo é fallback")
+            .is_none());
+        assert!(parse_boot_video(&json!({ "ok": true, "data": [] }))
+            .expect("bytes vazios são fallback")
+            .is_none());
+        assert!(parse_boot_video(&json!({ "ok": true, "data": [256] })).is_err());
+        assert!(parse_boot_video(&json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn parses_achievement_unlocked_payload() {
+        let toast = parse_achievement_unlocked(&json!({
+            "appid": "10",
+            "key": "ACH_WIN",
+            "title": "Conquista",
+            "desc": "Descrição",
+            "icon": "//cdn.test/icon.jpg",
+            "percent": 12.5,
+            "unlock": 1700000000
+        }))
+        .expect("payload válido");
+        assert_eq!(toast.appid, "10");
+        assert_eq!(toast.key, "ACH_WIN");
+        assert_eq!(toast.title, "Conquista");
+        assert_eq!(toast.desc.as_deref(), Some("Descrição"));
+        assert_eq!(toast.icon.as_deref(), Some("https://cdn.test/icon.jpg"));
+        assert_eq!(toast.percent, Some(12.5));
+        assert_eq!(toast.unlock, Some(1_700_000_000));
+
+        let fallback = parse_achievement_unlocked(&json!({
+            "appid": "20",
+            "apiname": "API_NAME",
+            "name": "Sem title",
+            "description": "Sem desc",
+            "icon": ""
+        }))
+        .expect("fallback de apiname/name");
+        assert_eq!(fallback.key, "API_NAME");
+        assert_eq!(fallback.title, "Sem title");
+        assert_eq!(fallback.desc.as_deref(), Some("Sem desc"));
+        assert!(fallback.icon.is_none());
+
+        assert!(parse_achievement_unlocked(&json!({ "appid": "10", "key": "X" })).is_none());
+        assert!(parse_achievement_unlocked(&json!(null)).is_none());
     }
 }

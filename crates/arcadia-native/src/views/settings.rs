@@ -479,10 +479,97 @@ fn about_tab<'a>(app: &'a App, config: &'a SettingsConfig) -> Element<'a, Messag
             .spacing(theme::SPACE_2)
             .into(),
         ),
+        updates_group(app),
         note(i18n.t("native.settings.about_note")),
     ]
     .spacing(theme::SPACE_5)
     .into()
+}
+
+/// Bloco "Atualizações" da aba Sobre: reusa o mesmo `UpdateUiState` do
+/// diálogo global e do check automático do boot.
+fn updates_group(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
+    let channel = app
+        .update
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.channel())
+        .unwrap_or("—")
+        .to_string();
+    let last_check = app
+        .update
+        .last_check
+        .clone()
+        .unwrap_or_else(|| i18n.t("native.settings.update_never").to_string());
+
+    let mut rows = column![
+        setting_row(
+            i18n.t("native.settings.update_channel"),
+            i18n.t("native.settings.update_channel_desc"),
+            value_text(&channel),
+        ),
+        setting_row(
+            i18n.t("native.settings.update_last"),
+            i18n.t("native.settings.update_last_desc"),
+            value_text(&last_check),
+        ),
+    ]
+    .spacing(theme::SPACE_2);
+
+    if let Some(version) = app.update.available_version.as_deref() {
+        rows = rows.push(setting_row(
+            i18n.t("native.settings.update_available"),
+            i18n.t("native.settings.update_available_desc"),
+            value_text(version),
+        ));
+    } else if app.update.last_check.is_some()
+        && app.update.last_error.is_none()
+        && app
+            .update
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.is_supported())
+    {
+        rows = rows.push(note(i18n.t("native.settings.update_current")));
+    }
+
+    if let Some(error) = app.update.last_error.as_deref() {
+        rows = rows.push(
+            text(i18n.t_args("native.settings.update_error", &[("error", error)]))
+                .size(11)
+                .color(theme::DANGER)
+                .width(Fill),
+        );
+    }
+    if app.update.last_motivo.as_deref() == Some("jogo_rodando") {
+        rows = rows.push(note(i18n.t("native.update.jogo_rodando")));
+    }
+    if app
+        .update
+        .snapshot
+        .as_ref()
+        .is_some_and(|snapshot| !snapshot.is_supported())
+    {
+        rows = rows.push(note(i18n.t_args(
+            "native.update.sem_suporte",
+            &[("canal", &channel)],
+        )));
+    }
+
+    let label = if app.update.checking {
+        i18n.t("native.settings.update_checking")
+    } else {
+        i18n.t("native.settings.update_check")
+    };
+    let mut control: iced::widget::Button<'_, Message> =
+        button(text(label).size(11).font(theme::FONT_MEDIUM)).padding([8.0, 14.0]);
+    if !app.update.checking {
+        control = control.on_press(Message::CheckUpdates(true));
+    }
+    rows = rows.push(row![control.style(theme::primary_button)].padding([4.0, 14.0]));
+
+    group(i18n.t("native.settings.updates"), rows.into())
 }
 
 fn language_button(lang: Lang, active_lang: Lang, disabled: bool) -> Element<'static, Message> {
