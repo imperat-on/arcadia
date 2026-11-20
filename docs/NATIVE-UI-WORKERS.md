@@ -13,9 +13,13 @@ scripts/native-worker-preflight.sh cargo check -p arcadia-native
 scripts/native-worker-preflight.sh cargo test -p arcadia-native
 ```
 
-Ele compartilha o `target/` do worktree principal, limita `CARGO_BUILD_JOBS`
-para 4 e aplica timeout de 15 minutos. Ajuste com `ARCADIA_CMD_TIMEOUT`,
-`CARGO_BUILD_JOBS` ou `ARCADIA_TARGET_DIR` se precisar.
+Ele limita `CARGO_BUILD_JOBS` para 4 e aplica timeout de 15 minutos. Ajuste
+com `ARCADIA_CMD_TIMEOUT` ou `CARGO_BUILD_JOBS`.
+
+**Não compartilhe o `target/` entre worktrees.** O Cargo já reutilizou um
+binário de teste de outro checkout e o teste mentiu. Cada worktree usa o
+próprio target; o registry/git cache em `~/.cargo` é compartilhado e seguro.
+Se desconfiar de artefato velho, rode `cargo clean -p arcadia-native`.
 
 ## Comandos que não podem travar
 
