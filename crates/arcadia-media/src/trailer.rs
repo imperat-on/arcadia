@@ -26,6 +26,11 @@ pub fn trailers_dir(data_dir: impl AsRef<Path>) -> PathBuf {
 /// Formato de download usado por `download` e `downloadUrl`.
 pub const VIDEO_FORMAT: &str = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
 
+/// Formato de `streamUrl`. Mais restrito que `VIDEO_FORMAT` de propósito: o
+/// player embutido não precisa de 4K, e um stream de 720p abre mais rápido.
+/// O fallback final (`/b`) cobre o caso de o vídeo só ter progressivo.
+pub const STREAM_FORMAT: &str = "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b";
+
 /// Opções de diretório/ambiente dos comandos.
 #[derive(Debug, Clone, Copy)]
 pub struct TrailerOptions<'a> {
@@ -240,7 +245,19 @@ pub fn stream_url_args_with_cookies(url: &str, cookies: &[String]) -> Vec<String
     let mut args = vec![
         "-g".to_string(),
         "-f".to_string(),
-        "best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best".to_string(),
+        // O YouTube deixou de servir formatos progressivos (vídeo+áudio num
+        // só arquivo) para a maioria dos vídeos: hoje quase tudo vem como
+        // DASH, separado. O seletor antigo
+        // `best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best` pedia
+        // justamente progressivo, e respondia
+        // "ERROR: Requested format is not available" — a UI nunca recebia URL
+        // e o player ficava em buffering infinito.
+        //
+        // `bv*+ba` é o que o download já usa e continua válido: o yt-dlp
+        // devolve as duas URLs, e o chamador usa a primeira (vídeo). Para um
+        // <video> tocar as duas faixas seria preciso mesclar em arquivo, que é
+        // exatamente o caminho de download — por isso ele é o preferido.
+        STREAM_FORMAT.to_string(),
         "--no-warnings".to_string(),
     ];
     args.extend(cookies.iter().cloned());
@@ -551,7 +568,7 @@ mod tests {
             vec![
                 "-g",
                 "-f",
-                "best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best",
+                STREAM_FORMAT,
                 "--no-warnings",
                 "--cookies",
                 "c.txt",
@@ -563,7 +580,7 @@ mod tests {
             vec![
                 "-g",
                 "-f",
-                "best[height<=720][ext=mp4]/22/18/best[ext=mp4]/best",
+                STREAM_FORMAT,
                 "--no-warnings",
                 "https://youtu.be/abc",
             ]
@@ -664,5 +681,76 @@ mod tests {
             "ERROR: último"
         );
         assert_eq!(download_error_message("nada útil"), "falha ao baixar");
+    }
+
+    // ── Regressão: buffering infinito no player de trailer ───────────────────
+    //
+    // O sintoma era o vídeo nunca sair do "carregando". A causa medida foi o
+    // seletor de formato do `stream_url`, que pedia vídeo progressivo
+    // (`best[height<=720][ext=mp4]/22/18/...`) — formato que o YouTube deixou
+    // de oferecer. O yt-dlp respondia "Requested format is not available", a UI
+    // não recebia URL e `streamLoading` ficava true para sempre, sem erro.
+    //
+    // Este teste não toca a rede: ele trava a FORMA do seletor, que é o que
+    // regride fácil — basta alguém "simplificar" o formato de volta para um
+    // progressivo e o player quebra em produção sem nenhum teste falhar.
+    const PROGRESSIVOS_MORTOS: [&str; 3] = ["22", "18", "best[ext=mp4]"];
+
+    #[test]
+    fn stream_format_nao_pede_apenas_formato_progressivo() {
+        // O YouTube não serve mais progressivo para a maioria dos vídeos. Um
+        // seletor que só liste formatos progressivos devolve erro, não URL.
+        let tem_dash = STREAM_FORMAT.contains("bv*") || STREAM_FORMAT.contains("bv");
+        assert!(
+            tem_dash,
+            "STREAM_FORMAT precisa pedir DASH (bv*/ba), senão só casa com \
+             progressivo e o yt-dlp responde 'Requested format is not available'. \
+             Atual: {STREAM_FORMAT}"
+        );
+
+        // E precisa ter fallback: se o DASH não existir, `/b` salva o caso raro
+        // em que o vídeo só tem progressivo.
+        assert!(
+            STREAM_FORMAT.matches('/').count() >= 1,
+            "STREAM_FORMAT sem fallback: um vídeo que não ofereça a primeira \
+             opção devolve erro. Atual: {STREAM_FORMAT}"
+        );
+    }
+
+    #[test]
+    fn stream_args_usam_o_seletor_e_pedem_url() {
+        let args = stream_url_args_with_cookies("https://youtu.be/x", &[]);
+        assert!(args.contains(&"-g".to_string()), "sem -g vem o vídeo, não URL");
+        assert_eq!(args[2], STREAM_FORMAT, "o seletor mudou sem querer");
+        for morto in PROGRESSIVOS_MORTOS {
+            assert!(
+                !(args[2].matches('/').count() == 0 && args[2] == morto),
+                "seletor preso em formato progressivo morto: {morto}"
+            );
+        }
+        assert_eq!(args.last().unwrap(), "https://youtu.be/x");
+    }
+
+    /// O parse precisa sobreviver ao yt-dlp devolver duas URLs (vídeo e áudio
+    /// separados, que é o normal com `bv*+ba`). A primeira precisa ser uma URL
+    /// válida, senão o <video> recebe lixo.
+    #[test]
+    fn parse_stream_aceita_duas_urls_e_pega_a_primeira() {
+        let stdout = "https://video.example/a?x=1\nhttps://audio.example/b?x=1\n";
+        let url = parse_stream_result(stdout, "").expect("deveria achar URL");
+        assert!(url.starts_with("https://video.example"), "veio: {url}");
+        assert!(!url.contains('\n'), "URL com quebra de linha quebra o <video>");
+    }
+
+    /// Um erro do yt-dlp não pode virar "sem stream" genérico: a UI mostra a
+    /// mensagem, e "buffering infinito" era justamente a ausência de erro.
+    #[test]
+    fn parse_stream_reporta_erro_em_vez_de_url_vazia() {
+        let stderr = "ERROR: [youtube] x: Requested format is not available";
+        assert_eq!(parse_stream_result("", stderr), Err("sem stream".to_string()));
+        assert_eq!(
+            parse_stream_result("", "ERROR: This video is inappropriate"),
+            Err("age".to_string())
+        );
     }
 }

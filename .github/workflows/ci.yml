@@ -50,6 +50,23 @@ jobs:
       - name: Testes do workspace
         run: cargo test --workspace
 
+      # Regressão do trailer: o player travava em buffering infinito porque o
+      # seletor de formato do yt-dlp pedia vídeo progressivo, que o YouTube
+      # deixou de servir. Os testes unitários travam a forma do seletor; este
+      # job confirma contra o YouTube real que ele ainda devolve URL. Roda
+      # separado e com `continue-on-error: false` de propósito: se o YouTube
+      # mudar de novo, o CI quebra aqui, não na mão do usuário.
+      - name: Instala yt-dlp
+        run: pipx install yt-dlp || pip install --user yt-dlp
+
+      - name: Regressão do trailer (rede real)
+        env:
+          ARCADIA_LIVE_TESTS: "1"
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          yt-dlp --version
+          cargo test -p arcadia-media --test trailer_stream_live -- --test-threads=1
+
   # Empacotamento: gera .deb e AppImage e verifica que o pacote carrega os
   # codecs de vídeo com as próprias dependências.
   package:
