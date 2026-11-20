@@ -34,6 +34,4 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 # `avatar:load` devolve data URL; o Handle do iced recebe os bytes decodificados.
 base64 = "0.23"
-# Seletor nativo sem GTK: no Linux usa o portal XDG (com fallback interno para
-# zenity). `default-features = false` evita puxar gtk3.
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Seletor nativo via zenity/kdialog (sem GTK/rfd). Ver `src/picker.rs`.

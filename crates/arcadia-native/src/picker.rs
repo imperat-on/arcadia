@@ -1,8 +1,9 @@
 //! Seletor nativo de arquivos/pastas compartilhado pelas telas.
 //!
-//! O diálogo real fica atrás de [`pick`] e nunca é aberto em teste. No Linux o
-//! `rfd` usa o portal XDG (sem GTK) e, se o portal não responder, cai para o
-//! `zenity` — os dois caminhos são internos à biblioteca.
+//! O diálogo real fica atrás de [`pick`] e nunca é aberto em teste. No Linux
+//! usamos `zenity` ou `kdialog`; não dependemos de `rfd`/GTK porque o workspace
+//! também contém a UI Tauri, cujo plugin de diálogo habilita a feature `gtk3`
+//! do `rfd` e conflita com o backend XDG.
 
 use std::path::PathBuf;
 
@@ -73,52 +74,83 @@ impl PickPurpose {
 
 /// Abre o diálogo nativo e devolve `None` quando o usuário cancela.
 ///
-/// O `rfd` não distingue cancelamento de falha do portal no valor de retorno;
-/// por isso a disponibilidade mínima é conferida antes. Sem barramento de
-/// sessão e sem zenity/kdialog, devolvemos um erro legível em vez de um
-/// "cancelado" silencioso.
+/// `zenity`/`kdialog` são processos externos; a chamada bloqueante roda em
+/// `spawn_blocking` para não travar a thread do iced. Sem nenhum dos dois,
+/// devolvemos um erro legível em vez de um "cancelado" silencioso.
 pub async fn pick(purpose: PickPurpose) -> Result<Option<PathBuf>, String> {
-    ensure_dialog_available().await?;
-
-    let folder = purpose.is_folder();
-    let image = purpose.is_image();
-    let dialog = rfd::AsyncFileDialog::new().set_title("ARCADIA");
-    let dialog = if image {
-        dialog.add_filter(
-            "Images",
-            &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"],
-        )
-    } else {
-        dialog
-    };
-
-    let handle = if folder {
-        dialog.pick_folder().await
-    } else {
-        dialog.pick_file().await
-    };
-    Ok(handle.map(|handle| handle.path().to_path_buf()))
+    tokio::task::spawn_blocking(move || pick_blocking(&purpose))
+        .await
+        .map_err(|error| format!("seletor nativo falhou: {error}"))?
 }
 
-/// O portal XDG é D-Bus; um barramento de sessão é o sinal disponível sem
-/// adicionar um cliente D-Bus. Zenity/kdialog cobrem o caso sem portal.
 #[cfg(target_os = "linux")]
-async fn ensure_dialog_available() -> Result<(), String> {
-    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
-        return Ok(());
+fn pick_blocking(purpose: &PickPurpose) -> Result<Option<PathBuf>, String> {
+    let (program, args) = if command_in_path("zenity").is_some() {
+        ("zenity", zenity_args(purpose))
+    } else if command_in_path("kdialog").is_some() {
+        ("kdialog", kdialog_args(purpose))
+    } else {
+        return Err(
+            "nenhum seletor nativo disponível; instale zenity ou kdialog (ou digite o caminho manualmente)"
+                .to_string(),
+        );
+    };
+
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| format!("não foi possível abrir {program}: {error}"))?;
+
+    // zenity/kdialog usam código 1 para cancelamento; qualquer saída sem
+    // caminho também é tratada como cancelamento.
+    if !output.status.success() {
+        return Ok(None);
     }
-    if command_in_path("zenity").is_some() || command_in_path("kdialog").is_some() {
-        return Ok(());
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(PathBuf::from(path)))
     }
-    Err(
-        "nenhum seletor nativo disponível (portal XDG, zenity ou kdialog não encontrados)"
-            .to_string(),
-    )
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn ensure_dialog_available() -> Result<(), String> {
-    Ok(())
+fn pick_blocking(_purpose: &PickPurpose) -> Result<Option<PathBuf>, String> {
+    Err("seletor nativo disponível apenas no Linux; digite o caminho manualmente".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn zenity_args(purpose: &PickPurpose) -> Vec<String> {
+    let mut args = vec![
+        "--file-selection".to_string(),
+        "--title=ARCADIA".to_string(),
+    ];
+    if purpose.is_folder() {
+        args.push("--directory".to_string());
+    }
+    if purpose.is_image() {
+        args.push(
+            "--file-filter=Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.avif".to_string(),
+        );
+    }
+    args
+}
+
+#[cfg(target_os = "linux")]
+fn kdialog_args(purpose: &PickPurpose) -> Vec<String> {
+    let mut args = vec!["--title".to_string(), "ARCADIA".to_string()];
+    if purpose.is_folder() {
+        args.push("--getexistingdirectory".to_string());
+        args.push(".".to_string());
+    } else {
+        args.push("--getopenfilename".to_string());
+        args.push(".".to_string());
+        if purpose.is_image() {
+            args.push("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.avif)".to_string());
+        }
+    }
+    args
 }
 
 #[cfg(target_os = "linux")]
@@ -157,5 +189,17 @@ mod tests {
         assert_eq!(rom.emulator_id(), Some("dolphin"));
 
         assert_eq!(PickPurpose::Background.emulator_id(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn zenity_args_use_directory_and_image_filters() {
+        let folder = zenity_args(&PickPurpose::RomFolder("dolphin".to_string()));
+        assert!(folder.contains(&"--directory".to_string()));
+        assert!(!folder.iter().any(|arg| arg.contains("*.png")));
+
+        let image = zenity_args(&PickPurpose::Avatar);
+        assert!(image.iter().any(|arg| arg.contains("*.png")));
+        assert!(!image.contains(&"--directory".to_string()));
     }
 }
