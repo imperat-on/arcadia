@@ -218,6 +218,25 @@ fn legacy_flags_migrate_only_for_builtins() {
 }
 
 #[test]
+fn builtin_redetection_preserves_saved_enabled_choice() {
+    let data=TempDir::new("arcadia-plugin-redetect");
+    let mut registry=PluginRegistry::with_standard_builtins(data.path(),false,false).unwrap();
+    registry.set_builtin_installed("slssteam",true);
+    assert!(registry.get("slssteam").unwrap().enabled);
+    assert!(registry.disable("slssteam").ok);
+    registry.set_builtin_installed("slssteam",false);
+    assert!(!registry.get("slssteam").unwrap().installed);
+    registry.set_builtin_installed("slssteam",true);
+    let restored=registry.get("slssteam").unwrap();
+    assert!(restored.installed);assert!(!restored.enabled);
+    assert!(registry.enable("slssteam").ok);
+    registry.set_builtin_installed("slssteam",false);
+    assert!(!registry.get("slssteam").unwrap().enabled);
+    registry.set_builtin_installed("slssteam",true);
+    assert!(registry.get("slssteam").unwrap().enabled);
+}
+
+#[test]
 fn standard_builtins_are_flags_and_cannot_be_replaced() {
     let data = TempDir::new("arcadia-plugin-builtins");
     let packages = TempDir::new("arcadia-plugin-builtins-pkg");

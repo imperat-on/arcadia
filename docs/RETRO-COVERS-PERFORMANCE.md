@@ -1,5 +1,8 @@
 # Carregamento das capas Retro
 
+Registro das medições no cliente anterior e no backend compartilhado. Os
+trechos sobre React e WebView descrevem a implementação medida na época.
+
 ## Cache de navegação no backend
 
 `crates/arcadia-retro/src/catalog.rs` — `RetroServerCatalog` ganhou

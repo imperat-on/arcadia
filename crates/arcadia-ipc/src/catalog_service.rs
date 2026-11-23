@@ -102,7 +102,10 @@ async fn steam_reviews(appid: &str) -> Option<Value> {
         .build()
         .ok()?;
     let body: Value = client.get(url).send().await.ok()?.json().await.ok()?;
-    let summary = body.get("query_summary").cloned().unwrap_or_else(|| json!({}));
+    let summary = body
+        .get("query_summary")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let total = summary
         .get("total_reviews")
         .and_then(Value::as_i64)
@@ -153,17 +156,13 @@ async fn steam_reviews(appid: &str) -> Option<Value> {
 }
 
 /// `game:sysinfo`: requisitos/tamanhos/descrição do catálogo + appdetails.
-pub async fn game_sysinfo(
-    state: &AppState,
-    store: Option<&StoreClient>,
-    game: &Value,
-) -> Value {
+pub async fn game_sysinfo(state: &AppState, store: Option<&StoreClient>, game: &Value) -> Value {
     let id = game.get("id").and_then(Value::as_str).unwrap_or_default();
-    let title = game.get("title").and_then(Value::as_str).unwrap_or_default();
-    let mut appid = id
-        .strip_prefix("steam:")
-        .unwrap_or_default()
-        .to_string();
+    let title = game
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut appid = id.strip_prefix("steam:").unwrap_or_default().to_string();
     if appid.is_empty() {
         if let Some(store) = store {
             if !title.is_empty() {
@@ -180,27 +179,31 @@ pub async fn game_sysinfo(
         return json!({ "ok": true, "info": null });
     }
 
+    // São fontes independentes: a descrição/trailer não deve esperar duas
+    // viagens de rede em série. O catálogo continua tendo precedência.
+    let (catalog, details) = tokio::join!(
+        async {
+            let client = client(state)?;
+            client
+                .get(&format!("/catalog/v1/sysinfo/{appid}"))
+                .await
+                .data
+        },
+        async { store?.app_details(&appid).await.ok().flatten() }
+    );
     let mut info = serde_json::Map::new();
-    if let Some(client) = client(state) {
-        if let Some(body) = client
-            .get(&format!("/catalog/v1/sysinfo/{appid}"))
-            .await
-            .data
-        {
-            let data = body.get("data").cloned().unwrap_or(body);
-            if let Some(object) = data.as_object() {
-                for (key, value) in object {
-                    info.insert(key.clone(), value.clone());
-                }
+    if let Some(body) = catalog {
+        let data = body.get("data").cloned().unwrap_or(body);
+        if let Some(object) = data.as_object() {
+            for (key, value) in object {
+                info.insert(key.clone(), value.clone());
             }
         }
     }
-    if let Some(store) = store {
-        if let Ok(Some(details)) = store.app_details(&appid).await {
-            if let Ok(Value::Object(object)) = serde_json::to_value(details) {
-                for (key, value) in object {
-                    info.entry(key).or_insert(value);
-                }
+    if let Some(details) = details {
+        if let Ok(Value::Object(object)) = serde_json::to_value(details) {
+            for (key, value) in object {
+                info.entry(key).or_insert(value);
             }
         }
     }
@@ -261,7 +264,9 @@ pub async fn game_stats(state: &AppState, appid: &str) -> Value {
                 let total = comments.len() as i64;
                 let positives = comments
                     .iter()
-                    .filter(|comment| comment.get("positive").and_then(Value::as_bool) == Some(true))
+                    .filter(|comment| {
+                        comment.get("positive").and_then(Value::as_bool) == Some(true)
+                    })
                     .count() as i64;
                 info.insert("comments".into(), json!(comments));
                 info.insert("totalReviews".into(), json!(total));
@@ -304,7 +309,13 @@ mod tests {
 
     #[test]
     fn unwraps_nested_data_body() {
-        assert_eq!(first_body_data(&json!({ "data": { "owners": "1" } })), json!({ "owners": "1" }));
-        assert_eq!(first_body_data(&json!({ "owners": "2" })), json!({ "owners": "2" }));
+        assert_eq!(
+            first_body_data(&json!({ "data": { "owners": "1" } })),
+            json!({ "owners": "1" })
+        );
+        assert_eq!(
+            first_body_data(&json!({ "owners": "2" })),
+            json!({ "owners": "2" })
+        );
     }
 }

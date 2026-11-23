@@ -378,6 +378,7 @@ async fn appdetails_parses_sysinfo_shape_and_prefers_the_richer_about() {
         "store.steampowered.com/api/appdetails",
         json!({"10": {"success": true, "data": {
             "short_description": "curta",
+            "genres": [{"id":"1","description":"Ação"},{"id":"23","description":"Indie"}],
             "about_the_game": "<p>about</p>",
             "detailed_description": "<p>detalhada</p><img src=\"1\"><img src=\"2\">",
             "pc_requirements": {"minimum": "min", "recommended": "rec"},
@@ -398,6 +399,7 @@ async fn appdetails_parses_sysinfo_shape_and_prefers_the_richer_about() {
     let info = envelope.info.clone().unwrap();
     assert_eq!(info.appid, "10");
     assert_eq!(info.short_description, "curta");
+    assert_eq!(info.genres, vec!["Ação", "Indie"]);
     assert_eq!(info.about, "<p>detalhada</p><img src=\"1\"><img src=\"2\">");
     assert_eq!(info.req_min, "min");
     assert_eq!(info.req_rec, "rec");

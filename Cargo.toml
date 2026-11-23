@@ -11,6 +11,7 @@ members = [
     "crates/arcadia-launch",
     "crates/arcadia-steam",
     "crates/arcadia-media",
+    "crates/arcadia-native-media",
     "crates/arcadia-catalog",
     "crates/arcadia-plugins",
     "crates/arcadia-achievements",
@@ -21,7 +22,8 @@ members = [
     "crates/arcadia-updater",
     "crates/arcadia-gamepad",
     "crates/arcadia-ipc",
-    "src-tauri",
+    "crates/arcadia-native",
+    "crates/arcadia-native-input",
 ]
 
 [workspace.package]

@@ -5,182 +5,141 @@ on:
   pull_request:
 
 jobs:
-  # Shell Tauri/Rust: testes do workspace e build do front-end novo.
-  # A UI do Arcadia é a única frente TypeScript: o app antigo em Electron foi
-  # retirado (tag legacy-electron-final guarda o ponto de retorno).
-  rust:
-    runs-on: ubuntu-22.04
+  native:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      # Dependências nativas do Tauri no Linux. gst-plugins-bad + gst-libav são
-      # obrigatórios: sem eles o <video> dos trailers fica preto, porque o
-      # WebKitGTK delega toda decodificação ao GStreamer do sistema.
       - name: Dependências de sistema
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            libayatana-appindicator3-dev \
+            pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-libav \
-            pkg-config patchelf libssl-dev libopenh264-dev
+            libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Front-end
-        run: npm --prefix ui ci
-
-      # O bundle declara `arcadia-gamepad` como recurso e o build script do
-      # Tauri valida que o arquivo existe antes de compilar o crate `arcadia`.
-      # Sem este passo o `cargo test --workspace` falha com
-      # "resource path ../target/release/arcadia-gamepad doesn't exist".
-      - name: Wrapper XInput
-        run: cargo build --release -p arcadia-gamepad
 
       - name: Testes do workspace
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
-      # Regressão do trailer: o player travava em buffering infinito porque o
-      # seletor de formato do yt-dlp pedia vídeo progressivo, que o YouTube
-      # deixou de servir. Os testes unitários travam a forma do seletor; este
-      # passo confirma contra o YouTube real que ele ainda devolve URL.
-      #
-      # `continue-on-error` porque runners do GitHub são IPs de datacenter e o
-      # YouTube costuma responder "Sign in to confirm you're not a bot" — isso
-      # é o ambiente, não o código. O teste distingue os dois casos: block de
-      # IP sai como PULADO, seletor inválido falha de verdade. Aqui o passo não
-      # derruba o build, mas o log mostra qual dos dois aconteceu.
-      - name: Instala yt-dlp
-        run: pipx install yt-dlp || pip install --user yt-dlp
+      - name: Instalar yt-dlp
+        run: pipx install yt-dlp
 
       - name: Regressão do trailer (rede real)
         continue-on-error: true
         env:
           ARCADIA_LIVE_TESTS: "1"
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          yt-dlp --version
-          cargo test -p arcadia-media --test trailer_stream_live -- --test-threads=1
-          echo "::notice::live test concluído — ver acima se foi ok ou PULADO por block de IP"
+        run: cargo test --locked -p arcadia-media --test trailer_stream_live -- --test-threads=1
 
-  # Empacotamento: gera .deb e AppImage e verifica que o pacote carrega os
-  # codecs de vídeo com as próprias dependências.
-  package:
-    runs-on: ubuntu-22.04
-    needs: [rust]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Dependências de sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            libayatana-appindicator3-dev \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad gstreamer1.0-libav \
-            gstreamer1.0-tools libopenh264-dev pkg-config patchelf \
-            libssl-dev file zstd
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - run: npm --prefix ui ci
-
-      - name: Empacotar e verificar
-        run: ./scripts/package-linux.sh --appimage --verify
+      - name: Empacotar nativo
+        run: ./scripts/package-native-linux.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: arcadia-linux
+          name: arcadia-native-linux
           path: |
-            target/release/bundle/deb/*.deb
-            target/release/bundle/appimage/*.AppImage
-            target/release/bundle/rpm/*.rpm
+            dist/native-linux/*.tar.gz
+            dist/native-linux/SHA256SUMS
+          if-no-files-found: error
           retention-days: 14
 
-  # Windows: cross-compile do Linux (mingw) gerando exe portátil e setup NSIS.
-  # A CI usa mingw do apt em vez das ferramentas locais que o script procura.
-  windows:
-    runs-on: ubuntu-22.04
-    needs: [rust]
+  native-windows:
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain cruzado
-        run: |
-          sudo apt-get update
-          # `libayatana-appindicator3-dev` não é usada pelo binário Windows, mas
-          # o `tauri build` do host faz a checagem de appindicator antes de
-          # empacotar e aborta com "Can't detect any appindicator library" se ela
-          # não existir. Instalar aqui não contamina o `.exe`: o alvo continua
-          # sendo x86_64-pc-windows-gnu.
-          sudo apt-get install -y --no-install-recommends \
-            mingw-w64 pkg-config libssl-dev file \
-            libayatana-appindicator3-dev libwebkit2gtk-4.1-dev \
-            libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
 
-      - run: npm --prefix ui ci
-
-      # O `nsis` do apt vem sem `Include/Win/` (`RestartManager.nsh`) e sem os
-      # `Stubs/`, e o template do Tauri inclui um header de `Win/` — o makensis
-      # aborta com "could not find: Win\RestartManager.nsh".
-      #
-      # O `.zip` oficial do NSIS tem os Includes/Stubs/Plugins completos, mas só
-      # traz `makensis.exe` (Windows). A saída é combinar: o binário Linux vem
-      # do apt, e os dados (Include, Stubs, Plugins, Contrib) do zip oficial.
-      - name: NSIS (binário do apt + dados oficiais)
+      # O SDK do GStreamer costuma trazer pkg-config.exe em bin\, que já entra
+      # no PATH. Só instala o pkgconfiglite se o SDK não trouxer um.
+      - name: GStreamer 1.28.9 (MSVC x86_64, runtime + devel)
+        shell: pwsh
         run: |
-          sudo apt-get install -y --no-install-recommends nsis
-          curl -fsSL -o /tmp/nsis.zip \
-            "https://prdownloads.sourceforge.net/nsis/nsis-3.10.zip"
-          sudo python3 scripts/instalar_nsis.py /tmp/nsis.zip /usr/share/nsis
-          makensis -VERSION
+          $version = "1.28.9"
+          $sha256 = "ce4008705e8c6fe92803535b82fb3d6551e183f438e6ef26682ac4d0aca61076"
+          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc/gstreamer-1.0-msvc-x86_64-$version.exe"
+          $installer = Join-Path $env:RUNNER_TEMP "gstreamer-$version.exe"
+          $root = Join-Path $env:RUNNER_TEMP "gstreamer"
 
-      # Na CI as ferramentas vêm do prefixo local (NSIS oficial) e do apt
-      # (mingw), então o script acha tudo pelo PATH.
-      - name: Empacotar Windows
+          curl.exe -fsSL --retry 3 -o $installer $url
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($hash -ne $sha256) {
+            throw "SHA-256 do GStreamer não confere: $hash"
+          }
+
+          $process = Start-Process -Wait -PassThru -FilePath $installer -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+            "/TYPE=devel", "/DIR=$root", "/CURRENTUSER"
+          )
+          if ($process.ExitCode -ne 0) {
+            throw "instalador do GStreamer saiu com código $($process.ExitCode)"
+          }
+
+          $coreDll = Join-Path $root "bin\gstreamer-1.0-0.dll"
+          $pkgConfig = Join-Path $root "lib\pkgconfig"
+          if (-not (Test-Path -LiteralPath $coreDll -PathType Leaf)) {
+            throw "GStreamer não foi instalado em $root (falta $coreDll)"
+          }
+          if (-not (Test-Path -LiteralPath $pkgConfig -PathType Container)) {
+            throw "SDK GStreamer incompleto: $pkgConfig não existe"
+          }
+
+          "GSTREAMER_ROOT_X86_64=$root" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$($pkgConfig -replace '\\', '/')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $root "bin") |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          # O GITHUB_* só vale nos próximos steps; valide o runtime já aqui.
+          $env:PATH = "$(Join-Path $root 'bin');$env:PATH"
+          & (Join-Path $root "bin\gst-inspect-1.0.exe") --version
+
+      - name: pkg-config
+        shell: pwsh
         run: |
-          export ARCADIA_WIN_TOOLS="/usr"
-          export PATH="/usr/bin:$PATH"
-          ./scripts/package-windows.sh
-          ./scripts/verify-package-windows.sh
+          $pkgConfigExe = Join-Path $env:GSTREAMER_ROOT_X86_64 "bin\pkg-config.exe"
+          if (-not (Test-Path -LiteralPath $pkgConfigExe -PathType Leaf)) {
+            choco install pkgconfiglite -y --no-progress
+            $pkgConfigExe = Join-Path $env:ChocolateyInstall "bin\pkg-config.exe"
+          }
+          & $pkgConfigExe --version
+          & $pkgConfigExe --modversion gstreamer-1.0
+
+      - name: dav1d (decodificador AVIF)
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          $triplet = "x64-windows-static-md"
+          vcpkg install "dav1d:$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dav1d" }
+          $dav1dPc = Join-Path $root "installed\$triplet\lib\pkgconfig"
+          $env:PKG_CONFIG_PATH = "$env:PKG_CONFIG_PATH;$($dav1dPc -replace '\\', '/')"
+          pkg-config --atleast-version=1.3.0 dav1d
+          if ($LASTEXITCODE -ne 0) { throw "dav1d >= 1.3.0 não encontrado" }
+          "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check do nativo
+        run: cargo check --locked -p arcadia-native
+
+      - name: Empacotar nativo
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/package-native-windows.ps1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: arcadia-windows
+          name: arcadia-native-windows
           path: |
-            target/x86_64-pc-windows-gnu/release/arcadia.exe
-            target/x86_64-pc-windows-gnu/release/WebView2Loader.dll
-            target/x86_64-pc-windows-gnu/release/bundle/nsis/*.exe
+            dist/native-windows/*.zip
+            dist/native-windows/SHA256SUMS
+          if-no-files-found: error
           retention-days: 14

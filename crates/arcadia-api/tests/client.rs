@@ -3,6 +3,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use arcadia_api::{
     ApiClient, ApiConfig, Error, HttpRequest, Order, Session, SetSessionOptions, TransportKind,
@@ -331,6 +332,52 @@ async fn rpc_refreshes_once_on_401_and_retries_with_new_token() {
     assert_eq!(
         client.auth().get_session().await.unwrap().access_token,
         "new.access"
+    );
+}
+
+#[tokio::test]
+async fn rpc_for_user_does_not_retry_with_a_different_accounts_token() {
+    let server = MockServer::start().await;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let started_by_mock = started.clone();
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/push_library"))
+        .and(header("authorization", "Bearer old.access"))
+        .respond_with(move |_: &Request| {
+            started_by_mock.notify_one();
+            json_response(401, json!({ "error": "token_expirado" }))
+                .set_delay(Duration::from_millis(250))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server);
+    install_session(&client, session("old.access", "old.refresh")).await;
+    let original_client = client.clone();
+    let request = tokio::spawn(async move {
+        original_client
+            .rpc_for_user(
+                "push_library",
+                json!({ "p_lib": [{ "appid": "steam:413150" }], "p_playtime": [] }),
+                "user-1",
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), started.notified())
+        .await
+        .expect("a requisição da conta original deve chegar ao servidor");
+    let mut next = session("other.access", "other.refresh");
+    next.user["id"] = json!("user-2");
+    install_session(&client, next).await;
+
+    let error = request.await.unwrap().unwrap_err();
+    assert_eq!(error.status(), Some(409));
+    assert_eq!(error.api().unwrap().message, "sessao_trocada");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert_eq!(
+        client.auth().get_session().await.unwrap().access_token,
+        "other.access"
     );
 }
 

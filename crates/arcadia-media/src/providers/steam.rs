@@ -169,6 +169,42 @@ impl SteamClient {
         Ok(texts)
     }
 
+    /// URL real de uma arte do jogo, vinda do `appdetails`.
+    ///
+    /// A loja monta a capa por convenção (`{cdn}/{appid}/header.jpg`), mas a
+    /// Steam passou a servir cada asset com um hash de conteúdo no caminho
+    /// (`.../{appid}/{sha}/header.jpg`). Jogos novos não têm o arquivo no
+    /// caminho curto: medido em 404 para 4262460, 3751950, 4115450 e 3405690,
+    /// com o jogo existindo normalmente.
+    ///
+    /// Devolve `None` quando o appid não existe ou o campo não está na
+    /// resposta — o chamador mantém a URL por convenção como último recurso.
+    pub async fn header_image(&self, app_id: &str) -> Result<Option<String>> {
+        let app_id = app_id.trim();
+        if app_id.is_empty() {
+            return Ok(None);
+        }
+        let params = query_string(&[("appids", app_id.to_string()), ("l", "english".to_string())]);
+        let url = format!("{}?{}", self.store_base.trim_end_matches('/'), params);
+        let json = match get_json(self.fetcher.as_ref(), url, &[("User-Agent", MOZILLA_UA)]).await
+        {
+            Ok(json) => json,
+            Err(_) => return Ok(None),
+        };
+        let entry = json.get(app_id);
+        if !value_truthy(entry.and_then(|entry| entry.get("success"))) {
+            return Ok(None);
+        }
+        let image = entry
+            .and_then(|entry| entry.get("data"))
+            .and_then(|data| data.get("header_image"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(str::to_string);
+        Ok(image)
+    }
+
     /// `steamTextos(gameId)` com os defaults do JS (`english`, sem fallback).
     pub async fn textos_default(&self, game_id: &str) -> Result<Vec<TextCandidate>> {
         self.textos(game_id, "english", "").await

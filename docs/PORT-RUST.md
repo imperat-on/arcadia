@@ -1,5 +1,8 @@
 # Arcadia → Rust — Plano de port
 
+Registro histórico da migração do Electron. As instruções de build e
+empacotamento atuais estão no [README](../README.md).
+
 **Repositório:** `arcadia-rust` (fork de `imperat-on/arcadia`, branch `rust-port`)
 **Base:** v1.5.5 — commit `81fd3ae`
 **Status:** plano aprovado para execução por fases

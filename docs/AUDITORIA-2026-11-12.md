@@ -1,5 +1,8 @@
 # Auditoria local — desktop e servidor (2026-11-12)
 
+Registro da auditoria do cliente anterior e do servidor naquela data. Para
+compilar e testar o cliente atual, consulte o [README](../README.md).
+
 ## Escopo e limites
 
 Repositórios: `arcadia-rust` (`rust-port`) e `../arcadia-server` (`main`).

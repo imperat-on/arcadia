@@ -1,203 +1,111 @@
 #!/usr/bin/env bash
-# Instalação do Arcadia (edição Tauri/Rust): dependências de sistema, build
-# do front-end e do binário, config inicial e atalho no menu.
-#
-# Para USUÁRIO FINAL, o caminho recomendado é o release empacotado:
-#   https://github.com/imperat-on/arcadia/releases
-#   (AppImage, .deb, .rpm, setup.exe) — nada deste script é preciso.
-# Este script é para instalar a partir do código-fonte.
-#
-# Duas formas de usar:
-#   Local:  ./install.sh
-#   Remoto: curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
-#
-# Flags:
-#   -y, --yes   Não pergunta nada (assume sim para dependências; mantém o resto
-#               do comportamento). Para rodar sem TTY.
-set -e
+# Compila e instala o Arcadia para o usuário atual no Linux.
+# Uso: ./install.sh [--yes]
+set -euo pipefail
 
-# --- helpers ---------------------------------------------------------------
-ERRO() { echo "ERRO: $*" >&2; }
+YES=0
+case "${1:-}" in
+    -y|--yes) YES=1 ;;
+    "") ;;
+    *) echo "Uso: $0 [--yes]" >&2; exit 2 ;;
+esac
 
-# Confirma com o usuário; devolve 0 (sim) ou 1 (não). Com -y ou sem TTY,
-# responde sim automaticamente para não travar a instalação.
-PERGUNTAR() {
-    local msg="$1"
-    if [ "${SEM_PERGUNTAS:-0}" = 1 ]; then return 0; fi
-    if [ ! -t 0 ]; then return 0; fi
-    local r
-    read -rp "$msg [s/N] " r
-    [[ "$r" =~ ^[sS] ]]
+confirm_dependencies() {
+    if [ "$YES" -eq 1 ] || [ ! -t 0 ]; then
+        return 0
+    fi
+    local answer
+    read -rp 'Instalar as dependências com sudo? [s/N] ' answer
+    [[ "$answer" =~ ^[sS] ]]
 }
 
-SEM_PERGUNTAS=0
-if [ "${1:-}" = "-y" ] || [ "${1:-}" = "--yes" ]; then SEM_PERGUNTAS=1; fi
-
-DESTINO="$HOME/.local/share/arcadia"
-
-# --- Modo remoto (curl | bash) ----------------------------------------------
-# Quando o script vem de stdin, "$0" não resolve para o repo. Detecta pelo
-# marker do projeto (Cargo.toml do workspace); se ausente, clona para
-# ~/.local/share/arcadia e re-executa de lá.
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-if [ -z "$SELF" ] || [ ! -f "$SELF/Cargo.toml" ]; then
-    REPO="https://github.com/imperat-on/arcadia.git"
-    echo "==> Baixando o Arcadia para $DESTINO"
-    if [ -d "$DESTINO/.git" ]; then
-        git -C "$DESTINO" pull --ff-only
-    elif [ -e "$DESTINO" ] && [ -n "$(ls -A "$DESTINO" 2>/dev/null)" ]; then
-        echo "    $DESTINO já existe mas não é um clone válido — movendo para backup e clonando de novo."
-        mv "$DESTINO" "$DESTINO.bak-$(date +%Y%m%d-%H%M%S)"
-        git clone "$REPO" "$DESTINO"
-    else
-        git clone "$REPO" "$DESTINO"
-    fi
-    exec bash "$DESTINO/install.sh" "${@:-}"
+DATA_DIR="${ARCADIA_DATA_DIR:-$HOME/.local/share/arcadia}"
+case "$DATA_DIR" in
+    /*) ;;
+    *) DATA_DIR="$PWD/$DATA_DIR" ;;
+esac
+SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [ ! -f "$SOURCE/crates/arcadia-native/Cargo.toml" ]; then
+    echo 'Execute ./install.sh a partir de uma cópia do código-fonte do Arcadia.' >&2
+    exit 1
 fi
-DIR="$SELF"
 
-echo "==> Instalando o Arcadia a partir de $DIR"
-
-# --- 0/4 Dependências de sistema -------------------------------------------
-# O binário é Rust/Tauri: precisa do cargo e das libs WebKitGTK no build.
-# Em runtime: python3 (worker de torrent com libtorrent), steam (nativa),
-# dotnet (DepotDownloader), procps (pgrep/pkill), yt-dlp (trailers),
-# ffmpeg (remux), tar (Proton/Wine), node/npm (front-end).
-echo "==> 0/4 Verificando dependências de sistema"
-FALTAM=()
-for cmd in python3 steam dotnet pgrep du df yt-dlp ffmpeg tar find git node npm unzip; do
-    command -v "$cmd" >/dev/null 2>&1 || FALTAM+=("$cmd")
-done
-# O cargo não é pacote de sistema padrão: checa também o rustup do usuário.
 export PATH="$HOME/.cargo/bin:$PATH"
-if ! command -v cargo >/dev/null 2>&1; then
-    FALTAM+=(cargo)
-fi
-
-if [ ${#FALTAM[@]} -gt 0 ]; then
-    echo "    Faltando: ${FALTAM[*]}"
-    declare -A PKG_ARCH=( [python3]=python [steam]=steam [dotnet]=dotnet-runtime [pgrep]=procps-ng [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm [unzip]=unzip [cargo]=rust )
-    declare -A PKG_DEB=(  [python3]=python3 [steam]=steam [dotnet]=dotnet-runtime-9.0 [pgrep]=procps [du]=coreutils [df]=coreutils [yt-dlp]=yt-dlp [ffmpeg]=ffmpeg [tar]=tar [find]=findutils [git]=git [node]=nodejs [npm]=npm [unzip]=unzip [cargo]=cargo )
-    PKGS=()
-    if command -v pacman >/dev/null 2>&1; then
-        for c in "${FALTAM[@]}"; do PKGS+=("${PKG_ARCH[$c]}"); done
-        echo "    Vou instalar via pacman (sudo): ${PKGS[*]}"
-        if PERGUNTAR "    OK instalar essas dependências?"; then
-            sudo pacman -S --needed --noconfirm "${PKGS[@]}"
+have_build_dependencies() {
+    command -v cc >/dev/null 2>&1 && command -v pkg-config >/dev/null 2>&1 &&
+        pkg-config --exists gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0 \
+            libudev gtk+-3.0 webkit2gtk-4.1 'dav1d >= 1.3.0'
+}
+if ! have_build_dependencies; then
+    echo 'O Arcadia precisa de GStreamer, libudev, dav1d 1.3+, GTK 3 e WebKitGTK 4.1 para compilar.'
+    if { command -v pacman >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; } && confirm_dependencies; then
+        if command -v pacman >/dev/null 2>&1; then
+            sudo pacman -S --needed --noconfirm base-devel pkgconf gstreamer \
+                gst-plugins-base-libs gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav \
+                systemd-libs dav1d gtk3 webkit2gtk-4.1
         else
-            echo "    Dependências não instaladas — o app pode não funcionar."
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config \
+                libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+                gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav \
+                libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev
         fi
-    elif command -v apt-get >/dev/null 2>&1; then
-        for c in "${FALTAM[@]}"; do PKGS+=("${PKG_DEB[$c]}"); done
-        # WebKitGTK e GStreamer: sem eles o Tauri não liga e o vídeo fica preto.
-        PKGS+=(libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev pkg-config libssl-dev build-essential curl)
-        echo "    Vou instalar via apt (sudo): ${PKGS[*]}"
-        if PERGUNTAR "    OK instalar essas dependências?"; then
-            sudo apt-get update && sudo apt-get install -y "${PKGS[@]}"
-        else
-            echo "    Dependências não instaladas — o app pode não funcionar."
-        fi
-    else
-        echo "    AVISO: distro não reconhecida — instale manualmente: ${FALTAM[*]}"
-        echo "    Docs de build: docs/DEPENDENCIAS.md"
-    fi
-else
-    echo "    Tudo presente."
-fi
-
-command -v cargo >/dev/null 2>&1 || { ERRO "cargo não encontrado (instale em https://rustup.rs)"; exit 1; }
-
-# Opcional: libtorrent para o worker de torrent.
-if python3 -c "import libtorrent" >/dev/null 2>&1; then
-    echo "    libtorrent: presente"
-else
-    echo "    libtorrent: ausente (torrents ficam desativados; downloads HTTP seguem)"
-fi
-
-# Opcional: o yt-dlp usa o Deno para resolver o desafio JS do YouTube, exigido
-# só em vídeos com restrição de idade. Sem ele o resto dos trailers funciona,
-# então nunca abortamos a instalação por causa disso.
-if ! command -v deno >/dev/null 2>&1; then
-    echo "    Deno (opcional, trailers com restrição de idade): não encontrado"
-    if command -v pacman >/dev/null 2>&1; then
-        sudo pacman -S --needed --noconfirm deno 2>/dev/null || echo "    (sem Deno — trailers +18 podem falhar)"
-    else
-        echo "    (instale manualmente se quiser trailers +18)"
     fi
 fi
 
-# --- 1/4 Build ---------------------------------------------------------------
-echo "==> 1/4 Build do front-end e do binário"
-cd "$DIR/ui"
-if npm install; then
-    echo "    npm install OK"
-else
-    ERRO "npm install falhou. Verifique sua conexão e o Node/npm."
+command -v cargo >/dev/null 2>&1 || {
+    echo 'Cargo não encontrado. Instale o Rust em https://rustup.rs.' >&2
     exit 1
-fi
-if npm run build; then
-    echo "    Build do front-end OK"
-else
-    ERRO "build do front-end falhou."
+}
+if ! have_build_dependencies; then
+    echo "Dependências de compilação ausentes. Consulte $SOURCE/docs/NATIVE-PACKAGING.md." >&2
     exit 1
 fi
 
-cd "$DIR"
-echo "    Compilando o Arcadia (release)…"
-if cargo build --release -p arcadia --features custom-protocol; then
-    echo "    Compilação OK"
-else
-    ERRO "cargo build falhou. Veja docs/DEPENDENCIAS.md para as libs de sistema."
-    exit 1
-fi
+TARGET_DIR="${CARGO_TARGET_DIR:-$SOURCE/target}"
+case "$TARGET_DIR" in
+    /*) ;;
+    *) TARGET_DIR="$SOURCE/$TARGET_DIR" ;;
+esac
+echo '==> Compilando o Arcadia'
+( cd "$SOURCE" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad )
 
-BIN="$DIR/target/release/arcadia"
-[ -x "$BIN" ] || { ERRO "binário não encontrado em $BIN"; exit 1; }
-
-# --- 2/4 Config --------------------------------------------------------------
-echo "==> 2/4 Configuração inicial"
-mkdir -p "$DESTINO"
-if [ ! -f "$DESTINO/config.json" ]; then
-    cp "$DIR/config.example.json" "$DESTINO/config.json"
-    echo "    config.json criado em $DESTINO — edite e cole suas chaves (Steam API / Hubcap)."
-else
-    echo "    config.json já existe (mantido)."
-fi
-
-# --- 3/4 Atalho no menu de aplicativos --------------------------------------
-echo "==> 3/4 Atalho no menu de aplicativos"
+BIN_DIR="$DATA_DIR/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
-mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
-if [ -f "$DIR/src-tauri/icons/512x512.png" ]; then
-    cp "$DIR/src-tauri/icons/512x512.png" "$ICON_DIR/arcadia.png"
-elif compgen -G "$DIR"/src-tauri/icons/*.png >/dev/null 2>&1; then
-    cp "$DIR"/src-tauri/icons/*.png "$ICON_DIR/arcadia.png"
-else
-    echo "    (ícone não encontrado — atalho sem ícone)"
+mkdir -p "$BIN_DIR/resources/torrent_rpc" "$DESKTOP_DIR" "$ICON_DIR"
+install -m 0755 "$TARGET_DIR/release/arcadia-native" "$TARGET_DIR/release/arcadia-gamepad" "$BIN_DIR/"
+install -m 0644 "$SOURCE/boot.mp4" "$BIN_DIR/"
+install -m 0644 "$SOURCE/resources/torrent_rpc/main.py" \
+    "$SOURCE/resources/torrent_rpc/torrent_downloader.py" "$BIN_DIR/resources/torrent_rpc/"
+install -m 0644 "$SOURCE/crates/arcadia-native/assets/icons/icon.png" "$ICON_DIR/arcadia.png"
+if [ ! -f "$DATA_DIR/config.json" ]; then
+    install -m 0644 "$SOURCE/config.example.json" "$DATA_DIR/config.json"
 fi
-cat > "$DESKTOP_DIR/arcadia.desktop" <<EOF
+
+# O campo Exec do Desktop Entry exige aspas para caminhos com espaços.
+desktop_argument() {
+    local value="$1"
+    value="${value//\\/\\\\\\\\}"
+    value="${value//\"/\\\\\"}"
+    value="${value//\$/\\\\\$}"
+    value="${value//\`/\\\\\`}"
+    value="${value//%/%%}"
+    printf '"%s"' "$value"
+}
+EXEC="$(desktop_argument "$BIN_DIR/arcadia-native")"
+DATA_ENV="$(desktop_argument "ARCADIA_DATA_DIR=$DATA_DIR")"
+cat > "$DESKTOP_DIR/arcadia.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Arcadia
-Comment=Launcher de jogos (Rust/Tauri)
-Exec=$BIN
+Comment=Biblioteca e launcher de jogos
+Exec=env $DATA_ENV $EXEC
 Icon=arcadia
 Terminal=false
 Categories=Game;
-EOF
+StartupWMClass=arcadia-native
+DESKTOP
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
-echo "    Atalho criado: $DESKTOP_DIR/arcadia.desktop"
 
-# --- 4/4 Resumo -------------------------------------------------------------
-echo ""
-echo "Pronto! O Arcadia está em:  $BIN"
-echo "Pelo menu de aplicativos:   Arcadia"
-echo ""
-echo "Usuário final: prefira o release empacotado (AppImage/deb/setup.exe):"
-echo "  https://github.com/imperat-on/arcadia/releases"
-echo ""
-echo "Opcionais dentro do app (botões): .NET local, SLSsteam, SLScheevo,"
-echo "versões de Wine/Proton — tudo se instala pela interface."
-echo ""
-echo "Para desinstalar: ./uninstall.sh  (pergunta o que preservar)"
+echo "Arcadia instalado em $BIN_DIR/arcadia-native. Abra pelo menu de aplicativos."

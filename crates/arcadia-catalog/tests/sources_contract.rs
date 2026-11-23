@@ -190,6 +190,65 @@ async fn add_source_rejects_empty_malformed_and_invalid_json_catalogs() {
     assert!(!storage.contains(REGISTRY_FILE));
 }
 
+#[test]
+fn import_source_validates_caches_and_reimports_without_network() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    let fetcher = ScriptedFetcher::new(vec![]);
+    let registry = memory_registry(storage.clone(), fetcher.clone(), manual_clock());
+    let data = json!({
+        "name": "Hydra JSON",
+        "downloads": [
+            {"title": "Portal 2", "uris": ["magnet:?xt=urn:btih:abc"], "fileSize": "8 GB"},
+            {"title": "No links", "uris": []}
+        ]
+    });
+    let result = registry.import_source(&format!("  {URL}  "), &data);
+    assert!(result.ok, "{result:?}");
+    let source = result.source.unwrap();
+    assert_eq!(source.id, ID);
+    assert_eq!(source.url, URL);
+    assert_eq!(source.count, Some(1));
+    assert_eq!(source.name, "Hydra JSON");
+    assert!(source.etag.is_empty() && source.last_mod.is_empty());
+
+    let mut saved = source.clone();
+    saved.etag = "\"old\"".into();
+    saved.last_mod = "Mon".into();
+    saved.extra.insert("custom".into(), json!(true));
+    write_registry(storage.as_ref(), &[saved]);
+    storage.put(INDEX_FILE, b"[]".to_vec());
+    let updated = registry.import_source(URL, &json!([
+        {"title": "Portal", "uri": "https://example.test/portal.zip"}
+    ]));
+    assert!(updated.ok);
+    let sources = registry.list();
+    assert_eq!(sources.len(), 1, "reimportar duplicou a fonte");
+    assert_eq!(sources[0].name, source.name);
+    assert_eq!(sources[0].added_at, source.added_at);
+    assert_eq!(sources[0].extra["custom"], true);
+    assert!(sources[0].etag.is_empty() && sources[0].last_mod.is_empty());
+    assert!(!storage.contains(INDEX_FILE));
+    let cache: Value = serde_json::from_slice(&storage.get(&format!("sources/{ID}.json")).unwrap()).unwrap();
+    assert_eq!(cache["downloads"][0]["title"], "Portal");
+    assert_eq!(fetcher.request_count(), 0);
+}
+
+#[test]
+fn import_source_rejects_invalid_input_without_touching_existing_catalog() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    let registry = memory_registry(storage.clone(), ScriptedFetcher::new(vec![]), manual_clock());
+    let valid = json!({"downloads": [{"title": "Portal", "uris": ["magnet:portal"]}]});
+    assert!(!registry.import_source("file:///tmp/catalog.json", &valid).ok);
+    assert!(!storage.contains(REGISTRY_FILE));
+    assert!(registry.import_source(URL, &valid).ok);
+    let before = storage.get(&format!("sources/{ID}.json")).unwrap();
+    for invalid in [json!({"downloads": []}), json!({"sources": []}), json!("<html>challenge</html>")] {
+        assert!(!registry.import_source(URL, &invalid).ok);
+        assert_eq!(storage.get(&format!("sources/{ID}.json")).unwrap(), before);
+        assert_eq!(registry.list().len(), 1);
+    }
+}
+
 #[tokio::test]
 async fn sync_sources_sends_conditional_headers_and_304_keeps_count() {
     let storage = Arc::new(MemorySourceStorage::new());
@@ -361,6 +420,154 @@ async fn search_loads_persisted_index_without_rebuilding() {
 }
 
 #[tokio::test]
+async fn download_offers_search_all_sources_without_a_result_cutoff_and_validate_links() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    let sources = [
+        SourceInfo::new("local", URL, 10),
+        SourceInfo::new("remote", URL, 10),
+    ];
+    write_registry(storage.as_ref(), &sources);
+    let mut games: Vec<Value> = (0..60).map(|_| json!({
+        "title": "Portal 2",
+        "fileSize": "8 GB",
+        "uris": [" https://example.test/game.zip ", "magnet:?xt=urn:btih:abc", "https://example.test/game.zip", "javascript:bad"]
+    })).collect();
+    games.push(json!({"title": "Portal", "uris": ["https://example.test/wrong.zip"]}));
+    games.push(json!({"title": "Portal 3", "uris": ["https://example.test/wrong.zip"]}));
+    games.push(json!({"title": "Portal 2", "uris": ["ftp://example.test/unsupported"]}));
+    storage.put("sources/local.json", cache_json("Local", json!(games)));
+    let catalog = StaticCatalog::new("remote", json!({
+        "name": "Remote",
+        "downloads": [{"title": "Portal 2: Deluxe Edition", "uri": "https://example.test/remote.zip"}]
+    }));
+    let registry = memory_registry(storage, ScriptedFetcher::new(vec![]), manual_clock())
+        .with_catalog(catalog.clone());
+    let cached = registry.cached_download_offers("Portal 2").await;
+    assert_eq!(cached.offers.len(), 60);
+    assert_eq!(catalog.calls(), 0, "a primeira resposta esperou a rede");
+    let result = registry.download_offers("Portal 2 on Steam").await;
+    assert_eq!(result.offers.len(), 61);
+    assert!(result.unavailable_sources.is_empty());
+    assert_eq!(result.offers[0].uris, ["magnet:?xt=urn:btih:abc", "https://example.test/game.zip"]);
+    assert_eq!(result.offers[60].source, "Remote");
+    assert_eq!(result.offers[60].reference, "remote:0");
+    assert_eq!(catalog.calls(), 1);
+}
+
+#[tokio::test]
+async fn download_offers_report_missing_sources_without_hiding_working_sources() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    write_registry(storage.as_ref(), &[
+        SourceInfo::new("working", URL, 10),
+        SourceInfo::new("missing", "invalid-url", 10),
+    ]);
+    storage.put("sources/working.json", cache_json("Working", json!([
+        {"title": "Portal 2", "uris": "https://example.test/game.zip"}
+    ])));
+    let registry = memory_registry(storage, ScriptedFetcher::new(vec![]), manual_clock());
+    let result = registry.download_offers("Portal 2").await;
+    assert_eq!(result.offers.len(), 1);
+    assert_eq!(result.unavailable_sources, ["missing"]);
+}
+
+#[tokio::test]
+async fn malformed_cached_catalog_without_downloads_refetches_the_registered_url() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    write_registry(storage.as_ref(), &[SourceInfo::new(ID, URL, 1)]);
+    storage.put(
+        &format!("sources/{ID}.json"),
+        b"{\"name\":\"Incompleto\"}".to_vec(),
+    );
+    let fetcher = ScriptedFetcher::new(vec![json_response(json!({
+        "name": "Atualizada",
+        "downloads": [{"title": "Portal 2", "uris": ["https://example.test/portal.zip"]}]
+    }))]);
+    let registry = memory_registry(storage.clone(), fetcher.clone(), manual_clock());
+
+    let cached = registry.cached_download_offers("Portal 2").await;
+    assert!(cached.offers.is_empty());
+    assert_eq!(cached.unavailable_sources.len(), 1);
+    assert_eq!(fetcher.request_count(), 0, "a leitura silenciosa não foi à rede");
+
+    let offers = registry.download_offers("Portal 2").await;
+    assert_eq!(offers.offers.len(), 1);
+    assert_eq!(offers.offers[0].source, "Atualizada");
+    assert_eq!(fetcher.request_count(), 1);
+}
+
+#[tokio::test]
+async fn game_download_discovery_never_opens_browser_but_explicit_source_actions_still_can() {
+    struct Browser {
+        calls: AtomicUsize,
+        data: Value,
+    }
+    #[async_trait]
+    impl ChallengeSolver for Browser {
+        async fn resolve(&self, _url: &str) -> Option<Value> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Some(self.data.clone())
+        }
+    }
+
+    let storage = Arc::new(MemorySourceStorage::new());
+    write_registry(storage.as_ref(), &[
+        SourceInfo::new("cached", "https://example.test/cached.json", 1),
+        SourceInfo::new("blocked", URL, 2),
+    ]);
+    let data = json!({"name": "Verified", "downloads": [
+        {"title": "Portal 2", "uris": ["https://example.test/portal.zip"]}
+    ]});
+    storage.put("sources/cached.json", serde_json::to_vec(&data).unwrap());
+    let challenge = || Response::text(403, "<html>challenge</html>")
+        .header("cf-mitigated", "challenge");
+    let fetcher = ScriptedFetcher::new(vec![
+        challenge(), challenge(), // Abrir duas fichas.
+        challenge(), // Adicionar uma fonte explicitamente.
+        Response::new(304, ""), challenge(), Response::new(304, ""), // Sincronizar.
+    ]);
+    let browser = Arc::new(Browser { calls: AtomicUsize::new(0), data });
+    let registry = memory_registry(storage.clone(), fetcher.clone(), manual_clock())
+        .with_challenge(browser.clone());
+
+    for _ in 0..2 {
+        let offers = registry.download_offers("Portal 2").await;
+        assert_eq!(browser.calls.load(Ordering::SeqCst), 0, "abrir um jogo acionou o navegador");
+        assert_eq!(offers.offers.len(), 1, "a fonte em cache deve continuar disponível");
+        assert_eq!(offers.unavailable_sources, ["blocked"]);
+        assert!(!storage.contains("sources/blocked.json"));
+    }
+    assert!(registry.add_source("https://hydra.test/another.json").await.ok);
+    assert_eq!(browser.calls.load(Ordering::SeqCst), 1);
+    assert!(registry.sync_sources().await.results.iter().all(|source| source.ok));
+    assert_eq!(browser.calls.load(Ordering::SeqCst), 2);
+    let requests = fetcher.request_count();
+    assert_eq!(registry.download_offers("Portal 2").await.offers.len(), 3);
+    assert_eq!(fetcher.request_count(), requests, "fontes prontas devem responder pelo cache");
+    assert_eq!(browser.calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn silent_game_discovery_still_fetches_public_sources_once_and_reuses_the_cache() {
+    let storage = Arc::new(MemorySourceStorage::new());
+    write_registry(storage.as_ref(), &[SourceInfo::new(ID, URL, 1)]);
+    let fetcher = ScriptedFetcher::new(vec![json_response(json!({
+        "name": "Public source", "downloads": [
+            {"title": "Portal 2", "uris": ["https://example.test/game.zip"]}
+        ]
+    }))]);
+    let registry = memory_registry(storage.clone(), fetcher.clone(), manual_clock());
+    assert!(registry.cached_download_offers("Portal 2").await.offers.is_empty());
+    assert_eq!(fetcher.request_count(), 0);
+    for _ in 0..2 {
+        let offers = registry.download_offers("Portal 2").await;
+        assert_eq!(offers.offers.len(), 1);
+        assert!(offers.unavailable_sources.is_empty());
+    }
+    assert_eq!(fetcher.request_count(), 1);
+    assert!(storage.contains(&format!("sources/{ID}.json")));
+}
+
+#[tokio::test]
 async fn get_game_returns_full_payload_with_source_name_and_caches_last_file() {
     let storage = Arc::new(MemorySourceStorage::new());
     write_registry(storage.as_ref(), &[SourceInfo::new(ID, URL, 10)]);
@@ -527,17 +734,36 @@ async fn cloudflare_403_uses_the_injected_challenge_solver() {
         storage,
         ScriptedFetcher::new(vec![Response::new(403, "<html>challenge</html>")
             .header("server", "cloudflare")
-            .header("cf-mitigated", "challenge")]),
+            .header("cf-mitigated", "challenge")
+            .header("etag", "\"challenge-page\"")]),
         manual_clock(),
     )
     .with_challenge(Arc::new(Challenge(data)));
     let result = registry.add_source(URL).await;
     assert!(result.ok);
-    assert_eq!(result.source.unwrap().count, Some(1));
+    let source = result.source.unwrap();
+    assert_eq!(source.count, Some(1));
+    assert!(source.etag.is_empty(), "o ETag do desafio não pertence ao JSON");
 }
 
 #[tokio::test]
-async fn cloudflare_403_without_solver_reports_http_403() {
+async fn cloudflare_browser_is_used_for_503_and_success_status_challenges() {
+    for status in [200, 503] {
+        let storage = Arc::new(MemorySourceStorage::new());
+        let registry = memory_registry(
+            storage,
+            ScriptedFetcher::new(vec![Response::text(status, "<html>challenge</html>")
+                .header("cf-mitigated", "challenge")]),
+            manual_clock(),
+        ).with_challenge(Arc::new(Challenge(json!({
+            "name": "Verified", "downloads": [{"title": "Game", "uris": ["magnet:test"]}]
+        }))));
+        assert!(registry.add_source(URL).await.ok);
+    }
+}
+
+#[tokio::test]
+async fn cloudflare_403_without_solver_reports_browser_verification() {
     let storage = Arc::new(MemorySourceStorage::new());
     let registry = memory_registry(
         storage.clone(),
@@ -548,7 +774,7 @@ async fn cloudflare_403_without_solver_reports_http_403() {
     );
     let result = registry.add_source(URL).await;
     assert!(!result.ok);
-    assert_eq!(result.error.as_deref(), Some("HTTP 403"));
+    assert_eq!(result.error.as_deref(), Some("cloudflare_challenge"));
     assert!(!storage.contains(REGISTRY_FILE));
 }
 

@@ -1,30 +1,32 @@
 #!/usr/bin/env bash
-# Desinstalação completa do Arcadia (edição Tauri/Rust).
+# Desinstalação do Arcadia no Linux.
 #
-# Duas formas de usar:
-#   Local:  ./uninstall.sh
-#   Remoto: curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall.sh | bash
+# Uso: ./uninstall.sh [--yes]
 #
 # Flags:
 #   -y, --yes   Não pergunta nada: mantém jogos/prefixos/SLSsteam (move-os
 #               para fora do diretório antes de apagar) e não pede a
 #               confirmação final. Para rodar sem TTY (ex.: outro script).
 set -e
-DIR="$HOME/.local/share/arcadia"
+DIR="${ARCADIA_DATA_DIR:-$HOME/.local/share/arcadia}"
+case "$DIR" in
+    /*) ;;
+    *) DIR="$PWD/$DIR" ;;
+esac
 APPS="$HOME/.local/share/applications"
 ICONS="$HOME/.local/share/icons/hicolor/512x512/apps"
 PIXMAPS="$HOME/.local/share/pixmaps"
 SEM_PERGUNTAS=0
-if [ "$1" = "-y" ] || [ "$1" = "--yes" ]; then SEM_PERGUNTAS=1; fi
+if [ "${1:-}" = "-y" ] || [ "${1:-}" = "--yes" ]; then SEM_PERGUNTAS=1; fi
 
-# Sem TTY (ex.: curl … | bash) não dá pra ler resposta: assume modo -y
+# Sem TTY não dá pra ler resposta: assume modo -y
 # em vez de travar/pular a confirmação.
 if [ "$SEM_PERGUNTAS" = 0 ] && [ ! -t 0 ]; then
     echo "Sem terminal interativo — assumindo modo não-interativo (preserva jogos/prefixos/SLSsteam)."
     SEM_PERGUNTAS=1
 fi
 
-if [ ! -d "$DIR" ]; then
+if [ ! -d "$DIR" ] && [ ! -f "$APPS/arcadia-native.desktop" ] && [ ! -x "$HOME/.local/bin/arcadia-native" ]; then
     echo "Arcadia não encontrado em $DIR — nada para desinstalar."
     exit 0
 fi
@@ -33,7 +35,8 @@ fi
 # empacota o binário em bin/ e os recursos em resources/ — o diretório de
 # dados carrega config.json/library. Evita apagar uma pasta que não é o
 # projeto por engano.
-if [ ! -f "$DIR/config.json" ] && [ ! -f "$DIR/bin/arcadia" ]; then
+if [ -d "$DIR" ] && [ ! -f "$DIR/config.json" ] && [ ! -f "$DIR/bin/arcadia-native" ] &&
+    [ ! -f "$DIR/bin/arcadia" ] && [ ! -f "$DIR/library.json" ] && [ ! -d "$DIR/contas" ]; then
     echo "ERRO: $DIR existe mas não parece ser o Arcadia." >&2
     echo "Abortando para não apagar algo por engano. Se quiser mesmo, remova na mão." >&2
     exit 1
@@ -43,12 +46,10 @@ echo "Isso vai remover o Arcadia deste computador ($DIR)."
 echo
 
 # --- 0/5 Fecha o app, se estiver aberto -------------------------------------
-# O binário do Arcadia é "arcadia" (Tauri); o download manager pode ter
-# deixado o worker Python de torrent vivo — ele morre com o pai, mas se
-# veio de uma sessão anterior, derruba também.
-if pgrep -x arcadia >/dev/null 2>&1; then
+# Encerra o aplicativo antes de remover arquivos que ele pode gravar.
+if pgrep -u "$(id -u)" -x 'arcadia(-native)?' >/dev/null 2>&1; then
     echo "==> 0/5 Fechando o Arcadia…"
-    pkill -x arcadia 2>/dev/null || true
+    pkill -u "$(id -u)" -x 'arcadia(-native)?' 2>/dev/null || true
     sleep 1
 fi
 
@@ -100,9 +101,15 @@ fi
 
 # --- 2/5 Atalho no menu de aplicativos + ícones -----------------------------
 echo "==> 2/5 Removendo atalho e ícones"
-rm -f "$APPS/arcadia.desktop"
-rm -f "$ICONS/arcadia.png"
-rm -f "$PIXMAPS/arcadia.png"
+rm -f "$APPS/arcadia.desktop" "$APPS/arcadia-native.desktop"
+rm -f "$ICONS/arcadia.png" "$ICONS/arcadia-native.png"
+rm -f "$PIXMAPS/arcadia.png" "$PIXMAPS/arcadia-native.png"
+if [ -x "$HOME/.local/bin/arcadia-native" ]; then
+    rm -f "$HOME/.local/bin/arcadia-native" "$HOME/.local/bin/arcadia-gamepad" \
+        "$HOME/.local/bin/boot.mp4" "$HOME/.local/bin/resources/torrent_rpc/main.py" \
+        "$HOME/.local/bin/resources/torrent_rpc/torrent_downloader.py"
+    rmdir "$HOME/.local/bin/resources/torrent_rpc" "$HOME/.local/bin/resources" 2>/dev/null || true
+fi
 update-desktop-database "$APPS" 2>/dev/null || true
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
@@ -149,6 +156,4 @@ echo "dentro da própria instalação da Steam e NÃO são tocados por este scri
 echo "Para removê-los, use o botão \"Remover\" na Loja do Arcadia ANTES de"
 echo "desinstalar — senão eles continuam instalados normalmente na Steam."
 echo
-echo "Dependências de sistema instaladas pelo install.sh (steam, dotnet,"
-echo "ffmpeg, etc.) não são removidas — são pacotes comuns que outros"
-echo "programas podem estar usando."
+echo "Pacotes de sistema usados pelo Arcadia continuam disponíveis a outros programas."

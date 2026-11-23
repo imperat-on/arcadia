@@ -1128,6 +1128,13 @@ impl PluginRegistry {
         self.set_enabled(id, true)
     }
 
+    /// Atualiza apenas a disponibilidade detectada pelo host; preserva a opção salva.
+    pub fn set_builtin_installed(&mut self, id: &str, installed: bool) {
+        if let Some(index) = self.builtin_index.get(id).copied() {
+            self.builtins[index].installed = installed;
+        }
+    }
+
     pub fn disable(&self, id: &str) -> MutationResult {
         self.set_enabled(id, false)
     }

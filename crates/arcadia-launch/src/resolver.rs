@@ -512,6 +512,37 @@ pub struct Wrapper {
     pub args: Option<String>,
 }
 
+/// Aceita `emulatorArgs` como array (contrato web/nativo) ou string legada.
+fn deserialize_emulator_args<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Args {
+        Text(String),
+        List(Vec<String>),
+    }
+
+    let value = Option::<Args>::deserialize(deserializer)?;
+    Ok(match value {
+        None => None,
+        Some(Args::Text(text)) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        Some(Args::List(items)) => {
+            let joined = items
+                .iter()
+                .map(|item| item.trim())
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            (!joined.is_empty()).then_some(joined)
+        }
+    })
+}
+
 /// Per-game settings consumed by the planner.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -521,6 +552,10 @@ pub struct GameSettings {
     pub prefix_path: Option<String>,
     pub emulator_id: Option<String>,
     pub rom_path: Option<String>,
+    /// A UI web e o shell nativo gravam `emulatorArgs` como array de strings;
+    /// o planner consome uma linha dividida por espaços. Aceitamos as duas
+    /// formas para não invalidar o `GameSettings` inteiro em dados já salvos.
+    #[serde(default, deserialize_with = "deserialize_emulator_args")]
     pub emulator_args: Option<String>,
     pub emulator_core_path: Option<String>,
     pub esync: bool,
@@ -1224,6 +1259,31 @@ mod tests {
 
     fn deps() -> TestDeps {
         TestDeps::default()
+    }
+
+    #[test]
+    fn game_settings_accept_emulator_args_array_or_string() {
+        let from_array: GameSettings = serde_json::from_value(serde_json::json!({
+            "emulatorId": "retroarch",
+            "romPath": "/roms/game.sfc",
+            "emulatorArgs": ["--fullscreen", "-v"],
+        }))
+        .expect("array deve ser aceito");
+        assert_eq!(from_array.emulator_args.as_deref(), Some("--fullscreen -v"));
+        assert_eq!(from_array.emulator_id.as_deref(), Some("retroarch"));
+        assert_eq!(from_array.rom_path.as_deref(), Some("/roms/game.sfc"));
+
+        let from_string: GameSettings = serde_json::from_value(serde_json::json!({
+            "emulatorArgs": "  --fullscreen   -v ",
+        }))
+        .expect("string legada deve ser aceita");
+        assert_eq!(from_string.emulator_args.as_deref(), Some("--fullscreen   -v"));
+
+        let empty: GameSettings = serde_json::from_value(serde_json::json!({
+            "emulatorArgs": [],
+        }))
+        .unwrap();
+        assert_eq!(empty.emulator_args, None);
     }
 
     #[derive(Default)]
