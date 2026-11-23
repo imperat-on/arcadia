@@ -358,11 +358,13 @@ chmod 0755 "$APPDIR/AppRun"
 # --- appimagetool -----------------------------------------------------------
 
 APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+APPIMAGE_RUNTIME_SHA256="617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/arcadia"
 TOOL="${APPIMAGETOOL:-}"
 if [ -z "$TOOL" ]; then
-    CACHE_TOOL="${XDG_CACHE_HOME:-$HOME/.cache}/arcadia/appimagetool-1.9.1-x86_64.AppImage"
+    CACHE_TOOL="$CACHE_DIR/appimagetool-1.9.1-x86_64.AppImage"
     if [ ! -x "$CACHE_TOOL" ]; then
-        mkdir -p "$(dirname "$CACHE_TOOL")"
+        mkdir -p "$CACHE_DIR"
         echo "==> baixando appimagetool 1.9.1"
         curl -fsSL --retry 3 -o "$CACHE_TOOL.tmp" \
             "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
@@ -382,10 +384,35 @@ fi
     exit 1
 }
 
+RUNTIME="${APPIMAGE_RUNTIME:-}"
+if [ -z "$RUNTIME" ]; then
+    CACHE_RUNTIME="$CACHE_DIR/runtime-x86_64"
+    if [ ! -x "$CACHE_RUNTIME" ]; then
+        mkdir -p "$CACHE_DIR"
+        echo "==> baixando runtime do AppImage"
+        curl -fsSL --retry 3 -o "$CACHE_RUNTIME.tmp" \
+            "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"
+        actual="$(sha256sum "$CACHE_RUNTIME.tmp" | awk '{print $1}')"
+        if [ "$actual" != "$APPIMAGE_RUNTIME_SHA256" ]; then
+            rm -f "$CACHE_RUNTIME.tmp"
+            echo "erro: SHA-256 do runtime não confere: $actual" >&2
+            exit 1
+        fi
+        mv "$CACHE_RUNTIME.tmp" "$CACHE_RUNTIME"
+        chmod 0755 "$CACHE_RUNTIME"
+    fi
+    RUNTIME="$CACHE_RUNTIME"
+fi
+[ -f "$RUNTIME" ] || {
+    echo "erro: runtime do AppImage não encontrado: $RUNTIME" >&2
+    exit 1
+}
+
 mkdir -p "$OUTPUT"
 rm -f "$APPIMAGE"
 echo "==> gerando $APPIMAGE"
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$ARCH" "$TOOL" --no-appstream "$APPDIR" "$APPIMAGE"
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$ARCH" "$TOOL" --no-appstream \
+    --runtime-file "$RUNTIME" "$APPDIR" "$APPIMAGE"
 
 ( cd "$OUTPUT" && sha256sum "$(basename "$APPIMAGE")" > SHA256SUMS )
 
