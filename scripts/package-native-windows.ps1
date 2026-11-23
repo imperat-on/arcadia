@@ -359,27 +359,31 @@ if ($null -ne $GstRoot) {
 
 # --- Launcher e README ------------------------------------------------------
 
+$launcherLines = @(
+    "@echo off",
+    "setlocal",
+    "set `"HERE=%~dp0`""
+)
 if ($GstBundled) {
-    $launcherLines = @(
-        "@echo off",
-        "setlocal",
-        "set `"HERE=%~dp0`"",
+    $launcherLines += @(
         "set `"PATH=%HERE%gstreamer\bin;%PATH%`"",
         "set `"GST_PLUGIN_PATH=%HERE%gstreamer\lib\gstreamer-1.0`"",
         "set `"GST_PLUGIN_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
         "set `"GST_PLUGIN_SYSTEM_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
         "if exist `"%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`"",
-        "if exist `"%HERE%gstreamer\bin\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\bin\gst-plugin-scanner.exe`"",
-        "start `"`" /D `"%HERE%`" `"%HERE%arcadia-native.exe`" %*"
+        "if exist `"%HERE%gstreamer\bin\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\bin\gst-plugin-scanner.exe`""
     )
-    $launcher = ($launcherLines -join "`r`n") + "`r`n"
-    Write-TextFile -Path (Join-Path $Stage "run-arcadia-native.cmd") -Content $launcher
 }
+$launcherLines += @(
+    "set `"PORTABLE_EXECUTABLE_DIR=%HERE%`"",
+    "set `"PORTABLE_EXECUTABLE_FILE=%HERE%arcadia-native.exe`"",
+    "start `"`" /D `"%HERE%`" `"%HERE%arcadia-native.exe`" %*"
+)
+$launcher = ($launcherLines -join "`r`n") + "`r`n"
+Write-TextFile -Path (Join-Path $Stage "run-arcadia-native.cmd") -Content $launcher
 
 if ($GstBundled) {
     $gstContent = @'
-- `run-arcadia-native.cmd` — launcher que configura `PATH`, `GST_PLUGIN_PATH`
-  e `GST_PLUGIN_SCANNER` para a pasta `gstreamer\`;
 - `gstreamer\bin\*.dll` — bibliotecas do runtime GStreamer;
 - `gstreamer\lib\gstreamer-1.0\*.dll` — plugins (base, good, bad, libav etc.);
 - `gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe` — scanner de plugins,
@@ -402,7 +406,8 @@ preciso instalar GStreamer na máquina.
   `GSTREAMER_ROOT_X86_64`/`GSTREAMER_ROOT`; veja "Dependências de runtime".
 '@
     $runInstructions = @'
-Instale o runtime do GStreamer (veja abaixo) e execute:
+Instale o runtime do GStreamer (veja abaixo), configure as variáveis e
+execute o launcher:
 
 ```powershell
 $gst = "C:\gstreamer\1.0\msvc_x86_64"
@@ -410,8 +415,10 @@ $env:PATH = "$gst\bin;$env:PATH"
 $env:GST_PLUGIN_PATH = "$gst\lib\gstreamer-1.0"
 $env:GST_PLUGIN_SYSTEM_PATH_1_0 = "$gst\lib\gstreamer-1.0"
 $env:GST_PLUGIN_SCANNER = "$gst\libexec\gstreamer-1.0\gst-plugin-scanner.exe"
-.\arcadia-native.exe
+.\run-arcadia-native.cmd
 ```
+
+O launcher marca o pacote como portátil e inicia `arcadia-native.exe`.
 '@
     $gstRequirements = @'
 Instale o runtime oficial **GStreamer 1.28 MSVC x86_64** (o SDK de
@@ -432,6 +439,7 @@ Arcadia em Rust + iced.
 ## Conteúdo
 
 - `arcadia-native.exe` — binário do aplicativo;
+- `run-arcadia-native.cmd` — launcher do modo portátil;
 - `boot.mp4` — vídeo de abertura, procurado ao lado do executável;
 - `resources\torrent_rpc\` — worker de download por torrent (Python);
 @@GST_CONTENT@@

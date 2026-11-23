@@ -290,41 +290,48 @@ Get-FileHash -Algorithm SHA256 .\arcadia-native-<versao>-windows-x86_64.zip
 Get-Content .\SHA256SUMS
 ```
 
-## CI
+## CI e releases
 
-O job `native` em `.github/workflows/ci.yml` roda em `ubuntu-24.04`:
+O workflow `.github/workflows/ci.yml` roda em pushes de branch e pull requests:
 
-1. instala as dependências Linux de build e os plugins GStreamer de runtime;
-2. roda os testes do workspace;
-3. roda `./scripts/package-native-linux.sh` (build release + tarball);
-4. publica o `.tar.gz` e o `SHA256SUMS` como artifact `arcadia-native-linux`.
+- `native` (ubuntu-24.04): testes do workspace, tarball, AppImage com
+  GStreamer embutido e artefatos `arcadia-native-linux`/`arcadia-native-appimage`;
+- `native-windows` (windows-2022): GStreamer 1.28.9 + dav1d, check, zip
+  portátil e `SHA256SUMS` no artefato `arcadia-native-windows`.
 
-O job `native-windows` roda em `windows-latest`:
+O workflow `.github/workflows/release.yml` roda em tags `v*` (ou por
+`workflow_dispatch` com a tag) e publica no GitHub Releases:
 
-1. baixa `gstreamer-1.0-msvc-x86_64-1.28.9.exe` do site oficial, confere o
-   SHA-256 e instala com `/TYPE=devel /CURRENTUSER` em
-   `%RUNNER_TEMP%\gstreamer`;
-2. usa o `pkg-config` do SDK GStreamer, com `pkgconfiglite` como alternativa,
-   e instala dav1d com vcpkg;
-3. exporta `GSTREAMER_ROOT_X86_64`, `PKG_CONFIG_PATH` e o `bin` no `PATH`;
-4. roda `cargo check -p arcadia-native`;
-5. roda `scripts/package-native-windows.ps1` e publica o `.zip` e o
-   `SHA256SUMS` como artifact `arcadia-native-windows`.
+| Asset | Origem |
+|---|---|
+| `Arcadia_<versao>_amd64.AppImage` | AppImage com GStreamer embutido |
+| `Arcadia_<versao>_linux_x86_64.tar.gz` | tarball Linux |
+| `Arcadia_<versao>_x64-setup.exe` | instalador Inno Setup (por usuário) |
+| `Arcadia_<versao>_windows_portable.zip` | zip portátil |
+| `latest.yml` / `latest-linux.yml` | manifestos de auto-update |
+| `SHA256SUMS` | checksums de todos os assets |
+
+O publish valida que a tag casa com `[workspace.package].version` do
+`Cargo.toml` e exige `docs/releases/<tag>.md` como notas do release.
 
 ## Limitações conhecidas
 
-- **Atualização dos arquivos portáteis.** Para atualizar o tarball ou zip,
-  baixe e extraia o novo pacote.
-- **Windows sem assinatura.** O zip não é assinado; o SmartScreen pode avisar
-  na primeira execução e não há atalho no menu Iniciar.
+- **Atualização dos arquivos portáteis.** O auto-update cobre o AppImage e o
+  instalador NSIS/Inno Setup. O tarball e o zip portátil são atualizados
+  baixando e extraindo o pacote novo.
+- **Windows sem assinatura.** Nem o zip nem o setup são assinados; o
+  SmartScreen pode avisar na primeira execução.
+- **Instalador por usuário.** O setup instala em `%LOCALAPPDATA%\Arcadia` e
+  não pede admin. O launcher define `ARCADIA_PACKAGED=1` para o canal NSIS.
 - **GStreamer embutido é opcional no Windows.** Se `GSTREAMER_ROOT_*` não
   estiver definido, o zip sai sem `gstreamer\` e exige GStreamer 1.28 MSVC
   x86_64 + VC++ 2015–2022 na máquina. Use `run-arcadia-native.cmd` quando o
   runtime for embarcado: o `.exe` sozinho não procura DLLs em `gstreamer\bin`.
 - **Zip grande com GStreamer.** Copiar o runtime inteiro (`bin` + plugins)
   deixa o `.zip` na casa das centenas de MB; sem GStreamer ele fica pequeno.
-- **No Linux, GStreamer vem do sistema.** Instale os plugins da distribuição.
-  Se `hlsdemux` ou o decoder H.264 estiver ausente, o player reporta a falha.
+- **No tarball Linux, GStreamer vem do sistema.** O AppImage é o artefato que
+  embute o runtime. Se `hlsdemux` ou o decoder H.264 estiver ausente no
+  sistema, o player reporta a falha.
 - **glibc do host de build.** O binário exige a glibc de quem compilou. O
   artefato da CI usa Ubuntu 24.04 (glibc 2.39). Sistemas mais antigos podem
   precisar compilar a partir do código-fonte.

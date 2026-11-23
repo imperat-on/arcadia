@@ -1,0 +1,237 @@
+name: Arcadia Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag existente (ex.: v2.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools \
+            libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev file
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Testes do workspace
+        run: cargo test --locked --workspace
+
+      - name: Empacotar tarball Linux
+        run: ./scripts/package-native-linux.sh
+
+      - name: Empacotar AppImage
+        run: ./scripts/package-native-appimage.sh --skip-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            dist/native-linux/*.tar.gz
+            dist/native-linux/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: GStreamer 1.28.9 (MSVC x86_64, runtime + devel)
+        shell: pwsh
+        run: |
+          $version = "1.28.9"
+          $sha256 = "ce4008705e8c6fe92803535b82fb3d6551e183f438e6ef26682ac4d0aca61076"
+          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc/gstreamer-1.0-msvc-x86_64-$version.exe"
+          $installer = Join-Path $env:RUNNER_TEMP "gstreamer-$version.exe"
+          $root = Join-Path $env:RUNNER_TEMP "gstreamer"
+
+          curl.exe -fsSL --retry 3 -o $installer $url
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($hash -ne $sha256) {
+            throw "SHA-256 do GStreamer não confere: $hash"
+          }
+
+          $process = Start-Process -Wait -PassThru -FilePath $installer -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+            "/TYPE=devel", "/DIR=$root", "/CURRENTUSER"
+          )
+          if ($process.ExitCode -ne 0) {
+            throw "instalador do GStreamer saiu com código $($process.ExitCode)"
+          }
+
+          $coreDll = Join-Path $root "bin\gstreamer-1.0-0.dll"
+          $pkgConfig = Join-Path $root "lib\pkgconfig"
+          if (-not (Test-Path -LiteralPath $coreDll -PathType Leaf)) {
+            throw "GStreamer não foi instalado em $root (falta $coreDll)"
+          }
+          if (-not (Test-Path -LiteralPath $pkgConfig -PathType Container)) {
+            throw "SDK GStreamer incompleto: $pkgConfig não existe"
+          }
+
+          "GSTREAMER_ROOT_X86_64=$root" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$($pkgConfig -replace '\\', '/')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $root "bin") |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          $env:PATH = "$(Join-Path $root 'bin');$env:PATH"
+          & (Join-Path $root "bin\gst-inspect-1.0.exe") --version
+
+      - name: pkg-config
+        shell: pwsh
+        run: |
+          $pkgConfigExe = Join-Path $env:GSTREAMER_ROOT_X86_64 "bin\pkg-config.exe"
+          if (-not (Test-Path -LiteralPath $pkgConfigExe -PathType Leaf)) {
+            choco install pkgconfiglite -y --no-progress
+            $pkgConfigExe = Join-Path $env:ChocolateyInstall "bin\pkg-config.exe"
+          }
+          & $pkgConfigExe --version
+          & $pkgConfigExe --modversion gstreamer-1.0
+
+      - name: dav1d (decodificador AVIF)
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          $triplet = "x64-windows-static-md"
+          vcpkg install "dav1d:$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dav1d" }
+          $dav1dPc = Join-Path $root "installed\$triplet\lib\pkgconfig"
+          $env:PKG_CONFIG_PATH = "$env:PKG_CONFIG_PATH;$($dav1dPc -replace '\\', '/')"
+          pkg-config --atleast-version=1.3.0 dav1d
+          if ($LASTEXITCODE -ne 0) { throw "dav1d >= 1.3.0 não encontrado" }
+          "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check do nativo
+        run: cargo check --locked -p arcadia-native
+
+      - name: Empacotar zip portátil
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/package-native-windows.ps1
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Gerar instalador
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/package-native-windows-setup.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/native-windows/*.zip
+            dist/native-windows/*-setup.exe
+            dist/native-windows/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Preparar assets e manifestos
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ env.TAG }}"
+          VERSION="${TAG#v}"
+          CARGO_VERSION="$(awk '
+            /^\[workspace\.package\]/ { section = 1; next }
+            /^\[/ { section = 0 }
+            section && /^version[[:space:]]*=/ {
+              gsub(/["[:space:]]/, "", $3); print $3; exit
+            }
+          ' Cargo.toml)"
+          if [ "$VERSION" != "$CARGO_VERSION" ]; then
+            echo "tag $TAG não casa com a versão do Cargo.toml ($CARGO_VERSION)" >&2
+            exit 1
+          fi
+          if [ ! -f "docs/releases/$TAG.md" ]; then
+            echo "notas do release ausentes: docs/releases/$TAG.md" >&2
+            exit 1
+          fi
+
+          mkdir -p release
+          linux_tar="$(find artifacts/release-linux -name '*.tar.gz' -print -quit)"
+          appimage="$(find artifacts/release-linux -name '*.AppImage' -print -quit)"
+          win_zip="$(find artifacts/release-windows -name '*.zip' -print -quit)"
+          win_setup="$(find artifacts/release-windows -name '*-setup.exe' -print -quit)"
+          for file in "$linux_tar" "$appimage" "$win_zip" "$win_setup"; do
+            [ -n "$file" ] && [ -f "$file" ] || {
+              echo "asset ausente (tar=$linux_tar img=$appimage zip=$win_zip setup=$win_setup)" >&2
+              exit 1
+            }
+          done
+
+          cp "$appimage" "release/Arcadia_${VERSION}_amd64.AppImage"
+          cp "$linux_tar" "release/Arcadia_${VERSION}_linux_x86_64.tar.gz"
+          cp "$win_zip" "release/Arcadia_${VERSION}_windows_portable.zip"
+          cp "$win_setup" "release/Arcadia_${VERSION}_x64-setup.exe"
+
+          ./scripts/release-manifests.sh "$VERSION" \
+            "release/Arcadia_${VERSION}_amd64.AppImage" \
+            "release/Arcadia_${VERSION}_x64-setup.exe" release
+
+          ( cd release && sha256sum *.AppImage *.tar.gz *.zip *.exe latest*.yml > SHA256SUMS )
+          ls -lh release
+
+      - name: Publicar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ env.TAG }}"
+          TITLE="Arcadia ${TAG#v} — interface nativa em Rust"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file "docs/releases/$TAG.md"
+          else
+            gh release create "$TAG" release/* --title "$TITLE" \
+              --notes-file "docs/releases/$TAG.md" --latest
+          fi
