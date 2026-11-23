@@ -1,10 +1,7 @@
-# Empacotamento do frontend nativo (Linux e Windows)
+# Empacotamento do Arcadia no Linux e Windows
 
-Como buildar, rodar e empacotar o `arcadia-native` — o frontend em Rust + iced,
-sem Tauri e sem webview. O pacote Tauri (`scripts/package-linux.sh`,
-`scripts/package-windows.sh`, `.deb`/AppImage/RPM/NSIS) é outro caminho e não é
-afetado por este documento; veja [docs/PACKAGING-LINUX.md](PACKAGING-LINUX.md)
-e [docs/PACKAGING-WINDOWS.md](PACKAGING-WINDOWS.md).
+O `arcadia-native` roda as interfaces Desktop e Big Picture em Rust com iced.
+Os scripts geram um tarball Linux e um zip Windows.
 
 ## Build e execução
 
@@ -20,9 +17,8 @@ cargo check -p arcadia-native
 cargo test -p arcadia-native
 ```
 
-O app lê o data dir de `arcadia_store::paths::resolve_data_dir()` e, quando
-`ApiClient::from_env()` encontra sessão, restaura a conta como o bootstrap
-Tauri. Sem sessão, abre com a biblioteca local/guest.
+O app restaura a sessão salva na pasta de dados. Sem sessão, abre com a
+biblioteca local. Use `ARCADIA_DATA_DIR` para selecionar uma pasta diferente.
 
 As fontes Inter são embutidas no binário via `include_bytes!`. O `boot.mp4` não
 é embutido: é procurado ao lado do executável, em `resources/boot.mp4` e no data
@@ -37,11 +33,13 @@ Além do toolchain Rust estável:
 | GStreamer 1.0 core | `arcadia-native-media` | `libgstreamer1.0-dev` |
 | GStreamer app/video | `appsink`, caps de vídeo | `libgstreamer-plugins-base1.0-dev` |
 | `libudev` | gamepad (`gilrs`) | `libudev-dev` |
+| GTK 3 e WebKitGTK 4.1 | janela isolada de verificação de fontes | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` |
+| dav1d 1.3 ou mais novo | decodificação de capas AVIF | `libdav1d-dev` |
 | `pkg-config` | descoberta das libs acima | `pkg-config` |
 
-O nativo **não usa GTK, WebKit nem ALSA**: a janela é iced/wgpu, não há webview
-e o áudio do player é um `fakesink`. Essas dependências continuam necessárias
-apenas para o app Tauri.
+A interface principal usa iced/wgpu. No Linux, o binário também abre uma
+janela GTK/WebKitGTK em outro processo quando uma fonte exige verificação
+interativa. O player toca vídeo com a saída de áudio desativada.
 
 ### Windows
 
@@ -51,6 +49,7 @@ apenas para o app Tauri.
 | Visual Studio Build Tools 2022 + Windows SDK | linker MSVC e headers do Windows |
 | GStreamer **1.28.9 MSVC x86_64** (runtime + devel) | `arcadia-native-media` e o mesmo runtime que vai no zip |
 | `pkg-config` (vem no SDK GStreamer; fallback Chocolatey `pkgconfiglite`) | descoberta de `gstreamer-1.0.pc` |
+| dav1d 1.3 ou mais novo | decodificação de capas AVIF |
 
 O GStreamer do Windows não vem de um gerenciador de pacotes: use o instalador
 oficial. A versão pinada é a **1.28.9** porque o `gstreamer-rs 0.25.4` acompanha
@@ -73,6 +72,9 @@ $env:PKG_CONFIG_PATH = "C:\gstreamer\lib\pkgconfig"
 $env:PATH = "C:\gstreamer\bin;$env:PATH"
 ```
 
+Para dav1d, a CI usa `vcpkg install dav1d:x64-windows-static-md` e acrescenta
+`installed/x64-windows-static-md/lib/pkgconfig` do vcpkg a `PKG_CONFIG_PATH`.
+
 O CI faz exatamente isso, mas baixa o instalador e confere o SHA-256 antes de
 executar. Versões 1.28.x do mesmo ABI são compatíveis entre si; não misture
 runtime MinGW (`libgstreamer-1.0-0.dll`) com um binário MSVC.
@@ -92,7 +94,7 @@ fornecer:
 Também são necessários:
 
 - driver gráfico com Vulkan ou OpenGL e sessão X11/Wayland (wgpu);
-- `libudev` para gamepad — opcional, presente na maioria das distros;
+- bibliotecas `libudev`, `libdav1d`, GTK 3 e WebKitGTK 4.1;
 - rede apenas para capas, trailers e recursos online.
 
 Fontes do sistema não são obrigatórias para a interface: a Inter vai embutida.
@@ -123,7 +125,7 @@ instalador). `arcadia-native.exe` sozinho não acha as DLLs em `gstreamer\bin`.
 ./scripts/package-native-linux.sh
 ```
 
-O script roda `cargo build --release -p arcadia-native` (respeitando
+O script roda `cargo build --locked --release -p arcadia-native -p arcadia-gamepad` (respeitando
 `CARGO_BUILD_JOBS` e `CARGO_TARGET_DIR`) e gera, em `dist/native-linux/`:
 
 ```text
@@ -136,14 +138,14 @@ Dentro do tarball, tudo em uma pasta `arcadia-native-<versao>-linux-<arch>/`:
 | Arquivo | Papel |
 |---|---|
 | `arcadia-native` | binário release |
+| `arcadia-gamepad` | auxiliar de controle para jogos no Linux |
 | `boot.mp4` | tela de abertura (se existir no checkout) |
 | `arcadia-native.desktop` | atalho X11/Wayland |
 | `arcadia-native.png` | ícone 512×512 |
+| `resources/torrent_rpc/` | worker Python usado para torrents |
 | `README.md` | dependências, instalação e limitações |
 
-O ícone vem de `src-tauri/icons/icon.png` (lido, nunca alterado): os PNGs de
-`crates/arcadia-native/assets/icons` são glifos da UI, não um ícone de
-aplicativo.
+O ícone do aplicativo vem de `crates/arcadia-native/assets/icons/icon.png`.
 
 ### Flags e variáveis
 
@@ -154,9 +156,9 @@ ARCADIA_NATIVE_BIN=/caminho/arcadia-native \
   ./scripts/package-native-linux.sh --skip-build
 ```
 
-`--skip-build` procura `target/release/arcadia-native` (ou
-`$CARGO_TARGET_DIR/release/arcadia-native`). Se o binário não existir, o script
-falha com a instrução de build; não copia `target/` inteiro nem `Cargo.lock`.
+`--skip-build` procura `arcadia-native` e `arcadia-gamepad` em `target/release/`
+ou no diretório de compilação escolhido em `$CARGO_TARGET_DIR`. Para indicar
+arquivos já compilados, use `ARCADIA_NATIVE_BIN` e `ARCADIA_GAMEPAD_BIN`.
 
 O tarball é determinístico para o mesmo conteúdo: entradas ordenadas, `mtime`,
 owner e group fixos e `gzip -n` sem nome/timestamp. Rodar duas vezes com o mesmo
@@ -164,12 +166,17 @@ binário gera o mesmo SHA-256.
 
 ### Instalar o tarball
 
+Para rodar diretamente, extraia o tarball e execute `./arcadia-native` na
+pasta extraída. Para adicionar o aplicativo ao menu:
+
 ```bash
 tar -xzf arcadia-native-<versao>-linux-<arch>.tar.gz
 cd arcadia-native-<versao>-linux-<arch>
 mkdir -p ~/.local/bin ~/.local/share/applications \
-         ~/.local/share/icons/hicolor/512x512/apps
-install -m 0755 arcadia-native boot.mp4 ~/.local/bin/
+         ~/.local/share/icons/hicolor/512x512/apps ~/.local/bin/resources/torrent_rpc
+install -m 0755 arcadia-native arcadia-gamepad ~/.local/bin/
+install -m 0644 boot.mp4 ~/.local/bin/
+install -m 0644 resources/torrent_rpc/*.py ~/.local/bin/resources/torrent_rpc/
 install -m 0644 arcadia-native.desktop ~/.local/share/applications/
 install -m 0644 arcadia-native.png ~/.local/share/icons/hicolor/512x512/apps/
 ```
@@ -179,6 +186,9 @@ procura pelo `current_exe()`. Sem ele, a interface abre direto.
 
 Para verificar o download, rode `sha256sum -c SHA256SUMS` na pasta onde o
 tarball e o checksum foram baixados.
+
+Em um checkout do código-fonte, `./install.sh` compila o binário e instala
+o aplicativo para o usuário atual.
 
 ## Empacotar no Windows
 
@@ -203,6 +213,7 @@ Dentro do zip, tudo em `arcadia-native-<versao>-windows-x86_64/`:
 |---|---|
 | `arcadia-native.exe` | binário release |
 | `boot.mp4` | tela de abertura (se existir no checkout) |
+| `resources/torrent_rpc/` | arquivos do worker de torrent |
 | `run-arcadia-native.cmd` | launcher com as variáveis do GStreamer (só com runtime embarcado) |
 | `gstreamer\bin\*.dll` | runtime GStreamer (somente DLLs) |
 | `gstreamer\lib\gstreamer-1.0\*.dll` | plugins (base, good, bad, libav etc.) |
@@ -247,35 +258,29 @@ Get-Content .\SHA256SUMS
 
 ## CI
 
-O job `native` em `.github/workflows/ci.yml` roda em `ubuntu-22.04`, separado
-dos jobs Tauri:
+O job `native` em `.github/workflows/ci.yml` roda em `ubuntu-24.04`:
 
-1. instala `pkg-config`, `libgstreamer1.0-dev`,
-   `libgstreamer-plugins-base1.0-dev` e `libudev-dev`;
-2. roda `cargo test -p arcadia-native`;
+1. instala as dependências Linux de build e os plugins GStreamer de runtime;
+2. roda os testes do workspace;
 3. roda `./scripts/package-native-linux.sh` (build release + tarball);
 4. publica o `.tar.gz` e o `SHA256SUMS` como artifact `arcadia-native-linux`.
 
-O job `native-windows` roda em `windows-latest`, também independente dos jobs
-Tauri:
+O job `native-windows` roda em `windows-latest`:
 
 1. baixa `gstreamer-1.0-msvc-x86_64-1.28.9.exe` do site oficial, confere o
    SHA-256 e instala com `/TYPE=devel /CURRENTUSER` em
    `%RUNNER_TEMP%\gstreamer`;
-2. usa o `pkg-config` do próprio SDK GStreamer (instala `pkgconfiglite` pelo
-   Chocolatey só se ele não vier);
+2. usa o `pkg-config` do SDK GStreamer, com `pkgconfiglite` como alternativa,
+   e instala dav1d com vcpkg;
 3. exporta `GSTREAMER_ROOT_X86_64`, `PKG_CONFIG_PATH` e o `bin` no `PATH`;
 4. roda `cargo check -p arcadia-native`;
 5. roda `scripts/package-native-windows.ps1` e publica o `.zip` e o
    `SHA256SUMS` como artifact `arcadia-native-windows`.
 
-Os jobs `rust`, `package`, `windows` (Tauri/NSIS) e `native` (Linux) não foram
-alterados.
-
 ## Limitações conhecidas
 
-- **Sem instalador e sem auto-update.** O artefato é um tarball/zip portátil;
-  não há `.deb`, AppImage, NSIS nem updater para o nativo nesta etapa.
+- **Atualização dos arquivos portáteis.** Para atualizar o tarball ou zip,
+  baixe e extraia o novo pacote.
 - **Windows sem assinatura.** O zip não é assinado; o SmartScreen pode avisar
   na primeira execução e não há atalho no menu Iniciar.
 - **GStreamer embutido é opcional no Windows.** Se `GSTREAMER_ROOT_*` não
@@ -284,12 +289,8 @@ alterados.
   runtime for embarcado: o `.exe` sozinho não procura DLLs em `gstreamer\bin`.
 - **Zip grande com GStreamer.** Copiar o runtime inteiro (`bin` + plugins)
   deixa o `.zip` na casa das centenas de MB; sem GStreamer ele fica pequeno.
-- **No Linux, GStreamer vem do sistema.** O tarball não injeta codecs como o
-  AppImage do Tauri; a distro precisa ter os plugins. Sem `hlsdemux`/decoder
-  H.264, o player reporta o elemento ausente em vez de falhar em silêncio.
+- **No Linux, GStreamer vem do sistema.** Instale os plugins da distribuição.
+  Se `hlsdemux` ou o decoder H.264 estiver ausente, o player reporta a falha.
 - **glibc do host de build.** O binário exige a glibc de quem compilou. O
-  artefato oficial sai do CI em Ubuntu 22.04 (glibc 2.35); distros mais antigas
-  podem recusar o executável.
-- **Ícone reaproveitado do Tauri.** Se `src-tauri/icons/icon.png` mudar, o
-  próximo empacotamento usa a versão nova; não há cópia versionada no crate
-  nativo.
+  artefato da CI usa Ubuntu 24.04 (glibc 2.39). Sistemas mais antigos podem
+  precisar compilar a partir do código-fonte.

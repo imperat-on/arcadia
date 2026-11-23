@@ -13,11 +13,19 @@
 //! presentes na linha/local e a arte CDN previsível (`library_600x900.jpg`).
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io;
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 use serde_json::{json, Map, Value};
 
 use arcadia_api::ApiClient;
-use arcadia_contracts::{normalize_library_sync_items, resolve_library_conflict, MAX_SYNC_ITEMS};
+use arcadia_api::Session;
+use arcadia_contracts::{
+    normalize_library_sync_item, normalize_library_sync_items, resolve_library_conflict,
+    MAX_SYNC_ITEMS,
+};
 use arcadia_store::accounts::AccountScope;
 use arcadia_store::library::{games_from_document, library_path};
 use arcadia_store::owned::{read_owned, write_owned};
@@ -29,6 +37,132 @@ use crate::{ensure_session, map_api_error, SyncError};
 pub const CUSTOM_GAMES_FILE: &str = "custom_games.json";
 pub const PENDING_GAMES_FILE: &str = "pending_games.json";
 pub const OVERRIDES_FILE: &str = "overrides.json";
+const STEAM_CHANGES_FILE: &str = "library_sync_queue.json";
+static LOCAL_LIBRARY: Mutex<()> = Mutex::new(());
+
+/// Serializa as mudanças locais da loja com a aplicação de um pull.
+pub fn lock_local_library() -> MutexGuard<'static, ()> {
+    LOCAL_LIBRARY
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+fn read_steam_changes(path: &Path) -> Result<Map<String, Value>, SyncError> {
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|error| SyncError::Storage(format!("{STEAM_CHANGES_FILE}: {error}"))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Map::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Persiste a última ação da loja para o jogo. O chamador segura a trava local.
+pub fn record_steam_change(
+    account_dir: &Path,
+    app_id: &str,
+    title: Option<&str>,
+) -> Result<(), SyncError> {
+    let steam_id = app_id.strip_prefix("steam:").unwrap_or(app_id);
+    if steam_id.is_empty() || !steam_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(SyncError::InvalidResponse("appid Steam inválido".into()));
+    }
+    let appid = format!("steam:{steam_id}");
+    let row = match title {
+        Some(title) => json!({ "appid": appid, "title": title, "platform": "windows" }),
+        None => json!({ "appid": appid, "removed": true }),
+    };
+    let row = normalize_library_sync_item(row)
+        .filter(|row| row.get("appid").and_then(Value::as_str) == Some(appid.as_str()))
+        .ok_or_else(|| SyncError::InvalidResponse("appid Steam inválido".into()))?;
+    let path = account_dir.join(STEAM_CHANGES_FILE);
+    let mut changes = read_steam_changes(&path)?;
+    changes.insert(appid, row);
+    util::write_json_atomic(&path, &Value::Object(changes), false)?;
+    Ok(())
+}
+
+fn is_removal(row: &Value) -> bool {
+    row.get("removed").and_then(Value::as_bool) == Some(true)
+}
+
+async fn session_for_scope(client: &ApiClient, scope: &AccountScope) -> Result<Session, SyncError> {
+    let session = client
+        .auth()
+        .get_session()
+        .await
+        .ok_or(SyncError::NotLoggedIn)?;
+    if session.user_id().is_none() {
+        return Err(SyncError::NotLoggedIn);
+    }
+    if let Some(account) = scope.active() {
+        let username = session
+            .user
+            .pointer("/user_metadata/username")
+            .and_then(Value::as_str)
+            .or_else(|| session.user.get("username").and_then(Value::as_str))
+            .map(str::trim);
+        if username != Some(account) {
+            return Err(SyncError::AccountSwitched);
+        }
+    }
+    Ok(session)
+}
+
+pub(crate) async fn send_steam_changes(
+    client: &ApiClient,
+    scope: &AccountScope,
+) -> Result<usize, SyncError> {
+    if scope.is_guest() {
+        return Ok(0);
+    }
+    let path = scope.account_file(STEAM_CHANGES_FILE);
+    let changes = {
+        let _guard = lock_local_library();
+        read_steam_changes(&path)?
+    };
+    if changes.is_empty() {
+        return Ok(0);
+    }
+    let session = session_for_scope(client, scope).await?;
+    let user_id = session.user_id().ok_or(SyncError::NotLoggedIn)?;
+
+    let rows: Vec<_> = changes.into_iter().collect();
+    for batch in rows.chunks(MAX_SYNC_ITEMS) {
+        client
+            .rpc_for_user(
+                "push_library",
+                json!({ "p_lib": batch.iter().map(|(_, row)| row).collect::<Vec<_>>(), "p_playtime": [] }),
+                user_id,
+            )
+            .await
+            .map_err(map_api_error)?;
+
+        let _guard = lock_local_library();
+        let mut changes = read_steam_changes(&path)?;
+        let state_file = SyncStateFile::new(scope);
+        state_file.update(|state| {
+            let mut lib_push = state.object("libPush");
+            for (appid, row) in batch {
+                if changes.get(appid) != Some(row) {
+                    continue;
+                }
+                if is_removal(row) {
+                    lib_push.remove(appid);
+                } else {
+                    let title = row.get("title").and_then(Value::as_str).unwrap_or(appid);
+                    lib_push.insert(
+                        appid.clone(),
+                        json!({ "title": title, "platform": "windows" }),
+                    );
+                }
+                changes.remove(appid);
+            }
+            state.insert("libPush", Value::Object(lib_push));
+        })?;
+        util::write_json_atomic(&path, &Value::Object(changes), false)?;
+    }
+    Ok(rows.len())
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LibraryPull {
@@ -48,22 +182,34 @@ pub struct LibraryPush {
 
 /// `pull_library` + `pull_steam_playtime` + reconciliação local.
 pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<LibraryPull, SyncError> {
-    ensure_session(client).await?;
+    let session = session_for_scope(client, scope).await?;
+    let user_id = session.user_id().ok_or(SyncError::NotLoggedIn)?;
 
     let response = client
-        .rpc("pull_library", Value::Null)
+        .rpc_for_user("pull_library", Value::Null, user_id)
         .await
         .map_err(map_api_error)?;
-    let rows = response
+    let mut rows = response
         .as_array()
         .cloned()
         .ok_or_else(|| SyncError::InvalidResponse("sem dados".into()))?;
+    let remote_empty = rows.is_empty();
 
     // Horas por conta Steam: o RPC pode não existir no servidor antigo; o
     // erro é deliberadamente ignorado (o app segue como estava).
-    let steam_rows = crate::playtime::pull_steam(client)
-        .await
-        .unwrap_or_default();
+    let steam_rows = match crate::playtime::pull_steam_for_user(client, user_id).await {
+        Ok(rows) => rows,
+        Err(SyncError::AccountSwitched) => return Err(SyncError::AccountSwitched),
+        Err(_) => Vec::new(),
+    };
+
+    let _guard = lock_local_library();
+    let changes = read_steam_changes(&scope.account_file(STEAM_CHANGES_FILE))?;
+    rows.retain(|row| {
+        !util::row_appid(row)
+            .and_then(|appid| changes.get(&appid))
+            .is_some_and(is_removal)
+    });
 
     let state_file = SyncStateFile::new(scope);
     let mut state = state_file.read_document();
@@ -99,7 +245,7 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<LibraryPul
     // Pull vazio com estado local cheio: exigir duas observações.
     let local_state_full = !lib_push.is_empty() || (owned_known && !owned_set.is_empty());
     let mut can_remove = true;
-    if rows.is_empty() && local_state_full {
+    if remote_empty && local_state_full {
         let streak = state.empty_pull_streak() + 1;
         can_remove = streak >= 2;
         state.set_empty_pull_streak(streak);
@@ -402,8 +548,14 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<LibraryPul
             .iter()
             .filter(|id| {
                 let id = util::js_string(id);
+                if id.starts_with("steam:") {
+                    return server_ids.contains(&id)
+                        || !lib_push.contains_key(&id)
+                        || changes.contains_key(&id)
+                        || initial_ids.contains(&id);
+                }
                 let custom_retro_synced = is_retro_id(&id) && lib_push.contains_key(&id);
-                !(!server_ids.contains(&id) && (!initial_ids.contains(&id) || custom_retro_synced))
+                server_ids.contains(&id) || (initial_ids.contains(&id) && !custom_retro_synced)
             })
             .cloned()
             .collect();
@@ -419,12 +571,19 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<LibraryPul
         pending.retain(|item| {
             item.get("id")
                 .map(util::js_string)
-                .map(|id| server_ids.contains(&id))
+                .map(|id| {
+                    server_ids.contains(&id)
+                        || (id.starts_with("steam:")
+                            && (!lib_push.contains_key(&id) || changes.contains_key(&id)))
+                })
                 .unwrap_or(true)
         });
         if pending.len() != before {
             pending_changed = true;
         }
+        lib_push.retain(|id, _| {
+            !id.starts_with("steam:") || server_ids.contains(id) || changes.contains_key(id)
+        });
     }
 
     // Horas: maior total vence; watermark acompanha.
@@ -478,6 +637,7 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<LibraryPul
     // Escritas: só depois de todo o sucesso de rede.
     if pending_changed {
         util::write_json_atomic(&pending_path, &Value::Array(pending.clone()), true)?;
+        changed = true;
     }
     if lib_changed {
         util::write_json_atomic(&custom_path, &Value::Array(lib.clone()), true)?;

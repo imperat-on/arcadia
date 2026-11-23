@@ -1,273 +1,79 @@
 # Arcadia
 
-A self-hosted game launcher for **Linux and Windows**. Library management,
-store, downloads, achievements and retro catalog — with the entire main process
-written in **Rust**.
+Arcadia is a game launcher for **Linux and Windows**. The Desktop and
+controller-first Big Picture interfaces run in the same native Rust
+application, built with [iced](https://iced.rs/).
 
-```
-Rust main process   ·  Tauri 2  ·  React renderer
-Linux AppImage/deb/rpm  ·  Windows NSIS installer
-```
-
-Two interfaces ship in the same binary:
-
-- **Desktop** — windowed library, store, downloads and settings.
-- **Console (Big Picture)** — fullscreen, gamepad-first, TV-friendly.
-
-## Why Rust
-
-The original Electron main process was replaced by a Rust workspace. What that
-buys, measured on this repository:
-
-| | |
-|---|---|
-| Main-process code | **123k lines of Rust** in 19 crates |
-| Renderer | 31k lines of TypeScript (React) |
-| IPC surface | **203 invoke channels** + 22 event channels, all handled in Rust |
-| Tests | **1547** across the workspace |
-| Runtime JS | **none** — no Node, no `require('electron')` |
-
-The renderer stays TypeScript because Tauri hosts a system webview
-(WebKitGTK on Linux, WebView2 on Windows) — that is the architecture, not a
-leftover.
-
-## Features
-
-- **Unified library** — store titles, downloaded games and custom entries, each
-  with cover art and per-game details.
-- **Store** — catalog search, per-title details, download queue. Sources are
-  configured by you; providers can be swapped without touching the rest.
-- **Retro catalog** — 28k+ titles across consoles, with paginated browsing,
-  per-system filtering and a local cover cache.
-- **Downloads** — serial queue with real progress in MiB, speed and ETA,
-  pause/resume/cancel and cleanup of partial files. Torrent support via
-  libtorrent, HTTP via the native client.
-- **Per-game launch options** — Wine/Proton version, dedicated prefix,
-  DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom wrappers,
-  environment variables, game arguments, pre/post scripts and verbose logs
-  (Linux; Windows titles run natively).
-- **Wine manager** — installs and manages GE-Proton and Wine-GE, detects the
-  Protons Steam already ships.
-- **Achievements** — real-time unlock tracking with native toast notifications,
-  plus RetroAchievements integration and cross-machine sync.
-- **Playtime** — hours read from your Steam installation, per account.
-- **Trailers** — YouTube search and download through `yt-dlp`.
-- **Discord Rich Presence** — optional, silent when disabled.
-- **Accounts** — per-account libraries on the same machine.
-
-## Requirements
-
-### Linux
-
-- x86_64, glibc **2.34+** (Ubuntu 22.04, Debian 12 or newer for the AppImage)
-- `python3` (torrent worker and gamepad bridge)
-- A native **Steam** installation
-- **.NET 9+** — installed locally by the launcher if missing
-
-### Windows
-
-- Windows 10/11 x64
-- A native **Steam** installation
-- **.NET 9+** — installed automatically if missing
-- WebView2 runtime (present on Windows 10/11 by default)
+- Manage your library, add Steam titles and custom games, and browse the retro
+  catalog.
+- Queue downloads, configure sources and set per-game launch options.
+- Run games with Wine, Proton or an emulator, depending on the title.
+- View achievements and playtime. Sign in to synchronize your Steam store
+  additions and removals across devices.
 
 ## Install
 
-### Linux — AppImage (any distribution)
+Download the native archive from a GitHub Actions build for your system. See
+[the packaging guide](docs/NATIVE-PACKAGING.md) for the archive contents, system
+dependencies and installation steps.
 
-```bash
-curl -fsSL -o Arcadia.AppImage \
-  https://github.com/imperat-on/arcadia/releases/latest/download/Arcadia_amd64.AppImage
-chmod +x Arcadia.AppImage
-./Arcadia.AppImage
+- **Linux** — extract `arcadia-native-<version>-linux-<arch>.tar.gz` and run
+  `./arcadia-native` in the extracted directory. From a source checkout,
+  `./install.sh` builds the app and adds it to the application menu.
+- **Windows** — extract `arcadia-native-<version>-windows-x86_64.zip` and run
+  `run-arcadia-native.cmd` when the archive bundles GStreamer. For an archive
+  without the runtime, install GStreamer and run `arcadia-native.exe`.
+
+Existing users can open the native app with their current Arcadia data. The
+default data directories are `~/.local/share/arcadia` on Linux and
+`%LOCALAPPDATA%\arcadia` on Windows. Set `ARCADIA_DATA_DIR` to an absolute path
+to use a separate directory, for example when testing.
+
+## Build and test
+
+Install a Rust toolchain and the
+[platform build dependencies](docs/NATIVE-PACKAGING.md#dependências-de-build).
+From the repository root:
+
+```sh
+cargo run --locked -p arcadia-native
+cargo test --locked --workspace
 ```
 
-The AppImage bundles the GStreamer codecs the webview needs, so trailers play
-without installing media plugins system-wide.
+The native packaging scripts build the release binary and produce an archive
+with its SHA-256 checksum:
 
-### Linux — package
-
-`Arcadia_<version>_amd64.deb` and `Arcadia-<version>-1.x86_64.rpm` are published
-with each release and declare their system dependencies.
-
-### Linux — from source
-
-```bash
-git clone https://github.com/imperat-on/arcadia.git && cd arcadia
-export PATH="$HOME/.cargo/bin:$PATH"
-(cd ui && npm ci && npm run build)
-cargo build --release -p arcadia --features custom-protocol
-./target/release/arcadia
-```
-
-`--features custom-protocol` is **mandatory**: without it the release build
-resolves the dev server and opens a blank window.
-
-### Windows
-
-Download from the [releases page](https://github.com/imperat-on/arcadia/releases):
-
-- `Arcadia_<version>_x64-setup.exe` — NSIS installer.
-- `Arcadia_<version>_windows_portable.zip` — portable; extract `arcadia.exe`
-  and `WebView2Loader.dll` to the same folder.
-
-The installer is unsigned, so SmartScreen shows a warning on first run.
-
-## Build
-
-Two artifacts, each with a packaging script and a verifier:
-
-```bash
-./scripts/package-linux.sh --verify      # AppImage + deb + rpm
-./scripts/package-windows.sh --verify    # arcadia.exe + NSIS installer
-```
-
-`--verify` runs the checks that catch a broken release before it ships: codec
-presence, bundled GStreamer plugins, RPATH leakage, glibc ceiling, PE32+
-architecture and external DLLs.
-
-Guides: [docs/PACKAGING-LINUX.md](docs/PACKAGING-LINUX.md) ·
-[docs/PACKAGING-WINDOWS.md](docs/PACKAGING-WINDOWS.md)
-
-### glibc note
-
-An AppImage built on a rolling-release host inherits that host's glibc floor.
-Build on `ubuntu-22.04` for an artifact that runs on 2022+ distros — the CI
-`package` job does exactly that, producing a binary that needs only **glibc
-2.34**. The local verifier prints a warning when a local build is not
-distributable.
+| Platform | Command | Output |
+|---|---|---|
+| Linux | `./scripts/package-native-linux.sh` | `dist/native-linux/` |
+| Windows | `pwsh -File ./scripts/package-native-windows.ps1` | `dist/native-windows/` |
 
 ## Architecture
 
-```
-src-tauri/                 Tauri shell: window, IPC bridge, boot
-crates/
-  arcadia-ipc              dispatcher for all 202 IPC channels
-  arcadia-contracts        shared types and channel manifest
-  arcadia-store            config, library, session persistence
-  arcadia-api              backend client (HTTP, auth, DoH resolver)
-  arcadia-download         download manager, torrent worker bridge
-  arcadia-launch           process launch, Wine/Proton, env assembly
-  arcadia-steam            Steam integration (hours, shortcuts, manifests)
-  arcadia-catalog          catalog client with mirror and ETag cache
-  arcadia-steamstore       Steam store client
-  arcadia-retro            retro catalog (server client + local index)
-  arcadia-achievements     achievement tracking and schemas
-  arcadia-ra               RetroAchievements client
-  arcadia-emulators        emulator registry and detection
-  arcadia-media            trailer search and download
-  arcadia-social           friends and community
-  arcadia-sync             cross-machine sync engine
-  arcadia-plugins          plugin registry
-  arcadia-fixes            launch fix patches
-  arcadia-updater          auto-update state machine
-ui/                        React + TypeScript renderer
-```
-
-User data lives under `~/.local/share/arcadia/` on Linux and
-`%LOCALAPPDATA%\arcadia` on Windows, and is never versioned.
-`ARCADIA_DATA_DIR=/absolute/path` isolates it for development.
-
-## Backend
-
-The client talks to the Arcadia API over HTTPS. The server and migrations live
-in a separate repository (`imperat-on/arcadia-server`); installing the launcher
-does not require a local PostgreSQL. Point the client at an authorized instance
-with `ARCADIA_API_URL`.
-
-Address failover, DNS resolution and response caching happen in the Rust client
-(`arcadia-api`): the system resolver is tried first with a 500 ms budget, then
-Cloudflare DoH, with a five-minute cache and preferred-IP ordering.
-
-### Caching layers
-
-Game pages open from three caches before any network is touched:
-
-```
-layer       holds                                  lifetime
--------------------------------------------------------------------
-memory      sysinfo per app id, 256-entry cap       600 s
-edge        sysinfo/stats/meta/hltb (Cloudflare)     24 h + stale-while-revalidate
-origin      PostgreSQL `catalog_cache`               revalidation of the source
-```
-
-`SysinfoCache` (`crates/arcadia-ipc/src/sysinfo_cache.rs`) keeps the parsed
-response in memory. It exists because opening a game page used to cost
-**1.4–2.2 s** every single time — the IPC handler resolved the Steam appid and
-then fetched the catalog, never storing the result. A repeat visit paid the
-same price. Measured after the cache: **19 of 30 calls returned in 0 ms**.
-
-Negative results (`ok: true, info: null` — a game with no Steam appid, or the
-catalog being down) are cached too: they are a legitimate answer and equally
-expensive to produce.
-
-The edge layer is the server's responsibility: those routes are public and
-carry `Cache-Control: public, s-maxage=86400, stale-while-revalidate=604800`.
-They are identical for every user — the route received a `uid` and never used
-it — so the CDN can serve them. With `stale-while-revalidate` the user gets the
-cached copy immediately while the CDN refreshes in the background; no page open
-waits on the origin.
-
-## Config
-
-`config.json` lives in the data directory, is not versioned, and is created from
-`config.example.json`:
-
-| Key | Purpose |
+| Crate | Role |
 |---|---|
-| `steam_api_key` | Optional Steam metadata and integration data |
-| `steam_id64` | Account used for the Steam integration |
-| `hubcap_api_key` | Manifest provider key used by the store |
-| `language` | UI language (`pt-BR`, `en-US`, `es-ES`) |
-| `discord_rich_presence` | Enable Discord Rich Presence |
-| `discord_client_id` | Discord application id |
+| `arcadia-native` | Desktop and Big Picture, navigation and display |
+| `arcadia-native-media`, `arcadia-native-input` | GStreamer playback and controller navigation |
+| `arcadia-ipc` | Application commands, called directly from the native interface |
+| `arcadia-contracts` | Shared data and synchronization contracts |
+| `arcadia-api`, `arcadia-sync`, `arcadia-store` | Backend requests, synchronization and local data |
+| `arcadia-steamstore`, `arcadia-retro`, `arcadia-catalog` | Store and retro catalog |
+| `arcadia-download`, `arcadia-launch`, `arcadia-emulators` | Downloads and launching games |
 
-Secrets are never written to logs or uploaded; the client redacts them before
-any IPC response reaches the renderer.
+On Linux the app can open a separate WebKitGTK window to verify download
+sources that need an interactive browser check. The Desktop and Big Picture
+interfaces use iced.
 
-## Testing
+## Backend and configuration
 
-```bash
-cargo test --workspace    # 1547 tests
-cd ui && npx tsc --noEmit # renderer type check
-```
+The [Arcadia server](https://github.com/imperat-on/arcadia-server) is developed
+in a separate repository. The launcher connects over HTTPS. Set
+`ARCADIA_API_URL` to use your own instance.
 
-The packaging contract is itself covered by tests
-(`crates/arcadia-updater/tests/packaging_contract.rs`): version alignment across
-`Cargo.toml`, `ui/package.json` and `tauri.conf.json`, bundle targets, and the
-GStreamer dependencies the Linux bundle must declare.
-
-## Legacy reference
-
-The Electron app (`app/electron`, 37k lines of JS) has been **removed**. Every
-module was ported to a Rust crate first — `steamstore.js` → `arcadia-steamstore`,
-`downloadmanager.js` → `arcadia-download`, `retro-catalog.js` → `arcadia-retro`,
-`emulator-registry.js` → `arcadia-emulators`, and so on. The last two holdouts,
-the gamepad uinput wrapper and the `contracts/` helpers, are now
-`arcadia-gamepad` and `arcadia-contracts`.
-
-The tag `legacy-electron-final` keeps the full tree as a frozen reference if the
-old IPC contract ever needs to be consulted.
-
-`arcadia-tauri.sh` is the build entry point.
-
-## Uninstall
-
-### Linux
-
-Remove the AppImage or the package, then delete the data directory:
-
-```bash
-rm -rf ~/.local/share/arcadia
-```
-
-Games downloaded through the store stay registered in your Steam installation;
-remove them from the launcher first if you do not want them there.
-
-### Windows
-
-Use **Add/Remove Programs** for the installed version, or delete the extracted
-folder for the portable one.
+Settings and optional integrations are configured in the app. See
+[`config.example.json`](config.example.json) for the local configuration format
+and [the runtime dependencies guide](docs/DEPENDENCIAS.md) for optional tools.
+Account data and credentials belong in the data directory.
 
 ## License
 

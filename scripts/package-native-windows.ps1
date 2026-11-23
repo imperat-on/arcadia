@@ -1,12 +1,9 @@
 #Requires -Version 5.1
-# Empacotamento Windows do frontend nativo do Arcadia (iced, sem Tauri/webview).
+# Empacotamento Windows do Arcadia (Rust + iced).
 #
 # Gera um .zip portátil em dist/native-windows/ com o arcadia-native.exe,
-# boot.mp4, README e, quando um runtime GStreamer é encontrado, as DLLs e
+# boot.mp4, worker de torrent, README e, quando um runtime GStreamer é encontrado, as DLLs e
 # plugins em gstreamer/. O SHA256SUMS fica ao lado do .zip.
-#
-# O packaging Tauri (scripts/package-windows.sh e o job `windows` da CI) não é
-# tocado por este script.
 #
 # Uso (PowerShell 5.1+):
 #   pwsh -File .\scripts\package-native-windows.ps1
@@ -225,11 +222,11 @@ if (-not $SkipBuild) {
     if ($null -eq $cargo) {
         Stop-WithError "cargo não encontrado no PATH; instale o toolchain Rust MSVC (https://rustup.rs)"
     }
-    Write-Host "==> cargo build --release -p arcadia-native"
+    Write-Host "==> cargo build --locked --release -p arcadia-native"
     $env:CARGO_TARGET_DIR = $TargetDir
     Push-Location $RepoRoot
     try {
-        & cargo build --release -p arcadia-native
+        & cargo build --locked --release -p arcadia-native
         if ($LASTEXITCODE -ne 0) {
             Stop-WithError "cargo build falhou (exit $LASTEXITCODE)"
         }
@@ -242,7 +239,7 @@ if (-not (Test-Path -LiteralPath $Bin -PathType Leaf)) {
     Write-Host "erro: binário nativo não encontrado em $Bin" -ForegroundColor Red
     if ($SkipBuild) {
         Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
-        Write-Host "    cargo build --release -p arcadia-native" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native" -ForegroundColor Red
     }
     Write-Host "  ou aponte ARCADIA_NATIVE_BIN para outro executável" -ForegroundColor Red
     exit 1
@@ -260,20 +257,18 @@ Copy-Item -LiteralPath $Bin -Destination (Join-Path $Stage "arcadia-native.exe")
 Write-Host "==> binário: $Bin"
 
 # O app procura boot.mp4 ao lado do executável e em resources\boot.mp4.
-$Boot = $null
-foreach ($candidate in @(
-        (Join-Path $RepoRoot "boot.mp4"),
-        (Join-Path $RepoRoot "src-tauri\resources\boot.mp4"))) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $Boot = $candidate
-        break
-    }
-}
-if ($null -ne $Boot) {
+$Boot = Join-Path $RepoRoot "boot.mp4"
+if (Test-Path -LiteralPath $Boot -PathType Leaf) {
     Copy-Item -LiteralPath $Boot -Destination (Join-Path $Stage "boot.mp4")
     Write-Host "==> boot.mp4: $Boot"
 } else {
     Write-WarningLine "boot.mp4 não encontrado; o app abre sem a tela de abertura"
+}
+
+$Worker = Join-Path $Stage "resources\torrent_rpc"
+New-Item -ItemType Directory -Path $Worker -Force | Out-Null
+foreach ($file in @("main.py", "torrent_downloader.py")) {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "resources\torrent_rpc\$file") -Destination $Worker
 }
 
 # --- GStreamer (opcional) ---------------------------------------------------
@@ -432,12 +427,13 @@ O GStreamer não é embutido porque o build foi feito sem `GSTREAMER_ROOT_*`.
 $readme = @'
 # Arcadia Native @@VERSION@@ — Windows @@ARCH@@
 
-Frontend nativo do Arcadia em Rust + iced, sem Tauri e sem webview.
+Arcadia em Rust + iced.
 
 ## Conteúdo
 
 - `arcadia-native.exe` — binário do aplicativo;
 - `boot.mp4` — vídeo de abertura, procurado ao lado do executável;
+- `resources\torrent_rpc\` — worker de download por torrent (Python);
 @@GST_CONTENT@@
 - `README.md` — este arquivo.
 
@@ -455,6 +451,8 @@ O `boot.mp4` é procurado ao lado do `arcadia-native.exe` e em
 Também é necessário o Microsoft Visual C++ Redistributable 2015–2022 (x64):
 o binário MSVC e as DLLs do GStreamer usam o runtime C++ da Microsoft. O
 Windows 10/11 costuma tê-lo, mas não é garantido em uma máquina limpa.
+
+Os downloads por torrent usam Python com `libtorrent`.
 
 Rede é opcional para abrir a biblioteca local; capas, trailers e conta
 dependem do backend configurado.

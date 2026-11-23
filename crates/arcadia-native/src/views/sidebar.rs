@@ -1,6 +1,11 @@
 //! Sidebar fixa de 212 px, espelhando a `Sidebar.tsx` do shell desktop:
 //! wordmark, perfil da conta, navegação com ícones, lista de jogos com busca,
-//! Big Picture e versão.
+//! e Big Picture.
+
+#[path = "sidebar_brand.rs"]
+mod sidebar_brand;
+#[path = "sidebar_indicator.rs"]
+mod sidebar_indicator;
 
 use iced::widget::text::Wrapping;
 use iced::widget::{
@@ -8,18 +13,22 @@ use iced::widget::{
 };
 use iced::{Color, ContentFit, Element, Fill, Length, Padding};
 
-use crate::app::{App, Message, Screen, Section};
+use crate::app::{App, Message, Screen, Section, SettingsTab};
 use crate::theme;
 use crate::views::icons::{self, Icon};
 
-pub fn view(app: &App) -> Element<'_, Message> {
+pub fn view<'a>(
+    app: &'a App,
+    animated: &'a crate::animated_cards::AnimatedCards,
+) -> Element<'a, Message> {
     let i18n = &app.i18n;
 
     let brand = container(
-        text("ARCADIA")
-            .size(21)
-            .font(theme::FONT_BOLD)
-            .color(theme::TEXT_1),
+        iced::widget::canvas::Canvas::new(sidebar_brand::Brand {
+            reduced_motion: app.reduce_motion(),
+        })
+        .width(Fill)
+        .height(Fill),
     )
     .width(Fill)
     .height(42)
@@ -29,11 +38,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let brand_line = container(Space::new().width(Fill).height(1)).style(theme::divider_accent);
 
-    let profile = profile_block(app);
+    let profile = profile_block(app, animated);
 
     let mut nav = Column::new().spacing(2).padding([0.0, 8.0]);
     for section in Section::ALL {
         nav = nav.push(nav_item(app, section));
+        // Sub-navegação de Configurações: aparece logo abaixo do item pai
+        // quando a tela ativa é Settings, como no `Sidebar.tsx` da web.
+        if section == Section::Settings && app.screen == Screen::Section(Section::Settings) {
+            nav = nav.push(settings_subnav(app));
+        }
     }
 
     let games = app.library.visible_games(&app.sidebar_search);
@@ -44,19 +58,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(0)
                 .style(theme::plain_button),
             text(i18n.t("sidebar.jogos").to_uppercase())
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.50)),
             container(
                 text(games.len().to_string())
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_BOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.60)),
             )
             .padding([1.0, 5.0])
             .style(theme::badge),
             Space::new().width(Fill),
-            icons::icon_button(Icon::Refresh, 14.0, 4.0, Message::Reload),
         ]
         .spacing(6)
         .align_y(iced::Center),
@@ -64,6 +77,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .width(Fill)
     .padding([8.0, 16.0]);
 
+    let selected = Section::ALL
+        .iter()
+        .position(|&section| is_active(app, section));
+    let nav = iced::widget::Stack::new()
+        .width(Fill)
+        .push(nav)
+        .push(
+            iced::widget::canvas::Canvas::new(sidebar_indicator::Indicator(selected))
+                .width(Fill)
+                .height(Fill),
+        );
     let mut body = column![brand, brand_line, profile, nav].width(Fill);
 
     if app.sidebar_games_open {
@@ -71,7 +95,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             text_input(i18n.t("library.buscar"), &app.sidebar_search)
                 .on_input(Message::SidebarSearchChanged)
                 .padding([5.0, 8.0])
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .width(Fill)
                 .style(theme::sidebar_search_input),
         )
@@ -92,7 +116,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     } else {
                         i18n.t("library.vazio")
                     })
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30))
                     .align_x(iced::Center),
                 )
@@ -117,7 +141,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         row![
             icons::icon(Icon::Monitor, 16.0, 0.75),
             text(i18n.t("sidebar.bigpicture"))
-                .size(13)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.70)),
         ]
@@ -129,22 +153,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .padding([9.0, 10.0])
     .style(theme::big_picture);
 
-    let version = row![
-        text(format!(
-            "{} · {}",
-            i18n.t("app.name"),
-            i18n.t("sidebar.modo_desktop")
-        ))
-        .size(11)
-        .color(theme::TEXT_3),
-        Space::new().width(Fill),
-        text(env!("CARGO_PKG_VERSION"))
-            .size(11)
-            .color(theme::TEXT_3),
-    ]
-    .align_y(iced::Center);
-
-    let footer = container(column![big_picture, version].spacing(8))
+    let footer = container(big_picture)
         .width(Fill)
         .padding([10.0, 12.0]);
 
@@ -155,35 +164,134 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+/// Sub-navegação expandida de Configurações, porte do bloco `CONFIG_SUBS` do
+/// `Sidebar.tsx`: itens de 14 px com ponto/cor de estado, cabeçalho `CLASSICS`
+/// antes de Emulação e badge `NEW` nela. O recuo de 36 px alinha os sub-itens
+/// sob o texto do item pai, deixando o ícone de engrenagem livre à esquerda.
+fn settings_subnav(app: &App) -> Element<'_, Message> {
+    let i18n = &app.i18n;
+    let active = app.settings.tab;
+
+    let mut items = Column::new().spacing(2).width(Fill);
+
+    for tab in SettingsTab::ALL {
+        if tab.starts_group() {
+            items = items.push(
+                container(
+                    text(i18n.t("settings.emulacao.grupo").to_uppercase())
+                        .size(theme::TEXT_MICRO)
+                        .font(theme::FONT_SEMIBOLD)
+                        .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30)),
+                )
+                .width(Fill)
+                .padding(Padding {
+                    top: theme::SPACE_2,
+                    right: 0.0,
+                    bottom: theme::SPACE_1,
+                    left: theme::SPACE_3,
+                }),
+            );
+        }
+        items = items.push(settings_subitem(app, tab, active == tab));
+    }
+
+    container(items)
+        .width(Fill)
+        .padding(Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: theme::SPACE_1,
+            left: 36.0,
+        })
+        .into()
+}
+
+fn settings_subitem<'a>(app: &'a App, tab: SettingsTab, active: bool) -> Element<'a, Message> {
+    let i18n = &app.i18n;
+
+    // `s.icon || <span dot />`: Controle e Emulação usam o ícone de gamepad;
+    // os demais, um ponto de 4 px que fica ciano quando ativo.
+    let lead: Element<'a, Message> =
+        if matches!(tab, SettingsTab::Controller | SettingsTab::Emulation) {
+            icons::icon(Icon::Gamepad, 14.0, if active { 1.0 } else { 0.45 })
+        } else {
+            container(
+                Space::new()
+                    .width(Length::Fixed(4.0))
+                    .height(Length::Fixed(4.0)),
+            )
+            .style(move |_| theme::sub_item_dot(active))
+            .into()
+        };
+
+    let mut line = row![
+        lead,
+        text(tab.label(i18n))
+            .size(theme::TEXT_READ)
+            .color(if active {
+                theme::TEXT_1
+            } else {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.45)
+            })
+            .wrapping(Wrapping::None),
+        Space::new().width(Fill),
+    ]
+    .spacing(theme::SPACE_2)
+    .align_y(iced::Center);
+
+    // Badge `NEW` só em Emulação (`settings.emulacao.novo`).
+    if tab == SettingsTab::Emulation {
+        line = line.push(
+            container(
+                text(i18n.t("settings.emulacao.novo"))
+                    .size(theme::TEXT_MICRO)
+                    .font(theme::FONT_BOLD)
+                    .color(theme::ACCENT),
+            )
+            .padding([1.0, 5.0])
+            .style(theme::accent_badge),
+        );
+    }
+
+    super::cards::hover_motion::wrap(
+        button(line)
+            .on_press(Message::SettingsTabChanged(tab))
+            .width(Fill)
+            .padding([5.0, 10.0])
+            .style(move |style_theme, status| theme::sub_item(style_theme, status, active)),
+        super::cards::hover_motion::Kind::Navigation,
+    )
+}
+
 fn nav_item(app: &App, section: Section) -> Element<'_, Message> {
     let active = is_active(app, section);
-    let marker = container(Space::new().width(Length::Fixed(2.0)).height(20)).style(if active {
-        theme::accent_bar
-    } else {
-        theme::transparent_bar
-    });
+    let marker = Space::new().width(Length::Fixed(2.0)).height(20);
 
-    let label = text(section.label(&app.i18n)).size(14).color(if active {
-        theme::TEXT_1
-    } else {
-        Color::from_rgba(1.0, 1.0, 1.0, 0.85)
-    });
+    let label = text(section.label(&app.i18n))
+        .size(theme::TEXT_READ)
+        .color(if active {
+            theme::TEXT_1
+        } else {
+            Color::from_rgba(1.0, 1.0, 1.0, 0.85)
+        });
 
-    button(
-        row![
-            marker,
-            icons::icon(icon_for(section), 18.0, if active { 1.0 } else { 0.59 }),
-            label,
-        ]
-        .spacing(10)
-        .align_y(iced::Center),
+    super::cards::hover_motion::wrap(
+        button(
+            row![
+                marker,
+                icons::icon(icon_for(section), 18.0, if active { 1.0 } else { 0.59 }),
+                label,
+            ]
+            .spacing(10)
+            .align_y(iced::Center),
+        )
+        .on_press(Message::Navigate(section))
+        .width(Fill)
+        .height(38)
+        .padding([0.0, 4.0])
+        .style(move |style_theme, status| theme::sidebar_item(style_theme, status, active)),
+        super::cards::hover_motion::Kind::Navigation,
     )
-    .on_press(Message::Navigate(section))
-    .width(Fill)
-    .height(38)
-    .padding([0.0, 4.0])
-    .style(move |style_theme, status| theme::sidebar_item(style_theme, status, active))
-    .into()
 }
 
 fn game_item<'a>(app: &'a App, game: &'a crate::backend::Game) -> Element<'a, Message> {
@@ -203,7 +311,7 @@ fn game_item<'a>(app: &'a App, game: &'a crate::backend::Game) -> Element<'a, Me
             .into(),
         None => container(
             text(initial(&game.title))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_2),
         )
@@ -221,7 +329,7 @@ fn game_item<'a>(app: &'a App, game: &'a crate::backend::Game) -> Element<'a, Me
             cover,
             container(
                 text(ellipsize(&game.title, 22))
-                    .size(13)
+                    .size(theme::TEXT_READ)
                     .color(if active {
                         theme::TEXT_1
                     } else {
@@ -274,92 +382,135 @@ fn initial(title: &str) -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
-fn profile_block(app: &App) -> Element<'_, Message> {
+/// Bloco "meu perfil" da sidebar — porte do `desktop-sidebar-profile` do
+/// `Sidebar.tsx`: identidade clicável que expande o menu (My profile /
+/// Refresh library / Settings / Sign out) em vez de ir direto à tela.
+fn profile_block<'a>(
+    app: &'a App,
+    animated: &'a crate::animated_cards::AnimatedCards,
+) -> Element<'a, Message> {
     let signed_in = app.account.is_signed_in();
     let name = app.account.display_name(app.i18n.t("native.profile.local"));
+    let menu_open = app.profile_menu_open;
 
-    let avatar: Element<'_, Message> = match app.account.avatar.as_ref() {
-        Some(handle) => image(handle.clone())
-            .width(36)
-            .height(36)
+    // O avatar do perfil é um GIF animado servido pelo servidor. O frame do
+    // pool tem prioridade; `account.avatar` (o primeiro quadro do `avatar:load`)
+    // é só o que aparece antes de o pipeline entregar o primeiro frame.
+    let avatar_url = app
+        .account
+        .avatar_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+        .or(app
+            .account
+            .fallback_avatar_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty()));
+    let animated_avatar = avatar_url.and_then(|url| animated.texture(url).cloned());
+
+    let avatar: Element<'a, Message> = match animated_avatar.or(app.account.avatar.clone()) {
+        Some(handle) => image(handle)
+            .width(40)
+            .height(40)
             .content_fit(ContentFit::Cover)
             .border_radius(8)
             .into(),
         None => container(
             text(app.account.initial(app.i18n.t("native.profile.local")))
-                .size(14)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_SEMIBOLD)
                 .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
         )
-        .width(36)
-        .height(36)
+        .width(40)
+        .height(40)
         .align_x(iced::Center)
         .align_y(iced::Center)
         .style(theme::avatar)
         .into(),
     };
 
+    // Clicar na identidade expande/colapsa o menu (web: setProfileMenu(v => !v)).
     let identity = button(
         row![
             avatar,
             container(
                 text(ellipsize(name, 18))
-                    .size(14)
+                    .size(theme::TEXT_READ)
                     .font(theme::FONT_MEDIUM)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
             )
             .width(Fill)
             .clip(true),
+            icons::icon(Icon::ChevronDown, 12.0, 0.50),
         ]
         .spacing(12)
         .align_y(iced::Center),
     )
-    .on_press(if signed_in {
-        Message::OpenProfile
-    } else {
-        Message::OpenAuth { required: false }
-    })
+    .on_press(Message::ToggleProfileMenu)
     .width(Fill)
     .padding([2.0, 0.0])
-    .style(theme::plain_button);
+    .style(move |style_theme, status| theme::profile_identity(style_theme, status, menu_open));
 
-    let actions: Element<'_, Message> = if signed_in {
-        row![
-            button(
-                text(app.i18n.t("topbar.perfil"))
-                    .size(11)
-                    .font(theme::FONT_MEDIUM)
-            )
-            .on_press(Message::OpenProfile)
-            .padding([4.0, 8.0])
-            .style(theme::ghost_button),
-            button(
-                text(app.i18n.t("native.sidebar.logout"))
-                    .size(11)
-                    .font(theme::FONT_MEDIUM)
-            )
-            .on_press(Message::SignOutRequested)
-            .padding([4.0, 8.0])
-            .style(theme::ghost_button),
-        ]
-        .spacing(6)
-        .into()
-    } else {
-        button(
-            text(app.i18n.t("account.entrar_btn"))
-                .size(11)
-                .font(theme::FONT_MEDIUM),
-        )
-            .on_press(Message::OpenAuth { required: false })
-            .padding([4.0, 10.0])
-            .style(theme::ghost_button)
-            .into()
-    };
+    let mut block = column![identity].spacing(8);
 
-    container(column![identity, actions].spacing(6))
+    if menu_open {
+        let mut menu = Column::new().width(Fill);
+        menu = menu.push(menu_item(
+            app.i18n.t("profile.meu_perfil"),
+            false,
+            if signed_in {
+                Message::OpenProfile
+            } else {
+                // Deslogado cai no login, igual `onProfile` do web.
+                Message::OpenAuth { required: false }
+            },
+        ));
+        menu = menu.push(menu_item(
+            app.i18n.t("settings.title"),
+            false,
+            Message::OpenSettingsFromProfile,
+        ));
+        // "Sair": logado sai da conta; deslogado fecha o app (web: signOut/x onQuit).
+        menu = menu.push(menu_item(
+            if signed_in {
+                app.i18n.t("account.sair")
+            } else {
+                app.i18n.t("profile.sair")
+            },
+            true,
+            if signed_in {
+                Message::SignOutRequested
+            } else {
+                Message::WindowClose
+            },
+        ));
+
+        block = block.push(container(menu).width(Fill).style(theme::profile_menu));
+    }
+
+    container(block)
         .width(Fill)
-        .padding([12.0, 20.0])
+        .padding(Padding {
+            top: 12.0,
+            right: 20.0,
+            bottom: 12.0,
+            left: 20.0,
+        })
         .into()
+}
+
+/// Um item do menu do perfil — `ProfileMenuItem` do `Sidebar.tsx`.
+fn menu_item(label: &str, danger: bool, message: Message) -> Element<'_, Message> {
+    button(
+        text(label.to_string())
+            .size(theme::TEXT_READ)
+            .font(theme::FONT_MEDIUM),
+    )
+    .on_press(message)
+    .width(Fill)
+    .padding([9.0, 16.0])
+    .style(move |style_theme, status| theme::profile_menu_item(style_theme, status, danger))
+    .into()
 }
 
 fn is_active(app: &App, section: Section) -> bool {

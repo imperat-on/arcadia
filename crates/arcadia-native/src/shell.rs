@@ -2,7 +2,7 @@
 //!
 //! Nesta fatia os métodos de janela são no-op: o controle de janela ainda é do
 //! SO (decorações nativas). `emit` registra no stderr e, para os eventos de
-//! lançamento e conquista, alimenta uma fila thread-safe que o `App` drena
+//! lançamento, conquista e download, alimenta uma fila thread-safe que o `App` drena
 //! numa `Subscription` de baixa frequência. O mesmo sink é usado pelo
 //! `LaunchRuntime` do IPC, que emite `game:running`/`game:active`/
 //! `game:launchState`/`game:launchWarning` em threads de background.
@@ -16,9 +16,7 @@ use serde_json::Value;
 
 /// Eventos do lançamento que a UI nativa consome.
 ///
-/// A lista é explícita de propósito: o sink do `AppState` também recebe
-/// progresso de downloads e eventos de tempo real, que não devem encher a
-/// fila da UI nem acordar a tela do jogo.
+/// A lista é explícita para não encaminhar eventos que a UI não consome.
 pub const LAUNCH_EVENTS: &[&str] = &[
     "game:running",
     "game:active",
@@ -29,6 +27,7 @@ pub const LAUNCH_EVENTS: &[&str] = &[
 
 /// Eventos de conquista que viram toast na UI nativa.
 pub const ACHIEVEMENT_EVENTS: &[&str] = &["achievement:unlocked"];
+pub const DOWNLOAD_EVENTS: &[&str] = &["dm:progress", "torrent:progress"];
 
 /// Teto da fila: um consumidor parado (por exemplo, durante um frame lento)
 /// não pode acumular eventos sem limite. Eventos antigos são descartados.
@@ -42,9 +41,13 @@ pub fn is_achievement_event(event: &str) -> bool {
     ACHIEVEMENT_EVENTS.contains(&event)
 }
 
-/// Eventos que a fila da UI aceita (lançamento + conquista).
+pub fn is_download_event(event: &str) -> bool {
+    DOWNLOAD_EVENTS.contains(&event)
+}
+
+/// Eventos que a fila da UI aceita.
 pub fn is_ui_event(event: &str) -> bool {
-    is_launch_event(event) || is_achievement_event(event)
+    is_launch_event(event) || is_achievement_event(event) || is_download_event(event) || event == "library:changed"
 }
 
 /// Evento cru vindo do shell ou do sink de background do IPC.
@@ -67,13 +70,19 @@ impl EventQueue {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Enfileira eventos de lançamento e conquista; o resto é ignorado.
+    /// Progresso contém a lista completa: basta o retrato mais recente de cada
+    /// fila, preservando espaço para conquistas e eventos de lançamento.
     pub fn push(&self, event: &str, payload: Value) {
         if !is_ui_event(event) {
             return;
         }
 
         let mut pending = self.lock();
+        if is_download_event(event) || event == "library:changed" {
+            if let Some(index) = pending.iter().position(|queued| queued.event == event) {
+                pending.remove(index);
+            }
+        }
         if pending.len() >= MAX_PENDING_EVENTS {
             pending.pop_front();
         }
@@ -119,8 +128,7 @@ impl NativeShell {
         self.events.clone()
     }
 
-    /// Candidatos de `boot.mp4` na mesma ordem do `TauriShell`: mídia ao lado
-    /// do executável/checkout, resources do `src-tauri` e, por fim, o data dir.
+    /// Procura o vídeo no pacote, no checkout e na pasta de dados.
     pub fn boot_video_candidates(&self) -> Vec<PathBuf> {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut candidates = Vec::new();
@@ -132,7 +140,6 @@ impl NativeShell {
             }
         }
         candidates.push(manifest.join("../../boot.mp4"));
-        candidates.push(manifest.join("../../src-tauri/resources/boot.mp4"));
         if let Some(data_dir) = self.data_dir.clone() {
             candidates.push(data_dir.join("boot.mp4"));
         }
@@ -183,7 +190,24 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn only_launch_events_enter_the_ui_queue() {
+    fn download_progress_keeps_the_latest_snapshot_without_evicting_launch_events() {
+        let queue = EventQueue::default();
+        queue.push("game:running", json!(true));
+        for percent in 0..1000 {
+            queue.push("dm:progress", json!([{ "appid": "steam:10", "percent": percent }]));
+            queue.push("torrent:progress", json!([{ "gameId": "tor:10", "progress": percent }]));
+        }
+        let events = queue.drain();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].event, "game:running");
+        assert_eq!(events[1].event, "dm:progress");
+        assert_eq!(events[1].payload[0]["percent"], 999);
+        assert_eq!(events[2].event, "torrent:progress");
+        assert_eq!(events[2].payload[0]["progress"], 999);
+    }
+
+    #[test]
+    fn launch_and_library_events_enter_the_ui_queue() {
         let shell = NativeShell::new();
         let queue = shell.events();
 
@@ -192,7 +216,8 @@ mod tests {
         shell.emit("sync:state", json!({ "queueLen": 0 }));
 
         let events = queue.drain();
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].event, "library:changed");
         assert_eq!(events[0].event, "game:running");
         assert_eq!(events[0].payload, json!(true));
         assert!(queue.is_empty());
@@ -211,7 +236,8 @@ mod tests {
         shell.emit("update:packaged:changed", json!({ "fase": "disponivel" }));
 
         let events = queue.drain();
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].event, "library:changed");
         assert_eq!(events[0].event, "achievement:unlocked");
         assert_eq!(events[0].payload["title"], "Conquista");
         assert!(queue.is_empty());

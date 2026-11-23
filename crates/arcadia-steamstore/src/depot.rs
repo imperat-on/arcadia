@@ -184,6 +184,60 @@ pub struct ProviderManifest {
     pub manifests_present: HashSet<String>,
 }
 
+/// Manifesto do provedor e arquivos binários que o DepotDownloader vai usar.
+pub struct ProviderArchive {
+    pub provider: ProviderManifest,
+    pub files: Vec<(String, Vec<u8>)>,
+}
+
+pub fn parse_provider_archive(bytes: &[u8], appid: &str) -> Result<ProviderArchive, String> {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    let wanted = format!("{appid}.lua");
+    let mut lua = None;
+    let mut fallback = None;
+    let mut files = Vec::new();
+    let mut remaining = 64 * 1024 * 1024_u64;
+    for index in 0..archive.len() {
+        let file = archive.by_index(index).map_err(|error| error.to_string())?;
+        if file.is_dir() { continue }
+        let name = file.name().rsplit(['/', '\\']).next().unwrap_or("").to_string();
+        if !name.ends_with(".lua") && !name.ends_with(".manifest") { continue }
+        let size = file.size();
+        if size > remaining { return Err("manifestos do provedor excedem 64 MiB".into()) }
+        let mut contents = Vec::new();
+        file.take(size + 1)
+            .read_to_end(&mut contents).map_err(|error| error.to_string())?;
+        if contents.len() as u64 != size { return Err("tamanho inválido no zip do provedor".into()) }
+        remaining -= size;
+        if name.ends_with(".lua") {
+            let text = String::from_utf8(contents).map_err(|error| error.to_string())?;
+            if name == wanted { lua = Some(text) }
+            else if fallback.is_none() { fallback = Some(text) }
+        } else {
+            files.push((name, contents));
+        }
+    }
+    let lua = lua.or(fallback).ok_or_else(|| "o zip do provedor não trouxe um .lua".to_string())?;
+    let parsed = parse_lua_manifest(&lua, appid);
+    let required: HashSet<String> = parsed.depots.iter()
+        .map(|depot| format!("{}_{}.manifest", depot.depot_id, depot.manifest_id)).collect();
+    files.retain(|(name, bytes)| required.contains(name) && !bytes.is_empty());
+    let manifests_present = parsed.depots.iter().filter(|depot| {
+        files.iter().any(|(name, _)| name == &format!("{}_{}.manifest", depot.depot_id, depot.manifest_id))
+    }).map(|depot| depot.depot_id.clone()).collect();
+    Ok(ProviderArchive {
+        provider: ProviderManifest {
+            nome: "Hubcap".into(),
+            depots: parsed.depots,
+            token: parsed.token,
+            dlcs: parsed.dlcs,
+            manifests_present,
+        },
+        files,
+    })
+}
+
 /// Resultado do merge entre provedores (mesma estratégia do `getManifest`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergedManifest {

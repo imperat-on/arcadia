@@ -2,6 +2,7 @@
 //! Nenhuma chamada ao backend real; arquivos ficam em diretórios temporários.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -155,7 +156,14 @@ async fn pull_library_uses_exact_rpcs_and_applies_stubs_ownership_and_playtime()
         &scope.account_file("sync_state.json"),
         json!({ "libPush": { "steam:77": { "title": "Old", "platform": "windows" } } }),
     );
-    arcadia_store::owned::write_owned(&scope, &[json!("steam:77")]).unwrap();
+    let stardew_stub = json!({
+        "id": "steam:413150", "title": "Stardew Valley", "launcher": "steam", "pendente": true
+    });
+    write_json(
+        &scope.account_file("pending_games.json"),
+        json!([stardew_stub]),
+    );
+    arcadia_store::owned::write_owned(&scope, &[json!("steam:77"), json!("steam:413150")]).unwrap();
 
     Mock::given(method("POST"))
         .and(path("/rest/v1/rpc/pull_library"))
@@ -206,10 +214,12 @@ async fn pull_library_uses_exact_rpcs_and_applies_stubs_ownership_and_playtime()
     assert_eq!(stub["title"], "Steam Game");
     assert_eq!(stub["launcher"], "steam");
     assert_eq!(stub["pendente"], true);
+    assert!(pending.as_array().unwrap().contains(&stardew_stub));
 
     let owned = read_json(&scope.account_file("owned_games.json"));
     assert!(owned.as_array().unwrap().contains(&json!("steam:42")));
     assert!(owned.as_array().unwrap().contains(&json!("custom:remote")));
+    assert!(owned.as_array().unwrap().contains(&json!("steam:413150")));
     assert!(!owned.as_array().unwrap().contains(&json!("steam:77")));
 
     let overrides = read_json(&scope.account_file("overrides.json"));
@@ -223,6 +233,181 @@ async fn pull_library_uses_exact_rpcs_and_applies_stubs_ownership_and_playtime()
     assert_eq!(state["playtimePush"]["custom:remote"], 30);
     assert_eq!(state["playtimePush"]["steam:42"], 120);
     assert_eq!(state["libPush"]["custom:remote"]["title"], "Remoto");
+    assert!(state["libPush"].get("steam:413150").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn startup_retries_unsent_steam_addition_and_acknowledges_it_once() {
+    let server = MockServer::start().await;
+    let dir = temp_dir("retry-steam-addition");
+    let scope = scope_for(&dir);
+    let client = client_for(&server);
+    install_session(&client).await;
+    let engine = SyncEngine::new(client, scope.clone());
+    let stardew = json!({
+        "appid": "steam:413150", "title": "Stardew Valley", "platform": "windows"
+    });
+    {
+        let _guard = library::lock_local_library();
+        library::record_steam_change(&scope.account_dir(), "413150", Some("Stardew Valley"))
+            .unwrap();
+        write_json(
+            &scope.account_file("pending_games.json"),
+            json!([{ "id": "steam:413150", "title": "Stardew Valley", "launcher": "steam" }]),
+        );
+        arcadia_store::owned::write_owned(&scope, &[json!("steam:413150")]).unwrap();
+    }
+
+    let payload = json!({ "p_lib": [stardew], "p_playtime": [] });
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/push_library"))
+        .and(auth_header())
+        .and(body_json(payload.clone()))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert!(engine.send_library_changes().await.is_err());
+    server.verify().await;
+    server.reset().await;
+    drop(engine);
+
+    let saved = Arc::new(AtomicBool::new(false));
+    let saved_by_push = saved.clone();
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/push_library"))
+        .and(auth_header())
+        .and(body_json(payload))
+        .respond_with(move |_: &Request| {
+            saved_by_push.store(true, Ordering::Relaxed);
+            null_response()
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_library"))
+        .respond_with(move |_: &Request| {
+            let mut rows = vec![json!({
+                "appid": "steam:42", "title": "Steam Game", "platform": "windows"
+            })];
+            if saved.load(Ordering::Relaxed) {
+                rows.push(stardew.clone());
+            }
+            ResponseTemplate::new(200).set_body_json(rows)
+        })
+        .mount(&server)
+        .await;
+    for rpc in ["pull_steam_playtime", "pull_achievements", "pull_sources"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/rest/v1/rpc/{rpc}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+    }
+
+    let client = client_for(&server);
+    install_session(&client).await;
+    let restarted = SyncEngine::new(client.clone(), scope.clone());
+    restarted.reconcile().await.unwrap();
+    assert!(arcadia_store::owned::read_owned(&scope)
+        .unwrap()
+        .contains(&json!("steam:413150")));
+    assert_eq!(
+        read_json(&scope.account_file("sync_state.json"))["libPush"]["steam:413150"]["title"],
+        "Stardew Valley"
+    );
+    restarted.send_library_changes().await.unwrap();
+
+    let other_device = scope_for(&dir.join("other-device"));
+    arcadia_store::owned::write_owned(&other_device, &[]).unwrap();
+    library::pull(&client, &other_device).await.unwrap();
+    assert!(arcadia_store::owned::read_owned(&other_device)
+        .unwrap()
+        .contains(&json!("steam:413150")));
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn queued_steam_removal_blocks_a_stale_pull_and_reaches_the_server() {
+    let server = MockServer::start().await;
+    let dir = temp_dir("steam-removal");
+    let scope = scope_for(&dir);
+    let client = client_for(&server);
+    install_session(&client).await;
+    {
+        let _guard = library::lock_local_library();
+        library::record_steam_change(&scope.account_dir(), "413150", None).unwrap();
+        arcadia_store::owned::write_owned(&scope, &[]).unwrap();
+        write_json(&scope.account_file("pending_games.json"), json!([]));
+    }
+    write_json(
+        &scope.account_file("sync_state.json"),
+        json!({ "libPush": { "steam:413150": { "title": "Stardew Valley", "platform": "windows" } } }),
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_library"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "appid": "steam:413150", "title": "Stardew Valley", "platform": "windows" }
+        ])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_steam_playtime"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/push_library"))
+        .and(auth_header())
+        .and(body_json(json!({
+            "p_lib": [{ "appid": "steam:413150", "removed": true }], "p_playtime": []
+        })))
+        .respond_with(null_response())
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    library::pull(&client, &scope).await.unwrap();
+    assert_eq!(arcadia_store::owned::read_owned(&scope), Some(Vec::new()));
+    assert_eq!(
+        read_json(&scope.account_file("pending_games.json")),
+        json!([])
+    );
+
+    let restarted = SyncEngine::new(client, scope.clone());
+    restarted.send_library_changes().await.unwrap();
+    restarted.send_library_changes().await.unwrap();
+    assert!(read_json(&scope.account_file("sync_state.json"))["libPush"]
+        .get("steam:413150")
+        .is_none());
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn queued_steam_changes_are_never_sent_using_another_accounts_session() {
+    let server = MockServer::start().await;
+    let dir = temp_dir("steam-account-switch");
+    let scope = AccountScope::with_active(&dir, Some("u2"));
+    let client = client_for(&server);
+    install_session(&client).await;
+    {
+        let _guard = library::lock_local_library();
+        library::record_steam_change(&scope.account_dir(), "413150", Some("Stardew Valley"))
+            .unwrap();
+    }
+    let engine = SyncEngine::new(client, scope);
+
+    assert_eq!(
+        engine.send_library_changes().await.unwrap_err(),
+        SyncError::AccountSwitched
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

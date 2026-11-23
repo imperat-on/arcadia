@@ -2019,15 +2019,23 @@ impl RetroServerCatalog {
         summaries
     }
 
+    pub fn list_path(params: &Value) -> String {
+        format!("/catalog/v1/retro/games?{}", Self::query(params))
+    }
+
+    pub fn game_path(game_id: &str) -> String {
+        let id = encode_uri_component(&game_id.chars().take(240).collect::<String>());
+        format!("/catalog/v1/retro/games/{id}")
+    }
+
     pub async fn list(&self, params: &Value) -> Value {
-        let path = format!("/catalog/v1/retro/games?{}", Self::query(params));
+        let path = Self::list_path(params);
         self.with_fallback(&path, false, || self.fallback.list(params))
             .await
     }
 
     pub async fn get_game(&self, game_id: &str) -> Value {
-        let id = encode_uri_component(&game_id.chars().take(240).collect::<String>());
-        let path = format!("/catalog/v1/retro/games/{id}");
+        let path = Self::game_path(game_id);
         let mut response = self
             .with_fallback(&path, false, || self.fallback.get_game(game_id))
             .await;

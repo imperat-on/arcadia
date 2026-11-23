@@ -8,27 +8,42 @@
 
 use iced::widget::scrollable::{AbsoluteOffset, Direction, Scrollbar};
 use iced::widget::text::Wrapping;
+use iced::widget::Id;
 use iced::widget::{
     button, column, container, image, mouse_area, row, scrollable, text, text_input, Space, Stack,
 };
-use iced::widget::Id;
 use iced::{Color, ContentFit, Element, Fill, Length, Padding, Task};
 
 use crate::app::{App, LibraryStatus, LoadStatus, Message, StoreDetailState};
 use crate::backend::{Game, StoreGame};
 use crate::big_picture::{
-    home_shelf, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY,
-    ACTION_TRAILER, MENU_COUNT, MENU_FAVORITE, MENU_OPEN_DETAIL, MENU_TRAILER, STORE_GRID_COLS,
+    home_shelf, ConsoleTab, ConsoleZone, ACTION_FAVORITE, ACTION_MORE, ACTION_PLAY, ACTION_TRAILER,
+    MENU_COUNT, MENU_FAVORITE, MENU_OPEN_DETAIL, MENU_TRAILER, STORE_GRID_COLS,
 };
 use crate::media;
 use crate::theme;
+use crate::views::icons::{self, Icon};
 
 /// Medidas do trilho compartilhadas com o cálculo de scroll.
-pub const RAIL_CARD_WIDTH: f32 = 148.0;
+///
+/// Card quadrado do Orbit: a arte é 1:1, então a largura do card é a própria
+/// altura da arte. Capa vertical (`148×188`) lê como vitrine de loja; quadrado
+/// lê como console de sofá.
+///
+/// 208 px é a medida que o Orbit usa numa tela 1080p: oito tiles cabem na
+/// largura e o card ainda tem presença a três metros. Com 168 o trilho parecia
+/// uma lista de ícones em vez de uma fileira de capas.
+pub const RAIL_CARD_WIDTH: f32 = 208.0;
 pub const RAIL_CARD_GAP: f32 = 18.0;
-const RAIL_COVER_HEIGHT: f32 = 188.0;
-const RAIL_CARD_HEIGHT: f32 = 244.0;
-const RAIL_HEIGHT: f32 = 300.0;
+/// Altura da arte dentro do card (quadrada).
+const RAIL_COVER_HEIGHT: f32 = 208.0;
+/// Card = arte (208) + título (18) + espaçamento (8).
+const RAIL_CARD_HEIGHT: f32 = 234.0;
+/// Bloco do trilho = cabeçalho (~54) + respiro (10) + card (234) + folga (14).
+const RAIL_HEIGHT: f32 = 314.0;
+/// Ganho de escala do card em foco. O Orbit usa `scale(1.04)` na transição;
+/// 1.08 lê bem a três metros sem desalinhar o trilho.
+const ZOOM_FOCUSED: f32 = 1.08;
 const GUTTER: f32 = 56.0;
 const RAIL_ID: &str = "arcadia-console-rail";
 /// Id do `text_input` da busca da Loja; o App usa para focar via teclado/A.
@@ -64,24 +79,30 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let selected = app.big_picture.selected(&games);
 
     let base: Element<'_, Message> = if tab == ConsoleTab::Stores {
-        column![top_bar(app), console_store(app)]
+        column![top_bar(app), super::big_picture_store::view(app)]
             .width(Fill)
             .height(Fill)
             .into()
     } else if tab.has_game_rail() {
+        // O trilho fica abaixo do centro, não colado no pé: o bloco do hero
+        // ocupa 11 porções da sobra vertical e o respiro embaixo leva 5. Numa
+        // tela 1080p isso põe o centro do trilho em ~63% da altura — a faixa
+        // que o Orbit usa. Sem o respiro, o `Fill` do hero empurrava o trilho
+        // até o rodapé e a tela parecia desequilibrada para baixo.
         column![
             top_bar(app),
             container(copy_area(app, selected))
                 .width(Fill)
-                .height(Fill)
+                .height(Length::FillPortion(11))
                 .align_y(iced::Bottom)
                 .padding(Padding {
                     top: 0.0,
                     right: GUTTER,
-                    bottom: 4.0,
+                    bottom: 20.0,
                     left: GUTTER,
                 }),
             rail(app, &games, has_continue),
+            Space::new().height(Length::FillPortion(5)),
         ]
         .width(Fill)
         .height(Fill)
@@ -114,11 +135,37 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .height(Fill)
                 .style(theme::console_wash),
         )
+        // Gradiente inferior em três degraus. O iced não expõe gradiente de
+        // container, então a queda de luminância é feita com faixas
+        // sobrepostas de alfa crescente — o mesmo resultado visual do véu do
+        // Orbit, que escurece o pé da arte para o trilho e os prompts lerem.
         .push(
             container(
                 container(Space::new())
                     .width(Fill)
-                    .height(360)
+                    .height(Fill)
+                    .style(theme::console_wash_step_low),
+            )
+            .width(Fill)
+            .height(Fill)
+            .align_y(iced::Bottom),
+        )
+        .push(
+            container(
+                container(Space::new())
+                    .width(Fill)
+                    .height(Length::FillPortion(24))
+                    .style(theme::console_wash_step_mid),
+            )
+            .width(Fill)
+            .height(Fill)
+            .align_y(iced::Bottom),
+        )
+        .push(
+            container(
+                container(Space::new())
+                    .width(Fill)
+                    .height(Length::Fixed(420.0))
                     .style(theme::console_bottom_wash),
             )
             .width(Fill)
@@ -129,7 +176,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     if app.big_picture.overview_open() && tab.has_game_rail() {
         if let Some(game) = selected {
-            layers = layers.push(overview(app, game));
+            layers = layers.push(super::big_picture_detail::view(app, game));
             if app.big_picture.menu_open() {
                 layers = layers.push(more_menu(app, game));
             }
@@ -152,6 +199,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         }
     }
 
+    if let Some(detail) = app.store.detail.as_ref().filter(|detail| detail.downloads.open) {
+        layers = layers.push(super::store_downloads::overlay(app, detail));
+    }
     layers.into()
 }
 
@@ -175,7 +225,7 @@ fn background<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messa
                     LibraryStatus::Error(_) => app.i18n.t("native.console.library_unavailable"),
                     LibraryStatus::Ready => app.i18n.t("native.console.mode"),
                 })
-                .size(13)
+                .size(theme::TEXT_READ)
                 .color(FAINT),
             ]
             .spacing(8)
@@ -192,124 +242,84 @@ fn background<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messa
 
 fn top_bar(app: &App) -> Element<'_, Message> {
     let bp = &app.big_picture;
-    let mut tabs = iced::widget::Row::new().spacing(30).align_y(iced::Center);
+    let mut tabs = iced::widget::Row::new().spacing(2).align_y(iced::Center);
 
+    // Pílula centralizada do Orbit: os itens ficam dentro de uma cápsula
+    // escura flutuante no centro da tela, não alinhados à esquerda. O item
+    // ativo ganha fundo claro; o focado (gamepad/teclado) ganha o anel branco.
     for tab in ConsoleTab::ALL {
         let active = bp.tab() == tab;
         let focused = bp.zone() == ConsoleZone::Tabs && bp.tab_index() == tab.index();
-        let underline = container(Space::new().width(18).height(2)).style(if active {
-            theme::console_tab_underline
-        } else {
-            theme::transparent_bar
-        });
 
+        // Container com `align_y` porque o `button` do iced alinha o conteúdo
+        // no topo: sem isto o rótulo fica colado em cima e a pílula parece
+        // desalinhada, com todo o respiro sobrando embaixo.
         tabs = tabs.push(
             button(
-                column![
+                container(
                     text(app.i18n.t(tab.i18n_key()))
-                        .size(17)
+                        .size(theme::TEXT_BODY)
                         .font(if active {
                             theme::FONT_SEMIBOLD
                         } else {
                             theme::FONT
                         })
-                        .color(if active { theme::TEXT_1 } else { MUTED }),
-                    underline,
-                ]
-                .spacing(5)
-                .align_x(iced::Center),
+                        .color(if active && bp.tab() == ConsoleTab::Stores { theme::BACKGROUND } else if active { theme::TEXT_1 } else { MUTED }),
+                )
+                .height(Fill)
+                .align_y(iced::Center),
             )
             .on_press(Message::ConsoleSelectTab(tab))
-            .padding([8.0, 10.0])
+            .height(Length::Fixed(38.0))
+            .padding([0.0, 20.0])
             .style(move |style_theme, status| {
-                theme::console_tab(style_theme, status, active, focused, bp.focus_glow())
+                if bp.tab() == ConsoleTab::Stores {
+                    theme::storefront_pill(style_theme, status, active, focused, bp.focus_glow())
+                } else { theme::console_pill_item(style_theme, status, active, focused, bp.focus_glow()) }
             }),
         );
     }
 
-    let profile = container(
-        row![
-            container(
-                text(initial(app.i18n.t("native.profile.local")))
-                    .size(13)
-                    .font(theme::FONT_BOLD)
-                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.85)),
-            )
-            .width(30)
-            .height(30)
-            .align_x(iced::Center)
-            .align_y(iced::Center)
-            .style(theme::avatar),
-            column![
-                text(app.i18n.t("native.profile.local"))
-                    .size(12)
-                    .font(theme::FONT_MEDIUM)
-                    .color(theme::TEXT_1),
-                text(app.i18n.t("native.console.profile_sub"))
-                    .size(9)
-                    .color(FAINT),
-            ]
-            .spacing(1),
-        ]
-        .spacing(9)
-        .align_y(iced::Center),
-    )
-    .padding([4.0, 10.0])
-    .style(theme::console_profile);
+    let pill = container(tabs)
+        .padding(4)
+        .style(theme::console_pill_shell);
 
-    let exit = button(
-        text(app.i18n.t("native.sidebar.logout"))
-            .size(12)
-            .font(theme::FONT_MEDIUM)
-            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.78)),
-    )
-    .on_press(Message::ExitBigPicture)
-    .padding([8.0, 14.0])
-    .style(theme::ghost_button);
-
-    container(
-        row![
-            tabs,
-            Space::new().width(Fill),
-            row![
-                connection(app),
-                text(bp.clock())
-                    .size(22)
-                    .font(theme::FONT_MEDIUM)
-                    .color(theme::TEXT_1),
-                profile,
-                exit,
-            ]
-            .spacing(22)
-            .align_y(iced::Center),
-        ]
-        .align_y(iced::Center),
+    // A direita da top bar ficou só com o relógio do lado esquerdo e a pílula
+    // no centro. O status de conexão, o bloco de perfil e o "Sign out" saíram:
+    // o modo console é a tela de sofá, e nada ali é acionável com o controle —
+    // o perfil vive na Biblioteca e a saída do modo é o botão Guide/B do
+    // gamepad ou Esc no teclado, ambos já mapeados.
+    //
+    // O lado direito continua existindo como `Fill` vazio: é o que mantém a
+    // pílula no centro exato da tela, já que os dois lados têm a mesma
+    // largura elástica.
+    let left = container(
+        container(
+            text(app.big_picture.clock())
+                .size(theme::TEXT_CAPTION)
+                .font(theme::FONT_MEDIUM)
+                .color(MUTED),
+        )
+        .padding([0.0, 6.0]),
     )
     .width(Fill)
-    .height(92)
-    .padding([0.0, GUTTER])
-    .style(theme::console_topbar)
-    .into()
-}
+    .align_x(iced::Left);
 
-fn connection(app: &App) -> Element<'_, Message> {
-    let (color, label) = match &app.library.status {
-        LibraryStatus::Ready => (theme::SUCCESS, app.i18n.t("native.console.status.local")),
-        LibraryStatus::Loading => (
-            theme::WARNING,
-            app.i18n.t("native.console.status.connecting"),
-        ),
-        LibraryStatus::Error(_) => (theme::DANGER, app.i18n.t("native.console.status.offline")),
-    };
-
-    row![
-        container(Space::new().width(8).height(8))
-            .style(move |_style_theme| theme::console_status_dot(color)),
-        text(label).size(11).color(MUTED),
-    ]
-    .spacing(8)
-    .align_y(iced::Center)
-    .into()
+    let right: Element<'_,Message> = if bp.tab() == ConsoleTab::Stores {
+        use super::big_picture_store::{glyph, Glyph};
+        let control = |content: Element<'static,Message>, message| button(container(content).width(Fill).height(Fill).align_x(iced::Center).align_y(iced::Center))
+            .on_press(message).width(28).height(32).padding(0).style(theme::plain_button);
+        container(row![control(icons::icon(Icon::Search,18.0,0.9),Message::ConsoleStoreFocus),
+            control(glyph(Glyph::Minimize,15.0,theme::TEXT_STRONG),Message::WindowMinimize),
+            control(glyph(Glyph::Maximize,15.0,theme::TEXT_STRONG),Message::WindowToggleMaximize),
+            control(glyph(Glyph::Close,15.0,theme::TEXT_STRONG),Message::WindowClose)].spacing(6).align_y(iced::Center)).width(Fill).align_x(iced::Right).into()
+    } else {Space::new().width(Fill).into()};
+    container(row![left, pill, right].align_y(iced::Center))
+        .width(Fill)
+        .height(if bp.tab() == ConsoleTab::Stores { 64 } else { 88 })
+        .padding([0.0, if bp.tab() == ConsoleTab::Stores { theme::STOREFRONT_INSET } else { GUTTER }])
+        .style(theme::console_topbar)
+        .into()
 }
 
 fn copy_area<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Message> {
@@ -333,7 +343,7 @@ fn copy_area<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messag
             let actions = vec![
                 button(
                     text(app.i18n.t("downloads.tentar_novamente"))
-                        .size(13)
+                        .size(theme::TEXT_READ)
                         .font(theme::FONT_MEDIUM),
                 )
                 .on_press(Message::Reload)
@@ -349,7 +359,7 @@ fn copy_area<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messag
                         .font(theme::FONT_BOLD)
                         .color(theme::DANGER),
                     text(error.as_str())
-                        .size(13)
+                        .size(theme::TEXT_READ)
                         .color(theme::TEXT_2)
                         .wrapping(Wrapping::WordOrGlyph),
                     row(actions).spacing(12),
@@ -371,92 +381,171 @@ fn copy_area<'a>(app: &'a App, selected: Option<&'a Game>) -> Element<'a, Messag
 }
 
 fn hero_copy<'a>(app: &'a App, game: &'a Game, tab: ConsoleTab) -> Element<'a, Message> {
-    let genre = game
-        .genre
-        .as_deref()
-        .filter(|genre| !genre.is_empty())
-        .unwrap_or("")
-        .to_uppercase();
-    let tag = if tab == ConsoleTab::Home && game.favorite {
-        format!("{} · {genre}", app.i18n.t("native.console.favorite_tag"))
-    } else if genre.is_empty() {
-        if tab == ConsoleTab::Home {
-            app.i18n.t("native.console.highlight_home").to_string()
-        } else {
-            app.i18n.t("native.console.highlight_library").to_string()
-        }
-    } else {
-        genre
+    let i18n = &app.i18n;
+    // A etiqueta de contexto ("EM DESTAQUE" / "Featured") saiu: o bloco abre
+    // direto na logo do jogo. Uma palavra em caixa alta acima da arte só
+    // empurrava o título para baixo sem dizer nada que o olho já não soubesse.
+    let _ = tab;
+
+    // Logo transparente do jogo quando existe: substitui o título em texto
+    // pelo wordmark desenhado, que é a assinatura visual do hero do Orbit.
+    // Sem logo (jogo fora da Steam), o título em texto continua — nunca um
+    // espaço vazio no lugar da identidade.
+    let logo = crate::backend::game_logo_url(game);
+    let title: Element<'_, Message> = match app.covers.ready(logo.as_deref()) {
+        Some(handle) => image(handle.clone())
+            .width(Length::Fixed(380.0))
+            .height(Length::Fixed(120.0))
+            .content_fit(ContentFit::Contain)
+            .into(),
+        None => text(game.title.clone())
+            .size(52)
+            .font(theme::FONT_BOLD)
+            .color(theme::TEXT_1)
+            .wrapping(Wrapping::WordOrGlyph)
+            .into(),
     };
 
-    let mut details = row![
-        text(game.playtime_label_i18n(&app.i18n))
-            .size(12)
-            .color(MUTED),
-        text("·").size(12).color(FAINT),
+    // Descrição curta: o Orbit mostra um parágrafo de sinopse aqui, cortado em
+    // duas ou três linhas. É o que dá peso ao hero — sem ela o bloco vira uma
+    // ficha técnica e o olho não tem o que ler.
+    let description = game
+        .description
+        .as_deref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty());
+
+    let mut copy = column![title].spacing(12);
+
+    if let Some(description) = description {
+        copy = copy.push(
+            text(ellipsize(description, 190))
+                .size(theme::TEXT_READ)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.68))
+                .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+
+    // Linha de meta: plataforma, tempo e instalação, no mesmo tom discreto do
+    // Orbit ("Steam" acima do título, "8m · Last played today" abaixo).
+    let mut meta = row![
+        text(game.launcher.clone())
+            .size(theme::TEXT_CAPTION)
+            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.60)),
+        text("·").size(theme::TEXT_CAPTION).color(FAINT),
+        text(game.playtime_label_i18n(i18n))
+            .size(theme::TEXT_CAPTION)
+            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.60)),
+        text("·").size(theme::TEXT_CAPTION).color(FAINT),
         text(if game.installed {
-            app.i18n.t("native.game.installed")
+            i18n.t("native.game.installed")
         } else {
-            app.i18n.t("native.game.not_installed")
+            i18n.t("native.game.not_installed")
         })
-        .size(12)
+        .size(theme::TEXT_CAPTION)
         .color(if game.installed {
             theme::SUCCESS
         } else {
             theme::WARNING
         }),
-        text("·").size(12).color(FAINT),
-        text(game.launcher.clone()).size(12).color(MUTED),
     ]
-    .spacing(10)
+    .spacing(8)
     .align_y(iced::Center);
 
     if let Some(year) = game.year.as_deref().filter(|year| !year.is_empty()) {
-        details = details.push(text("·").size(12).color(FAINT));
-        details = details.push(text(year).size(12).color(MUTED));
+        meta = meta.push(text("·").size(theme::TEXT_CAPTION).color(FAINT));
+        meta = meta.push(
+            text(year)
+                .size(theme::TEXT_CAPTION)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.60)),
+        );
     }
 
-    let subtitle = if tab == ConsoleTab::Home {
-        app.i18n.t("native.console.home.subtitle")
+    // Botões do hero: primário claro ("Jogar agora") e secundário escuro
+    // ("Detalhes"), mais o coração de favorito — o trio do Orbit.
+    let play_label = if game.installed {
+        i18n.t("native.console.hero.play")
     } else {
-        app.i18n.t("native.console.library.rail")
+        i18n.t("native.console.install_desktop")
     };
-
-    column![
+    // O `button` do iced não centraliza o conteúdo no eixo vertical: com
+    // altura fixa, o texto gruda no topo. Um `container` com `align_y`
+    // resolve, e é por isso que cada botão embrulha o texto.
+    let play = button(
         container(
-            text(tag)
-                .size(10)
+            text(play_label)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_SEMIBOLD)
-                .color(theme::TEXT_1)
+                .color(Color::from_rgb8(0x0c, 0x0e, 0x12)),
         )
-        .padding([4.0, 9.0])
-        .style(theme::badge),
-        text(game.title.clone())
-            .size(50)
-            .font(theme::FONT_BOLD)
-            .color(theme::TEXT_1)
-            .wrapping(Wrapping::WordOrGlyph),
-        text(subtitle).size(12).color(FAINT),
-        text(game.metadata_line_i18n(&app.i18n))
-            .size(14)
-            .color(MUTED),
-        details,
-        text(
-            app.big_picture
-                .notice()
-                .unwrap_or_else(|| focus_hint(app))
+        .height(Fill)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::ConsolePlay)
+    .height(Length::Fixed(44.0))
+    .padding([0.0, 24.0])
+    .style(theme::console_hero_primary);
+
+    let details = button(
+        container(
+            text(i18n.t("native.console.hero.details"))
+                .size(theme::TEXT_BODY)
+                .font(theme::FONT_MEDIUM)
+                .color(theme::TEXT_1),
         )
-        .size(11)
-        .color(if app.big_picture.notice().is_some() {
-            theme::WARNING
-        } else {
-            FAINT
-        })
-        .wrapping(Wrapping::WordOrGlyph),
-    ]
-    .spacing(10)
-    .max_width(780)
-    .into()
+        .height(Fill)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::ConsoleMore)
+    .height(Length::Fixed(44.0))
+    .padding([0.0, 20.0])
+    .style(theme::console_hero_secondary);
+
+    // Trio dentro de uma pílula de vidro, como o `LiquidGlass` que envolve
+    // os botões do hero no Orbit. O container dá a moldura; os botões ficam
+    // soltos dentro dele com 6 px de respiro.
+    let favorite = button(
+        container(
+            icons::icon(
+                Icon::Heart,
+                18.0,
+                if game.favorite { 0.92 } else { 0.72 },
+            ),
+        )
+        .width(Fill)
+        .height(Fill)
+        .align_x(iced::Center)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::ConsoleFavorite)
+    .width(Length::Fixed(44.0))
+    .height(Length::Fixed(44.0))
+    .padding(0)
+    .style(theme::console_hero_icon);
+
+    let actions = container(
+        row![play, details, favorite]
+            .spacing(6)
+            .align_y(iced::Center),
+    )
+    .padding(6)
+    .style(theme::console_glass_pill);
+
+    // Aviso de rodapé (ou dica de foco) fica por último, discreto: no Orbit
+    // esse espaço é dos prompts de controle, que agora vivem na barra fixa do
+    // pé — aqui só sobra o recado pontual.
+    let mut block = column![copy, meta, actions].spacing(16);
+
+    if let Some(notice) = app.big_picture.notice() {
+        block = block.push(
+            text(notice)
+                .size(theme::TEXT_CAPTION)
+                .color(theme::WARNING)
+                .wrapping(Wrapping::WordOrGlyph),
+        );
+    }
+
+    block.max_width(560).into()
 }
 
 /// Texto de foco/controles equivalente ao `aria-label` da web para cada zona.
@@ -474,6 +563,7 @@ fn focus_hint(app: &App) -> &str {
             ConsoleZone::Rail => "native.console.hint.rail",
             ConsoleZone::StoreSearch if bp.store_editing() => "native.console.hint.store_editing",
             ConsoleZone::StoreSearch => "native.console.hint.store_search",
+            ConsoleZone::StoreHero | ConsoleZone::StoreCategories => "native.console.hint.store_grid",
             ConsoleZone::StoreGrid => "native.console.hint.store_grid",
             ConsoleZone::StoreDetail => "native.console.hint.store_detail",
             ConsoleZone::Overview => "native.console.hint.overview",
@@ -506,7 +596,7 @@ fn tab_placeholder(app: &App, tab: ConsoleTab) -> Element<'_, Message> {
     container(
         column![
             text(i18n.t(tab.i18n_key()).to_uppercase())
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::ACCENT),
             text(title)
@@ -514,13 +604,13 @@ fn tab_placeholder(app: &App, tab: ConsoleTab) -> Element<'_, Message> {
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(detail)
-                .size(14)
+                .size(theme::TEXT_READ)
                 .color(theme::TEXT_2)
                 .wrapping(Wrapping::WordOrGlyph),
             row![
                 button(
                     text(i18n.t("sidebar.biblioteca"))
-                        .size(13)
+                        .size(theme::TEXT_READ)
                         .font(theme::FONT_MEDIUM)
                 )
                 .on_press(Message::ConsoleSelectTab(ConsoleTab::Library))
@@ -545,45 +635,36 @@ fn news_view(app: &App) -> Element<'_, Message> {
     let header = row![
         column![
             text(app.i18n.t("native.console.news_title"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::ACCENT),
             text(app.i18n.t("native.console.news_subtitle"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(FAINT)
                 .wrapping(Wrapping::WordOrGlyph),
         ]
         .spacing(3),
-        Space::new().width(Fill),
-        button(
-            text(app.i18n.t("native.refresh"))
-                .size(12)
-                .font(theme::FONT_MEDIUM),
-        )
-        .on_press(Message::ConsoleNewsReload)
-        .padding([8.0, 14.0])
-        .style(theme::ghost_button),
     ]
     .align_y(iced::Center);
     // O bloco acima já fecha o cabeçalho; as linhas seguintes mantêm o corpo.
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => super::loading_state(
-            app.i18n.t("native.console.news_loading"),
-        ),
-        LoadStatus::Error(error) => container(
+        LoadStatus::Idle | LoadStatus::Loading if state.items.is_empty() => {
+            super::loading_state(app.i18n.t("native.console.news_loading"))
+        }
+        LoadStatus::Error(error) if state.items.is_empty() => container(
             column![
                 text(app.i18n.t("native.console.news_error"))
                     .size(20)
                     .font(theme::FONT_BOLD)
                     .color(theme::DANGER),
                 text(error.as_str())
-                    .size(13)
+                    .size(theme::TEXT_READ)
                     .color(theme::TEXT_2)
                     .wrapping(Wrapping::WordOrGlyph),
                 button(
                     text(app.i18n.t("downloads.tentar_novamente"))
-                        .size(12)
+                        .size(theme::TEXT_BODY)
                         .font(theme::FONT_MEDIUM),
                 )
                 .on_press(Message::ConsoleNewsReload)
@@ -602,28 +683,30 @@ fn news_view(app: &App) -> Element<'_, Message> {
             app.i18n.t("native.console.news_empty_title"),
             app.i18n.t("native.console.news_empty_desc"),
         ),
-        LoadStatus::Ready => {
+        _ => {
             let mut list = column![].spacing(8);
             for (index, item) in state.items.iter().enumerate() {
                 let selected = app.big_picture.news_index() == index;
                 let mut content = column![
                     text(item.title.clone())
-                        .size(15)
+                        .size(16)
                         .font(theme::FONT_MEDIUM)
                         .color(theme::TEXT_1)
                         .wrapping(Wrapping::WordOrGlyph),
                     row![
                         text(item.source.clone())
-                            .size(10)
+                            .size(theme::TEXT_MICRO)
                             .font(theme::FONT_SEMIBOLD)
                             .color(theme::ACCENT),
-                        text("·").size(10).color(FAINT),
-                        text(item.date_label_i18n(&app.i18n)).size(10).color(MUTED),
+                        text("·").size(theme::TEXT_MICRO).color(FAINT),
+                        text(item.date_label_i18n(&app.i18n))
+                            .size(theme::TEXT_MICRO)
+                            .color(MUTED),
                     ]
                     .spacing(8)
                     .align_y(iced::Center),
                     text(item.url.clone())
-                        .size(10)
+                        .size(theme::TEXT_MICRO)
                         .color(FAINT)
                         .wrapping(Wrapping::WordOrGlyph),
                 ]
@@ -632,7 +715,7 @@ fn news_view(app: &App) -> Element<'_, Message> {
                 if selected && !item.summary.is_empty() {
                     content = content.push(
                         text(shorten(&item.summary, 240))
-                            .size(12)
+                            .size(theme::TEXT_BODY)
                             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.74))
                             .wrapping(Wrapping::WordOrGlyph),
                     );
@@ -674,7 +757,7 @@ fn empty_panel<'a>(
             .font(theme::FONT_BOLD)
             .color(theme::TEXT_1),
         text(detail)
-            .size(14)
+            .size(theme::TEXT_READ)
             .color(theme::TEXT_2)
             .wrapping(Wrapping::WordOrGlyph),
     ]
@@ -693,7 +776,7 @@ fn empty_panel<'a>(
 fn exit_button(app: &App) -> Element<'_, Message> {
     button(
         text(app.i18n.t("sidebar.modo_desktop"))
-            .size(12)
+            .size(theme::TEXT_BODY)
             .font(theme::FONT_MEDIUM),
     )
     .on_press(Message::ExitBigPicture)
@@ -703,34 +786,57 @@ fn exit_button(app: &App) -> Element<'_, Message> {
 }
 
 fn rail<'a>(app: &'a App, games: &[&'a Game], has_continue: bool) -> Element<'a, Message> {
-    let label_text = if app.big_picture.tab() == ConsoleTab::Home {
-        if has_continue {
-            app.i18n.t("native.home.continue_playing")
-        } else {
-            app.i18n.t("native.console.home.recent")
-        }
-    } else {
-        app.i18n.t("native.console.library.rail")
-    };
-    let label = row![
-        text(label_text.to_uppercase())
-            .size(10)
-            .font(theme::FONT_SEMIBOLD)
+    // Cabeçalho da fileira como no Orbit: título grande, contagem embaixo,
+    // filtros à direita. A dica de controle saiu daqui porque agora vive na
+    // barra fixa do pé — repetir nos dois lugares polui a tela.
+    let shelf_title = app.i18n.t("native.console.shelf.title");
+    let count_label = app
+        .i18n
+        .t_args("native.console.shelf.count", &[("count", &games.len().to_string())]);
+
+    let _ = has_continue;
+
+    let label = column![
+        text(shelf_title)
+            .size(theme::TEXT_TITLE)
+            .font(theme::FONT_BOLD)
+            .color(theme::TEXT_1),
+        text(count_label)
+            .size(theme::TEXT_CAPTION)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.52)),
-        Space::new().width(Fill),
-        text(app.i18n.t("native.console.hint.rail"))
-            .size(10)
-            .color(FAINT),
     ]
+    .spacing(2);
+
+    // Os chips ficam numa pílula de vidro, como o `All games / Favorites` do
+    // Orbit: o agrupamento é o que diz que os dois são o mesmo controle, e a
+    // moldura compartilhada dá o mesmo peso visual da pílula de navegação.
+    // "Ver biblioteca" fica fora dela porque navega para outra seção.
+    let filters = row![
+        container(
+            row![
+                filter_chip(app, "console.filter.all"),
+                filter_chip(app, "console.filter.favorites"),
+            ]
+            .spacing(2)
+            .align_y(iced::Center),
+        )
+        .padding(4)
+        .style(theme::console_glass_pill),
+        Space::new().width(8),
+        view_all_chip(app),
+    ]
+    .spacing(0)
     .align_y(iced::Center);
+
+    let header = row![label, Space::new().width(Fill), filters].align_y(iced::Center);
 
     if games.is_empty() {
         return container(
             column![
-                label,
+                header,
                 container(
                     text(app.i18n.t("native.home.grid_empty"))
-                        .size(12)
+                        .size(theme::TEXT_BODY)
                         .color(FAINT),
                 )
                 .width(Fill)
@@ -764,15 +870,17 @@ fn rail<'a>(app: &'a App, games: &[&'a Game], has_continue: bool) -> Element<'a,
             left: GUTTER,
         });
 
+    // Sem barra de rolagem visível: o trilho anda por gamepad, teclado e
+    // clique, e a barra fina só sujava o pé da fileira.
     let scroller = scrollable(content)
         .direction(Direction::Horizontal(
-            Scrollbar::new().width(4).margin(0).scroller_width(4),
+            Scrollbar::new().width(0).margin(0).scroller_width(0),
         ))
         .id(RAIL_ID)
         .height(Length::Fixed(RAIL_CARD_HEIGHT + 14.0))
         .style(theme::console_scrollable);
 
-    container(column![label, scroller].spacing(4))
+    container(column![header, scroller].spacing(10))
         .width(Fill)
         .height(Length::Fixed(RAIL_HEIGHT))
         .padding(Padding {
@@ -788,51 +896,60 @@ fn card<'a>(app: &'a App, index: usize, game: &'a Game) -> Element<'a, Message> 
     let selected = app.big_picture.active_index() == index;
     let focused = selected && app.big_picture.zone() == ConsoleZone::Rail;
 
+    // Keep one artwork source per card. Switching from the library cover to a
+    // remotely resolved square image after entry made the rail visibly change.
     let cover: Element<'a, Message> = match app.covers.ready(game.cover_url.as_deref()) {
-        Some(handle) => image(handle.clone())
+        Some(handle) => {
+            container(
+                image(handle.clone())
+                    .width(Fill)
+                    .height(Fill)
+                    .content_fit(ContentFit::Cover)
+                    .border_radius(12),
+            )
             .width(Fill)
-            .height(RAIL_COVER_HEIGHT)
-            .content_fit(ContentFit::Cover)
-            .border_radius(6)
-            .into(),
+            .height(Fill)
+            .style(theme::cover_portrait_backdrop)
+            .into()
+        }
         None => container(
-            column![
-                text(initial(&game.title))
-                    .size(30)
-                    .font(theme::FONT_BOLD)
-                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.20)),
-                text(ellipsize(&game.title, 16))
-                    .size(11)
-                    .color(FAINT)
-                    .wrapping(Wrapping::WordOrGlyph),
-            ]
-            .spacing(8)
-            .align_x(iced::Center),
+            text(initial(&game.title))
+                .size(38)
+                .font(theme::FONT_BOLD)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.18)),
         )
         .width(Fill)
-        .height(RAIL_COVER_HEIGHT)
-        .padding(10)
-        .center_x(Fill)
-        .center_y(Fill)
+        .height(Fill)
+        .align_x(iced::Center)
+        .align_y(iced::Center)
         .style(theme::cover_placeholder)
         .into(),
     };
 
-    let title_color = if focused {
+    let title_color = if selected {
         theme::TEXT_1
     } else {
-        Color::from_rgba(1.0, 1.0, 1.0, 0.72)
+        Color::from_rgba(1.0, 1.0, 1.0, 0.62)
     };
+
+    // Só o card focado mostra o título; é o comportamento do Orbit — a fileira
+    // fica limpa e a informação aparece no item em que o controle está.
+    // Um único `button` envolve capa e título: botão dentro de botão quebra o
+    // hit-testing do iced, o clique externo nunca dispara.
+    // Zoom do card focado: o iced não escala um widget, então o focado é
+    // desenhado maior e recuado dentro da mesma célula — o efeito é o mesmo
+    // salto de escala do Orbit, e o trilho não reflui porque a célula mantém
+    // o tamanho base.
+    let scale = if focused { ZOOM_FOCUSED } else { 1.0 };
+    let card_width = RAIL_CARD_WIDTH * scale;
+    let card_height = RAIL_CARD_HEIGHT * scale;
 
     button(
         column![
-            container(cover)
-                .width(Fill)
-                .height(RAIL_COVER_HEIGHT)
-                .clip(true),
+            container(cover).width(Fill).height(Fill).clip(true),
             container(
-                text(ellipsize(&game.title, 18))
-                    .size(12)
+                text(ellipsize(&game.title, 22))
+                    .size(theme::TEXT_BODY)
                     .font(if selected {
                         theme::FONT_SEMIBOLD
                     } else {
@@ -844,33 +961,75 @@ fn card<'a>(app: &'a App, index: usize, game: &'a Game) -> Element<'a, Message> 
             .width(Fill)
             .height(18)
             .clip(true),
-            row![
-                text(game.year.clone().unwrap_or_else(|| "—".to_string()))
-                    .size(9)
-                    .font(theme::FONT_SEMIBOLD)
-                    .color(theme::ACCENT),
-                Space::new().width(Fill),
-                text(game.playtime_label_i18n(&app.i18n))
-                    .size(9)
-                    .color(FAINT),
-            ]
-            .align_y(iced::Center),
         ]
-        .spacing(4),
+        .spacing(8),
     )
     .on_press(Message::ConsoleSelectGame(index))
-    .width(Length::Fixed(RAIL_CARD_WIDTH))
-    .height(Length::Fixed(RAIL_CARD_HEIGHT))
-    .padding([6.0, 6.0])
-    .style(move |style_theme, status| {
-        theme::console_card(
-            style_theme,
-            status,
-            selected,
-            focused,
-            app.big_picture.focus_glow(),
+        .width(Length::Fixed(card_width))
+        .height(Length::Fixed(card_height))
+        .padding(0)
+        .style(move |style_theme, status| {
+            theme::console_card(
+                style_theme,
+                status,
+                selected,
+                focused,
+                app.big_picture.focus_glow(),
+            )
+        })
+        .into()
+}
+
+/// Chip de filtro da fileira (`Todos`, `Favoritos`), como o `Recent /
+/// Installed / Favorites` do Orbit.
+///
+/// O filtro ativo ainda é o "Todos": a fileira do console mostra a biblioteca
+/// inteira, e alternar recorte aqui exigiria uma variante de estado que o
+/// `BigPicture` não tem. O chip existe, responde ao clique levando o foco para
+/// a fileira e não mente sobre o que está mostrando.
+fn filter_chip<'a>(app: &'a App, key: &'static str) -> Element<'a, Message> {
+    let active = key == "console.filter.all";
+    // Container com `align_y` porque o `button` do iced gruda o conteúdo no
+    // topo quando a altura é fixa.
+    button(
+        container(
+            text(app.i18n.t(key))
+                .size(theme::TEXT_CAPTION)
+                .font(if active {
+                    theme::FONT_SEMIBOLD
+                } else {
+                    theme::FONT
+                })
+                .color(if active { theme::TEXT_1 } else { MUTED }),
         )
+        .height(Fill)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::ConsoleFocusRail)
+    .height(Length::Fixed(32.0))
+    .padding([0.0, 14.0])
+    .style(move |style_theme, status| {
+        theme::console_filter_chip(style_theme, status, active)
     })
+    .into()
+}
+
+/// "Ver biblioteca": leva a top bar para a aba Biblioteca.
+fn view_all_chip(app: &App) -> Element<'_, Message> {
+    button(
+        row![
+            text(app.i18n.t("native.console.shelf.view_all"))
+                .size(theme::TEXT_CAPTION)
+                .font(theme::FONT_MEDIUM)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.82)),
+            icons::icon(Icon::ChevronDown, 12.0, 0.72),
+        ]
+        .spacing(6)
+        .align_y(iced::Center),
+    )
+    .on_press(Message::ConsoleSelectTab(ConsoleTab::Library))
+    .padding([7.0, 12.0])
+    .style(|style_theme, status| theme::console_filter_chip(style_theme, status, false))
     .into()
 }
 
@@ -882,7 +1041,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         row![
             text("‹").size(20).color(theme::TEXT_1),
             text(app.i18n.t("native.console.back"))
-                .size(13)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
         ]
@@ -896,10 +1055,10 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let header = row![
         back,
         Space::new().width(Fill),
-        text(game.title.clone()).size(13).color(MUTED),
+        text(game.title.clone()).size(theme::TEXT_READ).color(MUTED),
         Space::new().width(Fill),
         text(bp.clock())
-            .size(22)
+            .size(theme::TEXT_TITLE)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_1),
     ]
@@ -909,17 +1068,25 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let (play_glyph, play_label, play_message) = if app.launch.is_launching(&game.id) {
         ("▶", app.i18n.t("common.abrindo").to_string(), None)
     } else if running {
-        ("■", app.i18n.t("hero.parar").to_string(), Some(Message::StopGame))
+        (
+            "■",
+            app.i18n.t("hero.parar").to_string(),
+            Some(Message::StopGame),
+        )
     } else if app.launch.is_stopping(&game.id) {
         ("■", app.i18n.t("native.game.stopping").to_string(), None)
     } else {
-        ("▶", app.i18n.t("hero.jogar").to_string(), Some(Message::ConsolePlay))
+        (
+            "▶",
+            app.i18n.t("hero.jogar").to_string(),
+            Some(Message::ConsolePlay),
+        )
     };
 
     let play = button(
         row![
-            text(play_glyph).size(12),
-            text(play_label).size(16).font(theme::FONT_SEMIBOLD),
+            text(play_glyph).size(theme::TEXT_BODY),
+            text(play_label).size(17).font(theme::FONT_SEMIBOLD),
         ]
         .spacing(10)
         .align_y(iced::Center),
@@ -927,29 +1094,24 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     .on_press_maybe(play_message)
     .padding([13.0, 26.0])
     .style(move |style_theme, status| {
-        theme::console_play(
-            style_theme,
-            status,
-            focused(ACTION_PLAY),
-            bp.focus_glow(),
-        )
+        theme::console_play(style_theme, status, focused(ACTION_PLAY), bp.focus_glow())
     });
 
     let trailer = button(
         text(app.i18n.t("gameoverview.trailer"))
-            .size(14)
+            .size(theme::TEXT_READ)
             .font(theme::FONT_MEDIUM),
     )
-        .on_press(Message::ConsoleTrailer)
-        .padding([12.0, 20.0])
-        .style(move |style_theme, status| {
-            theme::console_action(
-                style_theme,
-                status,
-                focused(ACTION_TRAILER),
-                bp.focus_glow(),
-            )
-        });
+    .on_press(Message::ConsoleTrailer)
+    .padding([12.0, 20.0])
+    .style(move |style_theme, status| {
+        theme::console_action(
+            style_theme,
+            status,
+            focused(ACTION_TRAILER),
+            bp.focus_glow(),
+        )
+    });
 
     let favorite_label = if game.favorite {
         app.i18n.t("native.console.favorite.remove")
@@ -959,10 +1121,10 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let favorite = button(
         row![
             text(if game.favorite { "♥" } else { "♡" })
-                .size(18)
+                .size(theme::TEXT_HEADING)
                 .color(if game.favorite { theme::TEXT_1 } else { MUTED }),
             text(favorite_label)
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
         ]
@@ -982,9 +1144,9 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
 
     let more = button(
         row![
-            text("•••").size(13).color(theme::TEXT_1),
+            text("•••").size(theme::TEXT_READ).color(theme::TEXT_1),
             text(app.i18n.t("native.console.more"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
         ]
@@ -994,27 +1156,20 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     .on_press(Message::ConsoleMore)
     .padding([12.0, 16.0])
     .style(move |style_theme, status| {
-        theme::console_action(
-            style_theme,
-            status,
-            focused(ACTION_MORE),
-            bp.focus_glow(),
-        )
+        theme::console_action(style_theme, status, focused(ACTION_MORE), bp.focus_glow())
     });
 
     // Entrada mouse para o diálogo de opções; a navegação por gamepad fica
     // nas quatro ações do `FocusGrid` (escopo desta onda).
     let launch_options = button(
         text(app.i18n.t("native.console.options"))
-            .size(13)
+            .size(theme::TEXT_READ)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_1),
     )
     .on_press(Message::OpenLaunchOptions(game.id.clone()))
     .padding([10.0, 16.0])
-    .style(|style_theme, status| {
-        theme::console_action(style_theme, status, false, 0.0)
-    });
+    .style(|style_theme, status| theme::console_action(style_theme, status, false, 0.0));
 
     let tag = game
         .genre
@@ -1032,7 +1187,7 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     let mut activity = column![
         container(
             text(tag)
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::TEXT_1)
         )
@@ -1044,10 +1199,10 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             .color(theme::TEXT_1)
             .wrapping(Wrapping::WordOrGlyph),
         text(game.metadata_line_i18n(&app.i18n))
-            .size(14)
+            .size(theme::TEXT_READ)
             .color(MUTED),
         text(description)
-            .size(14)
+            .size(theme::TEXT_READ)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.76))
             .wrapping(Wrapping::WordOrGlyph),
     ]
@@ -1070,22 +1225,24 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     activity = activity.push(
         row![
             text(game.playtime_label_i18n(&app.i18n))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(MUTED),
-            text("·").size(12).color(FAINT),
+            text("·").size(theme::TEXT_BODY).color(FAINT),
             text(if game.installed {
                 app.i18n.t("native.game.installed")
             } else {
                 app.i18n.t("native.console.install_desktop")
             })
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(if game.installed {
                 theme::SUCCESS
             } else {
                 theme::WARNING
             }),
-            text("·").size(12).color(FAINT),
-            text(game.launcher.clone()).size(12).color(MUTED),
+            text("·").size(theme::TEXT_BODY).color(FAINT),
+            text(game.launcher.clone())
+                .size(theme::TEXT_BODY)
+                .color(MUTED),
         ]
         .spacing(10)
         .align_y(iced::Center),
@@ -1100,16 +1257,12 @@ fn overview<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     if running {
         activity = activity.push(
             text(app.i18n.t("native.game.running_note"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::SUCCESS),
         );
     }
 
-    activity = activity.push(
-        text(focus_hint(app))
-            .size(10)
-            .color(FAINT),
-    );
+    activity = activity.push(text(focus_hint(app)).size(theme::TEXT_MICRO).color(FAINT));
 
     let trailer = console_trailer(app, game);
 
@@ -1156,8 +1309,8 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             )
             .width(Fill)
             .height(203)
-            .center_x(Fill)
-            .center_y(Fill)
+            .align_x(iced::Center)
+            .align_y(iced::Center)
             .style(theme::cover_placeholder)
             .into(),
         },
@@ -1172,7 +1325,10 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     } else if media.status().is_error() {
         (media_status_label(app, media.status()), theme::DANGER)
     } else if app.game_media.is_none() {
-        (app.i18n.t("native.console.trailer_querying").to_string(), MUTED)
+        (
+            app.i18n.t("native.console.trailer_querying").to_string(),
+            MUTED,
+        )
     } else {
         (media_status_label(app, media.status()), MUTED)
     };
@@ -1183,7 +1339,7 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         } else {
             app.i18n.t("native.game.play")
         })
-        .size(11)
+        .size(theme::TEXT_CAPTION)
         .font(theme::FONT_MEDIUM),
     )
     .padding([6.0, 12.0])
@@ -1201,13 +1357,13 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
                 media::format_seconds(media.position_seconds()),
                 media::format_seconds(duration)
             ))
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .color(MUTED),
         );
     } else {
         controls = controls.push(
             text(app.i18n.t("native.console.no_duration"))
-                .size(9)
+                .size(theme::TEXT_MICRO)
                 .color(FAINT),
         );
     }
@@ -1221,7 +1377,7 @@ fn console_trailer<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
                 .style(theme::cover_placeholder),
             controls,
             text(status)
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(status_color)
                 .wrapping(Wrapping::WordOrGlyph),
         ]
@@ -1259,7 +1415,7 @@ fn more_menu<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     for index in 0..MENU_COUNT {
         let selected = focused(index);
         items = items.push(
-            button(text(labels[index]).size(16).font(theme::FONT_MEDIUM))
+            button(text(labels[index]).size(17).font(theme::FONT_MEDIUM))
                 .on_press(Message::ConsoleMenuAction(actions[index]))
                 .width(Fill)
                 .padding([12.0, 16.0])
@@ -1273,18 +1429,18 @@ fn more_menu<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
         column![
             container(
                 text(game.title.clone())
-                    .size(15)
+                    .size(16)
                     .font(theme::FONT_SEMIBOLD)
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::None),
             )
             .width(Fill)
             .padding([12.0, 16.0])
-            .style(theme::console_topbar),
+            .style(theme::console_panel_header),
             container(items).padding([8.0, 10.0]),
             container(
                 text(app.i18n.t("native.console.hint.menu"))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .color(FAINT),
             )
             .width(Fill)
@@ -1338,11 +1494,7 @@ fn console_store(app: &App) -> Element<'_, Message> {
     let games = store_games(app);
 
     let (status, error, has_more) = if let Some(search) = state.search.as_ref() {
-        (
-            search.status.clone(),
-            search.error.as_deref(),
-            false,
-        )
+        (search.status.clone(), search.error.as_deref(), false)
     } else {
         (
             state.browse.status.clone(),
@@ -1355,20 +1507,23 @@ fn console_store(app: &App) -> Element<'_, Message> {
     let count_label = if state.search.is_some() {
         i18n.t_args("store.resultados_count", &[("count", &count.to_string())])
     } else {
-        i18n.t_args("native.console.store.catalog_count", &[("count", &count.to_string())])
+        i18n.t_args(
+            "native.console.store.catalog_count",
+            &[("count", &count.to_string())],
+        )
     };
 
     let mut header = column![
         text(i18n.t("store.titulo").to_uppercase())
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_SEMIBOLD)
             .color(theme::ACCENT),
         row![
             text(i18n.t("native.console.store.subtitle"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(FAINT),
             Space::new().width(Fill),
-            text(count_label).size(11).color(MUTED),
+            text(count_label).size(theme::TEXT_CAPTION).color(MUTED),
         ]
         .align_y(iced::Center),
     ]
@@ -1377,7 +1532,7 @@ fn console_store(app: &App) -> Element<'_, Message> {
     if let Some(search) = state.search.as_ref() {
         header = header.push(
             text(format!("“{}”", search.query))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3),
         );
     }
@@ -1405,7 +1560,7 @@ fn console_store(app: &App) -> Element<'_, Message> {
         _ => store_grid(app, &games, has_more),
     };
 
-    let footer = text(focus_hint(app)).size(10).color(FAINT);
+    let footer = text(focus_hint(app)).size(theme::TEXT_MICRO).color(FAINT);
 
     container(
         scrollable(
@@ -1428,30 +1583,27 @@ fn console_store(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn store_search_row(app: &App) -> Element<'_, Message> {
+pub(super) fn store_search_row(app: &App) -> Element<'_, Message> {
     let bp = &app.big_picture;
     let focused = bp.zone() == ConsoleZone::StoreSearch;
     let glow = bp.focus_glow();
     let editing = bp.store_editing();
 
-    let input = text_input(
-        app.i18n.t("store.buscar_placeholder"),
-        &app.store.query,
-    )
-    .id(Id::new(STORE_SEARCH_ID))
-    .on_input(Message::StoreQueryChanged)
-    .on_submit(Message::StoreSearchSubmitted)
-    .padding(Padding {
-        top: 12.0,
-        right: 14.0,
-        bottom: 12.0,
-        left: 16.0,
-    })
-    .size(15)
-    .width(Fill)
-    .style(move |style_theme, status| {
-        theme::console_search_input(style_theme, status, focused, editing, glow)
-    });
+    let input = text_input(app.i18n.t("store.buscar_placeholder"), &app.store.query)
+        .id(Id::new(STORE_SEARCH_ID))
+        .on_input(Message::StoreQueryChanged)
+        .on_submit(Message::StoreSearchSubmitted)
+        .padding(Padding {
+            top: 12.0,
+            right: 14.0,
+            bottom: 12.0,
+            left: 16.0,
+        })
+        .size(16)
+        .width(Fill)
+        .style(move |style_theme, status| {
+            theme::console_search_input(style_theme, status, focused, editing, glow)
+        });
 
     // O clique também entra no modo de edição e foca o campo; o `mouse_area`
     // não engole o clique porque o foco é aplicado pela Task da mensagem.
@@ -1468,7 +1620,7 @@ fn store_search_row(app: &App) -> Element<'_, Message> {
         } else {
             app.i18n.t("store.buscar")
         })
-        .size(12)
+        .size(theme::TEXT_BODY)
         .font(theme::FONT_MEDIUM),
     )
     .padding([10.0, 18.0]);
@@ -1478,7 +1630,7 @@ fn store_search_row(app: &App) -> Element<'_, Message> {
 
     let mut clear_button = button(
         text(app.i18n.t("native.console.store.clear"))
-            .size(12)
+            .size(theme::TEXT_BODY)
             .font(theme::FONT_MEDIUM),
     )
     .padding([10.0, 14.0])
@@ -1494,10 +1646,16 @@ fn store_search_row(app: &App) -> Element<'_, Message> {
     };
 
     column![
-        row![input, search_button.style(theme::primary_button), clear_button]
-            .spacing(10)
-            .align_y(iced::Center),
-        text(hint).size(10).color(if focused { theme::ACCENT } else { FAINT }),
+        row![
+            input,
+            search_button.style(theme::primary_button),
+            clear_button
+        ]
+        .spacing(10)
+        .align_y(iced::Center),
+        text(hint)
+            .size(theme::TEXT_MICRO)
+            .color(if focused { theme::ACCENT } else { FAINT }),
     ]
     .spacing(6)
     .into()
@@ -1506,8 +1664,10 @@ fn store_search_row(app: &App) -> Element<'_, Message> {
 fn store_loading(message: &str) -> Element<'_, Message> {
     container(
         column![
-            text(message).size(14).color(MUTED),
-            text("store:search / store:recent").size(10).color(FAINT),
+            text(message).size(theme::TEXT_READ).color(MUTED),
+            text("store:search / store:recent")
+                .size(theme::TEXT_MICRO)
+                .color(FAINT),
         ]
         .spacing(6),
     )
@@ -1521,11 +1681,11 @@ fn store_empty(app: &App) -> Element<'_, Message> {
     container(
         column![
             text(app.i18n.t("native.console.store.empty_title"))
-                .size(18)
+                .size(theme::TEXT_HEADING)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(app.i18n.t("native.console.store.empty_desc"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(theme::TEXT_2)
                 .wrapping(Wrapping::WordOrGlyph),
         ]
@@ -1538,11 +1698,7 @@ fn store_empty(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn store_error<'a>(
-    app: &'a App,
-    error: &'a str,
-    retry: Message,
-) -> Element<'a, Message> {
+fn store_error<'a>(app: &'a App, error: &'a str, retry: Message) -> Element<'a, Message> {
     container(
         column![
             text(app.i18n.t("native.console.store.error_title"))
@@ -1550,12 +1706,12 @@ fn store_error<'a>(
                 .font(theme::FONT_BOLD)
                 .color(theme::DANGER),
             text(error)
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(theme::TEXT_2)
                 .wrapping(Wrapping::WordOrGlyph),
             button(
                 text(app.i18n.t("downloads.tentar_novamente"))
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .font(theme::FONT_MEDIUM),
             )
             .on_press(retry)
@@ -1571,11 +1727,7 @@ fn store_error<'a>(
     .into()
 }
 
-fn store_grid<'a>(
-    app: &'a App,
-    games: &[&'a StoreGame],
-    has_more: bool,
-) -> Element<'a, Message> {
+fn store_grid<'a>(app: &'a App, games: &[&'a StoreGame], has_more: bool) -> Element<'a, Message> {
     let bp = &app.big_picture;
     let focused = bp.zone() == ConsoleZone::StoreGrid;
     let selected_index = bp.store_index();
@@ -1584,15 +1736,7 @@ fn store_grid<'a>(
     let mut cards: Vec<Element<'a, Message>> = games
         .iter()
         .enumerate()
-        .map(|(index, game)| {
-            store_card(
-                app,
-                game,
-                index,
-                focused && selected_index == index,
-                glow,
-            )
-        })
+        .map(|(index, game)| store_card(app, game, index, focused && selected_index == index, glow))
         .collect();
 
     if has_more {
@@ -1635,37 +1779,45 @@ fn store_card<'a>(
         )
         .width(Fill)
         .height(104)
-        .center_x(Fill)
-        .center_y(Fill)
+        .align_x(iced::Center)
+        .align_y(iced::Center)
         .style(theme::cover_placeholder)
         .into(),
     };
 
     let mut meta = row![].spacing(6).align_y(iced::Center);
-    if let Some(price) = game.price.as_deref().filter(|price| !price.trim().is_empty()) {
+    if let Some(price) = game
+        .price
+        .as_deref()
+        .filter(|price| !price.trim().is_empty())
+    {
         meta = meta.push(
             text(price)
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::SUCCESS),
         );
     }
-    if let Some(source) = game.source.as_deref().filter(|source| !source.trim().is_empty()) {
+    if let Some(source) = game
+        .source
+        .as_deref()
+        .filter(|source| !source.trim().is_empty())
+    {
         meta = meta.push(
             text(ellipsize(source, 18))
-                .size(9)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
         );
     }
 
-    button(
+    iced::widget::mouse_area(button(
         column![
             container(cover).width(Fill).height(104).clip(true),
             container(
                 column![
                     container(
                         text(ellipsize(&game.title, 26))
-                            .size(12)
+                            .size(theme::TEXT_BODY)
                             .font(theme::FONT_MEDIUM)
                             .color(theme::TEXT_1)
                             .wrapping(Wrapping::None),
@@ -1694,7 +1846,7 @@ fn store_card<'a>(
             focused,
             glow,
         )
-    })
+    })).on_enter(Message::PrefetchStore(game.clone()))
     .into()
 }
 
@@ -1707,7 +1859,7 @@ fn store_more_card<'a>(app: &'a App, focused: bool, glow: f32) -> Element<'a, Me
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_2),
             text(app.i18n.t("native.console.store.load_more"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_1),
         ]
@@ -1724,87 +1876,81 @@ fn store_more_card<'a>(app: &'a App, focused: bool, glow: f32) -> Element<'a, Me
     .into()
 }
 
-fn store_detail_overlay<'a>(
-    app: &'a App,
-    detail: &'a StoreDetailState,
-) -> Element<'a, Message> {
+fn store_detail_overlay<'a>(app: &'a App, detail: &'a StoreDetailState) -> Element<'a, Message> {
     let bp = &app.big_picture;
     let i18n = &app.i18n;
     let game = &detail.game;
     let info = detail.info.as_ref();
     let alpha = bp.store_alpha();
 
-    let back = button(
-        row![
-            text("‹").size(18).color(theme::TEXT_1),
-            text(i18n.t("native.console.store.back"))
-                .size(12)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_1),
-        ]
-        .spacing(6)
-        .align_y(iced::Center),
-    )
-    .on_press(Message::ConsoleStoreCloseDetail)
-    .padding([8.0, 14.0])
-    .style(move |style_theme, status| {
-        theme::console_action(
-            style_theme,
-            status,
-            bp.zone() == ConsoleZone::StoreDetail,
-            bp.focus_glow(),
-        )
-    });
+    let back = crate::views::back_button::labeled(
+        i18n.t("native.console.store.back"),
+        Message::ConsoleStoreCloseDetail,
+        move |style_theme, status| {
+            theme::console_action(
+                style_theme,
+                status,
+                bp.zone() == ConsoleZone::StoreDetail,
+                bp.focus_glow(),
+            )
+        },
+    );
 
-    let portrait_url = game.portrait_url.as_deref().or(game.cover_url.as_deref());
-    let portrait: Element<'a, Message> = match app.covers.ready(portrait_url) {
-        Some(handle) => image(handle.clone())
-            .width(92)
-            .height(128)
-            .content_fit(ContentFit::Cover)
-            .border_radius(4)
-            .into(),
-        None => container(
-            text(initial(&game.title))
-                .size(30)
-                .font(theme::FONT_BOLD)
-                .color(theme::TEXT_2),
-        )
-        .width(92)
-        .height(128)
-        .center_x(Fill)
-        .center_y(Fill)
-        .style(theme::cover_placeholder)
-        .into(),
-    };
 
     let mut meta = row![].spacing(8).align_y(iced::Center);
-    if let Some(price) = game.price.as_deref().filter(|price| !price.trim().is_empty()) {
+    if let Some(price) = game
+        .price
+        .as_deref()
+        .filter(|price| !price.trim().is_empty())
+    {
         meta = meta.push(
             text(price)
-                .size(14)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::SUCCESS),
         );
     } else {
         meta = meta.push(
             text(i18n.t("native.console.store.price_missing"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3),
         );
     }
-    if let Some(source) = game.source.as_deref().filter(|source| !source.trim().is_empty()) {
+    if let Some(source) = game
+        .source
+        .as_deref()
+        .filter(|source| !source.trim().is_empty())
+    {
         meta = meta.push(badge(source, theme::TEXT_2));
     }
     if game.manifest {
-        meta = meta.push(badge(i18n.t("native.console.store.manifest"), theme::ACCENT));
+        meta = meta.push(badge(
+            i18n.t("native.console.store.manifest"),
+            theme::ACCENT,
+        ));
     }
 
-    let description = match (detail.status.clone(), info.and_then(|info| info.description.as_deref())) {
-        (LoadStatus::Loading, _) => i18n.t("native.console.store.description_loading").to_string(),
-        (LoadStatus::Error(_), _) => i18n.t("native.console.store.description_error").to_string(),
-        (_, Some(description)) => shorten(description, 900),
-        (_, None) => i18n.t("native.console.store.description_empty").to_string(),
+    let description: Element<'_, Message> = match (
+        detail.status.clone(),
+        info.and_then(|info| info.about.as_deref().or(info.description.as_deref())),
+    ) {
+        (_, Some(description)) => super::game::description_blocks(
+            crate::rich_text::parse_description(description),
+            &app.covers,
+            &app.animated_cards,
+        ),
+        (status, None) => {
+            let key = match status {
+                LoadStatus::Loading => "native.console.store.description_loading",
+                LoadStatus::Error(_) => "native.console.store.description_error",
+                _ => "native.console.store.description_empty",
+            };
+            text(i18n.t(key))
+                .size(theme::TEXT_READ)
+                .color(theme::TEXT_2)
+                .wrapping(Wrapping::WordOrGlyph)
+                .into()
+        }
     };
 
     let mut info_rows = column![].spacing(8);
@@ -1846,41 +1992,22 @@ fn store_detail_overlay<'a>(
             } else {
                 i18n.t("native.console.store.info_empty")
             })
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3),
         );
     }
 
-    let install = container(
-        column![
-            text(i18n.t("native.console.store.install").to_uppercase())
-                .size(10)
-                .font(theme::FONT_SEMIBOLD)
-                .color(theme::TEXT_3),
-            text(i18n.t("native.console.store.install_note"))
-                .size(11)
-                .color(theme::TEXT_2)
-                .wrapping(Wrapping::WordOrGlyph),
-            button(
-                text(i18n.t("native.console.store.install_unavailable"))
-                    .size(12)
-                    .font(theme::FONT_MEDIUM),
-            )
-            .padding([9.0, 16.0])
-            .style(theme::ghost_button),
-        ]
-        .spacing(8),
-    )
-    .width(Fill)
-    .padding(16)
-    .style(theme::console_panel);
+    let install = super::store_downloads::summary(app, detail);
 
     let mut panel_content = column![
-        row![back, Space::new().width(Fill), text(bp.clock()).size(20).color(theme::TEXT_1)]
-            .align_y(iced::Center),
+        row![
+            back,
+            Space::new().width(Fill),
+            text(bp.clock()).size(20).color(theme::TEXT_1)
+        ]
+        .align_y(iced::Center),
         Space::new().height(12),
         row![
-            portrait,
             column![
                 text(game.title.clone())
                     .size(34)
@@ -1892,7 +2019,7 @@ fn store_detail_overlay<'a>(
                     "native.console.store.detail_meta",
                     &[("appid", game.appid.as_str())],
                 ))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
             ]
             .spacing(8)
@@ -1904,13 +2031,10 @@ fn store_detail_overlay<'a>(
         container(
             column![
                 text(i18n.t("native.console.store.about").to_uppercase())
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_SEMIBOLD)
                     .color(theme::TEXT_3),
-                text(description)
-                    .size(13)
-                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.78))
-                    .wrapping(Wrapping::WordOrGlyph),
+                description,
             ]
             .spacing(8),
         )
@@ -1922,7 +2046,7 @@ fn store_detail_overlay<'a>(
             container(
                 column![
                     text(i18n.t("native.console.store.info").to_uppercase())
-                        .size(10)
+                        .size(theme::TEXT_MICRO)
                         .font(theme::FONT_SEMIBOLD)
                         .color(theme::TEXT_3),
                     info_rows,
@@ -1937,14 +2061,14 @@ fn store_detail_overlay<'a>(
         .spacing(12)
         .align_y(iced::Top),
         Space::new().height(8),
-        text(focus_hint(app)).size(10).color(FAINT),
+        text(focus_hint(app)).size(theme::TEXT_MICRO).color(FAINT),
     ]
     .spacing(0)
     .width(Fill);
 
     if let Some(error) = detail.error.as_deref() {
         panel_content = panel_content.push(
-            container(text(error).size(11).color(theme::DANGER))
+            container(text(error).size(theme::TEXT_CAPTION).color(theme::DANGER))
                 .width(Fill)
                 .padding([4.0, 0.0]),
         );
@@ -1994,9 +2118,9 @@ fn media_status_label(app: &App, status: &crate::media::MediaStatus) -> String {
 
 fn detail_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
     column![
-        text(label).size(9).color(theme::TEXT_3),
+        text(label).size(theme::TEXT_MICRO).color(theme::TEXT_3),
         text(value)
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_STRONG)
             .wrapping(Wrapping::WordOrGlyph),
     ]
@@ -2005,10 +2129,15 @@ fn detail_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
 }
 
 fn badge<'a>(label: &'a str, color: Color) -> Element<'a, Message> {
-    container(text(label).size(9).font(theme::FONT_MEDIUM).color(color))
-        .padding([2.0, 6.0])
-        .style(theme::badge)
-        .into()
+    container(
+        text(label)
+            .size(theme::TEXT_MICRO)
+            .font(theme::FONT_MEDIUM)
+            .color(color),
+    )
+    .padding([2.0, 6.0])
+    .style(theme::badge)
+    .into()
 }
 
 fn art_url(game: &Game) -> Option<&str> {

@@ -4,9 +4,8 @@
 //! mensagens voltam para `update` — nenhuma chamada bloqueante roda na thread
 //! que desenha.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use arcadia_native_input::NavEvent;
@@ -18,13 +17,13 @@ use crate::backend::{
     AccountProfile, AccountSession, Achievement, AchievementsData, AuthSuccess, Backend,
     CommunityCollectionsPage, CommunityError, CommunityMutation, CommunityReviewsPage,
     DownloadAction, DownloadItem, DownloadsData, EmulationLoad, EmulatorInfo, EmulatorProfile,
-    EmulatorRomEntry, EmulatorRomFolder, EmulatorRomImport, EmulatorRomIndexEntry, EmulatorScanResult,
-    EmulatorStatus, FriendAchievements, FriendProfile, FriendSearchResult, FriendsLoad, Game,
-    GameEmulatorOptions, GameMedia, GameSettingsEnvelope, GameSettingsView, GameStats,
-    ImportedEmulatorRom, LaunchEvent, LaunchToggle, NewsItem,
+    EmulatorRomEntry, EmulatorRomFolder, EmulatorRomImport, EmulatorRomIndexEntry,
+    EmulatorScanResult, EmulatorStatus, FriendAchievements, FriendProfile, FriendSearchResult,
+    FriendsLoad, Game, GameEmulatorOptions, GameLogOutcome, GameMedia, GameSettingsEnvelope,
+    GameSettingsView, GameStats, ImportedEmulatorRom, LaunchEvent, LaunchToggle, NewsItem,
     PackagedPhase, PackagedState, PluginAction, PluginActionOutcome, PluginDetails, PluginItem,
-    PluginRegistration, PluginVerification, ProtonDbInfo, RetroGame, RetroGameDetail,
-    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem,
+    PluginRegistration, PluginVerification, ProfileStats, ProtonDbInfo, RetroGame, RetroGameDetail,
+    RetroOfferDetail, RetroPage, RetroSource, RetroSystemInfo, SettingsConfig, SourceItem, SourceOffers,
     StoreDepot, StoreGame, StoreInfo, StoreInstallInfo, StoreLibrary, StorePage, StoreSearch,
     TrailerResult, UiEvent, UpdateActionResult, UpdateCheck, UpdateCheckReport, UpdateSnapshot,
 };
@@ -35,14 +34,17 @@ use crate::big_picture::{
 use crate::covers::CoverCache;
 use crate::i18n::{I18n, Lang};
 use crate::media::{self, MediaPlayer};
-use crate::picker::{PickPurpose, PickTarget};
+use crate::picker::{ArtworkKind, PickPurpose, PickTarget};
 use crate::theme;
 use crate::toast::ToastQueue;
 use crate::views;
+use crate::views::game_edit::{GameEditState, MetadataState};
+use crate::views::game_menu::{GameMenuState, MenuAction, MenuNotice};
 use crate::views::community::{
     CollectionFormState, CommunityCache, CommunityConfirm, CommunityReportState, CommunityState,
     CommunityTab, CommunityTarget, CommunityVisibility, ReviewFormState,
 };
+use arcadia_native_media::extract_first_visible_frame;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommunityMutationKind {
@@ -84,14 +86,102 @@ impl CommunityMutationKind {
 #[derive(Debug, Clone)]
 pub enum Message {
     LibraryLoaded(Result<Vec<Game>, String>),
+    /// Atualização leve (foco na janela / jogo Steam aguardando instalação):
+    /// troca a lista sem spinner e sem derrubar a ficha aberta. `epoch`
+    /// descarta respostas de uma leitura que já foi superada.
+    LibraryRefreshed {
+        epoch: u64,
+        result: Result<Vec<Game>, String>,
+    },
+    /// Poll de 5 s só enquanto a ficha aberta é de jogo Steam não instalado.
+    SteamLibraryPoll,
+    RefreshVisibleSection,
+    /// Abre o menu de contexto com a posição global do cursor.
+    OpenGameContextMenu {
+        game_id: String,
+        anchor: iced::Point,
+    },
+    CloseGameContextMenu,
+    GameMenuAction(MenuAction),
+    GameMenuCategoryDraftChanged(String),
+    GameMenuCategoryToggled(String),
+    GameMenuCategoryAdded,
+    GameMenuCategoryBack,
+    GameMenuLogsDone {
+        game_id: String,
+        instance: u64,
+        result: Result<GameLogOutcome, String>,
+    },
+    GameMenuInstallDone {
+        game_id: String,
+        instance: u64,
+        result: Result<(), String>,
+    },
+    GameMenuKey(keyboard::Event),
+    /// Resultado de uma escrita do menu; a lista crua de `overrides:set` é
+    /// ignorada e a recarga enriquecida roda na sequência.
+    GameOverridesSaved {
+        epoch: u64,
+        account: Option<String>,
+        game_id: String,
+        result: Result<(), String>,
+    },
+    LibraryShowHiddenToggled,
+    DismissLibraryNotice,
+    GameEditTitleChanged(String),
+    GameEditDescriptionChanged(String),
+    GameEditDescriptionReset,
+    GameEditPlatformChanged(crate::views::game_edit::EditPlatform),
+    GameEditExeChanged(String),
+    GameEditSave,
+    GameEditCancel,
+    GameEditSaved {
+        game_id: String,
+        request: u64,
+        account: Option<String>,
+        result: Result<(), String>,
+    },
+    GameMetadataTitleChanged(String),
+    GameMetadataDescriptionChanged(String),
+    GameMetadataDescriptionReset,
+    GameMetadataArtReset(ArtworkKind),
+    GameMetadataSave,
+    GameMetadataCancel,
+    GameMetadataSaved {
+        game_id: String,
+        request: u64,
+        account: Option<String>,
+        result: Result<(), String>,
+    },
     CoverLoaded {
         url: String,
-        handle: Option<Handle>,
+        loaded: Option<(Handle, (u32, u32), bool)>,
     },
+    StoreThumbnailVisible(String),
+    StoreThumbnailHidden(String),
+    StoreThumbnailLoaded {
+        url: String,
+        image: Option<(Handle, (u32, u32))>,
+    },
+    /// O poster de um card decodificou, mas é preto puro (placeholder da
+    /// Steam). O vídeo do mesmo card tem a arte real: extrair o primeiro
+    /// frame visível e usar no lugar do poster.
+    PosterFrameLoaded {
+        poster: String,
+        frame: Option<(u32, u32, Vec<u8>)>,
+    },
+    /// Tick dos cards animados: drena os frames dos `<video>` do `about` e
+    /// troca a textura de cada card. 16 ms como o tick do trailer.
+    CardsTick,
+    HomeArtTick,
     Reload,
     SearchChanged(String),
     Navigate(Section),
     OpenGame(String),
+    PrefetchGame(String),
+    PrefetchStore(StoreGame),
+    PrefetchedGame { id: String, media: GameMedia },
+    PrefetchedStore { appid: String, result: Result<StoreInfo, String> },
     BackToLibrary,
     /// Resultado de `game:sysinfo` para o jogo aberto no desktop.
     MediaLoaded {
@@ -115,6 +205,10 @@ pub enum Message {
     },
     /// Miniatura escolhida na faixa de screenshots.
     SelectScreenshot(usize),
+    /// Trailer escolhido na galeria (volta do screenshot para o vídeo).
+    SelectTrailer,
+    /// Aba Mínimos/Recomendados dos requisitos do sistema.
+    RequirementsTabSelected(RequirementsTab),
     /// Recarrega `game:sysinfo` e os painéis do jogo atual.
     ReloadGameData,
     /// Resultado de `game:sysinfo` para o painel do Big Picture.
@@ -138,6 +232,13 @@ pub enum Message {
     /// Abre a ficha da loja no console sem sair do Big Picture.
     ConsoleStoreOpenDetail(StoreGame),
     ConsoleStoreCloseDetail,
+    ConsoleStoreCategory(usize),
+    ConsoleStoreHeroStep(isize),
+    ConsoleStoreHeroOpen,
+    ConsoleStoreCatalog,
+    ConsoleStoreFavorite(String),
+    ConsoleStorefrontLoaded { language: Lang, result: Result<crate::backend::StorefrontFeed, String> },
+    ConsoleStorefrontRetry,
     /// Tick da Subscription: drena frames e sincroniza o estado do player.
     MediaTick,
     MediaTogglePlayback,
@@ -194,6 +295,10 @@ pub enum Message {
         result: Result<UpdateCheckReport, String>,
     },
     UpdateDialogDismiss,
+    UpdateBackdropFrame,
+    UpdateBackdropCaptured(u64, window::Screenshot),
+    UpdateBackdropFailed(u64),
+    UpdateBackdropBlurred(u64, Option<Handle>),
     /// Clique bloqueado no backdrop enquanto o updater trabalha.
     UpdateNoop,
     UpdateDownloadRequested,
@@ -244,6 +349,8 @@ pub enum Message {
     LaunchOptionsEnvValueChanged(String),
     LaunchOptionsEnvAdd,
     LaunchOptionsEnvRemove(usize),
+    /// Abre/fecha os ajustes avançados; é só apresentação, não mexe no rascunho.
+    LaunchOptionsAdvancedToggled,
     LaunchOptionsModeChanged(Option<String>),
     LaunchOptionsSave,
     LaunchOptionsSaved {
@@ -251,7 +358,10 @@ pub enum Message {
         result: Result<GameSettingsView, String>,
     },
     Refresh(Section),
-    DownloadsLoaded(Result<DownloadsData, String>),
+    DownloadsLoaded {
+        revisions: [u64; 2],
+        result: Result<DownloadsData, String>,
+    },
     DownloadActionRequested {
         item: DownloadItem,
         action: DownloadAction,
@@ -270,6 +380,32 @@ pub enum Message {
         key: &'static str,
         value: bool,
     },
+    /// Troca a aba da Biblioteca (todos os jogos / retro).
+    LibraryTabSelected(LibraryTab),
+    /// Devolve o foco ao trilho do Big Picture (clique num chip de filtro).
+    ConsoleFocusRail,
+    /// Arte quadrada chegou do canal `arte:quadrada`.
+    SquareArtLoaded(Result<std::collections::HashMap<String, String>, String>),
+    /// Texto de um token de debrid sendo editado (ainda não salvo).
+    DebridTokenChanged {
+        provider: DebridProvider,
+        value: String,
+    },
+    /// Salva o token do provedor em `{provider}_token`.
+    DebridTokenSave(DebridProvider),
+    /// Abre/fecha a linha do provedor.
+    DebridToggled(DebridProvider),
+    /// Texto do campo SteamGridDB sendo editado (ainda não salvo).
+    SteamGridDbKeyChanged(String),
+    /// Salva `steamgriddb_api_key`.
+    SteamGridDbKeySave,
+    /// Conteúdo colado dos cookies do YouTube.
+    YoutubeCookiesChanged(String),
+    /// Salva `youtube_cookies`.
+    YoutubeCookiesSave,
+    /// `trailer:downloadAll` — baixa todos os trailers que faltam.
+    TrailerDownloadAll,
+    TrailerDownloadAllDone(Result<String, String>),
     CpuCoresChanged(i64),
     EmulationLoaded(Result<EmulationLoad, String>),
     EmulationDetect,
@@ -306,6 +442,14 @@ pub enum Message {
     SourcesActionDone(Result<(), String>),
     FriendsLoaded(Result<FriendsLoad, String>),
     ComponentsLoaded(Result<Vec<PluginItem>, String>),
+    HubcapKeyChanged(String),
+    HubcapKeySave,
+    HubcapKeyValidate,
+    HubcapKeyChecked {
+        ok: bool,
+        motivo: Option<String>,
+    },
+    HubcapStatsLoaded(HubcapStats),
     PluginActionRequested {
         id: String,
         action: PluginAction,
@@ -388,13 +532,16 @@ pub enum Message {
         result: Result<Vec<StoreGame>, String>,
     },
     StoreBrowseLoaded {
-        append: bool,
+        offset: u64,
+        generation: u64,
         result: Result<StorePage, String>,
     },
+    StorePrefetchNext,
     StoreLoadMore,
     StoreOpenDetail(StoreGame),
     StoreCloseDetail,
     StoreScreenshotSelected(usize),
+    StoreSelectTrailer,
     /// Vitrine inicial da Home (`store:recent` top100in2weeks).
     HomeLoaded(Result<StorePage, String>),
     HomeHeroInfoLoaded {
@@ -417,6 +564,39 @@ pub enum Message {
     StoreClearDepots,
     StoreLibrarySelected(usize),
     StoreInstallRequested,
+    StoreSourceOffersLoaded {
+        appid: String,
+        generation: u64,
+        cached_only: bool,
+        result: Result<SourceOffers, String>,
+    },
+    StoreSourcesRetry,
+    StoreDownloadRequested,
+    StoreDownloadClosed,
+    StoreDownloadKey(keyboard::Event),
+    StoreSourceSelected(String),
+    StoreSourceUriSelected(usize),
+    StoreDownloadPathChanged(String),
+    StoreSourceDownloadConfirmed,
+    StoreSourceDownloadDone {
+        appid: String,
+        generation: u64,
+        result: Result<(), String>,
+    },
+    /// "Adicionar à biblioteca" da barra da ficha (`store:addToLibrary`).
+    StoreAddToLibrary,
+    StoreAddedToLibrary {
+        appid: String,
+        result: Result<Vec<Game>, String>,
+        /// Motivo quando a injeção na Steam falhou e o jogo ficou só no Arcadia.
+        injection_failed: Option<String>,
+    },
+    /// "Remover" da barra, quando o jogo já está na biblioteca.
+    StoreRemoveFromLibrary,
+    StoreRemovedFromLibrary {
+        appid: String,
+        result: Result<Vec<Game>, String>,
+    },
     StoreInstallDone {
         appid: String,
         result: Result<(), String>,
@@ -425,10 +605,20 @@ pub enum Message {
     RetroSystemChanged(RetroSystemInfo),
     RetroSearchSubmitted,
     RetroClearSearch,
+    RetroPageCached {
+        generation: u64,
+        offset: u64,
+        payload: Value,
+        page: Option<RetroPage>,
+    },
     RetroPageLoaded {
         generation: u64,
         offset: u64,
         result: Result<RetroPage, String>,
+    },
+    RetroLibraryArtLoaded {
+        id: String,
+        art: Option<(String, Option<String>)>,
     },
     RetroPrevPage,
     RetroNextPage,
@@ -445,6 +635,10 @@ pub enum Message {
     },
     SidebarSearchChanged(String),
     ToggleSidebarGames,
+    /// Expande/colapsa o menu da conta na sidebar ("meu perfil").
+    ToggleProfileMenu,
+    /// Item "Configurações" do menu do perfil: abre Settings na aba Gerais.
+    OpenSettingsFromProfile,
     WindowReady(Option<window::Id>),
     WindowDrag,
     WindowMinimize,
@@ -469,9 +663,20 @@ pub enum Message {
     ConsoleFavorite,
     ConsoleMore,
     ConsoleCloseOverview,
+    ConsoleOverviewTab(crate::big_picture::OverviewTab),
+    ConsoleOverviewMedia(usize),
+    ConsoleOverviewAdvance,
+    ConsoleOverviewClosePreview,
     /// `account:status` do boot ou de um reload pós-login/logout.
     AccountStatusLoaded(Result<Option<AccountSession>, String>),
     AccountProfileLoaded(Result<AccountProfile, String>),
+    /// `profile:stats` — jogos e horas jogadas do card de Estatísticas.
+    ProfileStatsLoaded(Result<ProfileStats, String>),
+    /// Quadros do perfil já decodificados fora da thread da interface.
+    AnimatedMediaLoaded {
+        url: String,
+        media: Option<crate::animated_cards::DecodedMedia>,
+    },
     /// Recarrega `account:status` + perfil (botão Atualizar do perfil).
     ReloadAccount,
     AccountAvatarLoaded {
@@ -497,6 +702,10 @@ pub enum Message {
     /// Navega até a tela de perfil própria.
     OpenProfile,
     ProfileEditToggled,
+    /// Troca a aba do editor (Geral/Avatar/Banner/Fundo).
+    ProfileEditTabChanged(ProfileEditTab),
+    /// Esc no editor de perfil: volta para o perfil.
+    ProfileEditKey(keyboard::Event),
     ProfileFieldChanged {
         field: ProfileField,
         value: String,
@@ -506,6 +715,12 @@ pub enum Message {
     AvatarPathChanged(String),
     AvatarUpload,
     AvatarUploadDone(Result<String, String>),
+    /// Limpa o banner/fundo do perfil (patch com `null`).
+    ProfileImageCleared(ProfileImageKind),
+    ProfileImageClearedDone {
+        kind: ProfileImageKind,
+        result: Result<(), String>,
+    },
     /// Abre o seletor nativo para o alvo indicado.
     PickRequested(PickPurpose),
     /// Resultado do seletor; `None` significa que o usuário cancelou.
@@ -520,7 +735,10 @@ pub enum Message {
     },
     FriendSearchChanged(String),
     FriendSearchSubmitted,
-    FriendSearchDone(Result<Vec<FriendSearchResult>, String>),
+    FriendSearchReady(String),
+    FriendSearchDone { query: String, result: Result<Vec<FriendSearchResult>, String> },
+    FriendMediaLoaded { id: String, url: String, media: Option<crate::animated_cards::DecodedMedia> },
+    FriendAvatarLoaded { url: String, media: Option<crate::animated_cards::DecodedMedia> },
     FriendActionRequested {
         id: String,
         action: FriendAction,
@@ -540,6 +758,7 @@ pub enum Message {
         result: Result<FriendAchievements, String>,
     },
     FriendProfileClosed,
+    FriendRemoveConfirmation(bool),
 }
 
 /// Ação do updater em voo; define a mensagem de erro/retry do diálogo.
@@ -552,7 +771,7 @@ pub enum UpdateAction {
 
 /// Itens fixos da sidebar. Biblioteca, Home e Lojas têm tela real; Big
 /// Picture ainda abre um placeholder explícito.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     Home,
     Library,
@@ -640,10 +859,56 @@ pub enum LibraryStatus {
     Error(String),
 }
 
-#[derive(Debug)]
+/// Plataformas da Library, na ordem em que aparecem na tela.
+///
+/// Ordem fixa, não alfabética: Steam primeiro porque é onde está a maior
+/// parte da biblioteca, retro depois porque é a coleção que o usuário monta
+/// à mão, o resto por último. Reordenar por contagem faria a tela dançar a
+/// cada jogo importado.
+const PLATFORM_ORDER: [&str; 6] = ["steam", "retro", "epic", "gog", "xbox", "emulador"];
+
+/// Rótulo do grupo de um jogo.
+///
+/// Devolve `&'static str` para plataforma conhecida e o próprio `launcher`
+/// para o resto — o retorno é `Cow` porque `to_lowercase()` cria uma `String`
+/// temporária que não pode escapar da função.
+fn platform_label(game: &Game) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+
+    if game.is_retro() {
+        return Cow::Borrowed("retro");
+    }
+    match game.launcher.to_lowercase().as_str() {
+        "steam" => Cow::Borrowed("steam"),
+        "epic" | "epicgames" => Cow::Borrowed("epic"),
+        "gog" | "goggalaxy" => Cow::Borrowed("gog"),
+        "xbox" | "xcloud" => Cow::Borrowed("xbox"),
+        "emulator" | "emulador" | "retroarch" => Cow::Borrowed("emulador"),
+        _ => Cow::Borrowed(game.launcher.as_str()),
+    }
+}
+
+/// Aba da Biblioteca, como o `aba` de `LibraryView.tsx`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibraryTab {
+    #[default]
+    All,
+    Retro,
+}
+
 pub struct Library {
     pub games: Vec<Game>,
     pub status: LibraryStatus,
+    /// Arte 1:1 por id (`arte:quadrada`). O card do console é quadrado e a
+    /// capa da biblioteca é 2:3; esta é a arte que preenche o card sem corte.
+    pub square_art: std::collections::HashMap<String, String>,
+    /// Aba ativa: separa a biblioteca inteira da retro.
+    pub tab: LibraryTab,
+    /// Filtro de recuperação: mostra também os ocultos para poder reexibi-los
+    /// pelo menu de contexto.
+    pub show_hidden: bool,
+    /// Aviso de falha de mutação (some ao fechar ou na próxima escrita).
+    pub notice: Option<String>,
 }
 
 impl Default for Library {
@@ -651,6 +916,10 @@ impl Default for Library {
         Self {
             games: Vec::new(),
             status: LibraryStatus::Loading,
+            square_art: std::collections::HashMap::new(),
+            tab: LibraryTab::All,
+            show_hidden: false,
+            notice: None,
         }
     }
 }
@@ -677,13 +946,38 @@ impl Library {
         self.games.iter().find(|game| game.id == id)
     }
 
+    pub fn game_mut(&mut self, id: &str) -> Option<&mut Game> {
+        self.games.iter_mut().find(|game| game.id == id)
+    }
+
+    /// Categorias de toda a biblioteca (ocultos inclusive), ordenadas como no
+    /// subpainel do `GameContextMenu.tsx`.
+    pub fn all_categories(&self) -> Vec<String> {
+        let mut categories: BTreeSet<String> = BTreeSet::new();
+        for game in &self.games {
+            for category in &game.categories {
+                let category = category.trim();
+                if !category.is_empty() {
+                    categories.insert(category.to_string());
+                }
+            }
+        }
+        categories.into_iter().collect()
+    }
+
     /// Lista da grade: esconde ocultos, aplica a busca e põe favoritos primeiro.
     pub fn visible_games(&self, query: &str) -> Vec<&Game> {
         let query = query.trim().to_lowercase();
         let mut games: Vec<&Game> = self
             .games
             .iter()
-            .filter(|game| !game.hidden)
+            .filter(|game| self.show_hidden || !game.hidden)
+            // A aba separa retro do resto. Sem isto, "Todos os jogos" listava
+            // os retro também e a aba Retro só duplicava a mesma grade.
+            .filter(|game| match self.tab {
+                LibraryTab::Retro => game.is_retro(),
+                LibraryTab::All => !game.is_retro(),
+            })
             .filter(|game| query.is_empty() || game.title.to_lowercase().contains(query.as_str()))
             .collect();
 
@@ -696,6 +990,47 @@ impl Library {
         games
     }
 
+    /// Jogos visíveis agrupados por plataforma, como o Orbit separa a Library
+    /// em `Steam`, `Retro`, `Xbox`, `Outros`.
+    ///
+    /// A ordem dos grupos é fixa e não alfabética: as plataformas com mais
+    /// jogos vêm primeiro, porque o usuário chega na tela para achar o jogo
+    /// que está jogando — não para navegar um índice. Dentro do grupo vale a
+    /// ordenação de [`visible_games`] (favorito, depois título).
+    ///
+    /// Grupo vazio não entra: um cabeçalho "Retro 0" só ocuparia altura.
+    pub fn grouped_games(&self, query: &str) -> Vec<(String, Vec<&Game>)> {
+        let games = self.visible_games(query);
+        let mut groups: Vec<(String, Vec<&Game>)> = Vec::new();
+
+        for label in PLATFORM_ORDER {
+            let bucket: Vec<&Game> = games
+                .iter()
+                .copied()
+                .filter(|game| platform_label(game) == *label)
+                .collect();
+            if !bucket.is_empty() {
+                groups.push((label.to_string(), bucket));
+            }
+        }
+
+        // Plataforma desconhecida não pode sumir da tela: tudo o que não casou
+        // com um rótulo conhecido entra num grupo final.
+        let known: Vec<&str> = PLATFORM_ORDER.to_vec();
+        let rest: Vec<&Game> = games
+            .into_iter()
+            .filter(|game| {
+                let label = platform_label(game);
+                !known.contains(&label.as_ref())
+            })
+            .collect();
+        if !rest.is_empty() {
+            groups.push((String::new(), rest));
+        }
+
+        groups
+    }
+
     /// Lista da sidebar: mesma ordenação, sem o filtro de busca.
     pub fn visible_all(&self) -> Vec<&Game> {
         self.visible_games("")
@@ -705,6 +1040,7 @@ impl Library {
     pub fn image_urls(&self) -> Vec<String> {
         let mut urls = BTreeSet::new();
         for game in &self.games {
+            urls.extend(game.library_portrait_url());
             for url in game.image_urls() {
                 urls.insert(url);
             }
@@ -713,9 +1049,20 @@ impl Library {
     }
 }
 
+/// Escrita de overrides do menu: uma por vez, com geração e conta capturadas
+/// para descartar respostas antigas. `dirty` coalesce toggles de categoria
+/// feitos enquanto o primeiro `overrides:set` ainda está em voo.
+#[derive(Debug, Clone, Default)]
+pub struct LibraryOverrideState {
+    pub busy: bool,
+    pub game_id: Option<String>,
+    pub epoch: u64,
+    pub account: Option<String>,
+    pub dirty: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum GameRunStatus {
-    #[default]
+pub enum GameRunStatus {    #[default]
     Idle,
     Launching,
     Running,
@@ -775,10 +1122,7 @@ impl GameLaunchState {
                 if running {
                     self.status = GameRunStatus::Running;
                     self.error = None;
-                } else if !matches!(
-                    self.status,
-                    GameRunStatus::Launching | GameRunStatus::Idle
-                ) {
+                } else if !matches!(self.status, GameRunStatus::Launching | GameRunStatus::Idle) {
                     // Durante "Abrindo…" o `idle` do launchState é a fonte de
                     // verdade; um `game:running(false)` atrasado pode ser de
                     // uma sessão anterior.
@@ -794,10 +1138,7 @@ impl GameLaunchState {
                     }
                     self.error = None;
                 } else if self.matches_game(game_id.as_deref())
-                    && !matches!(
-                        self.status,
-                        GameRunStatus::Launching | GameRunStatus::Idle
-                    )
+                    && !matches!(self.status, GameRunStatus::Launching | GameRunStatus::Idle)
                 {
                     self.status = GameRunStatus::Idle;
                     self.game_id = None;
@@ -845,10 +1186,8 @@ impl GameLaunchState {
                 if self.matches_game(game_id.as_deref()) {
                     self.status = GameRunStatus::Idle;
                     self.game_id = game_id;
-                    self.error = Some(i18n.t_args(
-                        "native.game.launch_failed",
-                        &[("error", &error)],
-                    ));
+                    self.error =
+                        Some(i18n.t_args("native.game.launch_failed", &[("error", &error)]));
                 }
             }
         }
@@ -872,6 +1211,20 @@ pub enum LoadStatus {
     Error(String),
 }
 
+/// Aba ativa do painel de requisitos da ficha (loja e biblioteca).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RequirementsTab {
+    #[default]
+    Minimum,
+    Recommended,
+}
+
+/// Chave do cache de painéis da ficha aberta pela loja. O prefixo evita
+/// colidir com o id da biblioteca (`steam:<appid>`).
+pub(crate) fn store_panels_id(game: &StoreGame) -> String {
+    format!("store:{}", game.appid.trim())
+}
+
 /// Estado do diálogo "Opções de inicialização".
 ///
 /// `mode` é escolha de sessão (não existe em `game_settings.json`): vale para
@@ -885,6 +1238,9 @@ pub struct LaunchOptionsState {
     pub settings: Option<GameSettingsView>,
     pub default_prefix: String,
     pub mode: Option<String>,
+    /// Ajustes avançados visíveis. Estado de apresentação: começa fechado e
+    /// não participa do rascunho nem do `game_settings.json`.
+    pub advanced_open: bool,
     pub env_name: String,
     pub env_value: String,
     /// Texto do campo de argumentos do emulador (preserva espaços digitados).
@@ -918,6 +1274,12 @@ impl LaunchOptionsState {
     fn mark_dirty(&mut self) {
         self.dirty = true;
         self.saved = false;
+    }
+
+    /// Alterna a visibilidade dos ajustes avançados sem tocar em `settings`,
+    /// `dirty` ou `saved`: recolher não pode descartar edições.
+    pub fn toggle_advanced(&mut self) {
+        self.advanced_open = !self.advanced_open;
     }
 
     /// Aplica ROM/core escolhidos no seletor à seção Emulador. Só aceita o
@@ -1016,15 +1378,69 @@ pub struct GamePanels {
     pub stats: StatsPanelState,
 }
 
+/// Provedores de debrid, na ordem de tentativa do backend
+/// (Real-Debrid → TorBox → AllDebrid → Premiumize).
+///
+/// A ordem e as chaves de config vêm do catálogo estático do
+/// `SettingsPanel.tsx`; manter a mesma ordem aqui é requisito, não estética —
+/// o backend tenta nessa sequência.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DebridProvider {
+    RealDebrid,
+    TorBox,
+    AllDebrid,
+    Premiumize,
+}
+
+impl DebridProvider {
+    pub const ALL: [DebridProvider; 4] = [
+        DebridProvider::RealDebrid,
+        DebridProvider::TorBox,
+        DebridProvider::AllDebrid,
+        DebridProvider::Premiumize,
+    ];
+
+    /// Nome comercial, como aparece na web.
+    pub fn name(self) -> &'static str {
+        match self {
+            DebridProvider::RealDebrid => "Real-Debrid",
+            DebridProvider::TorBox => "TorBox",
+            DebridProvider::AllDebrid => "AllDebrid",
+            DebridProvider::Premiumize => "Premiumize",
+        }
+    }
+
+    /// Chave da config (`{provider}_token`), a mesma que a allowlist do IPC
+    /// aceita em `config:set`.
+    pub fn config_key(self) -> &'static str {
+        match self {
+            DebridProvider::RealDebrid => "realdebrid_token",
+            DebridProvider::TorBox => "torbox_token",
+            DebridProvider::AllDebrid => "alldebrid_token",
+            DebridProvider::Premiumize => "premiumize_token",
+        }
+    }
+
+    /// Chave i18n da descrição do provedor.
+    pub fn description_key(self) -> &'static str {
+        match self {
+            DebridProvider::RealDebrid => "settings.realdebrid.desc",
+            DebridProvider::TorBox => "settings.torbox.desc",
+            DebridProvider::AllDebrid => "settings.alldebrid.desc",
+            DebridProvider::Premiumize => "settings.premiumize.desc",
+        }
+    }
+}
+
 /// Aba interna das Configurações, equivalente à sub-navegação da UI web.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsTab {
     #[default]
     General,
-    Appearance,
-    Downloads,
-    Playback,
     Integrations,
+    Metadata,
+    Accessibility,
+    Controller,
     Emulation,
     About,
 }
@@ -1032,10 +1448,10 @@ pub enum SettingsTab {
 impl SettingsTab {
     pub const ALL: [SettingsTab; 7] = [
         SettingsTab::General,
-        SettingsTab::Appearance,
-        SettingsTab::Downloads,
-        SettingsTab::Playback,
         SettingsTab::Integrations,
+        SettingsTab::Metadata,
+        SettingsTab::Accessibility,
+        SettingsTab::Controller,
         SettingsTab::Emulation,
         SettingsTab::About,
     ];
@@ -1043,14 +1459,20 @@ impl SettingsTab {
     pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
         let key = match self {
             SettingsTab::General => "settings.general",
-            SettingsTab::Appearance => "native.settings.appearance",
-            SettingsTab::Downloads => "sidebar.downloads",
-            SettingsTab::Playback => "native.settings.playback",
             SettingsTab::Integrations => "settings.integracoes",
+            SettingsTab::Metadata => "settings.metadados.titulo",
+            SettingsTab::Accessibility => "sidebar.acessibilidade",
+            SettingsTab::Controller => "controller.titulo",
             SettingsTab::Emulation => "settings.emulacao",
             SettingsTab::About => "about.titulo",
         };
         i18n.t(key)
+    }
+
+    /// `true` só para Emulação: é a única seção que ganha o cabeçalho de grupo
+    /// `CLASSICS` na sub-navegação da sidebar, como no `Sidebar.tsx`.
+    pub fn starts_group(self) -> bool {
+        self == SettingsTab::Emulation
     }
 }
 
@@ -1060,6 +1482,34 @@ pub struct DownloadsState {
     pub status: LoadStatus,
     pub busy_id: Option<String>,
     pub action_error: Option<String>,
+    /// Versões das filas dm e torrent/HTTP. Leituras em voo não podem restaurar
+    /// progresso ou itens anteriores a um evento de pausa/cancelamento.
+    revisions: [u64; 2],
+}
+
+impl DownloadsState {
+    fn apply_progress(&mut self, is_torrent: bool, items: Vec<DownloadItem>) {
+        let source = usize::from(is_torrent);
+        self.revisions[source] = self.revisions[source].wrapping_add(1);
+        self.data.items.retain(|item| item.is_torrent != is_torrent);
+        self.data.items.extend(items);
+        self.data.items.sort_by_key(|item| item.status.rank());
+        self.status = LoadStatus::Ready;
+    }
+
+    fn apply_snapshot(&mut self, revisions: [u64; 2], mut data: DownloadsData) {
+        for is_torrent in [false, true] {
+            let source = usize::from(is_torrent);
+            if revisions[source] != self.revisions[source] {
+                data.items.retain(|item| item.is_torrent != is_torrent);
+                data.items.extend(self.data.items.iter()
+                    .filter(|item| item.is_torrent == is_torrent).cloned());
+            }
+        }
+        data.items.sort_by_key(|item| item.status.rank());
+        self.data = data;
+        self.status = LoadStatus::Ready;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1070,6 +1520,59 @@ pub struct SettingsState {
     pub accent_draft: String,
     pub save_error: Option<String>,
     pub saving: Option<String>,
+    /// Editor de tokens de debrid: rascunho por provedor e quais linhas estão
+    /// abertas. Fica no estado (não na view) porque a view é reconstruída a
+    /// cada mensagem e o texto digitado se perderia.
+    pub debrid_drafts: DebridDrafts,
+    pub debrid_open: std::collections::HashSet<DebridProvider>,
+    /// Provedor cujo token acabou de salvar (mostra "Salvo!" por um instante).
+    pub debrid_saved: Option<DebridProvider>,
+    /// Rascunho da chave do SteamGridDB (aba Metadados).
+    pub steamgriddb_draft: String,
+    /// `true` logo depois de salvar a chave, para o botão dizer "Salvo!".
+    pub steamgriddb_saved: bool,
+    /// Rascunho dos cookies do YouTube, colados pelo usuário.
+    pub youtube_cookies_draft: String,
+    pub youtube_cookies_saved: bool,
+    /// Último resultado de `trailer:downloadAll` (mensagem de progresso).
+    pub trailer_download_all: Option<String>,
+}
+
+/// Rascunho do token de cada provedor, preenchido a partir da config.
+#[derive(Debug, Clone, Default)]
+pub struct DebridDrafts {
+    pub realdebrid: String,
+    pub torbox: String,
+    pub alldebrid: String,
+    pub premiumize: String,
+}
+
+impl DebridDrafts {
+    pub fn get(&self, provider: DebridProvider) -> &str {
+        match provider {
+            DebridProvider::RealDebrid => &self.realdebrid,
+            DebridProvider::TorBox => &self.torbox,
+            DebridProvider::AllDebrid => &self.alldebrid,
+            DebridProvider::Premiumize => &self.premiumize,
+        }
+    }
+
+    pub fn set(&mut self, provider: DebridProvider, value: String) {
+        match provider {
+            DebridProvider::RealDebrid => self.realdebrid = value,
+            DebridProvider::TorBox => self.torbox = value,
+            DebridProvider::AllDebrid => self.alldebrid = value,
+            DebridProvider::Premiumize => self.premiumize = value,
+        }
+    }
+
+    /// Preenche a partir da config carregada, sem apagar rascunho em edição.
+    pub fn sync_from(&mut self, config: &SettingsConfig) {
+        self.realdebrid = config.realdebrid_token.clone();
+        self.torbox = config.torbox_token.clone();
+        self.alldebrid = config.alldebrid_token.clone();
+        self.premiumize = config.premiumize_token.clone();
+    }
 }
 
 impl Default for SettingsState {
@@ -1081,6 +1584,14 @@ impl Default for SettingsState {
             accent_draft: String::new(),
             save_error: None,
             saving: None,
+            debrid_drafts: DebridDrafts::default(),
+            debrid_open: std::collections::HashSet::new(),
+            debrid_saved: None,
+            steamgriddb_draft: String::new(),
+            steamgriddb_saved: false,
+            youtube_cookies_draft: String::new(),
+            youtube_cookies_saved: false,
+            trailer_download_all: None,
         }
     }
 }
@@ -1100,9 +1611,7 @@ pub struct EmulationState {
 
 impl EmulationState {
     pub fn status_for(&self, id: &str) -> Option<&EmulatorStatus> {
-        self.statuses
-            .iter()
-            .find(|status| status.emulator_id == id)
+        self.statuses.iter().find(|status| status.emulator_id == id)
     }
 
     pub fn rom_index_for(&self, id: &str) -> Option<&EmulatorRomIndexEntry> {
@@ -1185,7 +1694,7 @@ impl EmulationEditorState {
             // Sem campo de ROM única no editor; fica pronto para a próxima
             // fatia de lançamento por emulador.
             PickTarget::RomFile => return Ok(false),
-            PickTarget::GameRom | PickTarget::GameCore => return Ok(false),
+            PickTarget::GameRom | PickTarget::GameCore | PickTarget::StoreDownloadFolder | PickTarget::SourceCatalog | PickTarget::Artwork => return Ok(false),
             PickTarget::Avatar | PickTarget::Background | PickTarget::Banner => return Ok(false),
         }
         Ok(true)
@@ -1221,6 +1730,9 @@ pub struct AuthState {
     pub sending: bool,
 }
 
+/// Campos de texto do editor de perfil. Banner e fundo entram por upload
+/// (`account:setBackground`) e só saem por `ProfileImageCleared`, então não
+/// são campos editáveis à mão como no começo do porte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileField {
     DisplayName,
@@ -1228,23 +1740,6 @@ pub enum ProfileField {
     Country,
     City,
     Showcase,
-    BackgroundUrl,
-    BannerUrl,
-}
-
-impl ProfileField {
-    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
-        let key = match self {
-            ProfileField::DisplayName => "native.profile.display_name_field",
-            ProfileField::Summary => "native.profile.summary_field",
-            ProfileField::Country => "native.profile.country_field",
-            ProfileField::City => "native.profile.city_field",
-            ProfileField::Showcase => "native.profile.showcase_field",
-            ProfileField::BackgroundUrl => "native.profile.background_field",
-            ProfileField::BannerUrl => "native.profile.banner_field",
-        };
-        i18n.t(key)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1269,6 +1764,14 @@ impl ProfileImageKind {
         }
     }
 
+    /// Nome do campo em `account:updateProfile` (`null` limpa a imagem).
+    pub fn ipc_field(self) -> &'static str {
+        match self {
+            Self::Background => "background_url",
+            Self::Banner => "banner_url",
+        }
+    }
+
     pub fn success_key(self) -> &'static str {
         match self {
             Self::Background => "native.profile.background_updated",
@@ -1277,9 +1780,43 @@ impl ProfileImageKind {
     }
 }
 
+/// Abas do editor de perfil — as quatro do `EditProfile.tsx` da web.
+///
+/// A ordem é a da barra horizontal (Geral, Avatar, Banner, Fundo) e cada uma
+/// desenha um conteúdo próprio; o cabeçalho é comum às quatro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProfileEditTab {
+    #[default]
+    General,
+    Avatar,
+    Banner,
+    Background,
+}
+
+impl ProfileEditTab {
+    pub const ALL: [ProfileEditTab; 4] = [
+        Self::General,
+        Self::Avatar,
+        Self::Banner,
+        Self::Background,
+    ];
+
+    pub fn label<'a>(self, i18n: &'a I18n) -> &'a str {
+        let key = match self {
+            Self::General => "editprofile.nav.geral",
+            Self::Avatar => "editprofile.nav.avatar",
+            Self::Banner => "editprofile.nav.banner",
+            Self::Background => "editprofile.nav.background",
+        };
+        i18n.t(key)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ProfileEditorState {
     pub editing: bool,
+    /// Aba visível; sobrevive ao refresh do perfil (só o "editar" reseta).
+    pub tab: ProfileEditTab,
     pub display_name: String,
     pub summary: String,
     pub country: String,
@@ -1302,6 +1839,7 @@ impl ProfileEditorState {
     pub fn from_profile(profile: &AccountProfile) -> Self {
         Self {
             editing: false,
+            tab: ProfileEditTab::default(),
             display_name: profile.display_name.clone().unwrap_or_default(),
             summary: profile.summary.clone().unwrap_or_default(),
             country: profile.country.clone().unwrap_or_default(),
@@ -1327,8 +1865,6 @@ impl ProfileEditorState {
             ProfileField::Country => self.country = value,
             ProfileField::City => self.city = value,
             ProfileField::Showcase => self.showcase = value,
-            ProfileField::BackgroundUrl => self.background_url = value,
-            ProfileField::BannerUrl => self.banner_url = value,
         }
     }
 
@@ -1367,10 +1903,15 @@ pub struct AccountState {
     pub profile: Option<AccountProfile>,
     pub avatar: Option<Handle>,
     pub avatar_url: Option<String>,
+    /// Avatar local (`profile.avatar` do config) usado quando a conta não
+    /// oferece `avatar_url` — o mesmo `||` do `Sidebar.tsx` da web.
+    pub fallback_avatar_url: Option<String>,
     pub error: Option<String>,
     pub notice: Option<String>,
     pub auth: AuthState,
     pub editor: ProfileEditorState,
+    /// `profile:stats` do card de Estatísticas (`ProfilePage.tsx`).
+    pub stats: Option<ProfileStats>,
     /// Primeiro boot sem sessão já abriu o login (não reabrir sozinho).
     pub auto_auth_shown: bool,
 }
@@ -1524,6 +2065,7 @@ pub struct FriendProfileState {
     pub achievements_status: LoadStatus,
     pub achievements: Option<FriendAchievements>,
     pub achievements_error: Option<String>,
+    pub confirming_remove: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1533,6 +2075,7 @@ pub struct FriendsState {
     pub search_query: String,
     pub search_results: Option<Vec<FriendSearchResult>>,
     pub search_status: LoadStatus,
+    pub search_requested: Option<String>,
     pub action_busy: Option<String>,
     pub action_error: Option<String>,
     pub notice: Option<String>,
@@ -1566,6 +2109,57 @@ pub struct ComponentsState {
     /// Banner global de registro/erro de ação.
     pub banner: Option<PluginNotice>,
     pub details: Option<PluginDetailsPanel>,
+    /// Rascunho da chave Hubcap. O valor salvo chega mascarado; o usuário
+    /// cola a chave inteira para substituir.
+    pub hubcap_draft: String,
+    pub hubcap_saving: bool,
+    pub hubcap_validating: bool,
+    /// `ok`, `invalida`, `sem_chave` ou `indisponivel`.
+    pub hubcap_test: Option<String>,
+    pub hubcap_notice: Option<String>,
+    /// Uso diário mostrado embaixo do campo, o mesmo de `/api-keys/stats`.
+    pub hubcap_stats: Option<HubcapStats>,
+    /// Chave em claro desta sessão. O config só devolve a máscara, e a
+    /// consulta de uso precisa da chave inteira.
+    hubcap_secret: Option<String>,
+}
+
+/// Resposta de `GET /api/v1/user/stats`: usuário, uso do dia e limite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HubcapStats {
+    pub username: Option<String>,
+    pub daily_usage: Option<u64>,
+    pub daily_limit: Option<u64>,
+    pub error: Option<String>,
+}
+
+impl HubcapStats {
+    pub(crate) fn rejected() -> Self {
+        Self {
+            username: None,
+            daily_usage: None,
+            daily_limit: None,
+            error: Some("rejected".to_string()),
+        }
+    }
+
+    pub(crate) fn unreachable() -> Self {
+        Self {
+            username: None,
+            daily_usage: None,
+            daily_limit: None,
+            error: Some("unreachable".to_string()),
+        }
+    }
+
+    pub(crate) fn missing() -> Self {
+        Self {
+            username: None,
+            daily_usage: None,
+            daily_limit: None,
+            error: Some("sem_chave".to_string()),
+        }
+    }
 }
 
 /// Aba interna de Lojas: a mesma alternância `steam | retro` da web.
@@ -1603,8 +2197,16 @@ pub struct StoreBrowseState {
     pub has_more: bool,
     pub next_offset: Option<u64>,
     pub loading_more: bool,
+    generation: u64,
+    next_page: Option<NextStorePage>,
     /// Falha de "carregar mais" sem apagar a grade já visível.
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum NextStorePage {
+    Loading,
+    Ready(StorePage),
 }
 
 #[derive(Debug, Clone)]
@@ -1628,6 +2230,20 @@ pub struct StoreDetailState {
     pub install_message: Option<String>,
     /// Captura selecionada na galeria da ficha da loja.
     pub selected_screenshot: usize,
+    pub downloads: StoreDownloadsState,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StoreDownloadsState {
+    pub generation: u64,
+    pub status: LoadStatus,
+    pub data: SourceOffers,
+    pub error: Option<String>,
+    pub open: bool,
+    pub selected_offer: usize,
+    pub selected_uri: usize,
+    pub path: String,
+    pub pick_busy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1653,6 +2269,7 @@ pub struct StoreState {
     pub search: Option<StoreSearchState>,
     pub browse: StoreBrowseState,
     pub detail: Option<StoreDetailState>,
+    pub detail_generation: u64,
 }
 
 /// Vitrine da Home (`store:recent` de `top100in2weeks`), separada da Loja
@@ -1686,6 +2303,7 @@ pub struct RetroState {
     pub detail: Option<RetroDetailState>,
     /// Descarta respostas de uma página antiga quando o usuário pagina rápido.
     pub generation: u64,
+    showing_cached_page: bool,
 }
 
 impl Default for RetroState {
@@ -1704,6 +2322,7 @@ impl Default for RetroState {
             error: None,
             detail: None,
             generation: 0,
+            showing_cached_page: false,
         }
     }
 }
@@ -1753,6 +2372,10 @@ pub struct UpdateUiState {
     /// Versão dispensada nesta sessão; não reabre sozinha.
     pub dismissed_version: Option<String>,
     pub dialog: Option<UpdateDialogState>,
+    pub backdrop: Option<Handle>,
+    pub backdrop_waiting: bool,
+    backdrop_generation: u64,
+    backdrop_capture_requested: Option<u64>,
     /// Evita empilhar polls de snapshot enquanto o updater está ocupado.
     pub poll_in_flight: bool,
 }
@@ -1776,15 +2399,9 @@ impl Default for BootSplash {
     }
 }
 
-/// O splash roda no máximo uma vez por processo, mesmo que o iced recrie a
-/// janela. Não há como reiniciar o processo nos testes.
-static SPLASH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-
-fn claim_splash() -> bool {
-    !SPLASH_ATTEMPTED.swap(true, Ordering::SeqCst)
-}
-
 pub const STORE_PAGE_SIZE: u64 = 24;
+const STORE_THUMBNAIL_AHEAD: usize = 10;
+const STORE_THUMBNAIL_JOBS: usize = 3;
 pub const RETRO_PAGE_SIZE: u64 = 24;
 
 pub struct App {
@@ -1792,14 +2409,39 @@ pub struct App {
     pub screen: Screen,
     pub library: Library,
     pub covers: CoverCache,
+    retro_library_art: HashMap<String, Option<(String, Option<String>)>>,
+    pub store_thumbnails: CoverCache,
+    store_thumbnail_queue: VecDeque<String>,
+    store_thumbnail_jobs: usize,
+    /// Poster → mídia de vídeo do mesmo card de seção.
+    ///
+    /// A Steam manda um `poster.avif` que às vezes é um placeholder preto
+    /// (Black Myth: Wukong: 336 bytes, luminância 0). O vídeo tem a arte real,
+    /// e o app extrai o primeiro frame visível para substituir o poster.
+    pub card_videos: std::collections::HashMap<String, String>,
+    /// URLs de poster que decodificaram como imagem preta — placeholder da
+    /// Steam. Só esses vale a pena trocar pelo frame do vídeo: baixar e
+    /// decodificar 4 MB de vídeo para um poster legítimo seria desperdício.
+    pub poster_is_black: std::collections::HashSet<String>,
+    /// Cards de seção animados: os `<video>` do `about` tocando em loop, como
+    /// na página original da Steam. Limitado a poucos players simultâneos.
+    pub animated_cards: crate::animated_cards::AnimatedCards,
+    pub friend_media: crate::animated_cards::AnimatedCards,
     pub search: String,
     /// Idioma ativo do shell; carregado do `config:get` no boot.
     pub i18n: I18n,
     pub media: MediaPlayer,
     /// `None` enquanto o `game:sysinfo` está em voo.
     pub game_media: Option<GameMedia>,
+    game_media_cache: HashMap<String, (Instant, GameMedia)>,
+    store_info_cache: HashMap<String, (Instant, StoreInfo)>,
+    detail_prefetching: BTreeSet<String>,
     /// Índice da screenshot selecionada na galeria da ficha.
     pub selected_screenshot: usize,
+    /// `true` quando a galeria mostra o trailer; `false` mostra a screenshot.
+    pub gallery_trailer: bool,
+    /// Aba Mínimos/Recomendados compartilhada pelas fichas.
+    pub requirements_tab: RequirementsTab,
     /// Painéis da ficha por jogo (conquistas, ProtonDB, stats/reviews).
     /// O mapa é o cache da sessão: reabrir um jogo não refaz o IPC.
     pub game_panels: HashMap<String, GamePanels>,
@@ -1817,10 +2459,20 @@ pub struct App {
     pub components: ComponentsState,
     pub community: CommunityCache,
     pub store: StoreState,
+    pub console_storefront: views::big_picture_store::StorefrontState,
     pub home: HomeState,
+    pub page_entered: Instant,
+    pub page_direction: f32,
+    pub home_entered: Instant,
+    pub home_hero_started: Instant,
+    pub home_hero_index: usize,
+
+    pub launch_reduce_motion: bool,
     pub retro: RetroState,
     pub sidebar_search: String,
     pub sidebar_games_open: bool,
+    /// Menu "meu perfil" expandido na sidebar (bloco `profileMenu` do web).
+    pub profile_menu_open: bool,
     pub window: Option<window::Id>,
     /// Tamanho atual da janela; alimenta o scroll centralizado do trilho.
     pub window_size: Size,
@@ -1832,10 +2484,29 @@ pub struct App {
     pub console_media_id: Option<String>,
     /// Escrita de favorito em voo; evita dois `overrides:set` concorrentes.
     pub favorite_busy: Option<String>,
+    /// Refresh leve da biblioteca em voo; evita polls sobrepostos.
+    library_poll_in_flight: bool,
+    library_dirty: bool,
+    section_loaded_at: HashMap<(Section, bool), Instant>,
+    news_loaded_at: Option<Instant>,
+    /// Geração do último refresh/carga aceito. Resposta com geração antiga é
+    /// descartada e não mexe no flag de uma requisição mais nova.
+    library_epoch: u64,
     /// Sessão de jogo: abrindo, rodando, parando e última falha.
     pub launch: GameLaunchState,
     /// Diálogo de opções de inicialização (Wine/Proton, env, args).
     pub launch_options: LaunchOptionsState,
+    /// Menu de contexto da biblioteca (um por vez).
+    pub game_menu: Option<GameMenuState>,
+    /// Geração do menu; resultados assíncronos só fecham a instância que os
+    /// disparou.
+    pub game_menu_serial: u64,
+    /// Editor de App/Jogo aberto pelo menu.
+    pub game_edit: Option<GameEditState>,
+    /// Modal de metadados (título/descrição/três artes).
+    pub game_metadata: Option<MetadataState>,
+    /// Escrita de overrides em voo e geração para descartar respostas antigas.
+    pub library_overrides: LibraryOverrideState,
     /// Tela desktop a restaurar quando o console for fechado.
     pub previous_screen: Option<Screen>,
     /// Splash de boot (vídeo opcional, no máximo uma vez por processo).
@@ -1855,11 +2526,24 @@ impl App {
             screen: Screen::Section(Section::Home),
             library: Library::loading(),
             covers: CoverCache::default(),
+            retro_library_art: HashMap::new(),
+            store_thumbnails: CoverCache::with_budget(16 * 1024 * 1024),
+            store_thumbnail_queue: VecDeque::new(),
+            store_thumbnail_jobs: 0,
+            card_videos: std::collections::HashMap::new(),
+            poster_is_black: std::collections::HashSet::new(),
+            animated_cards: crate::animated_cards::AnimatedCards::default(),
+            friend_media: crate::animated_cards::AnimatedCards::default(),
             search: String::new(),
             i18n: I18n::default(),
             media: MediaPlayer::new(),
             game_media: None,
+            game_media_cache: HashMap::new(),
+            store_info_cache: HashMap::new(),
+            detail_prefetching: BTreeSet::new(),
             selected_screenshot: 0,
+            gallery_trailer: false,
+            requirements_tab: RequirementsTab::default(),
             game_panels: HashMap::new(),
             trailer_picker: TrailerPickerState::default(),
             trailer_override: false,
@@ -1872,18 +2556,37 @@ impl App {
             components: ComponentsState::default(),
             community: CommunityCache::default(),
             store: StoreState::default(),
+            console_storefront: views::big_picture_store::StorefrontState::default(),
             home: HomeState::default(),
+            page_entered: Instant::now(),
+            page_direction: 1.0,
+            home_entered: Instant::now(),
+            home_hero_started: Instant::now(),
+            home_hero_index: 0,
+
+            launch_reduce_motion: false,
             retro: RetroState::default(),
             sidebar_search: String::new(),
             sidebar_games_open: true,
+            profile_menu_open: false,
             window: None,
             window_size: Size::new(1280.0, 800.0),
             big_picture: BigPicture::new(),
             console_news: NewsState::default(),
             console_media_id: None,
             favorite_busy: None,
+            library_poll_in_flight: false,
+            library_dirty: false,
+            section_loaded_at: HashMap::new(),
+            news_loaded_at: None,
+            library_epoch: 0,
             launch: GameLaunchState::default(),
             launch_options: LaunchOptionsState::default(),
+            game_menu: None,
+            game_menu_serial: 0,
+            game_edit: None,
+            game_metadata: None,
+            library_overrides: LibraryOverrideState::default(),
             previous_screen: None,
             boot: BootSplash::default(),
             update: UpdateUiState::default(),
@@ -1897,17 +2600,6 @@ impl App {
                 async move { backend.load_settings().await },
                 Message::LaunchConfigLoaded,
             )
-        };
-        let boot_video = if claim_splash() {
-            app.boot.active = true;
-            app.boot.started = Instant::now();
-            let backend = app.backend.clone();
-            Task::perform(
-                async move { backend.load_boot_video().await },
-                Message::BootVideoReady,
-            )
-        } else {
-            Task::none()
         };
         let update_snapshot = {
             let backend = app.backend.clone();
@@ -1924,14 +2616,19 @@ impl App {
             )
         };
         let home_task = app.load_section(Section::Home, false);
+        // A própria carga já deixa a página e as primeiras miniaturas prontas.
+        let store_task = app.load_store_browse(false);
+        let retro_task = app.load_retro_page(0);
+
         let task = Task::batch([
             app.reload_task(),
             home_task,
             window::latest().map(Message::WindowReady),
             launch_config,
-            boot_video,
             update_snapshot,
             account_status,
+            store_task,
+            retro_task,
         ]);
         (app, task)
     }
@@ -1940,25 +2637,335 @@ impl App {
         match message {
             Message::LibraryLoaded(Ok(games)) => {
                 eprintln!("[arcadia-native] biblioteca: {} jogo(s)", games.len());
-                self.library.ready(games);
-                self.big_picture
-                    .sync_games(self.library.visible_all().len());
-                let urls = self.library.image_urls();
-                self.cover_tasks(urls)
+                self.library_epoch = self.library_epoch.wrapping_add(1);
+                self.library_poll_in_flight = false;
+                self.apply_library_snapshot(games)
             }
             Message::LibraryLoaded(Err(error)) => {
                 eprintln!("[arcadia-native] falha ao carregar biblioteca: {error}");
+                self.library_epoch = self.library_epoch.wrapping_add(1);
+                self.library_poll_in_flight = false;
                 self.library.error(error);
                 Task::none()
             }
-            Message::CoverLoaded { url, handle } => {
-                match handle {
-                    Some(handle) => self.covers.insert(url, handle),
-                    None => self.covers.fail(&url),
+            Message::LibraryRefreshed { epoch, result } => {
+                // Resposta de uma leitura já superada não pode ressuscitar a
+                // lista antiga nem limpar o flag do refresh mais novo.
+                if epoch != self.library_epoch {
+                    return Task::none();
+                }
+                self.library_poll_in_flight = false;
+                match result {
+                    Ok(games) => self.apply_library_snapshot(games),
+                    Err(error) => {
+                        // Falha de um refresh em segundo plano não troca a
+                        // grade por uma tela de erro; o próximo foco/poll
+                        // tenta de novo.
+                        eprintln!("[arcadia-native] refresh leve da biblioteca falhou: {error}");
+                        Task::none()
+                    }
+                }
+            }
+            Message::SteamLibraryPoll => self.light_library_refresh(),
+            Message::RefreshVisibleSection => self.refresh_visible_section(),
+            Message::OpenGameContextMenu { game_id, anchor } => {
+                if self.library.game(&game_id).is_none()
+                    || self.game_edit.is_some()
+                    || self.game_metadata.is_some()
+                    || self.launch_options.open
+                    || self.account.auth.open
+                    || self.update.dialog.is_some()
+                    || self.boot.active
+                {
+                    return Task::none();
+                }
+                self.game_menu_serial = self.game_menu_serial.wrapping_add(1);
+                self.game_menu = Some(GameMenuState::with_instance(
+                    game_id,
+                    anchor,
+                    self.game_menu_serial,
+                ));
+                Task::none()
+            }
+            Message::CloseGameContextMenu => {
+                self.game_menu = None;
+                Task::none()
+            }
+            Message::GameMenuAction(action) => self.game_menu_action(action),
+            Message::GameMenuCategoryDraftChanged(value) => {
+                if let Some(menu) = self.game_menu.as_mut() {
+                    menu.category_draft = value;
+                }
+                Task::none()
+            }
+            Message::GameMenuCategoryToggled(category) => self.menu_toggle_category(category),
+            Message::GameMenuCategoryAdded => self.menu_add_category(),
+            Message::GameMenuCategoryBack => {
+                if let Some(menu) = self.game_menu.as_mut() {
+                    menu.categories_open = false;
+                }
+                Task::none()
+            }
+            Message::GameMenuLogsDone {
+                game_id,
+                instance,
+                result,
+            } => {
+                if !self.menu_instance_matches(&game_id, instance) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(GameLogOutcome::Opened) => self.game_menu = None,
+                    Ok(outcome) => {
+                        let notice = match outcome {
+                            GameLogOutcome::NoLogs => MenuNotice::NoLogs,
+                            GameLogOutcome::InvalidId | GameLogOutcome::Error(_) => {
+                                MenuNotice::LogsFailed
+                            }
+                            GameLogOutcome::Opened => return Task::none(),
+                        };
+                        if let Some(menu) = self
+                            .game_menu
+                            .as_mut()
+                            .filter(|menu| menu.game_id == game_id && menu.instance == instance)
+                        {
+                            menu.notice = Some(notice);
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(menu) = self
+                            .game_menu
+                            .as_mut()
+                            .filter(|menu| menu.game_id == game_id && menu.instance == instance)
+                        {
+                            menu.notice = Some(MenuNotice::LogsFailed);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::GameMenuInstallDone {
+                game_id,
+                instance,
+                result,
+            } => {
+                if !self.menu_instance_matches(&game_id, instance) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(()) => self.game_menu = None,
+                    Err(_) => {
+                        if let Some(menu) = self
+                            .game_menu
+                            .as_mut()
+                            .filter(|menu| menu.game_id == game_id && menu.instance == instance)
+                        {
+                            menu.notice = Some(MenuNotice::SteamOpenFailed);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::GameMenuKey(event) => {
+                let escape = matches!(
+                    event,
+                    keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                        ..
+                    }
+                );
+                if !escape {
+                    return Task::none();
+                }
+                if self.game_metadata.is_some() {
+                    self.game_metadata = None;
+                } else if self.game_edit.is_some() {
+                    self.game_edit = None;
+                } else {
+                    self.game_menu = None;
+                }
+                Task::none()
+            }
+            Message::GameOverridesSaved {
+                epoch,
+                account,
+                game_id,
+                result,
+            } => self.finish_library_override(epoch, account, game_id, result),
+            Message::LibraryShowHiddenToggled => {
+                self.library.show_hidden = !self.library.show_hidden;
+                self.library.notice = None;
+                Task::none()
+            }
+            Message::DismissLibraryNotice => {
+                self.library.notice = None;
+                Task::none()
+            }
+            Message::GameEditTitleChanged(value) => {
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.title = value;
+                    edit.error = None;
+                }
+                Task::none()
+            }
+            Message::GameEditDescriptionChanged(value) => {
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.description = value;
+                    edit.description_reset = false;
+                    edit.error = None;
+                }
+                Task::none()
+            }
+            Message::GameEditDescriptionReset => {
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.description_reset = true;
+                    edit.error = None;
+                }
+                Task::none()
+            }
+            Message::GameEditPlatformChanged(platform) => {
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.platform = Some(platform);
+                    edit.error = None;
+                }
+                Task::none()
+            }
+            Message::GameEditExeChanged(value) => {
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.exe = value;
+                    edit.error = None;
+                }
+                Task::none()
+            }
+            Message::GameEditSave => self.save_game_edit(),
+            Message::GameEditCancel => {
+                self.game_edit = None;
+                Task::none()
+            }
+            Message::GameEditSaved {
+                game_id,
+                request,
+                account,
+                result,
+            } => self.finish_game_edit(game_id, request, account, result),
+            Message::GameMetadataTitleChanged(value) => {
+                if let Some(metadata) = self.game_metadata.as_mut() {
+                    metadata.title = value;
+                    metadata.error = None;
+                }
+                Task::none()
+            }
+            Message::GameMetadataDescriptionChanged(value) => {
+                if let Some(metadata) = self.game_metadata.as_mut() {
+                    metadata.description = value;
+                    metadata.description_reset = false;
+                    metadata.error = None;
+                }
+                Task::none()
+            }
+            Message::GameMetadataDescriptionReset => {
+                if let Some(metadata) = self.game_metadata.as_mut() {
+                    metadata.description_reset = true;
+                    metadata.error = None;
+                }
+                Task::none()
+            }
+            Message::GameMetadataArtReset(kind) => {
+                if let Some(metadata) = self.game_metadata.as_mut() {
+                    metadata.reset_art(kind);
+                    metadata.error = None;
+                }
+                Task::none()
+            }
+            Message::GameMetadataSave => self.save_game_metadata(),
+            Message::GameMetadataCancel => {
+                self.game_metadata = None;
+                Task::none()
+            }
+            Message::GameMetadataSaved {
+                game_id,
+                request,
+                account,
+                result,
+            } => self.finish_game_metadata(game_id, request, account, result),
+            Message::CoverLoaded { url, loaded } => {
+                // Poster decodificado: se for preto puro, a Steam mandou um
+                // placeholder. O vídeo do mesmo card tem a arte, então o frame
+                // dele substitui o poster.
+                if let Some((handle, (width, height), black)) = loaded {
+                    self.covers.insert(url.clone(), handle, (width, height));
+
+                    if black {
+                        self.poster_is_black.insert(url.clone());
+                        if let Some(video) = self.card_videos.get(&url).cloned() {
+                            return Task::perform(
+                                async move { extract_first_visible_frame(&video) },
+                                move |frame| Message::PosterFrameLoaded { poster: url, frame },
+                            );
+                        }
+                    }
+                } else {
+                    // Sem log, uma capa que nunca carrega é invisível: a UI
+                    // mostra o placeholder e ninguém sabe se foi rede, 404 ou
+                    // formato que o crate `image` não abre. A URL vai na
+                    // mensagem para dar para testar com `curl`.
+                    eprintln!("[arcadia-native] capa falhou: {url}");
+                    self.covers.fail(&url);
+                }
+                Task::none()
+            }
+            Message::StoreThumbnailVisible(url) => {
+                if self.desktop_store_visible() {
+                    self.store_thumbnail_queue.retain(|queued| queued != &url);
+                    self.store_thumbnail_queue.push_front(url);
+                    self.run_store_thumbnail_queue()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::StoreThumbnailHidden(url) => {
+                self.store_thumbnail_queue.retain(|queued| queued != &url);
+                Task::none()
+            }
+            Message::StoreThumbnailLoaded { url, image } => {
+                if let Some((handle, size)) = image {
+                    self.store_thumbnails.insert(url, handle, size);
+                } else {
+                    self.store_thumbnails.fail(&url);
+                }
+                self.store_thumbnail_jobs -= 1;
+                self.run_store_thumbnail_queue()
+            }
+            Message::HomeArtTick => {
+                if matches!(self.screen, Screen::Section(Section::Home)) && self.store.detail.is_none()
+                    && self.home_hero_started.elapsed() >= Duration::from_secs(6)
+                    && self.home.games.len() > 1
+                {
+                    self.home_hero_index = (self.home_hero_index + 1) % self.home.games.len().min(5);
+                    self.home_hero_started = Instant::now();
+                    if let Some(game) = self.home.games.get(self.home_hero_index).cloned() {
+                        return self.home_hero_info_task(&game);
+                    }
+                }
+                Task::none()
+            },
+            Message::CardsTick => {
+                self.animated_cards.tick();
+                if matches!(self.screen,Screen::Section(Section::Friends)) {self.friend_media.tick();}
+                Task::none()
+            }
+            Message::PosterFrameLoaded { poster, frame } => {
+                if let Some((width, height, pixels)) = frame {
+                    self.covers.insert(
+                        poster,
+                        Handle::from_rgba(width, height, pixels),
+                        (width, height),
+                    );
                 }
                 Task::none()
             }
             Message::Reload => {
+                self.profile_menu_open = false;
                 self.library.set_loading();
                 self.reload_task()
             }
@@ -1967,40 +2974,78 @@ impl App {
                 Task::none()
             }
             Message::Navigate(section) => {
+                self.game_menu = None;
+                if section != Section::Stores {
+                    self.store_thumbnail_queue.clear();
+                }
                 if section == Section::BigPicture {
                     return self.enter_big_picture();
                 }
                 self.media.clear();
                 self.game_media = None;
                 self.reset_trailer_state();
+                // Só os vídeos da ficha pertencem à aba. Avatar da sidebar
+                // e quadros do perfil permanecem prontos, sem novo download
+                // ou decode ao voltar para My profile.
+                self.animated_cards.clear_cards();
                 if section != Section::Stores {
                     self.store.detail = None;
                     self.retro.detail = None;
                 }
-                self.screen = Screen::for_section(section);
-                self.load_section(section, false)
+                let next = Screen::for_section(section);
+                if self.screen != next {
+                    let old_index = match self.screen {
+                        Screen::Section(old) => Section::ALL.iter().position(|item| *item == old),
+                        Screen::Library => Some(1),
+                        _ => None,
+                    };
+                    let new_index = Section::ALL.iter().position(|item| *item == section);
+                    self.page_direction = if new_index < old_index { -1.0 } else { 1.0 };
+                    self.page_entered = Instant::now();
+                    if section == Section::Home {
+                        self.home_entered = Instant::now();
+                        self.home_hero_started = Instant::now();
+                    }
+                }
+                self.screen = next;
+                match section {
+                    Section::Library => self.light_library_refresh(),
+                    Section::Downloads | Section::Settings | Section::Friends => self.load_section(section, false),
+                    _ => self.refresh_visible_section(),
+                }
             }
-            Message::OpenGame(id) => self.open_game(id),
+            Message::OpenGame(id) => {
+                self.game_menu = None;
+                self.open_game(id)
+            }
             Message::BackToLibrary => {
+                self.game_menu = None;
                 self.media.clear();
                 self.game_media = None;
+                self.animated_cards.clear_cards();
+                self.card_videos.clear();
                 self.reset_trailer_state();
                 self.screen.back_to_library();
+                self.page_entered = Instant::now();
+                self.page_direction = -1.0;
                 Task::none()
             }
             Message::Refresh(section) => self.load_section(section, true),
-            Message::DownloadsLoaded(result) => {
+            Message::DownloadsLoaded { revisions, result } => {
                 match result {
-                    Ok(data) => {
-                        self.downloads.data = data;
-                        self.downloads.status = LoadStatus::Ready;
+                    Ok(data) => self.downloads.apply_snapshot(revisions, data),
+                    Err(_) if revisions != self.downloads.revisions => {
+                        // Eventos mais novos já atualizaram a lista.
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] downloads: {error}");
-                        self.downloads.status = LoadStatus::Error(error);
+                        if self.downloads.status == LoadStatus::Ready {
+                            self.downloads.data.warnings = vec![error];
+                        } else {
+                            self.downloads.status = LoadStatus::Error(error);
+                        }
                     }
                 }
-                self.downloads.busy_id = None;
                 Task::none()
             }
             Message::DownloadActionRequested { item, action } => {
@@ -2020,14 +3065,7 @@ impl App {
             Message::DownloadActionDone(result) => {
                 self.downloads.busy_id = None;
                 match result {
-                    Ok(()) => {
-                        self.downloads.status = LoadStatus::Loading;
-                        let backend = self.backend.clone();
-                        Task::perform(
-                            async move { backend.load_downloads().await },
-                            Message::DownloadsLoaded,
-                        )
-                    }
+                    Ok(()) => self.downloads_task(),
                     Err(error) => {
                         self.downloads.action_error = Some(error);
                         Task::none()
@@ -2046,15 +3084,25 @@ impl App {
                         if !config.notifications_enabled {
                             self.toasts.clear();
                         }
+                        // Tokens de debrid: o editor começa com o que está
+                        // salvo (já mascarado pelo `config:get`).
+                        self.settings.debrid_drafts.sync_from(&config);
+                        // A chave do SteamGridDB e os cookies também vivem na
+                        // config; o campo começa com o valor salvo.
+                        self.settings.steamgriddb_draft = config.steamgriddb_api_key.clone();
+                        self.settings.youtube_cookies_draft = config.youtube_cookies.clone();
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
+                        // O avatar local (`profile.avatar`) entra junto com o
+                        // config; sem sessão ele é quem pinta a sidebar.
+                        self.sync_fallback_avatar()
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] configurações: {error}");
                         self.settings.status = LoadStatus::Error(error);
+                        Task::none()
                     }
                 }
-                Task::none()
             }
             Message::SettingsSaved { key, result } => {
                 self.settings.saving = None;
@@ -2069,6 +3117,13 @@ impl App {
                         if !config.notifications_enabled {
                             self.toasts.clear();
                         }
+                        // Tokens de debrid: o editor começa com o que está
+                        // salvo (já mascarado pelo `config:get`).
+                        self.settings.debrid_drafts.sync_from(&config);
+                        // A chave do SteamGridDB e os cookies também vivem na
+                        // config; o campo começa com o valor salvo.
+                        self.settings.steamgriddb_draft = config.steamgriddb_api_key.clone();
+                        self.settings.youtube_cookies_draft = config.youtube_cookies.clone();
                         self.settings.config = Some(config);
                         self.settings.status = LoadStatus::Ready;
                         self.settings.save_error = None;
@@ -2116,6 +3171,89 @@ impl App {
                 self.save_setting("language", Value::String(language))
             }
             Message::SettingToggled { key, value } => self.save_setting(key, Value::Bool(value)),
+            Message::LibraryTabSelected(tab) => {
+                self.library.tab = tab;
+                Task::none()
+            }
+            Message::DebridTokenChanged { provider, value } => {
+                self.settings.debrid_drafts.set(provider, value);
+                // Qualquer edição invalida o "Salvo!" anterior: senão o botão
+                // continuaria dizendo "Salvo!" com texto novo por salvar.
+                self.settings.debrid_saved = None;
+                Task::none()
+            }
+            Message::DebridToggled(provider) => {
+                if self.settings.debrid_open.contains(&provider) {
+                    self.settings.debrid_open.remove(&provider);
+                } else {
+                    self.settings.debrid_open.insert(provider);
+                }
+                Task::none()
+            }
+            Message::DebridTokenSave(provider) => {
+                let token = self.settings.debrid_drafts.get(provider).trim().to_string();
+                let key = provider.config_key();
+                self.settings.debrid_saved = Some(provider);
+                // Token vazio vira `null` no `prepare_patch` do IPC, que é o
+                // contrato de "desconectar" da web.
+                let value = if token.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(token)
+                };
+                self.save_dynamic_setting(key, value)
+            }
+            Message::SteamGridDbKeyChanged(value) => {
+                self.settings.steamgriddb_draft = value;
+                self.settings.steamgriddb_saved = false;
+                Task::none()
+            }
+            Message::SteamGridDbKeySave => {
+                let key = self.settings.steamgriddb_draft.trim().to_string();
+                self.settings.steamgriddb_saved = true;
+                // Chave vazia vira `null` no `prepare_patch`: remove a chave.
+                let value = if key.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(key)
+                };
+                self.save_dynamic_setting("steamgriddb_api_key", value)
+            }
+            Message::YoutubeCookiesChanged(value) => {
+                self.settings.youtube_cookies_draft = value;
+                self.settings.youtube_cookies_saved = false;
+                Task::none()
+            }
+            Message::YoutubeCookiesSave => {
+                let cookies = self.settings.youtube_cookies_draft.trim().to_string();
+                self.settings.youtube_cookies_saved = true;
+                let value = if cookies.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(cookies)
+                };
+                self.save_dynamic_setting("youtube_cookies", value)
+            }
+            Message::TrailerDownloadAll => {
+                let backend = self.backend.clone();
+                self.settings.trailer_download_all = Some(
+                    self.i18n.t("settings.trailers.iniciando").to_string(),
+                );
+                Task::perform(
+                    async move { backend.trailer_download_all().await },
+                    Message::TrailerDownloadAllDone,
+                )
+            }
+            Message::TrailerDownloadAllDone(result) => {
+                match result {
+                    Ok(summary) => self.settings.trailer_download_all = Some(summary),
+                    Err(error) => {
+                        eprintln!("[arcadia-native] trailer:downloadAll falhou: {error}");
+                        self.settings.trailer_download_all = Some(error);
+                    }
+                }
+                Task::none()
+            }
             Message::CpuCoresChanged(delta) => {
                 let current = self
                     .settings
@@ -2250,8 +3388,8 @@ impl App {
                 );
                 let core_path = editor.requires_core.then_some(editor.core_path.trim());
                 let bios_path = editor.bios_required.then_some(editor.bios_path.trim());
-                let payload =
-                    crate::backend::emulator_profile_payload(&crate::backend::EmulatorProfileDraft {
+                let payload = crate::backend::emulator_profile_payload(
+                    &crate::backend::EmulatorProfileDraft {
                         id: &editor.emulator_id,
                         executable: &executable,
                         core_path,
@@ -2259,7 +3397,8 @@ impl App {
                         rom_folders: &editor.rom_folders,
                         args: &args,
                         existing: editor.original.as_ref(),
-                    });
+                    },
+                );
                 if let Some(editor) = self.emulation.editor.as_mut() {
                     editor.saving = true;
                     editor.confirm_remove = false;
@@ -2343,12 +3482,8 @@ impl App {
                     .as_ref()
                     .map(|profile| profile.rom_folders.as_slice())
                     .unwrap_or_default();
-                if editor.rom_folders.is_empty() || editor.rom_folders.as_slice() != saved_folders
-                {
-                    let message = self
-                        .i18n
-                        .t("native.emulation.scan_need_save")
-                        .to_string();
+                if editor.rom_folders.is_empty() || editor.rom_folders.as_slice() != saved_folders {
+                    let message = self.i18n.t("native.emulation.scan_need_save").to_string();
                     if let Some(editor) = self.emulation.editor.as_mut() {
                         editor.scan_error = Some(message);
                     }
@@ -2433,33 +3568,30 @@ impl App {
                     |result| Message::EmulationImportDone { result },
                 )
             }
-            Message::EmulationImportDone { result } => {
-                match result {
-                    Ok(imported) => {
-                        if let Some(editor) = self.emulation.editor.as_mut() {
-                            editor.importing_rom = None;
-                            editor.notice = Some(self.i18n.t_args(
-                                "native.emulation.import_notice",
-                                &[("title", &imported.title)],
-                            ));
-                        }
-                        self.library.ready(imported.games);
-                        self.big_picture
-                            .sync_games(self.library.visible_all().len());
-                        let urls = self.library.image_urls();
-                        self.cover_tasks(urls)
+            Message::EmulationImportDone { result } => match result {
+                Ok(imported) => {
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.importing_rom = None;
+                        editor.notice = Some(self.i18n.t_args(
+                            "native.emulation.import_notice",
+                            &[("title", &imported.title)],
+                        ));
                     }
-                    Err(error) => {
-                        if let Some(editor) = self.emulation.editor.as_mut() {
-                            editor.importing_rom = None;
-                            editor.error = Some(error);
-                        }
-                        Task::none()
-                    }
+                    self.library.ready(imported.games);
+                    self.big_picture
+                        .sync_games(self.library.visible_all().len());
+                    let urls = self.library.image_urls();
+                    self.cover_tasks(urls)
                 }
-            }
+                Err(error) => {
+                    if let Some(editor) = self.emulation.editor.as_mut() {
+                        editor.importing_rom = None;
+                        editor.error = Some(error);
+                    }
+                    Task::none()
+                }
+            },
             Message::SourcesLoaded(result) => {
-                self.sources.busy = false;
                 match result {
                     Ok(items) => {
                         self.sources.items = items;
@@ -2531,7 +3663,7 @@ impl App {
                         )
                     }
                     Err(error) => {
-                        self.sources.action_error = Some(error);
+                        self.sources.action_error = Some(source_error_text(&self.i18n, &error));
                         Task::none()
                     }
                 }
@@ -2539,8 +3671,16 @@ impl App {
             Message::FriendsLoaded(result) => {
                 match result {
                     Ok(data) => {
+                        let urls = match &data {
+                            FriendsLoad::Ready(data) => data.friends.iter().chain(&data.incoming).chain(&data.outgoing)
+                                .filter_map(|friend|friend.avatar_url.clone()).collect(),
+                            FriendsLoad::NotLoggedIn => Vec::new(),
+                        };
                         self.friends.data = Some(data);
                         self.friends.status = LoadStatus::Ready;
+                        let covers=self.cover_tasks(urls);
+                        let avatars=self.ensure_friend_avatars();
+                        return Task::batch([covers,avatars]);
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] amigos: {error}");
@@ -2549,11 +3689,100 @@ impl App {
                 }
                 Task::none()
             }
+            Message::HubcapKeyChanged(value) => {
+                self.components.hubcap_draft = value;
+                self.components.hubcap_test = None;
+                Task::none()
+            }
+            Message::HubcapKeySave => {
+                if self.components.hubcap_saving {
+                    return Task::none();
+                }
+                let draft = self.components.hubcap_draft.trim().to_string();
+                // A máscara que o config:get devolve não é uma chave nova.
+                // Salvar "abc•••yz" apagaria a chave boa.
+                if draft.contains('•') {
+                    self.components.hubcap_notice =
+                        Some(self.i18n.t("store_setup.hubcap_placeholder").to_string());
+                    return Task::none();
+                }
+                self.components.hubcap_saving = true;
+                self.components.hubcap_notice = None;
+                self.components.hubcap_test = None;
+                self.components.hubcap_secret = (!draft.is_empty()).then(|| draft.clone());
+                let value = if draft.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(draft.clone())
+                };
+                let save = self.save_setting("hubcap_api_key", value);
+                let backend = self.backend.clone();
+                let stats_key = draft.clone();
+                let check = Task::perform(
+                    async move { backend.validate_hubcap_key(draft).await },
+                    |(ok, motivo)| Message::HubcapKeyChecked { ok, motivo },
+                );
+                let stats_backend = self.backend.clone();
+                let stats = Task::perform(
+                    async move { stats_backend.hubcap_stats(stats_key).await },
+                    Message::HubcapStatsLoaded,
+                );
+                Task::batch([save, check, stats])
+            }
+            Message::HubcapKeyValidate => {
+                if self.components.hubcap_validating {
+                    return Task::none();
+                }
+                let draft = self.components.hubcap_draft.trim().to_string();
+                if draft.contains('•') || draft.is_empty() {
+                    self.components.hubcap_test = Some(if draft.is_empty() {
+                        "sem_chave".to_string()
+                    } else {
+                        "indisponivel".to_string()
+                    });
+                    return Task::none();
+                }
+                self.components.hubcap_validating = true;
+                self.components.hubcap_test = None;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.validate_hubcap_key(draft).await },
+                    |(ok, motivo)| Message::HubcapKeyChecked { ok, motivo },
+                )
+            }
+            Message::HubcapStatsLoaded(stats) => {
+                self.components.hubcap_stats = Some(stats);
+                Task::none()
+            }
+            Message::HubcapKeyChecked { ok, motivo } => {
+                self.components.hubcap_saving = false;
+                self.components.hubcap_validating = false;
+                self.components.hubcap_test = Some(if ok {
+                    "ok".to_string()
+                } else {
+                    motivo.unwrap_or_else(|| "indisponivel".to_string())
+                });
+                if ok {
+                    self.components.hubcap_notice = Some(self.i18n.t("common.salvo").to_string());
+                }
+                Task::none()
+            }
             Message::ComponentsLoaded(result) => {
                 match result {
                     Ok(plugins) => {
                         self.components.plugins = plugins;
                         self.components.status = LoadStatus::Ready;
+                        if self.components.hubcap_draft.is_empty() {
+                            if let Some(key) = self
+                                .settings
+                                .config
+                                .as_ref()
+                                .map(|config| config.hubcap_api_key.clone())
+                                .filter(|key| !key.is_empty())
+                            {
+                                self.components.hubcap_draft = key;
+                            }
+                        }
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] componentes: {error}");
@@ -2605,10 +3834,7 @@ impl App {
                                 message: message.clone(),
                             },
                         );
-                        self.components.banner = Some(PluginNotice {
-                            ok: false,
-                            message,
-                        });
+                        self.components.banner = Some(PluginNotice { ok: false, message });
                         self.reload_components()
                     }
                     Err(error) => {
@@ -2623,10 +3849,7 @@ impl App {
                                 message: message.clone(),
                             },
                         );
-                        self.components.banner = Some(PluginNotice {
-                            ok: false,
-                            message,
-                        });
+                        self.components.banner = Some(PluginNotice { ok: false, message });
                         self.reload_components()
                     }
                 }
@@ -2671,10 +3894,9 @@ impl App {
                         );
                         self.components.banner = Some(PluginNotice {
                             ok: false,
-                            message: self.i18n.t_args(
-                                "native.components.verify_failed",
-                                &[("error", &error)],
-                            ),
+                            message: self
+                                .i18n
+                                .t_args("native.components.verify_failed", &[("error", &error)]),
                         });
                     }
                 }
@@ -2734,10 +3956,7 @@ impl App {
                 if path.is_empty() {
                     self.components.banner = Some(PluginNotice {
                         ok: false,
-                        message: self
-                            .i18n
-                            .t("native.components.path_required")
-                            .to_string(),
+                        message: self.i18n.t("native.components.path_required").to_string(),
                     });
                     return Task::none();
                 }
@@ -2757,17 +3976,12 @@ impl App {
                         let message = if registration.name.is_empty()
                             || registration.name == registration.id
                         {
-                            self.i18n.t_args(
-                                "native.components.registered",
-                                &[("id", &registration.id)],
-                            )
+                            self.i18n
+                                .t_args("native.components.registered", &[("id", &registration.id)])
                         } else {
                             self.i18n.t_args(
                                 "native.components.registered_named",
-                                &[
-                                    ("name", &registration.name),
-                                    ("id", &registration.id),
-                                ],
+                                &[("name", &registration.name), ("id", &registration.id)],
                             )
                         };
                         self.components.banner = Some(PluginNotice { ok: true, message });
@@ -2776,10 +3990,9 @@ impl App {
                     Err(error) => {
                         self.components.banner = Some(PluginNotice {
                             ok: false,
-                            message: self.i18n.t_args(
-                                "native.components.register_failed",
-                                &[("error", &error)],
-                            ),
+                            message: self
+                                .i18n
+                                .t_args("native.components.register_failed", &[("error", &error)]),
                         });
                         Task::none()
                     }
@@ -2799,9 +4012,7 @@ impl App {
                 };
                 match tab {
                     CommunityTab::Reviews => self.load_community_reviews(&appid, 0, false),
-                    CommunityTab::Collections => {
-                        self.load_community_collections(&appid, 0, false)
-                    }
+                    CommunityTab::Collections => self.load_community_collections(&appid, 0, false),
                 }
             }
             Message::CommunityLoadMore(tab) => {
@@ -2879,9 +4090,7 @@ impl App {
                 Task::none()
             }
             Message::CommunityReviewFormOpened => self.open_community_review_form(None),
-            Message::CommunityReviewEditRequested(id) => {
-                self.open_community_review_form(Some(id))
-            }
+            Message::CommunityReviewEditRequested(id) => self.open_community_review_form(Some(id)),
             Message::CommunityReviewFormClosed => {
                 if let Some(state) = self.current_community_state_mut() {
                     state.review_form = None;
@@ -2992,11 +4201,7 @@ impl App {
             Message::CommunityReportRequested(target, id) => {
                 let reason = self.i18n.t("community.conteudo_inadequado").to_string();
                 if let Some(state) = self.current_community_state_mut() {
-                    state.report = Some(CommunityReportState {
-                        target,
-                        id,
-                        reason,
-                    });
+                    state.report = Some(CommunityReportState { target, id, reason });
                     state.confirm = None;
                     state.mutation_error = None;
                     state.mutation_notice = None;
@@ -3028,18 +4233,17 @@ impl App {
                 if self.store.tab == tab {
                     return Task::none();
                 }
+                self.store_thumbnail_queue.clear();
                 self.store.tab = tab;
                 self.store.detail = None;
                 self.retro.detail = None;
-                match tab {
-                    StoreTab::Steam if matches!(self.store.browse.status, LoadStatus::Idle) => {
-                        self.load_store_browse(false)
-                    }
-                    StoreTab::Retro if matches!(self.retro.status, LoadStatus::Idle) => {
-                        self.load_retro_page(0)
-                    }
-                    _ => Task::none(),
-                }
+                let refresh = self.refresh_visible_section();
+                let covers = if tab == StoreTab::Retro {
+                    self.retro_page_cover_tasks(RETRO_PAGE_SIZE as usize)
+                } else {
+                    Task::none()
+                };
+                Task::batch([refresh, covers])
             }
             Message::StoreQueryChanged(query) => {
                 self.store.query = query;
@@ -3071,6 +4275,9 @@ impl App {
                 self.submit_store_search()
             }
             Message::StoreClearSearch => {
+                if self.store.search.is_some() {
+                    self.store_thumbnail_queue.clear();
+                }
                 self.store.query.clear();
                 self.store.suggestions.clear();
                 self.store.suggested_query.clear();
@@ -3087,8 +4294,6 @@ impl App {
                 }
                 match result {
                     Ok(found) => {
-                        let urls: Vec<String> =
-                            found.games.iter().flat_map(StoreGame::image_urls).collect();
                         eprintln!(
                             "[arcadia-native] loja: {} resultado(s) para {query:?}",
                             found.games.len()
@@ -3097,7 +4302,11 @@ impl App {
                         search.status = LoadStatus::Ready;
                         search.error = None;
                         self.sync_console_store();
-                        self.cover_tasks(urls)
+                        if self.console_store_visible() {
+                            self.prefetch_store_front()
+                        } else {
+                            Task::none()
+                        }
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] loja: {error}");
@@ -3125,10 +4334,8 @@ impl App {
                 }
                 match result {
                     Ok(games) => {
-                        let urls: Vec<String> =
-                            games.iter().flat_map(StoreGame::image_urls).collect();
                         self.store.suggestions = games;
-                        self.cover_tasks(urls)
+                        Task::none()
                     }
                     Err(_) => {
                         // Sugestão é auxiliar: uma falha aqui não esconde a busca.
@@ -3137,12 +4344,27 @@ impl App {
                     }
                 }
             }
-            Message::StoreBrowseLoaded { append, result } => {
+            Message::StoreBrowseLoaded { offset, generation, result } => {
+                if generation != self.store.browse.generation {
+                    return Task::none();
+                }
+                let append = offset != 0;
+                if append && !self.store.browse.loading_more {
+                    self.store.browse.next_page = None;
+                    if let Ok(page) = result {
+                        let urls = store_thumbnail_urls(&page.games);
+                        self.store.browse.next_page = Some(NextStorePage::Ready(page));
+                        if self.desktop_store_visible() {
+                            return self.store_thumbnail_tasks(urls);
+                        }
+                    }
+                    return Task::none();
+                }
+                self.store.browse.next_page = None;
                 self.store.browse.loading_more = false;
                 match result {
                     Ok(page) => {
-                        let urls: Vec<String> =
-                            page.games.iter().flat_map(StoreGame::image_urls).collect();
+                        let urls = store_thumbnail_urls(&page.games);
                         eprintln!(
                             "[arcadia-native] loja: {} jogo(s) no catálogo (total {:?})",
                             page.games.len(),
@@ -3175,36 +4397,119 @@ impl App {
                         self.store.browse.status = LoadStatus::Ready;
                         self.store.browse.error = None;
                         self.sync_console_store();
-                        self.cover_tasks(urls)
+                        if self.console_store_visible() {
+                            self.prefetch_store_front()
+                        } else if !append || self.desktop_store_visible() {
+                            self.store_thumbnail_tasks(urls)
+                        } else {
+                            Task::none()
+                        }
                     }
                     Err(error) => {
                         if append {
                             self.store.browse.error = Some(error);
                         } else {
                             eprintln!("[arcadia-native] loja: {error}");
-                            self.store.browse.status = LoadStatus::Error(error.clone());
+                            self.store.browse.status = if !self.store.browse.games.is_empty() {
+                                LoadStatus::Ready
+                            } else if self.desktop_store_visible() || self.console_store_visible()
+                            {
+                                LoadStatus::Error(error.clone())
+                            } else {
+                                LoadStatus::Idle
+                            };
                             self.store.browse.error = Some(error);
-                            self.store.browse.games.clear();
-                            self.store.browse.total = None;
-                            self.store.browse.has_more = false;
-                            self.store.browse.next_offset = None;
+
                         }
                         self.sync_console_store();
                         Task::none()
                     }
                 }
             }
+            Message::StorePrefetchNext => {
+                if self.desktop_store_visible() && self.store.search.is_none() {
+                    self.request_next_store_page(false)
+                } else {
+                    Task::none()
+                }
+            }
             Message::StoreLoadMore => self.load_store_more(),
+            Message::PrefetchGame(id) => self.prefetch_game(id),
+            Message::PrefetchStore(game) => self.prefetch_store(game),
+            Message::PrefetchedStore { appid, result } => {
+                self.detail_prefetching.remove(&format!("store:{appid}"));
+                let Ok(info) = result else { return self.prefetch_store_genres(); };
+                let urls = if self.console_store_visible() {
+                    let mut urls = info.image_urls();
+                    urls.truncate(8);
+                    urls.extend(info.description_image_urls().into_iter().take(3));
+                    urls
+                } else {
+                    Vec::new()
+                };
+                self.cache_store_info(&appid, info);
+                self.sync_console_store();
+                let covers = self.cover_tasks(urls);
+                Task::batch([covers, self.prefetch_store_genres()])
+            }
+            Message::PrefetchedGame { id, media } => {
+                self.detail_prefetching.remove(&format!("game:{id}"));
+                let urls = media.movies.iter().filter_map(|m| m.thumb.clone())
+                    .chain(media.screenshots.iter().filter_map(|s| s.thumb_or_full().map(str::to_string)))
+                    .take(6).collect();
+                self.cache_game_media(&id, media);
+                self.cover_tasks(urls)
+            }
             Message::StoreOpenDetail(game) => self.open_store_detail(game),
             Message::StoreCloseDetail => {
                 self.store.detail = None;
+                self.animated_cards.clear_cards();
+                self.card_videos.clear();
+                self.page_entered = Instant::now();
+                self.page_direction = -1.0;
+                if matches!(self.screen, Screen::Section(Section::Home)) {
+                    self.home_entered = Instant::now();
+                    self.home_hero_started = Instant::now();
+                }
+                self.media.clear();
+                self.game_media = None;
+                self.gallery_trailer = false;
                 Task::none()
             }
             Message::StoreScreenshotSelected(index) => {
                 if let Some(detail) = self.store.detail.as_mut() {
                     detail.selected_screenshot = index;
                 }
-                Task::none()
+                self.gallery_trailer = false;
+                let _ = self.media.pause();
+                let urls = self.store.detail.as_ref().and_then(|detail| detail.info.as_ref())
+                    .map(|info| info.screenshots.iter().skip(index).take(2)
+                        .filter_map(|shot| shot.full_or_thumb().map(str::to_string)).collect()).unwrap_or_default();
+                self.cover_tasks(urls)
+            }
+            Message::StoreSelectTrailer => {
+                self.gallery_trailer = true;
+                if self.media.is_active() && self.media.play().is_ok() {
+                    return Task::none();
+                }
+                let sources = self
+                    .store
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.info.as_ref())
+                    .and_then(|info| info.movies.first())
+                    .map(|movie| media::TrailerSources {
+                        hls: movie.hls.clone(),
+                        mp4: movie.mp4.clone(),
+                        webm: movie.webm.clone(),
+                    });
+                match sources {
+                    Some(sources) => match self.media.open(&sources) {
+                        Ok(()) => Task::none(),
+                        Err(error) => Task::done(Message::MediaError(error)),
+                    },
+                    None => Task::none(),
+                }
             }
             Message::HomeLoaded(result) => {
                 self.home.hero_status = LoadStatus::Loading;
@@ -3214,16 +4519,17 @@ impl App {
                             .games
                             .iter()
                             .flat_map(StoreGame::image_urls)
-                            .chain(
-                                page.games
-                                    .iter()
-                                    .filter_map(crate::backend::store_hero_url),
-                            )
+                            .chain(page.games.iter().filter_map(crate::backend::store_hero_url))
                             .collect();
                         eprintln!(
-                            "[arcadia-native] home: {} jogo(s) em alta",
-                            page.games.len()
+                            "[arcadia-native] home: {} jogo(s) em alta ({} ms)",
+                            page.games.len(),
+                            super::timing::elapsed_ms("home")
                         );
+                        self.home_entered = Instant::now();
+                        self.home_hero_started = Instant::now();
+                        self.home_hero_index = 0;
+
                         self.home.games = page.games;
                         self.home.status = LoadStatus::Ready;
                         self.home.error = None;
@@ -3240,7 +4546,6 @@ impl App {
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] home: {error}");
-                        self.home.games.clear();
                         self.home.status = LoadStatus::Error(error.clone());
                         self.home.error = Some(error.clone());
                         self.home.hero_status = LoadStatus::Error(error);
@@ -3249,6 +4554,9 @@ impl App {
                 }
             }
             Message::HomeHeroInfoLoaded { appid, result } => {
+                if let Ok(info) = &result {
+                    self.cache_store_info(&appid, info.clone());
+                }
                 if self.home.hero_appid.as_deref() != Some(appid.as_str()) {
                     return Task::none();
                 }
@@ -3280,6 +4588,9 @@ impl App {
                 self.open_store_detail(game)
             }
             Message::StoreDetailLoaded { appid, result } => {
+                if let Ok(info) = &result {
+                    self.cache_store_info(&appid, info.clone());
+                }
                 let Some(detail) = self.store.detail.as_mut() else {
                     return Task::none();
                 };
@@ -3288,11 +4599,28 @@ impl App {
                 }
                 match result {
                     Ok(info) => {
-                        let urls = info.image_urls();
+                        let mut urls = info.image_urls();
+                        urls.extend(info.description_image_urls());
+                        let about = info.about.clone();
+                        let sources = info.movies.first().map(|movie| media::TrailerSources {
+                            hls: movie.hls.clone(),
+                            mp4: movie.mp4.clone(),
+                            webm: movie.webm.clone(),
+                        });
                         detail.info = Some(info);
                         detail.status = LoadStatus::Ready;
                         detail.error = None;
-                        self.cover_tasks(urls)
+                        self.gallery_trailer = sources.is_some();
+                        self.register_description_videos(about.as_deref());
+                        let covers = self.cover_tasks(urls);
+                        let playback = match sources {
+                            Some(sources) => match self.media.open(&sources) {
+                                Ok(()) => Task::none(),
+                                Err(error) => Task::done(Message::MediaError(error)),
+                            },
+                            None => Task::none(),
+                        };
+                        Task::batch([covers, playback, views::game_detail::scroll_to_top()])
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] loja (ficha): {error}");
@@ -3322,6 +4650,119 @@ impl App {
                         detail.install_status = LoadStatus::Error(error.clone());
                         detail.install_error = Some(error);
                     }
+                }
+                Task::none()
+            }
+            Message::StoreSourceOffersLoaded { appid, generation, cached_only, result } => {
+                let Some(detail) = self.store.detail.as_mut().filter(|detail| {
+                    detail.game.appid == appid && detail.downloads.generation == generation
+                }) else { return Task::none() };
+                if cached_only && detail.downloads.status != LoadStatus::Loading {
+                    return Task::none();
+                }
+                match result {
+                    Ok(mut data) => {
+                        let selection = detail.downloads.data.offers.get(detail.downloads.selected_offer)
+                            .map(|offer| (offer.reference.clone(), offer.uris.get(detail.downloads.selected_uri).cloned()));
+                        if cached_only { data.unavailable_sources.clear(); }
+                        detail.downloads.data = data;
+                        if !cached_only { detail.downloads.status = LoadStatus::Ready; }
+                        detail.downloads.selected_offer = 0;
+                        detail.downloads.selected_uri = 0;
+                        if let Some((reference, uri)) = selection {
+                            if let Some(index) = detail.downloads.data.offers.iter().position(|offer| offer.reference == reference) {
+                                detail.downloads.selected_offer = index;
+                                if let Some(uri) = uri {
+                                    detail.downloads.selected_uri = detail.downloads.data.offers[index].uris.iter().position(|candidate| candidate == &uri).unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        detail.downloads.status = LoadStatus::Error(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreSourcesRetry => self.store_source_offers_task(),
+            Message::StoreDownloadRequested => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    if !detail.install_busy {
+                        detail.downloads.open = true;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreDownloadClosed => {
+                if let Some(detail) = self.store.detail.as_mut() {
+                    if !detail.install_busy && !detail.downloads.pick_busy {
+                        detail.downloads.open = false;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreDownloadKey(event) => {
+                if matches!(event, keyboard::Event::KeyPressed { key: keyboard::Key::Named(keyboard::key::Named::Escape), .. }) {
+                    return self.update(Message::StoreDownloadClosed);
+                }
+                Task::none()
+            }
+            Message::StoreSourceSelected(reference) => {
+                if let Some(detail) = self.store.detail.as_mut().filter(|detail| !detail.install_busy) {
+                    if let Some(index) = detail.downloads.data.offers.iter().position(|offer| offer.reference == reference) {
+                        detail.downloads.selected_offer = index;
+                        detail.downloads.selected_uri = 0;
+                        detail.downloads.error = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreSourceUriSelected(index) => {
+                if let Some(detail) = self.store.detail.as_mut().filter(|detail| !detail.install_busy) {
+                    if detail.downloads.data.offers.get(detail.downloads.selected_offer).is_some_and(|offer| index < offer.uris.len()) {
+                        detail.downloads.selected_uri = index;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreDownloadPathChanged(path) => {
+                if let Some(detail) = self.store.detail.as_mut().filter(|detail| !detail.install_busy) {
+                    detail.downloads.path = path;
+                }
+                Task::none()
+            }
+            Message::StoreSourceDownloadConfirmed => {
+                let Some(detail) = self.store.detail.as_mut() else { return Task::none() };
+                if detail.install_busy || detail.downloads.pick_busy || !detail.downloads.open {
+                    return Task::none();
+                }
+                let Some(offer) = detail.downloads.data.offers.get(detail.downloads.selected_offer) else { return Task::none() };
+                let Some(payload) = crate::backend::source_download_payload(&detail.game, offer, detail.downloads.selected_uri, &detail.downloads.path) else {
+                    return Task::none();
+                };
+                detail.install_busy = true;
+                detail.downloads.error = None;
+                detail.install_message = None;
+                let appid = detail.game.appid.clone();
+                let generation = detail.downloads.generation;
+                let backend = self.backend.clone();
+                Task::perform(
+                    async move { backend.download_source_offer(payload).await },
+                    move |result| Message::StoreSourceDownloadDone { appid, generation, result },
+                )
+            }
+            Message::StoreSourceDownloadDone { appid, generation, result } => {
+                let Some(detail) = self.store.detail.as_mut().filter(|detail| {
+                    detail.game.appid == appid && detail.downloads.generation == generation
+                }) else { return Task::none() };
+                detail.install_busy = false;
+                match result {
+                    Ok(()) => {
+                        detail.downloads.open = false;
+                        detail.downloads.error = None;
+                        detail.install_message = Some(self.i18n.t_args("native.store.queued", &[("title", &detail.game.title)]));
+                    }
+                    Err(error) => detail.downloads.error = Some(error),
                 }
                 Task::none()
             }
@@ -3377,6 +4818,131 @@ impl App {
                     if index < detail.libraries.len() {
                         detail.selected_library = index;
                         detail.install_message = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreAddToLibrary => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.install_busy {
+                    return Task::none();
+                }
+                let game = detail.game.clone();
+                let info = detail.install.clone();
+                detail.install_busy = true;
+                detail.install_error = None;
+                detail.install_message = None;
+                let backend = self.backend.clone();
+                let appid = game.appid.clone();
+                Task::perform(
+                    async move {
+                        // Salva no Arcadia antes de iniciar a integração Steam.
+                        let games = backend.add_store_game_to_library(&game).await?;
+                        let integration = backend.library_integration_enabled().await;
+                        let mut injection_failed = None;
+                        if integration {
+                            match backend.add_store_game_to_steam(&game, info.as_ref()).await {
+                                Ok(()) => {}
+                                Err(Some(plugin)) if plugin == "slssteam" => {}
+                                Err(reason) => {
+                                    injection_failed = Some(reason.unwrap_or_default());
+                                }
+                            }
+                        }
+                        Ok((games, injection_failed))
+                    },
+                    move |result| match result {
+                        Ok((games, injection_failed)) => Message::StoreAddedToLibrary {
+                            appid,
+                            result: Ok(games),
+                            injection_failed,
+                        },
+                        Err(error) => Message::StoreAddedToLibrary {
+                            appid,
+                            result: Err(error),
+                            injection_failed: None,
+                        },
+                    },
+                )
+            }
+            Message::StoreRemoveFromLibrary => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.install_busy {
+                    return Task::none();
+                }
+                let appid = detail.game.appid.clone();
+                detail.install_busy = true;
+                detail.install_error = None;
+                detail.install_message = None;
+                let backend = self.backend.clone();
+                let request = appid.clone();
+                Task::perform(
+                    async move { backend.remove_store_game_from_library(request).await },
+                    move |result| Message::StoreRemovedFromLibrary { appid, result },
+                )
+            }
+            Message::StoreRemovedFromLibrary { appid, result } => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.appid != appid {
+                    return Task::none();
+                }
+                detail.install_busy = false;
+                match result {
+                    Ok(games) => {
+                        let title = detail.game.title.clone();
+                        eprintln!("[arcadia-native] loja: {title} saiu da biblioteca");
+                        self.library.ready(games);
+                        detail.install_error = None;
+                        detail.install_message = Some(self.i18n.t_args(
+                            "native.store.removed",
+                            &[("title", &title)],
+                        ));
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (removeFromLibrary): {error}");
+                        detail.install_error = Some(error);
+                    }
+                }
+                Task::none()
+            }
+            Message::StoreAddedToLibrary {
+                appid,
+                result,
+                injection_failed,
+            } => {
+                let Some(detail) = self.store.detail.as_mut() else {
+                    return Task::none();
+                };
+                if detail.game.appid != appid {
+                    return Task::none();
+                }
+                detail.install_busy = false;
+                match result {
+                    Ok(games) => {
+                        let title = detail.game.title.clone();
+                        eprintln!("[arcadia-native] loja: {title} entrou na biblioteca");
+                        self.library.ready(games);
+                        detail.install_error = None;
+                        detail.install_message = Some(match injection_failed {
+                            Some(reason) => self.i18n.t_args(
+                                "store.adicionado_sem_injecao",
+                                &[("titulo", &title), ("motivo", &reason)],
+                            ),
+                            None => self.i18n.t_args(
+                                "store.adicionado_biblioteca",
+                                &[("titulo", &title)],
+                            ),
+                        });
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] loja (addToLibrary): {error}");
+                        detail.install_error = Some(error);
                     }
                 }
                 Task::none()
@@ -3442,15 +5008,16 @@ impl App {
                 detail.install_busy = false;
                 match result {
                     Ok(()) => {
+                        detail.downloads.open = false;
                         eprintln!(
                             "[arcadia-native] loja: {} enfileirado em store:install",
                             detail.game.title
                         );
                         detail.install_error = None;
-                        detail.install_message = Some(self.i18n.t_args(
-                            "native.store.queued",
-                            &[("title", &detail.game.title)],
-                        ));
+                        detail.install_message = Some(
+                            self.i18n
+                                .t_args("native.store.queued", &[("title", &detail.game.title)]),
+                        );
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] loja (install): {error}");
@@ -3476,6 +5043,24 @@ impl App {
                 self.retro.applied_query.clear();
                 self.load_retro_page(0)
             }
+            Message::RetroPageCached { generation, offset, payload, page } => {
+                if generation != self.retro.generation {
+                    return Task::none();
+                }
+                let covers = match page {
+                    Some(mut page) if !self.retro.showing_cached_page => {
+                        page.offset = offset;
+                        self.retro.showing_cached_page = true;
+                        self.apply_retro_page(page)
+                    }
+                    _ => Task::none(),
+                };
+                let backend = self.backend.clone();
+                Task::batch([covers, Task::perform(
+                    async move { backend.load_retro_page(payload).await },
+                    move |result| Message::RetroPageLoaded { generation, offset, result },
+                )])
+            }
             Message::RetroPageLoaded {
                 generation,
                 offset,
@@ -3485,30 +5070,33 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(page) => {
-                        let urls: Vec<String> =
-                            page.games.iter().flat_map(RetroGame::image_urls).collect();
-                        eprintln!(
-                            "[arcadia-native] retro: {} jogo(s), offset {}",
-                            page.games.len(),
-                            page.offset
-                        );
-                        self.retro.offset = offset;
-                        self.retro.games = page.games;
-                        self.retro.sources = page.sources;
-                        self.retro.total = page.total;
-                        self.retro.total_offers = page.total_offers;
-                        self.retro.has_more = page.has_more;
-                        self.retro.status = LoadStatus::Ready;
-                        self.retro.error = None;
-                        self.cover_tasks(urls)
+                    Ok(mut page) => {
+                        page.offset = offset;
+                        self.apply_retro_page(page)
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] retro: {error}");
+                        if self.retro.showing_cached_page {
+                            self.retro.status = LoadStatus::Ready;
+                            return Task::none();
+                        }
                         self.retro.status = LoadStatus::Error(error.clone());
                         self.retro.error = Some(error);
                         Task::none()
                     }
+                }
+            }
+            Message::RetroLibraryArtLoaded { id, art } => {
+                self.retro_library_art.insert(id.clone(), art.clone());
+                let Some(game) = self.library.game_mut(&id) else { return Task::none() };
+                if game.cover_url.is_some() {
+                    return Task::none();
+                }
+                if let Some((url, fallback)) = art {
+                    game.cover_url = Some(url.clone());
+                    self.retro_cover_tasks([(url, fallback)])
+                } else {
+                    Task::none()
                 }
             }
             Message::RetroPrevPage => {
@@ -3620,6 +5208,17 @@ impl App {
                 self.sidebar_games_open = !self.sidebar_games_open;
                 Task::none()
             }
+            Message::ToggleProfileMenu => {
+                self.profile_menu_open = !self.profile_menu_open;
+                Task::none()
+            }
+            Message::OpenSettingsFromProfile => {
+                // Espelha o `onConfigSub("gerais"); onView("config")` do web:
+                // menu fecha, aba reseta para Gerais e a tela muda de vez.
+                self.profile_menu_open = false;
+                self.settings.tab = SettingsTab::General;
+                self.update(Message::Navigate(Section::Settings))
+            }
             Message::WindowReady(id) => {
                 self.window = id;
                 match id {
@@ -3635,6 +5234,7 @@ impl App {
             Message::WindowClose => self.window_task(window::close),
             Message::WindowEvent(event) => self.window_event(event),
             Message::WindowResized(size) => {
+                self.game_menu = None;
                 self.window_size = size;
                 if matches!(self.screen, Screen::BigPicture) {
                     self.console_rail_scroll()
@@ -3648,16 +5248,57 @@ impl App {
             Message::ConsoleKey(event) => self.console_key(event),
             Message::ConsoleSelectGame(index) => self.console_select_game(index),
             Message::ConsoleSelectTab(tab) => self.console_select_tab(tab),
+            Message::SquareArtLoaded(Ok(artes)) => {
+                let total = artes.len();
+                self.library.square_art.extend(artes);
+                eprintln!(
+                    "[arcadia-native] arte quadrada: {total} jogo(s) resolvido(s)"
+                );
+                // As URLs acabaram de entrar: pede os bytes ao cache de capas,
+                // senão o card não tem o que desenhar.
+                let urls: Vec<String> = self
+                    .library
+                    .square_art
+                    .values()
+                    .filter(|url| self.covers.size(Some(url)).is_none())
+                    .cloned()
+                    .collect();
+                self.cover_tasks(urls)
+            }
+            Message::SquareArtLoaded(Err(error)) => {
+                // Sem arte quadrada o card continua na capa vertical — é o
+                // fallback desenhado, não uma tela vazia. O log fica para
+                // saber se a falha foi de rede ou de chave ausente.
+                eprintln!("[arcadia-native] arte quadrada falhou: {error}");
+                Task::none()
+            }
+            Message::ConsoleFocusRail => {
+                // Clique num chip de filtro devolve o foco ao trilho sem sair
+                // do modo console; o índice atual é preservado.
+                self.big_picture.focus_rail(self.big_picture.active_index());
+                Task::none()
+            }
             Message::ConsolePlay => self.console_action(ACTION_PLAY),
             Message::ConsoleTrailer => self.console_action(ACTION_TRAILER),
             Message::ConsoleFavorite => self.console_action(ACTION_FAVORITE),
             Message::ConsoleMore => self.console_action(ACTION_MORE),
+            Message::ConsoleOverviewTab(tab) => {
+                self.big_picture.select_overview_tab(tab);
+                Task::none()
+            }
+            Message::ConsoleOverviewMedia(index) => self.console_open_overview_media(index),
+            Message::ConsoleOverviewAdvance => {
+                self.big_picture.focus_next_overview_media();
+                views::big_picture_detail::gallery_scroll_task(self.big_picture.overview_media(), self.window_size.width)
+            }
+            Message::ConsoleOverviewClosePreview => {
+                self.big_picture.close_overview_preview();
+                let _ = self.media.pause();
+                Task::none()
+            }
             Message::ConsoleCloseOverview => {
                 self.big_picture.close_overview();
-                Task::batch([
-                    self.console_sync_media(),
-                    self.ensure_console_news(),
-                ])
+                Task::batch([self.console_sync_media(), self.ensure_console_news()])
             }
             Message::ConsoleMenuAction(index) => {
                 let games = console_shelf_for(&self.library, self.big_picture.tab());
@@ -3676,17 +5317,88 @@ impl App {
                 self.console_store_focus_task(true)
             }
             Message::ConsoleStoreOpenDetail(game) => {
+                let index = self.console_store_games().iter().position(|item| item.appid == game.appid);
+                if let Some(index) = index { self.big_picture.focus_store_game(index); }
                 if !self.big_picture.open_store_detail() {
                     return Task::none();
                 }
                 self.open_store_detail(game)
             }
+            Message::ConsoleStoreCategory(index) => {
+                if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::Stores || index >= 9 { return Task::none(); }
+                self.console_storefront.category = index;
+                self.console_storefront.catalog = false;
+                self.store.search = None;
+                self.store.query.clear();
+                self.big_picture.focus_store_category(index);
+                self.sync_console_store();
+                let prefetch = self.prefetch_store_front();
+                let genres = self.prefetch_store_genres();
+                let home = if self.home.games.is_empty() && matches!(self.home.status, LoadStatus::Idle) { self.load_section(Section::Home, false) } else { Task::none() };
+                Task::batch([prefetch, genres, home, views::big_picture_store::scroll_task(0, self.window_size.width, true)])
+            }
+            Message::ConsoleStoreHeroStep(delta) => {
+                if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::Stores { return Task::none(); }
+                let count = views::big_picture_store::hero_games(self).len();
+                self.console_storefront.step_hero(delta, count);
+                self.big_picture.focus_store_hero();
+                let game = views::big_picture_store::hero_games(self).get(self.console_storefront.hero).copied().cloned();
+                match game { Some(game) => self.prefetch_store(game), None => Task::none() }
+            }
+            Message::ConsoleStoreHeroOpen => {
+                if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::Stores { return Task::none(); }
+                let game = views::big_picture_store::hero_games(self).get(self.console_storefront.hero).copied().cloned();
+                match game { Some(game) => self.update(Message::ConsoleStoreOpenDetail(game)), None => Task::none() }
+            }
+            Message::ConsoleStoreCatalog => {
+                if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::Stores { return Task::none(); }
+                self.console_storefront.catalog = true;
+                self.store.search = None;
+                self.store.query.clear();
+                self.sync_console_store();
+                self.big_picture.focus_store_game(0);
+                views::big_picture_store::scroll_task(0, self.window_size.width, false)
+            }
+            Message::ConsoleStoreFavorite(id) => self.toggle_console_favorite(id),
+            Message::ConsoleStorefrontRetry => {
+                if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab()!=ConsoleTab::Stores { return Task::none(); }
+                self.console_storefront.status=LoadStatus::Idle;
+                self.ensure_console_store()
+            }
+            Message::ConsoleStorefrontLoaded { language, result } => {
+                if self.console_storefront.language != Some(language) { return Task::none(); }
+                match result {
+                    Ok(feed) => {
+                        let urls = feed.specials.iter().chain(&feed.releases).chain(&feed.popular)
+                            .flat_map(StoreGame::image_urls).collect();
+                        eprintln!("[arcadia-native] vitrine pronta: {} ofertas, {} lançamentos, {} mais vendidos",feed.specials.len(),feed.releases.len(),feed.popular.len());
+                        self.console_storefront.feed = feed;
+                        self.console_storefront.hero = 0;
+                        self.console_storefront.status = LoadStatus::Ready;
+                        self.console_storefront.loaded_at = Some(Instant::now());
+                        self.sync_console_store();
+                        let covers = self.cover_tasks(urls);
+                        let ready = self.ensure_console_store();
+                        let featured = views::big_picture_store::hero_games(self).first().copied().cloned();
+                        let prefetch = featured.map(|game| self.prefetch_store(game)).unwrap_or_else(Task::none);
+                        Task::batch([covers, ready, prefetch])
+                    }
+                    Err(error) => {
+                        eprintln!("[arcadia-native] vitrine: {error}");
+                        self.console_storefront.status = LoadStatus::Error(error);
+                        Task::none()
+                    }
+                }
+            }
             Message::ConsoleStoreCloseDetail => {
                 self.big_picture.close_store_detail();
                 self.store.detail = None;
+                self.animated_cards.clear_cards();
+                self.card_videos.clear();
                 Task::none()
             }
             Message::ConsoleMediaLoaded { id, media } => {
+                self.cache_game_media(&id, media.clone());
                 if !matches!(self.screen, Screen::BigPicture)
                     || !self.big_picture.overview_open()
                     || self.console_media_id.as_deref() != Some(id.as_str())
@@ -3702,23 +5414,22 @@ impl App {
                         .map(|notice| format!(" — {notice}"))
                         .unwrap_or_default()
                 );
+                let urls: Vec<String> = media.overview.background.iter().cloned().chain(media.movies.iter().filter_map(|movie| movie.thumb.clone()))
+                    .chain(media.screenshots.iter().filter_map(|shot| shot.thumb_or_full().map(str::to_string)))
+                    .collect();
+                self.big_picture.sync_overview_media(usize::from(!media.movies.is_empty()) + media.screenshots.len());
                 self.game_media = Some(media);
-                let sources = self
-                    .game_media
-                    .as_ref()
-                    .and_then(|game_media| game_media.movies.first())
-                    .map(|movie| media::TrailerSources {
-                        hls: movie.hls.clone(),
-                        mp4: movie.mp4.clone(),
-                        webm: movie.webm.clone(),
-                    });
-                match sources {
+                let covers = self.cover_tasks(urls);
+                let sources = self.game_media.as_ref().and_then(|data| data.movies.first())
+                    .map(|movie| media::TrailerSources { hls: movie.hls.clone(), mp4: movie.mp4.clone(), webm: movie.webm.clone() });
+                let playback = match sources {
                     Some(sources) => match self.media.open(&sources) {
                         Ok(()) => Task::none(),
                         Err(error) => Task::done(Message::MediaError(error)),
                     },
                     None => Task::none(),
-                }
+                };
+                Task::batch([covers, playback])
             }
             Message::ConsoleFavoriteDone { id, result } => {
                 self.favorite_busy = None;
@@ -3773,8 +5484,6 @@ impl App {
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] notícias: {error}");
-                        self.big_picture.sync_news(0);
-                        self.console_news.items.clear();
                         self.console_news.status = LoadStatus::Error(error.clone());
                         self.console_news.error = Some(error);
                     }
@@ -3787,7 +5496,11 @@ impl App {
             }
             Message::ConsoleNewsReload => self.load_console_news(),
 
-            Message::MediaLoaded { game_id, media: game_media } => {
+            Message::MediaLoaded {
+                game_id,
+                media: game_media,
+            } => {
+                self.cache_game_media(&game_id, game_media.clone());
                 // Resposta do trailer do desktop não pode abrir mídia por cima
                 // do painel do console; o console usa `ConsoleMediaLoaded`.
                 if matches!(self.screen, Screen::BigPicture) {
@@ -3808,11 +5521,22 @@ impl App {
                         .map(|notice| format!(" — {notice}"))
                         .unwrap_or_default()
                 );
+                // Ficha nova: os cards animados da anterior não servem mais.
+                // A mídia do perfil continua — fechar a ficha do jogo não
+                // fecha o perfil.
+                self.animated_cards.clear_cards();
+                self.card_videos.clear();
                 self.game_media = Some(game_media);
                 self.selected_screenshot = 0;
+                self.gallery_trailer = true;
 
                 let mut urls = Vec::new();
                 if let Some(media) = self.game_media.as_ref() {
+                    for movie in &media.movies {
+                        if let Some(url) = movie.thumb.as_deref() {
+                            urls.push(url.to_string());
+                        }
+                    }
                     for screenshot in &media.screenshots {
                         if let Some(url) = screenshot.thumb_or_full() {
                             urls.push(url.to_string());
@@ -3826,6 +5550,14 @@ impl App {
                         urls.push(full.to_string());
                     }
                 }
+                let about = self
+                    .game_media
+                    .as_ref()
+                    .and_then(|media| media.about.clone());
+                if let Some(raw) = about.as_deref() {
+                    urls.extend(crate::rich_text::description_images(raw));
+                }
+                self.register_description_videos(about.as_deref());
                 let images = self.cover_tasks(urls);
 
                 // Um trailer local escolhido pelo usuário tem prioridade sobre
@@ -3850,7 +5582,7 @@ impl App {
                     },
                     None => Task::none(),
                 };
-                Task::batch([images, playback])
+                Task::batch([images, playback, views::game_detail::scroll_to_top()])
             }
             Message::AchievementsLoaded { game_id, result } => {
                 let mut icons = Vec::new();
@@ -3917,6 +5649,8 @@ impl App {
             }
             Message::SelectScreenshot(index) => {
                 self.selected_screenshot = index;
+                self.gallery_trailer = false;
+                let _ = self.media.pause();
                 let url = self
                     .game_media
                     .as_ref()
@@ -3928,6 +5662,32 @@ impl App {
                     None => Task::none(),
                 }
             }
+            Message::SelectTrailer => {
+                self.gallery_trailer = true;
+                if self.media.is_active() && self.media.play().is_ok() {
+                    return Task::none();
+                }
+                let sources = self
+                    .game_media
+                    .as_ref()
+                    .and_then(|media| media.movies.first())
+                    .map(|movie| media::TrailerSources {
+                        hls: movie.hls.clone(),
+                        mp4: movie.mp4.clone(),
+                        webm: movie.webm.clone(),
+                    });
+                match sources {
+                    Some(sources) => match self.media.open(&sources) {
+                        Ok(()) => Task::none(),
+                        Err(error) => Task::done(Message::MediaError(error)),
+                    },
+                    None => Task::none(),
+                }
+            }
+            Message::RequirementsTabSelected(tab) => {
+                self.requirements_tab = tab;
+                Task::none()
+            }
             Message::ReloadGameData => {
                 let Some(game) = self.current_game().cloned() else {
                     return Task::none();
@@ -3936,6 +5696,8 @@ impl App {
                 self.media.clear();
                 self.game_media = None;
                 self.selected_screenshot = 0;
+                self.gallery_trailer = false;
+                self.requirements_tab = RequirementsTab::default();
                 self.reset_trailer_state();
                 let media = self.game_media_task(&game);
                 let panels = self.game_panels_task(&game);
@@ -4077,7 +5839,18 @@ impl App {
             Message::StopGame => self.request_stop(),
             Message::LaunchGameDone { id, result } => self.finish_launch(id, result),
             Message::StopGameDone(result) => self.finish_stop(result),
-            Message::LaunchEventsTick => self.drain_launch_events(),
+            Message::LaunchEventsTick => {
+                // O cache de capas é limitado; uma capa despejada que continua
+                // na tela volta à fila e é recarregada do disco no mesmo tick.
+                let reload = self.covers.take_misses();
+                let events = self.drain_launch_events();
+                let library = if self.library_dirty {
+                    self.light_library_refresh()
+                } else {
+                    Task::none()
+                };
+                Task::batch([events, library, self.cover_tasks(reload)])
+            }
             Message::OpenLaunchOptions(id) => self.open_launch_options(id),
             Message::CloseLaunchOptions => {
                 self.launch_options.open = false;
@@ -4243,6 +6016,10 @@ impl App {
                 }
                 Task::none()
             }
+            Message::LaunchOptionsAdvancedToggled => {
+                self.launch_options.toggle_advanced();
+                Task::none()
+            }
             Message::LaunchOptionsModeChanged(mode) => {
                 if let Some(value) = mode.as_deref() {
                     if !matches!(value, "steam" | "exe") {
@@ -4255,11 +6032,8 @@ impl App {
                             .as_ref()
                             .map_or(true, |settings| settings.exe_path.trim().is_empty())
                     {
-                        self.launch_options.error = Some(
-                            self.i18n
-                                .t("native.game.exe_required_mode")
-                                .to_string(),
-                        );
+                        self.launch_options.error =
+                            Some(self.i18n.t("native.game.exe_required_mode").to_string());
                         return Task::none();
                     }
                 }
@@ -4302,6 +6076,7 @@ impl App {
                             .set_lang(Lang::from_code(&config.language).unwrap_or_default());
                         self.launch.minimize_on_launch = config.minimize_on_game_launch;
                         self.big_picture.set_motion(!config.no_anim);
+                        self.launch_reduce_motion = config.no_anim;
                         self.notifications_enabled = config.notifications_enabled;
                         self.hide_changelog_on_start = config.hide_changelog_on_start;
                         if !config.notifications_enabled {
@@ -4371,7 +6146,13 @@ impl App {
                 }
                 Task::none()
             }
-            Message::AccountStatusLoaded(result) => match result {
+            Message::AccountStatusLoaded(result) => {
+                // Respostas/edições em voo pertencem à conta anterior.
+                self.game_menu = None;
+                self.game_edit = None;
+                self.game_metadata = None;
+                self.library_overrides = LibraryOverrideState::default();
+                match result {
                 Ok(Some(session)) => {
                     self.account.apply_session(session);
                     let community = self.sync_community_viewer();
@@ -4392,6 +6173,8 @@ impl App {
                     self.account.signed_out();
                     let community = self.sync_community_viewer();
                     let mut tasks = vec![community];
+                    // Deslogado: o avatar vem do perfil local (web: `profile.avatar`).
+                    tasks.push(self.sync_fallback_avatar());
                     if !self.account.auto_auth_shown {
                         self.account.auto_auth_shown = true;
                         self.account.open_auth(false);
@@ -4404,6 +6187,7 @@ impl App {
                     self.account.status = AccountStatus::Error;
                     self.account.error = Some(account_error_text(&self.i18n, &error));
                     let mut tasks = Vec::new();
+                    tasks.push(self.sync_fallback_avatar());
                     if !self.account.auto_auth_shown {
                         self.account.auto_auth_shown = true;
                         self.account.open_auth(false);
@@ -4411,6 +6195,7 @@ impl App {
                         tasks.push(self.auth_focus_task());
                     }
                     Task::batch(tasks)
+                }
                 }
             },
             Message::AccountProfileLoaded(result) => {
@@ -4420,20 +6205,56 @@ impl App {
                 match result {
                     Ok(profile) => {
                         let avatar_url = profile.avatar_url.clone();
+                        let mut still_urls: Vec<String> = [&profile.banner_url, &profile.background_url]
+                            .into_iter()
+                            .flatten()
+                            .filter(|url| !url.trim().is_empty())
+                            .cloned()
+                            .collect();
+                        still_urls.dedup();
                         self.account.profile_ready(profile);
-                        match avatar_url {
-                            Some(url) if self.account.avatar_url.as_deref() != Some(url.as_str()) => {
+                        // Banner e fundo têm fetch estático próprio; o do
+                        // avatar é o `avatar:load` mais abaixo.
+                        let banner_task = if still_urls.is_empty() {
+                            Task::none()
+                        } else {
+                            self.cover_tasks(still_urls)
+                        };
+                        let avatar_task = match avatar_url {
+                            Some(url)
+                                if self.account.avatar_url.as_deref() != Some(url.as_str()) =>
+                            {
                                 self.account.avatar_url = Some(url.clone());
                                 self.account.avatar = None;
                                 self.avatar_load_task(url)
                             }
                             Some(_) => Task::none(),
                             None => {
+                                // Perfil sem avatar utilizável (campo vazio ou
+                                // esquema que o `avatar:load` não abre, como um
+                                // `data:` antigo gravado no banco). Sem este log
+                                // o "letra no lugar da foto" era invisível.
+                                if self.account.profile.as_ref().is_some_and(|profile| {
+                                    profile
+                                        .avatar_url
+                                        .as_deref()
+                                        .is_some_and(|url| !url.trim().is_empty())
+                                }) {
+                                    eprintln!(
+                                        "[arcadia-native] avatar_url presente mas não utilizável pelo avatar:load"
+                                    );
+                                }
                                 self.account.avatar_url = None;
                                 self.account.avatar = None;
-                                Task::none()
+                                // Mesmo contrato do web: sem avatar da conta, o
+                                // `profile.avatar` local assume (Sidebar.tsx:101).
+                                self.fallback_avatar_task()
                             }
-                        }
+                        };
+                        // A URL da conta precisa estar definida antes de agendar
+                        // a animação; não espere o download estático terminar.
+                        let media_task = self.ensure_profile_media();
+                        Task::batch([banner_task, avatar_task, media_task])
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] perfil da conta: {error}");
@@ -4443,14 +6264,52 @@ impl App {
                     }
                 }
             }
+            Message::ProfileStatsLoaded(result) => {
+                match result {
+                    Ok(stats) => self.account.stats = Some(stats),
+                    Err(error) => eprintln!("[arcadia-native] profile:stats falhou: {error}"),
+                }
+                Task::none()
+            }
+            Message::AnimatedMediaLoaded { url, media } => {
+                match media {
+                    Some(media) => self.animated_cards.insert_decoded(
+                        &url,
+                        media,
+                        crate::animated_cards::MediaGroup::Profile,
+                    ),
+                    None => {
+                        self.animated_cards.clear_in_flight(&url);
+                        eprintln!(
+                            "[arcadia-native] mídia animada: download falhou para {url}"
+                        );
+                    }
+                }
+                Task::none()
+            }
             Message::ReloadAccount => {
                 self.account.status = AccountStatus::Loading;
                 self.account.error = None;
                 self.account_status_task()
             }
             Message::AccountAvatarLoaded { url, handle } => {
-                if self.account.avatar_url.as_deref() == Some(url.as_str()) {
+                // Aceita tanto o avatar da conta quanto o fallback local: quem
+                // atualiza é a comparação da URL.
+                //
+                // Não zera `fallback_avatar_url` quando a conta pinta a mesma
+                // URL: o contrato do Sidebar.tsx é o local continuar de reserva
+                // (`contaPerfil?.avatar_url || profile.avatar`). Zerar aqui
+                // fazia o próximo `sync_fallback_avatar` não achar nada e a
+                // sidebar cair na inicial depois de um reload.
+                let is_account = self.account.avatar_url.as_deref() == Some(url.as_str());
+                let is_fallback =
+                    self.account.fallback_avatar_url.as_deref() == Some(url.as_str());
+                if is_account || is_fallback {
                     self.account.avatar = handle;
+                    // A sidebar pinta o avatar o tempo todo, não só na tela de
+                    // perfil: o GIF precisa entrar no pool assim que a URL é
+                    // conhecida, senão fica no primeiro quadro para sempre.
+                    return self.ensure_profile_media();
                 }
                 Task::none()
             }
@@ -4494,14 +6353,13 @@ impl App {
                         self.account.auth.error = None;
                         self.account.error = None;
                         self.account.notice = success.username_real.map(|username| {
-                            self.i18n.t_args(
-                                "native.account.created",
-                                &[("username", &username)],
-                            )
+                            self.i18n
+                                .t_args("native.account.created", &[("username", &username)])
                         });
                         self.account.status = AccountStatus::Loading;
                         // A conta mudou o escopo da biblioteca e dos amigos.
                         self.friends = FriendsState::default();
+                        self.friend_media.clear();
                         self.account_status_task()
                     }
                     Err(error) => {
@@ -4516,6 +6374,7 @@ impl App {
                 if !self.account.is_signed_in() || self.account.status == AccountStatus::Loading {
                     return Task::none();
                 }
+                self.profile_menu_open = false;
                 self.account.status = AccountStatus::Loading;
                 self.account.error = None;
                 let backend = self.backend.clone();
@@ -4530,32 +6389,70 @@ impl App {
                     eprintln!("[arcadia-native] sair da conta: {error}");
                 }
                 self.account.signed_out();
+                // Sem sessão o perfil local assume o avatar, como no web.
+                let fallback = self.sync_fallback_avatar();
                 let community = self.sync_community_viewer();
                 self.account.auto_auth_shown = true;
                 self.account.open_auth(true);
                 self.account.auth.error = error.map(|error| account_error_text(&self.i18n, &error));
                 self.friends = FriendsState::default();
                 self.friends.status = LoadStatus::Ready;
+                self.friend_media.clear();
                 self.friends.data = Some(FriendsLoad::NotLoggedIn);
                 if matches!(self.screen, Screen::Profile) {
+                    self.page_entered = Instant::now();
+                    self.page_direction = -1.0;
                     self.screen = Screen::Library;
                 }
-                Task::batch([self.auth_focus_task(), community])
+                Task::batch([self.auth_focus_task(), community, fallback])
             }
             Message::OpenProfile => {
+                self.profile_menu_open = false;
                 if self.account.is_signed_in() {
+                    self.page_entered = Instant::now();
+                    self.page_direction = 1.0;
                     self.screen = Screen::Profile;
+                    // O card de Estatísticas depende de `profile:stats`; a web
+                    // busca no `open` da `ProfilePage`. Dispara junto com a
+                    // troca de tela para o card já pintar com números.
+                    let mut tasks = vec![self.profile_stats_task()];
+
+                    // Avatar/banner/fundo: decode em worker; o pool só toca
+                    // os quadros prontos, sem bloquear a troca de tela.
+                    tasks.push(self.ensure_profile_media());
+
+                    // Banner e fundo: a `ProfilePage.tsx` pinta `profile.banner`
+                    // e `profile.background`; ambos vêm do servidor e precisam
+                    // do fetch estático para ter algo antes do primeiro frame
+                    // animado. O avatar já tem o `avatar:load` da sidebar.
+                    let mut still_urls = Vec::new();
+                    if let Some(profile) = self.account.profile.as_ref() {
+                        for url in [profile.banner_url.as_deref(), profile.background_url.as_deref()]
+                            .into_iter()
+                            .flatten()
+                            .filter(|url| !url.trim().is_empty())
+                        {
+                            still_urls.push(url.to_string());
+                        }
+                    }
+                    if !still_urls.is_empty() {
+                        tasks.push(self.cover_tasks(still_urls));
+                    }
+
+                    return Task::batch(tasks);
                 } else {
                     self.account.open_auth(false);
                     return self.auth_focus_task();
                 }
-                Task::none()
             }
             Message::ProfileEditToggled => {
                 self.account.editor.editing = !self.account.editor.editing;
                 self.account.editor.error = None;
                 self.account.editor.notice = None;
                 if self.account.editor.editing {
+                    // Abrir direto em "Geral" é o que o web faz: o botão
+                    // "Editar perfil" sempre entra pela primeira aba.
+                    self.account.editor.tab = ProfileEditTab::General;
                     if let Some(profile) = self.account.profile.as_ref() {
                         let avatar_path = self.account.editor.avatar_path.clone();
                         let pick_busy = self.account.editor.pick_busy.clone();
@@ -4569,14 +6466,93 @@ impl App {
                         editor.uploading_avatar = uploading_avatar;
                         editor.uploading_background = uploading_background;
                         editor.uploading_banner = uploading_banner;
+                        // O painel de prévia do editor pinta banner e fundo;
+                        // sem o fetch aqui a primeira pintura fica vazia.
+                        let urls: Vec<String> = [
+                            editor.background_url.clone(),
+                            editor.banner_url.clone(),
+                        ]
+                        .into_iter()
+                        .filter(|url| !url.trim().is_empty())
+                        .collect();
                         self.account.editor = editor;
+                        return self.cover_tasks(urls);
                     }
+                }
+                Task::none()
+            }
+            Message::ProfileEditTabChanged(tab) => {
+                self.account.editor.tab = tab;
+                self.account.editor.error = None;
+                Task::none()
+            }
+            Message::ProfileEditKey(event) => {
+                let fechar = matches!(
+                    event,
+                    keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                        ..
+                    }
+                );
+                if fechar && self.account.editor.pick_busy.is_none() {
+                    self.account.editor.editing = false;
+                    self.account.editor.error = None;
+                    self.account.editor.notice = None;
                 }
                 Task::none()
             }
             Message::CheckUpdates(manual) => self.start_update_check(manual),
             Message::UpdateCheckDone { manual, result } => {
-                self.finish_update_check(manual, result)
+                let was_open = self.update.dialog.is_some();
+                let task = self.finish_update_check(manual, result);
+                if !was_open && self.update.dialog.is_some() && self.window.is_some()
+                    && !matches!(self.screen, Screen::BigPicture) && !self.account.auth.open
+                {
+                    self.update.backdrop_generation = self.update.backdrop_generation.wrapping_add(1);
+                    self.update.backdrop_waiting = true;
+                }
+                task
+            }
+            Message::UpdateBackdropFrame => {
+                if self.update.backdrop_waiting && self.update.backdrop_capture_requested.is_none() {
+                    if let Some(id) = self.window {
+                        let generation = self.update.backdrop_generation;
+                        self.update.backdrop_capture_requested = Some(generation);
+                        return window::screenshot(id)
+                            .map(move |shot| Message::UpdateBackdropCaptured(generation, shot))
+                            .chain(Task::done(Message::UpdateBackdropFailed(generation)));
+                    }
+                    self.update.backdrop_waiting = false;
+                }
+                Task::none()
+            }
+            Message::UpdateBackdropCaptured(generation, shot) => {
+                if self.update.backdrop_capture_requested != Some(generation) {
+                    return Task::none();
+                }
+                self.update.backdrop_capture_requested = None;
+                if generation != self.update.backdrop_generation || !self.update.backdrop_waiting {
+                    return Task::none();
+                }
+                self.update.backdrop_waiting = false;
+                Task::perform(async move {
+                    tokio::task::spawn_blocking(move || blur_update_backdrop(shot)).await.ok().flatten()
+                }, move |handle| Message::UpdateBackdropBlurred(generation, handle))
+            }
+            Message::UpdateBackdropFailed(generation) => {
+                if self.update.backdrop_capture_requested == Some(generation) {
+                    self.update.backdrop_capture_requested = None;
+                    if generation == self.update.backdrop_generation {
+                        self.update.backdrop_waiting = false;
+                    }
+                }
+                Task::none()
+            }
+            Message::UpdateBackdropBlurred(generation, handle) => {
+                if generation == self.update.backdrop_generation && self.update.dialog.is_some() {
+                    self.update.backdrop = handle;
+                }
+                Task::none()
             }
             Message::UpdateDialogDismiss => self.dismiss_update_dialog(),
             Message::UpdateNoop => Task::none(),
@@ -4621,7 +6597,9 @@ impl App {
                 self.account.editor.saving = false;
                 match result {
                     Ok(()) => {
-                        self.account.editor.editing = false;
+                        // A página do editor continua aberta: salvar agora
+                        // confirma no lugar (aviso) e o usuário sai pelo
+                        // "Voltar ao perfil" — antes o form fechava sozinho.
                         self.account.editor.error = None;
                         self.account.editor.notice =
                             Some(self.i18n.t("native.profile.updated").to_string());
@@ -4658,6 +6636,43 @@ impl App {
                     }
                 }
             }
+            Message::ProfileImageCleared(kind) => self.clear_profile_image(kind),
+            Message::ProfileImageClearedDone { kind, result } => {
+                *self.account.editor.image_upload_busy_mut(kind) = false;
+                match result {
+                    Ok(()) => {
+                        *self.account.editor.image_url_mut(kind) = String::new();
+                        if let Some(profile) = self.account.profile.as_mut() {
+                            match kind {
+                                ProfileImageKind::Background => profile.background_url = None,
+                                ProfileImageKind::Banner => profile.banner_url = None,
+                            }
+                        }
+                        self.account.editor.error = None;
+                        self.account.editor.notice =
+                            Some(self.i18n.t("native.profile.image_removed").to_string());
+                    }
+                    Err(error) => {
+                        // O valor publicado continua sendo o do servidor.
+                        let atual = self
+                            .account
+                            .profile
+                            .as_ref()
+                            .map(|profile| match kind {
+                                ProfileImageKind::Background => {
+                                    profile.background_url.clone().unwrap_or_default()
+                                }
+                                ProfileImageKind::Banner => {
+                                    profile.banner_url.clone().unwrap_or_default()
+                                }
+                            })
+                            .unwrap_or_default();
+                        *self.account.editor.image_url_mut(kind) = atual;
+                        self.account.editor.error = Some(account_error_text(&self.i18n, &error));
+                    }
+                }
+                Task::none()
+            }
             Message::PickRequested(purpose) => self.request_pick(purpose),
             Message::PickDone { purpose, result } => self.finish_pick(purpose, result),
             Message::ProfileImageUploadDone { kind, result } => {
@@ -4668,17 +6683,19 @@ impl App {
                         if let Some(profile) = self.account.profile.as_mut() {
                             match kind {
                                 ProfileImageKind::Background => {
-                                    profile.background_url = Some(url);
+                                    profile.background_url = Some(url.clone());
                                 }
                                 ProfileImageKind::Banner => {
-                                    profile.banner_url = Some(url);
+                                    profile.banner_url = Some(url.clone());
                                 }
                             }
                         }
                         self.account.editor.error = None;
                         self.account.editor.notice =
                             Some(self.i18n.t(kind.success_key()).to_string());
-                        Task::none()
+                        // Prévia do editor: a URL recém-subida só aparece se
+                        // entrar no cache de imagens.
+                        return self.cover_tasks(vec![url]);
                     }
                     Err(error) => {
                         self.account.editor.error = Some(account_error_text(&self.i18n, &error));
@@ -4688,15 +6705,33 @@ impl App {
             }
             Message::FriendSearchChanged(query) => {
                 self.friends.search_query = query;
-                Task::none()
+                self.friends.search_requested=None;
+                self.friends.search_results=None;
+                if self.friends.search_query.trim().is_empty() {
+                    self.friends.search_results = None;
+                    self.friends.search_status = LoadStatus::Idle;
+                    return Task::none();
+                }
+                self.friends.search_status=LoadStatus::Loading;
+                let query=self.friends.search_query.trim().to_string();
+                Task::perform(async move {tokio::time::sleep(Duration::from_millis(300)).await;query},Message::FriendSearchReady)
             }
             Message::FriendSearchSubmitted => self.submit_friend_search(),
-            Message::FriendSearchDone(result) => {
+            Message::FriendSearchReady(query) => {
+                if self.friends.search_query.trim()!=query || self.friends.search_requested.as_deref()==Some(query.as_str()) {return Task::none();}
+                self.submit_friend_search()
+            }
+            Message::FriendSearchDone { query, result } => {
+                if !self.account.is_signed_in() || self.friends.search_query.trim()!=query {return Task::none();}
                 match result {
                     Ok(results) => {
+                        let urls = results.iter().filter_map(|friend|friend.avatar_url.clone()).collect();
                         self.friends.search_results = Some(results);
                         self.friends.search_status = LoadStatus::Ready;
                         self.friends.action_error = None;
+                        let covers=self.cover_tasks(urls);
+                        let avatars=self.ensure_friend_avatars();
+                        return Task::batch([covers,avatars]);
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] amigos (busca): {error}");
@@ -4724,6 +6759,7 @@ impl App {
                             self.friends.profile = None;
                         }
                         let list = self.refresh_friends_list();
+                        if action == FriendAction::Remove {self.friend_media.clear();}
                         let search = self.submit_friend_search();
                         Task::batch([list, search])
                     }
@@ -4734,20 +6770,25 @@ impl App {
                 }
             }
             Message::FriendProfileRequested(id) => {
+                self.friend_media.clear_profile();
                 let is_friend = self.is_accepted_friend(&id);
+                let person = match &self.friends.data {
+                    Some(FriendsLoad::Ready(data)) => data.friends.iter().chain(&data.incoming).chain(&data.outgoing).find(|person|person.id==id),
+                    _ => None,
+                };
+                let preview = person.map(|person|FriendProfile {username:person.username.clone(),display_name:person.display_name.clone(),avatar_url:person.avatar_url.clone(),..Default::default()})
+                    .or_else(||self.friends.search_results.as_ref().and_then(|results|results.iter().find(|person|person.id==id)).map(|person|FriendProfile {username:person.username.clone(),display_name:person.display_name.clone(),avatar_url:person.avatar_url.clone(),..Default::default()}))
+                    .unwrap_or_default();
                 self.friends.profile = Some(FriendProfileState {
                     id: id.clone(),
                     is_friend,
                     status: LoadStatus::Loading,
-                    profile: None,
+                    profile: Some(preview),
                     error: None,
-                    achievements_status: if is_friend {
-                        LoadStatus::Loading
-                    } else {
-                        LoadStatus::Idle
-                    },
+                    achievements_status: LoadStatus::Idle,
                     achievements: None,
                     achievements_error: None,
+                    confirming_remove: false,
                 });
                 let backend = self.backend.clone();
                 let request_id = id.clone();
@@ -4759,20 +6800,7 @@ impl App {
                         result,
                     },
                 );
-                if !is_friend {
-                    return profile_task;
-                }
-                let achievements_id = id.clone();
-                let achievements_message_id = id.clone();
-                let backend = self.backend.clone();
-                let achievements_task = Task::perform(
-                    async move { backend.load_friend_achievements(achievements_id).await },
-                    move |result| Message::FriendAchievementsLoaded {
-                        id: achievements_message_id.clone(),
-                        result,
-                    },
-                );
-                Task::batch([profile_task, achievements_task])
+                profile_task
             }
             Message::FriendProfileLoaded { id, result } => {
                 let Some(profile) = self.friends.profile.as_mut() else {
@@ -4782,14 +6810,35 @@ impl App {
                     return Task::none();
                 }
                 match result {
-                    Ok(friend) => {
+                    Ok(mut friend) => {
+                        if let Some(FriendsLoad::Ready(data))=&self.friends.data {
+                            if let Some(person)=data.friends.iter().chain(&data.incoming).chain(&data.outgoing).find(|person|person.id==id) {
+                                if friend.username.is_empty() {friend.username=person.username.clone();}
+                                if friend.display_name.is_none() {friend.display_name=person.display_name.clone();}
+                                if friend.avatar_url.is_none() {friend.avatar_url=person.avatar_url.clone();}
+                            }
+                        }
+                        // Só a arte vem da biblioteca local: jogos e minutos
+                        // pertencem exclusivamente ao perfil que foi aberto.
+                        for game in &mut friend.library {
+                            if let Some(local) = self.library.games.iter().find(|local|local.id==game.id) {
+                                if local.cover_url.is_some() {game.cover_url=local.cover_url.clone();}
+                            }
+                        }
+                        friend.library.sort_by(|a,b|b.playtime_minutes.cmp(&a.playtime_minutes));
+                        let urls = friend.library.iter().flat_map(Game::image_urls)
+                            .chain(friend.friend_list.iter().filter_map(|friend|friend.avatar_url.clone()))
+                            .chain([friend.avatar_url.clone(),friend.banner_url.clone(),friend.background_url.clone()].into_iter().flatten()).collect();
                         profile.profile = Some(friend);
                         profile.status = LoadStatus::Ready;
                         profile.error = None;
+                        let covers=self.cover_tasks(urls);
+                        let media=self.ensure_friend_media();
+                        let avatars=self.ensure_friend_avatars();
+                        return Task::batch([covers,media,avatars]);
                     }
                     Err(error) => {
                         eprintln!("[arcadia-native] amigos (perfil): {error}");
-                        profile.profile = None;
                         profile.status = LoadStatus::Error(error.clone());
                         profile.error = Some(error);
                     }
@@ -4830,6 +6879,25 @@ impl App {
             }
             Message::FriendProfileClosed => {
                 self.friends.profile = None;
+                self.friend_media.clear_profile();
+                self.ensure_friend_avatars()
+            }
+            Message::FriendAvatarLoaded {url,media} => {
+                self.friend_media.clear_in_flight(&url);
+                if !self.friend_avatar_urls().contains(&url) {return Task::none();}
+                if let Some(media)=media {self.friend_media.insert_decoded(&url,media,crate::animated_cards::MediaGroup::Avatar);}
+                else {eprintln!("[arcadia-native] avatar de amigo: animação indisponível");}
+                Task::none()
+            }
+            Message::FriendMediaLoaded { id, url, media } => {
+                if !self.friends.profile.as_ref().is_some_and(|profile|profile.id==id) {return Task::none();}
+                self.friend_media.clear_in_flight(&url);
+                if let Some(media)=media {self.friend_media.insert_decoded(&url,media,crate::animated_cards::MediaGroup::Profile);}
+                else {eprintln!("[arcadia-native] mídia do amigo: imagem indisponível");}
+                Task::none()
+            }
+            Message::FriendRemoveConfirmation(confirming) => {
+                if let Some(profile)=self.friends.profile.as_mut() {profile.confirming_remove=confirming;}
                 Task::none()
             }
         }
@@ -4851,13 +6919,176 @@ impl App {
         )
     }
 
+    /// Baixa avatar, banner e fundo do perfil para o pool animado.
+    ///
+    /// A web serve os três como GIF/WebP animado. O `image` decodifica todos
+    /// os quadros em worker, sem bloquear o update do iced. O download próprio
+    /// preserva a animação, ao contrário de `fetch_cover`, que só entrega o
+    /// primeiro quadro como `Handle`.
+    ///
+    /// A sidebar mostra o avatar o tempo todo, então isto roda no boot e em
+    /// toda chegada de perfil, não só ao abrir a tela de perfil.
+    fn ensure_profile_media(&mut self) -> Task<Message> {
+        // Avatar: o da conta quando existe, senão o local do config — o mesmo
+        // `||` do Sidebar.tsx.
+        let avatar = self
+            .account
+            .avatar_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .or(self
+                .account
+                .fallback_avatar_url
+                .as_deref()
+                .filter(|url| !url.trim().is_empty()))
+            .map(str::to_string);
+
+        let mut urls: Vec<String> = Vec::new();
+        if let Some(url) = avatar {
+            urls.push(url);
+        }
+        if let Some(profile) = self.account.profile.as_ref() {
+            for url in [profile.banner_url.as_deref(), profile.background_url.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter(|url| !url.trim().is_empty())
+            {
+                urls.push(url.to_string());
+            }
+        }
+
+        let mut tasks = Vec::new();
+        for url in urls {
+            if !self.animated_cards.wants(&url) {
+                continue;
+            }
+            self.animated_cards.mark_in_flight(&url);
+            // Vídeo (cards da Steam) é aberto direto pelo GStreamer; o perfil
+            // é sempre imagem/GIF, então o caminho aqui é o download.
+            let backend = self.backend.clone();
+            let message_url = url.clone();
+            tasks.push(Task::perform(
+                async move {
+                    let bytes = backend.fetch_media_bytes(url).await?;
+                    crate::animated_cards::decode_media(bytes).await
+                },
+                move |media| Message::AnimatedMediaLoaded {
+                    url: message_url,
+                    media,
+                },
+            ));
+        }
+        Task::batch(tasks)
+    }
+
+    fn friend_avatar_urls(&self) -> BTreeSet<String> {
+        let mut urls=BTreeSet::new();
+        if let Some(FriendsLoad::Ready(data))=&self.friends.data {
+            urls.extend(data.friends.iter().chain(&data.incoming).chain(&data.outgoing).filter_map(|person|person.avatar_url.clone()));
+        }
+        if let Some(results)=&self.friends.search_results {urls.extend(results.iter().filter_map(|person|person.avatar_url.clone()));}
+        if let Some(profile)=self.friends.profile.as_ref().and_then(|state|state.profile.as_ref()) {
+            urls.extend(profile.friend_list.iter().filter_map(|person|person.avatar_url.clone()));
+            urls.extend(profile.avatar_url.clone());
+        }
+        urls
+    }
+
+    pub fn friend_avatar_texture(&self,url:&str)->Option<&Handle> {
+        self.friend_media.texture(url).or_else(||self.animated_cards.texture(url)).or_else(||self.covers.ready(Some(url)))
+    }
+
+    fn ensure_friend_avatars(&mut self) -> Task<Message> {
+        let urls=self.friend_avatar_urls();
+        self.friend_media.retain_avatars(&urls);
+        let mut tasks=Vec::new();
+        for url in urls {
+            if !self.friend_media.wants(&url) || self.animated_cards.texture(&url).is_some() {continue;}
+            self.friend_media.mark_in_flight(&url);
+            let backend=self.backend.clone();let request=url.clone();
+            tasks.push(Task::perform(async move {let bytes=backend.fetch_media_bytes(request).await?;crate::animated_cards::decode_avatar(bytes).await},
+                move |media|Message::FriendAvatarLoaded{url,media}));
+        }
+        Task::batch(tasks)
+    }
+
+    fn ensure_friend_media(&mut self) -> Task<Message> {
+        let Some(state)=self.friends.profile.as_ref() else {return Task::none();};
+        let Some(profile)=state.profile.as_ref() else {return Task::none();};
+        let id=state.id.clone();
+        let urls:Vec<_>=[profile.banner_url.clone(),profile.background_url.clone()].into_iter().flatten().collect();
+        let mut tasks=Vec::new();
+        for url in urls {
+            if !self.friend_media.wants(&url) || self.animated_cards.texture(&url).is_some() {continue;}
+            self.friend_media.mark_in_flight(&url);
+            let backend=self.backend.clone();let request=url.clone();let id=id.clone();
+            tasks.push(Task::perform(async move {let bytes=backend.fetch_media_bytes(request).await?;crate::animated_cards::decode_media(bytes).await},
+                move |media|Message::FriendMediaLoaded{id,url,media}));
+        }
+        Task::batch(tasks)
+    }
+
+    fn profile_stats_task(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_profile_stats().await },
+            Message::ProfileStatsLoaded,
+        )
+    }
+
     fn avatar_load_task(&self, url: String) -> Task<Message> {
         let backend = self.backend.clone();
         let request_url = url.clone();
+        // O erro do `avatar:load` precisa aparecer: era engolido pelo `.ok()` e
+        // a sidebar ficava na inicial para sempre, sem nada no console.
         Task::perform(
-            async move { backend.load_avatar(request_url).await.ok() },
+            async move {
+                let result = backend.load_avatar(request_url).await;
+                if let Err(error) = result.as_ref() {
+                    eprintln!("[arcadia-native] avatar:load falhou: {error}");
+                }
+                result.ok()
+            },
             move |handle| Message::AccountAvatarLoaded { url, handle },
         )
+    }
+
+    /// Garante que o fallback local esteja em `account.fallback_avatar_url` e
+    /// dispara o download quando a conta ainda não tem avatar de fato.
+    fn sync_fallback_avatar(&mut self) -> Task<Message> {
+        let Some(url) = self
+            .settings
+            .config
+            .as_ref()
+            .and_then(|config| config.local_avatar_url.clone())
+        else {
+            // Sem `profile.avatar` no config não há reserva: a sidebar fica na
+            // inicial de propósito. O log existe para "só a letra" nunca mais
+            // ser um mistério sem causa.
+            eprintln!(
+                "[arcadia-native] avatar: sem avatar da conta e sem profile.avatar no config — sidebar na inicial"
+            );
+            return Task::none();
+        };
+        if self.account.avatar_url.is_some() && self.account.avatar.is_some() {
+            // A conta já tem avatar pintado; o local fica só de reserva.
+            self.account.fallback_avatar_url = Some(url);
+            return Task::none();
+        }
+        if self.account.fallback_avatar_url.as_deref() == Some(url.as_str())
+            && self.account.avatar.is_some()
+        {
+            return Task::none();
+        }
+        self.account.fallback_avatar_url = Some(url.clone());
+        let avatar_task = self.avatar_load_task(url);
+        let media_task = self.ensure_profile_media();
+        Task::batch([avatar_task, media_task])
+    }
+
+    /// Usado quando `account:profile` chega sem avatar utilizável.
+    fn fallback_avatar_task(&mut self) -> Task<Message> {
+        self.sync_fallback_avatar()
     }
 
     fn start_avatar_upload(&mut self) -> Task<Message> {
@@ -4899,8 +7130,43 @@ impl App {
         )
     }
 
+    /// Remove o banner/fundo publicado: `account:updateProfile` aceita os dois
+    /// campos como `null` e o merge do perfil online deixa de trazer a imagem.
+    fn clear_profile_image(&mut self, kind: ProfileImageKind) -> Task<Message> {
+        if *self.account.editor.image_upload_busy_mut(kind) {
+            return Task::none();
+        }
+        if !self.account.is_signed_in() {
+            self.account.open_auth(false);
+            return self.auth_focus_task();
+        }
+        *self.account.editor.image_upload_busy_mut(kind) = true;
+        self.account.editor.error = None;
+        self.account.editor.notice = None;
+        let backend = self.backend.clone();
+        let patch = json!({ kind.ipc_field(): Value::Null });
+        Task::perform(
+            async move { backend.update_account_profile(patch).await },
+            move |result| Message::ProfileImageClearedDone { kind, result },
+        )
+    }
+
     fn request_pick(&mut self, purpose: PickPurpose) -> Task<Message> {
         match purpose.target() {
+            PickTarget::SourceCatalog => {
+                if self.sources.busy {
+                    return Task::none();
+                }
+                let PickPurpose::SourceCatalog { url } = &purpose else {
+                    return Task::none();
+                };
+                if url.trim().is_empty() {
+                    self.sources.action_error = Some(self.i18n.t("native.sources.url_required").to_string());
+                    return Task::none();
+                }
+                self.sources.busy = true;
+                self.sources.action_error = None;
+            }
             PickTarget::Avatar | PickTarget::Background | PickTarget::Banner => {
                 if !self.account.is_signed_in() || self.account.editor.pick_busy.is_some() {
                     return Task::none();
@@ -4915,18 +7181,42 @@ impl App {
                 {
                     return Task::none();
                 }
-                let matches_emulator = self
-                    .launch_options
-                    .settings
-                    .as_ref()
-                    .is_some_and(|settings| {
-                        purpose.emulator_id() == settings.emulator_id.as_deref()
-                    });
+                let matches_emulator =
+                    self.launch_options
+                        .settings
+                        .as_ref()
+                        .is_some_and(|settings| {
+                            purpose.emulator_id() == settings.emulator_id.as_deref()
+                        });
                 if !matches_emulator {
                     return Task::none();
                 }
                 self.launch_options.pick_busy = Some(purpose.clone());
                 self.launch_options.error = None;
+            }
+            PickTarget::Artwork => {
+                let Some(metadata) = self.game_metadata.as_mut() else {
+                    return Task::none();
+                };
+                if purpose.game_id() != Some(metadata.game_id.as_str())
+                    || metadata.pick_busy.is_some()
+                    || metadata.saving
+                {
+                    return Task::none();
+                }
+                metadata.pick_busy = Some(purpose.clone());
+                metadata.error = None;
+            }
+            PickTarget::StoreDownloadFolder => {
+                let Some(detail) = self.store.detail.as_mut() else { return Task::none() };
+                if detail.install_busy || detail.downloads.pick_busy || !detail.downloads.open
+                    || purpose.game_id() != Some(detail.game.appid.as_str())
+                    || !matches!(&purpose, PickPurpose::StoreDownloadFolder { generation, .. } if *generation == detail.downloads.generation)
+                {
+                    return Task::none();
+                }
+                detail.downloads.pick_busy = true;
+                detail.downloads.error = None;
             }
             _ => {
                 let Some(editor) = self.emulation.editor.as_mut() else {
@@ -4956,6 +7246,42 @@ impl App {
         result: Result<Option<PathBuf>, String>,
     ) -> Task<Message> {
         match purpose.target() {
+            PickTarget::SourceCatalog => {
+                let PickPurpose::SourceCatalog { url } = purpose else {
+                    return Task::none();
+                };
+                match result {
+                    Ok(Some(path)) => {
+                        let backend = self.backend.clone();
+                        Task::perform(
+                            async move { backend.import_source_file(url, path).await },
+                            Message::SourcesActionDone,
+                        )
+                    }
+                    Ok(None) => {
+                        self.sources.busy = false;
+                        Task::none()
+                    }
+                    Err(error) => {
+                        self.sources.busy = false;
+                        self.sources.action_error = Some(picker_error_text(&self.i18n, &error));
+                        Task::none()
+                    }
+                }
+            }
+            PickTarget::StoreDownloadFolder => {
+                let Some(detail) = self.store.detail.as_mut().filter(|detail| {
+                    purpose.game_id() == Some(detail.game.appid.as_str())
+                        && matches!(&purpose, PickPurpose::StoreDownloadFolder { generation, .. } if *generation == detail.downloads.generation)
+                }) else { return Task::none() };
+                detail.downloads.pick_busy = false;
+                match result {
+                    Ok(Some(path)) => detail.downloads.path = path.to_string_lossy().into_owned(),
+                    Ok(None) => {}
+                    Err(error) => detail.downloads.error = Some(picker_error_text(&self.i18n, &error)),
+                }
+                Task::none()
+            }
             PickTarget::Avatar => {
                 self.account.editor.pick_busy = None;
                 match result {
@@ -4991,14 +7317,33 @@ impl App {
                 match result {
                     Err(error) => {
                         if self.launch_options.open {
-                            self.launch_options.error =
-                                Some(picker_error_text(&self.i18n, &error));
+                            self.launch_options.error = Some(picker_error_text(&self.i18n, &error));
                         }
                     }
                     Ok(None) => {}
                     Ok(Some(path)) => {
                         self.launch_options.apply_pick(&purpose, path);
                     }
+                }
+                Task::none()
+            }
+            PickTarget::Artwork => {
+                let PickPurpose::Artwork { game_id, kind } = purpose else {
+                    return Task::none();
+                };
+                let Some(metadata) = self.game_metadata.as_mut() else {
+                    return Task::none();
+                };
+                if metadata.game_id != game_id {
+                    return Task::none();
+                }
+                metadata.pick_busy = None;
+                match result {
+                    Err(error) => {
+                        metadata.error = Some(picker_error_text(&self.i18n, &error));
+                    }
+                    Ok(None) => {}
+                    Ok(Some(path)) => metadata.set_art(kind, path),
                 }
                 Task::none()
             }
@@ -5178,10 +7523,12 @@ impl App {
             return Task::none();
         }
         self.friends.search_status = LoadStatus::Loading;
+        self.friends.search_requested=Some(query.clone());
         let backend = self.backend.clone();
+        let message_query=query.clone();
         Task::perform(
             async move { backend.search_friends(query).await },
-            Message::FriendSearchDone,
+            move |result| Message::FriendSearchDone {query:message_query,result},
         )
     }
 
@@ -5225,12 +7572,44 @@ impl App {
         eprintln!("[arcadia-native] Big Picture: {count} jogo(s)");
 
         let urls = self.library.image_urls();
-        let mut tasks = vec![self.cover_tasks(urls)];
+        // A logo do hero é uma imagem remota como qualquer outra: sem alguém
+        // pedir, ela nunca entra no cache e o hero cai no título em texto. O
+        // `.jpg` de capa que a biblioteca já enumera não cobre o `logo.png`.
+        let mut urls = urls;
+        for game in self.library.visible_all() {
+            if let Some(logo) = crate::backend::game_logo_url(game) {
+                if !urls.contains(&logo) {
+                    urls.push(logo);
+                }
+            }
+        }
+        let covers = self.cover_tasks(urls);
+
+        let splash = self.start_boot_splash();
+        let mut tasks = vec![covers, splash];
         if let Some(window) = self.window {
             tasks.push(window::set_mode(window, window::Mode::Fullscreen));
             tasks.push(window::size(window).map(Message::WindowResized));
         }
         Task::batch(tasks)
+    }
+
+    /// Toca o `boot.mp4` ao entrar no Big Picture, como a `PS5Launcher` da UI
+    /// web. O splash do desktop não existe: abrir o Arcadia não deve passar por
+    /// uma tela de vídeo.
+    fn start_boot_splash(&mut self) -> Task<Message> {
+        if self.boot.active {
+            return Task::none();
+        }
+        self.boot.active = true;
+        self.boot.started = Instant::now();
+        self.boot.path = None;
+        self.boot.media.clear();
+        let backend = self.backend.clone();
+        Task::perform(
+            async move { backend.load_boot_video().await },
+            Message::BootVideoReady,
+        )
     }
 
     /// Volta ao desktop na tela em que o console foi aberto.
@@ -5239,6 +7618,7 @@ impl App {
             return Task::none();
         }
 
+        self.dismiss_splash();
         let previous = self.previous_screen.take().unwrap_or(Screen::Library);
         self.big_picture.leave();
         self.media.clear();
@@ -5333,9 +7713,8 @@ impl App {
         let query = self.trailer_picker.query.trim().to_string();
         if query.is_empty() {
             self.trailer_picker.results.clear();
-            self.trailer_picker.status = LoadStatus::Error(
-                self.i18n.t("native.game.trailer_search_empty").to_string(),
-            );
+            self.trailer_picker.status =
+                LoadStatus::Error(self.i18n.t("native.game.trailer_search_empty").to_string());
             return Task::none();
         }
 
@@ -5364,21 +7743,108 @@ impl App {
         }
     }
 
-    /// Abre a ficha do jogo no desktop (mesmo caminho do clique na biblioteca).
+    /// Cache público de fichas; não inclui progresso nem dados da conta.
+    pub fn cached_store_info(&self, id: &str) -> Option<&StoreInfo> {
+        self.store_info_cache.get(id).filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, info)| info)
+    }
+
+    pub fn storefront_genres_loading(&self) -> bool {
+        self.console_storefront.category >= 3 && !self.console_storefront.catalog
+            && !self.detail_prefetching.is_empty()
+    }
+
+    fn cache_store_info(&mut self, id: &str, info: StoreInfo) {
+        if self.store_info_cache.get(id).is_some_and(|(at, value)| at.elapsed() < Duration::from_secs(600) && value == &info) { return; }
+        if self.store_info_cache.len() >= 64 && !self.store_info_cache.contains_key(id) {
+            if let Some(oldest) = self.store_info_cache.iter().min_by_key(|(_, (at, _))| *at).map(|(id, _)| id.clone()) {
+                self.store_info_cache.remove(&oldest);
+            }
+        }
+        self.store_info_cache.insert(id.to_string(), (Instant::now(), info));
+    }
+
+    fn cache_game_media(&mut self, id: &str, media: GameMedia) {
+        if self.game_media_cache.get(id).is_some_and(|(at, value)| at.elapsed() < Duration::from_secs(600) && value == &media) { return; }
+        if media.about.is_none() && media.movies.is_empty() && media.screenshots.is_empty() && media.req_min.is_none() && media.req_rec.is_none() && media.overview == Default::default() { return; }
+        if self.game_media_cache.len() >= 64 && !self.game_media_cache.contains_key(id) {
+            if let Some(oldest) = self.game_media_cache.iter().min_by_key(|(_, (at, _))| *at).map(|(id, _)| id.clone()) {
+                self.game_media_cache.remove(&oldest);
+            }
+        }
+        self.game_media_cache.insert(id.to_string(), (Instant::now(), media));
+    }
+
+    fn prefetch_store(&mut self, game: StoreGame) -> Task<Message> {
+        if self.store_info_cache.get(&game.appid).is_some_and(|(at, _)| at.elapsed() < Duration::from_secs(600))
+            || self.detail_prefetching.len() >= 2 { return Task::none(); }
+        if !self.detail_prefetching.insert(format!("store:{}", game.appid)) { return Task::none(); }
+        let backend = self.backend.clone();
+        let appid = game.appid.clone();
+        Task::perform(async move { backend.load_store_info(game.appid, game.title).await }, move |result| Message::PrefetchedStore { appid, result })
+    }
+
+    fn prefetch_game(&mut self, id: String) -> Task<Message> {
+        if self.game_media_cache.get(&id).is_some_and(|(at, _)| at.elapsed() < Duration::from_secs(600))
+            || self.detail_prefetching.len() >= 2 { return Task::none(); }
+        let Some(game) = self.library.game(&id).cloned() else { return Task::none(); };
+        if !self.detail_prefetching.insert(format!("game:{id}")) { return Task::none(); }
+        let backend = self.backend.clone();
+        Task::perform(async move { backend.load_game_media(game.id, game.title).await }, move |media| Message::PrefetchedGame { id, media })
+    }
+
+    fn prefetch_store_front(&mut self) -> Task<Message> {
+        let games: Vec<_> = if matches!(self.screen, Screen::BigPicture) {
+            self.console_store_games().into_iter().take(2).cloned().collect()
+        } else if let Some(search) = &self.store.search {
+            search.result.as_ref().map(|r| r.games.iter().take(2).cloned().collect()).unwrap_or_default()
+        } else {
+            self.store.browse.games.iter().take(2).cloned().collect()
+        };
+        Task::batch(games.into_iter().map(|game| self.prefetch_store(game)))
+    }
+
+    fn prefetch_store_genres(&mut self) -> Task<Message> {
+        if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::Stores || self.console_storefront.category < 3 || self.console_storefront.catalog || self.store.search.is_some() || self.big_picture.store_detail_open() { return Task::none(); }
+        let candidates: Vec<_> = self.console_storefront.feed.specials.iter()
+            .chain(&self.console_storefront.feed.releases).chain(&self.console_storefront.feed.popular)
+            .chain(&self.store.browse.games).take(48).cloned().collect();
+        let mut tasks = Vec::new();
+        for game in candidates {
+            if self.detail_prefetching.len() >= 2 { break; }
+            if self.cached_store_info(&game.appid).is_some()
+                || self.console_storefront.genre_attempted.contains(&game.appid) { continue; }
+            self.console_storefront.genre_attempted.insert(game.appid.clone());
+            tasks.push(self.prefetch_store(game));
+        }
+        Task::batch(tasks)
+    }
+
     fn open_game(&mut self, id: String) -> Task<Message> {
+        self.game_menu = None;
         let game = self.library.game(&id).cloned();
         let urls = game.as_ref().map(Game::image_urls).unwrap_or_default();
+        self.page_entered = Instant::now();
+        self.page_direction = 1.0;
         self.screen = Screen::Game(id);
         // Troca de jogo nunca reaproveita o pipeline anterior.
         self.media.clear();
         self.game_media = None;
         self.selected_screenshot = 0;
+        self.gallery_trailer = false;
+        self.requirements_tab = RequirementsTab::default();
         self.reset_trailer_state();
         let covers = self.cover_tasks(urls);
-        let media = game
-            .as_ref()
-            .map(|game| self.game_media_task(game))
-            .unwrap_or_else(Task::none);
+        let cached = game.as_ref().and_then(|g| self.game_media_cache.get(&g.id))
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, m)| m.clone());
+        // O cache já tem a ficha, mas aplicá-la aqui abre o GStreamer no
+        // mesmo frame do clique. A tela troca na hora; a mídia entra no
+        // próximo ciclo do runtime.
+        let media = if let Some(media) = cached {
+            let game_id = game.as_ref().unwrap().id.clone();
+            Task::perform(async move { media }, move |media| Message::MediaLoaded { game_id, media })
+        } else {
+            game.as_ref().map(|game| self.game_media_task(game)).unwrap_or_else(Task::none)
+        };
         let panels = game
             .as_ref()
             .map(|game| self.game_panels_task(game))
@@ -5388,11 +7854,16 @@ impl App {
             .and_then(|game| game.steam_appid())
             .map(|appid| self.community_tasks(appid))
             .unwrap_or_else(Task::none);
-        Task::batch([covers, media, panels, community])
+        Task::batch([
+            covers,
+            media,
+            panels,
+            community,
+            views::game_detail::scroll_to_top(),
+        ])
     }
 
-    /// Drena a fila do `NativeShell` e aplica os eventos de lançamento e de
-    /// conquista.
+    /// Drena a fila do `NativeShell` e aplica launch, conquistas e downloads.
     ///
     /// A Subscription chama isto a cada ~150 ms; não há consulta ao processo.
     fn drain_launch_events(&mut self) -> Task<Message> {
@@ -5405,7 +7876,11 @@ impl App {
         let mut icon_tasks = Vec::new();
         for event in events {
             match event {
+                UiEvent::LibraryChanged => self.library_dirty = true,
                 UiEvent::Launch(event) => self.launch.apply_event(event, &self.i18n),
+                UiEvent::Downloads { is_torrent, items } => {
+                    self.downloads.apply_progress(is_torrent, items);
+                }
                 UiEvent::Achievement(achievement) => {
                     if !self.notifications_enabled {
                         continue;
@@ -5417,9 +7892,9 @@ impl App {
                             let message_url = icon.clone();
                             icon_tasks.push(Task::perform(
                                 async move { backend.fetch_cover(fetch_url).await },
-                                move |handle| Message::CoverLoaded {
+                                move |loaded| Message::CoverLoaded {
                                     url: message_url,
-                                    handle,
+                                    loaded,
                                 },
                             ));
                         }
@@ -5438,6 +7913,11 @@ impl App {
     }
 
     fn dismiss_splash(&mut self) {
+        if self.boot.active {
+            self.page_entered = Instant::now();
+            self.home_entered = Instant::now();
+            self.home_hero_started = Instant::now();
+        }
         self.boot.active = false;
         self.boot.media.clear();
     }
@@ -5533,17 +8013,13 @@ impl App {
         }
 
         self.update.snapshot = Some(report.snapshot.clone());
-        self.update.available_version = report
-            .check
-            .versao
-            .clone()
-            .or_else(|| {
-                report
-                    .snapshot
-                    .packaged
-                    .as_ref()
-                    .and_then(|state| state.versao_nova.clone())
-            });
+        self.update.available_version = report.check.versao.clone().or_else(|| {
+            report
+                .snapshot
+                .packaged
+                .as_ref()
+                .and_then(|state| state.versao_nova.clone())
+        });
         self.update.last_motivo = report.check.motivo.clone();
 
         if report.check.disponivel {
@@ -5657,6 +8133,8 @@ impl App {
             return Task::none();
         }
 
+        self.clear_update_backdrop();
+
         let version = dialog
             .packaged
             .as_ref()
@@ -5667,7 +8145,12 @@ impl App {
 
         // "Depois" no canal empacotado persiste `jaAvisado`, como na web.
         if dialog.kind == UpdateDialogKind::Packaged {
-            if let Some(state) = self.update.snapshot.as_mut().and_then(|snap| snap.packaged.as_mut()) {
+            if let Some(state) = self
+                .update
+                .snapshot
+                .as_mut()
+                .and_then(|snap| snap.packaged.as_mut())
+            {
                 state.ja_avisado = true;
             }
             if !version.is_empty() {
@@ -5839,9 +8322,10 @@ impl App {
 
     /// Uma consulta de snapshot por vez enquanto o diálogo está ocupado.
     fn poll_update_snapshot(&mut self) -> Task<Message> {
-        let should_poll = self.update.dialog.as_ref().is_some_and(|dialog| {
-            dialog.is_busy() && dialog.kind == UpdateDialogKind::Packaged
-        });
+        let should_poll =
+            self.update.dialog.as_ref().is_some_and(|dialog| {
+                dialog.is_busy() && dialog.kind == UpdateDialogKind::Packaged
+            });
         if !should_poll || self.update.poll_in_flight {
             return Task::none();
         }
@@ -5884,6 +8368,449 @@ impl App {
         }
     }
 
+    fn current_account_id(&self) -> Option<String> {
+        self.account.session.as_ref().map(|session| session.id.clone())
+    }
+
+    fn menu_instance_matches(&self, game_id: &str, instance: u64) -> bool {
+        self.game_menu
+            .as_ref()
+            .is_some_and(|menu| menu.game_id == game_id && menu.instance == instance)
+    }
+
+    fn set_menu_notice(&mut self, game_id: &str, notice: MenuNotice) {
+        if let Some(menu) = self.game_menu.as_mut().filter(|menu| menu.game_id == game_id) {
+            menu.notice = Some(notice);
+        }
+    }
+
+    fn game_menu_action(&mut self, action: MenuAction) -> Task<Message> {
+        let Some(menu) = self.game_menu.as_ref() else {
+            return Task::none();
+        };
+        let game_id = menu.game_id.clone();
+        let instance = menu.instance;
+        let Some(game) = self.library.game(&game_id).cloned() else {
+            self.game_menu = None;
+            return Task::none();
+        };
+
+        match action {
+            MenuAction::Primary => self.menu_primary(game, instance),
+            MenuAction::Details => {
+                self.game_menu = None;
+                self.open_game(game_id)
+            }
+            MenuAction::Settings => {
+                self.game_menu = None;
+                self.open_launch_options(game_id)
+            }
+            MenuAction::Logs => {
+                let backend = self.backend.clone();
+                let message_id = game_id.clone();
+                let message_instance = instance;
+                Task::perform(
+                    async move { backend.open_game_log(game_id).await },
+                    move |result| Message::GameMenuLogsDone {
+                        game_id: message_id,
+                        instance: message_instance,
+                        result,
+                    },
+                )
+            }
+            MenuAction::Edit => {
+                self.game_menu = None;
+                self.open_game_edit(&game_id);
+                Task::none()
+            }
+            MenuAction::Metadata => {
+                self.game_menu = None;
+                self.open_game_metadata(&game_id);
+                Task::none()
+            }
+            MenuAction::ToggleHidden => self.menu_toggle_hidden(&game_id),
+            MenuAction::ToggleFavorite => self.menu_toggle_favorite(&game_id),
+            MenuAction::Categories => {
+                if let Some(menu) = self.game_menu.as_mut() {
+                    menu.categories_open = true;
+                    menu.notice = None;
+                }
+                Task::none()
+            }
+        }
+    }
+
+    /// Primeira ação: Jogar (instalado) ou Instalar. Steam instala só abrindo
+    /// `steam://install/<appid>`; não passa por `game:launch`.
+    fn menu_primary(&mut self, game: Game, instance: u64) -> Task<Message> {
+        if game.installed {
+            self.game_menu = None;
+            return self.request_launch(game.id);
+        }
+
+        if !game.launcher.eq_ignore_ascii_case("steam") {
+            self.set_menu_notice(
+                &game.id,
+                MenuNotice::InstallUnavailable(game.launcher.clone()),
+            );
+            return Task::none();
+        }
+
+        let Some(appid) = game.steam_appid().map(str::to_string) else {
+            self.set_menu_notice(&game.id, MenuNotice::SteamInvalid);
+            return Task::none();
+        };
+        let backend = self.backend.clone();
+        let game_id = game.id.clone();
+        // IO do opener numa Task: o teste hermético pode derrubar a Task sem
+        // abrir a Steam, e o estado de launch nunca é tocado por esta rota.
+        Task::perform(
+            async move { backend.open_steam_install(&appid) },
+            move |result| Message::GameMenuInstallDone {
+                game_id,
+                instance,
+                result,
+            },
+        )
+    }
+
+    fn menu_toggle_hidden(&mut self, game_id: &str) -> Task<Message> {
+        if !self.begin_library_override(game_id) {
+            return Task::none();
+        }
+        if let Some(game) = self.library.game_mut(game_id) {
+            game.hidden = !game.hidden;
+        }
+        self.game_menu = None;
+        self.persist_library_override(game_id.to_string())
+    }
+
+    fn menu_toggle_favorite(&mut self, game_id: &str) -> Task<Message> {
+        if !self.begin_library_override(game_id) {
+            return Task::none();
+        }
+        if let Some(game) = self.library.game_mut(game_id) {
+            game.favorite = !game.favorite;
+        }
+        self.game_menu = None;
+        self.persist_library_override(game_id.to_string())
+    }
+
+    fn menu_toggle_category(&mut self, category: String) -> Task<Message> {
+        let Some(game_id) = self.game_menu.as_ref().map(|menu| menu.game_id.clone()) else {
+            return Task::none();
+        };
+        if !self.begin_library_override(&game_id) {
+            return Task::none();
+        }
+        let mut changed = false;
+        if let Some(game) = self.library.game_mut(&game_id) {
+            if let Some(index) = game.categories.iter().position(|item| item == &category) {
+                game.categories.remove(index);
+                changed = true;
+            } else if !category.trim().is_empty() {
+                game.categories.push(category);
+                changed = true;
+            }
+        }
+        if changed {
+            self.persist_library_override(game_id)
+        } else {
+            Task::none()
+        }
+    }
+
+    fn menu_add_category(&mut self) -> Task<Message> {
+        let Some(menu) = self.game_menu.as_mut() else {
+            return Task::none();
+        };
+        let category = menu.category_draft.trim().to_string();
+        if category.is_empty() {
+            return Task::none();
+        }
+        let game_id = menu.game_id.clone();
+        if !self.begin_library_override(&game_id) {
+            return Task::none();
+        }
+        let mut changed = false;
+        if let Some(game) = self.library.game_mut(&game_id) {
+            if !game.categories.iter().any(|item| item == &category) {
+                game.categories.push(category);
+                changed = true;
+            }
+        }
+        if let Some(menu) = self.game_menu.as_mut() {
+            menu.category_draft.clear();
+        }
+        if changed {
+            self.persist_library_override(game_id)
+        } else {
+            Task::none()
+        }
+    }
+
+    fn begin_library_override(&mut self, game_id: &str) -> bool {
+        if !self.library_overrides.busy {
+            return true;
+        }
+        if self.library_overrides.game_id.as_deref() == Some(game_id) {
+            return true;
+        }
+        if self.game_menu.is_some() {
+            self.set_menu_notice(game_id, MenuNotice::Busy);
+        } else {
+            self.library.notice = Some(self.i18n.t("native.library.menu.busy").to_string());
+        }
+        false
+    }
+
+    /// Um patch completo com os três campos que o menu controla: favorito e
+    /// oculto como booleanos desejados (nunca `null`, que restauraria um
+    /// `true` da base) e categorias sempre como lista (vazia quando o usuário
+    /// removeu todas). Campos não editados de overrides não entram no patch.
+    fn persist_library_override(&mut self, game_id: String) -> Task<Message> {
+        let Some(game) = self.library.game(&game_id) else {
+            return Task::none();
+        };
+        let patch = library_override_patch(game);
+
+        if self.library_overrides.busy {
+            if self.library_overrides.game_id.as_deref() == Some(game_id.as_str()) {
+                self.library_overrides.dirty = true;
+            }
+            return Task::none();
+        }
+
+        self.library_overrides.busy = true;
+        self.library_overrides.game_id = Some(game_id.clone());
+        self.library_overrides.dirty = false;
+        self.library_overrides.epoch = self.library_overrides.epoch.wrapping_add(1);
+        let epoch = self.library_overrides.epoch;
+        let account = self.current_account_id();
+        self.library_overrides.account = account.clone();
+        let backend = self.backend.clone();
+        let message_id = game_id.clone();
+        let message_account = account.clone();
+        Task::perform(
+            async move { backend.set_overrides(game_id, patch).await },
+            move |result| Message::GameOverridesSaved {
+                epoch,
+                account: message_account,
+                game_id: message_id,
+                result,
+            },
+        )
+    }
+
+    fn finish_library_override(
+        &mut self,
+        epoch: u64,
+        account: Option<String>,
+        game_id: String,
+        result: Result<(), String>,
+    ) -> Task<Message> {
+        if !self.library_overrides.busy
+            || self.library_overrides.epoch != epoch
+            || self.library_overrides.game_id.as_deref() != Some(game_id.as_str())
+            || account != self.current_account_id()
+        {
+            return Task::none();
+        }
+        self.library_overrides.busy = false;
+        match result {
+            Ok(()) if self.library_overrides.dirty => {
+                self.library_overrides.dirty = false;
+                self.persist_library_override(game_id)
+            }
+            Ok(()) => {
+                self.library_overrides = LibraryOverrideState::default();
+                // A resposta crua de `overrides:set` pode marcar um jogo Steam
+                // instalado como falso; a leitura enriquecida acima mantém o
+                // reconhecimento da Steam e o epoch da biblioteca.
+                self.reload_task()
+            }
+            Err(error) => {
+                self.library_overrides = LibraryOverrideState::default();
+                if self.game_menu.as_ref().is_some_and(|menu| menu.game_id == game_id) {
+                    self.set_menu_notice(&game_id, MenuNotice::SaveFailed(error));
+                } else {
+                    self.library.notice = Some(self.i18n.t_args(
+                        "native.library.menu.override_failed",
+                        &[("error", &error)],
+                    ));
+                }
+                // Relê o estado durável: a atualização otimista não venceu.
+                self.reload_task()
+            }
+        }
+    }
+
+    fn open_game_edit(&mut self, id: &str) {
+        if let Some(game) = self.library.game(id) {
+            self.game_edit = Some(GameEditState::new(game));
+        }
+    }
+
+    fn open_game_metadata(&mut self, id: &str) {
+        if let Some(game) = self.library.game(id) {
+            self.game_metadata = Some(MetadataState::new(game));
+        }
+    }
+
+    fn save_game_edit(&mut self) -> Task<Message> {
+        let Some(edit) = self.game_edit.as_mut() else {
+            return Task::none();
+        };
+        if edit.saving {
+            return Task::none();
+        }
+        if let Some(key) = edit.validate() {
+            edit.error = Some(self.i18n.t(key).to_string());
+            return Task::none();
+        }
+        let payload = edit.payload();
+        if payload.is_empty() {
+            self.game_edit = None;
+            return Task::none();
+        }
+        edit.saving = true;
+        edit.request = edit.request.wrapping_add(1);
+        let request = edit.request;
+        let game_id = edit.game_id.clone();
+        let account = self.current_account_id();
+        let message_account = account.clone();
+        let custom = payload.custom;
+        let overrides = payload.overrides;
+        let backend = self.backend.clone();
+        let message_id = game_id.clone();
+        let task = Task::perform(
+            async move {
+                if !custom.is_empty() {
+                    backend
+                        .update_custom_game(game_id.clone(), custom.title, custom.platform, custom.exe)
+                        .await?;
+                }
+                if overrides.as_object().is_some_and(|map| !map.is_empty()) {
+                    backend.set_overrides(game_id.clone(), overrides).await?;
+                }
+                Ok(())
+            },
+            move |result| Message::GameEditSaved {
+                game_id: message_id.clone(),
+                request,
+                account: message_account.clone(),
+                result,
+            },
+        );
+        task
+    }
+
+    fn finish_game_edit(
+        &mut self,
+        game_id: String,
+        request: u64,
+        account: Option<String>,
+        result: Result<(), String>,
+    ) -> Task<Message> {
+        let Some(edit) = self.game_edit.as_ref() else {
+            return Task::none();
+        };
+        if edit.game_id != game_id
+            || edit.request != request
+            || account != self.current_account_id()
+        {
+            return Task::none();
+        }
+        match result {
+            Ok(()) => {
+                self.game_edit = None;
+                self.reload_task()
+            }
+            Err(error) => {
+                let message = self.i18n.t_args(
+                    "native.library.menu.edit_failed",
+                    &[("error", &shorten_error(&error, 160))],
+                );
+                if let Some(edit) = self.game_edit.as_mut() {
+                    edit.saving = false;
+                    edit.error = Some(message);
+                }
+                // A primeira escrita (customgame:update) pode ter vencido e a
+                // segunda falhado: relê a biblioteca sem fechar o rascunho.
+                self.reload_task()
+            }
+        }
+    }
+
+    fn save_game_metadata(&mut self) -> Task<Message> {
+        let Some(metadata) = self.game_metadata.as_mut() else {
+            return Task::none();
+        };
+        if metadata.saving {
+            return Task::none();
+        }
+        if let Some(key) = metadata.validate() {
+            metadata.error = Some(self.i18n.t(key).to_string());
+            return Task::none();
+        }
+        let patch = metadata.patch();
+        if patch.as_object().is_some_and(|map| map.is_empty()) {
+            self.game_metadata = None;
+            return Task::none();
+        }
+        metadata.saving = true;
+        metadata.request = metadata.request.wrapping_add(1);
+        let request = metadata.request;
+        let game_id = metadata.game_id.clone();
+        let account = self.current_account_id();
+        let message_account = account.clone();
+        let backend = self.backend.clone();
+        let message_id = game_id.clone();
+        Task::perform(
+            async move { backend.set_overrides(game_id, patch).await },
+            move |result| Message::GameMetadataSaved {
+                game_id: message_id,
+                request,
+                account: message_account,
+                result,
+            },
+        )
+    }
+
+    fn finish_game_metadata(
+        &mut self,
+        game_id: String,
+        request: u64,
+        account: Option<String>,
+        result: Result<(), String>,
+    ) -> Task<Message> {
+        let Some(metadata) = self.game_metadata.as_ref() else {
+            return Task::none();
+        };
+        if metadata.game_id != game_id
+            || metadata.request != request
+            || account != self.current_account_id()
+        {
+            return Task::none();
+        }
+        match result {
+            Ok(()) => {
+                self.game_metadata = None;
+                self.reload_task()
+            }
+            Err(error) => {
+                let message = self.i18n.t_args(
+                    "native.library.menu.metadata_failed",
+                    &[("error", &shorten_error(&error, 160))],
+                );
+                if let Some(metadata) = self.game_metadata.as_mut() {
+                    metadata.saving = false;
+                    metadata.error = Some(message);
+                }
+                Task::none()
+            }
+        }
+    }
 
     /// Abre o diálogo e carrega `gamesettings:get`.
     fn open_launch_options(&mut self, id: String) -> Task<Message> {
@@ -5894,12 +8821,11 @@ impl App {
         let default_prefix = self.backend.native_default_prefix(&id);
         // Reabrir a mesma ficha preserva o modo já escolhido, desde que não
         // haja rascunho pendente (nesse caso o modo não seria aplicável).
-        let previous_mode =
-            if self.launch_options.game_id == id && !self.launch_options.dirty {
-                self.launch_options.mode.clone()
-            } else {
-                None
-            };
+        let previous_mode = if self.launch_options.game_id == id && !self.launch_options.dirty {
+            self.launch_options.mode.clone()
+        } else {
+            None
+        };
         self.launch_options = LaunchOptionsState {
             open: true,
             game_id: id.clone(),
@@ -5908,6 +8834,7 @@ impl App {
             settings: None,
             default_prefix,
             mode: previous_mode,
+            advanced_open: false,
             env_name: String::new(),
             env_value: String::new(),
             emulator_args_text: String::new(),
@@ -5947,11 +8874,8 @@ impl App {
     fn add_launch_env_var(&mut self) {
         let name = self.launch_options.env_name.trim().to_string();
         if name.is_empty() {
-            self.launch_options.error = Some(
-                self.i18n
-                    .t("native.game.env_name_required")
-                    .to_string(),
-            );
+            self.launch_options.error =
+                Some(self.i18n.t("native.game.env_name_required").to_string());
             return;
         }
         let Some(settings) = self.launch_options.settings.as_mut() else {
@@ -5959,7 +8883,9 @@ impl App {
         };
         let value = self.launch_options.env_value.clone();
         settings.env_vars.retain(|variable| variable.name != name);
-        settings.env_vars.push(crate::backend::EnvVarSetting { name, value });
+        settings
+            .env_vars
+            .push(crate::backend::EnvVarSetting { name, value });
         self.launch_options.env_name.clear();
         self.launch_options.env_value.clear();
         self.launch_options.error = None;
@@ -5977,11 +8903,8 @@ impl App {
         };
         if self.launch_options.mode.as_deref() == Some("exe") && settings.exe_path.trim().is_empty()
         {
-            self.launch_options.error = Some(
-                self.i18n
-                    .t("native.game.exe_required_save")
-                    .to_string(),
-            );
+            self.launch_options.error =
+                Some(self.i18n.t("native.game.exe_required_save").to_string());
             return Task::none();
         }
 
@@ -5992,11 +8915,8 @@ impl App {
             .as_deref()
             .is_some_and(|id| !id.trim().is_empty());
         if emulator_selected && settings.rom_path.trim().is_empty() {
-            self.launch_options.error = Some(
-                self.i18n
-                    .t("native.game.emulator_rom_required")
-                    .to_string(),
-            );
+            self.launch_options.error =
+                Some(self.i18n.t("native.game.emulator_rom_required").to_string());
             return Task::none();
         }
 
@@ -6067,10 +8987,10 @@ impl App {
                 .game(&running)
                 .map(|game| game.title.clone())
                 .unwrap_or(running);
-            self.launch.error = Some(self.i18n.t_args(
-                "native.game.close_running",
-                &[("title", &title)],
-            ));
+            self.launch.error = Some(
+                self.i18n
+                    .t_args("native.game.close_running", &[("title", &title)]),
+            );
             return Task::none();
         }
 
@@ -6078,10 +8998,10 @@ impl App {
             return Task::none();
         };
         if !game.installed {
-            self.launch.error = Some(self.i18n.t_args(
-                "native.game.not_installed_title",
-                &[("title", &game.title)],
-            ));
+            self.launch.error = Some(
+                self.i18n
+                    .t_args("native.game.not_installed_title", &[("title", &game.title)]),
+            );
             return Task::none();
         }
 
@@ -6108,7 +9028,10 @@ impl App {
         self.launch.status = GameRunStatus::Stopping;
         self.launch.error = None;
         let backend = self.backend.clone();
-        Task::perform(async move { backend.close_game().await }, Message::StopGameDone)
+        Task::perform(
+            async move { backend.close_game().await },
+            Message::StopGameDone,
+        )
     }
 
     fn finish_launch(&mut self, id: String, result: Result<(), String>) -> Task<Message> {
@@ -6134,10 +9057,10 @@ impl App {
                 eprintln!("[arcadia-native] falha ao abrir jogo: {error}");
                 self.launch.status = GameRunStatus::Idle;
                 self.launch.game_id = None;
-                self.launch.error = Some(self.i18n.t_args(
-                    "native.game.launch_failed",
-                    &[("error", &error)],
-                ));
+                self.launch.error = Some(
+                    self.i18n
+                        .t_args("native.game.launch_failed", &[("error", &error)]),
+                );
                 Task::none()
             }
         }
@@ -6155,10 +9078,10 @@ impl App {
             Err(error) => {
                 eprintln!("[arcadia-native] falha ao parar jogo: {error}");
                 self.launch.status = GameRunStatus::Running;
-                self.launch.error = Some(self.i18n.t_args(
-                    "native.game.stop_failed",
-                    &[("error", &error)],
-                ));
+                self.launch.error = Some(
+                    self.i18n
+                        .t_args("native.game.stop_failed", &[("error", &error)]),
+                );
                 Task::none()
             }
         }
@@ -6174,15 +9097,30 @@ impl App {
         self.window_task(|window| window::minimize(window, false))
     }
 
+    fn clear_update_backdrop(&mut self) {
+        self.update.backdrop_generation = self.update.backdrop_generation.wrapping_add(1);
+        self.update.backdrop = None;
+        // An already queued screenshot must finish before any new dialog is
+        // drawn, or it could capture that dialog rather than the clean frame.
+        self.update.backdrop_waiting = self.update.dialog.is_some() && self.update.backdrop_capture_requested.is_some();
+    }
+
     fn window_event(&mut self, event: window::Event) -> Task<Message> {
         match event {
             window::Event::Resized(size) => {
+                self.clear_update_backdrop();
+                self.game_menu = None;
                 self.window_size = size;
                 if matches!(self.screen, Screen::BigPicture) {
                     self.console_rail_scroll()
                 } else {
                     Task::none()
                 }
+            }
+            window::Event::Focused => {
+                // Voltou da Steam (ou de qualquer app): a instalação pode ter
+                // terminado. Refresh leve, sem spinner.
+                Task::batch([self.light_library_refresh(), self.refresh_visible_section()])
             }
             window::Event::Unfocused => {
                 // Direção segurada não deve continuar repetindo ao voltar.
@@ -6215,6 +9153,9 @@ impl App {
     fn console_key(&mut self, event: keyboard::Event) -> Task<Message> {
         if !matches!(self.screen, Screen::BigPicture) {
             return Task::none();
+        }
+        if self.store.detail.as_ref().is_some_and(|detail| detail.downloads.open) {
+            return self.update(Message::StoreDownloadKey(event));
         }
 
         let keyboard::Event::KeyPressed {
@@ -6290,14 +9231,56 @@ impl App {
         if !matches!(self.screen, Screen::BigPicture) {
             return Task::none();
         }
+        if let Some(detail) = self.store.detail.as_ref().filter(|detail| detail.downloads.open) {
+            match event {
+                NavEvent::Back => return self.update(Message::StoreDownloadClosed),
+                NavEvent::Confirm => return self.update(Message::StoreSourceDownloadConfirmed),
+                NavEvent::Up | NavEvent::Down if !detail.downloads.data.offers.is_empty() => {
+                    let count = detail.downloads.data.offers.len();
+                    let index = if event == NavEvent::Up {
+                        (detail.downloads.selected_offer + count - 1) % count
+                    } else {
+                        (detail.downloads.selected_offer + 1) % count
+                    };
+                    let reference = detail.downloads.data.offers[index].reference.clone();
+                    return self.update(Message::StoreSourceSelected(reference));
+                }
+                NavEvent::Left | NavEvent::Right => {
+                    if let Some(offer) = detail.downloads.data.offers.get(detail.downloads.selected_offer) {
+                        let count = offer.uris.len();
+                        if count > 0 {
+                            let index = if event == NavEvent::Left {
+                                (detail.downloads.selected_uri + count - 1) % count
+                            } else {
+                                (detail.downloads.selected_uri + 1) % count
+                            };
+                            return self.update(Message::StoreSourceUriSelected(index));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return Task::none();
+        }
+        if self.big_picture.store_detail_open() && event == NavEvent::Confirm {
+            return self.update(Message::StoreDownloadRequested);
+        }
 
         let games = console_shelf_for(&self.library, self.big_picture.tab());
         let before = self.big_picture.active_index();
+        let before_media = self.big_picture.overview_media();
+        let before_store = self.big_picture.store_index();
         let was_editing = self.big_picture.store_editing();
         let effect = self.big_picture.handle(event, &games);
         let moved = before != self.big_picture.active_index();
         let editing_changed = was_editing != self.big_picture.store_editing();
-        let scroll = if moved {
+        let scroll = if self.big_picture.tab() == ConsoleTab::Stores && before_store != self.big_picture.store_index() {
+            views::big_picture_store::scroll_task(self.big_picture.store_index(), self.window_size.width, false)
+        } else if self.big_picture.tab() == ConsoleTab::Stores && matches!(self.big_picture.zone(), ConsoleZone::StoreHero | ConsoleZone::StoreCategories | ConsoleZone::StoreSearch) {
+            views::big_picture_store::scroll_task(0, self.window_size.width, true)
+        } else if before_media != self.big_picture.overview_media() {
+            views::big_picture_detail::gallery_scroll_task(self.big_picture.overview_media(), self.window_size.width)
+        } else if moved {
             self.console_rail_scroll()
         } else {
             Task::none()
@@ -6387,14 +9370,12 @@ impl App {
             ConsoleEffect::OpenGameDetail(id) => self.open_game_from_console(id),
             ConsoleEffect::ToggleFavorite(id) => self.toggle_console_favorite(id),
             ConsoleEffect::Trailer(id) => self.console_trailer(id),
+            ConsoleEffect::OverviewMedia(index) => self.console_open_overview_media(index),
             ConsoleEffect::Notice(notice) => {
                 let text = match notice {
-                    crate::big_picture::ConsoleNotice::NotInstalled(title) => {
-                        self.i18n.t_args(
-                            "native.console.notice.not_installed",
-                            &[("title", &title)],
-                        )
-                    }
+                    crate::big_picture::ConsoleNotice::NotInstalled(title) => self
+                        .i18n
+                        .t_args("native.console.notice.not_installed", &[("title", &title)]),
                     crate::big_picture::ConsoleNotice::NoGameSelected => {
                         self.i18n.t("native.console.notice.no_game").to_string()
                     }
@@ -6417,6 +9398,9 @@ impl App {
                 Task::none()
             }
             ConsoleEffect::StoreLoadMore => self.load_store_more(),
+            ConsoleEffect::StoreHeroStep(delta) => self.update(Message::ConsoleStoreHeroStep(delta)),
+            ConsoleEffect::StoreOpenHero => self.update(Message::ConsoleStoreHeroOpen),
+            ConsoleEffect::StoreCategory(index) => self.update(Message::ConsoleStoreCategory(index)),
             ConsoleEffect::StoreSearch => {
                 let task = self.submit_store_search();
                 let sync = self.ensure_console_store();
@@ -6444,7 +9428,14 @@ impl App {
 
         let Some((id, title)) = selected else {
             self.clear_console_media();
-            return Task::none();
+            if self.big_picture.tab() == ConsoleTab::Stores {
+                let game = self.console_store_games().get(self.big_picture.store_index()).map(|g| (*g).clone());
+                return game.map(|g| self.prefetch_store(g)).unwrap_or_else(Task::none);
+            }
+            if !matches!(self.big_picture.tab(), ConsoleTab::Home | ConsoleTab::Library) { return Task::none(); }
+            let games = console_shelf_for(&self.library, self.big_picture.tab());
+            let id = self.big_picture.selected(&games).map(|game| game.id.clone());
+            return id.map(|id| self.prefetch_game(id)).unwrap_or_else(Task::none);
         };
 
         if self.console_media_id.as_deref() == Some(id.as_str()) {
@@ -6454,12 +9445,36 @@ impl App {
         self.media.clear();
         self.game_media = None;
         self.console_media_id = Some(id.clone());
-        let backend = self.backend.clone();
-        let request_id = id.clone();
-        Task::perform(
-            async move { backend.load_game_media(request_id, title).await },
-            move |media| Message::ConsoleMediaLoaded { id, media },
-        )
+        self.selected_screenshot = 0;
+        self.gallery_trailer = true;
+        self.big_picture.sync_overview_media(0);
+        let panels = match self.library.game(&id).cloned() {
+            Some(game) => self.game_panels_task(&game),
+            None => Task::none(),
+        };
+        let cached = self.game_media_cache.get(&id).filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, m)| m.clone());
+        // Mesma razão do `open_game`: aplicar o cache aqui abre o trailer
+        // dentro do frame de navegação do controle.
+        let media = if let Some(media) = cached {
+            Task::perform(async move { media }, move |media| Message::ConsoleMediaLoaded { id, media })
+        } else {
+            let backend = self.backend.clone();
+            let request_id = id.clone();
+            Task::perform(async move { backend.load_game_media(request_id, title).await }, move |media| Message::ConsoleMediaLoaded { id, media })
+        };
+        Task::batch([media, panels])
+    }
+
+    fn console_open_overview_media(&mut self, index: usize) -> Task<Message> {
+        let Some(media) = self.game_media.as_ref() else { return Task::none(); };
+        let trailers = usize::from(!media.movies.is_empty());
+        if index >= trailers + media.screenshots.len() { return Task::none(); }
+        self.big_picture.select_overview_media(index);
+        if trailers > 0 && index == 0 {
+            self.update(Message::SelectTrailer)
+        } else {
+            self.update(Message::SelectScreenshot(index - trailers))
+        }
     }
 
     fn clear_console_media(&mut self) {
@@ -6470,12 +9485,11 @@ impl App {
     }
 
     fn ensure_console_news(&mut self) -> Task<Message> {
-        if !matches!(self.screen, Screen::BigPicture)
-            || self.big_picture.tab() != ConsoleTab::News
+        if !matches!(self.screen, Screen::BigPicture) || self.big_picture.tab() != ConsoleTab::News
         {
             return Task::none();
         }
-        if matches!(self.console_news.status, LoadStatus::Idle) {
+        if self.news_loaded_at.is_none_or(|at| at.elapsed() >= Duration::from_secs(120)) {
             self.load_console_news()
         } else {
             Task::none()
@@ -6486,6 +9500,7 @@ impl App {
         if self.console_news.status == LoadStatus::Loading {
             return Task::none();
         }
+        self.news_loaded_at = Some(Instant::now());
         self.console_news.status = LoadStatus::Loading;
         self.console_news.error = None;
         let backend = self.backend.clone();
@@ -6497,22 +9512,20 @@ impl App {
 
     fn toggle_console_favorite(&mut self, id: String) -> Task<Message> {
         if self.favorite_busy.is_some() {
-            self.big_picture
-                .set_notice(
-                    self.i18n
-                        .t("native.console.notice.favorite_wait")
-                        .to_string(),
-                );
+            self.big_picture.set_notice(
+                self.i18n
+                    .t("native.console.notice.favorite_wait")
+                    .to_string(),
+            );
             return Task::none();
         }
 
         let Some(game) = self.library.game(&id).cloned() else {
-            self.big_picture
-                .set_notice(
-                    self.i18n
-                        .t("native.console.notice.favorite_missing")
-                        .to_string(),
-                );
+            self.big_picture.set_notice(
+                self.i18n
+                    .t("native.console.notice.favorite_missing")
+                    .to_string(),
+            );
             return Task::none();
         };
         let favorite = !game.favorite;
@@ -6543,6 +9556,9 @@ impl App {
     }
 
     fn console_trailer(&mut self, id: String) -> Task<Message> {
+        self.big_picture.select_overview_tab(crate::big_picture::OverviewTab::Media);
+        self.big_picture.select_overview_media(0);
+        self.gallery_trailer = true;
         if self.console_media_id.as_deref() != Some(id.as_str()) {
             return self.console_sync_media();
         }
@@ -6575,20 +9591,12 @@ impl App {
                 .game_media
                 .as_ref()
                 .and_then(|media| media.notice.clone())
-                .unwrap_or_else(|| {
-                    self.i18n
-                        .t("native.game.trailer_unavailable")
-                        .to_string()
-                });
+                .unwrap_or_else(|| self.i18n.t("native.game.trailer_unavailable").to_string());
             self.big_picture.set_notice(notice);
             Task::none()
         } else {
             self.big_picture
-                .set_notice(
-                    self.i18n
-                        .t("native.game.trailer_still_loading")
-                        .to_string(),
-                );
+                .set_notice(self.i18n.t("native.game.trailer_still_loading").to_string());
             Task::none()
         }
     }
@@ -6612,6 +9620,7 @@ impl App {
     }
 
     fn focus_console_game(&mut self, id: &str) {
+        if self.big_picture.tab() == ConsoleTab::Stores { return; }
         let games = console_shelf_for(&self.library, self.big_picture.tab());
         if let Some(index) = games.iter().position(|game| game.id == id) {
             self.big_picture.focus_rail(index);
@@ -6634,29 +9643,59 @@ impl App {
     /// fila em memória quando está vazia.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::new();
+        let page_animating = !self.reduce_motion()
+            && self.page_entered.elapsed() < Duration::from_millis(320);
+        let home_animating = !self.boot.active
+            && !self.account.auth.open
+            && matches!(self.screen, Screen::Section(Section::Home))
+            && self.store.detail.is_none()
+            && views::home::art_is_animating(self);
+        if let Some(interval) = views::home::animation_interval(page_animating || home_animating) {
+            subscriptions.push(iced::time::every(interval).map(|_| Message::HomeArtTick));
+        }
+        if !self.boot.active
+            && !self.account.auth.open
+            && views::home::carousel_is_active(self)
+        {
+            subscriptions.push(
+                iced::time::every(views::home::carousel_interval()).map(|_| Message::HomeArtTick),
+            );
+        }
+
+        if self.update.backdrop_waiting && self.update.backdrop_capture_requested.is_none() {
+            subscriptions.push(window::frames().map(|_| Message::UpdateBackdropFrame));
+        }
+
+        subscriptions.push(window::events().filter_map(|(_, event)| match event {
+            window::Event::Resized(_) | window::Event::Focused | window::Event::Unfocused => {
+                Some(Message::WindowEvent(event))
+            }
+            _ => None,
+        }));
+
+        // Cards animados do `about` rodam em loop como na página da Steam:
+        // precisam de um tick de 16 ms enquanto houver pipeline ativo.
+        if self.animated_cards.is_active() || (matches!(self.screen,Screen::Section(Section::Friends)) && self.friend_media.is_active()) {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(16)).map(|_| Message::CardsTick),
+            );
+        }
 
         if self.boot.active {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(16)).map(|_| Message::BootVideoTick),
-            );
+            subscriptions
+                .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::BootVideoTick));
             subscriptions.push(iced::keyboard::listen().map(Message::BootVideoKey));
         }
 
         if matches!(self.screen, Screen::BigPicture) {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick),
-            );
+            subscriptions
+                .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick));
             subscriptions.push(iced::keyboard::listen().map(Message::ConsoleKey));
-            subscriptions.push(window::events().filter_map(|(_, event)| match event {
-                window::Event::Resized(_) | window::Event::Unfocused => {
-                    Some(Message::WindowEvent(event))
-                }
-                _ => None,
-            }));
-        } else if matches!(self.screen, Screen::Game(_)) && self.media.is_active() {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick),
-            );
+        } else if (matches!(self.screen, Screen::Game(_)) || self.store.detail.is_some())
+            && self.media.is_active()
+        {
+            subscriptions
+                .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick));
         }
 
         if self
@@ -6670,25 +9709,59 @@ impl App {
             );
         }
 
-        subscriptions.push(
-            iced::time::every(Duration::from_millis(150)).map(|_| Message::LaunchEventsTick),
-        );
+        subscriptions
+            .push(iced::time::every(Duration::from_millis(150)).map(|_| Message::LaunchEventsTick));
 
-        if !self.toasts.is_empty() {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(50)).map(|_| Message::ToastTick),
-            );
+        if matches!(self.screen, Screen::Section(Section::Stores | Section::Sources | Section::Components))
+            || (matches!(self.screen, Screen::BigPicture) && self.big_picture.tab() == ConsoleTab::News)
+        {
+            subscriptions.push(iced::time::every(Duration::from_secs(60)).map(|_| Message::RefreshVisibleSection));
         }
 
-        subscriptions.push(
-            iced::time::every(Duration::from_secs(15)).map(|_| Message::AchievementsPoll),
-        );
+        if !self.toasts.is_empty() {
+            subscriptions
+                .push(iced::time::every(Duration::from_millis(50)).map(|_| Message::ToastTick));
+        }
+
+        subscriptions
+            .push(iced::time::every(Duration::from_secs(15)).map(|_| Message::AchievementsPoll));
+
+        // Só com ficha Steam aberta ainda não instalada: 5 s é barato e evita
+        // que o usuário tenha que apertar F5 depois de instalar pela Steam.
+        if self.steam_install_pending() {
+            subscriptions
+                .push(iced::time::every(Duration::from_secs(5)).map(|_| Message::SteamLibraryPoll));
+        }
 
         if self.account.auth.open && !matches!(self.screen, Screen::BigPicture) {
             subscriptions.push(iced::keyboard::listen().map(Message::AccountKey));
         }
 
+        if !matches!(self.screen, Screen::BigPicture)
+            && (self.game_menu.is_some()
+                || self.game_edit.is_some()
+                || self.game_metadata.is_some())
+        {
+            subscriptions.push(iced::keyboard::listen().map(Message::GameMenuKey));
+        }
+
+        // Esc no editor de perfil volta para a página do perfil, como o
+        // `useGamepadNav` da web. Fica ligado só enquanto o editor existe.
+        if self.account.editor.editing && !matches!(self.screen, Screen::BigPicture) {
+            subscriptions.push(iced::keyboard::listen().map(Message::ProfileEditKey));
+        }
+        if !matches!(self.screen, Screen::BigPicture)
+            && self.store.detail.as_ref().is_some_and(|detail| detail.downloads.open)
+        {
+            subscriptions.push(iced::keyboard::listen().map(Message::StoreDownloadKey));
+        }
+
         Subscription::batch(subscriptions)
+    }
+
+    pub fn reduce_motion(&self) -> bool {
+        std::env::var("ARCADIA_REDUCE_MOTION").as_deref() == Ok("1")
+            || self.settings.config.as_ref().map_or(self.launch_reduce_motion, |config| config.no_anim)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -6702,7 +9775,7 @@ impl App {
         let base: Element<'_, Message> = if matches!(self.screen, Screen::BigPicture) {
             views::big_picture::view(self)
         } else {
-            let sidebar = views::sidebar::view(self);
+            let sidebar = views::sidebar::view(self, &self.animated_cards);
             let content: Element<'_, Message> = match &self.screen {
                 Screen::Library => views::library::view(self),
                 Screen::Game(id) => match self.library.game(id) {
@@ -6714,10 +9787,13 @@ impl App {
                             game,
                             &self.covers,
                             &self.media,
+                            &self.animated_cards,
                             self.game_media.as_ref(),
                             self.game_panels.get(id),
                             community,
                             self.selected_screenshot,
+                            self.gallery_trailer,
+                            self.requirements_tab,
                             &self.launch,
                             &self.trailer_picker,
                             &self.launch_options,
@@ -6734,9 +9810,30 @@ impl App {
                 Screen::Section(Section::Home) => views::home::view(self),
                 Screen::Section(Section::Stores) => views::store::view(self),
                 Screen::Section(section) => views::section_placeholder(*section, &self.i18n),
-                Screen::Profile => views::profile::view(self),
+                Screen::Profile => {
+                    views::profile::view(self, &self.animated_cards)
+                }
                 Screen::BigPicture => views::big_picture::view(self),
             };
+
+            let progress = if self.reduce_motion() { 1.0 } else {
+                let t = (self.page_entered.elapsed().as_secs_f32() / 0.32).clamp(0.0, 1.0);
+                1.0 - (1.0 - t).powi(3)
+            };
+            let offset = 14.0 * (1.0 - progress);
+            let content = iced::widget::container(content).width(Fill).height(Fill)
+                .padding(iced::Padding {
+                    top: 6.0 * (1.0 - progress), bottom: 0.0,
+                    left: if self.page_direction > 0.0 { offset } else { 0.0 },
+                    right: if self.page_direction < 0.0 { offset } else { 0.0 },
+                });
+            let content = iced::widget::Stack::new().width(Fill).height(Fill)
+                .push(content)
+                .push(iced::widget::container(iced::widget::Space::new()).width(Fill).height(Fill)
+                    .style(move |_| iced::widget::container::Style {
+                        background: Some(iced::Color::from_rgba(0.0, 0.0, 0.0, 1.0 - progress).into()),
+                        ..Default::default()
+                    }));
 
             iced::widget::column![
                 views::chrome::top_bar(),
@@ -6776,12 +9873,7 @@ impl App {
     /// Abre o editor com o perfil persistido (ou o executável detectado) e a
     /// prévia do índice de ROMs já salvo.
     fn open_emulation_editor(&mut self, id: &str) {
-        let Some(item) = self
-            .emulation
-            .emulators
-            .iter()
-            .find(|item| item.id == id)
-        else {
+        let Some(item) = self.emulation.emulators.iter().find(|item| item.id == id) else {
             return;
         };
         let profile = item.profile.clone();
@@ -6845,12 +9937,7 @@ impl App {
             return;
         };
         let id = editor.emulator_id.clone();
-        let Some(item) = self
-            .emulation
-            .emulators
-            .iter()
-            .find(|item| item.id == id)
-        else {
+        let Some(item) = self.emulation.emulators.iter().find(|item| item.id == id) else {
             self.emulation.editor = None;
             return;
         };
@@ -6868,27 +9955,73 @@ impl App {
         }
     }
 
-    /// Carrega a seção sob demanda. `force` é o botão "Atualizar"; sem ele, o
-    /// cache em memória evita refazer IPC a cada troca de aba.
+    fn refresh_visible_section(&mut self) -> Task<Message> {
+        let section = match self.screen {
+            Screen::BigPicture => return self.ensure_console_news(),
+            Screen::Section(section) => section,
+            _ => return Task::none(),
+        };
+        let retro = section == Section::Stores && self.store.tab == StoreTab::Retro;
+        let status = match section {
+            Section::Home if self.store.detail.is_none() => &self.home.status,
+            Section::Sources if !self.sources.busy => &self.sources.status,
+            Section::Components if self.components.busy.is_none() && !self.components.registering => {
+                &self.components.status
+            }
+            Section::Stores if self.store.detail.is_none() && self.retro.detail.is_none() => {
+                if retro {
+                    &self.retro.status
+                } else if self.store.search.is_none()
+                    && !self.store.browse.loading_more
+                    && self.store.browse.games.len() <= STORE_PAGE_SIZE as usize
+                {
+                    &self.store.browse.status
+                } else {
+                    return Task::none();
+                }
+            }
+            _ => return Task::none(),
+        };
+        let key = (section, retro);
+        if *status == LoadStatus::Loading
+            || self.section_loaded_at.get(&key).is_some_and(|at| at.elapsed() < Duration::from_secs(120))
+        {
+            return Task::none();
+        }
+        self.section_loaded_at.insert(key, Instant::now());
+        if retro {
+            let has_page = self.retro.status == LoadStatus::Ready;
+            let task = self.load_retro_page(self.retro.offset);
+            if has_page {
+                self.retro.showing_cached_page = true;
+                self.retro.status = LoadStatus::Ready;
+            }
+            task
+        } else {
+            self.load_section(section, true)
+        }
+    }
+
+    /// Carrega a seção sob demanda e permite novas tentativas após erro.
     fn load_section(&mut self, section: Section, force: bool) -> Task<Message> {
         match section {
             Section::Home if force || matches!(self.home.status, LoadStatus::Idle) => {
+                self.section_loaded_at.insert((Section::Home, false), Instant::now());
                 self.home.status = LoadStatus::Loading;
                 self.home.error = None;
+                super::timing::mark("home");
                 let backend = self.backend.clone();
                 Task::perform(
                     async move { backend.load_home_recent(24).await },
                     Message::HomeLoaded,
                 )
             }
-            Section::Downloads if force || matches!(self.downloads.status, LoadStatus::Idle) => {
-                self.downloads.status = LoadStatus::Loading;
+            Section::Downloads => {
+                if self.downloads.status != LoadStatus::Ready {
+                    self.downloads.status = LoadStatus::Loading;
+                }
                 self.downloads.action_error = None;
-                let backend = self.backend.clone();
-                Task::perform(
-                    async move { backend.load_downloads().await },
-                    Message::DownloadsLoaded,
-                )
+                self.downloads_task()
             }
             Section::Settings if force || matches!(self.settings.status, LoadStatus::Idle) => {
                 self.settings.status = LoadStatus::Loading;
@@ -6946,11 +10079,11 @@ impl App {
                     }
                 }
                 StoreTab::Retro => {
-                    let should_load = force || matches!(self.retro.status, LoadStatus::Idle);
+                    let should_load = force || matches!(self.retro.status, LoadStatus::Idle | LoadStatus::Error(_));
                     if should_load {
                         self.load_retro_page(0)
                     } else {
-                        Task::none()
+                        self.retro_page_cover_tasks(RETRO_PAGE_SIZE as usize)
                     }
                 }
             },
@@ -6958,16 +10091,23 @@ impl App {
         }
     }
 
+    fn downloads_task(&self) -> Task<Message> {
+        let backend = self.backend.clone();
+        let revisions = self.downloads.revisions;
+        Task::perform(
+            async move { backend.load_downloads().await },
+            move |result| Message::DownloadsLoaded { revisions, result },
+        )
+    }
+
     /// Dispara a busca com o texto atual; chamado pelo Enter, pelo botão e
     /// pelo clique numa sugestão.
     fn submit_store_search(&mut self) -> Task<Message> {
         let query = self.store.query.trim().to_string();
         if query.is_empty() {
-            self.store.search = None;
-            self.store.suggestions.clear();
-            self.sync_console_store();
-            return Task::none();
+            return self.update(Message::StoreClearSearch);
         }
+        self.store_thumbnail_queue.clear();
         self.store.suggestions.clear();
         self.store.search = Some(StoreSearchState {
             query: query.clone(),
@@ -6991,39 +10131,85 @@ impl App {
         if !force && self.store.browse.status == LoadStatus::Loading {
             return Task::none();
         }
+        self.section_loaded_at.insert((Section::Stores, false), Instant::now());
+        self.store.browse.generation = self.store.browse.generation.wrapping_add(1);
+        self.store.browse.next_page = None;
         self.store.browse.status = LoadStatus::Loading;
         self.store.browse.error = None;
         self.store.browse.loading_more = false;
+        self.store_page_task(0)
+    }
+
+    fn store_page_task(&self, offset: u64) -> Task<Message> {
         let backend = self.backend.clone();
+        let generation = self.store.browse.generation;
         Task::perform(
-            async move { backend.load_store_recent(0, STORE_PAGE_SIZE).await },
-            |result| Message::StoreBrowseLoaded {
-                append: false,
+            async move { backend.load_store_recent(offset, STORE_PAGE_SIZE).await },
+            move |result| Message::StoreBrowseLoaded {
+                offset,
+                generation,
                 result,
             },
         )
     }
 
     fn load_store_more(&mut self) -> Task<Message> {
+        self.request_next_store_page(true)
+    }
+
+    fn request_next_store_page(&mut self, append: bool) -> Task<Message> {
         let browse = &self.store.browse;
-        if browse.loading_more || !browse.has_more {
+        if browse.status != LoadStatus::Ready || browse.loading_more || !browse.has_more {
             return Task::none();
         }
         let offset = browse.next_offset.unwrap_or(browse.games.len() as u64);
-        self.store.browse.loading_more = true;
-        let backend = self.backend.clone();
-        Task::perform(
-            async move { backend.load_store_recent(offset, STORE_PAGE_SIZE).await },
-            |result| Message::StoreBrowseLoaded {
-                append: true,
-                result,
-            },
-        )
+        if offset == 0 {
+            return Task::none();
+        }
+        self.store.browse.loading_more = append;
+        match self.store.browse.next_page.take() {
+            Some(NextStorePage::Ready(page)) if append => self.update(Message::StoreBrowseLoaded {
+                offset,
+                generation: self.store.browse.generation,
+                result: Ok(page),
+            }),
+            Some(state) => {
+                self.store.browse.next_page = Some(state);
+                Task::none()
+            }
+            None => {
+                self.store.browse.next_page = Some(NextStorePage::Loading);
+                self.store_page_task(offset)
+            }
+        }
+    }
+
+    fn register_description_videos(&mut self, about: Option<&str>) {
+        let Some(about) = about else {
+            return;
+        };
+        for block in crate::rich_text::parse_description(about) {
+            if let Some(poster) = block.image {
+                if !block.video.is_empty() {
+                    self.animated_cards.open_video(
+                        &block.video,
+                        crate::animated_cards::MediaGroup::Card,
+                    );
+                    self.card_videos.insert(poster, block.video);
+                }
+            }
+        }
     }
 
     fn open_store_detail(&mut self, game: StoreGame) -> Task<Message> {
+        self.store_thumbnail_queue.clear();
+        self.animated_cards.clear_cards();
+        self.card_videos.clear();
         let mut urls = game.image_urls();
-        if let Some(portrait) = crate::backend::store_portrait_url(&game) {
+        // Todos os candidatos de portrait, não só o caminho por convenção: o
+        // primeiro que existir serve, e baixar os dois em paralelo evita a
+        // espera em série quando o preferido dá 404.
+        for portrait in crate::backend::store_portrait_candidates(&game) {
             if !urls.contains(&portrait) {
                 urls.push(portrait);
             }
@@ -7032,7 +10218,16 @@ impl App {
         let install_task = self.store_install_info_task(&game);
         let libraries_task = self.store_libraries_task();
         let community_task = self.community_tasks(&game.appid);
+        let panels_task = self.store_panels_task(&game);
+        self.media.clear();
+        self.game_media = None;
+        self.selected_screenshot = 0;
+        self.gallery_trailer = false;
+        self.requirements_tab = RequirementsTab::default();
+        self.reset_trailer_state();
         self.retro.detail = None;
+        let appid = game.appid.clone();
+        let cached = self.store_info_cache.get(&appid).filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, info)| info.clone());
         self.store.detail = Some(StoreDetailState {
             game,
             info: None,
@@ -7049,19 +10244,57 @@ impl App {
             install_busy: false,
             install_message: None,
             selected_screenshot: 0,
+            downloads: StoreDownloadsState {
+                path: crate::backend::DefaultPaths::resolve(self.settings.config.as_ref().unwrap_or(&SettingsConfig::default())).install,
+                ..StoreDownloadsState::default()
+            },
         });
+        // A ficha abre já com o texto em cache, mas o trailer só começa no
+        // próximo ciclo: `StoreDetailLoaded` monta o pipeline do GStreamer.
+        let info_task = match cached {
+            Some(info) => Task::perform(
+                async move { info },
+                move |info| Message::StoreDetailLoaded { appid, result: Ok(info) },
+            ),
+            None => info_task,
+        };
+        let sources_task = self.store_source_offers_task();
         Task::batch([
             self.cover_tasks(urls),
             info_task,
             install_task,
             libraries_task,
             community_task,
+            panels_task,
+            sources_task,
+            views::game_detail::scroll_to_top(),
         ])
+    }
+
+    fn store_source_offers_task(&mut self) -> Task<Message> {
+        let Some(detail) = self.store.detail.as_mut() else { return Task::none() };
+        if detail.install_busy || detail.downloads.pick_busy { return Task::none() }
+        self.store.detail_generation = self.store.detail_generation.wrapping_add(1);
+        let generation = self.store.detail_generation;
+        detail.downloads.generation = generation;
+        detail.downloads.status = LoadStatus::Loading;
+        detail.downloads.error = None;
+        let game = detail.game.clone();
+        Task::batch([true, false].into_iter().map(|cached_only| {
+            let appid = game.appid.clone();
+            let title = game.title.clone();
+            let backend = self.backend.clone();
+            Task::perform(
+                async move { backend.load_source_offers(title, cached_only).await },
+                move |result| Message::StoreSourceOffersLoaded { appid, generation, cached_only, result },
+            )
+        }))
     }
 
     /// Itens que a Loja do console desenha: resultado da busca quando existe,
     /// senão o catálogo `store:recent` já acumulado.
     fn console_store_games(&self) -> Vec<&StoreGame> {
+        if matches!(self.screen, Screen::BigPicture) { return views::big_picture_store::games(self); }
         if let Some(search) = self.store.search.as_ref() {
             search
                 .result
@@ -7076,7 +10309,8 @@ impl App {
     /// Mantém a grade/foco do console alinhados ao estado real da loja.
     fn sync_console_store(&mut self) {
         let count = self.console_store_games().len();
-        let has_more = self.store.search.is_none() && self.store.browse.has_more;
+        let has_more = self.store.search.is_none() && self.store.browse.has_more
+            && (!matches!(self.screen, Screen::BigPicture) || self.console_storefront.catalog);
         self.big_picture.sync_store(count, has_more);
     }
 
@@ -7094,47 +10328,90 @@ impl App {
         }
         self.sync_console_store();
 
-        if self.store.search.is_none() && matches!(self.store.browse.status, LoadStatus::Idle) {
+        let language = self.i18n.lang();
+        let storefront = if matches!(self.console_storefront.status, LoadStatus::Idle) || self.console_storefront.language != Some(language) || (matches!(self.console_storefront.status, LoadStatus::Ready) && self.console_storefront.loaded_at.is_some_and(|at|at.elapsed()>Duration::from_secs(600))) {
+            if matches!(self.console_storefront.status, LoadStatus::Idle) && !self.big_picture.store_editing() && self.store.search.is_none() { self.big_picture.focus_store_hero(); }
+            self.console_storefront.status = LoadStatus::Loading;
+            self.console_storefront.language = Some(language);
+            let backend = self.backend.clone();
+            Task::perform(async move { backend.load_console_storefront(language.code().to_string()).await },move |result| Message::ConsoleStorefrontLoaded { language, result })
+        } else {Task::none()};
+        let home = if matches!(self.home.status, LoadStatus::Idle) { self.load_section(Section::Home, false) } else { Task::none() };
+        let art: Vec<_> = views::big_picture_store::hero_games(self).iter()
+            .flat_map(|game| [crate::backend::store_hero_url(game), crate::backend::steam_logo_url(&game.appid)])
+            .flatten().collect();
+        let covers = self.cover_tasks(art);
+        let catalog = if self.store.search.is_none() && matches!(self.store.browse.status, LoadStatus::Idle) {
             self.load_store_browse(false)
         } else {
             Task::none()
-        }
+        };
+        Task::batch([catalog, home, covers, storefront])
     }
 
     /// Foco programático no campo de busca; `false` devolve o foco ao painel.
     fn console_store_focus_task(&self, focused: bool) -> Task<Message> {
         let id = iced::widget::Id::new(views::big_picture::STORE_SEARCH_ID);
         if focused {
-            iced::advanced::widget::operate(
-                iced::advanced::widget::operation::focusable::focus(id),
-            )
+            iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus(id))
         } else {
-            iced::advanced::widget::operate(
-                iced::advanced::widget::operation::focusable::unfocus(),
-            )
+            iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus())
         }
     }
 
     fn load_retro_page(&mut self, offset: u64) -> Task<Message> {
+        self.section_loaded_at.insert((Section::Stores, true), Instant::now());
         self.retro.status = LoadStatus::Loading;
         self.retro.error = None;
+        self.retro.showing_cached_page = false;
         self.retro.generation = self.retro.generation.wrapping_add(1);
         let generation = self.retro.generation;
-        let query = self.retro.applied_query.clone();
-        let system = (!self.retro.system.id.is_empty()).then(|| self.retro.system.id.to_string());
+        let payload = Backend::retro_page_params(
+            &self.retro.applied_query, self.retro.system.id, offset, RETRO_PAGE_SIZE,
+        );
+        let cached_payload = payload.clone();
         let backend = self.backend.clone();
         Task::perform(
-            async move {
-                backend
-                    .load_retro_page(query, system, offset, RETRO_PAGE_SIZE)
-                    .await
-            },
-            move |result| Message::RetroPageLoaded {
+            async move { backend.cached_retro_page(cached_payload).await },
+            move |page| Message::RetroPageCached {
                 generation,
                 offset,
-                result,
+                payload: payload.clone(),
+                page,
             },
         )
+    }
+
+    fn apply_retro_page(&mut self, page: RetroPage) -> Task<Message> {
+        let changed_page = self.retro.offset != page.offset;
+        self.retro.offset = page.offset;
+        self.retro.games = page.games;
+        self.retro.sources = page.sources;
+        self.retro.total = page.total;
+        self.retro.total_offers = page.total_offers;
+        self.retro.has_more = page.has_more;
+        self.retro.status = LoadStatus::Ready;
+        self.retro.error = None;
+        let limit = if matches!(self.screen, Screen::Section(Section::Stores))
+            && self.store.tab == StoreTab::Retro
+        {
+            RETRO_PAGE_SIZE as usize
+        } else {
+            8
+        };
+        let covers = self.retro_page_cover_tasks(limit);
+        if changed_page && matches!(self.screen, Screen::Section(Section::Stores))
+            && self.store.tab == StoreTab::Retro && self.retro.detail.is_none()
+        {
+            Task::batch([views::retro::scroll_to_top(), covers])
+        } else {
+            covers
+        }
+    }
+
+    fn retro_page_cover_tasks(&mut self, limit: usize) -> Task<Message> {
+        let art: Vec<_> = self.retro.games.iter().take(limit).filter_map(RetroGame::card_art).collect();
+        self.retro_cover_tasks(art)
     }
 
     fn submit_retro_search(&mut self) -> Task<Message> {
@@ -7158,6 +10435,9 @@ impl App {
 
     fn home_hero_info_task(&mut self, game: &StoreGame) -> Task<Message> {
         self.home.hero_appid = Some(game.appid.clone());
+        if let Some(info) = self.store_info_cache.get(&game.appid).filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, info)| info.clone()) {
+            return self.update(Message::HomeHeroInfoLoaded { appid: game.appid.clone(), result: Ok(info) });
+        }
         self.home.hero_info = None;
         self.home.hero_status = LoadStatus::Loading;
         let backend = self.backend.clone();
@@ -7210,6 +10490,12 @@ impl App {
     /// Envelopa um patch `config:set` em uma única chave e recarrega o estado
     /// tipado com a resposta redigida do dispatcher.
     fn save_setting(&mut self, key: &'static str, value: Value) -> Task<Message> {
+        self.save_dynamic_setting(key, value)
+    }
+
+    /// Igual a [`Self::save_setting`], mas aceita chave emprestada — os tokens
+    /// de debrid vêm de `DebridProvider::config_key` em tempo de execução.
+    fn save_dynamic_setting(&mut self, key: &'static str, value: Value) -> Task<Message> {
         if self.settings.saving.is_some() {
             return Task::none();
         }
@@ -7270,21 +10556,22 @@ impl App {
         if appid.is_empty() {
             return Task::none();
         }
-        let (_, fresh) = self.community.ensure(&appid);
-        if !fresh {
+        let (state, _) = self.community.ensure(&appid);
+        if state.reviews.status == LoadStatus::Loading
+            || state.collections.status == LoadStatus::Loading
+            || state.reviews.loading_more
+            || state.collections.loading_more
+            || state.last_open_load.is_some_and(|at| at.elapsed() < Duration::from_secs(120))
+        {
             return Task::none();
         }
+        state.last_open_load = Some(Instant::now());
         let reviews = self.load_community_reviews(&appid, 0, false);
         let collections = self.load_community_collections(&appid, 0, false);
         Task::batch([reviews, collections])
     }
 
-    fn load_community_reviews(
-        &mut self,
-        appid: &str,
-        offset: u64,
-        append: bool,
-    ) -> Task<Message> {
+    fn load_community_reviews(&mut self, appid: &str, offset: u64, append: bool) -> Task<Message> {
         let Some(state) = self.community.get_mut(appid) else {
             return Task::none();
         };
@@ -7355,11 +10642,7 @@ impl App {
         Task::perform(
             async move {
                 backend
-                    .load_community_collections(
-                        offset,
-                        views::community::COMMUNITY_PAGE_SIZE,
-                        mine,
-                    )
+                    .load_community_collections(offset, views::community::COMMUNITY_PAGE_SIZE, mine)
                     .await
             },
             move |result| Message::CommunityCollectionsLoaded {
@@ -7380,7 +10663,11 @@ impl App {
     /// Mantém o painel ciente da sessão mesmo quando o cache já existia.
     /// Se a conta mudou, o cache foi descartado e a ficha aberta recarrega.
     fn sync_community_viewer(&mut self) -> Task<Message> {
-        let viewer = self.account.session.as_ref().map(|session| session.id.clone());
+        let viewer = self
+            .account
+            .session
+            .as_ref()
+            .map(|session| session.id.clone());
         if !self.community.set_viewer(viewer) {
             return Task::none();
         }
@@ -7420,8 +10707,7 @@ impl App {
         };
         let form = match editing {
             Some(id) => {
-                let Some(review) = state.reviews.items.iter().find(|review| review.id == id)
-                else {
+                let Some(review) = state.reviews.items.iter().find(|review| review.id == id) else {
                     return Task::none();
                 };
                 ReviewFormState::for_review(review)
@@ -7790,9 +11076,7 @@ impl App {
         action: CommunityMutationKind,
         result: Result<CommunityMutation, CommunityError>,
     ) -> Task<Message> {
-        let notice = action
-            .success_key()
-            .map(|key| self.i18n.t(key).to_string());
+        let notice = action.success_key().map(|key| self.i18n.t(key).to_string());
         let reload_offset = {
             let Some(state) = self.community.get_mut(&appid) else {
                 return Task::none();
@@ -7853,6 +11137,78 @@ impl App {
         }
     }
 
+    /// Aplica uma leitura de `library:get` sem tocar no estado da tela.
+    fn apply_library_snapshot(&mut self, mut games: Vec<Game>) -> Task<Message> {
+        let mut tasks = Vec::new();
+        let mut retro_art = Vec::new();
+        for game in &mut games {
+            if game.retro_system().is_none() {
+                continue;
+            }
+            if let Some(url) = &game.cover_url {
+                retro_art.push((url.clone(), None));
+                continue;
+            }
+            match self.retro_library_art.get(&game.id) {
+                Some(Some((url, fallback))) => {
+                    game.cover_url = Some(url.clone());
+                    retro_art.push((url.clone(), fallback.clone()));
+                }
+                Some(None) => {}
+                None => {
+                    let id = game.id.clone();
+                    self.retro_library_art.insert(id.clone(), None);
+                    let backend = self.backend.clone();
+                    let request = id.clone();
+                    tasks.push(Task::perform(
+                        async move { backend.resolve_retro_cover(request).await },
+                        move |art| Message::RetroLibraryArtLoaded { id, art },
+                    ));
+                }
+            }
+        }
+        self.library.ready(games);
+        if self
+            .game_menu
+            .as_ref()
+            .is_some_and(|menu| self.library.game(&menu.game_id).is_none())
+        {
+            self.game_menu = None;
+        }
+        self.big_picture
+            .sync_games(self.library.visible_all().len());
+        let urls = self.library.image_urls();
+        tasks.push(self.retro_cover_tasks(retro_art));
+        tasks.push(self.cover_tasks(urls));
+        Task::batch(tasks)
+    }
+
+    /// Ficha aberta de jogo Steam ainda marcado como não instalado: é o único
+    /// caso em que vale sondar a Steam de tempos em tempos.
+    fn steam_install_pending(&self) -> bool {
+        matches!(&self.screen, Screen::Game(id)
+            if self.library.game(id).is_some_and(|game| {
+                !game.installed && game.launcher.eq_ignore_ascii_case("steam")
+            }))
+    }
+
+    /// Refresh em segundo plano: sem spinner, sem perder a ficha aberta e sem
+    /// duas requisições sobrepostas.
+    fn light_library_refresh(&mut self) -> Task<Message> {
+        if self.library_poll_in_flight || self.library.status != LibraryStatus::Ready {
+            return Task::none();
+        }
+        let backend = self.backend.clone();
+        self.library_dirty = false;
+        self.library_poll_in_flight = true;
+        self.library_epoch = self.library_epoch.wrapping_add(1);
+        let epoch = self.library_epoch;
+        Task::perform(
+            async move { backend.load_library().await },
+            move |result| Message::LibraryRefreshed { epoch, result },
+        )
+    }
+
     fn reload_task(&self) -> Task<Message> {
         let backend = self.backend.clone();
         Task::perform(
@@ -7896,11 +11252,7 @@ impl App {
             let game_id = game.id.clone();
             let achievements_appid = appid.clone();
             tasks.push(Task::perform(
-                async move {
-                    backend
-                        .load_steam_achievements(achievements_appid)
-                        .await
-                },
+                async move { backend.load_steam_achievements(achievements_appid).await },
                 move |result| Message::AchievementsLoaded { game_id, result },
             ));
 
@@ -7921,22 +11273,16 @@ impl App {
         } else if let (true, Some(system)) = (game.is_retro(), game.retro_system()) {
             panels.achievements.status = LoadStatus::Loading;
             panels.proton.status = LoadStatus::Ready;
-            panels.proton.note =
-                Some(self.i18n.t("native.game.note.retro_proton").to_string());
+            panels.proton.note = Some(self.i18n.t("native.game.note.retro_proton").to_string());
             panels.stats.status = LoadStatus::Ready;
-            panels.stats.note =
-                Some(self.i18n.t("native.game.note.retro_stats").to_string());
+            panels.stats.note = Some(self.i18n.t("native.game.note.retro_stats").to_string());
 
             let backend = self.backend.clone();
             let game_id = game.id.clone();
             let title = game.title.clone();
             let system = system.to_string();
             tasks.push(Task::perform(
-                async move {
-                    backend
-                        .load_retro_achievements(title, system)
-                        .await
-                },
+                async move { backend.load_retro_achievements(title, system).await },
                 move |result| Message::AchievementsLoaded { game_id, result },
             ));
         } else {
@@ -7957,19 +11303,144 @@ impl App {
                     .to_string(),
             );
             panels.stats.status = LoadStatus::Ready;
-            panels.stats.note = Some(
-                self.i18n
-                    .t("native.game.note.stats_steam_only")
-                    .to_string(),
-            );
+            panels.stats.note = Some(self.i18n.t("native.game.note.stats_steam_only").to_string());
         }
 
         self.game_panels.insert(game.id.clone(), panels);
         Task::batch(tasks)
     }
 
+    /// Painéis ProtonDB/Stats/Conquistas da ficha da loja. Reaproveita o mesmo
+    /// cache da biblioteca, com uma chave `store:` própria.
+    fn store_panels_task(&mut self, game: &StoreGame) -> Task<Message> {
+        let game_id = store_panels_id(game);
+        if self.game_panels.contains_key(&game_id) {
+            return Task::none();
+        }
+
+        let appid = game.appid.trim().to_string();
+        let mut panels = GamePanels::default();
+        let mut tasks = Vec::new();
+
+        if appid.is_empty() || !appid.chars().all(|character| character.is_ascii_digit()) {
+            panels.achievements.status = LoadStatus::Ready;
+            panels.proton.status = LoadStatus::Ready;
+            panels.stats.status = LoadStatus::Ready;
+            panels.achievements.note = Some(
+                self.i18n
+                    .t("native.game.note.achievements_launcher")
+                    .to_string(),
+            );
+            panels.proton.note = Some(
+                self.i18n
+                    .t("native.game.note.proton_steam_only")
+                    .to_string(),
+            );
+            panels.stats.note = Some(self.i18n.t("native.game.note.stats_steam_only").to_string());
+            self.game_panels.insert(game_id, panels);
+            return Task::none();
+        }
+
+        panels.achievements.status = LoadStatus::Loading;
+        panels.proton.status = LoadStatus::Loading;
+        panels.stats.status = LoadStatus::Loading;
+
+        let backend = self.backend.clone();
+        let achievements_id = game_id.clone();
+        let achievements_appid = appid.clone();
+        tasks.push(Task::perform(
+            async move { backend.load_steam_achievements(achievements_appid).await },
+            move |result| Message::AchievementsLoaded {
+                game_id: achievements_id,
+                result,
+            },
+        ));
+
+        let backend = self.backend.clone();
+        let proton_id = game_id.clone();
+        let proton_appid = appid.clone();
+        tasks.push(Task::perform(
+            async move { backend.load_protondb(proton_appid).await },
+            move |result| Message::ProtonDbLoaded {
+                game_id: proton_id,
+                result,
+            },
+        ));
+
+        let backend = self.backend.clone();
+        let stats_id = game_id.clone();
+        tasks.push(Task::perform(
+            async move { backend.load_game_stats(appid).await },
+            move |result| Message::GameStatsLoaded {
+                game_id: stats_id,
+                result,
+            },
+        ));
+
+        self.game_panels.insert(game_id, panels);
+        Task::batch(tasks)
+    }
+
+    fn desktop_store_visible(&self) -> bool {
+        matches!(self.screen, Screen::Section(Section::Stores))
+            && self.store.tab == StoreTab::Steam && self.store.detail.is_none()
+    }
+
+    fn console_store_visible(&self) -> bool {
+        matches!(self.screen, Screen::BigPicture) && self.big_picture.tab() == ConsoleTab::Stores
+    }
+
+    fn store_thumbnail_tasks(&mut self, urls: impl IntoIterator<Item = String>) -> Task<Message> {
+        for url in urls {
+            if !self.store_thumbnail_queue.contains(&url) {
+                self.store_thumbnail_queue.push_back(url);
+            }
+        }
+        self.run_store_thumbnail_queue()
+    }
+
+    fn run_store_thumbnail_queue(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        while self.store_thumbnail_jobs < STORE_THUMBNAIL_JOBS {
+            let Some(url) = self.store_thumbnail_queue.pop_front() else { break };
+            self.store_thumbnails.touch(&url);
+            if !self.store_thumbnails.request(&url) {
+                continue;
+            }
+            self.store_thumbnail_jobs += 1;
+            let backend = self.backend.clone();
+            let fetch_url = url.clone();
+            tasks.push(Task::perform(
+                async move { backend.fetch_store_thumbnail(fetch_url).await },
+                move |image| Message::StoreThumbnailLoaded { url, image },
+            ));
+        }
+        Task::batch(tasks)
+    }
+
+    fn retro_cover_tasks(
+        &mut self,
+        art: impl IntoIterator<Item = (String, Option<String>)>,
+    ) -> Task<Message> {
+        let tasks: Vec<_> = art.into_iter().filter_map(|(url, fallback)| {
+            if !self.covers.request(&url) {
+                return None;
+            }
+            let backend = self.backend.clone();
+            let request = url.clone();
+            Some(Task::perform(
+                async move { backend.fetch_retro_card(request, fallback).await },
+                move |loaded| Message::CoverLoaded { url, loaded },
+            ))
+        }).collect();
+        Task::batch(tasks)
+    }
+
     fn cover_tasks(&mut self, urls: Vec<String>) -> Task<Message> {
         let mut tasks = Vec::new();
+        let foreground = self.store.detail.is_some()
+            || matches!(self.screen, Screen::Game(_))
+            || (matches!(self.screen, Screen::BigPicture) && self.big_picture.overview_open());
 
         for url in urls {
             if !self.covers.request(&url) {
@@ -7979,8 +11450,8 @@ impl App {
             let backend = self.backend.clone();
             let fetch_url = url.clone();
             tasks.push(Task::perform(
-                async move { backend.fetch_cover(fetch_url).await },
-                move |handle| Message::CoverLoaded { url, handle },
+                async move { backend.fetch_cover_priority(fetch_url, foreground).await },
+                move |loaded| Message::CoverLoaded { url, loaded },
             ));
         }
 
@@ -7988,10 +11459,18 @@ impl App {
     }
 }
 
+fn store_thumbnail_urls(games: &[StoreGame]) -> Vec<String> {
+    games.iter()
+        .take(STORE_THUMBNAIL_AHEAD)
+        .filter_map(|game| game.cover_url.clone())
+        .collect()
+}
+
 fn verification_summary(i18n: &I18n, verification: &PluginVerification) -> String {
     if !verification.ok || !verification.valid {
         return if verification.error.is_empty() {
-            i18n.t("native.components.verify_failed_no_detail").to_string()
+            i18n.t("native.components.verify_failed_no_detail")
+                .to_string()
         } else {
             i18n.t_args(
                 "native.components.verify_failed_detail",
@@ -8023,8 +11502,38 @@ fn console_shelf_for<'a>(library: &'a Library, tab: ConsoleTab) -> Vec<&'a Game>
     }
 }
 
+/// Patch do menu para `overrides:set`. Booleano desejado, nunca `null`; e a
+/// lista de categorias sempre explícita (`[]` quando todas foram removidas).
+fn library_override_patch(game: &Game) -> serde_json::Value {
+    json!({
+        "favorite": game.favorite,
+        "hidden": game.hidden,
+        "categories": game.categories,
+    })
+}
+
+fn shorten_error(error: &str, limit: usize) -> String {
+    let mut text: String = error.chars().take(limit).collect();
+    if error.chars().count() > limit {
+        text.push('…');
+    }
+    text
+}
+
 fn picker_error_text(i18n: &I18n, error: &str) -> String {
     format!("{} {error}", i18n.t("native.picker.error"))
+}
+
+fn source_error_text(i18n: &I18n, error: &str) -> String {
+    let code = error.strip_prefix("sources:add: ").unwrap_or(error);
+    let key = match code {
+        "cloudflare_challenge" => "native.sources.cloudflare",
+        "source_json_invalid" => "native.sources.json_invalid",
+        "source_json_too_large" => "native.sources.json_too_large",
+        "source_json_read_failed" => "native.sources.json_read_failed",
+        _ => return error.to_string(),
+    };
+    i18n.t(key).to_string()
 }
 
 fn rom_folder_error_text(i18n: &I18n, error: RomFolderAddError) -> String {
@@ -8059,9 +11568,27 @@ fn account_error_text(i18n: &I18n, code: &str) -> String {
         "arquivo_grande" => "native.account.erro_imagem_grande",
         "sem_campos" => "native.account.erro_sem_campos",
         "resposta_invalida" => "native.account.erro_resposta",
+        // Sessão expirada: o servidor recusa o refresh token e devolve
+        // "Invalid Refresh Token: Refresh Token Not Found" — que o mapa
+        // desconhecia, caindo em "Operation failed (texto cru em inglês)".
+        // Aqui vira uma mensagem que diz o que fazer: entrar de novo.
+        other if is_expired_session(other) => "native.account.erro_sessao_expirada",
         other => return format!("{} ({other})", i18n.t("account.erro_geral")),
     };
     i18n.t(key).to_string()
+}
+
+/// `true` quando o erro do servidor é sessão expirada/refresh token inválido.
+///
+/// O texto vem do Supabase e varia ("Invalid Refresh Token: Refresh Token Not
+/// Found", "refresh_token_not_found", "JWT expired"); o que importa é o
+/// significado, não a redação.
+fn is_expired_session(code: &str) -> bool {
+    let lower = code.to_ascii_lowercase();
+    lower.contains("refresh token")
+        || lower.contains("refresh_token")
+        || lower.contains("jwt expired")
+        || lower.contains("token has expired")
 }
 
 fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
@@ -8090,8 +11617,971 @@ fn console_nav_from_key(event: &keyboard::Event) -> Option<NavEvent> {
 mod tests {
     use super::*;
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn retro_cached_page_stays_visible_on_failed_refresh() {
+        let root = std::env::temp_dir().join(format!("arcadia-retro-preview-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let generation = app.retro.generation;
+        let page = RetroPage {
+            games: vec![RetroGame { id: "retro:test:123".into(), title: "Fixture".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        drop(app.update(Message::RetroPageCached {
+            generation, offset: 0, payload: json!({}), page: Some(page),
+        }));
+        assert_eq!(app.retro.status, LoadStatus::Ready);
+        drop(app.update(Message::RetroPageLoaded {
+            generation, offset: 0, result: Err("offline".into()),
+        }));
+        assert_eq!(app.retro.status, LoadStatus::Ready);
+        assert_eq!(app.retro.games[0].title, "Fixture");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn automatic_retro_refresh_keeps_the_current_page_and_survives_failure() {
+        let root = std::env::temp_dir().join(format!("arcadia-retro-revalidate-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        app.screen = Screen::Section(Section::Stores);
+        app.store.tab = StoreTab::Retro;
+        app.retro.offset = RETRO_PAGE_SIZE;
+        app.retro.games.push(RetroGame { title: "Página atual".into(), ..Default::default() });
+        app.retro.status = LoadStatus::Ready;
+        app.section_loaded_at.clear();
+
+        assert_eq!(app.update(Message::RefreshVisibleSection).units(), 1);
+        assert_eq!(app.retro.offset, RETRO_PAGE_SIZE);
+        assert_eq!(app.update(Message::RefreshVisibleSection).units(), 0);
+        drop(app.update(Message::RetroPageLoaded {
+            generation: app.retro.generation,
+            offset: RETRO_PAGE_SIZE,
+            result: Err("offline".into()),
+        }));
+        assert_eq!(app.retro.status, LoadStatus::Ready);
+        assert_eq!(app.retro.games[0].title, "Página atual");
+        assert_eq!(app.update(Message::RefreshVisibleSection).units(), 0);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn retro_next_page_can_supersede_a_refresh_and_loads_its_covers_from_cache() {
+        let root = std::env::temp_dir().join(format!("arcadia-retro-page-change-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        app.screen = Screen::Section(Section::Stores);
+        app.store.tab = StoreTab::Retro;
+        app.retro.status = LoadStatus::Ready;
+        app.retro.has_more = true;
+        app.section_loaded_at.clear();
+
+        drop(app.update(Message::RefreshVisibleSection));
+        let old_generation = app.retro.generation;
+        assert_eq!(app.retro.status, LoadStatus::Ready);
+        assert_eq!(app.update(Message::RetroNextPage).units(), 1);
+        let generation = app.retro.generation;
+        assert_ne!(generation, old_generation);
+        let url = "https://example.test/page-2.jpg";
+        let tasks = app.update(Message::RetroPageCached {
+            generation,
+            offset: RETRO_PAGE_SIZE,
+            payload: Backend::retro_page_params("", "", RETRO_PAGE_SIZE, RETRO_PAGE_SIZE),
+            page: Some(RetroPage {
+                games: vec![RetroGame { title: "Página 2".into(), cover_url: Some(url.into()), ..Default::default() }],
+                ..Default::default()
+            }),
+        });
+        // Cache hit queues the new cover, scrolls to the top, and revalidates.
+        assert_eq!(tasks.units(), 3);
+        assert_eq!(app.retro.offset, RETRO_PAGE_SIZE);
+        assert!(!app.covers.request(url));
+        drop(app.update(Message::RetroPageLoaded {
+            generation: old_generation,
+            offset: 0,
+            result: Ok(RetroPage::default()),
+        }));
+        assert_eq!(app.retro.games[0].title, "Página 2");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn store_preview_respects_pagination_and_refresh() {
+        let root = std::env::temp_dir().join(format!("arcadia-store-preview-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        app.screen = Screen::Section(Section::Stores);
+
+        let game = |id: u64| StoreGame { appid: id.to_string(), ..StoreGame::default() };
+        let first_page = StorePage {
+            games: vec![game(10)],
+            has_more: true,
+            next_offset: Some(24),
+            ..StorePage::default()
+        };
+        let next_page = StorePage { games: vec![game(20)], ..StorePage::default() };
+        let generation = app.store.browse.generation;
+        drop(app.update(Message::StoreBrowseLoaded { offset: 0, generation, result: Ok(first_page.clone()) }));
+        assert_eq!(app.update(Message::StorePrefetchNext).units(), 1);
+        assert_eq!(app.update(Message::StorePrefetchNext).units(), 0);
+        drop(app.update(Message::StoreBrowseLoaded { offset: 24, generation, result: Ok(next_page.clone()) }));
+        assert_eq!(app.store.browse.games.len(), 1);
+        assert_eq!(app.update(Message::StoreLoadMore).units(), 0);
+        assert_eq!(app.store.browse.games.len(), 2);
+        assert!(!app.store.browse.has_more);
+
+        drop(app.load_store_browse(true));
+        drop(app.update(Message::StoreBrowseLoaded { offset: 24, generation, result: Ok(next_page) }));
+        assert!(app.store.browse.next_page.is_none());
+        assert_eq!(app.store.browse.status, LoadStatus::Loading);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn source_import_cancel_keeps_url_and_errors_explain_browser_verification() {
+        let root = std::env::temp_dir().join(format!("arcadia-source-import-ui-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        app.sources.status = LoadStatus::Ready;
+        app.sources.url_draft = "https://hydralinks.cloud/sources/fitgirl.json".into();
+        let purpose = PickPurpose::SourceCatalog { url: app.sources.url_draft.clone() };
+        drop(app.update(Message::PickRequested(purpose.clone())));
+        assert!(app.sources.busy);
+        drop(crate::views::sources::view(&app));
+        drop(app.update(Message::PickDone { purpose, result: Ok(None) }));
+        assert!(!app.sources.busy);
+        assert!(!app.sources.url_draft.is_empty());
+        drop(app.update(Message::SourcesActionDone(Err("sources:add: cloudflare_challenge".into()))));
+        assert_eq!(app.sources.action_error.as_deref(), Some(app.i18n.t("native.sources.cloudflare")));
+        assert!(!app.sources.url_draft.is_empty());
+        assert_eq!(source_error_text(&app.i18n, "source_json_invalid"), app.i18n.t("native.sources.json_invalid"));
+        assert_eq!(source_error_text(&app.i18n, "HTTP 500"), "HTTP 500");
+    }
+
+    #[test]
+    fn live_download_progress_merges_queues_and_rejects_stale_refresh_results() {
+        let mut state = DownloadsState::default();
+        let stale = crate::backend::parse_downloads(
+            Some(json!([{ "appid": "steam:10", "status": "downloading", "percent": 5 }])),
+            Some(json!({ "downloads": [{ "gameId": "tor:20", "engine": "http", "progress": 0.1 }] })),
+        );
+        let before = state.revisions;
+        state.busy_id = Some("steam:10".into());
+        let dm = crate::backend::parse_downloads(
+            Some(json!([{ "appid": "steam:10", "status": "paused", "percent": 50 }])), None,
+        );
+        state.apply_progress(false, dm.items);
+        state.apply_snapshot(before, stale.clone());
+        let steam = state.data.items.iter().find(|item| !item.is_torrent).unwrap();
+        assert_eq!(steam.percent, 50.0);
+        assert_eq!(steam.status, crate::backend::DownloadStatus::Paused);
+        assert_eq!(state.data.items.len(), 2);
+        assert_eq!(state.busy_id.as_deref(), Some("steam:10"));
+        let before_cancel = state.revisions;
+        state.apply_progress(true, Vec::new());
+        state.apply_snapshot(before_cancel, stale);
+        assert_eq!(state.data.items.len(), 1, "uma leitura atrasada restaurou o download cancelado");
+        assert_eq!(state.data.items[0].id, "steam:10");
+        assert_eq!(state.status, LoadStatus::Ready);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn downloads_update_from_service_events_without_refreshing_the_page() {
+        let root = std::env::temp_dir().join(format!("arcadia-native-live-download-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("torrent_state.json"), json!([{
+            "gameId": "tor:20", "title": "Fixture", "engine": "http",
+            "url": "https://example.test/fixture.bin", "progress": 0.4,
+        }]).to_string()).unwrap();
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend.clone());
+        drop(boot);
+        backend.run_download_action("tor:20".into(), true, DownloadAction::Pause).await.unwrap();
+        app.downloads.busy_id = Some("tor:20".into());
+        drop(app.update(Message::LaunchEventsTick));
+        assert_eq!(app.downloads.data.items[0].percent, 40.0);
+        assert_eq!(app.downloads.data.items[0].status, crate::backend::DownloadStatus::Paused);
+        assert_eq!(app.downloads.busy_id.as_deref(), Some("tor:20"));
+        backend.run_download_action("tor:20".into(), true, DownloadAction::Cancel).await.unwrap();
+        drop(app.update(Message::LaunchEventsTick));
+        assert!(app.downloads.data.items.is_empty(), "a tela exigiu Refresh após cancelar");
+        assert_eq!(app.downloads.status, LoadStatus::Ready);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn source_downloads_work_without_a_steam_manifest_or_library_and_ignore_stale_results() {
+        let root = std::env::temp_dir().join(format!("arcadia-source-downloads-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, task) = App::boot(backend);
+        drop(task);
+        let game = StoreGame { appid: "1174180".into(), title: "Red Dead Redemption 2".into(), ..Default::default() };
+        drop(app.open_store_detail(game.clone()));
+        let generation = app.store.detail.as_ref().unwrap().downloads.generation;
+        drop(app.update(Message::StoreInstallInfoLoaded {
+            appid: game.appid.clone(), result: Err("nenhum provedor disponível".into()),
+        }));
+        let offer = crate::backend::SourceOffer {
+            reference: "source:0".into(), title: game.title.clone(), source: "Source".into(),
+            file_size: "10 GB".into(), uris: vec!["https://example.test/game.zip".into()],
+        };
+        let data = SourceOffers { offers: vec![offer], unavailable_sources: vec![] };
+        drop(app.update(Message::StoreSourceOffersLoaded {
+            appid: game.appid.clone(), generation, cached_only: true, result: Ok(data.clone()),
+        }));
+        let detail = app.store.detail.as_ref().unwrap();
+        assert!(crate::views::store_downloads::available(detail));
+        assert!(detail.libraries.is_empty());
+        assert_eq!(detail.downloads.status, LoadStatus::Loading);
+        drop(app.update(Message::StoreDownloadRequested));
+        assert!(app.store.detail.as_ref().unwrap().downloads.open);
+        assert!(!app.store.detail.as_ref().unwrap().install_busy, "abrir o diálogo iniciou o download");
+        drop(crate::views::store::detail_view(&app, app.store.detail.as_ref().unwrap()));
+        drop(crate::views::store_downloads::overlay(&app, app.store.detail.as_ref().unwrap()));
+        drop(app.update(Message::StoreDownloadPathChanged("   ".into())));
+        drop(app.update(Message::StoreSourceDownloadConfirmed));
+        assert!(!app.store.detail.as_ref().unwrap().install_busy);
+        drop(app.update(Message::StoreDownloadPathChanged("/chosen/games".into())));
+        drop(app.update(Message::StoreSourceDownloadConfirmed));
+        assert!(app.store.detail.as_ref().unwrap().install_busy);
+        drop(app.update(Message::StoreSourceDownloadDone {
+            appid: game.appid.clone(), generation, result: Err("hoster_unavailable".into()),
+        }));
+        assert!(!app.store.detail.as_ref().unwrap().install_busy);
+        assert!(app.store.detail.as_ref().unwrap().downloads.open);
+        drop(app.update(Message::StoreSourceOffersLoaded {
+            appid: game.appid.clone(), generation, cached_only: false, result: Ok(data.clone()),
+        }));
+        assert_eq!(app.store.detail.as_ref().unwrap().downloads.error.as_deref(), Some("hoster_unavailable"));
+        drop(app.open_store_detail(game.clone()));
+        let current = app.store.detail.as_ref().unwrap().downloads.generation;
+        assert_ne!(generation, current);
+        drop(app.update(Message::StoreSourceOffersLoaded {
+            appid: game.appid.clone(), generation, cached_only: false, result: Ok(data.clone()),
+        }));
+        assert!(app.store.detail.as_ref().unwrap().downloads.data.offers.is_empty());
+        drop(app.update(Message::StoreSourceOffersLoaded {
+            appid: game.appid.clone(), generation: current, cached_only: false, result: Ok(data),
+        }));
+        drop(app.update(Message::StoreSourceOffersLoaded {
+            appid: game.appid.clone(), generation: current, cached_only: true, result: Ok(SourceOffers::default()),
+        }));
+        assert!(crate::views::store_downloads::available(app.store.detail.as_ref().unwrap()));
+        drop(app.update(Message::StoreDownloadRequested));
+        drop(app.update(Message::StoreSourceDownloadDone {
+            appid: game.appid, generation: current, result: Ok(()),
+        }));
+        assert!(!app.store.detail.as_ref().unwrap().downloads.open);
+        assert!(app.store.detail.as_ref().unwrap().install_message.is_some());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn profile_starts_avatar_animation_before_static_download_finishes() {
+        let data_dir = std::env::temp_dir()
+            .join(format!("profile-avatar-start-test-{}", std::process::id()));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(data_dir),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, initial_tasks) = App::boot(backend);
+        drop(initial_tasks);
+        app.account.apply_session(AccountSession::default());
+        let url = "https://example.test/avatar.gif";
+        drop(app.update(Message::AccountProfileLoaded(Ok(AccountProfile {
+            avatar_url: Some(url.to_string()),
+            ..AccountProfile::default()
+        }))));
+        assert_eq!(app.account.avatar_url.as_deref(), Some(url));
+        assert!(app.account.avatar.is_none());
+        assert!(
+            !app.animated_cards.wants(url),
+            "animação ficou esperando AccountAvatarLoaded",
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn navigating_preserves_profile_animation_and_pending_downloads() {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+            for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+                encoder.encode_frame(image::Frame::from_parts(
+                    image::RgbaImage::from_pixel(2, 2, image::Rgba(color)),
+                    0, 0, image::Delay::from_numer_denom_ms(20, 1),
+                )).expect("GIF válido");
+            }
+        }
+        let media = crate::animated_cards::decode_media(bytes).await.expect("mídia válida");
+        let data_dir = std::env::temp_dir()
+            .join(format!("profile-navigation-test-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(data_dir), tokio::runtime::Handle::current());
+        let (mut app, initial_tasks) = App::boot(backend);
+        drop(initial_tasks);
+        for uri in ["avatar.gif", "banner.gif", "background.gif"] {
+            app.animated_cards.insert_decoded(uri, media.clone(), crate::animated_cards::MediaGroup::Profile);
+        }
+        app.animated_cards.mark_in_flight("new-background.gif");
+        for section in [Section::Library, Section::Home, Section::Settings] {
+            drop(app.update(Message::Navigate(section)));
+            drop(app.update(Message::CardsTick));
+            for uri in ["avatar.gif", "banner.gif", "background.gif"] {
+                assert!(app.animated_cards.texture(uri).is_some(), "{uri} desapareceu em {section:?}");
+                assert!(!app.animated_cards.wants(uri), "{uri} exige novo download");
+            }
+            assert!(!app.animated_cards.wants("new-background.gif"), "perdeu download em andamento");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn console_detail_builds_all_tabs_and_opens_screenshot() {
+        let path = std::env::temp_dir().join(format!("console-detail-test-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(path), tokio::runtime::Handle::current());
+        let (mut app, tasks) = App::boot(backend);
+        drop(tasks);
+        let game = game("custom:detail", "Fixture game", false, false);
+        app.library.ready(vec![game.clone()]);
+        app.screen = Screen::BigPicture;
+        app.big_picture.sync_games(1);
+        drop(app.console_nav(NavEvent::Down));
+        assert!(app.big_picture.overview_open());
+        drop(app.update(Message::ConsoleMediaLoaded { id: game.id.clone(), media: GameMedia {
+            screenshots: vec![crate::backend::Screenshot { thumb: Some("https://example.test/shot.jpg".into()), full: Some("https://example.test/full.jpg".into()) }],
+            req_min: Some("<p>4 GB RAM</p>".into()),
+            ..GameMedia::default()
+        }}));
+        for tab in crate::big_picture::OverviewTab::ALL {
+            drop(app.update(Message::ConsoleOverviewTab(tab)));
+            assert_eq!(app.big_picture.overview_tab(), tab);
+            drop(views::big_picture::view(&app));
+        }
+        drop(app.update(Message::ConsoleOverviewTab(crate::big_picture::OverviewTab::Media)));
+        drop(app.update(Message::ConsoleOverviewMedia(0)));
+        assert!(app.big_picture.overview_preview());
+        assert!(!app.gallery_trailer);
+        drop(views::big_picture::view(&app));
+        drop(app.update(Message::ConsoleOverviewClosePreview));
+        assert!(app.big_picture.overview_open());
+        assert!(!app.big_picture.overview_preview());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn storefront_is_console_only_and_opens_the_visible_game() {
+        let root=std::env::temp_dir().join(format!("arcadia-storefront-test-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);
+        let mut catalog=Vec::new();
+        for index in 1..=12 { catalog.push(StoreGame{appid:index.to_string(),title:format!("Game {index}"),genres:vec!["Action".into()],..Default::default()}); }
+        app.store.browse.games=catalog.clone();app.store.browse.status=LoadStatus::Ready;app.store.browse.has_more=true;
+        app.home.status=LoadStatus::Ready;
+        let desktop:Vec<_>=app.console_store_games().iter().map(|g|g.appid.clone()).collect();
+        drop(app.update(Message::ConsoleStoreCategory(3)));
+        assert_eq!(app.console_storefront.category,0,"mensagem de console alterou desktop");
+        app.screen=Screen::BigPicture;
+        app.big_picture.select_tab(ConsoleTab::Stores,&[]);
+        app.console_storefront.language=Some(Lang::PtBr);
+        let feed=crate::backend::StorefrontFeed {specials:catalog[..5].to_vec(),releases:catalog[5..10].to_vec(),popular:catalog[10..].to_vec(),..Default::default()};
+        drop(app.update(Message::ConsoleStorefrontLoaded {language:Lang::PtBr,result:Ok(feed)}));
+        assert_eq!(app.console_store_games().len(),10);
+        for category in 0..9 {
+            drop(app.update(Message::ConsoleStoreCategory(category)));
+            for (width,height) in [(800.,600.),(1150.,755.),(1920.,1080.)] {app.window_size=Size::new(width,height);drop(views::big_picture::view(&app));}
+        }
+        drop(app.update(Message::ConsoleStoreCategory(0)));
+        app.big_picture.focus_store_game(1);
+        drop(app.console_nav(NavEvent::Confirm));
+        assert_eq!(app.store.detail.as_ref().map(|d|d.game.appid.as_str()),Some("2"));
+        assert!(app.big_picture.store_detail_open());
+        drop(app.console_nav(NavEvent::Back));
+        assert!(!app.big_picture.store_detail_open());
+        assert_eq!(app.big_picture.store_index(),1);
+        drop(app.update(Message::ConsoleStoreHeroStep(1)));
+        drop(app.update(Message::ConsoleStoreHeroOpen));
+        assert_eq!(app.store.detail.as_ref().map(|d|d.game.appid.as_str()),Some("2"));
+        drop(app.console_nav(NavEvent::Back));
+        drop(app.update(Message::ConsoleStoreCatalog));
+        assert_eq!(app.console_store_games().len(),12);
+        assert!(app.big_picture.store_has_more());
+        app.screen=Screen::Section(Section::Stores);
+        let after:Vec<_>=app.console_store_games().iter().map(|g|g.appid.clone()).collect();
+        assert_eq!(after,desktop);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn storefront_filters_cached_genres_and_ignores_stale_language() {
+        let root=std::env::temp_dir().join(format!("arcadia-storefront-genres-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);
+        app.screen=Screen::BigPicture;app.big_picture.select_tab(ConsoleTab::Stores,&[]);
+        app.store.browse.games=vec![StoreGame{appid:"1".into(),title:"Game".into(),..Default::default()}];
+        app.cache_store_info("1",StoreInfo{genres:vec!["Ação".into(),"Indie".into()],..Default::default()});
+        app.console_storefront.category=3;assert_eq!(app.console_store_games().len(),1);
+        app.console_storefront.category=6;assert_eq!(app.console_store_games().len(),1);
+        app.console_storefront.category=8;assert!(app.console_store_games().is_empty());
+        app.console_storefront.language=Some(Lang::EnUs);
+        drop(app.update(Message::ConsoleStorefrontLoaded{language:Lang::PtBr,result:Ok(Default::default())}));
+        assert_eq!(app.console_storefront.language,Some(Lang::EnUs));
+    }
+
+    #[tokio::test(flavor="current_thread")]
+    async fn friends_port_opens_remote_games_without_overwriting_local_playtime() {
+        let root=std::env::temp_dir().join(format!("arcadia-friends-port-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);
+        app.account.apply_session(AccountSession{id:"self".into(),username:Some("me".into()),..Default::default()});
+        app.screen=Screen::Section(Section::Friends);
+        let people:Vec<_>=(0..40).map(|index|crate::backend::FriendItem{id:format!("friend-{index}"),username:format!("Friend {index}"),
+            display_name:None,avatar_url:Some(format!("https://example.test/avatar-{index}.png")),since:Some("2026-11-08T00:00:00Z".into())}).collect();
+        drop(app.update(Message::FriendsLoaded(Ok(FriendsLoad::Ready(crate::backend::FriendsData{friends:people,incoming:vec![],outgoing:vec![]})))));
+        assert!(matches!(&app.friends.data,Some(FriendsLoad::Ready(data)) if data.friends.len()==40));
+        assert!(!app.covers.request("https://example.test/avatar-39.png"),"último avatar não foi solicitado");
+        let local=Game::from_value(serde_json::json!({"id":"steam:578080","title":"PUBG","cover":"https://example.test/local.jpg","playtime_minutes":9999})).unwrap();
+        app.library.games=vec![local];app.library.status=LibraryStatus::Ready;
+        let original=app.library.games.clone();
+        for id in ["friend-0","friend-20","friend-39"] {
+            drop(app.update(Message::FriendProfileRequested(id.into())));
+            assert_eq!(app.friends.profile.as_ref().unwrap().id,id);
+            assert!(app.friends.profile.as_ref().unwrap().is_friend);
+        }
+        let remote=crate::backend::parse_friend_profile(serde_json::json!({"ok":true,
+            "profile":{"username":"friend","banner_url":"https://example.test/friend-banner.gif"},
+            "games":[{"appid":"steam:578080","title":"PUBG","minutes":135},{"appid":"10","title":"Another","minutes":240}],
+            "friends":[{"id":"self","username":"me"}],
+            "stats":{"jogos":2,"playtime_hours":6}})).unwrap();
+        drop(app.update(Message::FriendProfileLoaded{id:"friend-0".into(),result:Ok(remote.clone())}));
+        assert_eq!(app.friends.profile.as_ref().unwrap().profile.as_ref().unwrap().display(),"Friend 39","resposta antiga substituiu perfil");
+        drop(app.update(Message::FriendProfileLoaded{id:"friend-39".into(),result:Ok(remote)}));
+        let profile=app.friends.profile.as_ref().unwrap().profile.as_ref().unwrap();
+        assert_eq!(profile.library[0].id,"steam:10");
+        assert_eq!(profile.library[1].playtime_minutes,135);
+        assert_eq!(profile.library[1].cover_url.as_deref(),Some("https://example.test/local.jpg"));
+        assert_eq!(app.library.games,original);
+        assert!(!app.friend_media.wants("https://example.test/friend-banner.gif"));
+        for size in [Size::new(1024.,640.),Size::new(1352.,887.),Size::new(1920.,1080.)] {
+            app.window_size=size;drop(views::friends::view(&app));
+        }
+        drop(app.update(Message::FriendRemoveConfirmation(true)));
+        assert!(app.friends.profile.as_ref().unwrap().confirming_remove);
+        assert!(app.friends.action_busy.is_none(),"pedir confirmação removeu amizade");
+        drop(app.update(Message::FriendRemoveConfirmation(false)));
+        drop(app.update(Message::FriendProfileClosed));
+        assert!(app.friends.profile.is_none());assert_eq!(app.library.games,original);
+        drop(views::friends::view(&app));
+    }
+
+    #[tokio::test(flavor="current_thread")]
+    async fn friends_port_search_discards_stale_results_and_empty_query() {
+        let root=std::env::temp_dir().join(format!("arcadia-friends-search-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);
+        app.account.apply_session(AccountSession::default());
+        drop(app.update(Message::FriendSearchChanged("alice".into())));
+        drop(app.update(Message::FriendSearchReady("alice".into())));
+        assert_eq!(app.friends.search_requested.as_deref(),Some("alice"));
+        drop(app.update(Message::FriendSearchChanged("bob".into())));
+        drop(app.update(Message::FriendSearchDone{query:"alice".into(),result:Ok(vec![])}));
+        assert!(app.friends.search_results.is_none());
+        drop(app.update(Message::FriendSearchReady("bob".into())));
+        drop(app.update(Message::FriendSearchDone{query:"bob".into(),result:Ok(vec![FriendSearchResult{id:"bob".into(),..Default::default()}])}));
+        assert_eq!(app.friends.search_results.as_ref().unwrap()[0].id,"bob");
+        drop(app.update(Message::FriendSearchChanged(String::new())));
+        drop(app.update(Message::FriendSearchDone{query:"bob".into(),result:Ok(vec![])}));
+        assert!(app.friends.search_results.is_none());assert_eq!(app.friends.search_status,LoadStatus::Idle);
+    }
+
+    #[tokio::test(flavor="current_thread")]
+    async fn friends_avatar_starts_in_list_before_profile_is_opened() {
+        let root=std::env::temp_dir().join(format!("arcadia-friends-avatar-list-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);
+        app.account.apply_session(AccountSession::default());app.screen=Screen::Section(Section::Friends);
+        let person=crate::backend::FriendItem{id:"friend".into(),username:"Friend".into(),display_name:None,avatar_url:Some("https://example.test/list-avatar.gif".into()),since:None};
+        drop(app.update(Message::FriendsLoaded(Ok(FriendsLoad::Ready(crate::backend::FriendsData{friends:vec![person],incoming:vec![],outgoing:vec![]})))));
+        assert!(app.friends.profile.is_none());
+        assert!(!app.friend_media.wants("https://example.test/list-avatar.gif"),"avatar animado ficou esperando abrir o perfil");
+        let mut bytes=Vec::new();
+        {
+            let mut encoder=image::codecs::gif::GifEncoder::new(&mut bytes);
+            for color in [[255,0,0,255],[0,0,255,255]] {
+                encoder.encode_frame(image::Frame::from_parts(image::RgbaImage::from_pixel(8,8,image::Rgba(color)),0,0,
+                    image::Delay::from_numer_denom_ms(100,1))).unwrap();
+            }
+        }
+        let media=crate::animated_cards::decode_avatar(bytes).await.unwrap();
+        let url="https://example.test/list-avatar.gif";
+        drop(app.update(Message::FriendAvatarLoaded{url:url.into(),media:Some(media)}));
+        let first=app.friend_avatar_texture(url).expect("avatar na lista").id();
+        let started=Instant::now();
+        while app.friend_avatar_texture(url).unwrap().id()==first && started.elapsed()<Duration::from_secs(1) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            drop(app.update(Message::CardsTick));
+        }
+        assert_ne!(app.friend_avatar_texture(url).unwrap().id(),first,"quadros não avançam na lista sem perfil aberto");
+        drop(app.update(Message::FriendProfileRequested("friend".into())));
+        assert!(app.friend_avatar_texture(url).is_some(),"abrir perfil removeu avatar pronto");
+        drop(app.update(Message::FriendProfileClosed));
+        assert!(app.friend_avatar_texture(url).is_some(),"voltar à lista removeu animação");
+    }
+
+    #[tokio::test(flavor="current_thread")]
+    async fn friends_open_profile_shell_immediately_without_achievement_interstitial() {
+        let root=std::env::temp_dir().join(format!("arcadia-friends-direct-profile-{}",std::process::id()));
+        let backend=Backend::new(arcadia_ipc::AppState::new(root),tokio::runtime::Handle::current());
+        let (mut app,task)=App::boot(backend);drop(task);app.account.apply_session(AccountSession::default());
+        app.friends.data=Some(FriendsLoad::Ready(crate::backend::FriendsData{friends:vec![crate::backend::FriendItem{id:"friend".into(),username:"friend".into(),display_name:Some("Friend name".into()),avatar_url:None,since:None}],incoming:vec![],outgoing:vec![]}));
+        drop(app.update(Message::FriendProfileRequested("friend".into())));
+        let state=app.friends.profile.as_ref().unwrap();
+        assert_eq!(state.status,LoadStatus::Loading);
+        assert_eq!(state.profile.as_ref().map(|profile|profile.display()),Some("Friend name"),"abriu a tela antiga enquanto aguardava os jogos");
+        assert_eq!(state.achievements_status,LoadStatus::Idle);
+        assert!(state.achievements.is_none());
+        drop(views::friends::view(&app));
+        drop(app.update(Message::FriendProfileLoaded{id:"friend".into(),result:Err("offline".into())}));
+        assert!(matches!(app.friends.profile.as_ref().unwrap().status,LoadStatus::Error(_)));
+        assert_eq!(app.friends.profile.as_ref().unwrap().profile.as_ref().unwrap().display(),"Friend name");
+        drop(views::friends::view(&app));
+    }
+
     fn test_i18n() -> I18n {
         I18n::new(crate::i18n::Lang::PtBr)
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prefetched_details_open_synchronously_and_late_results_do_not_replace_current_game() {
+        let root = std::env::temp_dir().join(format!("arcadia-prefetch-test-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, task) = App::boot(backend);
+        drop(task);
+        let store_game = StoreGame { appid: "730".into(), title: "Store fixture".into(), ..Default::default() };
+        let info = StoreInfo { description: Some("Cached description".into()), about: Some("Cached about".into()), ..Default::default() };
+        drop(app.update(Message::PrefetchedStore { appid: "730".into(), result: Ok(info.clone()) }));
+        assert!(app.store.detail.is_none(), "prefetch abriu uma ficha");
+        assert!(!app.media.is_active(), "prefetch iniciou um trailer");
+        let before = app.store_info_cache["730"].0;
+        let start = Instant::now();
+        drop(app.open_store_detail(store_game.clone()));
+        println!("CACHED_STORE_OPEN_US={}", start.elapsed().as_micros());
+        assert!(app.store.detail.is_some(), "a ficha não abriu no clique");
+        assert!(!app.media.is_active(), "o clique montou o pipeline do trailer");
+        drop(app.update(Message::StoreDetailLoaded { appid: "730".into(), result: Ok(info.clone()) }));
+        assert_eq!(app.store.detail.as_ref().unwrap().info.as_ref(), Some(&info));
+        assert!(matches!(app.store.detail.as_ref().unwrap().status, LoadStatus::Ready));
+        assert_eq!(app.store_info_cache["730"].0, before, "reabertura renovou TTL indevidamente");
+        drop(app.update(Message::StoreDetailLoaded { appid: "570".into(), result: Ok(StoreInfo::default()) }));
+        assert_eq!(app.store.detail.as_ref().unwrap().info.as_ref(), Some(&info));
+        let game = game("custom:cached", "Library fixture", false, false);
+        app.library.ready(vec![game.clone()]);
+        let media = GameMedia {
+            about: Some("Cached library description".into()),
+            movies: vec![crate::backend::Movie {
+                name: "Trailer".into(),
+                thumb: None,
+                hls: Some("https://example.invalid/trailer.m3u8".into()),
+                mp4: None,
+                webm: None,
+            }],
+            ..Default::default()
+        };
+        drop(app.update(Message::PrefetchedGame { id: game.id.clone(), media: media.clone() }));
+        let start = Instant::now();
+        drop(app.open_game(game.id.clone()));
+        println!("CACHED_LIBRARY_OPEN_US={}", start.elapsed().as_micros());
+        assert!(matches!(&app.screen, Screen::Game(id) if id == &game.id), "a ficha não abriu no clique");
+        assert!(app.game_media.is_none(), "o clique aplicou a mídia em cache na hora");
+        assert!(!app.media.is_active(), "o clique montou o pipeline do trailer");
+        drop(app.update(Message::MediaLoaded { game_id: game.id.clone(), media: media.clone() }));
+        assert_eq!(app.game_media.as_ref(), Some(&media));
+        drop(app.update(Message::MediaLoaded { game_id: "custom:late".into(), media: GameMedia { about: Some("wrong".into()), ..Default::default() } }));
+        assert_eq!(app.game_media.as_ref(), Some(&media));
+        drop(app.enter_big_picture());
+        assert!(app.game_media.is_none(), "entrar no console manteve o pipeline da ficha");
+        drop(app.console_nav(NavEvent::Down));
+        assert!(app.big_picture.overview_open());
+        assert!(app.game_media.is_none(), "o console aplicou a mídia em cache no frame da navegação");
+        drop(app.update(Message::ConsoleMediaLoaded { id: game.id.clone(), media: media.clone() }));
+        assert_eq!(app.game_media.as_ref(), Some(&media));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prefetch_is_bounded_deduplicated_and_released_on_failure() {
+        let root = std::env::temp_dir().join(format!("arcadia-prefetch-bounds-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root), tokio::runtime::Handle::current());
+        let (mut app, task) = App::boot(backend);
+        drop(task);
+        for id in ["1", "1", "2", "3"] {
+            drop(app.prefetch_store(StoreGame { appid: id.into(), ..Default::default() }));
+        }
+        assert_eq!(app.detail_prefetching.len(), 2);
+        drop(app.update(Message::PrefetchedStore { appid: "1".into(), result: Err("offline".into()) }));
+        assert_eq!(app.detail_prefetching.len(), 1);
+        assert!(!app.store_info_cache.contains_key("1"));
+        drop(app.prefetch_store(StoreGame { appid: "3".into(), ..Default::default() }));
+        assert_eq!(app.detail_prefetching.len(), 2);
+    }
+
+    /// O erro real que o servidor manda quando a sessão morre. Antes ele caía
+    /// no ramo genérico e a UI mostrava "Operation failed (Invalid Refresh
+    /// Token: ...)" — texto cru em inglês que não diz o que fazer.
+    #[test]
+    fn expired_session_error_becomes_an_actionable_message() {
+        let i18n = test_i18n();
+        let message = account_error_text(&i18n, "Invalid Refresh Token: Refresh Token Not Found");
+        assert!(
+            !message.contains("Operation failed"),
+            "caiu no genérico: {message}"
+        );
+        assert_eq!(message, i18n.t("native.account.erro_sessao_expirada"));
+    }
+
+    /// O código entre colchetes do `dispatch` é o que o mapa entende; o
+    /// envelope inteiro não deve confundir a detecção.
+    #[test]
+    fn expired_session_is_detected_inside_a_dispatch_envelope() {
+        let i18n = test_i18n();
+        assert!(is_expired_session("refresh_token_not_found"));
+        assert!(is_expired_session("JWT expired"));
+        // Um erro que não é de sessão continua no ramo genérico.
+        assert!(!is_expired_session("profile_missing"));
+        let _ = &i18n;
+    }
+
+    #[test]
+    fn library_override_patch_expresses_booleans_and_empty_categories() {
+        let mut game = game("steam:440", "Team Fortress 2", true, true);
+        game.categories.clear();
+        let patch = library_override_patch(&game);
+        assert_eq!(patch["favorite"], true);
+        assert_eq!(patch["hidden"], true);
+        assert_eq!(patch["categories"], json!([]));
+        assert!(!patch["favorite"].is_null());
+        assert!(!patch["hidden"].is_null());
+
+        game.favorite = false;
+        game.hidden = false;
+        let patch = library_override_patch(&game);
+        assert_eq!(patch["favorite"], false);
+        assert_eq!(patch["hidden"], false);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn context_menu_routes_by_stable_id_and_closes_on_actions() {
+        let root = std::env::temp_dir().join(format!("arcadia-context-menu-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+
+        let mut steam = game("steam:440", "Team Fortress 2", false, false);
+        steam.launcher = "steam".to_string();
+        steam.installed = true;
+        app.library.ready(vec![steam.clone()]);
+
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            steam.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuAction(MenuAction::Details)));
+        assert!(matches!(&app.screen, Screen::Game(id) if id == &steam.id));
+        assert!(app.game_menu.is_none());
+
+        app.screen = Screen::Library;
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            steam.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuAction(MenuAction::Settings)));
+        assert!(app.launch_options.open);
+        assert_eq!(app.launch_options.game_id, steam.id);
+        assert!(app.game_menu.is_none());
+
+        app.launch_options.open = false;
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            steam.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuAction(MenuAction::Primary)));
+        assert_eq!(app.launch.status, GameRunStatus::Launching);
+        assert_eq!(app.launch.game_id.as_deref(), Some(steam.id.as_str()));
+        assert!(app.game_menu.is_none());
+
+        // Rota de instalação Steam: a Task pode ser derrubada no teste sem abrir
+        // a Steam, e o estado de launch não pode ser tocado.
+        app.launch = GameLaunchState::default();
+        steam.installed = false;
+        app.library.ready(vec![steam.clone()]);
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            steam.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuAction(MenuAction::Primary)));
+        assert_eq!(app.launch.status, GameRunStatus::Idle);
+        assert!(app.launch.game_id.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn menu_mutations_are_optimistic_and_ignore_stale_responses() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-overrides-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+
+        let mut game = game("steam:440", "Team Fortress 2", false, false);
+        game.launcher = "steam".to_string();
+        game.categories = vec!["Ação".into()];
+        app.library.ready(vec![game.clone()]);
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            game.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuAction(MenuAction::ToggleFavorite)));
+        let current = app.library.game(&game.id).unwrap();
+        assert!(current.favorite, "favorito não mudou na hora");
+        assert!(!current.hidden);
+        assert!(app.game_menu.is_none());
+        assert!(app.library_overrides.busy);
+        assert_eq!(app.library_overrides.game_id.as_deref(), Some(game.id.as_str()));
+        let epoch = app.library_overrides.epoch;
+
+        // Resposta antiga (epoch anterior) não pode limpar o busy nem mexer.
+        drop(app.update(Message::GameOverridesSaved {
+            epoch: epoch.wrapping_sub(1),
+            account: app.current_account_id(),
+            game_id: game.id.clone(),
+            result: Ok(()),
+        }));
+        assert!(app.library_overrides.busy);
+
+        drop(app.update(Message::GameOverridesSaved {
+            epoch,
+            account: app.current_account_id(),
+            game_id: game.id.clone(),
+            result: Ok(()),
+        }));
+        assert!(!app.library_overrides.busy);
+
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            game.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        app.game_menu.as_mut().unwrap().categories_open = true;
+        drop(app.update(Message::GameMenuCategoryToggled("Ação".into())));
+        let current = app.library.game(&game.id).unwrap();
+        assert!(current.categories.is_empty(), "remover a única categoria falhou");
+        assert!(app.library_overrides.busy);
+        drop(app.update(Message::GameOverridesSaved {
+            epoch: app.library_overrides.epoch,
+            account: app.current_account_id(),
+            game_id: game.id.clone(),
+            result: Err("disk full".into()),
+        }));
+        assert!(!app.library_overrides.busy);
+        assert!(
+            app.game_menu
+                .as_ref()
+                .and_then(|menu| menu.notice.as_ref())
+                .is_some(),
+            "falha de override ficou muda no menu aberto"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_metadata_response_does_not_close_another_game() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-metadata-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let game = game("steam:440", "Team Fortress 2", false, false);
+        app.library.ready(vec![game.clone()]);
+        app.open_game_metadata(&game.id);
+        app.game_metadata.as_mut().unwrap().request = 4;
+        drop(app.update(Message::GameMetadataSaved {
+            game_id: game.id.clone(),
+            request: 3,
+            account: app.current_account_id(),
+            result: Ok(()),
+        }));
+        assert!(app.game_metadata.is_some(), "resposta antiga fechou o modal");
+        drop(app.update(Message::GameMetadataSaved {
+            game_id: "steam:570".into(),
+            request: 4,
+            account: app.current_account_id(),
+            result: Ok(()),
+        }));
+        assert!(app.game_metadata.is_some(), "resposta de outro jogo fechou o modal");
+        drop(app.update(Message::GameMetadataSaved {
+            game_id: game.id.clone(),
+            request: 4,
+            account: app.current_account_id(),
+            result: Ok(()),
+        }));
+        assert!(app.game_metadata.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn launch_options_overlay_is_available_over_the_library() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-launch-options-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let game = game("steam:440", "Team Fortress 2", false, false);
+        app.library.ready(vec![game.clone()]);
+        app.screen = Screen::Library;
+        app.launch_options.open = true;
+        app.launch_options.game_id = game.id.clone();
+        app.launch_options.game_title = game.title.clone();
+        drop(crate::views::overlays::stack(
+            &app,
+            iced::widget::Space::new().into(),
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn escape_closes_the_menu_and_the_metadata_modal() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-escape-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let game = game("steam:440", "Team Fortress 2", false, false);
+        app.library.ready(vec![game.clone()]);
+        app.game_menu = Some(crate::views::game_menu::GameMenuState::new(
+            game.id.clone(),
+            iced::Point::new(20.0, 20.0),
+        ));
+        drop(app.update(Message::GameMenuKey(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            modified_key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::Escape),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::default(),
+            text: None,
+            repeat: false,
+        })));
+        assert!(app.game_menu.is_none());
+        app.open_game_metadata(&game.id);
+        drop(app.update(Message::GameMenuKey(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            modified_key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::Escape),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::default(),
+            text: None,
+            repeat: false,
+        })));
+        assert!(app.game_metadata.is_none());
+        drop(app.update(Message::CloseGameContextMenu));
+        assert!(app.game_menu.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn platform_picklist_label_is_persisted_as_value() {
+        let root = std::env::temp_dir().join(format!("arcadia-platform-pick-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let mut custom = game("custom:fixture", "Fixture", false, false);
+        custom.platform = Some("windows".into());
+        custom.exe = Some("/games/fixture.exe".into());
+        app.library.ready(vec![custom.clone()]);
+        app.open_game_edit(&custom.id);
+        // O pick_list entrega "Linux" (rótulo), não "linux" (valor).
+        let platform = crate::views::game_edit::EditPlatform::from_label("Linux")
+            .expect("rótulo do pick_list não convertido");
+        drop(app.update(Message::GameEditPlatformChanged(platform)));
+        let edit = app.game_edit.as_ref().unwrap();
+        assert_eq!(
+            edit.platform,
+            Some(crate::views::game_edit::EditPlatform::Linux)
+        );
+        assert_eq!(edit.payload().custom.platform.as_deref(), Some("linux"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_menu_results_do_not_close_another_or_reopened_menu() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-instance-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let a = game("steam:440", "A", false, false);
+        let b = game("steam:570", "B", false, false);
+        app.library.ready(vec![a.clone(), b.clone()]);
+
+        drop(app.update(Message::OpenGameContextMenu {
+            game_id: a.id.clone(),
+            anchor: iced::Point::new(10.0, 10.0),
+        }));
+        let instance_a = app.game_menu.as_ref().unwrap().instance;
+        drop(app.update(Message::OpenGameContextMenu {
+            game_id: b.id.clone(),
+            anchor: iced::Point::new(20.0, 20.0),
+        }));
+        let instance_b = app.game_menu.as_ref().unwrap().instance;
+        assert_ne!(instance_a, instance_b);
+
+        drop(app.update(Message::GameMenuLogsDone {
+            game_id: a.id.clone(),
+            instance: instance_a,
+            result: Ok(GameLogOutcome::Opened),
+        }));
+        assert_eq!(app.game_menu.as_ref().map(|menu| menu.game_id.as_str()), Some(b.id.as_str()));
+        drop(app.update(Message::GameMenuInstallDone {
+            game_id: a.id.clone(),
+            instance: instance_a,
+            result: Ok(()),
+        }));
+        assert_eq!(app.game_menu.as_ref().map(|menu| menu.game_id.as_str()), Some(b.id.as_str()));
+        assert!(app.game_menu.as_ref().unwrap().notice.is_none());
+
+        // Resultado atual de B fecha normalmente.
+        drop(app.update(Message::GameMenuInstallDone {
+            game_id: b.id.clone(),
+            instance: instance_b,
+            result: Ok(()),
+        }));
+        assert!(app.game_menu.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn right_click_message_cannot_open_a_menu_behind_modals() {
+        let root = std::env::temp_dir().join(format!("arcadia-menu-modal-{}", std::process::id()));
+        let backend = Backend::new(arcadia_ipc::AppState::new(root.clone()), tokio::runtime::Handle::current());
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let game = game("steam:440", "A", false, false);
+        app.library.ready(vec![game.clone()]);
+
+        app.open_game_edit(&game.id);
+        drop(app.update(Message::OpenGameContextMenu {
+            game_id: game.id.clone(),
+            anchor: iced::Point::new(10.0, 10.0),
+        }));
+        assert!(app.game_menu.is_none(), "menu abriu atrás do editor");
+        app.game_edit = None;
+
+        app.open_game_metadata(&game.id);
+        drop(app.update(Message::OpenGameContextMenu {
+            game_id: game.id.clone(),
+            anchor: iced::Point::new(10.0, 10.0),
+        }));
+        assert!(app.game_menu.is_none(), "menu abriu atrás dos metadados");
+        app.game_metadata = None;
+
+        app.launch_options.open = true;
+        app.launch_options.game_id = game.id.clone();
+        drop(app.update(Message::OpenGameContextMenu {
+            game_id: game.id.clone(),
+            anchor: iced::Point::new(10.0, 10.0),
+        }));
+        assert!(app.game_menu.is_none(), "menu abriu atrás das opções de launch");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn game(id: &str, title: &str, favorite: bool, hidden: bool) -> Game {
@@ -8102,11 +12592,14 @@ mod tests {
             launch_cmd: Vec::new(),
             cover_url: None,
             hero_url: None,
+            logo_url: None,
             description: None,
             developer: None,
             publisher: None,
             genre: None,
             year: None,
+            platform: None,
+            exe: None,
             playtime_minutes: 0,
             installed: true,
             hidden,
@@ -8143,6 +12636,95 @@ mod tests {
         assert_eq!(library.visible_all().len(), 3);
     }
 
+    /// O agrupamento por plataforma é o que o Orbit faz na Library: cada
+    /// plataforma vira uma seção própria, na ordem fixa, sem grupo vazio.
+    #[test]
+    fn grouped_games_separates_platforms_in_a_fixed_order() {
+        let mut steam = game("steam:10", "Counter-Strike", false, false);
+        steam.launcher = "steam".to_string();
+        let mut epic = game("epic:1", "Fortnite", false, false);
+        epic.launcher = "epic".to_string();
+        let mut retro = game("retro:ps2:SLUS-1", "Shadow", false, false);
+        retro.launcher = "retro".to_string();
+        let mut other = game("custom:9", "Meu Jogo", false, false);
+        other.launcher = "custom".to_string();
+
+        let mut library = Library::loading();
+        library.ready(vec![steam, epic, retro, other]);
+
+        // Na aba "Todos", retro fica de fora por desenho — ele tem aba própria.
+        // Os rótulos são copiados antes de mudar a aba: `grouped_games` devolve
+        // `&Game` emprestado de `library`.
+        {
+            let groups = library.grouped_games("");
+            let labels: Vec<String> = groups.iter().map(|(label, _)| label.clone()).collect();
+            assert_eq!(labels, vec!["steam", "epic", ""]);
+            assert_eq!(groups[0].1[0].title, "Counter-Strike");
+        }
+
+        // Na aba Retro, só ele aparece, no grupo "retro".
+        library.tab = LibraryTab::Retro;
+        {
+            let retro_groups = library.grouped_games("");
+            let retro_labels: Vec<String> = retro_groups
+                .iter()
+                .map(|(label, _)| label.clone())
+                .collect();
+            assert_eq!(retro_labels, vec!["retro"]);
+        }
+    }
+
+    /// Grupo vazio não entra: um cabeçalho "Retro 0" só ocupa altura.
+    #[test]
+    fn grouped_games_skips_empty_platforms() {
+        let mut steam = game("steam:10", "Counter-Strike", false, false);
+        steam.launcher = "steam".to_string();
+
+        let mut library = Library::loading();
+        library.ready(vec![steam]);
+
+        let groups = library.grouped_games("");
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "steam");
+    }
+
+    /// A aba separa retro do resto: "Todos os jogos" não pode listar retro, e
+    /// a aba Retro não pode listar o resto. Sem o filtro as duas mostravam a
+    /// mesma grade.
+    #[test]
+    fn library_tabs_separate_retro_from_the_rest() {
+        let mut retro = game("retro:ps2:SLUS-1", "Shadow of the Colossus", false, false);
+        retro.launcher = "retro".to_string();
+        // Jogo retro importado: id próprio, marcado pelo launcher.
+        let mut imported = game("9", "Crash", false, false);
+        imported.launcher = "retro".to_string();
+
+        let mut library = Library::loading();
+        library.ready(vec![
+            game("steam:10", "Counter-Strike", false, false),
+            retro,
+            imported,
+        ]);
+
+        library.tab = LibraryTab::All;
+        let todos: Vec<&str> = library
+            .visible_games("")
+            .into_iter()
+            .map(|game| game.title.as_str())
+            .collect();
+        assert_eq!(todos, vec!["Counter-Strike"]);
+
+        library.tab = LibraryTab::Retro;
+        let retro_only: Vec<&str> = library
+            .visible_games("")
+            .into_iter()
+            .map(|game| game.title.as_str())
+            .collect();
+        assert_eq!(retro_only.len(), 2);
+        assert!(retro_only.contains(&"Shadow of the Colossus"));
+        assert!(retro_only.contains(&"Crash"));
+    }
+
     #[test]
     fn section_e_abas_de_configuracoes_seguem_o_idioma() {
         let pt = I18n::new(Lang::PtBr);
@@ -8154,7 +12736,8 @@ mod tests {
         assert_eq!(Section::Settings.label(&en), "Settings");
         assert_eq!(Section::Home.label(&es), "Inicio");
         assert_eq!(SettingsTab::General.label(&en), "General Settings");
-        assert_eq!(SettingsTab::Appearance.label(&es), "Apariencia");
+        assert_eq!(SettingsTab::Accessibility.label(&es), "Accesibilidad");
+        assert_eq!(SettingsTab::Controller.label(&en), "Controller");
         assert_eq!(SettingsTab::Emulation.label(&pt), "Emulação");
         assert_eq!(SettingsTab::Emulation.label(&en), "Emulation");
     }
@@ -8213,14 +12796,14 @@ mod tests {
         assert_eq!(launch.warnings_for("steam:10"), ["gamemoderun ausente"]);
         assert!(launch.warnings_for("steam:11").is_empty());
 
-        let running = crate::backend::parse_launch_event("game:running", &json!(true))
-            .expect("running");
+        let running =
+            crate::backend::parse_launch_event("game:running", &json!(true)).expect("running");
         launch.apply_event(running, &test_i18n());
         assert!(launch.is_running("steam:10"));
 
         // `game:running(false)` é a transição natural de fim do monitor.
-        let stopped = crate::backend::parse_launch_event("game:running", &json!(false))
-            .expect("stopped");
+        let stopped =
+            crate::backend::parse_launch_event("game:running", &json!(false)).expect("stopped");
         launch.apply_event(stopped, &test_i18n());
         assert_eq!(launch.status, GameRunStatus::Idle);
         assert!(launch.game_id.is_none());
@@ -8271,9 +12854,8 @@ mod tests {
         launch.apply_event(stale_idle, &test_i18n());
         assert!(launch.is_launching("steam:11"));
 
-        let stale_running_off =
-            crate::backend::parse_launch_event("game:running", &json!(false))
-                .expect("running false antigo");
+        let stale_running_off = crate::backend::parse_launch_event("game:running", &json!(false))
+            .expect("running false antigo");
         launch.apply_event(stale_running_off, &test_i18n());
         assert!(launch.is_launching("steam:11"));
     }
@@ -8312,6 +12894,105 @@ mod tests {
             ..state
         };
         assert_eq!(dirty.mode_for("steam:10"), None);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn launch_options_advanced_starts_closed_and_toggle_preserves_the_draft() {
+        let root = std::env::temp_dir().join(format!(
+            "arcadia-launch-advanced-{}",
+            std::process::id()
+        ));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(root.clone()),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let game = game("custom:advanced", "Advanced fixture", false, false);
+        app.library.ready(vec![game]);
+        app.launch_options.advanced_open = true;
+        drop(app.update(Message::OpenLaunchOptions("custom:advanced".into())));
+        assert!(
+            !app.launch_options.advanced_open,
+            "o diálogo reabriu com os ajustes avançados abertos"
+        );
+
+        let settings = GameSettingsView {
+            exe_path: "/tmp/game.exe".into(),
+            game_args: "--windowed".into(),
+            ..GameSettingsView::default()
+        };
+        app.launch_options.status = LoadStatus::Ready;
+        app.launch_options.settings = Some(settings.clone());
+        app.launch_options.dirty = false;
+        drop(app.update(Message::LaunchOptionsAdvancedToggled));
+        assert!(app.launch_options.advanced_open);
+        assert!(!app.launch_options.dirty);
+        assert_eq!(app.launch_options.settings.as_ref(), Some(&settings));
+
+        drop(app.update(Message::LaunchOptionsAdvancedToggled));
+        assert!(!app.launch_options.advanced_open);
+        assert_eq!(app.launch_options.settings.as_ref(), Some(&settings));
+        assert!(!app.launch_options.dirty);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn launch_options_save_result_keeps_edits_made_in_flight() {
+        let root = std::env::temp_dir().join(format!(
+            "arcadia-launch-save-{}",
+            std::process::id()
+        ));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(root.clone()),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+
+        let saved = GameSettingsView {
+            game_args: "--saved".into(),
+            ..GameSettingsView::default()
+        };
+        app.launch_options = LaunchOptionsState {
+            open: true,
+            game_id: "custom:save".into(),
+            status: LoadStatus::Ready,
+            settings: Some(GameSettingsView::default()),
+            saving: true,
+            ..LaunchOptionsState::default()
+        };
+        drop(app.update(Message::LaunchOptionsSaved {
+            id: "custom:save".into(),
+            result: Ok(saved.clone()),
+        }));
+        assert!(!app.launch_options.saving);
+        assert!(app.launch_options.saved);
+        assert_eq!(app.launch_options.settings.as_ref(), Some(&saved));
+
+        // Edição feita com o save em voo não pode ser sobrescrita pela resposta.
+        let draft = GameSettingsView {
+            game_args: "--draft".into(),
+            ..GameSettingsView::default()
+        };
+        app.launch_options = LaunchOptionsState {
+            open: true,
+            game_id: "custom:save".into(),
+            status: LoadStatus::Ready,
+            settings: Some(draft.clone()),
+            saving: true,
+            dirty: true,
+            ..LaunchOptionsState::default()
+        };
+        drop(app.update(Message::LaunchOptionsSaved {
+            id: "custom:save".into(),
+            result: Ok(saved),
+        }));
+        assert!(!app.launch_options.saving);
+        assert!(!app.launch_options.saved);
+        assert!(app.launch_options.dirty);
+        assert_eq!(app.launch_options.settings.as_ref(), Some(&draft));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -8472,10 +13153,7 @@ mod tests {
             emulator_id: "retroarch".to_string(),
         };
         assert!(state.apply_pick(&rom, PathBuf::from("/roms/demo.sfc")));
-        assert_eq!(
-            state.settings.as_ref().unwrap().rom_path,
-            "/roms/demo.sfc"
-        );
+        assert_eq!(state.settings.as_ref().unwrap().rom_path, "/roms/demo.sfc");
         assert!(state.dirty);
 
         // Resultado atrasado de outro jogo/emulador não altera o rascunho.
@@ -8604,5 +13282,218 @@ mod tests {
             editor.add_rom_folder("/roms/demais"),
             Err(RomFolderAddError::Limit)
         );
+    }
+}
+
+// The renderer provides sRGB RGBA pixels in physical window dimensions.
+fn blur_update_backdrop(shot: window::Screenshot) -> Option<Handle> {
+    let (w, h) = (shot.size.width, shot.size.height);
+    if w == 0 || h == 0 || w > 16384 || h > 16384 { return None; }
+    let image = image::RgbaImage::from_raw(w, h, shot.rgba.to_vec())?;
+    // Work on a quarter-resolution image to avoid blocking the UI or allocating
+    // several full-resolution intermediate Gaussian buffers.
+    let small = image::imageops::resize(&image, (w / 4).max(1), (h / 4).max(1), image::imageops::FilterType::Triangle);
+    let blurred = image::imageops::blur(&small, 3.0);
+    Some(Handle::from_rgba(blurred.width(), blurred.height(), blurred.into_raw()))
+}
+
+#[cfg(test)]
+mod update_backdrop_tests {
+    use super::*;
+
+    #[test]
+    fn gaussian_backdrop_blends_distinct_pixels() {
+        let mut pixels = vec![0; 32 * 32 * 4];
+        for y in 0..32 {
+            for x in 0..32 {
+                let i = (y * 32 + x) * 4;
+                pixels[i] = if x < 16 { 0 } else { 255 };
+                pixels[i + 3] = 255;
+            }
+        }
+        let shot = window::Screenshot::new(pixels, iced::Size::new(32, 32), 1.0);
+        let Handle::Rgba { pixels, width, height, .. } = blur_update_backdrop(shot).unwrap() else { panic!("expected RGBA") };
+        assert_eq!((width, height), (8, 8));
+        assert!(pixels[4 * (4 * 8 + 3)] > 0);
+        assert!(pixels[4 * (4 * 8 + 4)] < 255);
+    }
+
+    #[test]
+    fn invalid_backdrop_falls_back() {
+        let shot = window::Screenshot::new(vec![0; 3], iced::Size::new(4, 4), 1.0);
+        assert!(blur_update_backdrop(shot).is_none());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn steam_refresh_unlocks_launch_and_keeps_selection_and_cmd() {
+        let root = std::env::temp_dir().join(format!(
+            "arcadia-native-steam-refresh-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(root.clone()),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+
+        let id = "steam:413150".to_string();
+        let pending = Game::from_value(json!({
+            "id": id,
+            "title": "Stardew Valley",
+            "launcher": "steam",
+            "launch_cmd": ["steam", "steam://rungameid/413150"],
+            "installed": false,
+            "playtime_minutes": 120
+        }))
+        .expect("jogo");
+        app.library.ready(vec![pending.clone()]);
+        app.screen = Screen::Game(id.clone());
+
+        drop(app.update(Message::LaunchGame(id.clone())));
+        assert_eq!(app.launch.status, GameRunStatus::Idle);
+        assert!(app.launch.error.is_some(), "Jogar abriu com installed:false");
+        assert!(app.steam_install_pending());
+
+        let mut installed = pending;
+        installed.installed = true;
+        drop(app.light_library_refresh());
+        let epoch = app.library_epoch;
+        drop(app.update(Message::LibraryRefreshed {
+            epoch,
+            result: Ok(vec![installed]),
+        }));
+
+        assert!(matches!(&app.screen, Screen::Game(current) if current == &id));
+        let game = app.library.game(&id).expect("jogo continua na lista");
+        assert!(game.installed, "refresh não aplicou o installed do IPC");
+        assert_eq!(game.playtime_minutes, 120);
+        assert!(!app.steam_install_pending(), "poll continuaria ligado");
+
+        drop(app.update(Message::LaunchGame(id.clone())));
+        assert!(app.launch.error.is_none());
+        assert_eq!(app.launch.status, GameRunStatus::Launching);
+        assert_eq!(app.launch.game_id.as_deref(), Some(id.as_str()));
+        assert_eq!(
+            app.library.game(&id).unwrap().launch_cmd,
+            vec!["steam".to_string(), "steam://rungameid/413150".to_string()]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn background_refresh_failure_keeps_ready_library() {
+        let root = std::env::temp_dir().join(format!(
+            "arcadia-native-steam-refresh-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(root.clone()),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+        let id = "steam:413150".to_string();
+        app.library.ready(vec![Game::from_value(json!({
+            "id": id, "title": "Stardew Valley", "launcher": "steam", "installed": false
+        }))
+        .unwrap()]);
+        app.screen = Screen::Game(id.clone());
+        assert!(app.steam_install_pending());
+        drop(app.light_library_refresh());
+        let epoch = app.library_epoch;
+        assert!(app.library_poll_in_flight);
+        // Segunda chamada com requisição em voo não dispara outra leitura.
+        drop(app.light_library_refresh());
+        drop(app.update(Message::LibraryRefreshed {
+            epoch,
+            result: Err("ipc fora do ar".into()),
+        }));
+        assert!(!app.library_poll_in_flight);
+        assert_eq!(app.library.status, LibraryStatus::Ready);
+        assert_eq!(app.library.games.len(), 1);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_refresh_cannot_resurrect_older_library_or_clear_new_flag() {
+        let root = std::env::temp_dir().join(format!(
+            "arcadia-native-steam-refresh-stale-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let backend = Backend::new(
+            arcadia_ipc::AppState::new(root.clone()),
+            tokio::runtime::Handle::current(),
+        );
+        let (mut app, boot) = App::boot(backend);
+        drop(boot);
+
+        let old = Game::from_value(json!({
+            "id": "steam:413150",
+            "title": "Stardew Valley",
+            "launcher": "steam",
+            "launch_cmd": ["steam", "steam://rungameid/413150"],
+            "installed": false
+        }))
+        .expect("jogo");
+        app.library.ready(vec![old.clone()]);
+
+        drop(app.light_library_refresh());
+        let stale_epoch = app.library_epoch;
+        assert!(app.library_poll_in_flight);
+
+        // Carga autoritativa mais nova substitui a biblioteca (vazia).
+        drop(app.update(Message::LibraryLoaded(Ok(Vec::new()))));
+        assert!(app.library.games.is_empty());
+        assert!(!app.library_poll_in_flight);
+
+        // A resposta velha não pode ressuscitar o jogo removido.
+        drop(app.update(Message::LibraryRefreshed {
+            epoch: stale_epoch,
+            result: Ok(vec![old.clone()]),
+        }));
+        assert!(
+            app.library.games.is_empty(),
+            "resposta velha ressuscitou a biblioteca anterior"
+        );
+
+        // Um refresh novo tem o flag; erro velho não pode apagá-lo.
+        drop(app.light_library_refresh());
+        let new_epoch = app.library_epoch;
+        assert_ne!(new_epoch, stale_epoch);
+        assert!(app.library_poll_in_flight);
+        drop(app.update(Message::LibraryRefreshed {
+            epoch: stale_epoch,
+            result: Err("leitura antiga".into()),
+        }));
+        assert!(
+            app.library_poll_in_flight,
+            "erro velho limpou o flag do refresh novo"
+        );
+
+        let mut fresh = old;
+        fresh.installed = true;
+        drop(app.update(Message::LibraryRefreshed {
+            epoch: new_epoch,
+            result: Ok(vec![fresh]),
+        }));
+        assert!(!app.library_poll_in_flight);
+        assert!(app.library.game("steam:413150").unwrap().installed);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

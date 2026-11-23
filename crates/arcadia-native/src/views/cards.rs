@@ -3,6 +3,9 @@
 //! Mesmas proporções da web: capa 2:3 dentro de um card `minmax(170px, 1fr)`,
 //! raio de 3 px do shell desktop, título de uma linha e horas abaixo.
 
+#[path = "hover_motion.rs"]
+pub(super) mod hover_motion;
+
 use iced::border::Radius;
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, image, row, text, Space, Stack};
@@ -22,11 +25,22 @@ pub fn game_card<'a>(
     game: &'a Game,
     covers: &'a CoverCache,
 ) -> Element<'a, Message> {
-    let cover: Element<'a, Message> = match covers.ready(game.cover_url.as_deref()) {
+    let portrait = game.library_portrait_url();
+    let art = portrait
+        .as_deref()
+        // Steam's recovery path can return a banner for a missing portrait.
+        .filter(|url| covers.size(Some(url)).is_some_and(|(width, height)| height > width))
+        .or(game.cover_url.as_deref());
+    let fit = if covers.size(art).is_some_and(|(width, height)| height > width) {
+        ContentFit::Cover
+    } else {
+        ContentFit::Contain
+    };
+    let cover: Element<'a, Message> = match covers.ready(art) {
         Some(handle) => image(handle.clone())
             .width(Fill)
             .height(Fill)
-            .content_fit(ContentFit::Cover)
+            .content_fit(fit)
             .border_radius(Radius {
                 top_left: theme::CARD_RADIUS,
                 top_right: theme::CARD_RADIUS,
@@ -65,7 +79,7 @@ pub fn game_card<'a>(
         column![
             container(
                 text(ellipsize(&game.title, 20))
-                    .size(15)
+                    .size(16)
                     .font(theme::FONT_MEDIUM)
                     .color(TITLE_COLOR)
                     .wrapping(Wrapping::None),
@@ -75,7 +89,7 @@ pub fn game_card<'a>(
             .clip(true),
             row![
                 text(game.playtime_label_i18n(i18n))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::TEXT_3),
                 Space::new().width(Fill),
             ]
@@ -87,13 +101,15 @@ pub fn game_card<'a>(
     .height(56)
     .padding([9.0, 12.0]);
 
-    button(column![container(cover).width(Fill).height(Fill).clip(true), info].height(Fill))
-        .on_press(Message::OpenGame(game.id.clone()))
-        .width(Fill)
-        .height(Fill)
-        .padding(0)
-        .style(theme::card)
-        .into()
+    iced::widget::mouse_area(hover_motion::wrap(
+        button(column![container(cover).width(Fill).height(Fill).clip(true), info].height(Fill))
+            .on_press(Message::OpenGame(game.id.clone()))
+            .width(Fill)
+            .height(Fill)
+            .padding(0)
+            .style(theme::card),
+        hover_motion::Kind::Card,
+    )).on_enter(Message::PrefetchGame(game.id.clone())).into()
 }
 
 fn ellipsize(text: &str, limit: usize) -> String {
@@ -109,7 +125,7 @@ fn ellipsize(text: &str, limit: usize) -> String {
 fn cover_placeholder(game: &Game) -> Element<'_, Message> {
     container(
         text(game.title.as_str())
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30))
             .wrapping(Wrapping::WordOrGlyph)
             .align_x(iced::Center),
@@ -123,11 +139,19 @@ fn cover_placeholder(game: &Game) -> Element<'_, Message> {
     .into()
 }
 
+/// Cabeçalho de seção.
+///
+/// Recebe `impl Into<String>` em vez de `&'a str`: quem chama quase sempre tem
+/// um título montado na hora (`format!`, i18n com argumento, nome de
+/// plataforma) e um `&str` emprestado obrigaria o `String` a viver até o fim
+/// da função que monta a tela, o que não é possível quando o título nasce
+/// dentro de um laço.
 pub fn section_heading<'a>(
-    title: &'a str,
+    title: impl Into<String>,
     count: Option<usize>,
     action: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
+    let title = title.into();
     let mut heading = row![text(title.to_uppercase())
         .size(20)
         .font(theme::FONT_BOLD)
@@ -139,7 +163,7 @@ pub fn section_heading<'a>(
         heading = heading.push(
             container(
                 text(count.to_string())
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.70)),
             )
             .padding([3.0, 8.0])
@@ -163,4 +187,3 @@ pub fn grid<'a>(cards: Vec<Element<'a, Message>>, aspect: (f32, f32)) -> Element
         .height(iced::widget::grid::aspect_ratio(aspect.0, aspect.1))
         .into()
 }
-

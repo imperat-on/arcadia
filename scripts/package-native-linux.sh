@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Empacotamento Linux do frontend nativo do Arcadia (iced, sem Tauri/webview).
+# Empacotamento Linux do Arcadia (Rust + iced).
 #
 # Gera um tarball portátil em dist/native-linux/ com o binário release,
-# boot.mp4, atalho .desktop, ícone e um README de dependências. O SHA256SUMS
-# fica ao lado do tarball, não dentro dele.
-#
-# O packaging Tauri (scripts/package-linux.sh) não é tocado por este script.
+# wrapper de gamepad, worker torrent, boot.mp4, atalho .desktop e ícone.
+# O SHA256SUMS fica ao lado do tarball.
 #
 # Uso:
 #   ./scripts/package-native-linux.sh                  # compila release e empacota
@@ -14,6 +12,7 @@
 #
 # Variáveis:
 #   ARCADIA_NATIVE_BIN       binário alternativo (útil com --skip-build)
+#   ARCADIA_GAMEPAD_BIN      wrapper de gamepad alternativo (com --skip-build)
 #   ARCADIA_NATIVE_VERSION   sobrescreve a versão lida do workspace
 #   ARCADIA_NATIVE_ICON      sobrescreve o ícone procurado no repositório
 #   CARGO_BUILD_JOBS         repassado ao Cargo, se definido
@@ -85,6 +84,11 @@ case "$BIN" in
     /*) ;;
     *) BIN="$ROOT/$BIN" ;;
 esac
+GAMEPAD="${ARCADIA_GAMEPAD_BIN:-$TARGET_DIR/release/arcadia-gamepad}"
+case "$GAMEPAD" in
+    /*) ;;
+    *) GAMEPAD="$ROOT/$GAMEPAD" ;;
+esac
 
 # --- Build ------------------------------------------------------------------
 
@@ -93,18 +97,18 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
         echo "erro: cargo não encontrado no PATH" >&2
         exit 1
     }
-    echo "==> cargo build --release -p arcadia-native"
+    echo "==> cargo build --locked --release -p arcadia-native -p arcadia-gamepad"
     if [ -n "${CARGO_BUILD_JOBS:-}" ]; then
         echo "    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
     fi
-    ( cd "$ROOT" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --release -p arcadia-native )
+    ( cd "$ROOT" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad )
 fi
 
 if [ ! -f "$BIN" ]; then
     echo "erro: binário nativo não encontrado em $BIN" >&2
     if [ "$SKIP_BUILD" -eq 1 ]; then
         echo "  --skip-build foi usado; compile antes com:" >&2
-        echo "    cargo build --release -p arcadia-native" >&2
+        echo "    cargo build --locked --release -p arcadia-native -p arcadia-gamepad" >&2
     fi
     echo "  ou aponte ARCADIA_NATIVE_BIN para outro executável" >&2
     exit 1
@@ -113,6 +117,10 @@ if [ ! -x "$BIN" ]; then
     echo "erro: $BIN existe mas não é executável" >&2
     exit 1
 fi
+[ -f "$GAMEPAD" ] && [ -x "$GAMEPAD" ] || {
+    echo "erro: wrapper de gamepad não encontrado ou não executável em $GAMEPAD" >&2
+    exit 1
+}
 
 # --- Staging ----------------------------------------------------------------
 
@@ -121,44 +129,25 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
 install -m 0755 "$BIN" "$STAGE/arcadia-native"
+install -m 0755 "$GAMEPAD" "$STAGE/arcadia-gamepad"
 echo "==> binário: $BIN"
 
 # O app procura boot.mp4 ao lado do executável e em resources/boot.mp4.
-BOOT=""
-for cand in "$ROOT/boot.mp4" "$ROOT/src-tauri/resources/boot.mp4"; do
-    if [ -f "$cand" ]; then
-        BOOT="$cand"
-        break
-    fi
-done
-if [ -n "$BOOT" ]; then
+BOOT="$ROOT/boot.mp4"
+if [ -f "$BOOT" ]; then
     install -m 0644 "$BOOT" "$STAGE/boot.mp4"
     echo "==> boot.mp4: $BOOT"
 else
     echo "aviso: boot.mp4 não encontrado; o app abre sem a tela de abertura" >&2
 fi
 
-# Os PNGs de crates/arcadia-native/assets/icons são glifos da UI (96x96), não
-# um ícone de aplicativo. O ícone real do projeto é src-tauri/icons/icon.png
-# (512x512); ele é apenas lido aqui, nunca alterado.
-ICON="${ARCADIA_NATIVE_ICON:-}"
-if [ -z "$ICON" ]; then
-    for cand in \
-        "$ROOT/src-tauri/icons/icon.png" \
-        "$ROOT/src-tauri/icons/128x128.png" \
-        "$ROOT/ui/public/apple-icon.png"; do
-        if [ -f "$cand" ]; then
-            ICON="$cand"
-            break
-        fi
-    done
-fi
-if [ -n "$ICON" ] && [ -f "$ICON" ]; then
-    install -m 0644 "$ICON" "$STAGE/arcadia-native.png"
-    echo "==> ícone: $ICON"
-else
-    echo "aviso: nenhum ícone encontrado; o .desktop ficará sem ícone instalável" >&2
-fi
+ICON="${ARCADIA_NATIVE_ICON:-$ROOT/crates/arcadia-native/assets/icons/icon.png}"
+install -m 0644 "$ICON" "$STAGE/arcadia-native.png"
+echo "==> ícone: $ICON"
+
+mkdir -p "$STAGE/resources/torrent_rpc"
+install -m 0644 "$ROOT/resources/torrent_rpc/main.py" \
+    "$ROOT/resources/torrent_rpc/torrent_downloader.py" "$STAGE/resources/torrent_rpc/"
 
 cat > "$STAGE/arcadia-native.desktop" <<'EOF'
 [Desktop Entry]
@@ -176,11 +165,13 @@ EOF
 {
     printf '# Arcadia Native %s\n\n' "$VERSION"
     cat <<'EOF'
-Frontend nativo do Arcadia em Rust + iced, sem Tauri e sem webview.
+Arcadia em Rust + iced.
 
 ## Conteúdo
 
 - `arcadia-native` — binário do aplicativo;
+- `arcadia-gamepad` — wrapper Linux de controle para jogos externos;
+- `resources/torrent_rpc/` — worker de download por torrent (Python);
 - `boot.mp4` — vídeo de abertura, procurado ao lado do binário;
 - `arcadia-native.desktop` — atalho para ambientes X11/Wayland;
 - `arcadia-native.png` — ícone do aplicativo.
@@ -190,13 +181,15 @@ Frontend nativo do Arcadia em Rust + iced, sem Tauri e sem webview.
 - GStreamer 1.0 com os plugins base, good e bad. Para H.264 também serve o
   libav. Debian/Ubuntu:
 
-      sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+      sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libudev1 libdav1d7 libgtk-3-0t64 libwebkit2gtk-4.1-0
 
   Fedora: `gstreamer1-plugins-base`, `gstreamer1-plugins-good`,
   `gstreamer1-plugins-bad-free`. Arch: `gst-plugins-base`, `gst-plugins-good`,
   `gst-plugins-bad`.
 - Driver gráfico com Vulkan ou OpenGL e sessão X11/Wayland. O iced usa wgpu.
-- `libudev` para gamepad (opcional; presente na maioria das distribuições).
+- `libudev` para gamepad, `dav1d` para capas AVIF e GTK 3/WebKitGTK 4.1 para a
+  janela isolada de verificação de fontes.
+- Python 3 com `libtorrent` para downloads por torrent.
 - Fontes Inter são embutidas no binário. Não é preciso instalar fonte do
   sistema para a interface.
 - Rede é opcional para abrir a biblioteca local; capas, trailers e conta
@@ -207,8 +200,10 @@ com o driver de vídeo e o compositor do usuário.
 
 ## Instalar
 
-    mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/512x512/apps
-    install -m 0755 arcadia-native boot.mp4 ~/.local/bin/
+    mkdir -p ~/.local/bin/resources/torrent_rpc ~/.local/share/applications ~/.local/share/icons/hicolor/512x512/apps
+    install -m 0755 arcadia-native arcadia-gamepad ~/.local/bin/
+    install -m 0644 boot.mp4 ~/.local/bin/
+    install -m 0644 resources/torrent_rpc/*.py ~/.local/bin/resources/torrent_rpc/
     install -m 0644 arcadia-native.desktop ~/.local/share/applications/
     install -m 0644 arcadia-native.png ~/.local/share/icons/hicolor/512x512/apps/
 
@@ -232,7 +227,7 @@ sem ele o app abre direto na interface.
 - Windows tem pacote portátil próprio em `.zip`; veja
   `scripts/package-native-windows.ps1` e `docs/NATIVE-PACKAGING.md`.
 - O binário exige a glibc do host que compilou. Os artefatos oficiais saem do
-  CI em Ubuntu 22.04 (glibc 2.35); distribuições mais antigas podem recusar.
+  CI em Ubuntu 24.04 (glibc 2.39); distribuições mais antigas podem recusar.
 EOF
 } > "$STAGE/README.md"
 

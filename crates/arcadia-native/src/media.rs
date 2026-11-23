@@ -29,13 +29,17 @@ impl TrailerSources {
     /// Todas as URIs na ordem de tentativa (`hls` → `mp4` → `webm`), sem
     /// vazias.
     fn candidates(&self) -> Vec<String> {
-        [self.hls.as_deref(), self.mp4.as_deref(), self.webm.as_deref()]
-            .into_iter()
-            .flatten()
-            .map(str::trim)
-            .filter(|uri| !uri.is_empty())
-            .map(str::to_string)
-            .collect()
+        [
+            self.hls.as_deref(),
+            self.mp4.as_deref(),
+            self.webm.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|uri| !uri.is_empty())
+        .map(str::to_string)
+        .collect()
     }
 }
 
@@ -107,8 +111,7 @@ impl MediaPlayer {
     pub fn open(&mut self, sources: &TrailerSources) -> Result<(), String> {
         let candidates = sources.candidates();
         if candidates.is_empty() {
-            let message =
-                "O trailer veio sem URL tocável (hls/mp4/webm).".to_string();
+            let message = "O trailer veio sem URL tocável (hls/mp4/webm).".to_string();
             self.status = MediaStatus::Error(message.clone());
             return Err(message);
         }
@@ -202,7 +205,15 @@ impl MediaPlayer {
                     );
                 }
             }
-            self.texture = Some(Handle::from_rgba(frame.width, frame.height, frame.bytes));
+            // O renderer do iced só desenha no mesmo quadro o que cabe no
+            // upload síncrono de 2 MiB. Aceitar um frame maior aqui produz um
+            // handle que some por um quadro — exatamente a piscada que o
+            // `arcadia-native-media` evita ao reduzir o vídeo. Se um dia
+            // chegar um frame acima do teto, ele é descartado em vez de
+            // virar buraco preto.
+            if arcadia_native_media::frame_fits_sync_upload(frame.width, frame.height) {
+                self.texture = Some(Handle::from_rgba(frame.width, frame.height, frame.bytes));
+            }
         }
 
         self.duration = player.duration().or(self.duration);
@@ -334,11 +345,16 @@ impl MediaPlayer {
     }
 
     pub fn duration_seconds(&self) -> f64 {
-        self.duration.map(|value| value.as_secs_f64()).unwrap_or(0.0)
+        self.duration
+            .map(|value| value.as_secs_f64())
+            .unwrap_or(0.0)
     }
 
     pub fn position_seconds(&self) -> f64 {
-        let position = self.position.map(|value| value.as_secs_f64()).unwrap_or(0.0);
+        let position = self
+            .position
+            .map(|value| value.as_secs_f64())
+            .unwrap_or(0.0);
         let duration = self.duration_seconds();
         if duration > 0.0 {
             position.clamp(0.0, duration)

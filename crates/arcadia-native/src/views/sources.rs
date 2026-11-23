@@ -6,24 +6,27 @@ use iced::{Element, Fill};
 
 use crate::app::{App, LoadStatus, Message, Section};
 use crate::backend::SourceItem;
+use crate::picker::PickPurpose;
 use crate::theme;
 use crate::views;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.sources;
     let i18n = &app.i18n;
-    let header = views::page_header_labeled(
+    let header = views::page_header(
         i18n.t("sidebar.fontes"),
         i18n.t("native.sources.subtitle"),
         Some(i18n.t_args(
             "native.sources.count",
             &[("count", &state.items.len().to_string())],
         )),
-        Some(Message::Refresh(Section::Sources)),
-        i18n.t("native.refresh"),
+        None,
     );
 
     let body: Element<'_, Message> = match &state.status {
+        LoadStatus::Loading | LoadStatus::Error(_) if !state.items.is_empty() => {
+            ready_body(app)
+        }
         LoadStatus::Idle | LoadStatus::Loading => {
             views::loading_state(i18n.t("native.sources.loading"))
         }
@@ -48,24 +51,33 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
     let add = row![
         text_input(i18n.t("native.sources.url_placeholder"), &state.url_draft)
-            .on_input(Message::SourceUrlChanged)
+            .on_input_maybe((!state.busy).then_some(Message::SourceUrlChanged))
+            .on_submit_maybe((!state.busy).then_some(Message::SourceAdd))
             .padding([10.0, 14.0])
-            .size(12)
+            .size(theme::TEXT_BODY)
             .width(Fill)
             .style(theme::search_input),
         {
-            let mut control: iced::widget::Button<'_, Message> =
-                button(
-                    text(i18n.t("fontes.adicionar"))
-                        .size(12)
-                        .font(theme::FONT_MEDIUM),
-                )
-                .padding([10.0, 18.0]);
+            let mut control: iced::widget::Button<'_, Message> = button(
+                text(i18n.t(if state.busy { "native.sources.working" } else { "fontes.adicionar" }))
+                    .size(theme::TEXT_BODY)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .padding([10.0, 18.0]);
             if !state.busy && !state.url_draft.trim().is_empty() {
                 control = control.on_press(Message::SourceAdd);
             }
             let rendered: Element<'_, Message> = control.style(theme::primary_button).into();
             rendered
+        },
+        {
+            let control = button(text(i18n.t("native.sources.import_json")).size(theme::TEXT_BODY))
+                .padding([10.0, 14.0])
+                .style(theme::ghost_button);
+            let message = (!state.busy && !state.url_draft.trim().is_empty()).then(|| {
+                Message::PickRequested(PickPurpose::SourceCatalog { url: state.url_draft.trim().to_string() })
+            });
+            control.on_press_maybe(message)
         },
     ]
     .spacing(8)
@@ -74,7 +86,13 @@ fn ready_body(app: &App) -> Element<'_, Message> {
     let mut content = column![
         add,
         text(i18n.t("native.sources.note"))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
+            .color(theme::TEXT_3),
+        text(i18n.t("native.sources.browser_note"))
+            .size(theme::TEXT_CAPTION)
+            .color(theme::TEXT_3),
+        text(i18n.t("native.sources.import_note"))
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3),
     ]
     .spacing(theme::SPACE_2);
@@ -94,12 +112,12 @@ fn ready_body(app: &App) -> Element<'_, Message> {
             actions = actions.push(
                 button(
                     text(i18n.t("fontes.sincronizar"))
-                        .size(11)
+                        .size(theme::TEXT_CAPTION)
                         .font(theme::FONT_MEDIUM),
                 )
-                    .on_press(Message::SourceSync)
-                    .padding([7.0, 13.0])
-                    .style(theme::ghost_button),
+                .on_press(Message::SourceSync)
+                .padding([7.0, 13.0])
+                .style(theme::ghost_button),
             );
         }
         actions = actions.push(
@@ -107,7 +125,7 @@ fn ready_body(app: &App) -> Element<'_, Message> {
                 "native.sources.registered",
                 &[("count", &state.items.len().to_string())],
             ))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3),
         );
 
@@ -136,25 +154,28 @@ fn ready_body(app: &App) -> Element<'_, Message> {
 
 fn source_card<'a>(app: &'a App, item: &'a SourceItem, busy: bool) -> Element<'a, Message> {
     let i18n = &app.i18n;
-    let mut remove: iced::widget::Button<'_, Message> =
-        button(text(i18n.t("common.remover")).size(11).font(theme::FONT_MEDIUM))
-            .padding([6.0, 12.0]);
+    let mut remove: iced::widget::Button<'_, Message> = button(
+        text(i18n.t("common.remover"))
+            .size(theme::TEXT_CAPTION)
+            .font(theme::FONT_MEDIUM),
+    )
+    .padding([6.0, 12.0]);
     if !busy {
         remove = remove.on_press(Message::SourceRemove(item.id.clone()));
     }
 
     let meta = row![
         text(source_status_label(i18n, item))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_MEDIUM)
             .color(theme::ACCENT),
-        text("·").size(11).color(theme::TEXT_3),
+        text("·").size(theme::TEXT_CAPTION).color(theme::TEXT_3),
         text(if item.url.is_empty() {
             i18n.t("native.sources.url_missing")
         } else {
             item.url.as_str()
         })
-        .size(11)
+        .size(theme::TEXT_CAPTION)
         .color(theme::TEXT_3),
     ]
     .spacing(6);
@@ -163,7 +184,7 @@ fn source_card<'a>(app: &'a App, item: &'a SourceItem, busy: bool) -> Element<'a
         row![
             column![
                 text(item.name.as_str())
-                    .size(14)
+                    .size(theme::TEXT_READ)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_1),
                 meta,
@@ -192,10 +213,10 @@ fn inline_empty<'a>(title: &'a str, message: &'a str) -> Element<'a, Message> {
     container(
         column![
             text(title)
-                .size(16)
+                .size(17)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_STRONG),
-            text(message).size(12).color(theme::TEXT_2),
+            text(message).size(theme::TEXT_BODY).color(theme::TEXT_2),
             Space::new().height(4),
         ]
         .spacing(theme::SPACE_2),

@@ -1,6 +1,4 @@
-//! Dispatcher IPC — um único comando Tauri (`arcadia_ipc`) roteia os 202
-//! canais do preload congelado para handlers Rust. Canais não portados
-//! respondem `not_ported`; canais fora do contrato respondem `unknown_channel`.
+//! Dispatcher de comandos entre a interface nativa e os serviços do Arcadia.
 
 mod achievements_service;
 pub mod catalog_service;
@@ -8,11 +6,13 @@ pub mod channels;
 pub mod diagnostics;
 pub mod download_service;
 pub mod fixes_service;
+pub mod game_log_service;
 pub mod launch_runtime;
 pub mod legendary_service;
 pub mod media_service;
 pub mod news;
 pub mod protondb;
+mod plugin_detection;
 pub mod realtime;
 pub mod cover_cache;
 pub mod sysinfo_cache;
@@ -54,12 +54,13 @@ use arcadia_retro::repository::RetroLibrary;
 use arcadia_steamstore::depot::DepotClient;
 use arcadia_steamstore::library::{
     add_pending_stub, find_steam_base, game_install_dir_or, read_pending_games,
-    remove_downloaded, remove_from_steam, remove_pending_stub, steam_base_candidates,
-    steam_libraries, write_pending_games, GameRef, SystemFs,
+    register_slssteam, remove_downloaded, remove_from_steam, remove_pending_stub,
+    steam_base_candidates, steam_libraries, GameRef, LibraryFs,
+    SystemFs,
 };
 use arcadia_steamstore::store::{StoreClient, StoreConfig};
 use arcadia_catalog::http::HttpClientFetcher as CatalogFetcher;
-use arcadia_catalog::sources::{FsSourceStorage, SourceRegistry};
+use arcadia_catalog::sources::{ChallengeSolver, FsSourceStorage, NoChallenge, SourceRegistry};
 use arcadia_plugins::ipc::{plugin_id_from_ipc, PluginIpc};
 use arcadia_plugins::registry::PluginRegistry;
 use arcadia_media::HltbClient;
@@ -71,6 +72,86 @@ use arcadia_download::manager::FilePersistence;
 
 use crate::download_service::{DownloadService, DownloadServiceConfig};
 pub use crate::launch_runtime::{EventSink, LaunchRuntime};
+
+/// Injeta o jogo na Steam quando a integração SLSsteam está ligada.
+///
+/// O `.lua` completo sai do zip do Hubcap (chave no header). Sem a chave da
+/// API, grava só `addappid(appid)` para o jogo aparecer; as chaves de depot
+/// ficam para quando a chave for salva e o jogo for adicionado de novo.
+async fn add_to_steam_async(
+    state: &AppState,
+    channel: &str,
+    args: &[Value],
+) -> Result<Value, IpcError> {
+    let enabled = state.with_plugins(channel, |registry| {
+        registry
+            .get("slssteam")
+            .is_some_and(|item| item.enabled)
+    })?;
+    if !enabled {
+        return Ok(json!({ "ok": false, "plugin": "slssteam" }));
+    }
+    let payload = args.first().cloned().unwrap_or_else(|| json!({}));
+    let appid = payload
+        .get("appid")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if appid.is_empty() || !appid.chars().all(|character| character.is_ascii_digit()) {
+        return Ok(json!({ "ok": false, "error": "appid inválido" }));
+    }
+    let token = payload
+        .get("token")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let dlcs = payload
+        .get("dlcs")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let home = arcadia_store::paths::home_dir();
+    let fs = SystemFs;
+    let base = find_steam_base(&steam_base_candidates(&home), &fs);
+    let Some(base) = base else {
+        return Ok(json!({ "ok": false, "error": "instalação da Steam não encontrada" }));
+    };
+    let client = state.store_client(channel)?;
+    let lua = match client.hubcap_manifest_lua(&appid).await {
+        Ok(Some(script)) => script,
+        Ok(None) => format!("addappid({appid})\n"),
+        Err(error) => return Ok(json!({ "ok": false, "error": error.to_string() })),
+    };
+    let stplug = base.join("config").join("stplug-in");
+    if let Err(error) = LibraryFs::create_dir_all(&fs, &stplug) {
+        return Ok(json!({ "ok": false, "error": error.to_string() }));
+    }
+    if let Err(error) = LibraryFs::write(&fs, &stplug.join(format!("{appid}.lua")), &lua) {
+        return Ok(json!({ "ok": false, "error": error.to_string() }));
+    }
+    let config_path = home.join(".config").join("SLSsteam").join("config.yaml");
+    let current = LibraryFs::read_to_string(&fs, &config_path).unwrap_or_default();
+    let updated = register_slssteam(&current, &appid, &token, &dlcs);
+    if let Some(parent) = config_path.parent() {
+        if let Err(error) = LibraryFs::create_dir_all(&fs, parent) {
+            return Ok(json!({ "ok": false, "error": error.to_string() }));
+        }
+    }
+    if let Err(error) = LibraryFs::write(&fs, &config_path, &updated) {
+        return Ok(json!({ "ok": false, "error": error.to_string() }));
+    }
+    Ok(json!({ "ok": true }))
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -125,8 +206,6 @@ pub struct AppState {
     community: Mutex<Option<CommunityService>>,
     pub launch: LaunchRuntime,
     pub downloads: Arc<DownloadService<FilePersistence>>,
-    /// Caminho do worker Python do torrent, quando a borda resolveu um.
-    pub torrent_worker: Option<PathBuf>,
     /// Auto-update do canal empacotado (AppImage/NSIS).
     pub updater: crate::updater_service::UpdateService,
     /// Rich Presence do Discord (silencioso quando desligado).
@@ -144,6 +223,7 @@ pub struct AppState {
     pub news: news::NewsCache,
     plugins: Mutex<Option<PluginRegistry>>,
     sources: Mutex<Option<(String, Arc<SourceRegistry>)>>,
+    source_challenge: Arc<dyn ChallengeSolver>,
     store: Mutex<Option<Arc<StoreClient>>>,
     emulators: Mutex<Option<EmulatorRegistry>>,
     retro: Mutex<Option<Arc<RetroCatalogV2>>>,
@@ -156,12 +236,7 @@ pub struct AppState {
     boot_restored: OnceCell<()>,
 }
 
-/// Worker Python do torrent, quando a borda apontou um caminho.
-///
-/// A variável é setada pelo shell (Tauri no `main`, Electron no preload) porque
-/// só ele sabe onde o bundle colocou os recursos. Sem ela o serviço cai no
-/// default `data_dir/torrent_rpc/main.py`, que não existe em instalação
-/// empacotada.
+/// Override explícito para instalações com um worker próprio.
 fn torrent_worker_from_env() -> Option<PathBuf> {
     let raw = std::env::var("ARCADIA_TORRENT_WORKER").ok()?;
     let path = PathBuf::from(raw.trim());
@@ -170,40 +245,31 @@ fn torrent_worker_from_env() -> Option<PathBuf> {
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
-        Self::build(data_dir, None)
+        Self::build(data_dir, None, None)
     }
 
     pub fn with_api(data_dir: PathBuf, api: Arc<ApiClient>) -> Self {
-        let state = Self::build(data_dir, Some(api));
-        state.load_boot_session();
+        Self::with_runtime_resources(data_dir, Some(api), None)
+    }
+
+    /// Configura os recursos distribuídos antes de iniciar os serviços.
+    pub fn with_runtime_resources(
+        data_dir: PathBuf,
+        api: Option<Arc<ApiClient>>,
+        torrent_worker: Option<PathBuf>,
+    ) -> Self {
+        let state = Self::build(data_dir, api, torrent_worker);
+        if state.api.is_some() {
+            state.load_boot_session();
+        }
         state
     }
 
-    /// Redireciona o worker Python do torrent para um caminho real.
-    ///
-    /// `DownloadServiceConfig::new` assume `data_dir/torrent_rpc/main.py`, mas
-    /// nada popula esse diretório: no Electron o worker vinha de
-    /// `__dirname/torrent_rpc`, sempre presente. No shell empacotado o único
-    /// lugar garantido é o diretório de recursos do bundle, que só a borda
-    /// (Tauri/Electron) sabe resolver. Sem esta chamada o download por torrent
-    /// falha ao conectar, sem mensagem clara.
-    pub fn set_torrent_worker(&mut self, path: impl Into<PathBuf>) {
-        let path = path.into();
-        if !path.is_file() {
-            return;
-        }
-        self.torrent_worker = Some(path);
-    }
-
-    /// Igual a [`set_torrent_worker`](Self::set_torrent_worker), mas aceita o
-    /// resultado de uma busca que pode não ter achado nada.
-    pub fn set_torrent_worker_opt(&mut self, path: Option<PathBuf>) {
-        if let Some(path) = path.filter(|path| path.is_file()) {
-            self.torrent_worker = Some(path);
-        }
-    }
-
-    fn build(data_dir: PathBuf, api: Option<Arc<ApiClient>>) -> Self {
+    fn build(
+        data_dir: PathBuf,
+        api: Option<Arc<ApiClient>>,
+        torrent_worker: Option<PathBuf>,
+    ) -> Self {
         let config = arcadia_store::config::read_config(&data_dir);
         let config_console = ["start_in_console_mode", "launch_in_console_mode"]
             .iter()
@@ -218,12 +284,10 @@ impl AppState {
                     "desktop".to_string()
                 }
             });
-        let plugins = PluginRegistry::with_standard_builtins(&data_dir, false, false).ok();
-        // O worker do torrent vem dos recursos do app, não do data_dir. Sem
-        // isto o `DownloadServiceConfig::new` aponta para um arquivo que nunca
-        // existe e o download por torrent falha ao conectar.
+        let detected = plugin_detection::detect(&data_dir);
+        let plugins = PluginRegistry::with_standard_builtins(&data_dir, detected.slssteam, detected.luatools).ok();
         let mut dl_config = DownloadServiceConfig::new(&data_dir);
-        if let Some(worker) = torrent_worker_from_env() {
+        if let Some(worker) = torrent_worker_from_env().or(torrent_worker) {
             dl_config.torrent_worker = worker;
         }
         let mut downloads = DownloadService::open(&data_dir, dl_config);
@@ -270,7 +334,6 @@ impl AppState {
             community: Mutex::new(None),
             launch: LaunchRuntime::new(),
             downloads,
-            torrent_worker: None,
             updater,
             discord,
             realtime: crate::realtime::Realtime::new(),
@@ -280,6 +343,7 @@ impl AppState {
             news: news::NewsCache::default(),
             plugins: Mutex::new(plugins),
             sources: Mutex::new(None),
+            source_challenge: Arc::new(NoChallenge),
             store: Mutex::new(None),
             emulators: Mutex::new(None),
             retro: Mutex::new(None),
@@ -327,12 +391,24 @@ impl AppState {
         };
         let storage = FsSourceStorage::with_registry(&self.data_dir, registry_dir);
         let fetcher = CatalogFetcher::new(api.http().clone());
-        let registry = Arc::new(SourceRegistry::new(
+        let mut registry = SourceRegistry::new(
             Arc::new(storage),
             Arc::new(fetcher),
-        ));
+        ).with_challenge(Arc::clone(&self.source_challenge));
+        if let Some(catalog) = catalog_service::client(self) {
+            registry = registry.with_catalog(Arc::new(catalog));
+        }
+        let registry = Arc::new(registry);
         *lock(&self.sources) = Some((account, Arc::clone(&registry)));
         Ok(registry)
+    }
+
+    /// O shell fornece o navegador de verificação sem acoplar GTK/Tauri ao IPC.
+    pub fn set_source_challenge_solver(&mut self, solver: Arc<dyn ChallengeSolver>) {
+        self.source_challenge = Arc::clone(&solver);
+        if let Some((_, registry)) = lock(&self.sources).as_ref() {
+            registry.as_ref().clone().with_challenge(solver);
+        }
     }
 
     fn emit_background(&self, event: &str, payload: Value) {
@@ -443,7 +519,20 @@ impl AppState {
 
     fn store_client(&self, channel: &str) -> Result<Arc<StoreClient>, IpcError> {
         if let Some(client) = lock(&self.store).clone() {
-            return Ok(client);
+            // A chave do Hubcap pode ter sido salva depois que o cliente foi
+            // montado. Sem reler, a injeção continua achando que não há chave.
+            let config = arcadia_store::config::read_config(&self.data_dir);
+            let key = config
+                .get("hubcap_api_key")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string);
+            if client.config().hubcap_api_key.as_deref() != key.as_deref() {
+                *lock(&self.store) = None;
+            } else {
+                return Ok(client);
+            }
         }
         let api = self.api().ok_or_else(|| {
             IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
@@ -474,6 +563,12 @@ impl AppState {
             client = client.with_catalog(catalog);
         }
         let client = Arc::new(client);
+        // Cache em disco: sem isto, todo boot paga a latência de rede inteira
+        // na primeira abertura da Home (medido: 3.603 ms). O snapshot só
+        // sobrevive se o TTL ainda valer — `restore_caches` filtra o velho.
+        if let Ok(Some(snapshot)) = read_store_cache(&self.data_dir) {
+            client.restore_caches(snapshot);
+        }
         if self.access_token().is_some() {
             *lock(&self.store) = Some(Arc::clone(&client));
         }
@@ -533,10 +628,13 @@ impl AppState {
         channel: &str,
         action: impl FnOnce(&PluginRegistry) -> T,
     ) -> Result<T, IpcError> {
-        let guard = lock(&self.plugins);
-        let registry = guard.as_ref().ok_or_else(|| {
+        let detected = plugin_detection::detect(&self.data_dir);
+        let mut guard = lock(&self.plugins);
+        let registry = guard.as_mut().ok_or_else(|| {
             IpcError::new("plugins_unavailable", "registro de plugins indisponível", channel)
         })?;
+        registry.set_builtin_installed("slssteam", detected.slssteam);
+        registry.set_builtin_installed("luatools-fixes", detected.luatools);
         Ok(action(registry))
     }
 
@@ -569,20 +667,30 @@ impl AppState {
 
     fn install_session_memory(&self, session: &Session) {
         // Troca de conta invalida engines/serviços: escopo é imutável por sessão.
-        *lock(&self.sync) = None;
         *lock(&self.friends) = None;
         *lock(&self.community) = None;
         // O cliente da loja carrega o Bearer do dono da sessão.
         *lock(&self.store) = None;
         *lock(&self.retro_server) = None;
-        *lock(&self.account) = account_from_session(session);
-        *lock(&self.session) = Some(session.clone());
+        let mut sync = lock(&self.sync);
+        let account = account_from_session(session);
+        let mut current_session = lock(&self.session);
+        if current_session.as_ref().and_then(Session::user_id) != session.user_id()
+            || sync
+                .as_ref()
+                .is_some_and(|engine| engine.scope().active() != account.as_deref())
+        {
+            *sync = None;
+        }
+        *lock(&self.account) = account;
+        *current_session = Some(session.clone());
     }
 
     /// Engine de sync do usuário ativo. Criado sob demanda e em pull-only.
     fn sync_engine(&self, channel: &str) -> Result<SyncEngine, IpcError> {
-        if let Some(engine) = lock(&self.sync).clone() {
-            return Ok(engine);
+        let mut sync = lock(&self.sync);
+        if let Some(engine) = sync.as_ref() {
+            return Ok(engine.clone());
         }
         let api = self.api().ok_or_else(|| {
             IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
@@ -592,7 +700,7 @@ impl AppState {
             .ok_or_else(|| IpcError::new("nao_logado", "sessão ausente", channel))?;
         let scope = AccountScope::with_active(self.data_dir.clone(), Some(&account));
         let engine = SyncEngine::new((**api).clone(), scope);
-        *lock(&self.sync) = Some(engine.clone());
+        *sync = Some(engine.clone());
         Ok(engine)
     }
 
@@ -678,13 +786,14 @@ impl AppState {
 
     fn forget_session(&self) {
         let _ = arcadia_store::session::clear_session(&self.data_dir);
-        *lock(&self.sync) = None;
         *lock(&self.friends) = None;
         *lock(&self.community) = None;
         *lock(&self.store) = None;
         *lock(&self.retro_server) = None;
+        let mut sync = lock(&self.sync);
         *lock(&self.session) = None;
         *lock(&self.account) = None;
+        *sync = None;
     }
 }
 
@@ -758,6 +867,97 @@ pub trait Shell: Send + Sync {
     fn is_focused(&self) -> bool;
     fn boot_video(&self) -> Option<Vec<u8>>;
     fn emit(&self, event: &str, payload: Value);
+
+    /// Abre um caminho no visualizador padrão do SO.
+    ///
+    /// O shell real pode sobrescrever (por exemplo, com o opener da janela).
+    /// Linux/macOS usam o abridor do sistema; no Windows o caminho vai direto
+    /// para `ShellExecuteW`, sem passar por `cmd`/PowerShell. Os testes
+    /// sobrescrevem para não executar processos do SO.
+    fn open_path(&self, path: &Path) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            return open_path_windows(path);
+        }
+
+        #[cfg(not(windows))]
+        {
+            let mut command = if cfg!(target_os = "macos") {
+                let mut command = std::process::Command::new("open");
+                command.arg(path);
+                command
+            } else {
+                let mut command = std::process::Command::new("xdg-open");
+                command.arg(path);
+                command
+            };
+            let mut child = command
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|error| error.to_string())?;
+            // Espera em thread separada: abrir um editor de terminal não pode
+            // prender o IPC, e o wait evita processo zumbi.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            Ok(())
+        }
+    }
+}
+
+/// Abre `path` no visualizador padrão do Windows via `ShellExecuteW`.
+///
+/// O caminho é uma única string larga entregue à API do shell; não há
+/// concatenação em linha de comando, então `&`, `%VAR%` e espaços no nome não
+/// são interpretados. Códigos de retorno até 32 indicam erro (contrato da API).
+#[cfg(windows)]
+fn open_path_windows(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const SW_SHOWNORMAL: i32 = 1;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> *mut std::ffi::c_void;
+    }
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    let operation = wide("open");
+    let file: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `operation` e `file` são NUL-terminated e vivem até o retorno;
+    // os demais ponteiros são nulos, como a API permite.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    let code = result as isize;
+    if code > 32 {
+        Ok(())
+    } else {
+        Err(format!("falha ao abrir o visualizador (código {code})"))
+    }
 }
 
 /// Chaves que o renderer pode gravar (espelho da allowlist F3 do main.js).
@@ -920,8 +1120,157 @@ fn prepare_patch(current: &Value, patch: &Value, channel: &str) -> Result<Value,
     Ok(Value::Object(next))
 }
 
+/// Arquivo do snapshot de cache da loja.
+fn store_cache_path(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("store_cache.json")
+}
+
+/// Lê o snapshot em disco. Ausente ou corrompido vira `None` — cache perdido
+/// não pode impedir o app de abrir.
+fn read_store_cache(
+    data_dir: &std::path::Path,
+) -> Result<Option<arcadia_steamstore::store::StoreCacheSnapshot>, std::io::Error> {
+    let path = store_cache_path(data_dir);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    Ok(serde_json::from_str(&raw).ok())
+}
+
+/// Grava o snapshot. Falha de escrita é silenciosa: cache é otimização.
+fn write_store_cache(data_dir: &std::path::Path, client: &arcadia_steamstore::store::StoreClient) {
+    let snapshot = client.cache_snapshot();
+    let Ok(raw) = serde_json::to_string(&snapshot) else {
+        return;
+    };
+    let _ = std::fs::write(store_cache_path(data_dir), raw);
+}
+
 fn json_array(value: Vec<Value>) -> Value {
     Value::Array(value)
+}
+
+fn store_library_change(
+    state: &AppState,
+    shell: &impl Shell,
+    channel: &str,
+    args: &[Value],
+    account: Option<&str>,
+) -> Value {
+    let payload = args.first().unwrap_or(&Value::Null);
+    let add = channel == "store:addToLibrary";
+    let appid = if add {
+        payload.get("appid")
+    } else {
+        Some(payload)
+    }
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let title = payload
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if !arcadia_steamstore::store::valid_appid(appid) || (add && title.is_empty()) {
+        let error = if add {
+            "appid ou título inválido"
+        } else {
+            "appid inválido"
+        };
+        return json!({ "ok": false, "error": error });
+    }
+
+    let result = persist_store_library_change(
+        &state.data_dir,
+        channel,
+        account,
+        appid,
+        add.then_some(title),
+        payload,
+    );
+    match result {
+        Ok(games) => {
+            shell.emit("library:changed", json!({ "source": "store" }));
+            json!({ "ok": true, "games": games })
+        }
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+fn persist_store_library_change(
+    data_dir: &Path,
+    channel: &str,
+    account: Option<&str>,
+    appid: &str,
+    title: Option<&str>,
+    payload: &Value,
+) -> Result<Vec<Value>, String> {
+    let _library_lock = arcadia_sync::library::lock_local_library();
+    let scope = AccountScope::with_active(data_dir, account);
+    let pending_path = scope.account_file("pending_games.json");
+    // Materializa a posse legada antes de adicionar ou remover um jogo.
+    let current_games = read_games(data_dir, account);
+    let existing = read_pending_games(&pending_path, &SystemFs);
+    let id = format!("steam:{appid}");
+    let update = match title {
+        Some(title) => add_pending_stub(
+            &existing,
+            current_games
+                .iter()
+                .any(|game| game.get("id").and_then(Value::as_str) == Some(id.as_str())),
+            appid,
+            title,
+            payload.get("cover").and_then(Value::as_str),
+            payload.get("hero").and_then(Value::as_str),
+        ),
+        None => remove_pending_stub(&existing, appid),
+    };
+    let owned_changed = if title.is_some() {
+        arcadia_store::owned::owned_add(&scope, id.as_str())
+    } else {
+        arcadia_store::owned::owned_remove(&scope, id.as_str())
+    }
+    .map_err(|error| error.to_string())?;
+    let restore_owned = || {
+        if owned_changed {
+            let restored = if title.is_some() {
+                arcadia_store::owned::owned_remove(&scope, id.as_str())
+            } else {
+                arcadia_store::owned::owned_add(&scope, id.as_str())
+            };
+            if let Err(error) = restored {
+                eprintln!("[library] não foi possível restaurar a posse: {error}");
+            }
+        }
+    };
+    if update.changed {
+        if let Err(error) = write_json_object(&pending_path, &Value::Array(update.games), channel) {
+            restore_owned();
+            return Err(error.message);
+        }
+    }
+    if !scope.is_guest() {
+        if let Err(error) =
+            arcadia_sync::library::record_steam_change(&scope.account_dir(), &id, title)
+        {
+            if update.changed {
+                if let Err(error) =
+                    write_json_object(&pending_path, &Value::Array(existing), channel)
+                {
+                    eprintln!(
+                        "[library] não foi possível restaurar os jogos pendentes: {}",
+                        error.message
+                    );
+                }
+            }
+            restore_owned();
+            return Err(error.to_string());
+        }
+    }
+    Ok(read_games(data_dir, account))
 }
 
 /// Roteia um canal. `args` é sempre o array de argumentos da chamada JS.
@@ -931,6 +1280,13 @@ pub fn dispatch(
     channel: &str,
     args: Vec<Value>,
 ) -> Result<Value, IpcError> {
+    // `store:addToSteam` baixa o zip do Hubcap antes de gravar o .lua.
+    if channel == "store:addToSteam" {
+        return Ok(json!({
+            "ok": false,
+            "error": "store:addToSteam roda só no dispatcher assíncrono"
+        }));
+    }
     match channel {
         // ── Biblioteca e config ──────────────────────────────────────────
         "meta:rebuild" => {
@@ -939,6 +1295,8 @@ pub fn dispatch(
         }
         "library:refresh" => Ok(json_array(read_library_enriched(state))),
         "library:get" => Ok(json_array(read_library_enriched(state))),
+        // Abre somente o log já existente; nunca cria arquivo.
+        "gamelog:open" => Ok(game_log_service::open(state, shell, args.first())),
         "config:get" => Ok(redact_config(&read_config(&state.data_dir))),
         "config:set" => {
             let patch = args
@@ -1420,18 +1778,14 @@ pub fn dispatch(
                     .and_then(Value::as_str)
                     .map(|key| !key.is_empty())
                     .unwrap_or(false),
-                "slssteam": false,
-                "luatools": false,
+                "slssteam": state.with_plugins(channel, |registry| registry.get("slssteam").is_some_and(|item|item.enabled))?,
+                "luatools": state.with_plugins(channel, |registry| registry.get("luatools-fixes").is_some_and(|item|item.enabled))?,
                 "steamDir": base
                     .map(|path| path.to_string_lossy().into_owned())
                     .unwrap_or_default(),
                 "adicionados": []
             }))
         }
-        "store:addToSteam" => Ok(json!({
-            "ok": false,
-            "plugin": "slssteam"
-        })),
         "store:removeFromSteam" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
             let home = arcadia_store::paths::home_dir();
@@ -1458,85 +1812,13 @@ pub fn dispatch(
             ))
             .unwrap_or_else(|_| json!({ "ok": false })))
         }
-        "store:addToLibrary" => {
-            let payload = args.first().cloned().unwrap_or_else(|| json!({}));
-            let appid = payload
-                .get("appid")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let title = payload
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if appid.is_empty()
-                || !appid.chars().all(|c| c.is_ascii_digit())
-                || title.is_empty()
-            {
-                return Ok(json!({ "ok": false, "error": "appid ou título inválido" }));
-            }
-            let account = state.account();
-            let scope = AccountScope::with_active(state.data_dir.clone(), account.as_deref());
-            let pending_path = account_file(
-                &state.data_dir,
-                account.as_deref(),
-                "pending_games.json",
-            );
-            let existing = read_pending_games(&pending_path, &SystemFs);
-            let id = format!("steam:{appid}");
-            let in_library = read_games(&state.data_dir, account.as_deref())
-                .iter()
-                .any(|game| game.get("id").and_then(Value::as_str) == Some(id.as_str()));
-            let update = add_pending_stub(
-                &existing,
-                in_library,
-                &appid,
-                &title,
-                payload.get("cover").and_then(Value::as_str),
-                payload.get("hero").and_then(Value::as_str),
-            );
-            if let Err(error) = write_pending_games(&pending_path, &update.games, &SystemFs) {
-                return Ok(json!({ "ok": false, "error": error.to_string() }));
-            }
-            let _ = arcadia_store::owned::owned_add(&scope, id);
-            shell.emit("library:changed", json!({ "source": "store" }));
-            Ok(json!({
-                "ok": true,
-                "games": read_games(&state.data_dir, account.as_deref())
-            }))
-        }
-        "store:removeFromLibrary" => {
-            let appid = args
-                .first()
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if appid.is_empty() || !appid.chars().all(|c| c.is_ascii_digit()) {
-                return Ok(json!({ "ok": false, "error": "appid inválido" }));
-            }
-            let account = state.account();
-            let scope = AccountScope::with_active(state.data_dir.clone(), account.as_deref());
-            let pending_path = account_file(
-                &state.data_dir,
-                account.as_deref(),
-                "pending_games.json",
-            );
-            let existing = read_pending_games(&pending_path, &SystemFs);
-            let update = remove_pending_stub(&existing, &appid);
-            if let Err(error) = write_pending_games(&pending_path, &update.games, &SystemFs) {
-                return Ok(json!({ "ok": false, "error": error.to_string() }));
-            }
-            let _ = arcadia_store::owned::owned_remove(&scope, format!("steam:{appid}"));
-            shell.emit("library:changed", json!({ "source": "store" }));
-            Ok(json!({
-                "ok": true,
-                "games": read_games(&state.data_dir, account.as_deref())
-            }))
-        }
+        "store:addToLibrary" | "store:removeFromLibrary" => Ok(store_library_change(
+            state,
+            shell,
+            channel,
+            &args,
+            state.account().as_deref(),
+        )),
         "retroachievements:status" => Ok(state.ra_session().status().to_value()),
         "retroachievements:logout" => {
             let session = state.ra_session();
@@ -1863,11 +2145,30 @@ async fn dispatch_async_inner(
     channel: &str,
     args: Vec<Value>,
 ) -> Result<Value, IpcError> {
+    if channel == "store:addToSteam" {
+        return add_to_steam_async(state, channel, &args).await;
+    }
     // Garante a sessão restaurada antes de qualquer leitura escopada por conta
     // (o boot do renderer pede account:status e library:get em paralelo).
     state.ensure_boot_session().await;
 
     match channel {
+        "store:addToLibrary" | "store:removeFromLibrary" => {
+            let account = state.account();
+            let result = store_library_change(state, shell, channel, &args, account.as_deref());
+            if result["ok"] == true {
+                if let Ok(engine) = state.sync_engine(channel) {
+                    if engine.scope().active() == account.as_deref() {
+                        tokio::spawn(async move {
+                            if let Err(error) = engine.send_library_changes().await {
+                                eprintln!("[library] sincronização pendente: {error}");
+                            }
+                        });
+                    }
+                }
+            }
+            Ok(result)
+        }
         "achievements:get" => {
             let raw = args.first().and_then(Value::as_str).unwrap_or_default();
             Ok(achievements_service::get(state, raw).await)
@@ -2128,15 +2429,29 @@ async fn dispatch_async_inner(
                 .map(|value| value as usize)
                 .unwrap_or(0);
             let client = state.store_client(channel)?;
-            Ok(serde_json::to_value(client.recent(lista, limit, offset).await)
-                .unwrap_or_else(|_| json!({ "ok": false })))
+            let response = client.recent(lista, limit, offset).await;
+            // Persiste o cache para o próximo boot abrir a Home sem rede.
+            // A gravação é síncrona e custa ~200 ms de I/O: feita depois da
+            // resposta estar pronta, fora do caminho que a UI espera.
+            write_store_cache(&state.data_dir, &client);
+            Ok(serde_json::to_value(response).unwrap_or_else(|_| json!({ "ok": false })))
         }
         "store:warm" => {
             let client = state.store_client(channel)?;
-            match client.warm().await {
+            let result = client.warm().await;
+            // O warm é o momento ideal para gravar: os caches das duas telas
+            // (Início e Loja) acabaram de ser populados.
+            write_store_cache(&state.data_dir, &client);
+            match result {
                 Ok(()) => Ok(json!({ "ok": true })),
                 Err(error) => Ok(json!({ "ok": false, "error": error.to_string() })),
             }
+        }
+        "store:hubcapStats" => {
+            let key = args.first().and_then(Value::as_str).unwrap_or_default();
+            let client = state.store_client(channel)?;
+            Ok(serde_json::to_value(client.hubcap_stats(key).await)
+                .unwrap_or_else(|_| json!({ "ok": false, "error": "unreachable" })))
         }
         "store:validarChaveHubcap" => {
             let key = args.first().and_then(Value::as_str).unwrap_or_default();
@@ -2146,13 +2461,34 @@ async fn dispatch_async_inner(
         }
         "store:installInfo" => {
             let appid = args.first().and_then(Value::as_str).unwrap_or_default();
+            if !arcadia_steamstore::store::valid_appid(appid) {
+                return Ok(json!({ "ok": false, "error": "appid inválido" }));
+            }
+            let store = state.store_client(channel)?;
+            let archive = match store.hubcap_install_manifest(appid).await {
+                Ok(Some(archive)) => archive,
+                Ok(None) => return Ok(json!({ "ok": false, "error": "nenhum provedor disponível" })),
+                Err(error) => return Ok(json!({ "ok": false, "error": error.to_string() })),
+            };
+            let out = state.data_dir.join("bin").join("tmp").join(format!("manifest_{appid}"));
+            let provider = match tokio::task::spawn_blocking(move || -> Result<_, String> {
+                std::fs::create_dir_all(&out).map_err(|error| error.to_string())?;
+                for (name, bytes) in archive.files {
+                    std::fs::write(out.join(name), bytes).map_err(|error| error.to_string())?;
+                }
+                Ok(archive.provider)
+            }).await {
+                Ok(Ok(provider)) => provider,
+                Ok(Err(error)) => return Ok(json!({ "ok": false, "error": error })),
+                Err(error) => return Ok(json!({ "ok": false, "error": error.to_string() })),
+            };
             let api = state.api().ok_or_else(|| {
                 IpcError::new("api_unavailable", "cliente do backend indisponível", channel)
             })?;
             let fetcher: Arc<dyn arcadia_catalog::http::Fetcher> =
                 Arc::new(CatalogFetcher::new(api.http().clone()));
             let client = DepotClient::new(fetcher);
-            Ok(serde_json::to_value(client.install_info(appid, &[]).await)
+            Ok(serde_json::to_value(client.install_info(appid, &[provider]).await)
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "retro:list" => {
@@ -2232,7 +2568,13 @@ async fn dispatch_async_inner(
         "sources:add" => {
             let registry = state.source_registry(channel)?;
             let url = args.first().and_then(Value::as_str).unwrap_or_default();
-            Ok(serde_json::to_value(registry.add_source(url).await)
+            // O segundo argumento opcional é o JSON selecionado pelo usuário
+            // quando a URL exige verificação no navegador. Sem ele, baixa normalmente.
+            let result = match args.get(1) {
+                Some(data) => registry.import_source(url, data),
+                None => registry.add_source(url).await,
+            };
+            Ok(serde_json::to_value(result)
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "sources:sync" => {
@@ -2244,6 +2586,18 @@ async fn dispatch_async_inner(
             let registry = state.source_registry(channel)?;
             let payload = args.first().cloned().unwrap_or_else(|| json!({}));
             let query = payload.get("query").and_then(Value::as_str).unwrap_or_default();
+            if payload.get("downloadable").and_then(Value::as_bool) == Some(true) {
+                let offers = if payload.get("cachedOnly").and_then(Value::as_bool) == Some(true) {
+                    registry.cached_download_offers(query).await
+                } else {
+                    registry.download_offers(query).await
+                };
+                return Ok(json!({
+                    "ok": true,
+                    "offers": offers.offers,
+                    "unavailable_sources": offers.unavailable_sources,
+                }));
+            }
             let limit = payload
                 .get("limit")
                 .and_then(Value::as_f64)
@@ -2279,9 +2633,19 @@ async fn dispatch_async_inner(
             if let Some(cacheado) = state.sysinfo.get(&chave) {
                 return Ok(cacheado);
             }
+            let _request = state.sysinfo.lock_request(&chave).await;
+            if let Some(cacheado) = state.sysinfo.get(&chave) {
+                return Ok(cacheado);
+            }
+            let root = state.data_dir.join("cache/game-sysinfo");
+            if let Some(value) = sysinfo_cache::SysinfoCache::read_disk(root.clone(), chave.clone()).await {
+                state.sysinfo.put(chave, value.clone());
+                return Ok(value);
+            }
             let store = state.store_client(channel).ok();
             let resposta = catalog_service::game_sysinfo(state, store.as_deref(), &game).await;
-            state.sysinfo.put(chave, resposta.clone());
+            state.sysinfo.put(chave.clone(), resposta.clone());
+            tokio::spawn(sysinfo_cache::SysinfoCache::write_disk(root, chave, resposta.clone()));
             Ok(resposta)
         }
         "game:stats" => {
@@ -2521,7 +2885,27 @@ async fn sync_all_local(
 }
 
 /// Biblioteca local + playtime da Steam (local e espelho do servidor).
+pub fn read_cached_retro_page(data_dir: &Path, params: &Value) -> Option<Value> {
+    read_cached_retro(data_dir, &RetroServerCatalog::list_path(params))
+}
+
+pub fn read_cached_retro_game(data_dir: &Path, id: &str) -> Option<Value> {
+    read_cached_retro(data_dir, &RetroServerCatalog::game_path(id))
+}
+
+fn read_cached_retro(data_dir: &Path, route: &str) -> Option<Value> {
+    let path = arcadia_catalog::catalog::catalog_mirror_path(data_dir, route);
+    // Há espelhos com várias páginas e detalhes. Leia só a chave solicitada.
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
 fn read_library_enriched(state: &AppState) -> Vec<Value> {
+    read_library_enriched_from(state, &arcadia_store::paths::home_dir())
+}
+
+/// Mesma leitura de `library:get`, com a raiz do usuário injetada para testes
+/// herméticos da descoberta Steam.
+fn read_library_enriched_from(state: &AppState, home: &Path) -> Vec<Value> {
     let mut games = read_games(&state.data_dir, state.account().as_deref());
     let steam = steam_service::hours_by_appid()
         .map(|(hours, _)| hours)
@@ -2569,6 +2953,14 @@ fn read_library_enriched(state: &AppState) -> Vec<Value> {
                 object.insert("playtime_minutes".into(), json!(minutes));
             }
         }
+    }
+    // Jogo adicionado à biblioteca e instalado depois pelo cliente Steam: o ACF
+    // real (StateFlags & 4 + common/<installdir>) é a evidência. Só a resposta
+    // é enriquecida — launch, playtime e overrides seguem intactos.
+    let candidates = steam_service::pending_steam_appids(&games);
+    if !candidates.is_empty() {
+        let installed = steam_service::installed_appids_in(home, &candidates);
+        steam_service::apply_installed_flags(&mut games, &installed);
     }
     games
 }
@@ -3028,17 +3420,17 @@ fn assinar_realtime(state: &AppState, session: &Session) {
 /// Pull/reconcile em background após login, como o `setImmediate` do Electron.
 /// Fire-and-forget: a resposta de login não espera a rede.
 fn trigger_reconcile(state: &AppState, session: &Session) {
-    let Some(api) = state.api().cloned() else {
-        return;
-    };
     let Some(account) = account_from_session(session) else {
         return;
     };
-    let data_dir = state.data_dir.clone();
+    let Ok(engine) = state.sync_engine("sync:now") else {
+        return;
+    };
+    if engine.scope().active() != Some(account.as_str()) {
+        return;
+    }
     let sink = lock(&state.background_events).clone();
     tokio::spawn(async move {
-        let scope = AccountScope::with_active(data_dir, Some(account.as_str()));
-        let engine = SyncEngine::new((*api).clone(), scope);
         if let Ok(report) = engine.reconcile().await {
             if let Some(sink) = sink {
                 if report.library_changed {
@@ -3579,6 +3971,90 @@ mod tests {
         AppState::new(std::env::temp_dir())
     }
 
+    #[tokio::test]
+    async fn source_add_uses_the_shell_browser_for_cloudflare_and_keeps_the_original_url() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        struct Browser(std::sync::atomic::AtomicUsize);
+        #[async_trait::async_trait]
+        impl ChallengeSolver for Browser {
+            async fn resolve(&self, url: &str) -> Option<Value> {
+                assert!(url.ends_with("/source.json"));
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Some(json!({"name": "Verified source", "downloads": [
+                    {"title": "Portal 2", "uris": ["magnet:?xt=urn:btih:abc"]}
+                ]}))
+            }
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/source.json", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = [0; 4096];
+                socket.read(&mut bytes).await.unwrap();
+                socket.write_all(b"HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\nCf-Mitigated: challenge\r\nContent-Length: 9\r\nConnection: close\r\n\r\nchallenge").await.unwrap();
+            }
+        });
+        let root = std::env::temp_dir().join(format!("arcadia-source-browser-ipc-{}", std::process::id()));
+        let api = ApiClient::new(arcadia_api::ApiConfig::resolve(
+            Some("http://127.0.0.1:9"), None, None, None,
+        )).unwrap();
+        let mut state = AppState::with_api(root.clone(), Arc::new(api));
+        // A injeção também funciona se a UI já acessou o registro.
+        state.source_registry("sources:list").unwrap();
+        let browser = Arc::new(Browser(std::sync::atomic::AtomicUsize::new(0)));
+        state.set_source_challenge_solver(browser.clone());
+        let added = dispatch_async(&state, &MockShell, "sources:add", vec![json!(url)]).await.unwrap();
+        assert_eq!(added["ok"], true);
+        assert_eq!(added["source"]["count"], 1);
+        assert_eq!(added["source"]["url"], url);
+        let synced = dispatch_async(&state, &MockShell, "sources:sync", vec![]).await.unwrap();
+        assert_eq!(synced["results"][0]["ok"], true);
+        assert_eq!(browser.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let registry = state.source_registry("sources:search").unwrap();
+        assert_eq!(registry.cached_download_offers("Portal 2").await.offers.len(), 1);
+        server.await.unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn source_downloads_resolve_uncached_account_sources_through_the_remote_catalog() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(10), listener.accept()).await.unwrap().unwrap();
+            let mut request = [0; 4096];
+            let read = socket.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..read]).starts_with("GET /catalog/v1/sources/remote/games "));
+            let body = json!({"data": {"name": "Remote source", "downloads": [
+                {"title": "Portal 2", "uris": ["https://example.test/game.zip", "magnet:?xt=urn:btih:abc"]},
+                {"title": "Portal 3", "uris": ["https://example.test/wrong.zip"]}
+            ]}}).to_string();
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let root = std::env::temp_dir().join(format!("arcadia-sources-remote-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("sources.json"), json!([
+            {"id": "remote", "name": "Connected source", "url": "invalid-url", "addedAt": 1}
+        ]).to_string()).unwrap();
+        let api = ApiClient::new(arcadia_api::ApiConfig::resolve(Some(&format!("http://{address}")), None, None, None)).unwrap();
+        let state = AppState::with_api(root.clone(), Arc::new(api));
+        let result = dispatch_async(&state, &MockShell, "sources:search", vec![json!({
+            "query": "Portal 2", "downloadable": true,
+        })]).await.unwrap();
+        assert_eq!(result["offers"].as_array().unwrap().len(), 1);
+        assert_eq!(result["offers"][0]["source"], "Connected source");
+        assert_eq!(result["offers"][0]["uris"].as_array().unwrap().len(), 2);
+        assert!(result["unavailable_sources"].as_array().unwrap().is_empty());
+        assert!(root.join("sources/remote.json").exists());
+        server.await.unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// O `pickImage` devolve `file://…?t=<stamp>`; ler sem cortar a query dava
     /// ENOENT e virava `avatar_ilegivel` para qualquer imagem.
     #[test]
@@ -3696,12 +4172,8 @@ mod tests {
 
     #[test]
     fn manifest_matches_generated_channel_lists() {
-        let raw = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shim/ipc-manifest.json"
-        ))
-        .expect("shim/ipc-manifest.json");
-        let manifest: Value = serde_json::from_str(&raw).unwrap();
+        let raw = include_str!("../tests/fixtures/ipc-channels.json");
+        let manifest: Value = serde_json::from_str(raw).unwrap();
         let manifest_invoke: Vec<&str> = manifest["invoke"]
             .as_array()
             .unwrap()
@@ -3880,6 +4352,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(removed["ok"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_edits_persist_for_the_account_and_roll_back_if_the_queue_cannot_be_written() {
+        let dir = temp_case("store-account");
+        let session = serde_json::from_value(json!({
+            "access_token": "test-token",
+            "user": { "id": "test-user", "user_metadata": { "username": "player" } }
+        }))
+        .unwrap();
+        let state = AppState::new(dir.clone());
+        state.install_session_memory(&session);
+        let add_args = vec![json!({ "appid": "413150", "title": "Stardew Valley" })];
+        let added = dispatch(&state, &MockShell, "store:addToLibrary", add_args.clone()).unwrap();
+        assert_eq!(added["ok"], true);
+        drop(state);
+
+        let state = AppState::new(dir.clone());
+        state.install_session_memory(&session);
+        let games = read_games(&dir, Some("player"));
+        assert_eq!(games[0]["id"], "steam:413150");
+        assert!(read_games(&dir, None).is_empty());
+
+        let scope = AccountScope::with_active(&dir, Some("player"));
+        let queue = scope.account_file("library_sync_queue.json");
+        assert_eq!(read_json_object(&queue)["steam:413150"]["title"], "Stardew Valley");
+        let remove_args = vec![json!("413150")];
+        let previous_queue = std::fs::read(&queue).unwrap();
+        std::fs::write(&queue, b"invalid JSON").unwrap();
+        let rejected = dispatch(
+            &state,
+            &MockShell,
+            "store:removeFromLibrary",
+            remove_args.clone(),
+        )
+        .unwrap();
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(read_games(&dir, Some("player"))[0]["id"], "steam:413150");
+        assert_eq!(arcadia_store::owned::read_owned(&scope), Some(vec![json!("steam:413150")]));
+
+        std::fs::write(&queue, previous_queue).unwrap();
+        let removed = dispatch(&state, &MockShell, "store:removeFromLibrary", remove_args).unwrap();
+        assert_eq!(removed["ok"], true);
+        assert_eq!(read_json_object(&queue)["steam:413150"]["removed"], true);
+        assert!(read_games(&dir, Some("player")).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4090,6 +4608,7 @@ mod tests {
         // Nenhum dos dois apaga arquivo do usuário.
         let dir = std::env::temp_dir().join(format!("arcadia-plugins-io-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        write_config_patch(&dir, &json!({"slssteam_path":dir.join("missing.so")})).unwrap();
         let state = AppState::new(dir.clone());
 
         // id vazio / desconhecido → erro claro, não pânico.
@@ -4139,6 +4658,46 @@ mod tests {
         assert_eq!(sls_off["ok"], true, "remove deve aceitar sempre: {sls_off}");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn plugins_refresh_detects_new_file_and_preserves_disabled_preference() {
+        let dir=std::env::temp_dir().join(format!("arcadia-plugin-refresh-{}",std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file=dir.join("custom.so");
+        write_config_patch(&dir,&json!({"slssteam_path":file})).unwrap();
+        let state=AppState::new(dir.clone());
+        let list=||dispatch(&state,&MockShell,"plugins:list",vec![]).unwrap();
+        assert_eq!(list()["plugins"][0]["installed"],false);
+        std::fs::write(&file,b"fixture").unwrap();
+        assert_eq!(list()["plugins"][0]["installed"],true);
+        assert_eq!(dispatch(&state,&MockShell,"plugins:disable",vec![json!("slssteam")]).unwrap()["ok"],true);
+        assert_eq!(list()["plugins"][0]["enabled"],false);
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(list()["plugins"][0]["installed"],false);
+        std::fs::write(&file,b"fixture").unwrap();
+        let restored=list();
+        assert_eq!(restored["plugins"][0]["installed"],true);
+        assert_eq!(restored["plugins"][0]["enabled"],false);
+        let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    #[ignore="consulta somente leitura dos componentes locais da sessão atual"]
+    fn plugins_live_detection_reports_actual_installation() {
+        let state=AppState::new(arcadia_store::paths::resolve_data_dir());
+        let list=dispatch(&state,&MockShell,"plugins:list",vec![]).unwrap();
+        for id in ["slssteam","luatools-fixes"] {
+            let item=list["plugins"].as_array().unwrap().iter().find(|item|item["id"]==id).unwrap();
+            println!("LIVE_COMPONENT {id} installed={} enabled={}",item["installed"],item["enabled"]);
+            assert_eq!(item["installed"],true,"componente instalado não foi reconhecido");
+            let details=dispatch(&state,&MockShell,"plugins:get",vec![json!(id)]).unwrap();
+            assert_eq!(details["plugin"]["installed"],item["installed"]);
+            assert_eq!(details["plugin"]["enabled"],item["enabled"]);
+        }
+        let status=dispatch(&state,&MockShell,"store:status",vec![]).unwrap();
+        assert_eq!(status["slssteam"],list["plugins"][0]["enabled"]);
+        assert_eq!(status["luatools"],list["plugins"][1]["enabled"]);
     }
 
     #[test]
@@ -4370,5 +4929,156 @@ mod tests {
         )
         .unwrap();
         assert_eq!(state.mode(), "desktop");
+    }
+
+    fn temp_case(tag: &str) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "arcadia-library-enriched-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn fake_steam_home(home: &Path, appid: &str, state_flags: u64, with_folder: bool) {
+        let primary = home.join(".steam").join("steam");
+        let secondary = home.join("SteamLibrary");
+        let primary_apps = primary.join("steamapps");
+        let secondary_apps = secondary.join("steamapps");
+        std::fs::create_dir_all(&primary_apps).unwrap();
+        std::fs::write(
+            primary_apps.join("libraryfolders.vdf"),
+            format!(
+                "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\" \"{}\"\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\" \"{}\"\n\t}}\n}}\n",
+                primary.display(),
+                secondary.display()
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(&secondary_apps).unwrap();
+        std::fs::write(
+            secondary_apps.join(format!("appmanifest_{appid}.acf")),
+            format!(
+                "\"AppState\"\n{{\n\t\"appid\" \"{appid}\"\n\t\"StateFlags\" \"{state_flags}\"\n\t\"installdir\" \"Stardew Valley\"\n}}\n"
+            ),
+        )
+        .unwrap();
+        if with_folder {
+            std::fs::create_dir_all(secondary_apps.join("common").join("Stardew Valley")).unwrap();
+        }
+    }
+
+    #[test]
+    fn library_get_enrichment_reads_acf_and_leaves_pending_untouched() {
+        let base = temp_case("api");
+        let data_dir = base.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let home = base.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        fake_steam_home(&home, "413150", 4, true);
+
+        let pending_path = data_dir.join("pending_games.json");
+        std::fs::write(
+            &pending_path,
+            serde_json::to_string(&json!([
+                {
+                    "id": "steam:413150", "title": "Stardew Valley", "launcher": "steam",
+                    "launch_cmd": ["steam", "steam://rungameid/413150"],
+                    "installed": false, "pendente": true, "playtime_minutes": 90,
+                    "cover": "https://example.test/stardew.jpg"
+                },
+                {
+                    "id": "steam:999999", "title": "Sem ACF", "launcher": "steam",
+                    "launch_cmd": ["steam", "steam://rungameid/999999"], "installed": false
+                }
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            data_dir.join("custom_games.json"),
+            serde_json::to_string(&json!([{
+                "id": "custom:hero", "title": "Hero", "launcher": "custom",
+                "installed": false, "exe": "/games/hero", "playtime_minutes": 7
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(data_dir.clone());
+        let games = read_library_enriched_from(&state, &home);
+        let stardew = games
+            .iter()
+            .find(|game| game["id"] == "steam:413150")
+            .expect("pending na resposta");
+        assert_eq!(stardew["installed"], true, "ACF real não promoveu installed");
+        assert_eq!(
+            stardew["launch_cmd"],
+            json!(["steam", "steam://rungameid/413150"])
+        );
+        assert_eq!(stardew["cover"], "https://example.test/stardew.jpg");
+        assert!(stardew["playtime_minutes"].as_i64().unwrap() >= 90);
+        let without_acf = games
+            .iter()
+            .find(|game| game["id"] == "steam:999999")
+            .expect("jogo sem ACF continua na resposta");
+        assert_eq!(without_acf["installed"], false);
+        let custom = games
+            .iter()
+            .find(|game| game["id"] == "custom:hero")
+            .expect("custom preservado");
+        assert_eq!(custom["installed"], false);
+        assert_eq!(custom["exe"], "/games/hero");
+
+        let raw = std::fs::read_to_string(&pending_path).unwrap();
+        let on_disk: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            on_disk[0]["installed"], false,
+            "a resposta de library:get persistiu installed no pending"
+        );
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// Probe manual do testador: confere o Stardew Valley real instalado pela
+    /// Steam. Só escreve num data_dir temporário; Steam e conta não são tocados.
+    #[test]
+    #[ignore = "probe real: exige Stardew Valley (413150) instalado na Steam local"]
+    fn live_probe_library_get_recognizes_stardew_installed() {
+        let data_dir = temp_case("live-probe");
+        let pending_path = data_dir.join("pending_games.json");
+        std::fs::write(
+            &pending_path,
+            serde_json::to_string(&json!([{
+                "id": "steam:413150", "title": "Stardew Valley", "launcher": "steam",
+                "launch_cmd": ["steam", "steam://rungameid/413150"],
+                "installed": false, "pendente": true
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(data_dir.clone());
+        let value = dispatch(&state, &MockShell, "library:get", Vec::new()).unwrap();
+        let stardew = value
+            .as_array()
+            .expect("library:get devolve lista")
+            .iter()
+            .find(|game| game["id"] == "steam:413150")
+            .expect("pending apareceu na biblioteca");
+        assert_eq!(stardew["installed"], true, "Steam real não reconhecida");
+        assert_eq!(
+            stardew["launch_cmd"],
+            json!(["steam", "steam://rungameid/413150"])
+        );
+
+        let raw = std::fs::read_to_string(&pending_path).unwrap();
+        let on_disk: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(on_disk[0]["installed"], false, "probe alterou o pending");
+
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }

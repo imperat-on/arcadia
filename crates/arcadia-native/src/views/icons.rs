@@ -27,6 +27,7 @@ pub enum Icon {
     Refresh,
     ChevronDown,
     Heart,
+    Gamepad,
 }
 
 impl Icon {
@@ -52,6 +53,7 @@ impl Icon {
             Icon::Refresh => load!(include_bytes!("../../assets/icons/refresh.png")),
             Icon::ChevronDown => load!(include_bytes!("../../assets/icons/chevron-down.png")),
             Icon::Heart => load!(include_bytes!("../../assets/icons/heart.png")),
+            Icon::Gamepad => load!(include_bytes!("../../assets/icons/gamepad.png")),
         }
     }
 }

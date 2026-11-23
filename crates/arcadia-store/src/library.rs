@@ -93,10 +93,12 @@ fn merge_pending(games: &mut Vec<Value>, pending: Vec<Value>) {
 /// Lista final que o renderer recebe em `library:get`.
 pub fn read_games(data_dir: &Path, user: Option<&str>) -> Vec<Value> {
     let global = read_json(&library_path(data_dir));
-    let mut games = global
+    let globals = global
         .as_ref()
         .map(games_from_document)
         .unwrap_or_default();
+    let scope = crate::accounts::AccountScope::with_active(data_dir, user);
+    let mut games = crate::owned::filter_by_ownership(&scope, &globals);
 
     let custom = read_json(&account_file(data_dir, user, "custom_games.json"));
     if let Some(custom) = custom {
@@ -237,6 +239,30 @@ mod tests {
         let games = read_games(&dir, Some("zyon"));
         assert_eq!(games.len(), 1);
         assert_eq!(games[0]["title"], "Da conta");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn account_add_and_remove_persist_global_game_ownership() {
+        let dir = temp_dir("owned-library");
+        std::fs::write(
+            library_path(&dir),
+            serde_json::to_string(&json!({"version":1,"games":[
+                {"id":"steam:42","title":"Global Steam game"},
+                {"id":"steam:99","title":"Another account's game"}
+            ]})).unwrap(),
+        ).unwrap();
+        let scope = crate::accounts::AccountScope::with_active(&dir, Some("player"));
+        crate::owned::write_owned(&scope, &[serde_json::json!("steam:42")]).unwrap();
+
+        let initial = read_games(&dir, Some("player"));
+        assert_eq!(initial.iter().map(|game| game["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["steam:42"]);
+
+        crate::owned::owned_add(&scope, "steam:99").unwrap();
+        assert_eq!(read_games(&dir, Some("player")).len(), 2);
+
+        crate::owned::owned_remove(&scope, "steam:42").unwrap();
+        assert_eq!(read_games(&dir, Some("player")).iter().map(|game| game["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["steam:99"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

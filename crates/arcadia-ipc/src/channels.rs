@@ -1,4 +1,4 @@
-// AUTO-GERADO por tools/gen-ipc.mjs. Não editar à mão.
+// Ao alterar os canais públicos, atualize o contrato em tests/fixtures/ipc-channels.json.
 
 pub const INVOKE_CHANNELS: &[&str] = &[
     "library:get",
@@ -39,6 +39,7 @@ pub const INVOKE_CHANNELS: &[&str] = &[
     "store:addToLibrary",
     "store:addToSteam",
     "store:validarChaveHubcap",
+    "store:hubcapStats",
     "steam:contaStatus",
     "steam:vincularConta",
     "steam:capturarAgora",

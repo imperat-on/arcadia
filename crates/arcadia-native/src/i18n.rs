@@ -1,9 +1,5 @@
-//! Textos do shell nativo nos mesmos idiomas da UI web.
-//!
-//! As mensagens vêm de `ui/src/i18n/*.json` (fonte única da tradução). O nativo
-//! tem algumas frases que não existem na web — estados de carregamento, notas
-//! desta passada —, e elas ficam em `assets/i18n-native.json`, sempre com o
-//! pt-BR como último fallback antes da própria chave.
+//! Textos do Arcadia em português, inglês e espanhol. As mensagens base e
+//! complementares ficam em `assets/`, com fallback para português.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -15,6 +11,12 @@ pub enum Lang {
     PtBr,
     EnUs,
     EsEs,
+}
+
+impl std::fmt::Display for Lang {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.label())
+    }
 }
 
 impl Lang {
@@ -39,7 +41,7 @@ impl Lang {
         }
     }
 
-    /// Nome do idioma no próprio idioma, como nos seletores da UI web.
+    /// Nome do idioma no próprio idioma.
     pub fn label(self) -> &'static str {
         match self {
             Self::PtBr => "Português (Brasil)",
@@ -50,15 +52,14 @@ impl Lang {
 
     fn messages(self) -> &'static str {
         match self {
-            Self::PtBr => include_str!("../../../ui/src/i18n/pt-BR.json"),
-            Self::EnUs => include_str!("../../../ui/src/i18n/en-US.json"),
-            Self::EsEs => include_str!("../../../ui/src/i18n/es-ES.json"),
+            Self::PtBr => include_str!("../assets/i18n/pt-BR.json"),
+            Self::EnUs => include_str!("../assets/i18n/en-US.json"),
+            Self::EsEs => include_str!("../assets/i18n/es-ES.json"),
         }
     }
 }
 
-/// Traduções que só o shell nativo usa. Mantê-las fora de `ui/` evita que a
-/// próxima onda de telas precise mexer no JSON da web.
+/// Mensagens complementares agrupadas por idioma.
 const NATIVE_OVERRIDES: &str = include_str!("../assets/i18n-native.json");
 
 /// Mensagens carregadas para o idioma ativo.
@@ -153,7 +154,11 @@ fn parse_native(lang: Lang) -> HashMap<String, String> {
     // e o `t` ainda tem a própria chave como último recurso.
     let mut messages = all.get(Lang::PtBr.code()).cloned().unwrap_or_default();
     if let Some(translated) = all.get(lang.code()) {
-        messages.extend(translated.iter().map(|(key, value)| (key.clone(), value.clone())));
+        messages.extend(
+            translated
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
     }
     messages
 }
@@ -180,11 +185,28 @@ mod tests {
         let es = parse_messages(Lang::EsEs);
 
         assert!(pt.len() > 1000, "pt-BR tem {} chaves", pt.len());
-        assert_eq!(pt.len(), en.len(), "en-US perdeu chaves em relação ao pt-BR");
-        assert_eq!(pt.len(), es.len(), "es-ES perdeu chaves em relação ao pt-BR");
-        assert_eq!(pt.get("settings.title").map(String::as_str), Some("Configurações"));
-        assert_eq!(en.get("settings.title").map(String::as_str), Some("Settings"));
-        assert_eq!(es.get("settings.title").map(String::as_str), Some("Configuración"));
+        assert_eq!(
+            pt.len(),
+            en.len(),
+            "en-US perdeu chaves em relação ao pt-BR"
+        );
+        assert_eq!(
+            pt.len(),
+            es.len(),
+            "es-ES perdeu chaves em relação ao pt-BR"
+        );
+        assert_eq!(
+            pt.get("settings.title").map(String::as_str),
+            Some("Configurações")
+        );
+        assert_eq!(
+            en.get("settings.title").map(String::as_str),
+            Some("Settings")
+        );
+        assert_eq!(
+            es.get("settings.title").map(String::as_str),
+            Some("Configuración")
+        );
     }
 
     #[test]
@@ -243,7 +265,8 @@ mod tests {
     }
 
     #[test]
-    fn chaves_das_telas_migradas_existem_nos_tres_idiomas() {        const KEYS: &[&str] = &[
+    fn chaves_das_telas_migradas_existem_nos_tres_idiomas() {
+        const KEYS: &[&str] = &[
             // Sidebar e shell.
             "app.name",
             "sidebar.inicio",
@@ -443,7 +466,10 @@ mod tests {
             include_str!("views/downloads.rs"),
             include_str!("views/emulation.rs"),
             include_str!("views/friends.rs"),
+            include_str!("views/friend_profile.rs"),
             include_str!("views/game.rs"),
+            include_str!("views/game_edit.rs"),
+            include_str!("views/game_menu.rs"),
             include_str!("views/home.rs"),
             include_str!("views/library.rs"),
             include_str!("views/mod.rs"),

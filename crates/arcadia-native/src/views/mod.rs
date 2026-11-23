@@ -1,26 +1,34 @@
 //! Telas do shell nativo. Cada tela recebe apenas o que precisa para desenhar.
 
+pub mod auth;
+pub mod back_button;
+pub mod big_picture;
+pub mod big_picture_detail;
+pub mod big_picture_store;
+pub mod cards;
+pub mod chrome;
+pub mod community;
 pub mod components;
 pub mod downloads;
 pub mod emulation;
 pub mod friends;
-pub mod auth;
-pub mod profile;
-pub mod big_picture;
-pub mod cards;
-pub mod chrome;
-pub mod community;
+pub mod friend_profile;
 pub mod game;
 pub mod game_detail;
+pub mod game_edit;
+pub mod game_menu;
 pub mod home;
 pub mod icons;
 pub mod library;
 pub mod overlays;
+pub mod profile;
+pub mod profile_edit;
 pub mod retro;
 pub mod settings;
 pub mod sidebar;
 pub mod sources;
 pub mod store;
+pub mod store_downloads;
 
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Fill};
@@ -60,7 +68,7 @@ pub(crate) fn page_header_labeled<'a>(
         title_row = title_row.push(
             container(
                 text(count)
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_2),
             )
@@ -69,14 +77,22 @@ pub(crate) fn page_header_labeled<'a>(
         );
     }
 
-    let heading = column![title_row, text(subtitle).size(14).color(theme::TEXT_2),].spacing(4);
+    let heading = column![
+        title_row,
+        text(subtitle).size(theme::TEXT_READ).color(theme::TEXT_2),
+    ]
+    .spacing(4);
 
     let right: Element<'a, Message> = match refresh {
-        Some(message) => button(text(refresh_label).size(13).font(theme::FONT_MEDIUM))
-            .on_press(message)
-            .padding([8.0, 14.0])
-            .style(theme::ghost_button)
-            .into(),
+        Some(message) => button(
+            text(refresh_label)
+                .size(theme::TEXT_READ)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(message)
+        .padding([8.0, 14.0])
+        .style(theme::ghost_button)
+        .into(),
         None => Space::new().width(0).into(),
     };
 
@@ -94,7 +110,7 @@ pub(crate) fn section_label(title: &str) -> Element<'_, Message> {
     row![
         container(Space::new().width(3).height(14)).style(theme::accent_bar),
         text(title.to_uppercase())
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_SEMIBOLD)
             .color(theme::TEXT_2),
     ]
@@ -111,10 +127,13 @@ pub(crate) fn empty_state<'a>(title: &'a str, message: &'a str) -> Element<'a, M
     container(
         column![
             text(title)
-                .size(18)
+                .size(theme::TEXT_HEADING)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_STRONG),
-            text(message).size(13).color(theme::TEXT_2).width(Fill),
+            text(message)
+                .size(theme::TEXT_READ)
+                .color(theme::TEXT_2)
+                .width(Fill),
         ]
         .spacing(theme::SPACE_3)
         .max_width(520),
@@ -149,11 +168,18 @@ pub(crate) fn error_state_labeled<'a>(
                 .size(20)
                 .font(theme::FONT_BOLD)
                 .color(theme::DANGER),
-            text(error).size(13).color(theme::TEXT_2).width(Fill),
-            button(text(retry_label).size(13).font(theme::FONT_MEDIUM))
-                .on_press(retry)
-                .padding([10.0, 18.0])
-                .style(theme::primary_button),
+            text(error)
+                .size(theme::TEXT_READ)
+                .color(theme::TEXT_2)
+                .width(Fill),
+            button(
+                text(retry_label)
+                    .size(theme::TEXT_READ)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press(retry)
+            .padding([10.0, 18.0])
+            .style(theme::primary_button),
         ]
         .spacing(theme::SPACE_3),
     )
@@ -165,11 +191,16 @@ pub(crate) fn error_state_labeled<'a>(
 }
 
 pub(crate) fn warning_banner(message: &str) -> Element<'_, Message> {
-    container(text(message).size(12).color(theme::WARNING).width(Fill))
-        .width(Fill)
-        .padding([10.0, 14.0])
-        .style(theme::stub_panel)
-        .into()
+    container(
+        text(message)
+            .size(theme::TEXT_BODY)
+            .color(theme::WARNING)
+            .width(Fill),
+    )
+    .width(Fill)
+    .padding([10.0, 14.0])
+    .style(theme::stub_panel)
+    .into()
 }
 
 pub(crate) fn action_error_banner(message: &str, retry: Option<Message>) -> Element<'_, Message> {
@@ -182,15 +213,22 @@ pub(crate) fn action_error_banner_labeled<'a>(
     retry: Option<Message>,
     retry_label: &'a str,
 ) -> Element<'a, Message> {
-    let mut content =
-        column![text(message).size(12).color(theme::DANGER).width(Fill),].spacing(theme::SPACE_2);
+    let mut content = column![text(message)
+        .size(theme::TEXT_BODY)
+        .color(theme::DANGER)
+        .width(Fill),]
+    .spacing(theme::SPACE_2);
 
     if let Some(retry) = retry {
         content = content.push(
-            button(text(retry_label).size(12).font(theme::FONT_MEDIUM))
-                .on_press(retry)
-                .padding([6.0, 12.0])
-                .style(theme::ghost_button),
+            button(
+                text(retry_label)
+                    .size(theme::TEXT_BODY)
+                    .font(theme::FONT_MEDIUM),
+            )
+            .on_press(retry)
+            .padding([6.0, 12.0])
+            .style(theme::ghost_button),
         );
     }
 
@@ -202,7 +240,7 @@ pub(crate) fn action_error_banner_labeled<'a>(
 }
 
 fn centered_message(message: &str) -> Element<'_, Message> {
-    container(text(message).size(14).color(theme::TEXT_2))
+    container(text(message).size(theme::TEXT_READ).color(theme::TEXT_2))
         .width(Fill)
         .height(Fill)
         .center_x(Fill)
@@ -220,15 +258,15 @@ pub fn section_placeholder<'a>(section: Section, i18n: &'a I18n) -> Element<'a, 
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(i18n.t("native.section.not_ported"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::ACCENT),
             text(section.stub_message(i18n))
-                .size(14)
+                .size(theme::TEXT_READ)
                 .color(theme::TEXT_2),
             button(
                 text(i18n.t("native.section.back_library"))
-                    .size(13)
+                    .size(theme::TEXT_READ)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::BackToLibrary)
@@ -252,11 +290,11 @@ pub fn missing_game<'a>(i18n: &'a I18n) -> Element<'a, Message> {
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(i18n.t("native.game.not_found_desc"))
-                .size(14)
+                .size(theme::TEXT_READ)
                 .color(theme::TEXT_2),
             button(
                 text(i18n.t("native.section.back_library"))
-                    .size(13)
+                    .size(theme::TEXT_READ)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::BackToLibrary)

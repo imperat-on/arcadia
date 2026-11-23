@@ -60,7 +60,7 @@ pub fn top_bar() -> Element<'static, Message> {
     .into()
 }
 
-fn dot(color: iced::Color, ring: iced::Color, message: Message) -> Element<'static, Message> {
+pub(super) fn dot(color: iced::Color, ring: iced::Color, message: Message) -> Element<'static, Message> {
     button(Space::new().width(12).height(12))
         .on_press(message)
         .width(Length::Fixed(12.0))

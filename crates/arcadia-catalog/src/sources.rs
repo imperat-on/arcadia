@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -353,6 +354,23 @@ pub struct SearchResult {
     pub src: String,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// Oferta completa para a ficha da loja, sem depender de manifestos Steam.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadOffer {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub title: String,
+    pub source: String,
+    pub file_size: String,
+    pub uris: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadOffers {
+    pub offers: Vec<DownloadOffer>,
+    pub unavailable_sources: Vec<String>,
 }
 
 /// Envelope de `sources:add`.
@@ -1064,6 +1082,216 @@ pub struct SourceRegistry {
     inner: Arc<SourceRegistryInner>,
 }
 
+/// Oferta encontrada dentro de um catálogo, antes da ordenação final.
+type OfferHit = (u8, usize, usize, usize, DownloadOffer);
+
+enum DownloadPayload {
+    Bytes(Vec<u8>),
+    Value(Value),
+}
+
+/// Busca em um catálogo já em cache sem materializar o `Value` inteiro.
+///
+/// O catálogo é lido como um fluxo: o objeto raiz é visitado e cada item de
+/// `downloads` é desserializado e descartado individualmente. O pico passa a
+/// ser o arquivo + um item, em vez de todo o catálogo em memória.
+fn search_catalog_bytes(
+    bytes: &[u8],
+    title: &str,
+    canonical: &CanonicalTitle,
+    source: &SourceInfo,
+    order: usize,
+) -> Result<(Vec<OfferHit>, Option<String>), String> {
+    let mut state = CatalogSearch {
+        title,
+        canonical,
+        source,
+        order,
+        name: None,
+        saw_downloads: false,
+        hits: Vec::new(),
+    };
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    CatalogSeed { state: &mut state }
+        .deserialize(&mut deserializer)
+        .map_err(|error| error.to_string())?;
+    deserializer.end().map_err(|error| error.to_string())?;
+    if !state.saw_downloads {
+        return Err("catálogo sem downloads".to_string());
+    }
+    let name = truthy_text(state.name.as_ref());
+    Ok((state.hits, name))
+}
+
+fn offers_from_catalog(
+    data: &Value,
+    title: &str,
+    canonical: &CanonicalTitle,
+    source: &SourceInfo,
+    order: usize,
+) -> (Vec<OfferHit>, Option<String>) {
+    let mut hits = Vec::new();
+    if let Some(downloads) = data.get("downloads").and_then(Value::as_array) {
+        for (position, game) in downloads.iter().enumerate() {
+            if let Some((score, extra, offer)) =
+                offer_from_game(game, position, title, canonical, source)
+            {
+                hits.push((score, extra, order, position, offer));
+            }
+        }
+    }
+    (hits, truthy_text(data.get("name")))
+}
+
+fn offer_from_game(
+    game: &Value,
+    position: usize,
+    title: &str,
+    canonical: &CanonicalTitle,
+    source: &SourceInfo,
+) -> Option<(u8, usize, DownloadOffer)> {
+    let candidate = game.get("title").and_then(Value::as_str)?;
+    let matched = match_titulo_with(title, candidate, Some(canonical), None)?;
+    let raw = game.get("uris").or_else(|| game.get("uri"));
+    let values: Vec<&str> = match raw {
+        Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).collect(),
+        Some(Value::String(uri)) => vec![uri],
+        _ => Vec::new(),
+    };
+    let mut uris = Vec::new();
+    for uri in values {
+        let uri = uri.trim();
+        let lower = uri.to_ascii_lowercase();
+        if (lower.starts_with("magnet:")
+            || lower.starts_with("https://")
+            || lower.starts_with("http://"))
+            && !uris.iter().any(|existing| existing == uri)
+        {
+            uris.push(uri.to_string());
+        }
+    }
+    if uris.is_empty() {
+        return None;
+    }
+    uris.sort_by_key(|uri| !uri.to_ascii_lowercase().starts_with("magnet:"));
+    Some((
+        matched.score,
+        matched.extra,
+        DownloadOffer {
+            reference: format!("{}:{position}", source.id),
+            title: candidate.to_string(),
+            source: source.name.trim().to_string(),
+            file_size: truthy_text(game.get("fileSize")).unwrap_or_default(),
+            uris,
+        },
+    ))
+}
+
+struct CatalogSearch<'a> {
+    title: &'a str,
+    canonical: &'a CanonicalTitle,
+    source: &'a SourceInfo,
+    order: usize,
+    name: Option<Value>,
+    saw_downloads: bool,
+    hits: Vec<OfferHit>,
+}
+
+struct CatalogSeed<'a, 'b> {
+    state: &'a mut CatalogSearch<'b>,
+}
+
+impl<'de> DeserializeSeed<'de> for CatalogSeed<'_, '_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(CatalogVisitor { state: self.state })
+    }
+}
+
+struct CatalogVisitor<'a, 'b> {
+    state: &'a mut CatalogSearch<'b>,
+}
+
+impl<'de> Visitor<'de> for CatalogVisitor<'_, '_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("um catálogo de fonte")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "name" => self.state.name = Some(map.next_value::<Value>()?),
+                "downloads" => {
+                    self.state.saw_downloads = true;
+                    map.next_value_seed(DownloadsSeed {
+                        state: &mut *self.state,
+                    })?;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+struct DownloadsSeed<'a, 'b> {
+    state: &'a mut CatalogSearch<'b>,
+}
+
+impl<'de> DeserializeSeed<'de> for DownloadsSeed<'_, '_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(DownloadsVisitor { state: self.state })
+    }
+}
+
+struct DownloadsVisitor<'a, 'b> {
+    state: &'a mut CatalogSearch<'b>,
+}
+
+impl<'de> Visitor<'de> for DownloadsVisitor<'_, '_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("uma lista de downloads")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let title = self.state.title;
+        let canonical = self.state.canonical;
+        let source = self.state.source;
+        let order = self.state.order;
+        let mut position = 0usize;
+        while let Some(game) = seq.next_element::<Value>()? {
+            if let Some((score, extra, offer)) =
+                offer_from_game(&game, position, title, canonical, source)
+            {
+                self.state.hits.push((score, extra, order, position, offer));
+            }
+            position += 1;
+        }
+        Ok(())
+    }
+}
+
 impl SourceRegistry {
     pub fn new(storage: Arc<dyn SourceStorage>, fetcher: Arc<dyn Fetcher>) -> Self {
         Self {
@@ -1162,13 +1390,48 @@ impl SourceRegistry {
             return AddSourceResult::error("fonte já adicionada");
         }
         let mut source = SourceInfo::new(source_id(url), url.to_string(), self.now_millis());
-        if let Err(error) = self.download_source(&mut source).await {
+        if let Err(error) = self.download_source(&mut source, true).await {
             return AddSourceResult::error(error);
         }
         registry.push(source.clone());
         self.write_registry(&registry);
         self.invalidate_index();
         AddSourceResult::ok(source)
+    }
+
+    /// Importa um JSON obtido pelo usuário (por exemplo, após verificar o
+    /// Cloudflare no navegador). Mantém a URL para sincronizações futuras.
+    /// Reimportar atualiza a mesma fonte, sem perder seus metadados locais.
+    pub fn import_source(&self, url: &str, data: &Value) -> AddSourceResult {
+        let url = url.trim();
+        if !valid_source_url(url) {
+            return AddSourceResult::error("URL inválida");
+        }
+        let mut registry = self.read_registry();
+        let existing = registry.iter().position(|source| source.url == url);
+        let mut source = existing
+            .map(|index| registry[index].clone())
+            .unwrap_or_else(|| SourceInfo::new(source_id(url), url, self.now_millis()));
+        if let Err(error) = self.cache_source(&mut source, data) {
+            return AddSourceResult::error(error);
+        }
+        // Validadores do servidor não correspondem ao arquivo importado.
+        source.etag.clear();
+        source.last_mod.clear();
+        match existing {
+            Some(index) => registry[index] = source.clone(),
+            None => registry.push(source.clone()),
+        }
+        let result = serde_json::to_vec_pretty(&registry)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                self.inner.storage.write(REGISTRY_FILE, &bytes).map_err(|error| error.to_string())
+            });
+        self.invalidate_index();
+        match result {
+            Ok(()) => AddSourceResult::ok(source),
+            Err(error) => AddSourceResult::error(error),
+        }
     }
 
     /// `removeSource(id)`.
@@ -1195,7 +1458,7 @@ impl SourceRegistry {
         let mut registry = self.read_registry();
         let mut results = Vec::with_capacity(registry.len());
         for source in &mut registry {
-            match self.download_source(source).await {
+            match self.download_source(source, true).await {
                 Ok(outcome) => results.push(SourceSyncItem {
                     id: source.id.clone(),
                     ok: true,
@@ -1227,6 +1490,128 @@ impl SourceRegistry {
         }
         let index = self.load_index().await;
         buscar_no_indice(&index, query, limit)
+    }
+
+    /// Busca o mesmo jogo em todas as fontes registradas e verifica as URIs.
+    /// Não usa o limite da busca textual nem aceita sequências/DLCs diferentes.
+    pub async fn download_offers(&self, title: &str) -> DownloadOffers {
+        self.find_download_offers(title, false).await
+    }
+
+    /// Primeira resposta da ficha: fontes já presentes no disco, sem rede.
+    pub async fn cached_download_offers(&self, title: &str) -> DownloadOffers {
+        self.find_download_offers(title, true).await
+    }
+
+    async fn find_download_offers(&self, title: &str, cached_only: bool) -> DownloadOffers {
+        let title = regex::Regex::new(r"(?i)\s+(?:on|na)\s+steam(?:\s*[-|:].*)?$")
+            .expect("regex de título Steam")
+            .replace(title.trim(), "")
+            .trim()
+            .to_string();
+        if title.is_empty() {
+            return DownloadOffers::default();
+        }
+        let canonical = Arc::new(titulo_canonico(&title));
+        let title = Arc::new(title);
+        let mut pending = self.read_registry().into_iter().enumerate();
+        let mut jobs = tokio::task::JoinSet::new();
+        let mut hits = Vec::new();
+        let mut unavailable = Vec::new();
+
+        loop {
+            while jobs.len() < 6 {
+                let Some((order, source)) = pending.next() else { break };
+                let registry = self.clone();
+                let title = Arc::clone(&title);
+                let canonical = Arc::clone(&canonical);
+                jobs.spawn(async move {
+                    let fallback_name = if source.name.is_empty() { source.id.clone() } else { source.name.clone() };
+                    let Some(payload) = registry.load_download_payload(&source, cached_only).await else {
+                        return (Vec::new(), Some((order, fallback_name)));
+                    };
+                    // O caminho comum lê o cache como bytes: nada de montar um
+                    // `Value` com o catálogo inteiro (19 fontes, ~170 mil jogos)
+                    // a cada ficha aberta. O `Value` só aparece na resposta
+                    // remota e no fallback de cache corrompido.
+                    let (mut matches, catalog_name) = match payload {
+                        DownloadPayload::Bytes(bytes) => {
+                            match search_catalog_bytes(&bytes, &title, &canonical, &source, order) {
+                                Ok(found) => found,
+                                Err(_) => {
+                                    let Some(data) = registry.load_download_source(&source, cached_only).await else {
+                                        return (Vec::new(), Some((order, fallback_name)));
+                                    };
+                                    offers_from_catalog(&data, &title, &canonical, &source, order)
+                                }
+                            }
+                        }
+                        DownloadPayload::Value(data) => {
+                            offers_from_catalog(&data, &title, &canonical, &source, order)
+                        }
+                    };
+                    let display = catalog_name
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or(fallback_name);
+                    for (_, _, _, _, offer) in &mut matches {
+                        if offer.source.is_empty() {
+                            offer.source = display.clone();
+                        }
+                    }
+                    (matches, None)
+                });
+            }
+            let Some(result) = jobs.join_next().await else { break };
+            match result {
+                Ok((matches, missing)) => {
+                    hits.extend(matches);
+                    unavailable.extend(missing);
+                }
+                Err(error) => unavailable.push((usize::MAX, error.to_string())),
+            }
+        }
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
+        unavailable.sort_by_key(|(order, _)| *order);
+        DownloadOffers {
+            offers: hits.into_iter().map(|(_, _, _, _, offer)| offer).collect(),
+            unavailable_sources: unavailable.into_iter().map(|(_, name)| name).collect(),
+        }
+    }
+
+    /// Bytes do catálogo quando já existe cache; `Value` só para a resposta
+    /// remota/rede, que já chega desserializada pelo cliente do catálogo.
+    async fn load_download_payload(&self, source: &SourceInfo, cached_only: bool) -> Option<DownloadPayload> {
+        let key = safe_cache_key(&source.id)?;
+        if let Some(bytes) = self.inner.storage.read(&key) {
+            if !bytes.is_empty() {
+                return Some(DownloadPayload::Bytes(bytes));
+            }
+        }
+        let data = self.load_download_source(source, cached_only).await?;
+        Some(DownloadPayload::Value(data))
+    }
+
+    async fn load_download_source(&self, source: &SourceInfo, cached_only: bool) -> Option<Value> {
+        let key = safe_cache_key(&source.id)?;
+        let cached = || self.inner.storage.read(&key).and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .filter(|data| data.get("downloads").is_some_and(Value::is_array));
+        // As fontes já sincronizadas respondem imediatamente; as que vieram
+        // só do sync da conta são procuradas no catálogo e na URL cadastrada.
+        if let Some(data) = cached() { return Some(data) }
+        if cached_only { return None }
+        if let Ok(Some(data)) = tokio::time::timeout(std::time::Duration::from_secs(8), self.load_source(source)).await {
+            if data.get("downloads").is_some_and(Value::is_array) {
+                if let Ok(bytes) = serde_json::to_vec(&data) { let _ = self.inner.storage.write(&key, &bytes); }
+                return Some(data);
+            }
+        }
+        let mut source = source.clone();
+        source.etag.clear();
+        source.last_mod.clear();
+        // Abrir fichas/buscar ofertas é uma leitura silenciosa. A verificação
+        // com janela pertence apenas a Adicionar/Sincronizar em Fontes.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(12), self.download_source(&mut source, false)).await;
+        cached()
     }
 
     /// `getGame(ref)`: lê o JSON completo só quando o ref muda de fonte.
@@ -1317,7 +1702,7 @@ impl SourceRegistry {
 
     // ── download/validação de fonte ────────────────────────────────────────
 
-    async fn download_source(&self, source: &mut SourceInfo) -> Result<DownloadOutcome, String> {
+    async fn download_source(&self, source: &mut SourceInfo, allow_browser: bool) -> Result<DownloadOutcome, String> {
         if !valid_source_id(&source.id) {
             return Err("id de fonte inválido".to_string());
         }
@@ -1350,16 +1735,34 @@ impl SourceRegistry {
             return Err(format!("HTTP {}", response.status));
         }
 
-        let data = if response.is_success() {
-            response.json_value().map_err(|error| error.message)?
-        } else {
+        let data = if challenge {
+            if !allow_browser {
+                return Err("cloudflare_challenge".to_string());
+            }
             self.challenge_solver()
                 .resolve(&source.url)
                 .await
-                .ok_or_else(|| format!("HTTP {}", response.status))?
+                .ok_or_else(|| "cloudflare_challenge".to_string())?
+        } else {
+            response.json_value().map_err(|error| error.message)?
         };
 
-        let downloads = validar_downloads(&data)
+        let outcome = self.cache_source(source, &data)?;
+        // Os validadores da página de desafio não pertencem ao catálogo.
+        source.etag = if challenge { String::new() } else {
+            response.find_header("etag").unwrap_or_default().to_string()
+        };
+        source.last_mod = if challenge { String::new() } else {
+            response.find_header("last-modified").unwrap_or_default().to_string()
+        };
+        Ok(outcome)
+    }
+
+    fn cache_source(&self, source: &mut SourceInfo, data: &Value) -> Result<DownloadOutcome, String> {
+        if !valid_source_id(&source.id) {
+            return Err("id de fonte inválido".to_string());
+        }
+        let downloads = validar_downloads(data)
             .ok_or_else(|| "formato inválido (esperado { downloads: [...] })".to_string())?;
         let name = truthy_text(data.get("name"))
             .filter(|name| !name.is_empty())
@@ -1375,11 +1778,6 @@ impl SourceRegistry {
             .write(&cache_key(&source.id), &json)
             .map_err(|error| error.to_string())?;
 
-        source.etag = response.find_header("etag").unwrap_or_default().to_string();
-        source.last_mod = response
-            .find_header("last-modified")
-            .unwrap_or_default()
-            .to_string();
         source.name = name;
         source.count = Some(downloads.len() as u64);
         Ok(DownloadOutcome {
@@ -1526,13 +1924,11 @@ impl SourceRegistry {
 }
 
 fn is_cloudflare_challenge(response: &crate::http::Response) -> bool {
-    if response.status != 403 {
-        return false;
-    }
     response
         .find_header("cf-mitigated")
-        .is_some_and(|value| !value.is_empty())
-        || response.find_header("server") == Some("cloudflare")
+        .is_some_and(|value| value.eq_ignore_ascii_case("challenge"))
+        || (matches!(response.status, 403 | 503)
+            && response.find_header("server").is_some_and(|server| server.eq_ignore_ascii_case("cloudflare")))
 }
 
 fn js_index(raw: &str) -> Option<usize> {

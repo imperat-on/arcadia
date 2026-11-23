@@ -117,7 +117,7 @@ pub fn collect(data_dir: &Path, app_version: &str) -> Value {
             "arch": std::env::consts::ARCH,
             "node": "",
             "electron": "",
-            "tauri": true
+            "native": true
         },
         "storage": {
             "writable": writable,

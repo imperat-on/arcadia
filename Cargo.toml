@@ -24,7 +24,6 @@ members = [
     "crates/arcadia-ipc",
     "crates/arcadia-native",
     "crates/arcadia-native-input",
-    "src-tauri",
 ]
 
 [workspace.package]

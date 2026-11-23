@@ -36,8 +36,7 @@ Se desconfiar de artefato velho, rode `cargo clean -p arcadia-native`.
 
 ## Escopo
 
-- O worker só edita os arquivos do seu contrato. Não mexa em `src-tauri`,
-  `ui/`, nem em crates de outra onda.
+- O worker só edita os arquivos da tarefa que recebeu.
 - Não commite `Cargo.lock`; o coordenador regenera e commita.
 - Commits no branch do worktree, sem push.
 
@@ -45,6 +44,5 @@ Se desconfiar de artefato velho, rode `cargo clean -p arcadia-native`.
 
 Os pacotes portáteis do binário nativo (`scripts/package-native-linux.sh` e
 `scripts/package-native-windows.ps1`), as dependências de runtime e os jobs
-`native`/`native-windows` da CI estão documentados em
-[NATIVE-PACKAGING.md](NATIVE-PACKAGING.md). O `scripts/package-linux.sh`
-continua sendo exclusivo do app Tauri.
+do Linux e do Windows na CI estão documentados em
+[NATIVE-PACKAGING.md](NATIVE-PACKAGING.md).

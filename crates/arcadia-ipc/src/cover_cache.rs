@@ -85,8 +85,12 @@ impl CoverCache {
             .collect()
     }
 
-    fn caminho(&self, url: &str) -> PathBuf {
-        self.raiz.join(format!("{}.jpg", Self::chave(url)))
+    pub fn cached_path(data_dir: &Path, url: &str) -> PathBuf {
+        Self::path_in(&data_dir.join("covers"), url)
+    }
+
+    fn path_in(root: &Path, url: &str) -> PathBuf {
+        root.join(format!("{}.jpg", Self::chave(url)))
     }
 
     /// Caminho da capa local, baixando e reduzindo se ainda não existir.
@@ -97,7 +101,7 @@ impl CoverCache {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return None;
         }
-        let destino = self.caminho(url);
+        let destino = Self::path_in(&self.raiz, url);
         if destino.is_file() {
             return Some(destino);
         }

@@ -7,6 +7,24 @@
 
 use std::path::PathBuf;
 
+/// Campo de arte do editor de metadados.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtworkKind {
+    Cover,
+    Hero,
+    Logo,
+}
+
+impl ArtworkKind {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Cover => "cover",
+            Self::Hero => "hero",
+            Self::Logo => "logo",
+        }
+    }
+}
+
 /// O que o seletor está escolhendo. O id do emulador acompanha os alvos de
 /// emulação para que um resultado atrasado não preencha o editor de outro
 /// emulador.
@@ -15,6 +33,10 @@ pub enum PickPurpose {
     Avatar,
     Background,
     Banner,
+    /// Arte do modal de metadados (capa/fundo/logo).
+    Artwork { game_id: String, kind: ArtworkKind },
+    SourceCatalog { url: String },
+    StoreDownloadFolder { appid: String, generation: u64 },
     EmulatorExecutable(String),
     EmulatorCore(String),
     EmulatorBios(String),
@@ -24,9 +46,15 @@ pub enum PickPurpose {
     RomFile(String),
     /// ROM da seção "Emulador" das opções do jogo. Leva jogo e emulador para um
     /// resultado atrasado não preencher outro jogo/configuração.
-    GameRom { game_id: String, emulator_id: String },
+    GameRom {
+        game_id: String,
+        emulator_id: String,
+    },
     /// Core libretro da seção "Emulador" das opções do jogo.
-    GameCore { game_id: String, emulator_id: String },
+    GameCore {
+        game_id: String,
+        emulator_id: String,
+    },
 }
 
 /// Campo/estado de destino de um [`PickPurpose`], independente do diálogo.
@@ -35,6 +63,9 @@ pub enum PickTarget {
     Avatar,
     Background,
     Banner,
+    Artwork,
+    SourceCatalog,
+    StoreDownloadFolder,
     EmulatorExecutable,
     EmulatorCore,
     EmulatorBios,
@@ -50,6 +81,9 @@ impl PickPurpose {
             Self::Avatar => PickTarget::Avatar,
             Self::Background => PickTarget::Background,
             Self::Banner => PickTarget::Banner,
+            Self::Artwork { .. } => PickTarget::Artwork,
+            Self::SourceCatalog { .. } => PickTarget::SourceCatalog,
+            Self::StoreDownloadFolder { .. } => PickTarget::StoreDownloadFolder,
             Self::EmulatorExecutable(_) => PickTarget::EmulatorExecutable,
             Self::EmulatorCore(_) => PickTarget::EmulatorCore,
             Self::EmulatorBios(_) => PickTarget::EmulatorBios,
@@ -70,7 +104,9 @@ impl PickPurpose {
             Self::GameRom { emulator_id, .. } | Self::GameCore { emulator_id, .. } => {
                 Some(emulator_id)
             }
-            Self::Avatar | Self::Background | Self::Banner => None,
+            Self::Avatar | Self::Background | Self::Banner
+            | Self::Artwork { .. }
+            | Self::SourceCatalog { .. } | Self::StoreDownloadFolder { .. } => None,
         }
     }
 
@@ -78,16 +114,18 @@ impl PickPurpose {
     pub fn game_id(&self) -> Option<&str> {
         match self {
             Self::GameRom { game_id, .. } | Self::GameCore { game_id, .. } => Some(game_id),
+            Self::Artwork { game_id, .. } => Some(game_id),
+            Self::StoreDownloadFolder { appid, .. } => Some(appid),
             _ => None,
         }
     }
 
     pub fn is_folder(&self) -> bool {
-        matches!(self, Self::EmulatorBios(_) | Self::RomFolder(_))
+        matches!(self, Self::EmulatorBios(_) | Self::RomFolder(_) | Self::StoreDownloadFolder { .. })
     }
 
     pub fn is_image(&self) -> bool {
-        matches!(self, Self::Avatar | Self::Background | Self::Banner)
+        matches!(self, Self::Avatar | Self::Background | Self::Banner | Self::Artwork { .. })
     }
 }
 
@@ -153,6 +191,9 @@ fn zenity_args(purpose: &PickPurpose) -> Vec<String> {
             "--file-filter=Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.avif".to_string(),
         );
     }
+    if purpose.target() == PickTarget::SourceCatalog {
+        args.push("--file-filter=JSON | *.json *.JSON".to_string());
+    }
     args
 }
 
@@ -167,6 +208,9 @@ fn kdialog_args(purpose: &PickPurpose) -> Vec<String> {
         args.push(".".to_string());
         if purpose.is_image() {
             args.push("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.avif)".to_string());
+        }
+        if purpose.target() == PickTarget::SourceCatalog {
+            args.push("JSON (*.json *.JSON)".to_string());
         }
     }
     args
@@ -237,5 +281,11 @@ mod tests {
         let image = zenity_args(&PickPurpose::Avatar);
         assert!(image.iter().any(|arg| arg.contains("*.png")));
         assert!(!image.contains(&"--directory".to_string()));
+        let catalog = PickPurpose::SourceCatalog { url: "https://example.test/catalog.json".into() };
+        assert_eq!(catalog.target(), PickTarget::SourceCatalog);
+        assert!(zenity_args(&catalog).iter().any(|arg| arg.contains("*.json")));
+        assert!(kdialog_args(&catalog).iter().any(|arg| arg.contains("*.json")));
+        assert!(!catalog.is_folder() && !catalog.is_image());
+        assert_eq!(catalog.emulator_id(), None);
     }
 }

@@ -74,6 +74,33 @@ impl ConsoleTab {
     }
 }
 
+/// Abas e linhas de foco da ficha aberta pela seta para baixo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverviewTab {
+    #[default]
+    Media,
+    Information,
+    Requirements,
+    Achievements,
+}
+
+impl OverviewTab {
+    pub const ALL: [Self; 4] = [
+        Self::Media,
+        Self::Information,
+        Self::Requirements,
+        Self::Achievements,
+    ];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverviewRow {
+    #[default]
+    Actions,
+    Tabs,
+    Gallery,
+}
+
 /// Onde o foco está agora.
 ///
 /// A ordem abaixo também documenta a ordem de foco por Tab: abas → conteúdo
@@ -84,6 +111,8 @@ pub enum ConsoleZone {
     Rail,
     Overview,
     StoreSearch,
+    StoreHero,
+    StoreCategories,
     StoreGrid,
     StoreDetail,
 }
@@ -109,6 +138,8 @@ pub enum ConsoleEffect {
     ToggleFavorite(String),
     /// Abre/alterna o trailer do jogo no player GStreamer.
     Trailer(String),
+    /// Abre uma mídia da galeria sem sair do console.
+    OverviewMedia(usize),
     /// Aviso curto no rodapé do painel.
     Notice(ConsoleNotice),
     /// Abre a ficha da loja para o item `usize` da lista atual.
@@ -119,6 +150,9 @@ pub enum ConsoleEffect {
     StoreLoadMore,
     /// Enter/A com a busca em edição; o App dispara `store:search`.
     StoreSearch,
+    StoreHeroStep(isize),
+    StoreOpenHero,
+    StoreCategory(usize),
 }
 
 /// Estado do modo console: foco, aba ativa, painel e o leitor de gamepad.
@@ -135,6 +169,11 @@ pub struct BigPicture {
     zone: ConsoleZone,
     tab: ConsoleTab,
     overview: bool,
+    overview_tab: OverviewTab,
+    overview_row: OverviewRow,
+    overview_media: usize,
+    overview_media_count: usize,
+    overview_preview: bool,
     /// Item focado no menu "•••"; `None` quando o menu está fechado.
     menu: Option<usize>,
     /// Seleção da lista de notícias e o tamanho atual do feed.
@@ -147,6 +186,7 @@ pub struct BigPicture {
     store_has_more: bool,
     /// A busca da loja está recebendo texto do teclado.
     store_editing: bool,
+    store_category: usize,
     /// A ficha da loja está aberta por cima da grade.
     store_detail: bool,
     /// `false` quando `config.no_anim` está ligado ou a build pediu movimento
@@ -175,6 +215,11 @@ impl BigPicture {
             zone: ConsoleZone::Rail,
             tab: ConsoleTab::Library,
             overview: false,
+            overview_tab: OverviewTab::Media,
+            overview_row: OverviewRow::Actions,
+            overview_media: 0,
+            overview_media_count: 0,
+            overview_preview: false,
             menu: None,
             news_index: 0,
             news_count: 0,
@@ -182,6 +227,7 @@ impl BigPicture {
             store_items: 0,
             store_has_more: false,
             store_editing: false,
+            store_category: 0,
             store_detail: false,
             motion: true,
             overview_fade: 0.0,
@@ -434,6 +480,31 @@ impl BigPicture {
         self.store.index()
     }
 
+    pub fn store_category_index(&self) -> usize {
+        self.store_category
+    }
+
+    pub fn focus_store_category(&mut self, index: usize) {
+        self.store_category = index.min(8);
+        self.store_editing = false;
+        self.zone = ConsoleZone::StoreCategories;
+        self.touch_focus();
+    }
+
+    pub fn focus_store_hero(&mut self) {
+        self.zone = ConsoleZone::StoreHero;
+        self.store_editing = false;
+        self.touch_focus();
+    }
+
+    pub fn focus_store_game(&mut self, index: usize) {
+        self.store
+            .set_index(index.min(self.store_items.saturating_sub(1)));
+        self.zone = ConsoleZone::StoreGrid;
+        self.store_editing = false;
+        self.touch_focus();
+    }
+
     #[allow(dead_code)] // leitura de estado usada por testes e chamadores futuros.
     pub fn store_items(&self) -> usize {
         self.store_items
@@ -464,6 +535,51 @@ impl BigPicture {
 
     pub fn overview_open(&self) -> bool {
         self.overview
+    }
+
+    pub fn overview_tab(&self) -> OverviewTab {
+        self.overview_tab
+    }
+    pub fn overview_row(&self) -> OverviewRow {
+        self.overview_row
+    }
+    pub fn overview_media(&self) -> usize {
+        self.overview_media
+    }
+    pub fn overview_preview(&self) -> bool {
+        self.overview_preview
+    }
+
+    pub fn select_overview_tab(&mut self, tab: OverviewTab) {
+        self.overview_tab = tab;
+        self.overview_row = OverviewRow::Tabs;
+        self.overview_preview = false;
+        self.touch_focus();
+    }
+
+    pub fn sync_overview_media(&mut self, count: usize) {
+        self.overview_media_count = count;
+        self.overview_media = self.overview_media.min(count.saturating_sub(1));
+    }
+
+    pub fn select_overview_media(&mut self, index: usize) {
+        if index < self.overview_media_count {
+            self.overview_media = index;
+            self.overview_row = OverviewRow::Gallery;
+            self.overview_preview = true;
+            self.touch_focus();
+        }
+    }
+
+    pub fn close_overview_preview(&mut self) {
+        self.overview_preview = false;
+    }
+
+    pub fn focus_next_overview_media(&mut self) {
+        self.overview_media =
+            (self.overview_media + 1).min(self.overview_media_count.saturating_sub(1));
+        self.overview_row = OverviewRow::Gallery;
+        self.touch_focus();
     }
 
     pub fn menu_open(&self) -> bool {
@@ -569,6 +685,11 @@ impl BigPicture {
                 } else {
                     let has_grid = self.store_items > 0;
                     self.zone = match (self.zone, forward) {
+                        (ConsoleZone::StoreHero, true) => ConsoleZone::StoreCategories,
+                        (ConsoleZone::StoreHero, false) => ConsoleZone::StoreSearch,
+                        (ConsoleZone::StoreCategories, true) if has_grid => ConsoleZone::StoreGrid,
+                        (ConsoleZone::StoreCategories, true) => ConsoleZone::Tabs,
+                        (ConsoleZone::StoreCategories, false) => ConsoleZone::StoreHero,
                         (ConsoleZone::Tabs, true) => ConsoleZone::StoreSearch,
                         (ConsoleZone::StoreSearch, true) if has_grid => ConsoleZone::StoreGrid,
                         (ConsoleZone::StoreSearch, true) => ConsoleZone::Tabs,
@@ -614,6 +735,65 @@ impl BigPicture {
                 }
                 _ => ConsoleEffect::None,
             };
+        }
+
+        if self.overview {
+            if self.overview_preview && matches!(event, NavEvent::Back | NavEvent::Up) {
+                self.close_overview_preview();
+                return ConsoleEffect::None;
+            }
+            match event {
+                NavEvent::Down => {
+                    self.overview_row = match self.overview_row {
+                        OverviewRow::Actions => OverviewRow::Tabs,
+                        OverviewRow::Tabs if self.overview_tab == OverviewTab::Media => {
+                            OverviewRow::Gallery
+                        }
+                        row => row,
+                    };
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                NavEvent::Up if self.overview_row != OverviewRow::Actions => {
+                    self.overview_row = match self.overview_row {
+                        OverviewRow::Gallery => OverviewRow::Tabs,
+                        _ => OverviewRow::Actions,
+                    };
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                NavEvent::Left | NavEvent::Right if self.overview_row != OverviewRow::Actions => {
+                    let forward = event == NavEvent::Right;
+                    if self.overview_row == OverviewRow::Tabs {
+                        let index = OverviewTab::ALL
+                            .iter()
+                            .position(|tab| *tab == self.overview_tab)
+                            .unwrap_or(0);
+                        self.overview_tab =
+                            OverviewTab::ALL[step_index(index, OverviewTab::ALL.len(), forward)];
+                    } else {
+                        self.overview_media = if forward {
+                            (self.overview_media + 1)
+                                .min(self.overview_media_count.saturating_sub(1))
+                        } else {
+                            self.overview_media.saturating_sub(1)
+                        };
+                    }
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                NavEvent::Confirm if self.overview_row == OverviewRow::Gallery => {
+                    return if self.overview_media_count > 0 {
+                        ConsoleEffect::OverviewMedia(self.overview_media)
+                    } else {
+                        ConsoleEffect::None
+                    };
+                }
+                NavEvent::Confirm if self.overview_row == OverviewRow::Tabs => {
+                    return ConsoleEffect::None
+                }
+                _ => {}
+            }
         }
 
         if self.tab == ConsoleTab::Stores {
@@ -682,6 +862,58 @@ impl BigPicture {
     }
 
     fn handle_store(&mut self, event: NavEvent) -> ConsoleEffect {
+        if !self.store_editing {
+            match (self.zone, event) {
+                (ConsoleZone::StoreSearch, NavEvent::Menu) => {
+                    self.focus_store_hero();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreHero, NavEvent::Left) => {
+                    return ConsoleEffect::StoreHeroStep(-1)
+                }
+                (ConsoleZone::StoreHero, NavEvent::Right) => {
+                    return ConsoleEffect::StoreHeroStep(1)
+                }
+                (ConsoleZone::StoreHero, NavEvent::Confirm) => return ConsoleEffect::StoreOpenHero,
+                (ConsoleZone::StoreHero, NavEvent::Down) => {
+                    self.zone = ConsoleZone::StoreCategories;
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreHero, NavEvent::Up | NavEvent::Back) => {
+                    self.zone = ConsoleZone::StoreSearch;
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreCategories, NavEvent::Left | NavEvent::Right) => {
+                    self.store_category =
+                        step_index(self.store_category, 9, event == NavEvent::Right);
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreCategories, NavEvent::Confirm) => {
+                    return ConsoleEffect::StoreCategory(self.store_category)
+                }
+                (ConsoleZone::StoreCategories, NavEvent::Up | NavEvent::Back) => {
+                    self.zone = ConsoleZone::StoreHero;
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreCategories, NavEvent::Down) => {
+                    if self.store_items > 0 {
+                        self.zone = ConsoleZone::StoreGrid;
+                    }
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                (ConsoleZone::StoreGrid, NavEvent::Up) if self.store.row() == 0 => {
+                    self.zone = ConsoleZone::StoreCategories;
+                    self.touch_focus();
+                    return ConsoleEffect::None;
+                }
+                _ => {}
+            }
+        }
         match event {
             NavEvent::Quit => ConsoleEffect::Exit,
             NavEvent::PageLeft => {
@@ -744,7 +976,11 @@ impl BigPicture {
                             self.zone = ConsoleZone::Tabs;
                             self.touch_focus();
                         }
-                        ConsoleZone::Tabs | ConsoleZone::Rail | ConsoleZone::Overview => {}
+                        ConsoleZone::Tabs
+                        | ConsoleZone::Rail
+                        | ConsoleZone::Overview
+                        | ConsoleZone::StoreHero
+                        | ConsoleZone::StoreCategories => {}
                     }
                 }
                 ConsoleEffect::None
@@ -764,6 +1000,12 @@ impl BigPicture {
                         }
                         ConsoleZone::StoreGrid => {
                             self.store.move_down();
+                            let last = (self.store_items
+                                + usize::from(self.store_has_more && self.store_items > 0))
+                            .saturating_sub(1);
+                            if self.store.index() > last {
+                                self.store.set_index(last);
+                            }
                             self.touch_focus();
                         }
                         ConsoleZone::Tabs if self.store_items > 0 => {
@@ -784,9 +1026,17 @@ impl BigPicture {
                             } else {
                                 self.store.move_right();
                             }
+                            let last = (self.store_items
+                                + usize::from(self.store_has_more && self.store_items > 0))
+                            .saturating_sub(1);
+                            if self.store.index() > last {
+                                self.store.set_index(last);
+                            }
                             self.touch_focus();
                         }
-                        ConsoleZone::Tabs => self.step_tab(if event == NavEvent::Left { -1 } else { 1 }),
+                        ConsoleZone::Tabs => {
+                            self.step_tab(if event == NavEvent::Left { -1 } else { 1 })
+                        }
                         _ => {}
                     }
                 }
@@ -844,6 +1094,7 @@ impl BigPicture {
         }
         self.actions.set_index(index);
         self.zone = ConsoleZone::Overview;
+        self.overview_row = OverviewRow::Actions;
         if !self.overview {
             self.overview = true;
             self.overview_fade = 0.0;
@@ -869,7 +1120,7 @@ impl BigPicture {
 
     /// Abre a ficha da loja no console depois de o App confirmar o item.
     pub fn open_store_detail(&mut self) -> bool {
-        if self.tab != ConsoleTab::Stores || self.store_items == 0 {
+        if self.tab != ConsoleTab::Stores {
             return false;
         }
         self.store_detail = true;
@@ -895,6 +1146,7 @@ impl BigPicture {
 
     pub fn close_overview(&mut self) {
         self.overview = false;
+        self.overview_preview = false;
         self.menu = None;
         self.zone = if self.library_count > 0 {
             ConsoleZone::Rail
@@ -994,6 +1246,10 @@ impl BigPicture {
         }
         if !self.overview {
             self.overview_fade = 0.0;
+            self.overview_tab = OverviewTab::Media;
+            self.overview_row = OverviewRow::Actions;
+            self.overview_media = 0;
+            self.overview_preview = false;
         }
         self.overview = true;
         self.menu = None;
@@ -1140,6 +1396,61 @@ pub fn home_shelf<'g>(games: &[&'g Game]) -> (Vec<&'g Game>, bool) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn overview_navigates_tabs_gallery_and_closes_preview_first() {
+        let library = games(2);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(2);
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.overview_tab(), OverviewTab::Media);
+        state.sync_overview_media(4);
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.overview_row(), OverviewRow::Tabs);
+        for tab in [
+            OverviewTab::Information,
+            OverviewTab::Requirements,
+            OverviewTab::Achievements,
+            OverviewTab::Media,
+        ] {
+            state.handle(NavEvent::Right, &refs);
+            assert_eq!(state.overview_tab(), tab);
+        }
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.overview_row(), OverviewRow::Gallery);
+        state.handle(NavEvent::Right, &refs);
+        assert_eq!(state.overview_media(), 1);
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::OverviewMedia(1)
+        );
+        state.select_overview_media(1);
+        assert!(state.overview_preview());
+        state.handle(NavEvent::Back, &refs);
+        assert!(!state.overview_preview());
+        assert!(state.overview_open());
+        state.handle(NavEvent::Back, &refs);
+        assert!(!state.overview_open());
+        assert_eq!(state.rail_index(), 0);
+    }
+
+    #[test]
+    fn overview_empty_gallery_and_reopen_reset_are_bounded() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+        state.handle(NavEvent::Down, &refs);
+        state.select_overview_tab(OverviewTab::Media);
+        state.handle(NavEvent::Down, &refs);
+        state.focus_next_overview_media();
+        assert_eq!(state.overview_media(), 0);
+        assert_eq!(state.handle(NavEvent::Confirm, &refs), ConsoleEffect::None);
+        state.select_overview_tab(OverviewTab::Achievements);
+        state.close_overview();
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.overview_tab(), OverviewTab::Media);
+        assert_eq!(state.overview_row(), OverviewRow::Actions);
+    }
+
     fn game(id: &str, installed: bool) -> Game {
         Game {
             id: id.to_string(),
@@ -1148,11 +1459,14 @@ mod tests {
             launch_cmd: Vec::new(),
             cover_url: None,
             hero_url: None,
+            logo_url: None,
             description: None,
             developer: None,
             publisher: None,
             genre: None,
             year: None,
+            platform: None,
+            exe: None,
             playtime_minutes: 0,
             installed,
             hidden: false,
@@ -1540,6 +1854,47 @@ mod tests {
         assert_eq!(state.zone(), ConsoleZone::Tabs);
         state.focus_step(true);
         assert_eq!(state.zone(), ConsoleZone::Rail);
+    }
+
+    #[test]
+    fn storefront_banner_categories_and_search_remain_reachable() {
+        let library = games(1);
+        let refs: Vec<&Game> = library.iter().collect();
+        let mut state = state(1);
+        state.select_tab(ConsoleTab::Stores, &refs);
+        state.sync_store(10, false);
+        state.focus_store_hero();
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::StoreOpenHero
+        );
+        assert_eq!(
+            state.handle(NavEvent::Right, &refs),
+            ConsoleEffect::StoreHeroStep(1)
+        );
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.zone(), ConsoleZone::StoreCategories);
+        state.handle(NavEvent::Left, &refs);
+        assert_eq!(state.store_category_index(), 8);
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::StoreCategory(8)
+        );
+        state.handle(NavEvent::Down, &refs);
+        assert_eq!(state.zone(), ConsoleZone::StoreGrid);
+        state.handle(NavEvent::Up, &refs);
+        assert_eq!(state.zone(), ConsoleZone::StoreCategories);
+        state.handle(NavEvent::Up, &refs);
+        state.handle(NavEvent::Up, &refs);
+        assert_eq!(state.zone(), ConsoleZone::StoreSearch);
+        state.handle(NavEvent::Confirm, &refs);
+        assert!(state.store_editing());
+        assert_eq!(
+            state.handle(NavEvent::Confirm, &refs),
+            ConsoleEffect::StoreSearch
+        );
+        state.handle(NavEvent::PageRight, &refs);
+        assert_eq!(state.tab(), ConsoleTab::News);
     }
 
     #[test]

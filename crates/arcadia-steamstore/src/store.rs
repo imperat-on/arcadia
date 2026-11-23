@@ -42,6 +42,9 @@ pub const STEAM_ITEMS: &str = "https://api.steampowered.com/IStoreBrowseService/
 pub const STEAM_ITEMS_ASSETS: &str = "https://shared.akamai.steamstatic.com/store_item_assets/";
 /// Catálogo Hubcap (ex-Morrenus).
 pub const HUBCAP_BASE: &str = "https://hubcapmanifest.com/api/v1";
+/// Uso da chave (`/api-keys/stats` no site). O luatools-moon chama este
+/// endpoint em `GetHubcapStats`.
+pub const HUBCAP_STATS: &str = "https://hubcapmanifest.com/api/v1/user/stats";
 /// Dump por gênero/lista usado pelo "Em alta".
 pub const STEAMSPY_API: &str = "https://steamspy.com/api.php";
 /// Provedores de manifesto (as URLs são as mesmas da busca e do download).
@@ -416,7 +419,10 @@ impl SearchResponse {
 }
 
 /// `store:recent`/`popular` — página + metadados.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+///
+/// `Deserialize` existe para o cache em disco: o snapshot grava a resposta e
+/// `restore_caches` a reconstrói no boot seguinte.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecentResponse {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -500,6 +506,8 @@ pub struct AppMovie {
 pub struct AppDetails {
     pub appid: String,
     #[serde(default)]
+    pub genres: Vec<String>,
+    #[serde(default)]
     pub short_description: String,
     #[serde(default)]
     pub about: String,
@@ -553,6 +561,17 @@ impl AppDetailsResponse {
             error: Some(message.into()),
         }
     }
+}
+
+/// Uso diário da chave Hubcap (`GET /api/v1/user/stats`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct HubcapStats {
+    pub ok: bool,
+    pub username: Option<String>,
+    pub daily_usage: Option<u64>,
+    pub daily_limit: Option<u64>,
+    /// `rejected` quando o Hubcap recusou a chave; `unreachable` no resto.
+    pub error: Option<String>,
 }
 
 /// Validação barata da chave do Hubcap (`store:validarChaveHubcap`).
@@ -643,6 +662,11 @@ pub struct StoreCacheSnapshot {
     pub popular: HashMap<String, Value>,
     #[serde(default)]
     pub genre: HashMap<String, Value>,
+    /// Páginas de `recent` (é o que abre Início e Loja). Sem persistir isto,
+    /// todo boot paga a latência de rede inteira na primeira carga: medido em
+    /// 3.603 ms antes do warm.
+    #[serde(default)]
+    pub recent: HashMap<String, Value>,
 }
 
 /// Cliente da loja. `Fetcher` é injetado; `CatalogClient` é opcional.
@@ -761,6 +785,66 @@ impl StoreClient {
                         .map(|value| (key.clone(), json!({"at": at, "jogos": value})))
                 })
                 .collect(),
+            recent: caches
+                .recent
+                .iter()
+                .filter_map(|(key, (at, response))| {
+                    serde_json::to_value(response)
+                        .ok()
+                        .map(|value| (key.clone(), json!({"at": at, "res": value})))
+                })
+                .collect(),
+        }
+    }
+
+    /// Repovoa os caches a partir de um snapshot em disco.
+    ///
+    /// Só aceita entradas que o TTL ainda considera válidas — um cache velho
+    /// mostraria preços/lista de outra semana. O `recent` é o que importa
+    /// aqui: é a primeira coisa que a Home e a Loja pedem.
+    pub fn restore_caches(&self, snapshot: StoreCacheSnapshot) {
+        let now = self.now();
+        let mut caches = self.lock_caches();
+
+        for (key, value) in snapshot.recent {
+            let Some(at) = value.get("at").and_then(Value::as_u64) else {
+                continue;
+            };
+            if now.saturating_sub(at) >= RECENT_TTL_MS {
+                continue;
+            }
+            let Some(res) = value.get("res") else { continue };
+            if let Ok(response) = serde_json::from_value::<RecentResponse>(res.clone()) {
+                caches.recent.insert(key, (at, response));
+            }
+        }
+
+        for (key, value) in snapshot.popular {
+            let Some(at) = value.get("at").and_then(Value::as_u64) else {
+                continue;
+            };
+            if now.saturating_sub(at) >= POPULAR_TTL_MS {
+                continue;
+            }
+            if let Some(games) = value.get("jogos") {
+                if let Ok(games) = serde_json::from_value::<Vec<StoreGame>>(games.clone()) {
+                    caches.popular.insert(key, (at, games));
+                }
+            }
+        }
+
+        for (key, value) in snapshot.genre {
+            let Some(at) = value.get("at").and_then(Value::as_u64) else {
+                continue;
+            };
+            if now.saturating_sub(at) >= GENRE_TTL_MS {
+                continue;
+            }
+            if let Some(games) = value.get("jogos") {
+                if let Ok(games) = serde_json::from_value::<Vec<StoreGame>>(games.clone()) {
+                    caches.genre.insert(key, (at, games));
+                }
+            }
         }
     }
 
@@ -1648,9 +1732,15 @@ impl StoreClient {
     pub async fn warm(&self) -> Result<(), StoreError> {
         // Aquece exatamente as rotas que abrem Início e Loja. A busca antiga
         // (`?term=a`) era lenta e não alimentava nenhuma tela.
+        //
+        // Os limites têm que casar com o que a UI pede, senão o cache é
+        // populado numa chave que ninguém consulta. O nativo abre a Home com
+        // 24 (`load_home_recent(24)`); aquecer 40 gravava
+        // `top100in2weeks:0:40` e a Home continuava pagando rede por
+        // `top100in2weeks:0:24` — medido: 3.810 ms no boot frio e 2.582 ms no
+        // quente, com o cache no disco sem ser lido.
         let _ = self.popular_list().await;
-        // Página pronta do Início (limite padrão do IPC = 40).
-        let _ = self.recent(Some("top100in2weeks"), 40, 0).await;
+        let _ = self.recent(Some("top100in2weeks"), 24, 0).await;
         if let Some(catalog) = self.catalog.as_ref() {
             let _ = catalog.get("/catalog/v1/catalog?offset=0&limite=24").await;
         }
@@ -1658,6 +1748,86 @@ impl StoreClient {
         let _ = self.recent(Some("all"), 24, 0).await;
         Ok(())
     }
+    /// Uso da chave: usuário, pedidos de hoje e limite diário.
+    ///
+    /// A chave vai no header, nunca na URL. 401/403 viram `rejected`; falha
+    /// de rede e 5xx viram `unreachable`, como o `GetHubcapStats` do LuaTools.
+    pub async fn hubcap_stats(&self, key: &str) -> HubcapStats {
+        let key = key.trim();
+        if key.is_empty() {
+            return HubcapStats {
+                error: Some("sem_chave".to_string()),
+                ..HubcapStats::default()
+            };
+        }
+        let auth = format!("Bearer {key}");
+        match self
+            .fetch_response(
+                Request::get(HUBCAP_STATS)
+                    .timeout(Duration::from_secs(10))
+                    .header("User-Agent", USER_AGENT)
+                    .header("Authorization", auth),
+            )
+            .await
+        {
+            Ok(response) if response.status == 200 => parse_hubcap_stats(&response.text_body()),
+            Ok(response) if matches!(response.status, 401 | 403) => HubcapStats {
+                error: Some("rejected".to_string()),
+                ..HubcapStats::default()
+            },
+            Ok(_) => HubcapStats {
+                error: Some("unreachable".to_string()),
+                ..HubcapStats::default()
+            },
+            Err(_) => HubcapStats {
+                error: Some("unreachable".to_string()),
+                ..HubcapStats::default()
+            },
+        }
+    }
+
+    /// Baixa o zip de manifesto do Hubcap e devolve o `.lua` do appid.
+    ///
+    /// É o arquivo que o luatools-moon publica em `config/stplug-in`: começa
+    /// com `addappid(appid)` e traz as chaves de depot e os `setManifestid`.
+    /// Sem chave configurada devolve `None` em vez de erro.
+    pub async fn hubcap_manifest_lua(&self, appid: &str) -> Result<Option<String>, StoreError> {
+        let Some(bytes) = self.hubcap_manifest_zip(appid).await? else { return Ok(None) };
+        lua_from_zip(&bytes, appid).map(Some)
+    }
+
+    pub async fn hubcap_install_manifest(&self, appid: &str) -> Result<Option<crate::depot::ProviderArchive>, StoreError> {
+        let Some(bytes) = self.hubcap_manifest_zip(appid).await? else { return Ok(None) };
+        crate::depot::parse_provider_archive(&bytes, appid).map(Some).map_err(StoreError::new)
+    }
+
+    async fn hubcap_manifest_zip(&self, appid: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        let appid = appid.trim();
+        if !valid_appid(appid) {
+            return Err(StoreError::new("appid inválido"));
+        }
+        let Some(key) = self.config.hubcap_api_key.as_deref() else {
+            return Ok(None);
+        };
+        let url = self.bases.hubcap_manifest_url(appid);
+        let auth = format!("Bearer {key}");
+        let response = self
+            .fetch_response(
+                Request::get(url)
+                    .timeout(Duration::from_secs(30))
+                    .header("User-Agent", USER_AGENT)
+                    .header("Authorization", auth),
+            )
+            .await?;
+        if matches!(response.status, 401 | 403) {
+            return Err(StoreError::new("chave_invalida"));
+        }
+        if !response.is_success() {
+            return Err(StoreError::new(format!("HTTP {}", response.status)));
+        }
+        Ok(Some(response.body))
+    }
+
     /// `validarChaveHubcap`: decide pelo status, sem baixar o zip.
     pub async fn validate_hubcap_key(&self, key: &str) -> HubcapKeyValidation {
         let key = key.trim();
@@ -1752,6 +1922,69 @@ pub fn normalize_appid(value: &str) -> String {
 pub fn valid_appid(value: &str) -> bool {
     let value = value.trim();
     !value.is_empty() && value.chars().all(|character| character.is_ascii_digit())
+}
+
+fn parse_hubcap_stats(body: &str) -> HubcapStats {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return HubcapStats {
+            error: Some("unreachable".to_string()),
+            ..HubcapStats::default()
+        };
+    };
+    let number = |key: &str| {
+        value.get(key).and_then(|item| {
+            item.as_u64()
+                .or_else(|| item.as_i64().map(|value| value.max(0) as u64))
+                .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
+        })
+    };
+    HubcapStats {
+        ok: true,
+        username: value
+            .get("username")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string),
+        daily_usage: number("daily_usage"),
+        daily_limit: number("daily_limit"),
+        error: None,
+    }
+}
+
+/// Lê o `.lua` do appid dentro do zip do Hubcap.
+///
+/// O zip pode trazer `{appid}.lua` ou o script dentro de uma pasta. Se não
+/// houver um arquivo com o nome do jogo, usa o primeiro `.lua`.
+fn lua_from_zip(bytes: &[u8], appid: &str) -> Result<String, StoreError> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|error| StoreError::new(format!("zip do Hubcap ilegível: {error}")))?;
+    let wanted = format!("{appid}.lua");
+    let mut fallback = None;
+    let mut chosen = None;
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|error| StoreError::new(format!("zip do Hubcap ilegível: {error}")))?;
+        if !file.name().ends_with(".lua") {
+            continue;
+        }
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut file, &mut text)
+            .map_err(|error| StoreError::new(format!("lua do Hubcap ilegível: {error}")))?;
+        if file.name().ends_with(&wanted) {
+            chosen = Some(text);
+            break;
+        }
+        if fallback.is_none() {
+            fallback = Some(text);
+        }
+    }
+    chosen
+        .or(fallback)
+        .filter(|text| text.contains("addappid"))
+        .ok_or_else(|| StoreError::new("o zip do Hubcap não trouxe um .lua"))
 }
 
 /// Extrai appid de um valor JSON: número, `"730"`, `"steam:730"`.
@@ -2118,6 +2351,8 @@ fn parse_app_details(appid: &str, info: &Value) -> AppDetails {
         .unwrap_or_default();
     AppDetails {
         appid: appid.to_string(),
+        genres: info.get("genres").and_then(Value::as_array).into_iter().flatten()
+            .filter_map(|genre| genre.get("description").and_then(Value::as_str).map(str::to_string)).collect(),
         short_description: string_field(info, "short_description"),
         about,
         publishers: string_array(info.get("publishers")),

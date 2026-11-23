@@ -48,7 +48,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if matches!(state.status, LoadStatus::Loading) {
         content = content.push(
             text(app.i18n.t("common.atualizando"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::ACCENT),
         );
     }
@@ -84,14 +84,14 @@ fn header(app: &App) -> Element<'_, Message> {
         i18n.t("emulacao.detectar_novamente")
     };
     let mut detect: iced::widget::Button<'_, Message> =
-        button(text(label).size(12).font(theme::FONT_MEDIUM)).padding([8.0, 14.0]);
+        button(text(label).size(theme::TEXT_BODY).font(theme::FONT_MEDIUM)).padding([8.0, 14.0]);
     if !loading {
         detect = detect.on_press(Message::EmulationDetect);
     }
 
     column![
         text(i18n.t("settings.emulacao.grupo").to_uppercase())
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_3),
         row![
@@ -101,7 +101,7 @@ fn header(app: &App) -> Element<'_, Message> {
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_1),
                 text(i18n.t("settings.emulacao.desc"))
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .color(theme::TEXT_2),
             ]
             .spacing(3)
@@ -194,26 +194,32 @@ fn card<'a>(app: &'a App, item: &'a EmulatorInfo) -> Element<'a, Message> {
     button(
         column![
             text(item.name.as_str())
-                .size(16)
+                .size(17)
                 .font(theme::FONT_SEMIBOLD)
                 .color(theme::TEXT_1),
             row![
-                text(item.id.as_str()).size(10).color(theme::TEXT_3),
-                text("·").size(10).color(theme::TEXT_3),
-                text(item.systems.join(" / ")).size(10).color(theme::TEXT_3),
+                text(item.id.as_str())
+                    .size(theme::TEXT_MICRO)
+                    .color(theme::TEXT_3),
+                text("·").size(theme::TEXT_MICRO).color(theme::TEXT_3),
+                text(item.systems.join(" / "))
+                    .size(theme::TEXT_MICRO)
+                    .color(theme::TEXT_3),
             ]
             .spacing(5),
             text(item.description.as_str())
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_2),
             text(format!("{}: {source}", i18n.t("native.emulation.source")))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_2),
-            text(executable).size(10).color(theme::TEXT_3),
+            text(executable)
+                .size(theme::TEXT_MICRO)
+                .color(theme::TEXT_3),
             badges,
-            text(summary).size(11).color(theme::TEXT_2),
+            text(summary).size(theme::TEXT_CAPTION).color(theme::TEXT_2),
             text(format!("{} ›", i18n.t("emulacao.configurar")))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::ACCENT),
         ]
@@ -236,7 +242,7 @@ fn editor_view<'a>(
     let mut content = column![row![
         column![
             text(i18n.t("emulacao.configuracao"))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_3),
             text(i18n.t_args("emulacao.configuracao_do", &[("system", &item.name)],))
@@ -244,7 +250,7 @@ fn editor_view<'a>(
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(format!("{} · {}", item.name, item.description))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_2),
         ]
         .spacing(3)
@@ -252,7 +258,7 @@ fn editor_view<'a>(
         {
             let mut close: iced::widget::Button<'_, Message> = button(
                 text(i18n.t("common.fechar"))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .font(theme::FONT_MEDIUM),
             )
             .padding([7.0, 12.0])
@@ -272,7 +278,7 @@ fn editor_view<'a>(
         content = content.push(
             container(
                 text(notice)
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::SUCCESS)
                     .width(Fill),
             )
@@ -292,7 +298,7 @@ fn editor_view<'a>(
             )
             .on_input(Message::EmulationExecutableChanged)
             .padding([9.0, 12.0])
-            .size(12)
+            .size(theme::TEXT_BODY)
             .width(Fill)
             .style(theme::search_input)
             .into(),
@@ -314,7 +320,7 @@ fn editor_view<'a>(
                 )
                 .on_input(Message::EmulationCorePathChanged)
                 .padding([9.0, 12.0])
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .width(Fill)
                 .style(theme::search_input)
                 .into(),
@@ -345,7 +351,7 @@ fn editor_view<'a>(
                 )
                 .on_input(Message::EmulationBiosPathChanged)
                 .padding([9.0, 12.0])
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .width(Fill)
                 .style(theme::search_input)
                 .into(),
@@ -363,7 +369,7 @@ fn editor_view<'a>(
         text_input("--fullscreen", editor.args_text.as_str())
             .on_input(Message::EmulationArgsChanged)
             .padding([9.0, 12.0])
-            .size(12)
+            .size(theme::TEXT_BODY)
             .style(theme::search_input)
             .into(),
         Some(i18n.t("native.emulation.args_hint").to_string()),
@@ -385,14 +391,14 @@ fn field<'a>(
 ) -> Element<'a, Message> {
     let mut content = column![
         text(label)
-            .size(12)
+            .size(theme::TEXT_BODY)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_STRONG),
         control,
     ]
     .spacing(4);
     if let Some(hint) = hint {
-        content = content.push(text(hint).size(10).color(theme::TEXT_3));
+        content = content.push(text(hint).size(theme::TEXT_MICRO).color(theme::TEXT_3));
     }
     content.width(Fill).into()
 }
@@ -410,9 +416,13 @@ fn with_pick_button<'a>(
     } else {
         idle_label
     };
-    let mut pick = button(text(label).size(11).font(theme::FONT_MEDIUM))
-        .padding([8.0, 12.0])
-        .style(theme::ghost_button);
+    let mut pick = button(
+        text(label)
+            .size(theme::TEXT_CAPTION)
+            .font(theme::FONT_MEDIUM),
+    )
+    .padding([8.0, 12.0])
+    .style(theme::ghost_button);
     if pick_busy.is_none() {
         pick = pick.on_press(Message::PickRequested(purpose));
     }
@@ -431,7 +441,7 @@ fn rom_folders_editor<'a>(
         list = list.push(
             container(
                 text(i18n.t("emulacao.nenhuma_pasta"))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::TEXT_3),
             )
             .width(Fill)
@@ -449,14 +459,18 @@ fn rom_folders_editor<'a>(
                 container(
                     row![
                         text(folder.path.as_str())
-                            .size(11)
+                            .size(theme::TEXT_CAPTION)
                             .color(theme::TEXT_2)
                             .width(Fill),
-                        button(text(recursive).size(10).font(theme::FONT_MEDIUM))
-                            .on_press(Message::EmulationFolderRecursiveToggled(index))
-                            .padding([4.0, 8.0])
-                            .style(theme::ghost_button),
-                        button(text(i18n.t("common.remover")).size(10))
+                        button(
+                            text(recursive)
+                                .size(theme::TEXT_MICRO)
+                                .font(theme::FONT_MEDIUM)
+                        )
+                        .on_press(Message::EmulationFolderRecursiveToggled(index))
+                        .padding([4.0, 8.0])
+                        .style(theme::ghost_button),
+                        button(text(i18n.t("common.remover")).size(theme::TEXT_MICRO))
                             .on_press(Message::EmulationFolderRemove(index))
                             .padding([4.0, 8.0])
                             .style(theme::ghost_button),
@@ -478,9 +492,13 @@ fn rom_folders_editor<'a>(
     } else {
         i18n.t("common.escolher_pasta")
     };
-    let mut pick_folder = button(text(folder_pick_label).size(11).font(theme::FONT_MEDIUM))
-        .padding([8.0, 12.0])
-        .style(theme::ghost_button);
+    let mut pick_folder = button(
+        text(folder_pick_label)
+            .size(theme::TEXT_CAPTION)
+            .font(theme::FONT_MEDIUM),
+    )
+    .padding([8.0, 12.0])
+    .style(theme::ghost_button);
     if editor.pick_busy.is_none() {
         pick_folder = pick_folder.on_press(Message::PickRequested(folder_purpose));
     }
@@ -492,13 +510,13 @@ fn rom_folders_editor<'a>(
         )
         .on_input(Message::EmulationFolderDraftChanged)
         .padding([8.0, 12.0])
-        .size(11)
+        .size(theme::TEXT_CAPTION)
         .width(Fill)
         .style(theme::search_input),
         pick_folder,
         button(
             text(i18n.t("emulacao.adicionar_pasta"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_MEDIUM),
         )
         .on_press(Message::EmulationFolderAdd)
@@ -510,11 +528,11 @@ fn rom_folders_editor<'a>(
 
     column![
         text(i18n.t("emulacao.pastas_rom_label"))
-            .size(12)
+            .size(theme::TEXT_BODY)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_STRONG),
         text(i18n.t("emulacao.pastas_rom_hint"))
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .color(theme::TEXT_3),
         list,
         add,
@@ -530,8 +548,12 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
     } else {
         i18n.t("native.emulation.scan_configured")
     };
-    let mut scan: iced::widget::Button<'_, Message> =
-        button(text(scan_label).size(11).font(theme::FONT_MEDIUM)).padding([8.0, 14.0]);
+    let mut scan: iced::widget::Button<'_, Message> = button(
+        text(scan_label)
+            .size(theme::TEXT_CAPTION)
+            .font(theme::FONT_MEDIUM),
+    )
+    .padding([8.0, 14.0]);
     if !editor.scanning {
         scan = scan.on_press(Message::EmulationScan);
     }
@@ -539,7 +561,7 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
     let mut content = column![
         row![
             text(i18n.t("emulacao.roms_encontradas"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_STRONG),
             Space::new().width(Fill),
@@ -548,14 +570,14 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
                 editor.preview_roms.len(),
                 if editor.preview_truncated { "+" } else { "" }
             ))
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .color(theme::TEXT_3),
         ]
         .spacing(8)
         .align_y(iced::Center),
         scan.style(theme::ghost_button),
         text(i18n.t("native.emulation.scan_hint"))
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .color(theme::TEXT_3),
     ]
     .spacing(6)
@@ -566,7 +588,7 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
     } else if editor.preview_available && editor.preview_roms.is_empty() && !editor.scanning {
         content = content.push(
             text(i18n.t("native.emulation.scan_empty"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3),
         );
     }
@@ -578,7 +600,7 @@ fn scan_section<'a>(i18n: &'a I18n, editor: &'a EmulationEditorState) -> Element
         let remaining = (editor.preview_roms.len() - 64).to_string();
         content = content.push(
             text(i18n.t_args("native.emulation.more_roms", &[("count", &remaining)]))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
         );
     }
@@ -608,7 +630,7 @@ fn rom_row<'a>(
         } else {
             i18n.t("native.emulation.import_rom")
         })
-        .size(10)
+        .size(theme::TEXT_MICRO)
         .font(theme::FONT_MEDIUM),
     )
     .padding([4.0, 8.0])
@@ -623,19 +645,19 @@ fn rom_row<'a>(
         column![
             row![
                 text(rom.name.as_str())
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::TEXT_STRONG)
                     .width(Fill),
-                text(extension).size(10).color(theme::ACCENT),
+                text(extension).size(theme::TEXT_MICRO).color(theme::ACCENT),
                 text(format_size(rom.size_bytes))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .color(theme::TEXT_3),
                 import,
             ]
             .spacing(8)
             .align_y(iced::Center),
             text(rom.relative_path.as_str())
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
         ]
         .spacing(2),
@@ -656,8 +678,12 @@ fn footer<'a>(
     } else {
         i18n.t("emulacao.salvar_configuracao")
     };
-    let mut save: iced::widget::Button<'_, Message> =
-        button(text(save_label).size(12).font(theme::FONT_MEDIUM)).padding([9.0, 18.0]);
+    let mut save: iced::widget::Button<'_, Message> = button(
+        text(save_label)
+            .size(theme::TEXT_BODY)
+            .font(theme::FONT_MEDIUM),
+    )
+    .padding([9.0, 18.0]);
     if !editor.saving {
         save = save.on_press(Message::EmulationProfileSave);
     }
@@ -670,20 +696,20 @@ fn footer<'a>(
         if editor.confirm_remove {
             content = content.push(
                 text(i18n.t_args("native.emulation.confirm_remove", &[("name", &item.name)]))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::WARNING),
             );
             content = content.push(
                 row![
                     button(
                         text(i18n.t("common.remover"))
-                            .size(11)
+                            .size(theme::TEXT_CAPTION)
                             .font(theme::FONT_MEDIUM)
                     )
                     .on_press(Message::EmulationRemoveConfirm)
                     .padding([7.0, 12.0])
                     .style(danger_button),
-                    button(text(i18n.t("common.cancelar")).size(11))
+                    button(text(i18n.t("common.cancelar")).size(theme::TEXT_CAPTION))
                         .on_press(Message::EmulationRemoveCancel)
                         .padding([7.0, 12.0])
                         .style(theme::ghost_button),
@@ -694,7 +720,7 @@ fn footer<'a>(
             content = content.push(
                 button(
                     text(i18n.t("emulacao.remover_configuracao"))
-                        .size(11)
+                        .size(theme::TEXT_CAPTION)
                         .font(theme::FONT_MEDIUM),
                 )
                 .on_press(Message::EmulationRemoveRequest)
@@ -708,7 +734,7 @@ fn footer<'a>(
 }
 
 fn badge<'a>(label: &'a str, color: Color) -> Element<'a, Message> {
-    container(text(label).size(10).color(color))
+    container(text(label).size(theme::TEXT_MICRO).color(color))
         .padding([3.0, 8.0])
         .style(move |_theme: &iced::Theme| container::Style {
             background: Some(Color::from_rgba(color.r, color.g, color.b, 0.12).into()),

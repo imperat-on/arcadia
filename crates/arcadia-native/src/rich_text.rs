@@ -22,6 +22,18 @@ pub struct RichSpan {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RichBlock {
     pub spans: Vec<RichSpan>,
+    /// Imagem inline da descrição (`<img src>` ou `<video poster>`), quando o
+    /// bloco é uma figura. Os cards de seção da Steam ("Explore a Land of Vast
+    /// Wonders") vivem aqui: o HTML da loja usa mídia solta no meio do texto.
+    pub image: Option<String>,
+    /// Mídia de vídeo do mesmo card (`<source src="….webm">`).
+    ///
+    /// Existe porque o `poster` nem sempre tem arte: o Black Myth: Wukong
+    /// manda um AVIF preto de 336 bytes. Com o vídeo em mãos, a UI extrai o
+    /// primeiro frame visível e mostra a imagem de verdade.
+    pub video: String,
+    /// Bloco veio de `<h1>`-`<h6>`: a UI desenha com corpo e peso de título.
+    pub heading: bool,
 }
 
 impl RichBlock {
@@ -49,7 +61,7 @@ impl RichBlock {
     }
 
     fn has_content(&self) -> bool {
-        self.spans.iter().any(|span| !span.text.trim().is_empty())
+        self.image.is_some() || self.spans.iter().any(|span| !span.text.trim().is_empty())
     }
 
     fn ends_with_space_or_break(&self) -> bool {
@@ -97,6 +109,11 @@ struct Parser {
     link: Option<LinkState>,
     pending_bullet: bool,
     pending_inline_space: bool,
+    /// Acabamos de abrir um `<video>`; o próximo `<source>` é a mídia dele.
+    pending_video: bool,
+    /// Todas as mídias de vídeo vistas, na ordem. Serve para a UI saber
+    /// quais cards precisam de extração de frame.
+    video_sources: Vec<String>,
 }
 
 struct LinkState {
@@ -106,6 +123,14 @@ struct LinkState {
 
 impl Parser {
     fn run(&mut self, input: &str) {
+        // O `about` da Steam mistura HTML com BBCode: `<img src>` e
+        // `[img]url[/img]` convivem no mesmo texto. O BBCode é convertido
+        // para tags equivalentes antes do parser, para as figuras de seção
+        // ("Digital Deluxe Edition", "Explore a Land of Vast Wonders")
+        // virarem bloco de imagem nos dois formatos.
+        let normalized = normalize_bbcode(input);
+        let input = normalized.as_str();
+
         let mut index = 0;
         while index < input.len() {
             let Some(offset) = input[index..].find('<') else {
@@ -163,6 +188,71 @@ impl Parser {
 
     fn handle_tag(&mut self, tag: &Tag) {
         match tag.name.as_str() {
+            "img" | "video" => {
+                if tag.close {
+                    // `</video>` fecha o card: o bloco de imagem que estava
+                    // aberto vai para a lista com o vídeo já anexado.
+                    self.pending_video = false;
+                    self.finalize_block();
+                    return;
+                }
+                // O HTML da loja põe os cards de seção como mídia solta entre
+                // parágrafos. Cada uma fecha o bloco atual e vira um bloco
+                // próprio, para a UI desenhá-la na largura do painel.
+                //
+                // `video` é obrigatório: o `about` do Cyberpunk 2077 usa
+                // `<video class="bb_img" poster="….avif">` para TODOS os seis
+                // cards de seção — sem esta tag, a descrição fica sem nenhuma
+                // figura.
+                //
+                // O `poster` é o frame estático e é o que desenhamos. Mas ele
+                // nem sempre tem arte: o Black Myth: Wukong entrega um PNG
+                // preto de 336 bytes. Por isso o bloco guarda também o vídeo —
+                // a UI extrai um frame real quando o poster é preto.
+                let poster = if tag.name == "video" {
+                    src_from_attrs_any(&tag.attrs, &["poster"])
+                } else {
+                    src_from_attrs(&tag.attrs)
+                };
+                if let Some(src) = poster {
+                    self.finalize_block();
+                    self.current.image = Some(src);
+                    if tag.name == "video" {
+                        // O `<source>` vem DEPOIS no stream, então o bloco
+                        // continua aberto até o `</video>`. Guardamos a
+                        // posição para o vídeo se ligar a ele.
+                        self.pending_video = true;
+                    } else {
+                        self.finalize_block();
+                    }
+                } else if tag.name == "video" {
+                    // Vídeo sem poster: o `<source>` filho é a única fonte.
+                    self.pending_video = true;
+                }
+                return;
+            }
+            "source" => {
+                // `<source>` dentro de `<video>`: é a mídia em si (webm/mp4).
+                // Sem poster, o vídeo é a única fonte possível e o primeiro
+                // frame é extraído dele; com poster, o vídeo fica guardado
+                // como reserva para o caso de o poster ser preto.
+                if self.pending_video {
+                    if let Some(src) = src_from_attrs(&tag.attrs) {
+                        let lower = src.to_ascii_lowercase();
+                        if lower.contains(".webm") || lower.contains(".mp4") {
+                            self.video_sources.push(src.clone());
+                            // O bloco de figura ainda está aberto (o `</video>`
+                            // ainda não chegou). O primeiro `<source>` vence:
+                            // a Steam lista webm antes de mp4, e VP9 decodifica
+                            // sem os codecs restritos do H.264.
+                            if self.current.video.is_empty() {
+                                self.current.video = src;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             "br" => self.line_break(),
             "p" | "div" | "blockquote" | "section" | "article" | "header" | "footer" | "table"
             | "thead" | "tbody" | "tr" | "td" | "th" => {
@@ -182,6 +272,11 @@ impl Parser {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                 self.finalize_block();
                 self.heading_bold = !tag.close;
+                // Marca o próximo bloco como título; `finalize_block` limpa
+                // a flag ao fechar.
+                if !tag.close {
+                    self.current.heading = true;
+                }
             }
             "b" | "strong" => {
                 if tag.close {
@@ -402,6 +497,77 @@ fn href_from_attrs(attrs: &str) -> Option<String> {
         rest.split_whitespace().next()?
     };
 
+    sanitize_url(value)
+}
+
+/// `src` de um `<img>`. Mesma higiene de esquema aplicada a `href`: só
+/// `https`, `http` e caminhos relativos sobrevivem.
+fn src_from_attrs(attrs: &str) -> Option<String> {
+    src_from_attrs_any(attrs, &["src"])
+}
+
+/// Lê o valor de qualquer um dos atributos em `names`, na ordem dada.
+///
+/// `src_from_attrs` só olha `src`, mas `<video poster="…">` guarda a imagem
+/// em `poster` — sem isso todos os cards da descrição do Cyberpunk 2077
+/// seriam descartados.
+fn src_from_attrs_any(attrs: &str, names: &[&str]) -> Option<String> {
+    for name in names {
+        if let Some(value) = attribute_value(attrs, name) {
+            if let Some(url) = sanitize_url(&value) {
+                return Some(url);
+            }
+        }
+    }
+    None
+}
+
+/// Valor cru de um atributo HTML, sem decodificar entidades.
+///
+/// Casa o nome exato para não confundir `src` com `data-src` ou `srcset`
+/// (o `find("src")` antigo pegava `data-src` primeiro quando ele vinha antes).
+fn attribute_value(attrs: &str, name: &str) -> Option<String> {
+    let lower = attrs.to_ascii_lowercase();
+    let bytes_lower = lower.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut index = 0;
+
+    while index + name_bytes.len() <= bytes_lower.len() {
+        let Some(found) = lower[index..].find(name) else {
+            return None;
+        };
+        let start = index + found;
+        let before_ok = start == 0
+            || !bytes_lower[start - 1].is_ascii_alphanumeric()
+                && bytes_lower[start - 1] != b'-'
+                && bytes_lower[start - 1] != b'_';
+        let end = start + name_bytes.len();
+        let after_ok = end >= bytes_lower.len()
+            || !bytes_lower[end].is_ascii_alphanumeric() && bytes_lower[end] != b'-';
+
+        if before_ok && after_ok {
+            let mut rest = &attrs[end..];
+            rest = rest.trim_start();
+            if let Some(stripped) = rest.strip_prefix('=') {
+                let rest = stripped.trim_start();
+                let value = if let Some(stripped) = rest.strip_prefix('"') {
+                    stripped[..stripped.find('"')?].to_string()
+                } else if let Some(stripped) = rest.strip_prefix('\'') {
+                    stripped[..stripped.find('\'')?].to_string()
+                } else {
+                    rest.split_whitespace().next()?.to_string()
+                };
+                return Some(value);
+            }
+        }
+
+        index = end;
+    }
+
+    None
+}
+
+fn sanitize_url(value: &str) -> Option<String> {
     let value = decode_entities(value);
     let value = value.trim();
     if value.is_empty() {
@@ -416,9 +582,87 @@ fn href_from_attrs(attrs: &str) -> Option<String> {
         return None;
     }
     if let Some(rest) = value.strip_prefix("//") {
-        return Some(format!("https:{rest}"));
+        return Some(format!("https://{rest}"));
     }
     Some(value.to_string())
+}
+
+/// Converte BBCode de imagem em `<img src="...">`.
+///
+/// O `about` da Steam usa os dois dialetos ao mesmo tempo. Formatos aceitos:
+/// - `[img]https://…[/img]`
+/// - `[img src="https://…"][/img]`
+/// - `[img=width]https://…[/img]`
+///
+/// Qualquer outra tag BBCode (`[b]`, `[url]`, `[list]`, `[h1]`) vira texto —
+/// o parser já lida com o HTML ao redor, e descartar o marcador é melhor do
+/// que vazá-lo para a tela.
+fn normalize_bbcode(input: &str) -> String {
+    if !input.contains("[img") {
+        return input.to_string();
+    }
+
+    let mut out = String::with_capacity(input.len() + 32);
+    let mut rest = input;
+
+    while let Some(start) = rest.find("[img") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+
+        let Some(close_bracket) = after.find(']') else {
+            // `[img` sem fechar: trata como texto literal.
+            out.push_str(after);
+            return out;
+        };
+        let header = &after[..=close_bracket];
+        let body_start = close_bracket + 1;
+
+        let Some(close_tag) = after[body_start..].find("[/img]") else {
+            out.push_str(after);
+            return out;
+        };
+        let body = &after[body_start..body_start + close_tag];
+        let consumed = body_start + close_tag + "[/img]".len();
+
+        // `[img]url[/img]` ou `[img=200]url[/img]` -> o corpo é a URL.
+        // `[img src="url"][/img]` -> a URL está no cabeçalho.
+        let url = if let Some(src) = src_from_attrs(header) {
+            src
+        } else {
+            body.trim().to_string()
+        };
+
+        if !url.is_empty() {
+            out.push_str("<img src=\"");
+            out.push_str(&url.replace('"', ""));
+            out.push_str("\">");
+        }
+
+        rest = &after[consumed..];
+    }
+
+    out.push_str(rest);
+    out
+}
+
+/// URLs de imagem embutidas na descrição, na ordem em que aparecem.
+///
+/// O app usa `parse_description` diretamente (precisa do par poster/vídeo de
+/// cada card); esta função existe para testes e para consumidores que só
+/// querem a lista de imagens. A UI pede esses handles ao
+/// [`crate::covers::CoverCache`] junto das capas, para os cards de seção da
+/// Steam ("Explore a Land of Vast Wonders") saírem com a arte original.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn description_images(html: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for block in parse_description(html) {
+        if let Some(url) = block.image {
+            if !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+    }
+    urls
 }
 
 fn decode_entities(input: &str) -> String {
@@ -562,5 +806,186 @@ mod tests {
         let blocks = parse_description("<p>&lt;b&gt;não é negrito&lt;/b&gt; &nbsp; fim</p>");
         assert_eq!(plain(&blocks), vec!["<b>não é negrito</b> fim"]);
         assert!(blocks[0].spans.iter().all(|span| !span.bold));
+    }
+
+    #[test]
+    fn keeps_inline_images_as_their_own_blocks() {
+        // Formato real do `about` da Steam: parágrafo, card de seção, parágrafo.
+        let blocks = parse_description(
+            "<p>Intro do jogo.</p>\
+             <img src=\"https://cdn.test/wukong/wonders.jpg\" \
+                  srcset=\"https://cdn.test/wukong/wonders_2x.jpg 2x\">\
+             <h2>Explore a Land of Vast Wonders</h2><p>Texto da seção.</p>",
+        );
+
+        let images: Vec<Option<String>> = blocks.iter().map(|block| block.image.clone()).collect();
+        assert_eq!(
+            images,
+            vec![
+                None,
+                Some("https://cdn.test/wukong/wonders.jpg".to_string()),
+                None,
+                None
+            ]
+        );
+        // A imagem não vaza para o texto dos parágrafos: o bloco dela é vazio
+        // e os parágrafos vizinhos mantêm o próprio texto.
+        assert_eq!(
+            plain(&blocks),
+            vec![
+                "Intro do jogo.",
+                "",
+                "Explore a Land of Vast Wonders",
+                "Texto da seção."
+            ]
+        );
+        assert_eq!(
+            description_images(
+                "<p>a</p><img src=\"https://cdn.test/1.jpg\"><img src='https://cdn.test/2.jpg'>"
+            ),
+            vec![
+                "https://cdn.test/1.jpg".to_string(),
+                "https://cdn.test/2.jpg".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn image_sources_reject_dangerous_schemes_and_protocol_relative() {
+        assert!(description_images("<img src=\"javascript:alert(1)\">").is_empty());
+        assert!(description_images("<img src=\"data:image/png;base64,AAAA\">").is_empty());
+        assert!(description_images("<img>").is_empty());
+        assert!(description_images("<img alt=\"sem src\">").is_empty());
+        // `//` vira https, como no `href`.
+        assert_eq!(
+            description_images("<img src=\"//cdn.test/x.png\">"),
+            vec!["https://cdn.test/x.png".to_string()]
+        );
+    }
+
+    #[test]
+    fn extracts_video_posters_from_the_store_about() {
+        // O `about` do Cyberpunk 2077 usa `<video class="bb_img" poster="…">`
+        // para os seis cards de seção, não `<img>`. Antes de tratar `poster`,
+        // a descrição do jogo saía sem nenhuma figura.
+        let about = concat!(
+            "<span class=\"bb_img_ctn\">",
+            "<video class=\"bb_img\" autoplay muted loop playsinline ",
+            "poster=\"https://shared.test/extras/aaa.poster.avif\" ",
+            "width=1170 height=450 >",
+            "<source src=\"https://shared.test/extras/aaa.webm\">",
+            "<source src=\"https://shared.test/extras/aaa.mp4\">",
+            "</video></span>",
+            "<span class=\"bb_img_ctn\">",
+            "<video class=\"bb_img\" poster=\"https://shared.test/extras/bbb.poster.avif\">",
+            "<source src=\"https://shared.test/extras/bbb.webm\">",
+            "</video></span>"
+        );
+
+        assert_eq!(
+            description_images(about),
+            vec![
+                "https://shared.test/extras/aaa.poster.avif".to_string(),
+                "https://shared.test/extras/bbb.poster.avif".to_string(),
+            ],
+            "os posters dos vídeos são os cards de seção da descrição"
+        );
+    }
+
+    #[test]
+    fn names_bbcode_images_and_keeps_html_ones() {
+        // A Steam mistura os dois dialetos no mesmo `about`. Os dois têm que
+        // virar figura; o BBCode não pode vazar como texto literal.
+        let about = concat!(
+            "<h1>Deluxe</h1>",
+            "[img]https://shared.test/a.webp[/img]",
+            "texto",
+            "<img src=\"https://shared.test/b.webp\">"
+        );
+
+        assert_eq!(
+            description_images(about),
+            vec![
+                "https://shared.test/a.webp".to_string(),
+                "https://shared.test/b.webp".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn attaches_the_video_source_to_the_card_block() {
+        // O card do Wukong é `<video poster="….avif"><source src="….webm">`.
+        // O poster é preto; sem o `video` no bloco a UI não tem de onde tirar
+        // a imagem real.
+        let about = concat!(
+            "<span class=\"bb_img_ctn\">",
+            "<video class=\"bb_img\" poster=\"https://shared.test/a.poster.avif\">",
+            "<source src=\"https://shared.test/a.webm\" type=\"video/webm\">",
+            "<source src=\"https://shared.test/a.mp4\" type=\"video/mp4\">",
+            "</video></span>"
+        );
+
+        let blocks = parse_description(about);
+        let figure = blocks
+            .iter()
+            .find(|block| block.image.is_some())
+            .expect("bloco de figura presente");
+
+        assert_eq!(
+            figure.image.as_deref(),
+            Some("https://shared.test/a.poster.avif")
+        );
+        assert_eq!(
+            figure.video, "https://shared.test/a.webm",
+            "o vídeo fica guardado como reserva do poster preto"
+        );
+    }
+
+    #[test]
+    fn image_without_video_has_empty_video_field() {
+        let about = "<img src=\"https://shared.test/banner.webp\">";
+        let blocks = parse_description(about);
+        let figure = blocks
+            .iter()
+            .find(|block| block.image.is_some())
+            .expect("bloco de figura presente");
+
+        assert_eq!(
+            figure.image.as_deref(),
+            Some("https://shared.test/banner.webp")
+        );
+        assert!(figure.video.is_empty());
+    }
+
+    #[test]
+    fn marks_heading_blocks_from_h_tags() {
+        let blocks = parse_description("<h1>About the Game</h1><p>Corpo</p>");
+        let heading = blocks
+            .iter()
+            .find(|block| block.spans.iter().any(|span| span.text.contains("About")))
+            .expect("bloco de título presente");
+        assert!(heading.heading, "h1 marca o bloco como título");
+
+        let body = blocks
+            .iter()
+            .find(|block| block.spans.iter().any(|span| span.text.contains("Corpo")))
+            .expect("bloco de corpo presente");
+        assert!(!body.heading, "parágrafo comum não é título");
+    }
+
+    #[test]
+    fn extracts_every_card_from_the_real_store_about() {
+        // HTML real do `about` do Black Myth: Wukong (appid 2358720),
+        // capturado do app: 2 `<img src>` + 4 `<video poster>`. Antes de
+        // tratar `<video poster>`, só os 2 `<img>` viravam figura.
+        let about = "<h1>Digital Deluxe Edition</h1><p><span class=\"bb_img_ctn\"><img class=\"bb_img\" src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/b7cb474dd8f070fe6643a85cc8c95b38.avif?t=1760601605\" width=1170 height=438 /></span><br><br>The Black Myth: Wukong Digital Deluxe Edition includes:<br>- Black Myth: Wukong Full Game<br>- Weapon: Bronzecloud Staff<br>- Equipment: Folk Opera Mask, Folk Opera Almsgiving Armor, Folk Opera Leather Bracers, and Folk Opera Buskins<br>- Curio: Wind Chimes<br>- Selected Digital Soundtrack<br><br>※ The included weapon, equipment, and curio can be claimed from the Trailblazer's Gift menu at the Keeper's Shrine (Respawn Point) during the early stages of the game.<br>※ By activating &quot;Music Library&quot; on the game's Title Screen, or downloading &quot;Black Myth: Wukong Soundtrack Selection&quot; through the platform, you can enjoy a curated list of tracks from the game. We highly recommend that you first experience these pieces as you journey through the game as the Destined One, then return here to relive them to your heart's content.</p><br><h1>About the Game</h1>Black Myth: Wukong is an action RPG rooted in Chinese mythology. The story is based on Journey to the West, one of the Four Great Classical Novels of Chinese literature. You shall set out as the Destined One to venture into the challenges and marvels ahead, to uncover the obscured truth beneath the veil of a glorious legend from the past.<br><br><span class=\"bb_img_ctn\"><img class=\"bb_img\" src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/53c062bc38fc59440d6e9ae53e6e51f2.webp?t=1760601605\" width=1170 height=27 /></span><br><br><span class=\"bb_img_ctn\"><video class=\"bb_img\" autoplay muted loop playsinline poster=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/6d5d441bd83627bcbc6d2b8f8d15f0ff.poster.avif?t=1760601605\" width=1170 height=438 ><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/6d5d441bd83627bcbc6d2b8f8d15f0ff.webm?t=1760601605\" type=\"video/webm; codecs=vp9\"><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/6d5d441bd83627bcbc6d2b8f8d15f0ff.mp4?t=1760601605\" type=\"video/mp4\"></video></span><h2 class=\"bb_tag\" >• Explore a Land of Vast Wonders</h2><br><i>&quot;A world unseen, where wonders gleam,<br>And with each stride, a new scene streams.&quot;</i><br><br>Enter a fascinating realm filled with the wonders and discoveries of ancient Chinese mythology!<br>As the Destined One, you shall traverse an array of breathtaking and distinctive landscapes from the classic tale, composing an epic of adventure that is seen anew.<br><br><br><span class=\"bb_img_ctn\"><video class=\"bb_img\" autoplay muted loop playsinline poster=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/50a130565eba20a23c614617374844e6.poster.avif?t=1760601605\" width=1170 height=438 ><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/50a130565eba20a23c614617374844e6.webm?t=1760601605\" type=\"video/webm; codecs=vp9\"><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/50a130565eba20a23c614617374844e6.mp4?t=1760601605\" type=\"video/mp4\"></video></span><h2 class=\"bb_tag\" >• Confront Mighty Foes, Old and New</h2><br><i>&quot;Heroic Monkey, might and fame, <br>Adversaries rise, to test his name.&quot;</i><br><br>One of the major highlights of Journey to the West is its diverse cast of adversaries, each with their unique strengths.<br>As the Destined One, you will encounter powerful foes and worthy rivals throughout your journey. Fearlessly engage them in epic battles where surrender is not an option.<br><br><br><span class=\"bb_img_ctn\"><video class=\"bb_img\" autoplay muted loop playsinline poster=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/cac7e67395cc9fbe1463054a2004496a.poster.avif?t=1760601605\" width=1170 height=438 ><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/cac7e67395cc9fbe1463054a2004496a.webm?t=1760601605\" type=\"video/webm; codecs=vp9\"><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/cac7e67395cc9fbe1463054a2004496a.mp4?t=1760601605\" type=\"video/mp4\"></video></span><h2 class=\"bb_tag\" >• Temper Your Mastery of Varied Spells</h2><br><i>&quot;Spells unbound, talents in play,<br>Unleashed abilities seize the day.&quot;</i><br><br>Spells, transformations, and magic vessels of all manifestations, in which some counteract while others amplify, have long been iconic combat elements of Chinese mythology.<br>As the Destined One, aside from mastering various staff techniques, you can also freely combine different spells, abilities, weapons, and equipment to find a winning strategy that best suits your combat style.<br><br><br><span class=\"bb_img_ctn\"><video class=\"bb_img\" autoplay muted loop playsinline poster=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/717266ac34d8670ca14c77550aad5787.poster.avif?t=1760601605\" width=1170 height=438 ><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/717266ac34d8670ca14c77550aad5787.webm?t=1760601605\" type=\"video/webm; codecs=vp9\"><source src=\"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/extras/717266ac34d8670ca14c77550aad5787.mp4?t=1760601605\" type=\"video/mp4\"></video></span><h2 class=\"bb_tag\" >• Discover Heartfelt Tales Behind Every Facade</h2><br><i>&quot;Within all souls, both wild and tame,<br>There thrives a tale of life's fierce flame.&quot;</i><br><br>Beneath the ferocity and craftiness of your foes lies an engaging tapestry of their origins, personalities, and motivations waiting to be revealed.<br>As the Destined One, you will uncover the stories behind a variety of characters, delving beyond your battles with them to taste the love, hate, greed, and fury they once held and still carry within.";
+        let found = description_images(about);
+        assert_eq!(found.len(), 6, "2 <img> + 4 posters de vídeo: {found:#?}");
+        assert!(
+            found
+                .iter()
+                .all(|u| u.contains("shared.akamai.steamstatic.com")),
+            "todas as URLs vêm do CDN da Steam"
+        );
     }
 }

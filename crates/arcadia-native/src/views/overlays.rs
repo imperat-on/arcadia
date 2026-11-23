@@ -10,17 +10,82 @@ use iced::widget::{
 };
 use iced::{Border, Color, ContentFit, Element, Fill, Length};
 
-use crate::app::{App, Message, UpdateDialogKind, UpdateDialogState, UpdateStage};
+use crate::app::{App, Message, Screen, UpdateDialogKind, UpdateDialogState, UpdateStage};
 use crate::backend::{PackagedPhase, UpdateCheck};
 use crate::theme;
+
+#[path = "overlay_motion.rs"]
+pub(super) mod animation;
+#[path = "dialog_entrance.rs"]
+mod dialog_entrance;
+
+fn reduced_motion(app: &App) -> bool {
+    !animation::motion_enabled()
+        || app
+            .settings
+            .config
+            .as_ref()
+            .is_some_and(|config| config.no_anim)
+}
+
+/// O diálogo global só aparece quando a tela atual não desenha a própria
+/// cópia: a ficha do jogo (`views::game`) e o Big Picture já têm o overlay.
+fn shows_global_launch_options(screen: &Screen, game_id: &str) -> bool {
+    match screen {
+        Screen::Game(id) if id == game_id => false,
+        Screen::BigPicture => false,
+        _ => true,
+    }
+}
 
 /// Empilha os overlays sobre a tela base. A ordem importa: diálogo acima dos
 /// toasts e splash acima de tudo no boot.
 pub fn stack<'a>(app: &'a App, base: Element<'a, Message>) -> Element<'a, Message> {
     let mut layers = Stack::new().push(base);
 
+    if app.game_menu.is_some() {
+        layers = layers.push(super::game_menu::overlay(app));
+    }
+
+    // A ficha já desenha o diálogo dentro da própria view; em qualquer outra
+    // tela (Biblioteca inclusive) o mesmo overlay precisa aparecer sem exigir
+    // abrir a ficha do jogo.
+    if app.launch_options.open
+        && shows_global_launch_options(&app.screen, &app.launch_options.game_id)
+    {
+        if let Some(game) = app.library.game(&app.launch_options.game_id) {
+            layers = layers.push(super::game::launch_options_overlay(
+                &app.i18n,
+                &app.launch_options,
+                game,
+            ));
+        }
+    }
+
+    if let Some(metadata) = app.game_metadata.as_ref() {
+        layers = layers.push(super::game_edit::metadata_overlay(
+            &app.i18n,
+            metadata,
+            app.window_size,
+        ));
+    }
+    if let Some(edit) = app.game_edit.as_ref() {
+        layers = layers.push(super::game_edit::edit_overlay(
+            &app.i18n,
+            edit,
+            app.window_size,
+        ));
+    }
     if !app.toasts.is_empty() {
         layers = layers.push(toast_overlay(app));
+    }
+    if let Some(detail) = app
+        .store
+        .detail
+        .as_ref()
+        .filter(|detail| detail.downloads.open)
+    {
+        layers = layers.push(super::store_downloads::overlay(app, detail));
     }
     if let Some(dialog) = app.update.dialog.as_ref() {
         layers = layers.push(update_dialog(app, dialog));
@@ -84,10 +149,10 @@ fn toast_overlay(app: &App) -> Element<'_, Message> {
         .align_x(iced::Alignment::End);
 
     for toast in app.toasts.iter() {
-        if toast.alpha() <= 0.01 {
+        if !reduced_motion(app) && toast.alpha() <= 0.01 {
             continue;
         }
-        if toast.offset_y() > 0.0 {
+        if !reduced_motion(app) && toast.offset_y() > 0.0 {
             items = items.push(Space::new().height(toast.offset_y()));
         }
         items = items.push(toast_item(app, toast));
@@ -103,7 +168,11 @@ fn toast_overlay(app: &App) -> Element<'_, Message> {
 }
 
 fn toast_item<'a>(app: &'a App, toast: &'a crate::toast::Toast) -> Element<'a, Message> {
-    let alpha = toast.alpha().clamp(0.0, 1.0);
+    let alpha = if !reduced_motion(app) {
+        toast.alpha().clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
     let heading = with_alpha(theme::WARNING, alpha);
     let title_color = with_alpha(theme::TEXT_1, alpha);
     let desc_color = with_alpha(theme::TEXT_2, alpha);
@@ -180,22 +249,26 @@ fn toast_item<'a>(app: &'a App, toast: &'a crate::toast::Toast) -> Element<'a, M
 // ── Diálogo de atualização ──────────────────────────────────────────────────
 
 fn update_dialog<'a>(app: &'a App, dialog: &'a UpdateDialogState) -> Element<'a, Message> {
+    // Capture waits for a clean frame with no dialog or veil drawn.
+    if app.update.backdrop_waiting {
+        return mouse_area(container(Space::new()).width(Fill).height(Fill))
+            .on_press(Message::UpdateNoop)
+            .into();
+    }
     let veil: Element<'a, Message> = if dialog.is_busy() {
-        mouse_area(
-            container(Space::new())
-                .width(Fill)
-                .height(Fill)
-                .style(modal_veil),
-        )
+        mouse_area(animation::canvas(
+            animation::Motion::Veil(reduced_motion(app)),
+            Fill,
+            Fill,
+        ))
         .on_press(Message::UpdateNoop)
         .into()
     } else {
-        mouse_area(
-            container(Space::new())
-                .width(Fill)
-                .height(Fill)
-                .style(modal_veil),
-        )
+        mouse_area(animation::canvas(
+            animation::Motion::Veil(reduced_motion(app)),
+            Fill,
+            Fill,
+        ))
         .on_press(Message::UpdateDialogDismiss)
         .into()
     };
@@ -205,12 +278,19 @@ fn update_dialog<'a>(app: &'a App, dialog: &'a UpdateDialogState) -> Element<'a,
         .padding(theme::SPACE_5)
         .style(modal_panel);
 
-    Stack::new()
-        .width(Fill)
-        .height(Fill)
+    let mut layers = Stack::new().width(Fill).height(Fill);
+    if let Some(handle) = &app.update.backdrop {
+        layers = layers.push(
+            image(handle.clone())
+                .width(Fill)
+                .height(Fill)
+                .content_fit(ContentFit::Fill),
+        );
+    }
+    layers
         .push(veil)
         .push(
-            container(panel)
+            container(dialog_entrance::panel(panel, reduced_motion(app)))
                 .width(Fill)
                 .height(Fill)
                 .center_x(Fill)
@@ -559,42 +639,7 @@ fn update_reason_label(i18n: &crate::i18n::I18n, motivo: &str, canal: &str) -> S
 }
 
 fn progress_bar(percent: u8) -> Element<'static, Message> {
-    let total = 400.0_f32;
-    let filled = total * percent.min(100) as f32 / 100.0;
-    let fill = container(Space::new())
-        .width(Length::Fixed(filled))
-        .height(Length::Fixed(8.0))
-        .style(|_| container::Style {
-            background: Some(theme::ACCENT.into()),
-            border: Border::default().rounded(4),
-            ..container::Style::default()
-        });
-
-    container(
-        row![
-            fill,
-            Space::new()
-                .width(Length::Fixed((total - filled).max(0.0)))
-                .height(Length::Fixed(8.0)),
-        ]
-        .height(Length::Fixed(8.0)),
-    )
-    .width(Length::Fixed(total))
-    .height(Length::Fixed(8.0))
-    .padding(0)
-    .style(|_| container::Style {
-        background: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.08).into()),
-        border: Border::default().rounded(4),
-        ..container::Style::default()
-    })
-    .into()
-}
-
-fn modal_veil(_theme: &iced::Theme) -> container::Style {
-    container::Style {
-        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.72).into()),
-        ..container::Style::default()
-    }
+    animation::canvas(animation::Motion::Progress(percent as f32), 400, 8)
 }
 
 fn modal_panel(_theme: &iced::Theme) -> container::Style {
@@ -633,5 +678,31 @@ fn fmt_bytes(bytes: u64) -> String {
         format!("{:.1} GB", value / GIB)
     } else {
         format!("{:.0} MB", (value / MIB).max(1.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_launch_options_skip_screens_that_draw_their_own_copy() {
+        assert!(!shows_global_launch_options(
+            &Screen::Game("steam:440".into()),
+            "steam:440"
+        ));
+        assert!(!shows_global_launch_options(
+            &Screen::BigPicture,
+            "steam:440"
+        ));
+        assert!(shows_global_launch_options(&Screen::Library, "steam:440"));
+        assert!(shows_global_launch_options(
+            &Screen::Section(crate::app::Section::Home),
+            "steam:440"
+        ));
+        assert!(shows_global_launch_options(
+            &Screen::Game("steam:570".into()),
+            "steam:440"
+        ));
     }
 }

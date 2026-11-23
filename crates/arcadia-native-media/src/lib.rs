@@ -104,11 +104,15 @@
 //!
 //! # Limites
 //!
+//! - A resolução entregue à UI é 640×360 RGBA (~900 KiB por frame). Não é
+//!   escolha estética: o `iced_wgpu` só desenha no mesmo quadro imagens de até
+//!   2 MiB; acima disso o upload vai para um worker e a imagem some por um
+//!   render, o que a 60 fps vira uma piscada. Para checar uma resolução antes
+//!   de usá-la, veja [`frame_fits_sync_upload`].
 //! - Áudio é consumido por `fakesink`; este crate não escolhe dispositivo de
 //!   som.
 //! - O canal de frames tem capacidade 2. Se a UI não drenar, os frames mais
-//!   novos são descartados para não crescer memória sem limite (um frame 4K
-//!   RGBA ocupa ~33 MB).
+//!   novos são descartados para não crescer memória sem limite.
 //! - `open`/`stop`/`Drop` esperam o pipeline voltar para `NULL` e a thread do
 //!   bus encerrar; isso pode custar alguns milissegundos, principalmente em
 //!   rede lenta.
@@ -117,10 +121,12 @@
 pub mod error;
 pub mod frame;
 pub mod player;
+pub mod poster;
 
 mod uri;
 
 pub use error::{Error, Result};
 pub use frame::Frame;
-pub use player::{init, Player, PlayerState};
+pub use player::{frame_fits_sync_upload, init, Player, PlayerState};
+pub use poster::{extract_first_visible_frame, is_black_placeholder};
 pub use uri::MediaKind;

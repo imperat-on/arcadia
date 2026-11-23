@@ -94,6 +94,15 @@ impl ApiClient {
 
     /// `POST /rest/v1/rpc/{function}`; `null` vira `{}` como no JS.
     pub async fn rpc(&self, function: &str, args: Value) -> Result<Value> {
+        self.rpc_inner(function, args, None).await
+    }
+
+    /// Executa um RPC que pertence a uma conta, inclusive ao repetir após 401.
+    pub async fn rpc_for_user(&self, function: &str, args: Value, user_id: &str) -> Result<Value> {
+        self.rpc_inner(function, args, Some(user_id)).await
+    }
+
+    async fn rpc_inner(&self, function: &str, args: Value, user_id: Option<&str>) -> Result<Value> {
         let args = if args.is_null() {
             Value::Object(serde_json::Map::new())
         } else {
@@ -107,15 +116,10 @@ impl ApiClient {
             })
         })?;
         let url = format!("{}/rest/v1/rpc/{}", self.config.url, function);
-        let response = self
-            .request_authenticated(
-                Method::POST,
-                url,
-                Some(body),
-                Some("application/json"),
-                None,
-            )
-            .await?;
+        let request = HttpRequest::new(Method::POST, url)
+            .header("content-type", "application/json")
+            .body(body);
+        let response = self.send_authenticated_for_user(request, user_id).await?;
 
         if !response.is_success() {
             return Err(response.api_error().into());
@@ -142,21 +146,36 @@ impl ApiClient {
 
     /// Executa uma requisição já montada, adicionando `apikey` e o bearer atual.
     /// Em 401 renova uma vez e repete a requisição original.
-    pub(crate) async fn send_authenticated(&self, mut request: HttpRequest) -> Result<RawResponse> {
-        let token_at_request = self.auth.access_token().await;
-        self.apply_auth_headers(&mut request, token_at_request.as_deref());
+    pub(crate) async fn send_authenticated(&self, request: HttpRequest) -> Result<RawResponse> {
+        self.send_authenticated_for_user(request, None).await
+    }
+
+    async fn send_authenticated_for_user(
+        &self,
+        mut request: HttpRequest,
+        user_id: Option<&str>,
+    ) -> Result<RawResponse> {
+        let session = self.auth.get_session().await;
+        verify_rpc_user(user_id, session.as_ref())?;
+        let token_at_request = session
+            .as_ref()
+            .map(|session| session.access_token.as_str());
+        self.apply_auth_headers(&mut request, token_at_request);
         let mut response = self.http.send(&request).await?;
 
         if response.status == 401 {
-            if let Some(current) = self.auth.get_session().await {
+            let current = self.auth.get_session().await;
+            verify_rpc_user(user_id, current.as_ref())?;
+            if let Some(current) = current {
                 if current.refresh_token().is_some() {
-                    if token_at_request.as_deref() != Some(current.access_token.as_str()) {
+                    if token_at_request != Some(current.access_token.as_str()) {
                         // Outra tarefa já renovou: repete direto com o token novo.
                         self.apply_auth_headers(&mut request, Some(&current.access_token));
                         response = self.http.send(&request).await?;
                     } else {
                         match self.auth.refresh_session().await {
                             Ok(refreshed) => {
+                                verify_rpc_user(user_id, Some(&refreshed))?;
                                 self.apply_auth_headers(
                                     &mut request,
                                     Some(&refreshed.access_token),
@@ -209,4 +228,11 @@ impl ApiClient {
                 .push(("authorization".to_string(), format!("Bearer {token}")));
         }
     }
+}
+
+fn verify_rpc_user(expected: Option<&str>, session: Option<&Session>) -> Result<()> {
+    if expected.is_some() && expected != session.and_then(Session::user_id) {
+        return Err(ApiError::new(409, None, "sessao_trocada", "").into());
+    }
+    Ok(())
 }

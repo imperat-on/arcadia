@@ -170,9 +170,12 @@ pub fn steam_rows(scope: &AccountScope) -> Vec<Value> {
 ///
 /// Falha desse RPC nunca derruba o pull da biblioteca (o cliente antigo
 /// simplesmente ignora o erro), por isso o chamador pode optar por ignorar.
-pub async fn pull_steam(client: &ApiClient) -> Result<Vec<Value>, SyncError> {
+pub(crate) async fn pull_steam_for_user(
+    client: &ApiClient,
+    user_id: &str,
+) -> Result<Vec<Value>, SyncError> {
     let response = client
-        .rpc("pull_steam_playtime", Value::Null)
+        .rpc_for_user("pull_steam_playtime", Value::Null, user_id)
         .await
         .map_err(map_api_error)?;
     Ok(match response {

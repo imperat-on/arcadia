@@ -1,6 +1,7 @@
 //! Downloads: fila Epic/Steam (`dm:*`) + torrents (`torrent:*`) numa lista só.
 
-use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
+use super::overlays::animation::{self, Motion};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Fill};
 
 use crate::app::{App, LoadStatus, Message, Section};
@@ -12,21 +13,28 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.downloads;
     let i18n = &app.i18n;
     let total = state.data.items.len();
-    let header = views::page_header_labeled(
+    let header = views::page_header(
         i18n.t("downloads.titulo"),
         i18n.t("native.downloads.subtitle"),
-        Some(i18n.t_args(
-            "native.downloads.count",
-            &[("count", &total.to_string())],
-        )),
-        Some(Message::Refresh(Section::Downloads)),
-        i18n.t("native.refresh"),
+        Some(i18n.t_args("native.downloads.count", &[("count", &total.to_string())])),
+        None,
     );
 
     let body: Element<'_, Message> = match &state.status {
-        LoadStatus::Idle | LoadStatus::Loading => {
-            views::loading_state(i18n.t("native.downloads.loading"))
-        }
+        LoadStatus::Idle | LoadStatus::Loading => container(
+            column![
+                text(i18n.t("native.downloads.loading"))
+                    .size(theme::TEXT_BODY)
+                    .color(theme::TEXT_2),
+                animation::canvas(Motion::Skeleton, Fill, 18),
+                animation::canvas(Motion::Skeleton, Fill, 8),
+                animation::canvas(Motion::Skeleton, Fill, 18),
+            ]
+            .spacing(theme::SPACE_3),
+        )
+        .width(Fill)
+        .padding([theme::SPACE_2, theme::PAGE_PADDING])
+        .into(),
         LoadStatus::Error(error) => container(views::error_state_labeled(
             i18n.t("native.downloads.load_error"),
             error,
@@ -178,9 +186,7 @@ fn card<'a>(app: &'a App, item: &'a DownloadItem, busy: Option<&str>) -> Element
     .spacing(10)
     .align_y(iced::Center);
 
-    let progress = progress_bar(0.0..=100.0, item.percent)
-        .girth(8)
-        .length(Fill);
+    let progress = animation::canvas(Motion::Progress(item.percent), Fill, 8);
 
     let mut detail = row![
         text(item.detail.as_str()).size(11).color(theme::TEXT_3),
@@ -200,15 +206,13 @@ fn card<'a>(app: &'a App, item: &'a DownloadItem, busy: Option<&str>) -> Element
     }
 
     let actions = if busy == Some(item.id.as_str()) {
-        row![
-            button(
-                text(i18n.t("native.downloads.applying"))
-                    .size(11)
-                    .font(theme::FONT_MEDIUM),
-            )
-                .padding([7.0, 13.0])
-                .style(theme::ghost_button),
-        ]
+        row![button(
+            text(i18n.t("native.downloads.applying"))
+                .size(11)
+                .font(theme::FONT_MEDIUM),
+        )
+        .padding([7.0, 13.0])
+        .style(theme::ghost_button),]
         .into()
     } else {
         action_row(app, item)
@@ -229,13 +233,16 @@ fn action_row<'a>(app: &'a App, item: &'a DownloadItem) -> Element<'a, Message> 
     let mut actions = row![].spacing(6);
     for action in actions_for(item.status) {
         let primary = matches!(action, DownloadAction::Resume | DownloadAction::Retry);
-        let button: iced::widget::Button<'_, Message> =
-            button(text(action_label(&app.i18n, *action)).size(11).font(theme::FONT_MEDIUM))
-                .on_press(Message::DownloadActionRequested {
-                    item: item.clone(),
-                    action: *action,
-                })
-                .padding([7.0, 13.0]);
+        let button: iced::widget::Button<'_, Message> = button(
+            text(action_label(&app.i18n, *action))
+                .size(11)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press(Message::DownloadActionRequested {
+            item: item.clone(),
+            action: *action,
+        })
+        .padding([7.0, 13.0]);
 
         let rendered: Element<'_, Message> = if primary {
             button.style(theme::primary_button).into()

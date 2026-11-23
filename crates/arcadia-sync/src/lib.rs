@@ -3,9 +3,9 @@
 //! Port 1:1 de `app/electron/supabase/biblioteca.js`, `sync.js` e `sources.js`
 //! sobre [`arcadia_api`], [`arcadia_store`] e [`arcadia_contracts`].
 //!
-//! O [`SyncEngine`] nasce em modo **pull-only** (`pull_only = true`). Nesse
-//! modo nenhum RPC de push é disparado; filas e watermarks locais são
-//! preservados intactos. Para habilitar push, use
+//! O [`SyncEngine`] nasce em modo **pull-only** para as rotinas de sincronização
+//! em lote. Alterações explícitas da loja têm envio próprio. Para habilitar
+//! sincronização em lote nos dois sentidos, use
 //! [`SyncEngine::set_pull_only`]`(false)` — veja o relatório da tarefa para o
 //! que ainda precisa de paridade antes disso em produção.
 //!
@@ -122,6 +122,9 @@ pub(crate) fn map_api_error(error: ApiError) -> SyncError {
     match error {
         ApiError::Transport(error) => SyncError::Network(error.message),
         ApiError::Api(error) if error.status == 401 => SyncError::Unauthorized,
+        ApiError::Api(error) if error.status == 409 && error.message == "sessao_trocada" => {
+            SyncError::AccountSwitched
+        }
         ApiError::Api(error) => {
             // `isRetryable` do JS: permission denied/42501 é bug de código;
             // todo o resto (incluindo 429) é transitório.
@@ -266,8 +269,8 @@ impl SyncEngine {
         SyncStateFile::new(&self.scope).state(achievements::queue_length(&self.scope))
     }
 
-    /// Login/boot: pull de biblioteca, conquistas e sources; push antes/depois
-    /// conforme o modo. Em pull-only nenhum push é disparado.
+    /// Login/boot: reenvia as ações da loja e sincroniza os outros domínios
+    /// conforme o modo.
     pub async fn reconcile(&self) -> Result<SyncReport, SyncError> {
         self.run(SyncMode::Reconcile).await
     }
@@ -295,6 +298,20 @@ impl SyncEngine {
             Ok(outcome) => {
                 self.emit_success(outcome.changed);
                 Ok(outcome)
+            }
+            Err(error) => Err(self.fail(error)),
+        }
+    }
+
+    /// Envia somente as inclusões e remoções explícitas da loja Steam.
+    pub async fn send_library_changes(&self) -> Result<(), SyncError> {
+        let _guard = self.lock.lock().await;
+        match library::send_steam_changes(&self.client, &self.scope).await {
+            Ok(pushed) => {
+                if pushed > 0 {
+                    self.emit_success(false);
+                }
+                Ok(())
             }
             Err(error) => Err(self.fail(error)),
         }
@@ -517,8 +534,11 @@ impl SyncEngine {
             };
         }
 
-        // Biblioteca: pull antes do push (remoções de outra máquina chegam
-        // primeiro e impedem que um push com estado antigo ressuscite o jogo).
+        // O pull precede o push em lote. Ações explícitas têm prioridade sobre
+        // o snapshot remoto e são reenviadas antes de baixá-lo.
+        if let Some(pushed) = attempt!(library::send_steam_changes(&self.client, &self.scope)) {
+            report.library_pushed += pushed;
+        }
         if let Some(outcome) = attempt!(library::pull(&self.client, &self.scope)) {
             report.library_changed |= outcome.changed;
             report.library_pulled = outcome.pulled;

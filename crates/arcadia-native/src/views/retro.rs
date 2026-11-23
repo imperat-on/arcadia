@@ -1,9 +1,8 @@
 //! Catálogo Retro nativo: `retro:list` com busca, filtro por sistema,
 //! paginação e capas pelo mesmo `CoverCache` da biblioteca.
 //!
-//! A arte vem de `cover`/`fallbackCover`/`artwork` e é baixada por HTTP no
-//! backend nativo; o canal `retro:covers` grava arquivos para o webview e não
-//! é necessário aqui.
+//! O backend limita as capas da grade ao tamanho do card e reaproveita
+//! arquivos reduzidos já presentes no cache em disco.
 
 use iced::widget::text::Wrapping;
 use iced::widget::{
@@ -11,24 +10,35 @@ use iced::widget::{
 };
 use iced::{Color, ContentFit, Element, Fill, Length, Padding};
 
-use crate::app::{App, LoadStatus, Message, RetroDetailState, Section};
+use crate::app::{App, LoadStatus, Message, RetroDetailState};
 use crate::backend::{retro_system_filters, RetroGame, RetroSource, RetroSystemInfo};
 use crate::theme;
 use crate::views;
 use crate::views::cards;
 use crate::views::icons::{self, Icon};
 
+const CATALOG_SCROLL_ID: &str = "native-retro-catalog";
+
+pub(crate) fn scroll_to_top() -> iced::Task<Message> {
+    iced::widget::operation::scroll_to(
+        iced::widget::Id::new(CATALOG_SCROLL_ID),
+        iced::widget::scrollable::AbsoluteOffset {
+            x: None,
+            y: Some(0.0),
+        },
+    )
+}
+
 pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(detail) = app.retro.detail.as_ref() {
         return detail_view(app, detail);
     }
 
-    let header = views::page_header_labeled(
+    let header = views::page_header(
         app.i18n.t("store.retro_tab"),
         app.i18n.t("native.retro.subtitle"),
         retro_count_label(app),
-        Some(Message::Refresh(Section::Stores)),
-        app.i18n.t("native.refresh"),
+        None,
     );
 
     let body = scrollable(container(body_content(app)).width(Fill).padding(Padding {
@@ -37,6 +47,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         bottom: theme::PAGE_PADDING,
         left: theme::PAGE_PADDING,
     }))
+    .id(CATALOG_SCROLL_ID)
     .height(Fill)
     .style(theme::scrollable);
 
@@ -73,7 +84,7 @@ fn body_content(app: &App) -> Element<'_, Message> {
                 "native.retro.results_for",
                 &[("query", &state.applied_query)],
             ))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3),
         );
     }
@@ -141,7 +152,7 @@ fn search_controls(app: &App) -> Element<'_, Message> {
                     bottom: 10.0,
                     left: 38.0,
                 })
-                .size(13)
+                .size(theme::TEXT_READ)
                 .width(Fill)
                 .style(theme::search_input),
         )
@@ -161,8 +172,8 @@ fn search_controls(app: &App) -> Element<'_, Message> {
         } else {
             i18n.t("store.buscar")
         })
-            .size(12)
-            .font(theme::FONT_MEDIUM),
+        .size(theme::TEXT_BODY)
+        .font(theme::FONT_MEDIUM),
     )
     .padding([10.0, 18.0]);
     if !loading {
@@ -171,11 +182,11 @@ fn search_controls(app: &App) -> Element<'_, Message> {
 
     let mut clear_button = button(
         text(i18n.t("native.console.store.clear"))
-            .size(12)
+            .size(theme::TEXT_BODY)
             .font(theme::FONT_MEDIUM),
     )
-        .padding([10.0, 14.0])
-        .style(theme::ghost_button);
+    .padding([10.0, 14.0])
+    .style(theme::ghost_button);
     if !state.query.is_empty() {
         clear_button = clear_button.on_press(Message::RetroClearSearch);
     }
@@ -236,7 +247,7 @@ fn retro_body(app: &App) -> Element<'_, Message> {
     if state.status == LoadStatus::Loading {
         content = content.push(
             text(app.i18n.t("native.retro.loading_page"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3),
         );
     }
@@ -249,10 +260,8 @@ fn retro_body(app: &App) -> Element<'_, Message> {
 fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
     let i18n = &app.i18n;
     let covers = &app.covers;
-    let cover: Element<'a, Message> = match covers
-        .ready(game.cover_url.as_deref())
-        .or_else(|| covers.ready(game.fallback_cover_url.as_deref()))
-    {
+    let art = game.cover_url.as_deref().or(game.fallback_cover_url.as_deref());
+    let cover: Element<'a, Message> = match covers.ready(art) {
         Some(handle) => image(handle.clone())
             .width(Fill)
             .height(Fill)
@@ -265,7 +274,7 @@ fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
                     .font(theme::FONT_BOLD)
                     .color(Color::from_rgba(1.0, 1.0, 1.0, 0.30)),
                 text(game.system_label_i18n(i18n))
-                    .size(9)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_MEDIUM)
                     .color(theme::TEXT_3)
                     .wrapping(Wrapping::WordOrGlyph),
@@ -282,12 +291,10 @@ fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
         .into(),
     };
 
-    let mut meta = row![
-        text(game.system_label_i18n(i18n))
-            .size(10)
-            .color(theme::TEXT_3)
-            .wrapping(Wrapping::None),
-    ]
+    let mut meta = row![text(game.system_label_i18n(i18n))
+        .size(theme::TEXT_MICRO)
+        .color(theme::TEXT_3)
+        .wrapping(Wrapping::None),]
     .spacing(6)
     .align_y(iced::Center);
 
@@ -297,30 +304,28 @@ fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
                 "native.retro.offers_count",
                 &[("count", &offers.to_string())],
             ))
-                .size(10)
-                .color(theme::TEXT_3),
+            .size(theme::TEXT_MICRO)
+            .color(theme::TEXT_3),
         );
     }
 
-    let mut info_content = column![
-        container(
-            text(ellipsize(&game.title, 24))
-                .size(13)
-                .font(theme::FONT_MEDIUM)
-                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.88))
-                .wrapping(Wrapping::None),
-        )
-        .width(Fill)
-        .height(18)
-        .clip(true),
-    ]
+    let mut info_content = column![container(
+        text(ellipsize(&game.title, 24))
+            .size(theme::TEXT_READ)
+            .font(theme::FONT_MEDIUM)
+            .color(Color::from_rgba(1.0, 1.0, 1.0, 0.88))
+            .wrapping(Wrapping::None),
+    )
+    .width(Fill)
+    .height(18)
+    .clip(true),]
     .spacing(2);
 
     let meta_line = game.meta_line();
     if !meta_line.is_empty() {
         info_content = info_content.push(
             text(ellipsize(&meta_line, 30))
-                .size(9)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3)
                 .wrapping(Wrapping::None),
         );
@@ -332,19 +337,13 @@ fn retro_card<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
         .height(64)
         .padding([8.0, 11.0]);
 
-    button(
-        column![
-            container(cover).width(Fill).height(Fill).clip(true),
-            info,
-        ]
-        .height(Fill),
-    )
-    .on_press(Message::RetroOpenDetail(game.clone()))
-    .width(Fill)
-    .height(Fill)
-    .padding(0)
-    .style(theme::card)
-    .into()
+    button(column![container(cover).width(Fill).height(Fill).clip(true), info,].height(Fill))
+        .on_press(Message::RetroOpenDetail(game.clone()))
+        .width(Fill)
+        .height(Fill)
+        .padding(0)
+        .style(theme::card)
+        .into()
 }
 
 fn pagination(app: &App) -> Element<'_, Message> {
@@ -360,15 +359,19 @@ fn pagination(app: &App) -> Element<'_, Message> {
             "native.retro.page_of",
             &[("page", &page.to_string()), ("total", &total.to_string())],
         ),
-        None => app.i18n.t_args("native.retro.page", &[("page", &page.to_string())]),
+        None => app
+            .i18n
+            .t_args("native.retro.page", &[("page", &page.to_string())]),
     };
 
-    let mut previous = button(text("‹").size(18).color(theme::TEXT_2)).padding([4.0, 12.0]);
+    let mut previous =
+        button(text("‹").size(theme::TEXT_HEADING).color(theme::TEXT_2)).padding([4.0, 12.0]);
     if state.offset > 0 && !loading {
         previous = previous.on_press(Message::RetroPrevPage);
     }
 
-    let mut next = button(text("›").size(18).color(theme::TEXT_2)).padding([4.0, 12.0]);
+    let mut next =
+        button(text("›").size(theme::TEXT_HEADING).color(theme::TEXT_2)).padding([4.0, 12.0]);
     if state.has_more && !loading {
         next = next.on_press(Message::RetroNextPage);
     }
@@ -376,7 +379,9 @@ fn pagination(app: &App) -> Element<'_, Message> {
     container(
         row![
             previous.style(theme::ghost_button),
-            text(page_label).size(11).color(theme::TEXT_3),
+            text(page_label)
+                .size(theme::TEXT_CAPTION)
+                .color(theme::TEXT_3),
             next.style(theme::ghost_button),
         ]
         .spacing(theme::SPACE_2)
@@ -420,19 +425,17 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
         .into(),
     };
 
-    let mut meta = row![
-        text(game.system_label_i18n(&app.i18n))
-            .size(12)
-            .color(theme::TEXT_2)
-            .wrapping(Wrapping::None),
-    ]
+    let mut meta = row![text(game.system_label_i18n(&app.i18n))
+        .size(theme::TEXT_BODY)
+        .color(theme::TEXT_2)
+        .wrapping(Wrapping::None),]
     .spacing(8)
     .align_y(iced::Center);
     if let Some(year) = game.release_year {
         meta = meta.push(badge(year.to_string(), theme::TEXT_2));
     }
     if let Some(developer) = game.developer.as_deref() {
-        meta = meta.push(text(developer).size(12).color(theme::TEXT_2));
+        meta = meta.push(text(developer).size(theme::TEXT_BODY).color(theme::TEXT_2));
     }
     if let Some(source) = game.source_title.as_deref() {
         meta = meta.push(badge(source.to_string(), theme::TEXT_3));
@@ -448,12 +451,12 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
                     .color(theme::TEXT_1)
                     .wrapping(Wrapping::WordOrGlyph),
                 meta,
-                text(app.i18n.t_args(
-                    "native.retro.id_line",
-                    &[("id", game.id.as_str())],
-                ))
-                    .size(11)
-                    .color(theme::TEXT_3),
+                text(
+                    app.i18n
+                        .t_args("native.retro.id_line", &[("id", game.id.as_str())],)
+                )
+                .size(theme::TEXT_CAPTION)
+                .color(theme::TEXT_3),
             ]
             .spacing(8)
             .width(Fill),
@@ -479,22 +482,11 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
         .push(hero_copy);
 
     let mut content = column![
-        container(
-            button(
-                row![
-                    text("‹").size(18).color(theme::TEXT_1),
-                    text(app.i18n.t("native.retro.back"))
-                        .size(12)
-                        .font(theme::FONT_MEDIUM)
-                        .color(theme::TEXT_1),
-                ]
-                .spacing(6)
-                .align_y(iced::Center),
-            )
-            .on_press(Message::RetroCloseDetail)
-            .padding([7.0, 13.0])
-            .style(theme::ghost_button)
-        )
+        container(views::back_button::labeled(
+            app.i18n.t("native.retro.back"),
+            Message::RetroCloseDetail,
+            theme::ghost_button,
+        ))
         .width(Fill)
         .padding([theme::SPACE_3, theme::PAGE_PADDING]),
         hero,
@@ -520,7 +512,7 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
         content = content.push(
             container(
                 text(app.i18n.t("native.retro.loading_detail"))
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .color(theme::TEXT_2),
             )
             .width(Fill)
@@ -558,7 +550,10 @@ fn detail_view<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Me
 }
 
 fn retro_portrait<'a>(app: &'a App, game: &'a RetroGame) -> Element<'a, Message> {
-    let url = game.cover_url.as_deref().or(game.fallback_cover_url.as_deref());
+    let url = game
+        .cover_url
+        .as_deref()
+        .or(game.fallback_cover_url.as_deref());
     match app.covers.ready(url) {
         Some(handle) => image(handle.clone())
             .width(116)
@@ -594,28 +589,24 @@ fn retro_description<'a>(
         .or(game.description.as_deref());
     let body: Element<'a, Message> = match description {
         Some(description) => text(description)
-            .size(13)
+            .size(theme::TEXT_READ)
             .color(Color::from_rgba(1.0, 1.0, 1.0, 0.74))
             .wrapping(Wrapping::WordOrGlyph)
             .into(),
         None if detail.status == LoadStatus::Loading => {
             text(i18n.t("native.retro.description_loading"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(theme::TEXT_2)
                 .into()
         }
         None => text(i18n.t("native.retro.description_empty"))
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(theme::TEXT_3)
             .into(),
     };
 
     container(
-        column![
-            views::section_label(i18n.t("native.game.about")),
-            body,
-        ]
-        .spacing(theme::SPACE_3),
+        column![views::section_label(i18n.t("native.game.about")), body,].spacing(theme::SPACE_3),
     )
     .width(Fill)
     .padding(theme::SPACE_5)
@@ -634,13 +625,19 @@ fn retro_info_panel<'a>(
     let mut has_row = true;
 
     let system_label = game.system_label_i18n(i18n);
-    rows = rows.push(info_row(i18n.t("native.retro.system"), system_label.clone()));
+    rows = rows.push(info_row(
+        i18n.t("native.retro.system"),
+        system_label.clone(),
+    ));
     if let Some(platform) = game
         .platform
         .as_deref()
         .filter(|platform| *platform != system_label.as_str())
     {
-        rows = rows.push(info_row(i18n.t("native.retro.platform"), platform.to_string()));
+        rows = rows.push(info_row(
+            i18n.t("native.retro.platform"),
+            platform.to_string(),
+        ));
         has_row = true;
     }
     if let Some(year) = game.release_year {
@@ -648,15 +645,24 @@ fn retro_info_panel<'a>(
         has_row = true;
     }
     if let Some(developer) = game.developer.as_deref() {
-        rows = rows.push(info_row(i18n.t("native.retro.developer"), developer.to_string()));
+        rows = rows.push(info_row(
+            i18n.t("native.retro.developer"),
+            developer.to_string(),
+        ));
         has_row = true;
     }
     if let Some(publisher) = game.publisher.as_deref() {
-        rows = rows.push(info_row(i18n.t("native.retro.publisher"), publisher.to_string()));
+        rows = rows.push(info_row(
+            i18n.t("native.retro.publisher"),
+            publisher.to_string(),
+        ));
         has_row = true;
     }
     if !game.genres.is_empty() {
-        rows = rows.push(info_row(i18n.t("native.retro.genres"), game.genres.join(", ")));
+        rows = rows.push(info_row(
+            i18n.t("native.retro.genres"),
+            game.genres.join(", "),
+        ));
         has_row = true;
     }
     if let Some(size) = game.file_size.as_deref() {
@@ -681,7 +687,7 @@ fn retro_info_panel<'a>(
     if !has_row {
         rows = rows.push(
             text(i18n.t("native.retro.no_metadata"))
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(theme::TEXT_3),
         );
     }
@@ -693,10 +699,10 @@ fn retro_info_panel<'a>(
         ]
         .spacing(theme::SPACE_3),
     )
-        .width(Length::Fixed(320.0))
-        .padding(theme::SPACE_5)
-        .style(theme::panel)
-        .into()
+    .width(Length::Fixed(320.0))
+    .padding(theme::SPACE_5)
+    .style(theme::panel)
+    .into()
 }
 
 fn retro_offers_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<'a, Message> {
@@ -706,8 +712,8 @@ fn retro_offers_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element
         .as_ref()
         .map(|full| full.offers.as_slice())
         .unwrap_or_default();
-    let mut content = column![views::section_label(i18n.t("native.retro.offers_title"))]
-        .spacing(theme::SPACE_2);
+    let mut content =
+        column![views::section_label(i18n.t("native.retro.offers_title"))].spacing(theme::SPACE_2);
 
     if offers.is_empty() {
         content = content.push(
@@ -716,7 +722,7 @@ fn retro_offers_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element
             } else {
                 i18n.t("native.retro.offers_empty")
             })
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(theme::TEXT_3),
         );
     } else {
@@ -754,29 +760,28 @@ fn retro_offers_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element
                     row![
                         column![
                             text(title)
-                                .size(12)
+                                .size(theme::TEXT_BODY)
                                 .font(theme::FONT_MEDIUM)
                                 .color(theme::TEXT_STRONG)
                                 .wrapping(Wrapping::WordOrGlyph),
-                            text(i18n.t_args(
-                                "native.retro.source_line",
-                                &[("source", source)],
-                            ))
-                                .size(10)
+                            text(i18n.t_args("native.retro.source_line", &[("source", source)],))
+                                .size(theme::TEXT_MICRO)
                                 .color(theme::TEXT_3)
                                 .wrapping(Wrapping::WordOrGlyph),
-                            text(meta.join(" · ")).size(10).color(theme::TEXT_3),
+                            text(meta.join(" · "))
+                                .size(theme::TEXT_MICRO)
+                                .color(theme::TEXT_3),
                         ]
                         .spacing(2)
                         .width(Fill),
                         button(
                             text(i18n.t("native.retro.view_links"))
-                                .size(10)
+                                .size(theme::TEXT_MICRO)
                                 .font(theme::FONT_MEDIUM),
                         )
-                            .on_press(Message::RetroOfferRequested(offer.id.clone()))
-                            .padding([5.0, 9.0])
-                            .style(theme::ghost_button),
+                        .on_press(Message::RetroOfferRequested(offer.id.clone()))
+                        .padding([5.0, 9.0])
+                        .style(theme::ghost_button),
                     ]
                     .spacing(theme::SPACE_3)
                     .align_y(iced::Center),
@@ -806,14 +811,14 @@ fn offer_links_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<
         LoadStatus::Idle => {
             content = content.push(
                 text(i18n.t("native.retro.select_offer"))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::TEXT_3),
             );
         }
         LoadStatus::Loading => {
             content = content.push(
                 text(i18n.t("native.retro.offer_loading"))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .color(theme::TEXT_2),
             );
         }
@@ -834,7 +839,7 @@ fn offer_links_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<
             Some(offer) if offer.uris.is_empty() => {
                 content = content.push(
                     text(i18n.t("native.retro.offer_no_uris"))
-                        .size(11)
+                        .size(theme::TEXT_CAPTION)
                         .color(theme::TEXT_3),
                 );
             }
@@ -844,28 +849,28 @@ fn offer_links_panel<'a>(app: &'a App, detail: &'a RetroDetailState) -> Element<
                         "native.retro.offer_links_title",
                         &[("id", offer.id.as_str())],
                     ))
-                        .size(10)
-                        .color(theme::TEXT_3),
+                    .size(theme::TEXT_MICRO)
+                    .color(theme::TEXT_3),
                 );
                 for uri in &offer.uris {
                     content = content.push(
                         text(uri)
-                            .size(10)
+                            .size(theme::TEXT_MICRO)
                             .color(theme::TEXT_2)
                             .wrapping(Wrapping::WordOrGlyph),
                     );
                 }
                 content = content.push(
                     text(i18n.t("native.retro.offer_links_note"))
-                    .size(10)
-                    .color(theme::TEXT_3)
-                    .wrapping(Wrapping::WordOrGlyph),
+                        .size(theme::TEXT_MICRO)
+                        .color(theme::TEXT_3)
+                        .wrapping(Wrapping::WordOrGlyph),
                 );
             }
             None => {
                 content = content.push(
                     text(i18n.t("native.retro.offer_no_detail"))
-                        .size(11)
+                        .size(theme::TEXT_CAPTION)
                         .color(theme::TEXT_3),
                 );
             }
@@ -907,9 +912,9 @@ fn detail_sources(detail: &RetroDetailState, page_sources: &[RetroSource]) -> Ve
 
 fn info_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
     column![
-        text(label).size(10).color(theme::TEXT_3),
+        text(label).size(theme::TEXT_MICRO).color(theme::TEXT_3),
         text(value)
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(theme::TEXT_STRONG)
             .wrapping(Wrapping::WordOrGlyph),
     ]
@@ -919,20 +924,25 @@ fn info_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
 }
 
 fn badge<'a>(label: String, color: Color) -> Element<'a, Message> {
-    container(text(label).size(9).font(theme::FONT_MEDIUM).color(color))
-        .padding([2.0, 6.0])
-        .style(theme::badge)
-        .into()
+    container(
+        text(label)
+            .size(theme::TEXT_MICRO)
+            .font(theme::FONT_MEDIUM)
+            .color(color),
+    )
+    .padding([2.0, 6.0])
+    .style(theme::badge)
+    .into()
 }
 
 fn inline_empty<'a>(title: &'a str, message: &'a str) -> Element<'a, Message> {
     container(
         column![
             text(title)
-                .size(16)
+                .size(17)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_STRONG),
-            text(message).size(12).color(theme::TEXT_2),
+            text(message).size(theme::TEXT_BODY).color(theme::TEXT_2),
             Space::new().height(2),
         ]
         .spacing(theme::SPACE_2),

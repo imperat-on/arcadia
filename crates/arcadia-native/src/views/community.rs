@@ -281,6 +281,7 @@ impl<T> Default for CommunityList<T> {
 
 #[derive(Debug, Clone, Default)]
 pub struct CommunityState {
+    pub last_open_load: Option<std::time::Instant>,
     pub tab: CommunityTab,
     pub reviews: CommunityList<CommunityReview>,
     pub collections: CommunityList<CommunityCollection>,
@@ -320,19 +321,10 @@ impl CommunityState {
     }
 
     pub fn has_current_game(&self, collection: &CommunityCollection) -> bool {
-        !self.appid.is_empty()
-            && collection
-                .items
-                .iter()
-                .any(|item| item.appid == self.appid)
+        !self.appid.is_empty() && collection.items.iter().any(|item| item.appid == self.appid)
     }
 
-    pub fn apply_reviews_page(
-        &mut self,
-        page: CommunityReviewsPage,
-        offset: u64,
-        append: bool,
-    ) {
+    pub fn apply_reviews_page(&mut self, page: CommunityReviewsPage, offset: u64, append: bool) {
         apply_page(
             &mut self.reviews,
             page.reviews,
@@ -391,10 +383,7 @@ impl CommunityCache {
                 .insert(appid.to_string(), CommunityState::default());
         }
         let viewer_id = self.viewer_id.clone();
-        let state = self
-            .entries
-            .get_mut(appid)
-            .expect("estado recém-inserido");
+        let state = self.entries.get_mut(appid).expect("estado recém-inserido");
         state.appid = appid.to_string();
         state.viewer_id = viewer_id;
         (state, fresh)
@@ -481,11 +470,11 @@ pub fn panel<'a>(
     let header = row![
         column![
             text(i18n.t("community.titulo"))
-                .size(16)
+                .size(17)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_1),
             text(i18n.t_args("community.subtitulo", &[("title", title)]))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_2),
         ]
         .spacing(3)
@@ -501,14 +490,7 @@ pub fn panel<'a>(
                 CommunityTab::Collections,
                 state.tab
             ),
-            button(
-                text(i18n.t("native.refresh"))
-                    .size(10)
-                    .font(theme::FONT_MEDIUM),
-            )
-            .on_press(Message::CommunityRefresh(state.tab))
-            .padding([6.0, 10.0])
-            .style(theme::ghost_button),
+
         ]
         .spacing(6),
     ]
@@ -540,9 +522,13 @@ fn tab_button<'a>(label: &'a str, tab: CommunityTab, active: CommunityTab) -> El
     let is_active = tab == active;
     let mut control = button(
         text(label)
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_MEDIUM)
-            .color(if is_active { theme::TEXT_1 } else { theme::TEXT_2 }),
+            .color(if is_active {
+                theme::TEXT_1
+            } else {
+                theme::TEXT_2
+            }),
     )
     .padding([6.0, 12.0])
     .style(move |theme, status| theme::segment_button(theme, status, is_active));
@@ -576,10 +562,7 @@ fn reviews_body<'a>(
                 theme::TEXT_3,
             ));
         } else if matches!(list.status, LoadStatus::Ready) {
-            content = content.push(hint(
-                i18n.t("community.vazio_avaliacoes"),
-                theme::TEXT_3,
-            ));
+            content = content.push(hint(i18n.t("community.vazio_avaliacoes"), theme::TEXT_3));
         }
     } else {
         for review in &list.items {
@@ -637,10 +620,7 @@ fn collections_body<'a>(
                 theme::TEXT_3,
             ));
         } else if matches!(list.status, LoadStatus::Ready) {
-            content = content.push(hint(
-                i18n.t("community.vazio_colecoes"),
-                theme::TEXT_3,
-            ));
+            content = content.push(hint(i18n.t("community.vazio_colecoes"), theme::TEXT_3));
         }
     } else {
         for collection in &list.items {
@@ -694,10 +674,14 @@ fn reviews_controls<'a>(
     };
     row![
         Space::new().width(Fill),
-        button(text(label).size(11).font(theme::FONT_MEDIUM))
-            .on_press_maybe(message)
-            .padding([7.0, 12.0])
-            .style(theme::primary_button),
+        button(
+            text(label)
+                .size(theme::TEXT_CAPTION)
+                .font(theme::FONT_MEDIUM)
+        )
+        .on_press_maybe(message)
+        .padding([7.0, 12.0])
+        .style(theme::primary_button),
     ]
     .width(Fill)
     .into()
@@ -733,10 +717,14 @@ fn collections_controls<'a>(
     };
     controls = controls.push(Space::new().width(Fill));
     controls = controls.push(
-        button(text(label).size(11).font(theme::FONT_MEDIUM))
-            .on_press_maybe(message)
-            .padding([7.0, 12.0])
-            .style(theme::primary_button),
+        button(
+            text(label)
+                .size(theme::TEXT_CAPTION)
+                .font(theme::FONT_MEDIUM),
+        )
+        .on_press_maybe(message)
+        .padding([7.0, 12.0])
+        .style(theme::primary_button),
     );
     controls.width(Fill).into()
 }
@@ -749,15 +737,13 @@ fn segment_action<'a>(
 ) -> Element<'a, Message> {
     button(
         text(label)
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_MEDIUM)
             .color(if active { theme::TEXT_1 } else { theme::TEXT_2 }),
     )
     .on_press_maybe(enabled.then_some(message))
     .padding([7.0, 12.0])
-    .style(move |style_theme, status| {
-        theme::segment_button(style_theme, status, active)
-    })
+    .style(move |style_theme, status| theme::segment_button(style_theme, status, active))
     .into()
 }
 
@@ -771,7 +757,7 @@ fn review_form<'a>(
         rating = rating.push(
             button(
                 text(value.to_string())
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .font(theme::FONT_MEDIUM)
                     .color(if form.rating == value {
                         theme::TEXT_1
@@ -798,28 +784,32 @@ fn review_form<'a>(
             row![
                 column![
                     text(i18n.t("community.titulo_opcional"))
-                        .size(10)
+                        .size(theme::TEXT_MICRO)
                         .color(theme::TEXT_3),
                     text_input(i18n.t("community.titulo_opcional"), &form.title)
                         .on_input(Message::CommunityReviewTitleChanged)
                         .padding([7.0, 10.0])
-                        .size(12)
+                        .size(theme::TEXT_BODY)
                         .width(Fill)
                         .style(theme::search_input),
                 ]
                 .spacing(3)
                 .width(Fill),
                 column![
-                    text(i18n.t("community.nota")).size(10).color(theme::TEXT_3),
+                    text(i18n.t("community.nota"))
+                        .size(theme::TEXT_MICRO)
+                        .color(theme::TEXT_3),
                     rating,
                 ]
                 .spacing(3),
                 column![
-                    text(i18n.t("community.horas")).size(10).color(theme::TEXT_3),
+                    text(i18n.t("community.horas"))
+                        .size(theme::TEXT_MICRO)
+                        .color(theme::TEXT_3),
                     text_input("0.0", &form.hours)
                         .on_input(Message::CommunityReviewHoursChanged)
                         .padding([7.0, 10.0])
-                        .size(12)
+                        .size(theme::TEXT_BODY)
                         .width(90)
                         .style(theme::search_input),
                 ]
@@ -830,23 +820,27 @@ fn review_form<'a>(
             text_input(i18n.t("community.avaliacao"), &form.text)
                 .on_input(Message::CommunityReviewTextChanged)
                 .padding([7.0, 10.0])
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .width(Fill)
                 .style(theme::search_input),
             row![
                 Space::new().width(Fill),
                 button(
                     text(i18n.t("common.cancelar"))
-                        .size(11)
+                        .size(theme::TEXT_CAPTION)
                         .font(theme::FONT_MEDIUM)
                 )
                 .on_press(Message::CommunityReviewFormClosed)
                 .padding([7.0, 12.0])
                 .style(theme::ghost_button),
-                button(text(submit).size(11).font(theme::FONT_MEDIUM))
-                    .on_press_maybe((!busy).then_some(Message::CommunityReviewSubmit))
-                    .padding([7.0, 12.0])
-                    .style(theme::primary_button),
+                button(
+                    text(submit)
+                        .size(theme::TEXT_CAPTION)
+                        .font(theme::FONT_MEDIUM)
+                )
+                .on_press_maybe((!busy).then_some(Message::CommunityReviewSubmit))
+                .padding([7.0, 12.0])
+                .style(theme::primary_button),
             ]
             .spacing(theme::SPACE_2),
         ]
@@ -873,7 +867,7 @@ fn collection_form<'a>(
         visibility = visibility.push(
             button(
                 text(option.label(i18n))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_MEDIUM)
                     .color(if form.visibility == option {
                         theme::TEXT_1
@@ -896,12 +890,12 @@ fn collection_form<'a>(
         row![
             column![
                 text(i18n.t("community.titulo_colecao"))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .color(theme::TEXT_3),
                 text_input(i18n.t("community.titulo_colecao"), &form.title)
                     .on_input(Message::CommunityCollectionTitleChanged)
                     .padding([7.0, 10.0])
-                    .size(12)
+                    .size(theme::TEXT_BODY)
                     .width(Fill)
                     .style(theme::search_input),
             ]
@@ -909,7 +903,7 @@ fn collection_form<'a>(
             .width(Fill),
             column![
                 text(i18n.t("community.visibilidade"))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .color(theme::TEXT_3),
                 visibility,
             ]
@@ -920,7 +914,7 @@ fn collection_form<'a>(
         text_input(i18n.t("community.descricao_opcional"), &form.description)
             .on_input(Message::CommunityCollectionDescriptionChanged)
             .padding([7.0, 10.0])
-            .size(12)
+            .size(theme::TEXT_BODY)
             .width(Fill)
             .style(theme::search_input),
     ]
@@ -946,18 +940,20 @@ fn collection_form<'a>(
             Space::new().width(Fill),
             button(
                 text(i18n.t("common.cancelar"))
-                    .size(11)
+                    .size(theme::TEXT_CAPTION)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::CommunityCollectionFormClosed)
             .padding([7.0, 12.0])
             .style(theme::ghost_button),
-            button(text(submit).size(11).font(theme::FONT_MEDIUM))
-                .on_press_maybe(
-                    (!state.mutation_busy).then_some(Message::CommunityCollectionSubmit),
-                )
-                .padding([7.0, 12.0])
-                .style(theme::primary_button),
+            button(
+                text(submit)
+                    .size(theme::TEXT_CAPTION)
+                    .font(theme::FONT_MEDIUM)
+            )
+            .on_press_maybe((!state.mutation_busy).then_some(Message::CommunityCollectionSubmit),)
+            .padding([7.0, 12.0])
+            .style(theme::primary_button),
         ]
         .spacing(theme::SPACE_2),
     );
@@ -979,10 +975,10 @@ fn confirm_row<'a>(
         CommunityTarget::Collection => i18n.t("community.confirmar_remover_colecao"),
     };
     row![
-        text(question).size(10).color(theme::TEXT_2),
+        text(question).size(theme::TEXT_MICRO).color(theme::TEXT_2),
         button(
             text(i18n.t("community.remover"))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_MEDIUM)
         )
         .on_press_maybe((!busy).then_some(Message::CommunityConfirmAccepted))
@@ -990,7 +986,7 @@ fn confirm_row<'a>(
         .style(theme::ghost_button),
         button(
             text(i18n.t("common.cancelar"))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .font(theme::FONT_MEDIUM)
         )
         .on_press(Message::CommunityConfirmCancelled)
@@ -1012,17 +1008,17 @@ fn report_form<'a>(
         CommunityTarget::Collection => i18n.t("community.prompt_denunciar_colecao"),
     };
     column![
-        text(prompt).size(10).color(theme::TEXT_2),
+        text(prompt).size(theme::TEXT_MICRO).color(theme::TEXT_2),
         row![
             text_input(i18n.t("community.conteudo_inadequado"), &report.reason)
                 .on_input(Message::CommunityReportReasonChanged)
                 .padding([6.0, 9.0])
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .width(Fill)
                 .style(theme::search_input),
             button(
                 text(i18n.t("community.denunciar"))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press_maybe((!busy).then_some(Message::CommunityReportSubmit))
@@ -1030,7 +1026,7 @@ fn report_form<'a>(
             .style(theme::primary_button),
             button(
                 text(i18n.t("common.cancelar"))
-                    .size(10)
+                    .size(theme::TEXT_MICRO)
                     .font(theme::FONT_MEDIUM)
             )
             .on_press(Message::CommunityReportCancelled)
@@ -1046,11 +1042,16 @@ fn report_form<'a>(
 }
 
 fn success_banner(message: &str) -> Element<'_, Message> {
-    container(text(message).size(12).color(theme::SUCCESS).width(Fill))
-        .width(Fill)
-        .padding([10.0, 14.0])
-        .style(theme::stub_panel)
-        .into()
+    container(
+        text(message)
+            .size(theme::TEXT_BODY)
+            .color(theme::SUCCESS)
+            .width(Fill),
+    )
+    .width(Fill)
+    .padding([10.0, 14.0])
+    .style(theme::stub_panel)
+    .into()
 }
 
 fn status_banner<'a>(
@@ -1072,13 +1073,10 @@ fn status_banner<'a>(
     }
 }
 
-fn load_more_button<'a>(
-    i18n: &'a crate::i18n::I18n,
-    tab: CommunityTab,
-) -> Element<'a, Message> {
+fn load_more_button<'a>(i18n: &'a crate::i18n::I18n, tab: CommunityTab) -> Element<'a, Message> {
     button(
         text(i18n.t("native.community.load_more"))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .font(theme::FONT_MEDIUM),
     )
     .on_press(Message::CommunityLoadMore(tab))
@@ -1099,16 +1097,14 @@ fn review_card<'a>(
         .map(format_date)
         .filter(|date| !date.is_empty());
 
-    let mut header = row![
-        text(review.author.as_str())
-            .size(12)
-            .font(theme::FONT_MEDIUM)
-            .color(theme::TEXT_1),
-    ]
+    let mut header = row![text(review.author.as_str())
+        .size(theme::TEXT_BODY)
+        .font(theme::FONT_MEDIUM)
+        .color(theme::TEXT_1),]
     .spacing(8)
     .align_y(iced::Center);
     if !stars.is_empty() {
-        header = header.push(text(stars).size(11).color(theme::WARNING));
+        header = header.push(text(stars).size(theme::TEXT_CAPTION).color(theme::WARNING));
     }
     if let Some(positive) = review.positive {
         header = header.push(badge(
@@ -1117,19 +1113,23 @@ fn review_card<'a>(
             } else {
                 i18n.t("native.community.negative")
             },
-            if positive { theme::SUCCESS } else { theme::DANGER },
+            if positive {
+                theme::SUCCESS
+            } else {
+                theme::DANGER
+            },
         ));
     }
     if let Some(date) = date {
         header = header.push(iced::widget::Space::new().width(Fill));
-        header = header.push(text(date).size(10).color(theme::TEXT_3));
+        header = header.push(text(date).size(theme::TEXT_MICRO).color(theme::TEXT_3));
     }
 
     let mut content = column![header].spacing(6).width(Fill);
     if let Some(title) = review.title.as_deref().filter(|title| !title.is_empty()) {
         content = content.push(
             text(title)
-                .size(13)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_STRONG),
         );
@@ -1140,7 +1140,7 @@ fn review_card<'a>(
         } else {
             review.text.as_str()
         })
-        .size(12)
+        .size(theme::TEXT_BODY)
         .color(theme::TEXT_2)
         .width(Fill),
     );
@@ -1150,7 +1150,7 @@ fn review_card<'a>(
         .map(|hours| format_hours(i18n, hours))
         .unwrap_or_default();
     if !hours.is_empty() {
-        content = content.push(text(hours).size(10).color(theme::TEXT_3));
+        content = content.push(text(hours).size(theme::TEXT_MICRO).color(theme::TEXT_3));
     }
     if state.is_signed_in() {
         content = content.push(review_actions(i18n, review, state));
@@ -1174,9 +1174,11 @@ fn review_actions<'a>(
     ) {
         return confirm_row(i18n, CommunityTarget::Review, state.mutation_busy);
     }
-    if state.report.as_ref().is_some_and(|report| {
-        report.target == CommunityTarget::Review && report.id == review.id
-    }) {
+    if state
+        .report
+        .as_ref()
+        .is_some_and(|report| report.target == CommunityTarget::Review && report.id == review.id)
+    {
         if let Some(report) = state.report.as_ref() {
             return report_form(i18n, report, state.mutation_busy);
         }
@@ -1192,10 +1194,7 @@ fn review_actions<'a>(
         ));
         actions = actions.push(text_action(
             i18n.t("community.remover"),
-            Message::CommunityConfirmRequested(
-                CommunityTarget::Review,
-                review.id.clone(),
-            ),
+            Message::CommunityConfirmRequested(CommunityTarget::Review, review.id.clone()),
             enabled,
         ));
     }
@@ -1207,12 +1206,8 @@ fn review_actions<'a>(
     actions.into()
 }
 
-fn text_action<'a>(
-    label: &'a str,
-    message: Message,
-    enabled: bool,
-) -> Element<'a, Message> {
-    button(text(label).size(10).font(theme::FONT_MEDIUM))
+fn text_action<'a>(label: &'a str, message: Message, enabled: bool) -> Element<'a, Message> {
+    button(text(label).size(theme::TEXT_MICRO).font(theme::FONT_MEDIUM))
         .on_press_maybe(enabled.then_some(message))
         .padding([4.0, 6.0])
         .style(theme::ghost_button)
@@ -1231,7 +1226,7 @@ fn collection_card<'a>(
         .unwrap_or_else(|| i18n.t("community.visibilidade.publica"));
     let mut header = row![
         text(collection.title.as_str())
-            .size(13)
+            .size(theme::TEXT_READ)
             .font(theme::FONT_MEDIUM)
             .color(theme::TEXT_1)
             .width(Fill),
@@ -1251,7 +1246,7 @@ fn collection_card<'a>(
     let mut content = column![
         header,
         text(i18n.t_args("native.community.by_owner", &[("owner", &collection.owner)]))
-            .size(10)
+            .size(theme::TEXT_MICRO)
             .color(theme::TEXT_3),
     ]
     .spacing(5)
@@ -1264,7 +1259,7 @@ fn collection_card<'a>(
     {
         content = content.push(
             text(description)
-                .size(12)
+                .size(theme::TEXT_BODY)
                 .color(theme::TEXT_2)
                 .width(Fill),
         );
@@ -1279,13 +1274,10 @@ fn collection_card<'a>(
             .collect::<Vec<_>>()
             .join(" · ");
         content = content.push(
-            text(i18n.t_args(
-                "native.community.items_preview",
-                &[("preview", &preview)],
-            ))
-            .size(10)
-            .color(theme::TEXT_3)
-            .width(Fill),
+            text(i18n.t_args("native.community.items_preview", &[("preview", &preview)]))
+                .size(theme::TEXT_MICRO)
+                .color(theme::TEXT_3)
+                .width(Fill),
         );
     }
 
@@ -1330,10 +1322,7 @@ fn collection_actions<'a>(
         ));
         actions = actions.push(text_action(
             i18n.t("community.remover"),
-            Message::CommunityConfirmRequested(
-                CommunityTarget::Collection,
-                collection.id.clone(),
-            ),
+            Message::CommunityConfirmRequested(CommunityTarget::Collection, collection.id.clone()),
             enabled,
         ));
         if !state.appid.is_empty() {
@@ -1354,24 +1343,29 @@ fn collection_actions<'a>(
     }
     actions = actions.push(text_action(
         i18n.t("community.denunciar"),
-        Message::CommunityReportRequested(
-            CommunityTarget::Collection,
-            collection.id.clone(),
-        ),
+        Message::CommunityReportRequested(CommunityTarget::Collection, collection.id.clone()),
         enabled,
     ));
     actions.into()
 }
 
 fn badge<'a>(label: impl Into<String>, color: iced::Color) -> Element<'a, Message> {
-    container(text(label.into()).size(10).font(theme::FONT_MEDIUM).color(color))
-        .padding([3.0, 8.0])
-        .style(theme::badge)
-        .into()
+    container(
+        text(label.into())
+            .size(theme::TEXT_MICRO)
+            .font(theme::FONT_MEDIUM)
+            .color(color),
+    )
+    .padding([3.0, 8.0])
+    .style(theme::badge)
+    .into()
 }
 
 fn hint<'a>(message: impl Into<String>, color: iced::Color) -> Element<'a, Message> {
-    text(message.into()).size(11).color(color).into()
+    text(message.into())
+        .size(theme::TEXT_CAPTION)
+        .color(color)
+        .into()
 }
 
 fn rating_stars(review: &CommunityReview) -> String {

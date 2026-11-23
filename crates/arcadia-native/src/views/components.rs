@@ -8,6 +8,7 @@
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Fill};
 
+use super::icons::{icon, Icon};
 use crate::app::{
     App, ComponentsState, LoadStatus, Message, PluginDetailsPanel, PluginNotice, Section,
 };
@@ -18,18 +19,20 @@ use crate::views;
 pub fn view(app: &App) -> Element<'_, Message> {
     let state = &app.components;
     let i18n = &app.i18n;
-    let header = views::page_header_labeled(
+    let header = views::page_header(
         i18n.t("sidebar.plugins"),
         i18n.t("native.components.subtitle"),
         Some(i18n.t_args(
             "native.components.count",
             &[("count", &state.plugins.len().to_string())],
         )),
-        Some(Message::Refresh(Section::Components)),
-        i18n.t("native.refresh"),
+        None,
     );
 
     let body: Element<'_, Message> = match &state.status {
+        LoadStatus::Loading | LoadStatus::Error(_) if !state.plugins.is_empty() => {
+            ready_body(app, state)
+        }
         LoadStatus::Idle | LoadStatus::Loading => {
             views::loading_state(i18n.t("native.components.loading"))
         }
@@ -48,33 +51,140 @@ pub fn view(app: &App) -> Element<'_, Message> {
     column![header, body].width(Fill).height(Fill).into()
 }
 
+/// Campo da chave Hubcap, o mesmo bloco da `StoreSetup.tsx`: senha, Salvar
+/// ciano e Validar com borda. Sem essa chave o LuaTools não baixa o
+/// manifesto e a injeção na Steam fica sem as chaves de depot.
+///
+/// Fica em Configurações → Integrações, que é onde a web coloca o
+/// `StoreSetup`.
+pub(crate) fn hubcap_key_card<'a>(app: &'a App) -> Element<'a, Message> {
+    let state = &app.components;
+    let draft = if state.hubcap_draft.is_empty() {
+        app.settings
+            .config
+            .as_ref()
+            .map(|config| config.hubcap_api_key.as_str())
+            .unwrap_or("")
+    } else {
+        state.hubcap_draft.as_str()
+    };
+    let i18n = &app.i18n;
+    let busy = state.hubcap_saving || state.hubcap_validating;
+    let save_label = if state.hubcap_saving {
+        i18n.t("store_setup.validando")
+    } else {
+        i18n.t("common.salvar")
+    };
+    let validate_label = if state.hubcap_validating {
+        i18n.t("store_setup.validando")
+    } else {
+        i18n.t("store_setup.validar")
+    };
+
+    let mut save = button(
+        text(save_label)
+            .size(12.0)
+            .font(theme::FONT_BOLD)
+            .color(iced::Color::BLACK),
+    )
+    .padding([10.0, 16.0])
+    .style(theme::hubcap_save_button);
+    if !busy {
+        save = save.on_press(Message::HubcapKeySave);
+    }
+
+    let mut validate = button(
+        text(validate_label)
+            .size(12.0)
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.80)),
+    )
+    .padding([10.0, 14.0])
+    .style(theme::hubcap_validate_button);
+    if !busy {
+        validate = validate.on_press(Message::HubcapKeyValidate);
+    }
+
+    let mut body = column![
+        text(i18n.t("store_setup.chave_hubcap"))
+            .size(13.0)
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.70)),
+        row![
+            text_input(i18n.t("store_setup.hubcap_placeholder"), draft)
+                .on_input(Message::HubcapKeyChanged)
+                .secure(true)
+                .padding([10.0, 14.0])
+                .size(13.0)
+                .width(Fill)
+                .style(theme::search_input),
+            save,
+            validate,
+        ]
+        .spacing(8)
+        .align_y(iced::Center),
+        text(i18n.t("store_setup.hubcap_dica"))
+            .size(11.0)
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.35)),
+    ]
+    .spacing(6)
+    .width(Fill);
+
+    if let Some(stats) = state.hubcap_stats.as_ref() {
+        if stats.error.is_none() {
+            let usage = stats.daily_usage.unwrap_or(0);
+            let limit = stats
+                .daily_limit
+                .map(|limit| limit.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let line = match stats.username.as_deref() {
+                Some(name) => format!("{name} · {usage}/{limit}"),
+                None => format!("{usage}/{limit}"),
+            };
+            body = body.push(text(line).size(12.0).color(theme::TEXT_2));
+        }
+    }
+
+    if let Some(test) = state.hubcap_test.as_deref() {
+        let key = match test {
+            "ok" => "store_setup.teste_ok",
+            "invalida" | "chave_invalida" => "store_setup.teste_invalida",
+            "sem_chave" => "store_setup.teste_sem_chave",
+            _ => "store_setup.teste_indisponivel",
+        };
+        let color = if test == "ok" {
+            theme::SUCCESS
+        } else {
+            theme::WARNING
+        };
+        body = body.push(text(i18n.t(key)).size(11.0).color(color));
+    } else if let Some(notice) = state.hubcap_notice.as_deref() {
+        body = body.push(text(notice).size(12.0).color(theme::TEXT_2));
+    }
+
+    container(body)
+        .width(Fill)
+        .padding(16)
+        .style(theme::panel)
+        .into()
+}
+
 fn ready_body<'a>(app: &'a App, state: &'a ComponentsState) -> Element<'a, Message> {
     let i18n = &app.i18n;
-    let mut content = column![
-        text(i18n.t("native.components.intro"))
-            .size(12)
-            .color(theme::TEXT_2)
-            .width(Fill),
-    ]
-    .spacing(theme::SPACE_3)
-    .width(Fill);
+    let mut content = column![].spacing(theme::SPACE_3).width(Fill);
 
     if let Some(banner) = state.banner.as_ref() {
         content = content.push(notice_banner(banner));
     }
-
-    content = content.push(register_panel(app, state));
 
     if state.plugins.is_empty() {
         content = content.push(
             container(
                 column![
                     text(i18n.t("native.components.empty_title"))
-                        .size(14)
+                        .size(theme::TEXT_READ)
                         .font(theme::FONT_MEDIUM)
                         .color(theme::TEXT_STRONG),
                     text(i18n.t("native.components.empty_desc"))
-                        .size(12)
+                        .size(theme::TEXT_BODY)
                         .color(theme::TEXT_2),
                 ]
                 .spacing(4),
@@ -89,9 +199,11 @@ fn ready_body<'a>(app: &'a App, state: &'a ComponentsState) -> Element<'a, Messa
         }
     }
 
+    content = content.push(register_panel(app, state));
+
     content = content.push(
         text(i18n.t("native.components.footer_note"))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3)
             .width(Fill),
     );
@@ -111,50 +223,63 @@ fn register_panel<'a>(app: &'a App, state: &'a ComponentsState) -> Element<'a, M
     let can_register =
         !state.registering && state.busy.is_none() && !state.path_draft.trim().is_empty();
     let mut register_button = button(
-        text(if state.registering {
-            i18n.t("native.components.registering")
-        } else {
-            i18n.t("native.components.register")
-        })
-        .size(12)
-        .font(theme::FONT_MEDIUM),
+        container(
+            text(if state.registering {
+                i18n.t("native.components.registering")
+            } else {
+                i18n.t("native.components.register")
+            })
+            .size(theme::TEXT_BODY)
+            .font(theme::FONT_MEDIUM),
+        )
+        .height(Fill)
+        .align_y(iced::Center),
     )
-    .padding([10.0, 16.0])
-    .style(theme::primary_button);
+    .height(theme::CONTROL_HEIGHT)
+    .padding([0.0, theme::SPACE_4])
+    .style(theme::component_primary_button);
     if can_register {
         register_button = register_button.on_press(Message::PluginRegisterRequested);
     }
 
+    let field: Element<'a, Message> = text_input(
+        i18n.t("native.components.path_placeholder"),
+        &state.path_draft,
+    )
+    .on_input(Message::PluginPathChanged)
+    .on_submit(Message::PluginRegisterRequested)
+    .padding([theme::SPACE_2, theme::SPACE_3])
+    .size(theme::TEXT_BODY)
+    .width(Fill)
+    .style(theme::search_input)
+    .into();
+    let form: Element<'a, Message> =
+        if app.window_size.width - theme::SIDEBAR_WIDTH < theme::COMPONENT_COMPACT_WIDTH {
+            column![field, register_button]
+                .spacing(theme::SPACE_2)
+                .into()
+        } else {
+            row![field, register_button]
+                .spacing(theme::SPACE_2)
+                .align_y(iced::Center)
+                .into()
+        };
     container(
         column![
             text(i18n.t("native.components.add_title"))
-                .size(13)
+                .size(theme::TEXT_READ)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_STRONG),
             text(i18n.t("native.components.add_desc"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3),
-            row![
-                text_input(
-                    i18n.t("native.components.path_placeholder"),
-                    &state.path_draft
-                )
-                    .on_input(Message::PluginPathChanged)
-                    .on_submit(Message::PluginRegisterRequested)
-                    .padding([10.0, 14.0])
-                    .size(12)
-                    .width(Fill)
-                    .style(theme::search_input),
-                register_button,
-            ]
-            .spacing(8)
-            .align_y(iced::Center),
+            form,
         ]
         .spacing(theme::SPACE_2)
         .width(Fill),
     )
     .width(Fill)
-    .padding(14)
+    .padding(theme::SPACE_4)
     .style(theme::empty_panel)
     .into()
 }
@@ -189,36 +314,66 @@ fn plugin_card<'a>(
     if busy {
         statuses = statuses.push(
             text(i18n.t("native.components.busy"))
-                .size(10)
-                .color(theme::TEXT_3),
-        );
-    } else if plugin.enabled {
-        statuses = statuses.push(
-            text(i18n.t("native.components.load_next_boot"))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
         );
     }
 
+    let (name, description) = match plugin.id.as_str() {
+        "slssteam" => (
+            i18n.t("plugins.slssteam_nome"),
+            i18n.t("plugins.slssteam_desc"),
+        ),
+        "luatools-fixes" => (
+            i18n.t("plugins.luatools_nome"),
+            i18n.t("plugins.luatools_desc"),
+        ),
+        _ => (plugin.name.as_str(), plugin.description.as_str()),
+    };
+    let identity = column![
+        text(name)
+            .size(theme::TEXT_LABEL)
+            .font(theme::FONT_SEMIBOLD)
+            .color(theme::TEXT_1),
+        text(plugin.id.as_str())
+            .size(theme::TEXT_MICRO)
+            .color(theme::TEXT_3),
+    ]
+    .spacing(theme::SPACE_1)
+    .width(Fill);
+    let header = row![
+        container(icon(
+            if plugin.id == "slssteam" {
+                Icon::Grid
+            } else {
+                Icon::Plugin
+            },
+            theme::SPACE_5,
+            0.85
+        ))
+        .padding(theme::SPACE_3)
+        .style(theme::badge),
+        identity,
+    ]
+    .spacing(theme::SPACE_3)
+    .align_y(iced::Center);
+    let heading: Element<'a, Message> =
+        if app.window_size.width - theme::SIDEBAR_WIDTH < theme::COMPONENT_COMPACT_WIDTH {
+            column![header, statuses].spacing(theme::SPACE_2).into()
+        } else {
+            row![header, statuses]
+                .spacing(theme::SPACE_3)
+                .align_y(iced::Center)
+                .into()
+        };
     let mut content = column![
-        row![
-            text(plugin.name.as_str())
-                .size(15)
-                .font(theme::FONT_MEDIUM)
-                .color(theme::TEXT_1),
-            text(format!("· {}", plugin.id))
-                .size(10)
-                .color(theme::TEXT_3),
-        ]
-        .spacing(6)
-        .align_y(iced::Center),
-        text(plugin.description.as_str())
-            .size(12)
+        heading,
+        text(description)
+            .size(theme::TEXT_BODY)
             .color(theme::TEXT_2)
             .width(Fill),
-        statuses,
     ]
-    .spacing(6)
+    .spacing(theme::SPACE_3)
     .width(Fill);
 
     let mut actions = row![].spacing(8).align_y(iced::Center);
@@ -248,7 +403,7 @@ fn plugin_card<'a>(
                 id: plugin.id.clone(),
                 action: PluginAction::Enable,
             },
-            can_act,
+            can_act && plugin.installed,
             true,
         ));
         actions = actions.push(action_button(
@@ -268,7 +423,11 @@ fn plugin_card<'a>(
         false,
     ));
     actions = actions.push(action_button(
-        if details_open { i18n.t("common.fechar") } else { i18n.t("gameoverview.detalhes") },
+        if details_open {
+            i18n.t("common.fechar")
+        } else {
+            i18n.t("gameoverview.detalhes")
+        },
         if details_open {
             Message::PluginDetailsClose
         } else {
@@ -286,12 +445,12 @@ fn plugin_card<'a>(
         can_act,
         false,
     ));
-    content = content.push(actions);
+    content = content.push(actions.wrap());
 
     if let Some(notice) = state.notices.get(&plugin.id) {
         content = content.push(
             text(notice.message.as_str())
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(if notice.ok {
                     theme::SUCCESS
                 } else {
@@ -309,8 +468,8 @@ fn plugin_card<'a>(
 
     container(content)
         .width(Fill)
-        .padding(14)
-        .style(theme::stub_panel)
+        .padding(theme::SPACE_4)
+        .style(move |theme| theme::component_panel(theme, plugin.enabled))
         .into()
 }
 
@@ -318,18 +477,18 @@ fn details_panel<'a>(app: &'a App, panel: &'a PluginDetailsPanel) -> Element<'a,
     let i18n = &app.i18n;
     let body: Element<'a, Message> = match &panel.status {
         LoadStatus::Idle | LoadStatus::Loading => text(i18n.t("native.components.details_loading"))
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_3)
             .into(),
         LoadStatus::Error(error) => text(error.as_str())
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::DANGER)
             .width(Fill)
             .into(),
         LoadStatus::Ready => match panel.details.as_ref() {
             Some(details) => details_body(app, details),
             None => text(i18n.t("native.components.no_details"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .color(theme::TEXT_3)
                 .into(),
         },
@@ -338,7 +497,7 @@ fn details_panel<'a>(app: &'a App, panel: &'a PluginDetailsPanel) -> Element<'a,
     container(
         column![
             text(i18n.t("gameoverview.detalhes"))
-                .size(11)
+                .size(theme::TEXT_CAPTION)
                 .font(theme::FONT_MEDIUM)
                 .color(theme::TEXT_3),
             body,
@@ -358,11 +517,19 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
         row![
             badge(
                 if details.valid {
-                    i18n.t("native.components.valid")
+                    if details.source == "builtin" {
+                        i18n.t("native.components.metadata_valid")
+                    } else {
+                        i18n.t("native.components.valid")
+                    }
                 } else {
                     i18n.t("native.components.invalid")
                 },
-                if details.valid { theme::SUCCESS } else { theme::DANGER }
+                if details.valid {
+                    theme::SUCCESS
+                } else {
+                    theme::DANGER
+                }
             ),
             badge(
                 if details.installed {
@@ -370,7 +537,11 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
                 } else {
                     i18n.t("native.components.not_detected")
                 },
-                if details.installed { theme::SUCCESS } else { theme::WARNING }
+                if details.installed {
+                    theme::SUCCESS
+                } else {
+                    theme::WARNING
+                }
             ),
             badge(
                 if details.enabled {
@@ -396,10 +567,10 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
                 i18n.t("native.components.unsigned")
             }
         ))
-        .size(10)
+        .size(theme::TEXT_MICRO)
         .color(theme::TEXT_3),
         text(details.description.as_str())
-            .size(11)
+            .size(theme::TEXT_CAPTION)
             .color(theme::TEXT_2)
             .width(Fill),
     ]
@@ -409,7 +580,7 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
     if let Some(version) = details.version.as_deref() {
         content = content.push(
             text(i18n.t_args("native.components.version", &[("version", version)]))
-                .size(10)
+                .size(theme::TEXT_MICRO)
                 .color(theme::TEXT_3),
         );
     }
@@ -419,9 +590,9 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
                 "native.components.permissions",
                 &[("list", &details.permissions.join(", "))],
             ))
-            .size(10)
-                .color(theme::TEXT_3)
-                .width(Fill),
+            .size(theme::TEXT_MICRO)
+            .color(theme::TEXT_3)
+            .width(Fill),
         );
     }
     if !details.error.is_empty() {
@@ -430,9 +601,9 @@ fn details_body<'a>(app: &'a App, details: &'a PluginDetails) -> Element<'a, Mes
                 "native.components.registry_error",
                 &[("error", &details.error)],
             ))
-            .size(10)
-                .color(theme::DANGER)
-                .width(Fill),
+            .size(theme::TEXT_MICRO)
+            .color(theme::DANGER)
+            .width(Fill),
         );
     }
 
@@ -445,13 +616,22 @@ fn action_button<'a>(
     enabled: bool,
     primary: bool,
 ) -> Element<'a, Message> {
-    let mut control = button(text(label).size(11).font(theme::FONT_MEDIUM))
-        .padding([6.0, 12.0])
-        .style(if primary {
-            theme::primary_button
-        } else {
-            theme::ghost_button
-        });
+    let mut control = button(
+        container(
+            text(label)
+                .size(theme::TEXT_CAPTION)
+                .font(theme::FONT_MEDIUM),
+        )
+        .height(Fill)
+        .align_y(iced::Center),
+    )
+    .height(theme::CONTROL_HEIGHT)
+    .padding([0.0, theme::SPACE_3])
+    .style(if primary {
+        theme::component_primary_button
+    } else {
+        theme::ghost_button
+    });
     if enabled {
         control = control.on_press(message);
     }
@@ -466,7 +646,7 @@ fn notice_banner(notice: &PluginNotice) -> Element<'_, Message> {
     };
     container(
         text(notice.message.as_str())
-            .size(12)
+            .size(theme::TEXT_BODY)
             .color(if notice.ok {
                 theme::SUCCESS
             } else {
@@ -481,8 +661,13 @@ fn notice_banner(notice: &PluginNotice) -> Element<'_, Message> {
 }
 
 fn badge<'a>(label: &'a str, color: iced::Color) -> Element<'a, Message> {
-    container(text(label).size(10).font(theme::FONT_MEDIUM).color(color))
-        .padding([3.0, 8.0])
-        .style(theme::badge)
-        .into()
+    container(
+        text(label)
+            .size(theme::TEXT_MICRO)
+            .font(theme::FONT_MEDIUM)
+            .color(color),
+    )
+    .padding([3.0, 8.0])
+    .style(theme::badge)
+    .into()
 }

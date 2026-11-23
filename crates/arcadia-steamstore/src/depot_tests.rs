@@ -313,6 +313,31 @@ fn install_info_without_depots_is_the_frozen_error() {
 }
 
 #[test]
+fn provider_archive_only_accepts_binary_manifests_for_the_lua_depots() {
+    use std::io::Write;
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in [
+        ("nested/730.lua", b"addappid(730)\nsetManifestid(731, \"111\")\nsetManifestid(732, \"222\")\n".as_slice()),
+        ("nested/731_111.manifest", b"binary manifest".as_slice()),
+        ("nested/732_999.manifest", b"wrong version".as_slice()),
+        ("../unrelated.manifest", b"unrelated".as_slice()),
+    ] {
+        writer.start_file(name, options).unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    let bytes = writer.finish().unwrap().into_inner();
+    let archive = parse_provider_archive(&bytes, "730").unwrap();
+    assert_eq!(archive.files.len(), 1);
+    assert_eq!(archive.files[0].0, "731_111.manifest");
+    let merged = merge_provider_manifests(&[archive.provider]);
+    let response = install_info_from_merged("730", merged, None, &[]);
+    assert!(response.ok);
+    assert_eq!(response.depots.unwrap().iter().map(|depot| depot.depot_id.as_str()).collect::<Vec<_>>(), ["731"]);
+    assert!(parse_provider_archive(b"invalid zip", "730").is_err());
+}
+
+#[test]
 fn depot_picker_groups_base_languages_and_dlcs_in_order() {
     let depots = vec![
         depot("730", Some("windows"), None, None, Some("Game"), false),

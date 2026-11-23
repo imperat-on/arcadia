@@ -4142,9 +4142,10 @@ mod download_service_tests {
         wait_until(|| std::fs::metadata(&part).is_ok_and(|metadata| metadata.len() == 5)).await;
         wait_until(|| service.torrent_snapshot()[0]["bytesDownloaded"] == 5).await;
         assert!(service.torrent_snapshot()[0]["downloadSpeed"].as_f64().unwrap() > 0.0);
-        assert_eq!(service.torrent_pause(&json!("abc")), ok_envelope());
+        assert_eq!(service.handle("torrent:pause", &[json!("tor:abc")]), Some(ok_envelope()));
         assert_eq!(service.torrent_snapshot()[0]["pausado"], true);
-        assert_eq!(service.torrent_resume(&json!("abc")), ok_envelope());
+        assert_eq!(std::fs::metadata(&part).unwrap().len(), 5);
+        assert_eq!(service.handle("torrent:resume", &[json!("tor:abc")]), Some(ok_envelope()));
         wait_until(|| service.torrent_snapshot()[0]["completo"] == true).await;
         assert_eq!(std::fs::read(fixture.dir.join("out/slow.bin")).unwrap(), b"hello-world");
         assert!(!part.exists());
@@ -4173,7 +4174,7 @@ mod download_service_tests {
         assert_eq!(service.torrent_start(&json!({"gameId": "http", "url": http.url("/slow.bin"), "savePath": fixture.dir.join("out").to_string_lossy()})), ok_envelope());
         let part = fixture.dir.join("out/slow.bin.part");
         wait_until(|| std::fs::metadata(&part).is_ok_and(|metadata| metadata.len() == 5)).await;
-        assert_eq!(service.torrent_cancel(&json!("http")), ok_envelope());
+        assert_eq!(service.handle("torrent:cancel", &[json!("tor:http")]), Some(ok_envelope()));
         wait_until(|| !part.exists()).await;
         assert!(service.torrent_snapshot().is_empty());
         assert!(!fixture.dir.join("out/slow.bin").exists());
