@@ -68,13 +68,13 @@ case "$TARGET_DIR" in
     *) TARGET_DIR="$SOURCE/$TARGET_DIR" ;;
 esac
 echo '==> Compilando o Arcadia'
-( cd "$SOURCE" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad )
+( cd "$SOURCE" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad -p arcadia-source-helper )
 
 BIN_DIR="$DATA_DIR/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 mkdir -p "$BIN_DIR/resources/torrent_rpc" "$DESKTOP_DIR" "$ICON_DIR"
-install -m 0755 "$TARGET_DIR/release/arcadia-native" "$TARGET_DIR/release/arcadia-gamepad" "$BIN_DIR/"
+install -m 0755 "$TARGET_DIR/release/arcadia-native" "$TARGET_DIR/release/arcadia-gamepad" "$TARGET_DIR/release/arcadia-source-helper" "$BIN_DIR/"
 install -m 0644 "$SOURCE/boot.mp4" "$BIN_DIR/"
 install -m 0644 "$SOURCE/resources/torrent_rpc/main.py" \
     "$SOURCE/resources/torrent_rpc/torrent_downloader.py" "$BIN_DIR/resources/torrent_rpc/"

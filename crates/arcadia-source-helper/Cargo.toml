@@ -1,0 +1,20 @@
+[package]
+name = "arcadia-source-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Helper isolado de verificação de fontes (GTK/WebKitGTK) do Arcadia Native"
+
+[[bin]]
+name = "arcadia-source-helper"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+url = "2"
+
+# Só o helper abre GTK/WebKit. O binário principal do Arcadia Native continua
+# iced/wgpu e não carrega a pilha gráfica do WebKit no startup.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+webkit2gtk = { version = "2.0", features = ["v2_38"] }

@@ -24,6 +24,7 @@ members = [
     "crates/arcadia-ipc",
     "crates/arcadia-native",
     "crates/arcadia-native-input",
+    "crates/arcadia-source-helper",
 ]
 
 [workspace.package]

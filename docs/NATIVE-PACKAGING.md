@@ -1,7 +1,7 @@
 # Empacotamento do Arcadia no Linux e Windows
 
 O `arcadia-native` roda as interfaces Desktop e Big Picture em Rust com iced.
-Os scripts geram um tarball Linux e um zip Windows.
+Os scripts geram um tarball Linux, um AppImage Linux e um zip Windows.
 
 ## Build e execução
 
@@ -15,6 +15,13 @@ Check e testes rápidos (dentro de worktrees, use o wrapper de
 ```bash
 cargo check -p arcadia-native
 cargo test -p arcadia-native
+```
+
+Para testar a verificação de fontes com desafio JavaScript, compile também o
+helper; o app procura `arcadia-source-helper` ao lado do executável:
+
+```bash
+cargo build -p arcadia-native -p arcadia-source-helper
 ```
 
 O app restaura a sessão salva na pasta de dados. Sem sessão, abre com a
@@ -33,7 +40,7 @@ Além do toolchain Rust estável:
 | GStreamer 1.0 core | `arcadia-native-media` | `libgstreamer1.0-dev` |
 | GStreamer app/video | `appsink`, caps de vídeo | `libgstreamer-plugins-base1.0-dev` |
 | `libudev` | gamepad (`gilrs`) | `libudev-dev` |
-| GTK 3 e WebKitGTK 4.1 | janela isolada de verificação de fontes | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` |
+| GTK 3 e WebKitGTK 4.1 | helper isolado de verificação de fontes (`arcadia-source-helper`); a UI principal não usa webview | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev` |
 | dav1d 1.3 ou mais novo | decodificação de capas AVIF | `libdav1d-dev` |
 | `pkg-config` | descoberta das libs acima | `pkg-config` |
 
@@ -99,6 +106,22 @@ Também são necessários:
 
 Fontes do sistema não são obrigatórias para a interface: a Inter vai embutida.
 
+### AppImage Linux
+
+O AppImage (`scripts/package-native-appimage.sh`) embute o GStreamer do host
+de build — core, plugins e codecs — em `usr/lib/arcadia-gst`. O `AppRun` isola
+`GST_PLUGIN_SYSTEM_PATH_1_0` e `GST_PLUGIN_SCANNER`, então o player usa sempre a
+mesma versão, independente da distro do usuário. O script valida o bundle com
+`gst-inspect-1.0` e toca um MP4 real antes de gerar a imagem.
+
+GTK/WebKit **não** entram no AppImage: são usados apenas pelo
+`arcadia-source-helper`, que fica em `usr/bin` e roda em processo separado.
+Sem GTK/WebKit no host, a UI principal e os vídeos continuam funcionando; só a
+verificação de fonte com desafio JavaScript fica indisponível.
+
+O binário principal não carrega GTK/WebKit no startup: a UI é iced/wgpu e o
+helper só é spawnado quando uma fonte responde com desafio Cloudflare.
+
 ### Windows
 
 O zip pode levar o runtime GStreamer embutido (quando empacotado com
@@ -123,13 +146,23 @@ instalador). `arcadia-native.exe` sozinho não acha as DLLs em `gstreamer\bin`.
 
 ```bash
 ./scripts/package-native-linux.sh
+./scripts/package-native-appimage.sh
 ```
 
-O script roda `cargo build --locked --release -p arcadia-native -p arcadia-gamepad` (respeitando
-`CARGO_BUILD_JOBS` e `CARGO_TARGET_DIR`) e gera, em `dist/native-linux/`:
+O primeiro script roda `cargo build --locked --release -p arcadia-native -p arcadia-gamepad -p arcadia-source-helper`
+(respeitando `CARGO_BUILD_JOBS` e `CARGO_TARGET_DIR`) e gera, em
+`dist/native-linux/`:
 
 ```text
 arcadia-native-<versao>-linux-<arch>.tar.gz
+SHA256SUMS
+```
+
+O segundo gera o AppImage com GStreamer embutido em
+`dist/native-linux/appimage/`:
+
+```text
+arcadia-native-<versao>-linux-<arch>.AppImage
 SHA256SUMS
 ```
 
@@ -139,6 +172,7 @@ Dentro do tarball, tudo em uma pasta `arcadia-native-<versao>-linux-<arch>/`:
 |---|---|
 | `arcadia-native` | binário release |
 | `arcadia-gamepad` | auxiliar de controle para jogos no Linux |
+| `arcadia-source-helper` | janela isolada de verificação de fontes (GTK/WebKit; opcional em runtime) |
 | `boot.mp4` | tela de abertura (se existir no checkout) |
 | `arcadia-native.desktop` | atalho X11/Wayland |
 | `arcadia-native.png` | ícone 512×512 |

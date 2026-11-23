@@ -18,8 +18,10 @@ Download the native archive from a GitHub Actions build for your system. See
 dependencies and installation steps.
 
 - **Linux** — extract `arcadia-native-<version>-linux-<arch>.tar.gz` and run
-  `./arcadia-native` in the extracted directory. From a source checkout,
-  `./install.sh` builds the app and adds it to the application menu.
+  `./arcadia-native` in the extracted directory. The
+  `arcadia-native-<version>-linux-<arch>.AppImage` bundles GStreamer and runs
+  directly (`chmod +x` once). From a source checkout, `./install.sh` builds the
+  app and adds it to the application menu.
 - **Windows** — extract `arcadia-native-<version>-windows-x86_64.zip` and run
   `run-arcadia-native.cmd` when the archive bundles GStreamer. For an archive
   without the runtime, install GStreamer and run `arcadia-native.exe`.
@@ -45,7 +47,8 @@ with its SHA-256 checksum:
 
 | Platform | Command | Output |
 |---|---|---|
-| Linux | `./scripts/package-native-linux.sh` | `dist/native-linux/` |
+| Linux (tarball) | `./scripts/package-native-linux.sh` | `dist/native-linux/` |
+| Linux (AppImage) | `./scripts/package-native-appimage.sh` | `dist/native-linux/appimage/` |
 | Windows | `pwsh -File ./scripts/package-native-windows.ps1` | `dist/native-windows/` |
 
 ## Architecture
@@ -53,6 +56,7 @@ with its SHA-256 checksum:
 | Crate | Role |
 |---|---|
 | `arcadia-native` | Desktop and Big Picture, navigation and display |
+| `arcadia-source-helper` | Isolated WebKit window for source verification challenges (Linux) |
 | `arcadia-native-media`, `arcadia-native-input` | GStreamer playback and controller navigation |
 | `arcadia-ipc` | Application commands, called directly from the native interface |
 | `arcadia-contracts` | Shared data and synchronization contracts |

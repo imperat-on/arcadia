@@ -106,6 +106,7 @@ rm -f "$ICONS/arcadia.png" "$ICONS/arcadia-native.png"
 rm -f "$PIXMAPS/arcadia.png" "$PIXMAPS/arcadia-native.png"
 if [ -x "$HOME/.local/bin/arcadia-native" ]; then
     rm -f "$HOME/.local/bin/arcadia-native" "$HOME/.local/bin/arcadia-gamepad" \
+        "$HOME/.local/bin/arcadia-source-helper" \
         "$HOME/.local/bin/boot.mp4" "$HOME/.local/bin/resources/torrent_rpc/main.py" \
         "$HOME/.local/bin/resources/torrent_rpc/torrent_downloader.py"
     rmdir "$HOME/.local/bin/resources/torrent_rpc" "$HOME/.local/bin/resources" 2>/dev/null || true

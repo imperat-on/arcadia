@@ -3,7 +3,7 @@ name = "arcadia-native"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Frontend nativo do Arcadia em Rust puro (iced), sem Tauri e sem webview"
+description = "Frontend nativo do Arcadia em Rust puro (iced), sem Tauri e sem webview na interface"
 
 [dependencies]
 arcadia-api = { path = "../arcadia-api" }
@@ -44,9 +44,3 @@ base64 = "0.23"
 sha2 = "0.10"
 async-trait = "0.1"
 # Seletor nativo via zenity/kdialog (sem GTK/rfd). Ver `src/picker.rs`.
-
-# Apenas a janela isolada de verificação de fontes usa WebKitGTK. A interface
-# principal continua iced; o helper roda em outro processo/main loop.
-[target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
-webkit2gtk = { version = "2.0", features = ["v2_38"] }

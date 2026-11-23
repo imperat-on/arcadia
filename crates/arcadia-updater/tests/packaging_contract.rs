@@ -51,7 +51,7 @@ fn linux_tarball_contains_the_app_and_resources_and_matches_its_checksum() {
     )));
     let release = scratch.0.join("target/release");
     fs::create_dir_all(&release).unwrap();
-    for name in ["arcadia-native", "arcadia-gamepad"] {
+    for name in ["arcadia-native", "arcadia-gamepad", "arcadia-source-helper"] {
         let path = release.join(name);
         fs::write(&path, b"#!/bin/sh\nexit 0\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -67,6 +67,7 @@ fn linux_tarball_contains_the_app_and_resources_and_matches_its_checksum() {
         .env_remove("ARCADIA_NATIVE_ICON")
         .env_remove("ARCADIA_NATIVE_VERSION")
         .env_remove("ARCADIA_GAMEPAD_BIN")
+        .env_remove("ARCADIA_SOURCE_HELPER_BIN")
         .output()
         .expect("executar empacotamento Linux");
     assert!(
@@ -95,6 +96,7 @@ fn linux_tarball_contains_the_app_and_resources_and_matches_its_checksum() {
     for entry in TORRENT_WORKER_FILES.into_iter().chain([
         "arcadia-native",
         "arcadia-gamepad",
+        "arcadia-source-helper",
         "boot.mp4",
         "arcadia-native.desktop",
         "arcadia-native.png",

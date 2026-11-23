@@ -16,8 +16,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad gstreamer1.0-libav \
-            libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+            gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools \
+            libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev file
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -45,6 +45,18 @@ jobs:
           path: |
             dist/native-linux/*.tar.gz
             dist/native-linux/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Empacotar AppImage com GStreamer embutido
+        run: ./scripts/package-native-appimage.sh --skip-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcadia-native-appimage
+          path: |
+            dist/native-linux/appimage/*.AppImage
+            dist/native-linux/appimage/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
 

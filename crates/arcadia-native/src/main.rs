@@ -41,9 +41,6 @@ fn bundled_torrent_worker(executable: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn main() -> iced::Result {
-    if source_browser::run_helper_if_requested() {
-        return Ok(());
-    }
     let data_dir = arcadia_store::paths::resolve_data_dir();
     if let Err(error) = std::fs::create_dir_all(&data_dir) {
         eprintln!(
