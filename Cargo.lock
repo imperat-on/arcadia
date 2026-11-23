@@ -305,7 +305,6 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "chrono",
- "gtk",
  "iced",
  "image",
  "reqwest",
@@ -313,7 +312,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
- "webkit2gtk",
 ]
 
 [[package]]
@@ -390,6 +388,16 @@ dependencies = [
  "tokio",
  "url",
  "wiremock",
+]
+
+[[package]]
+name = "arcadia-source-helper"
+version = "1.6.0"
+dependencies = [
+ "gtk",
+ "serde_json",
+ "url",
+ "webkit2gtk",
 ]
 
 [[package]]

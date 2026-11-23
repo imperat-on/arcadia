@@ -2,7 +2,8 @@
 # Empacotamento Linux do Arcadia (Rust + iced).
 #
 # Gera um tarball portátil em dist/native-linux/ com o binário release,
-# wrapper de gamepad, worker torrent, boot.mp4, atalho .desktop e ícone.
+# wrapper de gamepad, helper de verificação de fontes (GTK/WebKit), worker
+# torrent, boot.mp4, atalho .desktop e ícone.
 # O SHA256SUMS fica ao lado do tarball.
 #
 # Uso:
@@ -13,6 +14,7 @@
 # Variáveis:
 #   ARCADIA_NATIVE_BIN       binário alternativo (útil com --skip-build)
 #   ARCADIA_GAMEPAD_BIN      wrapper de gamepad alternativo (com --skip-build)
+#   ARCADIA_SOURCE_HELPER_BIN helper de verificação alternativo (com --skip-build)
 #   ARCADIA_NATIVE_VERSION   sobrescreve a versão lida do workspace
 #   ARCADIA_NATIVE_ICON      sobrescreve o ícone procurado no repositório
 #   CARGO_BUILD_JOBS         repassado ao Cargo, se definido
@@ -89,6 +91,11 @@ case "$GAMEPAD" in
     /*) ;;
     *) GAMEPAD="$ROOT/$GAMEPAD" ;;
 esac
+HELPER="${ARCADIA_SOURCE_HELPER_BIN:-$TARGET_DIR/release/arcadia-source-helper}"
+case "$HELPER" in
+    /*) ;;
+    *) HELPER="$ROOT/$HELPER" ;;
+esac
 
 # --- Build ------------------------------------------------------------------
 
@@ -97,11 +104,11 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
         echo "erro: cargo não encontrado no PATH" >&2
         exit 1
     }
-    echo "==> cargo build --locked --release -p arcadia-native -p arcadia-gamepad"
+    echo "==> cargo build --locked --release -p arcadia-native -p arcadia-gamepad -p arcadia-source-helper"
     if [ -n "${CARGO_BUILD_JOBS:-}" ]; then
         echo "    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
     fi
-    ( cd "$ROOT" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad )
+    ( cd "$ROOT" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --locked --release -p arcadia-native -p arcadia-gamepad -p arcadia-source-helper )
 fi
 
 if [ ! -f "$BIN" ]; then
@@ -121,6 +128,10 @@ fi
     echo "erro: wrapper de gamepad não encontrado ou não executável em $GAMEPAD" >&2
     exit 1
 }
+[ -f "$HELPER" ] && [ -x "$HELPER" ] || {
+    echo "erro: helper de verificação não encontrado ou não executável em $HELPER" >&2
+    exit 1
+}
 
 # --- Staging ----------------------------------------------------------------
 
@@ -130,6 +141,7 @@ mkdir -p "$STAGE"
 
 install -m 0755 "$BIN" "$STAGE/arcadia-native"
 install -m 0755 "$GAMEPAD" "$STAGE/arcadia-gamepad"
+install -m 0755 "$HELPER" "$STAGE/arcadia-source-helper"
 echo "==> binário: $BIN"
 
 # O app procura boot.mp4 ao lado do executável e em resources/boot.mp4.
@@ -171,6 +183,8 @@ Arcadia em Rust + iced.
 
 - `arcadia-native` — binário do aplicativo;
 - `arcadia-gamepad` — wrapper Linux de controle para jogos externos;
+- `arcadia-source-helper` — janela isolada de verificação de fontes
+  (GTK/WebKitGTK; usada só quando a fonte exige desafio JavaScript);
 - `resources/torrent_rpc/` — worker de download por torrent (Python);
 - `boot.mp4` — vídeo de abertura, procurado ao lado do binário;
 - `arcadia-native.desktop` — atalho para ambientes X11/Wayland;
