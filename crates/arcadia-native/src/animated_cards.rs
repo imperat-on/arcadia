@@ -65,20 +65,27 @@ impl DecodedMedia {
     }
 }
 
-pub async fn decode_media(bytes: Vec<u8>) -> Option<DecodedMedia> {
-    tokio::task::spawn_blocking(move || decode_frames(&bytes).map(|frames| DecodedMedia { frames }))
+/// Executa a decodificação no pool bloqueante do Tokio.
+///
+/// Decodificar GIF/WebP é CPU-bound e segura a thread até terminar; fazer isso
+/// direto no executor da UI congela a janela enquanto o avatar carrega.
+async fn decode_blocking<F>(decode: F) -> Option<DecodedMedia>
+where
+    F: FnOnce() -> Option<Vec<DecodedFrame>> + Send + 'static,
+{
+    tokio::task::spawn_blocking(decode)
         .await
         .ok()
         .flatten()
+        .map(|frames| DecodedMedia { frames })
+}
+
+pub async fn decode_media(bytes: Vec<u8>) -> Option<DecodedMedia> {
+    decode_blocking(move || decode_frames(&bytes)).await
 }
 
 pub async fn decode_avatar(bytes: Vec<u8>) -> Option<DecodedMedia> {
-    tokio::task::spawn_blocking(move || {
-        decode_frames_with_limit(&bytes, 96 * 96).map(|frames| DecodedMedia { frames })
-    })
-    .await
-    .ok()
-    .flatten()
+    decode_blocking(move || decode_frames_with_limit(&bytes, 96 * 96)).await
 }
 
 /// Animação por quadros decodificados (GIF / WebP animado).
@@ -519,17 +526,32 @@ mod tests {
         bytes
     }
 
+    /// A decodificação roda no pool bloqueante: o primeiro poll do future
+    /// precisa devolver `Pending`. Se voltar `Ready`, o decode inteiro
+    /// aconteceu no executor da UI e a janela congela enquanto o avatar
+    /// carrega. A liberação por canal torna o teste independente do tempo de
+    /// decode da máquina — antes, um GIF pequeno podia terminar antes do
+    /// primeiro poll e o teste falhava sem haver regressão.
     #[tokio::test(flavor = "current_thread")]
     async fn profile_decode_yields_before_processing_frames() {
-        let decode = decode_media(profile_gif());
+        use std::future::Future;
+        use std::task::{Context, Waker};
+
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let decode = decode_blocking(move || {
+            let _ = release_rx.recv();
+            None
+        });
         tokio::pin!(decode);
-        tokio::select! {
-            biased;
-            _ = &mut decode => panic!("decodificação bloqueou o executor da UI"),
-            _ = std::future::ready(()) => {}
-        }
-        let media = decode.await.expect("GIF deve decodificar");
-        assert_eq!(media.frames.len(), 2);
+
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(
+            decode.as_mut().poll(&mut context).is_pending(),
+            "decodificação bloqueou o executor da UI"
+        );
+
+        release_tx.send(()).expect("liberar a decodificação");
+        assert!(decode.await.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]
