@@ -80,10 +80,13 @@ fn gravar_persistido(data_dir: &Path, estado: &Persistido) {
 
 /// Canal detectado a partir do ambiente real do processo.
 pub fn canal_atual() -> Channel {
-    let env = Env::new();
-    // Empacotado = tem resource dir ou foi iniciado de um AppImage/instalador.
-    let empacotado = std::env::var_os("APPIMAGE").is_some()
-        || cfg!(windows) && std::env::var_os("ARCADIA_PACKAGED").is_some();
+    let env = Env::from_process();
+    // Empacotado = AppImage, zip portátil com as variáveis do launcher, ou
+    // instalador marcado com ARCADIA_PACKAGED.
+    let empacotado = env.appimage.is_some()
+        || env.portable_executable_file.is_some()
+        || env.portable_executable_dir.is_some()
+        || (cfg!(windows) && std::env::var_os("ARCADIA_PACKAGED").is_some());
     detect_channel(empacotado, &env, empacotado, std::env::consts::OS)
 }
 

@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-achievements"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "async-trait",
  "regex",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-api"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-catalog"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "async-trait",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-contracts"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "chrono",
  "serde",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-download"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-store",
  "serde",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-emulators"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-fixes"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -223,14 +223,14 @@ dependencies = [
 
 [[package]]
 name = "arcadia-gamepad"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "arcadia-ipc"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-achievements",
  "arcadia-api",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-launch"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-media"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "async-trait",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-native"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "arcadia-catalog",
@@ -316,14 +316,14 @@ dependencies = [
 
 [[package]]
 name = "arcadia-native-input"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "gilrs",
 ]
 
 [[package]]
 name = "arcadia-native-media"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "gstreamer",
  "gstreamer-app",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-plugins"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-ra"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-retro",
  "reqwest",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-retro"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-catalog",
  "arcadia-store",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-social"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "arcadia-contracts",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-source-helper"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "gtk",
  "serde_json",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-steam"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "regex",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-steamstore"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-catalog",
  "arcadia-steam",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-store"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-contracts",
  "base64 0.23.1",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-sync"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "arcadia-api",
  "arcadia-contracts",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "arcadia-updater"
-version = "1.6.0"
+version = "2.0.0"
 dependencies = [
  "semver",
  "serde",

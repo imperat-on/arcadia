@@ -273,6 +273,22 @@ impl AutoUpdater for HttpAutoUpdater {
                 .map_err(|e| format!("não foi possível agendar a troca: {e}"))?;
         }
 
+        #[cfg(windows)]
+        {
+            // O NSIS/Inno Setup substitui os arquivos e fecha o app atual.
+            // /SILENT evita a UI extra; os flags de close são necessários
+            // porque o executável em execução está na pasta de destino.
+            std::process::Command::new(&baixado)
+                .args([
+                    "/SILENT",
+                    "/NORESTART",
+                    "/CLOSEAPPLICATIONS",
+                    "/FORCECLOSEAPPLICATIONS",
+                ])
+                .spawn()
+                .map_err(|e| format!("não foi possível iniciar o instalador: {e}"))?;
+        }
+
         Ok(())
     }
 
