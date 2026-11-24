@@ -677,6 +677,11 @@ pub enum Message {
         url: String,
         media: Option<crate::animated_cards::DecodedMedia>,
     },
+    /// Avatar animado: decodificado em 160×160, não no tamanho de banner.
+    AnimatedAvatarLoaded {
+        url: String,
+        media: Option<crate::animated_cards::DecodedMedia>,
+    },
     /// Recarrega `account:status` + perfil (botão Atualizar do perfil).
     ReloadAccount,
     AccountAvatarLoaded {
@@ -2474,6 +2479,9 @@ pub struct App {
     /// Menu "meu perfil" expandido na sidebar (bloco `profileMenu` do web).
     pub profile_menu_open: bool,
     pub window: Option<window::Id>,
+    /// `false` quando a janela perdeu o foco; animações e ticks de frame
+    /// param para não gastar CPU com a janela atrás de outro app.
+    pub window_focused: bool,
     /// Tamanho atual da janela; alimenta o scroll centralizado do trilho.
     pub window_size: Size,
     /// Estado do modo console (gamepad, foco, aba, painel).
@@ -2570,6 +2578,7 @@ impl App {
             sidebar_games_open: true,
             profile_menu_open: false,
             window: None,
+            window_focused: true,
             window_size: Size::new(1280.0, 800.0),
             big_picture: BigPicture::new(),
             console_news: NewsState::default(),
@@ -6287,6 +6296,20 @@ impl App {
                 }
                 Task::none()
             }
+            Message::AnimatedAvatarLoaded { url, media } => {
+                match media {
+                    Some(media) => self.animated_cards.insert_decoded(
+                        &url,
+                        media,
+                        crate::animated_cards::MediaGroup::Profile,
+                    ),
+                    None => {
+                        self.animated_cards.clear_in_flight(&url);
+                        eprintln!("[arcadia-native] avatar animado: download falhou para {url}");
+                    }
+                }
+                Task::none()
+            }
             Message::ReloadAccount => {
                 self.account.status = AccountStatus::Loading;
                 self.account.error = None;
@@ -6943,9 +6966,9 @@ impl App {
                 .filter(|url| !url.trim().is_empty()))
             .map(str::to_string);
 
-        let mut urls: Vec<String> = Vec::new();
+        let mut urls: Vec<(String, bool)> = Vec::new();
         if let Some(url) = avatar {
-            urls.push(url);
+            urls.push((url, true));
         }
         if let Some(profile) = self.account.profile.as_ref() {
             for url in [profile.banner_url.as_deref(), profile.background_url.as_deref()]
@@ -6953,28 +6976,43 @@ impl App {
                 .flatten()
                 .filter(|url| !url.trim().is_empty())
             {
-                urls.push(url.to_string());
+                urls.push((url.to_string(), false));
             }
         }
 
         let mut tasks = Vec::new();
-        for url in urls {
+        for (url, is_avatar) in urls {
             if !self.animated_cards.wants(&url) {
                 continue;
             }
             self.animated_cards.mark_in_flight(&url);
             // Vídeo (cards da Steam) é aberto direto pelo GStreamer; o perfil
-            // é sempre imagem/GIF, então o caminho aqui é o download.
+            // é sempre imagem/GIF, então o caminho aqui é o download. Avatar
+            // tem teto 160×160: decodificar 1000×1000 para um círculo de 96 px
+            // enchia o cache de RGBA e pesava no upload a cada quadro.
             let backend = self.backend.clone();
             let message_url = url.clone();
             tasks.push(Task::perform(
                 async move {
                     let bytes = backend.fetch_media_bytes(url).await?;
-                    crate::animated_cards::decode_media(bytes).await
+                    if is_avatar {
+                        crate::animated_cards::decode_avatar(bytes).await
+                    } else {
+                        crate::animated_cards::decode_media(bytes).await
+                    }
                 },
-                move |media| Message::AnimatedMediaLoaded {
-                    url: message_url,
-                    media,
+                move |media| {
+                    if is_avatar {
+                        Message::AnimatedAvatarLoaded {
+                            url: message_url,
+                            media,
+                        }
+                    } else {
+                        Message::AnimatedMediaLoaded {
+                            url: message_url,
+                            media,
+                        }
+                    }
                 },
             ));
         }
@@ -9118,11 +9156,13 @@ impl App {
                 }
             }
             window::Event::Focused => {
+                self.window_focused = true;
                 // Voltou da Steam (ou de qualquer app): a instalação pode ter
                 // terminado. Refresh leve, sem spinner.
                 Task::batch([self.light_library_refresh(), self.refresh_visible_section()])
             }
             window::Event::Unfocused => {
+                self.window_focused = false;
                 // Direção segurada não deve continuar repetindo ao voltar.
                 self.big_picture.reset_input();
                 Task::none()
@@ -9138,7 +9178,7 @@ impl App {
         }
 
         self.big_picture.refresh_clock();
-        if self.big_picture.overview_open() && self.media.is_active() {
+        if self.big_picture.overview_open() && self.media.needs_ticks() {
             self.media.tick();
         }
         let events = self.big_picture.tick(Duration::from_millis(16));
@@ -9643,9 +9683,11 @@ impl App {
     /// fila em memória quando está vazia.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::new();
-        let page_animating = !self.reduce_motion()
+        let page_animating = self.window_focused
+            && !self.reduce_motion()
             && self.page_entered.elapsed() < Duration::from_millis(320);
-        let home_animating = !self.boot.active
+        let home_animating = self.window_focused
+            && !self.boot.active
             && !self.account.auth.open
             && matches!(self.screen, Screen::Section(Section::Home))
             && self.store.detail.is_none()
@@ -9653,7 +9695,8 @@ impl App {
         if let Some(interval) = views::home::animation_interval(page_animating || home_animating) {
             subscriptions.push(iced::time::every(interval).map(|_| Message::HomeArtTick));
         }
-        if !self.boot.active
+        if self.window_focused
+            && !self.boot.active
             && !self.account.auth.open
             && views::home::carousel_is_active(self)
         {
@@ -9673,12 +9716,23 @@ impl App {
             _ => None,
         }));
 
-        // Cards animados do `about` rodam em loop como na página da Steam:
-        // precisam de um tick de 16 ms enquanto houver pipeline ativo.
-        if self.animated_cards.is_active() || (matches!(self.screen,Screen::Section(Section::Friends)) && self.friend_media.is_active()) {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(16)).map(|_| Message::CardsTick),
-            );
+        // Cards animados do `about` e mídia do perfil: um tick no *delay* real
+        // do próximo quadro. GIF lento não redesenha a 60 Hz, e imagem
+        // estática não mantém Subscription nenhuma.
+        let cards_interval = if self.window_focused {
+            self.animated_cards.next_tick()
+        } else {
+            None
+        };
+        let friend_interval = if self.window_focused
+            && matches!(self.screen, Screen::Section(Section::Friends))
+        {
+            self.friend_media.next_tick()
+        } else {
+            None
+        };
+        if let Some(interval) = cards_interval.into_iter().chain(friend_interval).min() {
+            subscriptions.push(iced::time::every(interval).map(|_| Message::CardsTick));
         }
 
         if self.boot.active {
@@ -9688,11 +9742,14 @@ impl App {
         }
 
         if matches!(self.screen, Screen::BigPicture) {
-            subscriptions
-                .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick));
+            if self.window_focused {
+                subscriptions
+                    .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::ConsoleTick));
+            }
             subscriptions.push(iced::keyboard::listen().map(Message::ConsoleKey));
-        } else if (matches!(self.screen, Screen::Game(_)) || self.store.detail.is_some())
-            && self.media.is_active()
+        } else if self.window_focused
+            && (matches!(self.screen, Screen::Game(_)) || self.store.detail.is_some())
+            && self.media.needs_ticks()
         {
             subscriptions
                 .push(iced::time::every(Duration::from_millis(16)).map(|_| Message::MediaTick));

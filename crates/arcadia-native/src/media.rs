@@ -103,6 +103,18 @@ impl MediaPlayer {
         self.player.is_some()
     }
 
+    /// `true` quando a UI ainda precisa drenar frames/estado deste player.
+    ///
+    /// Fim, pausa explícita e erro não precisam de um tick de 60 Hz; o
+    /// pré-roll do HLS passa por PAUSED antes do primeiro frame e continua
+    /// precisando até a textura existir. Um estado de UI ainda "tocando"
+    /// também pede um tick final para observar EOS/erro/pausa.
+    pub fn needs_ticks(&self) -> bool {
+        self.player.as_ref().is_some_and(|player| {
+            needs_ticks_for(player.state(), self.texture.is_some(), &self.status)
+        })
+    }
+
     /// Abre a melhor fonte do trailer (`hls` → `mp4` → `webm`).
     ///
     /// A chamada não espera o pré-roll: o estado vira `Loading` e a UI descobre
@@ -370,6 +382,21 @@ pub fn format_seconds(value: f64) -> String {
     format!("{:02}:{:02}", total / 60, total % 60)
 }
 
+fn needs_ticks_for(state: PlayerState, has_texture: bool, status: &MediaStatus) -> bool {
+    if matches!(state, PlayerState::Opening | PlayerState::Playing) {
+        return true;
+    }
+    if matches!(status, MediaStatus::Loading | MediaStatus::Playing) {
+        // Um tick final observa EOS/erro/pausa e atualiza o status da UI.
+        return true;
+    }
+    match state {
+        // HLS faz pré-roll em PAUSED; sem textura ainda é carregamento.
+        PlayerState::Paused => !has_texture,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,6 +468,62 @@ mod tests {
         );
         assert!(MediaStatus::Error("x".to_string()).is_error());
         assert!(!MediaStatus::Paused.is_error());
+    }
+
+    #[test]
+    fn only_opening_playing_or_preroll_paused_need_frame_ticks() {
+        assert!(needs_ticks_for(
+            PlayerState::Opening,
+            false,
+            &MediaStatus::Loading
+        ));
+        assert!(needs_ticks_for(
+            PlayerState::Playing,
+            true,
+            &MediaStatus::Playing
+        ));
+        // HLS: PAUSED antes do primeiro frame ainda é pré-roll.
+        assert!(needs_ticks_for(
+            PlayerState::Paused,
+            false,
+            &MediaStatus::Paused
+        ));
+        assert!(!needs_ticks_for(
+            PlayerState::Paused,
+            true,
+            &MediaStatus::Paused
+        ));
+        assert!(!needs_ticks_for(
+            PlayerState::Ended,
+            true,
+            &MediaStatus::Ended
+        ));
+        assert!(!needs_ticks_for(
+            PlayerState::Stopped,
+            true,
+            &MediaStatus::Paused
+        ));
+        assert!(!needs_ticks_for(
+            PlayerState::Idle,
+            false,
+            &MediaStatus::Idle
+        ));
+        assert!(!needs_ticks_for(
+            PlayerState::Error("x".into()),
+            false,
+            &MediaStatus::Error("x".into())
+        ));
+        // EOS/erro/pausa ainda não refletidos na UI: um tick final resolve.
+        assert!(needs_ticks_for(
+            PlayerState::Ended,
+            true,
+            &MediaStatus::Playing
+        ));
+        assert!(needs_ticks_for(
+            PlayerState::Error("x".into()),
+            false,
+            &MediaStatus::Playing
+        ));
     }
 
     #[test]

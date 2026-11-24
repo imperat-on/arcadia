@@ -388,6 +388,9 @@ impl Player {
         audio_sink.set_property("sync", true);
         audio_sink.set_property("enable-last-sample", false);
 
+        // O Arcadia é mudo por enquanto: decodificar áudio e legendas só
+        // consome CPU. `video` mantém o pipeline de imagem e desliga o resto.
+        playbin.set_property_from_str("flags", "video");
         playbin.set_property("video-sink", &video_bin);
         playbin.set_property("audio-sink", &audio_sink);
         playbin.set_property("uri", source.uri.as_str());

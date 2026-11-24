@@ -45,6 +45,18 @@ pub enum MediaGroup {
     Avatar,
 }
 
+impl MediaGroup {
+    /// Piso entre ticks. Vídeo/card precisa de 60 fps; avatar de 20–32 px
+    /// fica suave a 20 fps e evita redesenhar a janela inteira a 60 Hz.
+    fn min_tick(self) -> Duration {
+        match self {
+            Self::Card => Duration::from_millis(16),
+            Self::Profile => Duration::from_millis(33),
+            Self::Avatar => Duration::from_millis(50),
+        }
+    }
+}
+
 /// Um quadro decodificado e a duração que ele fica na tela.
 #[derive(Debug, Clone)]
 struct DecodedFrame {
@@ -85,7 +97,7 @@ pub async fn decode_media(bytes: Vec<u8>) -> Option<DecodedMedia> {
 }
 
 pub async fn decode_avatar(bytes: Vec<u8>) -> Option<DecodedMedia> {
-    decode_blocking(move || decode_frames_with_limit(&bytes, 96 * 96)).await
+    decode_blocking(move || decode_frames_with_limit(&bytes, 160 * 160)).await
 }
 
 /// Animação por quadros decodificados (GIF / WebP animado).
@@ -117,6 +129,20 @@ impl FrameAnimation {
             self.shown_at = Instant::now() - elapsed;
             self.texture = self.frames[self.current].handle.clone();
         }
+    }
+
+    /// Quanto falta para o próximo quadro. `None` para imagem estática: ela
+    /// não justifica um tick de 60 Hz.
+    fn next_tick(&self) -> Option<Duration> {
+        if self.frames.len() <= 1 {
+            return None;
+        }
+        let delay = self.frames[self.current].delay;
+        Some(
+            delay
+                .saturating_sub(self.shown_at.elapsed())
+                .max(Duration::from_millis(1)),
+        )
     }
 }
 
@@ -206,6 +232,8 @@ impl VideoPlayer {
 /// Uma mídia no pool.
 struct AnimatedItem {
     media: Media,
+    /// Intervalo mínimo entre ticks para este grupo.
+    min_tick: Duration,
 }
 
 impl AnimatedItem {
@@ -228,6 +256,19 @@ impl AnimatedItem {
             Media::Frames(animation) => animation.tick(),
             Media::Video(video) => video.pump(),
         }
+    }
+
+    /// Intervalo até este item precisar de outro tick.
+    ///
+    /// Imagem estática e vídeo em erro não retornam nada; GIF/WebP usa o
+    /// *delay* real do quadro e vídeo ativo usa 16 ms.
+    fn next_tick(&self) -> Option<Duration> {
+        let desired = match &self.media {
+            Media::Frames(animation) => animation.next_tick()?,
+            Media::Video(video) if !video.failed => Duration::from_millis(16),
+            Media::Video(_) => return None,
+        };
+        Some(desired.max(self.min_tick))
     }
 
     /// Quantos ciclos reiniciaram (só faz sentido para vídeo).
@@ -358,9 +399,17 @@ pub struct AnimatedCards {
 }
 
 impl AnimatedCards {
-    /// `true` se algum item está ativo — a UI precisa do tick de 16 ms.
+    /// Quanto falta para o próximo quadro de qualquer mídia animada.
+    ///
+    /// `None` quando só há imagens estáticas (ou nenhum item): a UI não deve
+    /// manter uma Subscription de 60 Hz acordada à toa.
+    pub fn next_tick(&self) -> Option<Duration> {
+        self.items.values().filter_map(AnimatedItem::next_tick).min()
+    }
+
+    /// `true` se algum item precisa de tick. Imagem estática não conta.
     pub fn is_active(&self) -> bool {
-        !self.items.is_empty()
+        self.next_tick().is_some()
     }
 
     /// `true` quando a URI precisa ser baixada/aberta para entrar no pool.
@@ -412,6 +461,7 @@ impl AnimatedCards {
             uri.to_string(),
             AnimatedItem {
                 media: Media::Frames(animation),
+                min_tick: group.min_tick(),
             },
         );
     }
@@ -429,6 +479,7 @@ impl AnimatedCards {
             uri.to_string(),
             AnimatedItem {
                 media: Media::Video(video),
+                min_tick: group.min_tick(),
             },
         );
     }
@@ -623,6 +674,62 @@ mod tests {
         pool.insert_decoded("", DecodedMedia { frames: Vec::new() }, MediaGroup::Card);
         assert!(!pool.is_active());
         assert!(!pool.wants(""));
+    }
+
+    #[test]
+    fn static_image_does_not_keep_a_frame_tick_alive() {
+        let mut pool = AnimatedCards::default();
+        let media = DecodedMedia {
+            frames: vec![DecodedFrame {
+                handle: Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+                delay: Duration::from_secs(1),
+            }],
+        };
+        pool.insert_decoded("static-avatar.png", media, MediaGroup::Profile);
+        assert!(pool.texture("static-avatar.png").is_some());
+        assert_eq!(pool.next_tick(), None);
+        assert!(!pool.is_active());
+    }
+
+    #[test]
+    fn animation_reports_the_real_next_frame_delay() {
+        let mut pool = AnimatedCards::default();
+        let media = DecodedMedia {
+            frames: vec![
+                DecodedFrame {
+                    handle: Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+                    delay: Duration::from_millis(40),
+                },
+                DecodedFrame {
+                    handle: Handle::from_rgba(1, 1, vec![255, 255, 255, 255]),
+                    delay: Duration::from_millis(80),
+                },
+            ],
+        };
+        pool.insert_decoded("animated.gif", media, MediaGroup::Profile);
+        let next = pool.next_tick().expect("animação precisa de tick");
+        assert!(next > Duration::ZERO);
+        assert!(next <= Duration::from_millis(40));
+        assert!(pool.is_active());
+    }
+
+    #[test]
+    fn tiny_avatar_animation_is_capped_at_20_fps() {
+        let mut pool = AnimatedCards::default();
+        let media = DecodedMedia {
+            frames: vec![
+                DecodedFrame {
+                    handle: Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+                    delay: Duration::from_millis(20),
+                },
+                DecodedFrame {
+                    handle: Handle::from_rgba(1, 1, vec![255, 255, 255, 255]),
+                    delay: Duration::from_millis(20),
+                },
+            ],
+        };
+        pool.insert_decoded("avatar.gif", media, MediaGroup::Avatar);
+        assert_eq!(pool.next_tick(), Some(Duration::from_millis(50)));
     }
 
     #[test]
