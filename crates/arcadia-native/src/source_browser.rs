@@ -45,7 +45,7 @@ impl SourceBrowser {
         if !safe_browser_url(url) {
             return Err("source_browser_invalid_url".into());
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = (&self.profile, &self.language);
             return Err("source_browser_unavailable".into());

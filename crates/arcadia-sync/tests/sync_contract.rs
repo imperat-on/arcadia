@@ -722,6 +722,10 @@ async fn push_and_pull_sources_send_exact_fields_and_preserve_registry() {
     assert_eq!(b["lastMod"], "");
     assert_eq!(b["count"], 0);
     assert!(b["addedAt"].as_i64().unwrap() > 0);
+    // Fonte vinda do servidor já entra no watermark: removê-la localmente
+    // precisa gerar tombstone no próximo push.
+    let state = read_json(&scope.account_file("sync_state.json"));
+    assert_eq!(state["srcPush"]["b"]["url"], "https://example/b.json");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -979,6 +983,80 @@ async fn pull_only_blocks_every_push_and_still_pulls() {
         events.lock().unwrap().first(),
         Some(SyncEvent::SyncState(_))
     ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn source_push_can_be_enabled_without_unlocking_other_domains() {
+    let server = MockServer::start().await;
+    let dir = temp_dir("source-push-flag");
+    let scope = scope_for(&dir);
+    let client = client_for(&server);
+    install_session(&client).await;
+
+    write_json(
+        &scope.account_file("sources.json"),
+        json!([{
+            "id": "a",
+            "url": "https://example/a.json",
+            "name": "A",
+        }]),
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_library"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_steam_playtime"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/pull_sources"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/rest/v1/rpc/push_sources"))
+        .and(body_json(json!({
+            "p_sources": [{ "source_id": "a", "url": "https://example/a.json", "name": "A" }]
+        })))
+        .respond_with(null_response())
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let engine = SyncEngine::new(client, scope.clone());
+    assert!(engine.pull_only());
+    engine.set_push_sources(true);
+    let report = engine.sync_now().await.unwrap();
+    assert_eq!(report.sources_pushed, 1);
+    assert_eq!(report.library_pushed, 0);
+    assert_eq!(report.achievements_pushed, 0);
+
+    let paths: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| request.url.path().to_string())
+        .collect();
+    assert!(paths.iter().any(|path| path.contains("push_sources")));
+    assert!(!paths.iter().any(|path| path.contains("push_library")));
+    assert!(!paths.iter().any(|path| path.contains("sync_achievements")));
+    assert!(!paths
+        .iter()
+        .any(|path| path.contains("push_steam_playtime")));
+
+    let state = read_json(&scope.account_file("sync_state.json"));
+    assert_eq!(state["srcPush"]["a"]["url"], "https://example/a.json");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

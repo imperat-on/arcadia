@@ -214,6 +214,7 @@ pub struct SyncEngine {
     client: ApiClient,
     scope: AccountScope,
     pull_only: Arc<AtomicBool>,
+    push_sources: Arc<AtomicBool>,
     listener: Option<SyncEventListener>,
     lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -225,6 +226,7 @@ impl SyncEngine {
             client,
             scope,
             pull_only: Arc::new(AtomicBool::new(true)),
+            push_sources: Arc::new(AtomicBool::new(false)),
             listener: None,
             lock: Arc::new(tokio::sync::Mutex::new(())),
         }
@@ -262,6 +264,17 @@ impl SyncEngine {
 
     pub fn set_pull_only(&self, pull_only: bool) {
         self.pull_only.store(pull_only, Ordering::SeqCst);
+    }
+
+    /// Fontes públicas sobem para a conta mesmo no modo pull-only. É uma
+    /// exceção explícita, configurada pelo app: o registro de fontes é dado
+    /// de conta e o usuário espera que adicionar/remover reflita no servidor.
+    pub fn push_sources_enabled(&self) -> bool {
+        self.push_sources.load(Ordering::SeqCst)
+    }
+
+    pub fn set_push_sources(&self, enabled: bool) {
+        self.push_sources.store(enabled, Ordering::SeqCst);
     }
 
     /// Estado tipado atual (`lastPullAt` é o cursor de conquistas).
@@ -443,7 +456,7 @@ impl SyncEngine {
     }
 
     pub async fn push_sources(&self) -> Result<SourcesPush, SyncError> {
-        if self.pull_only() {
+        if self.pull_only() && !self.push_sources_enabled() {
             return Err(SyncError::PullOnly);
         }
         let _guard = self.lock.lock().await;
@@ -496,7 +509,13 @@ impl SyncEngine {
         if let Err(error) = ensure_session(&self.client).await {
             return Err(self.fail(error));
         }
-        match sources::reconcile(&self.client, &self.scope, self.pull_only()).await {
+        match sources::reconcile(
+            &self.client,
+            &self.scope,
+            self.pull_only() && !self.push_sources_enabled(),
+        )
+        .await
+        {
             Ok(outcome) => {
                 self.emit_success(false);
                 Ok(outcome)
@@ -602,8 +621,9 @@ impl SyncEngine {
             }
         }
 
-        // Sources: push e depois pull (ordem do `sources.js`).
-        if !self.pull_only() {
+        // Sources: push e depois pull (ordem do `sources.js`). O app habilita
+        // explicitamente o push de fontes; o restante continua pull-only.
+        if !self.pull_only() || self.push_sources_enabled() {
             if let Some(outcome) = attempt!(sources::push(&self.client, &self.scope)) {
                 report.sources_pushed += outcome.pushed;
             }

@@ -26,6 +26,7 @@ const INSTALLED_MARKER: &str = "installed.marker";
 const GSTREAMER_DIR: &str = "gstreamer";
 const GSTREAMER_BIN_DIR: &str = "bin";
 const GSTREAMER_PLUGINS_DIR: &str = "gstreamer-1.0";
+const GSTREAMER_GIO_MODULES_DIR: &str = "gio/modules";
 const GSTREAMER_SCANNER: &str = "gst-plugin-scanner.exe";
 #[cfg(windows)]
 const GSTREAMER_CORE_DLL: &str = "gobject-2.0-0.dll";
@@ -80,6 +81,28 @@ fn build_plan(root: &Path) -> Result<LaunchPlan, PlanError> {
         env.push((OsString::from("GST_PLUGIN_PATH"), plugins.clone()));
         env.push((OsString::from("GST_PLUGIN_PATH_1_0"), plugins.clone()));
         env.push((OsString::from("GST_PLUGIN_SYSTEM_PATH_1_0"), plugins));
+    }
+
+    // O GIO carrega o backend TLS do glib-networking como módulo. Sem
+    // `GIO_EXTRA_MODULES`, souphttpsrc não abre HTTPS e o typefind morre com
+    // "Stream doesn't contain enough data" nos trailers da Steam.
+    let gio_modules = gstreamer.join("lib").join(GSTREAMER_GIO_MODULES_DIR);
+    if gio_modules.is_dir() {
+        env.push((
+            OsString::from("GIO_EXTRA_MODULES"),
+            gio_modules.into_os_string(),
+        ));
+    }
+
+    // O backend OpenSSL do GIO não usa a loja de certificados do Windows por
+    // padrão; sem o bundle do runtime o HTTPS falha na verificação do cert.
+    let certs = gstreamer.join("etc").join("ssl").join("certs");
+    for name in ["ca-bundle.crt", "cert.pem", "ca-certificates.crt"] {
+        let candidate = certs.join(name);
+        if candidate.is_file() {
+            env.push((OsString::from("SSL_CERT_FILE"), candidate.into_os_string()));
+            break;
+        }
     }
 
     let scanner_libexec = gstreamer
@@ -291,6 +314,10 @@ mod tests {
         gst_root(root).join("lib").join(GSTREAMER_PLUGINS_DIR)
     }
 
+    fn gst_gio_modules(root: &Path) -> PathBuf {
+        gst_root(root).join("lib").join(GSTREAMER_GIO_MODULES_DIR)
+    }
+
     fn gst_scanner_libexec(root: &Path) -> PathBuf {
         gst_root(root)
             .join("libexec")
@@ -323,6 +350,14 @@ mod tests {
         touch(&root.join(APP_BIN));
         touch(&gst_bin(&root).join("gstreamer-1.0-0.dll"));
         touch(&gst_plugins(&root).join("libgstcoreelements.dll"));
+        touch(&gst_gio_modules(&root).join("gioopenssl.dll"));
+        touch(
+            &gst_root(&root)
+                .join("etc")
+                .join("ssl")
+                .join("certs")
+                .join("ca-bundle.crt"),
+        );
         touch(&gst_scanner_libexec(&root));
 
         let plan = build_plan(&root).expect("plano portátil");
@@ -349,6 +384,21 @@ mod tests {
         assert_eq!(
             env_value(&plan, "GST_PLUGIN_SCANNER"),
             Some(&gst_scanner_libexec(&root).into_os_string())
+        );
+        assert_eq!(
+            env_value(&plan, "GIO_EXTRA_MODULES"),
+            Some(&gst_gio_modules(&root).into_os_string())
+        );
+        assert_eq!(
+            env_value(&plan, "SSL_CERT_FILE"),
+            Some(
+                &gst_root(&root)
+                    .join("etc")
+                    .join("ssl")
+                    .join("certs")
+                    .join("ca-bundle.crt")
+                    .into_os_string()
+            )
         );
         assert_eq!(
             env_value(&plan, "PORTABLE_EXECUTABLE_DIR"),
@@ -404,6 +454,7 @@ mod tests {
         assert!(env_value(&plan, "PATH").is_none());
         assert!(env_value(&plan, "GST_PLUGIN_PATH").is_none());
         assert!(env_value(&plan, "GST_PLUGIN_SCANNER").is_none());
+        assert!(env_value(&plan, "GIO_EXTRA_MODULES").is_none());
 
         let _ = fs::remove_dir_all(root);
     }

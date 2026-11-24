@@ -2,9 +2,9 @@
 # Empacotamento Windows do Arcadia (Rust + iced).
 #
 # Gera um .zip portátil em dist/native-windows/ com o Arcadia.exe (launcher
-# nativo), arcadia-native.exe, boot.mp4, worker de torrent, README e, quando um
-# runtime GStreamer é encontrado, as DLLs e plugins em gstreamer/. O SHA256SUMS
-# fica ao lado do .zip.
+# nativo), arcadia-native.exe, arcadia-source-helper.exe, boot.mp4, worker de
+# torrent, README e, quando um runtime GStreamer é encontrado, as DLLs e
+# plugins em gstreamer/. O SHA256SUMS fica ao lado do .zip.
 #
 # O app importa as DLLs do GStreamer estaticamente. O launcher é quem define
 # PATH/GST_* antes do processo nascer; por isso Arcadia.exe é a entrada do
@@ -19,6 +19,7 @@
 # Variáveis:
 #   ARCADIA_NATIVE_BIN       binário alternativo do app (útil com -SkipBuild)
 #   ARCADIA_LAUNCHER_BIN     launcher alternativo (útil com -SkipBuild)
+#   ARCADIA_SOURCE_HELPER_BIN helper de verificação alternativo (-SkipBuild)
 #   ARCADIA_NATIVE_VERSION   sobrescreve a versão lida do workspace
 #   CARGO_TARGET_DIR         respeitado no build e na busca dos binários
 #   GSTREAMER_ROOT_X86_64    runtime GStreamer MSVC x86_64; também aceita
@@ -229,6 +230,14 @@ if ([string]::IsNullOrWhiteSpace($LauncherBin)) {
 }
 $LauncherBin = [System.IO.Path]::GetFullPath($LauncherBin)
 
+$HelperBin = $env:ARCADIA_SOURCE_HELPER_BIN
+if ([string]::IsNullOrWhiteSpace($HelperBin)) {
+    $HelperBin = Join-Path $TargetDir "release\arcadia-source-helper.exe"
+} elseif (-not [System.IO.Path]::IsPathRooted($HelperBin)) {
+    $HelperBin = Join-Path $RepoRoot $HelperBin
+}
+$HelperBin = [System.IO.Path]::GetFullPath($HelperBin)
+
 # --- Build ------------------------------------------------------------------
 
 if (-not $SkipBuild) {
@@ -236,11 +245,11 @@ if (-not $SkipBuild) {
     if ($null -eq $cargo) {
         Stop-WithError "cargo não encontrado no PATH; instale o toolchain Rust MSVC (https://rustup.rs)"
     }
-    Write-Host "==> cargo build --locked --release -p arcadia-native -p arcadia-launcher"
+    Write-Host "==> cargo build --locked --release -p arcadia-native -p arcadia-launcher -p arcadia-source-helper"
     $env:CARGO_TARGET_DIR = $TargetDir
     Push-Location $RepoRoot
     try {
-        & cargo build --locked --release -p arcadia-native -p arcadia-launcher
+        & cargo build --locked --release -p arcadia-native -p arcadia-launcher -p arcadia-source-helper
         if ($LASTEXITCODE -ne 0) {
             Stop-WithError "cargo build falhou (exit $LASTEXITCODE)"
         }
@@ -253,7 +262,7 @@ if (-not (Test-Path -LiteralPath $Bin -PathType Leaf)) {
     Write-Host "erro: binário nativo não encontrado em $Bin" -ForegroundColor Red
     if ($SkipBuild) {
         Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
-        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher -p arcadia-source-helper" -ForegroundColor Red
     }
     Write-Host "  ou aponte ARCADIA_NATIVE_BIN para outro executável" -ForegroundColor Red
     exit 1
@@ -263,9 +272,19 @@ if (-not (Test-Path -LiteralPath $LauncherBin -PathType Leaf)) {
     Write-Host "erro: launcher não encontrado em $LauncherBin" -ForegroundColor Red
     if ($SkipBuild) {
         Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
-        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher -p arcadia-source-helper" -ForegroundColor Red
     }
     Write-Host "  ou aponte ARCADIA_LAUNCHER_BIN para outro executável" -ForegroundColor Red
+    exit 1
+}
+
+if (-not (Test-Path -LiteralPath $HelperBin -PathType Leaf)) {
+    Write-Host "erro: helper de verificação não encontrado em $HelperBin" -ForegroundColor Red
+    if ($SkipBuild) {
+        Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher -p arcadia-source-helper" -ForegroundColor Red
+    }
+    Write-Host "  ou aponte ARCADIA_SOURCE_HELPER_BIN para outro executável" -ForegroundColor Red
     exit 1
 }
 
@@ -282,6 +301,9 @@ Write-Host "==> binário: $Bin"
 
 Copy-Item -LiteralPath $LauncherBin -Destination (Join-Path $Stage "Arcadia.exe")
 Write-Host "==> launcher: $LauncherBin"
+
+Copy-Item -LiteralPath $HelperBin -Destination (Join-Path $Stage "arcadia-source-helper.exe")
+Write-Host "==> helper de fontes: $HelperBin"
 
 # O app procura boot.mp4 ao lado do executável e em resources\boot.mp4.
 $Boot = Join-Path $RepoRoot "boot.mp4"
@@ -357,6 +379,40 @@ if ($null -ne $GstRoot) {
         $GstBytes += $dll.Length
     }
 
+    # O glib-networking entrega o backend TLS como módulo GIO. Sem ele o
+    # souphttpsrc não abre HTTPS e qualquer trailer (HLS/mp4) morre no
+    # typefind com "Stream doesn't contain enough data".
+    $gstGioModules = Join-Path $GstRoot "lib\gio\modules"
+    $gioModules = @(Get-ChildItem -LiteralPath $gstGioModules -File -ErrorAction SilentlyContinue)
+    if ($gioModules.Count -eq 0) {
+        Stop-WithError @"
+runtime GStreamer incompleto: $gstGioModules não existe ou está vazio.
+  sem o módulo TLS do GIO o souphttpsrc não abre HTTPS e os trailers falham.
+  use o runtime oficial completo 1.28 MSVC $PackageArch.
+"@
+    }
+    $stageGio = Join-Path $stageGst "lib\gio\modules"
+    New-Item -ItemType Directory -Path $stageGio -Force | Out-Null
+    foreach ($file in $gioModules) {
+        Copy-Item -LiteralPath $file.FullName -Destination $stageGio
+        $GstBytes += $file.Length
+    }
+
+    # O gioopenssl usa o bundle de CAs do runtime; a loja de certificados do
+    # Windows não é consultada por padrão pelo OpenSSL.
+    $gstSslCerts = Join-Path $GstRoot "etc\ssl\certs"
+    $sslCerts = @(Get-ChildItem -LiteralPath $gstSslCerts -File -Recurse -ErrorAction SilentlyContinue)
+    if ($sslCerts.Count -eq 0) {
+        Write-WarningLine "etc\ssl\certs não encontrado; HTTPS pode falhar se o OpenSSL não achar CAs do sistema"
+    } else {
+        $stageSsl = Join-Path $stageGst "etc\ssl\certs"
+        New-Item -ItemType Directory -Path $stageSsl -Force | Out-Null
+        foreach ($file in $sslCerts) {
+            Copy-Item -LiteralPath $file.FullName -Destination $stageSsl
+            $GstBytes += $file.Length
+        }
+    }
+
     # Sem o scanner o GStreamer não consegue popular o registry de plugins em
     # uma máquina sem GStreamer instalado. O caminho oficial é
     # libexec\gstreamer-1.0\gst-plugin-scanner.exe.
@@ -380,8 +436,8 @@ if ($null -ne $GstRoot) {
     $GstDllCount = $binDlls.Count
     $GstPluginCount = $pluginDlls.Count
     $GstBundled = $true
-    Write-Host ("==> GStreamer: {0} DLLs, {1} plugins, {2:N1} MB de {3}" -f `
-            $GstDllCount, $GstPluginCount, ($GstBytes / 1MB), $GstRoot)
+    Write-Host ("==> GStreamer: {0} DLLs, {1} plugins, {2} módulos GIO, {3:N1} MB de {4}" -f `
+            $GstDllCount, $GstPluginCount, $gioModules.Count, ($GstBytes / 1MB), $GstRoot)
 }
 
 # --- Launcher e README ------------------------------------------------------
@@ -397,6 +453,8 @@ if ($GstBundled) {
         "set `"GST_PLUGIN_PATH=%HERE%gstreamer\lib\gstreamer-1.0`"",
         "set `"GST_PLUGIN_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
         "set `"GST_PLUGIN_SYSTEM_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
+        "if exist `"%HERE%gstreamer\lib\gio\modules`" set `"GIO_EXTRA_MODULES=%HERE%gstreamer\lib\gio\modules`"",
+        "if exist `"%HERE%gstreamer\etc\ssl\certs\ca-bundle.crt`" set `"SSL_CERT_FILE=%HERE%gstreamer\etc\ssl\certs\ca-bundle.crt`"",
         "if exist `"%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`"",
         "if exist `"%HERE%gstreamer\bin\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\bin\gst-plugin-scanner.exe`""
     )
@@ -413,6 +471,9 @@ if ($GstBundled) {
     $gstContent = @'
 - `gstreamer\bin\*.dll` — bibliotecas do runtime GStreamer;
 - `gstreamer\lib\gstreamer-1.0\*.dll` — plugins (base, good, bad, libav etc.);
+- `gstreamer\lib\gio\modules\*.dll` — backend TLS do GIO, usado pelos
+  trailers HTTPS;
+- `gstreamer\etc\ssl\certs\ca-bundle.crt` — CAs usadas pelo backend TLS;
 - `gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe` — scanner de plugins,
   quando presente no runtime;
 '@
@@ -468,6 +529,7 @@ Arcadia em Rust + iced.
 
 - `Arcadia.exe` — **entrada do aplicativo**; configura o GStreamer e inicia o app;
 - `arcadia-native.exe` — binário interno do app (não abra direto);
+- `arcadia-source-helper.exe` — verificação de fontes em navegador isolado;
 - `run-arcadia-native.cmd` — launcher alternativo para diagnóstico;
 - `boot.mp4` — vídeo de abertura, procurado ao lado do executável;
 - `resources\torrent_rpc\` — worker de download por torrent (Python);

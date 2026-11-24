@@ -3,7 +3,7 @@ name = "arcadia-source-helper"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Helper isolado de verificação de fontes (GTK/WebKitGTK) do Arcadia Native"
+description = "Helper isolado de verificação de fontes (WebKitGTK no Linux, navegador do sistema no Windows) do Arcadia Native"
 
 [[bin]]
 name = "arcadia-source-helper"
@@ -18,3 +18,10 @@ url = "2"
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 webkit2gtk = { version = "2.0", features = ["v2_38"] }
+
+# No Windows o helper usa o Edge/Chrome já instalado via DevTools Protocol,
+# em um perfil isolado. Isso evita embutir WebView2/GTK no app principal e
+# mantém o desafio Cloudflare resolvido por um navegador real.
+[target.'cfg(target_os = "windows")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tungstenite = "0.30"

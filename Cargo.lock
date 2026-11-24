@@ -403,7 +403,9 @@ name = "arcadia-source-helper"
 version = "2.0.0"
 dependencies = [
  "gtk",
+ "reqwest",
  "serde_json",
+ "tungstenite",
  "url",
  "webkit2gtk",
 ]

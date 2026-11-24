@@ -58,7 +58,7 @@ with its SHA-256 checksum:
 |---|---|
 | `arcadia-native` | Desktop and Big Picture, navigation and display |
 | `arcadia-launcher` | Windows entry point that sets up GStreamer before starting the app |
-| `arcadia-source-helper` | Isolated WebKit window for source verification challenges (Linux) |
+| `arcadia-source-helper` | Isolated source verification challenges (WebKitGTK on Linux, system browser on Windows) |
 | `arcadia-native-media`, `arcadia-native-input` | GStreamer playback and controller navigation |
 | `arcadia-ipc` | Application commands, called directly from the native interface |
 | `arcadia-contracts` | Shared data and synchronization contracts |

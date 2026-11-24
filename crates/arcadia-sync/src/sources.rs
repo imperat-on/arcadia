@@ -166,9 +166,17 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<SourcesPul
         .filter_map(|source| source.get("id"))
         .map(util::js_string)
         .collect();
+    let state_file = SyncStateFile::new(scope);
+    let mut state = state_file.read_document();
+    let mut watermarks = state.object("srcPush");
+    let mut state_changed = false;
     let mut changed = false;
     let mut inserted: HashSet<String> = HashSet::new();
     for row in &rows {
+        // Uma linha removida no servidor não vira fonte local nem watermark.
+        if row.get("removed") == Some(&Value::Bool(true)) {
+            continue;
+        }
         let Some(id) = row.get("source_id").and_then(|value| match value {
             Value::String(text) => Some(text.clone()),
             Value::Number(_) => Some(util::js_string(value)),
@@ -176,6 +184,21 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<SourcesPul
         }) else {
             continue;
         };
+
+        // O servidor confirmou que a fonte existe na conta. Registrar o
+        // watermark também para fontes já locais garante que removê-las aqui
+        // envie o tombstone correto no próximo push.
+        if !watermarks.contains_key(&id) {
+            let mut watermark = Map::new();
+            watermark.insert("url".into(), row.get("url").cloned().unwrap_or(Value::Null));
+            watermark.insert(
+                "name".into(),
+                row.get("name").cloned().unwrap_or(Value::Null),
+            );
+            watermarks.insert(id.clone(), Value::Object(watermark));
+            state_changed = true;
+        }
+
         if existing.contains(&id) || !inserted.insert(id.clone()) {
             continue;
         }
@@ -195,6 +218,10 @@ pub async fn pull(client: &ApiClient, scope: &AccountScope) -> Result<SourcesPul
     }
     if changed {
         save_registry(scope, &registry)?;
+    }
+    if state_changed {
+        state.insert("srcPush", Value::Object(watermarks));
+        state_file.write_document(&state)?;
     }
     Ok(SourcesPull {
         pulled: rows.len(),

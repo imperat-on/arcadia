@@ -700,6 +700,9 @@ impl AppState {
             .ok_or_else(|| IpcError::new("nao_logado", "sessão ausente", channel))?;
         let scope = AccountScope::with_active(self.data_dir.clone(), Some(&account));
         let engine = SyncEngine::new((**api).clone(), scope);
+        // O registro de fontes é dado de conta: adicionar/remover precisa
+        // refletir no servidor. Biblioteca/conquistas continuam pull-only.
+        engine.set_push_sources(true);
         *sync = Some(engine.clone());
         Ok(engine)
     }
@@ -1561,12 +1564,6 @@ pub fn dispatch(
         "sources:list" => {
             let registry = state.source_registry(channel)?;
             Ok(json!({ "ok": true, "sources": registry.list() }))
-        }
-        "sources:remove" => {
-            let registry = state.source_registry(channel)?;
-            let id = args.first().and_then(Value::as_str).unwrap_or_default();
-            Ok(serde_json::to_value(registry.remove_source(id))
-                .unwrap_or_else(|_| json!({ "ok": false })))
         }
         "plugins:list" => Ok(state.with_plugins(channel, |registry| {
             serde_json::to_value(PluginIpc::new(registry).list())
@@ -2574,6 +2571,19 @@ async fn dispatch_async_inner(
                 Some(data) => registry.import_source(url, data),
                 None => registry.add_source(url).await,
             };
+            if result.ok {
+                push_sources_to_account(state, channel).await;
+            }
+            Ok(serde_json::to_value(result)
+                .unwrap_or_else(|_| json!({ "ok": false })))
+        }
+        "sources:remove" => {
+            let registry = state.source_registry(channel)?;
+            let id = args.first().and_then(Value::as_str).unwrap_or_default();
+            let result = registry.remove_source(id);
+            if result.ok {
+                push_sources_to_account(state, channel).await;
+            }
             Ok(serde_json::to_value(result)
                 .unwrap_or_else(|_| json!({ "ok": false })))
         }
@@ -3449,6 +3459,23 @@ fn trigger_reconcile(state: &AppState, session: &Session) {
             }
         }
     });
+}
+
+/// Sobe o registro de fontes para a conta antes de responder ao usuário. A
+/// ação local já terminou; uma falha de rede não desfaz a fonte no disco e o
+/// próximo reconcile tenta de novo.
+async fn push_sources_to_account(state: &AppState, channel: &str) {
+    let Ok(engine) = state.sync_engine(channel) else {
+        return;
+    };
+    if !engine.push_sources_enabled() {
+        return;
+    }
+    if let Err(error) = engine.push_sources().await {
+        if error != SyncError::PullOnly {
+            eprintln!("[sources] sincronização com a conta: {error}");
+        }
+    }
 }
 
 async fn account_sign_up(

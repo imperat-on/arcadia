@@ -138,6 +138,8 @@ processo do app:
 | `GST_PLUGIN_PATH` / `GST_PLUGIN_PATH_1_0` | `gstreamer\lib\gstreamer-1.0` |
 | `GST_PLUGIN_SYSTEM_PATH_1_0` | `gstreamer\lib\gstreamer-1.0` (isolado do host) |
 | `GST_PLUGIN_SCANNER` | `gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe` |
+| `GIO_EXTRA_MODULES` | `gstreamer\lib\gio\modules` (TLS/HTTPS do souphttpsrc) |
+| `SSL_CERT_FILE` | `gstreamer\etc\ssl\certs\ca-bundle.crt` |
 
 Sem o bundle, instale o runtime oficial e exporte as mesmas variáveis apontando
 para `C:\gstreamer\1.0\msvc_x86_64` (ou para o diretório escolhido no
@@ -276,11 +278,18 @@ $env:ARCADIA_LAUNCHER_BIN = "C:\build\arcadia-launcher.exe"
 .\scripts\package-native-windows.ps1 -SkipBuild
 ```
 
-`-SkipBuild` procura `target\release\arcadia-native.exe` e
-`target\release\arcadia-launcher.exe` (ou os equivalentes em
+`-SkipBuild` procura `target\release\arcadia-native.exe`,
+`target\release\arcadia-launcher.exe` e
+`target\release\arcadia-source-helper.exe` (ou os equivalentes em
 `$env:CARGO_TARGET_DIR\release`). Se um deles não existir, o script falha com o
 comando de build; não copia `target\` inteiro nem `Cargo.lock`. `dist/` continua
 no `.gitignore`.
+
+O runtime GStreamer vai para `gstreamer\` com `bin\*.dll`,
+`lib\gstreamer-1.0\*.dll`, `lib\gio\modules\*.dll` e `etc\ssl\certs`. O módulo
+GIO é o backend TLS: sem ele o `souphttpsrc` não abre HTTPS e os trailers
+HLS/mp4 falham com `Stream doesn't contain enough data`. O launcher define
+`GIO_EXTRA_MODULES` e `SSL_CERT_FILE` para essas pastas.
 
 O nome do zip é determinístico e as entradas usam ordenação e timestamp fixo
 (2020-01-01), então o mesmo conteúdo gera o mesmo SHA-256, independente do
@@ -291,8 +300,9 @@ relógio do build.
 Extraia o zip e execute `Arcadia.exe`. Ele aponta o ambiente para
 `gstreamer\` e inicia `arcadia-native.exe`; abrir o binário interno direto
 produz o erro de carregamento das DLLs do GStreamer. O `boot.mp4` fica ao lado
-do `.exe` (o app também procura `resources\boot.mp4`). O checksum fica fora do
-zip:
+do `.exe` (o app também procura `resources\boot.mp4`). O
+`arcadia-source-helper.exe` fica ao lado do app e é usado na verificação de
+fontes com desafio Cloudflare. O checksum fica fora do zip:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\arcadia-native-<versao>-windows-x86_64.zip
