@@ -129,7 +129,8 @@ O zip pode levar o runtime GStreamer embutido (quando empacotado com
 o runtime precisa ser **MSVC x86_64 1.28** e é necessário o **Microsoft Visual
 C++ Redistributable 2015–2022 x64** para as DLLs do GStreamer e o binário MSVC.
 
-O launcher `run-arcadia-native.cmd` configura para o runtime embutido:
+O launcher nativo `Arcadia.exe` configura o runtime embutido antes de criar o
+processo do app:
 
 | Variável | Valor |
 |---|---|
@@ -140,7 +141,9 @@ O launcher `run-arcadia-native.cmd` configura para o runtime embutido:
 
 Sem o bundle, instale o runtime oficial e exporte as mesmas variáveis apontando
 para `C:\gstreamer\1.0\msvc_x86_64` (ou para o diretório escolhido no
-instalador). `arcadia-native.exe` sozinho não acha as DLLs em `gstreamer\bin`.
+instalador) antes de abrir `Arcadia.exe`. `arcadia-native.exe` sozinho não acha
+as DLLs em `gstreamer\bin`: os imports são resolvidos pelo Windows antes de o
+código do app rodar, por isso o launcher precisa ser o ponto de entrada.
 
 ## Empacotar no Linux
 
@@ -233,8 +236,8 @@ pwsh -File .\scripts\package-native-windows.ps1
 Se só houver Windows PowerShell 5.1, use
 `powershell -ExecutionPolicy Bypass -File .\scripts\package-native-windows.ps1`.
 
-O script roda `cargo build --release -p arcadia-native` e gera, em
-`dist/native-windows/`:
+O script roda `cargo build --release -p arcadia-native -p arcadia-launcher` e
+gera, em `dist/native-windows/`:
 
 ```text
 arcadia-native-<versao>-windows-x86_64.zip
@@ -245,10 +248,11 @@ Dentro do zip, tudo em `arcadia-native-<versao>-windows-x86_64/`:
 
 | Arquivo | Papel |
 |---|---|
-| `arcadia-native.exe` | binário release |
+| `Arcadia.exe` | **entrada do app**: monta `PATH`/`GST_*` e inicia o binário interno |
+| `arcadia-native.exe` | binário release do app (não abrir direto) |
 | `boot.mp4` | tela de abertura (se existir no checkout) |
 | `resources/torrent_rpc/` | arquivos do worker de torrent |
-| `run-arcadia-native.cmd` | launcher com as variáveis do GStreamer (só com runtime embarcado) |
+| `run-arcadia-native.cmd` | launcher alternativo de diagnóstico (mesmo ambiente, sem `Arcadia.exe`) |
 | `gstreamer\bin\*.dll` | runtime GStreamer (somente DLLs) |
 | `gstreamer\lib\gstreamer-1.0\*.dll` | plugins (base, good, bad, libav etc.) |
 | `gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe` | scanner de plugins (quando presente) |
@@ -268,13 +272,15 @@ binário e o código Rust não mudam.
 .\scripts\package-native-windows.ps1 -Output C:\tmp\arcadia
 .\scripts\package-native-windows.ps1 -GStreamerRoot C:\gstreamer
 $env:ARCADIA_NATIVE_BIN = "C:\build\arcadia-native.exe"
+$env:ARCADIA_LAUNCHER_BIN = "C:\build\arcadia-launcher.exe"
 .\scripts\package-native-windows.ps1 -SkipBuild
 ```
 
-`-SkipBuild` procura `target\release\arcadia-native.exe` (ou
-`$env:CARGO_TARGET_DIR\release\arcadia-native.exe`). Se o `.exe` não existir, o
-script falha com o comando de build; não copia `target\` inteiro nem
-`Cargo.lock`. `dist/` continua no `.gitignore`.
+`-SkipBuild` procura `target\release\arcadia-native.exe` e
+`target\release\arcadia-launcher.exe` (ou os equivalentes em
+`$env:CARGO_TARGET_DIR\release`). Se um deles não existir, o script falha com o
+comando de build; não copia `target\` inteiro nem `Cargo.lock`. `dist/` continua
+no `.gitignore`.
 
 O nome do zip é determinístico e as entradas usam ordenação e timestamp fixo
 (2020-01-01), então o mesmo conteúdo gera o mesmo SHA-256, independente do
@@ -282,8 +288,11 @@ relógio do build.
 
 ### Rodar e verificar
 
-Extraia o zip e execute `run-arcadia-native.cmd`. O `boot.mp4` fica ao lado do
-`.exe` (o app também procura `resources\boot.mp4`). O checksum fica fora do zip:
+Extraia o zip e execute `Arcadia.exe`. Ele aponta o ambiente para
+`gstreamer\` e inicia `arcadia-native.exe`; abrir o binário interno direto
+produz o erro de carregamento das DLLs do GStreamer. O `boot.mp4` fica ao lado
+do `.exe` (o app também procura `resources\boot.mp4`). O checksum fica fora do
+zip:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\arcadia-native-<versao>-windows-x86_64.zip
@@ -322,11 +331,13 @@ O publish valida que a tag casa com `[workspace.package].version` do
 - **Windows sem assinatura.** Nem o zip nem o setup são assinados; o
   SmartScreen pode avisar na primeira execução.
 - **Instalador por usuário.** O setup instala em `%LOCALAPPDATA%\Arcadia` e
-  não pede admin. O launcher define `ARCADIA_PACKAGED=1` para o canal NSIS.
+  não pede admin. Ele adiciona `installed.marker`; o launcher nativo detecta o
+  marcador e define `ARCADIA_PACKAGED=1` para o canal NSIS.
 - **GStreamer embutido é opcional no Windows.** Se `GSTREAMER_ROOT_*` não
   estiver definido, o zip sai sem `gstreamer\` e exige GStreamer 1.28 MSVC
-  x86_64 + VC++ 2015–2022 na máquina. Use `run-arcadia-native.cmd` quando o
-  runtime for embarcado: o `.exe` sozinho não procura DLLs em `gstreamer\bin`.
+  x86_64 + VC++ 2015–2022 na máquina. Nesse caso, adicione a pasta `bin` do
+  GStreamer ao `PATH` antes de abrir `Arcadia.exe`; o binário interno não
+  procura DLLs em `gstreamer\bin` por conta própria.
 - **Zip grande com GStreamer.** Copiar o runtime inteiro (`bin` + plugins)
   deixa o `.zip` na casa das centenas de MB; sem GStreamer ele fica pequeno.
 - **No tarball Linux, GStreamer vem do sistema.** O AppImage é o artefato que

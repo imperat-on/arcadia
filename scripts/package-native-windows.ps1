@@ -1,9 +1,14 @@
 #Requires -Version 5.1
 # Empacotamento Windows do Arcadia (Rust + iced).
 #
-# Gera um .zip portátil em dist/native-windows/ com o arcadia-native.exe,
-# boot.mp4, worker de torrent, README e, quando um runtime GStreamer é encontrado, as DLLs e
-# plugins em gstreamer/. O SHA256SUMS fica ao lado do .zip.
+# Gera um .zip portátil em dist/native-windows/ com o Arcadia.exe (launcher
+# nativo), arcadia-native.exe, boot.mp4, worker de torrent, README e, quando um
+# runtime GStreamer é encontrado, as DLLs e plugins em gstreamer/. O SHA256SUMS
+# fica ao lado do .zip.
+#
+# O app importa as DLLs do GStreamer estaticamente. O launcher é quem define
+# PATH/GST_* antes do processo nascer; por isso Arcadia.exe é a entrada do
+# pacote e arcadia-native.exe não deve ser aberto direto.
 #
 # Uso (PowerShell 5.1+):
 #   pwsh -File .\scripts\package-native-windows.ps1
@@ -12,9 +17,10 @@
 #   pwsh -File .\scripts\package-native-windows.ps1 -GStreamerRoot C:\gstreamer
 #
 # Variáveis:
-#   ARCADIA_NATIVE_BIN       binário alternativo (útil com -SkipBuild)
+#   ARCADIA_NATIVE_BIN       binário alternativo do app (útil com -SkipBuild)
+#   ARCADIA_LAUNCHER_BIN     launcher alternativo (útil com -SkipBuild)
 #   ARCADIA_NATIVE_VERSION   sobrescreve a versão lida do workspace
-#   CARGO_TARGET_DIR         respeitado no build e na busca do binário
+#   CARGO_TARGET_DIR         respeitado no build e na busca dos binários
 #   GSTREAMER_ROOT_X86_64    runtime GStreamer MSVC x86_64; também aceita
 #                            GSTREAMER_ROOT e GSTREAMER_1_0_ROOT_MSVC_X86_64
 #
@@ -215,6 +221,14 @@ if ([string]::IsNullOrWhiteSpace($Bin)) {
 }
 $Bin = [System.IO.Path]::GetFullPath($Bin)
 
+$LauncherBin = $env:ARCADIA_LAUNCHER_BIN
+if ([string]::IsNullOrWhiteSpace($LauncherBin)) {
+    $LauncherBin = Join-Path $TargetDir "release\arcadia-launcher.exe"
+} elseif (-not [System.IO.Path]::IsPathRooted($LauncherBin)) {
+    $LauncherBin = Join-Path $RepoRoot $LauncherBin
+}
+$LauncherBin = [System.IO.Path]::GetFullPath($LauncherBin)
+
 # --- Build ------------------------------------------------------------------
 
 if (-not $SkipBuild) {
@@ -222,11 +236,11 @@ if (-not $SkipBuild) {
     if ($null -eq $cargo) {
         Stop-WithError "cargo não encontrado no PATH; instale o toolchain Rust MSVC (https://rustup.rs)"
     }
-    Write-Host "==> cargo build --locked --release -p arcadia-native"
+    Write-Host "==> cargo build --locked --release -p arcadia-native -p arcadia-launcher"
     $env:CARGO_TARGET_DIR = $TargetDir
     Push-Location $RepoRoot
     try {
-        & cargo build --locked --release -p arcadia-native
+        & cargo build --locked --release -p arcadia-native -p arcadia-launcher
         if ($LASTEXITCODE -ne 0) {
             Stop-WithError "cargo build falhou (exit $LASTEXITCODE)"
         }
@@ -239,9 +253,19 @@ if (-not (Test-Path -LiteralPath $Bin -PathType Leaf)) {
     Write-Host "erro: binário nativo não encontrado em $Bin" -ForegroundColor Red
     if ($SkipBuild) {
         Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
-        Write-Host "    cargo build --locked --release -p arcadia-native" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher" -ForegroundColor Red
     }
     Write-Host "  ou aponte ARCADIA_NATIVE_BIN para outro executável" -ForegroundColor Red
+    exit 1
+}
+
+if (-not (Test-Path -LiteralPath $LauncherBin -PathType Leaf)) {
+    Write-Host "erro: launcher não encontrado em $LauncherBin" -ForegroundColor Red
+    if ($SkipBuild) {
+        Write-Host "  -SkipBuild foi usado; compile antes com:" -ForegroundColor Red
+        Write-Host "    cargo build --locked --release -p arcadia-native -p arcadia-launcher" -ForegroundColor Red
+    }
+    Write-Host "  ou aponte ARCADIA_LAUNCHER_BIN para outro executável" -ForegroundColor Red
     exit 1
 }
 
@@ -255,6 +279,9 @@ New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 
 Copy-Item -LiteralPath $Bin -Destination (Join-Path $Stage "arcadia-native.exe")
 Write-Host "==> binário: $Bin"
+
+Copy-Item -LiteralPath $LauncherBin -Destination (Join-Path $Stage "Arcadia.exe")
+Write-Host "==> launcher: $LauncherBin"
 
 # O app procura boot.mp4 ao lado do executável e em resources\boot.mp4.
 $Boot = Join-Path $RepoRoot "boot.mp4"
@@ -390,11 +417,12 @@ if ($GstBundled) {
   quando presente no runtime;
 '@
     $runInstructions = @'
-Dê duplo clique em `run-arcadia-native.cmd` (ou execute-o no terminal). Ele
-aponta as variáveis para o runtime embarcado e inicia o app.
+Dê duplo clique em `Arcadia.exe` (ou execute-o no terminal). Ele aponta o
+`PATH`/`GST_*` para o runtime embarcado e inicia o app.
 
 Não abra `arcadia-native.exe` direto: as DLLs do GStreamer ficam em
-`gstreamer\bin` e não são encontradas sem essas variáveis.
+`gstreamer\bin` e o Windows tenta carregá-las antes de o app rodar. O
+`run-arcadia-native.cmd` continua no pacote como alternativa de diagnóstico.
 '@
     $gstRequirements = @'
 O runtime GStreamer 1.28 MSVC x86_64 vai embutido em `gstreamer\`. Não é
@@ -407,7 +435,7 @@ preciso instalar GStreamer na máquina.
 '@
     $runInstructions = @'
 Instale o runtime do GStreamer (veja abaixo), configure as variáveis e
-execute o launcher:
+execute `Arcadia.exe`:
 
 ```powershell
 $gst = "C:\gstreamer\1.0\msvc_x86_64"
@@ -415,7 +443,7 @@ $env:PATH = "$gst\bin;$env:PATH"
 $env:GST_PLUGIN_PATH = "$gst\lib\gstreamer-1.0"
 $env:GST_PLUGIN_SYSTEM_PATH_1_0 = "$gst\lib\gstreamer-1.0"
 $env:GST_PLUGIN_SCANNER = "$gst\libexec\gstreamer-1.0\gst-plugin-scanner.exe"
-.\run-arcadia-native.cmd
+.\Arcadia.exe
 ```
 
 O launcher marca o pacote como portátil e inicia `arcadia-native.exe`.
@@ -438,8 +466,9 @@ Arcadia em Rust + iced.
 
 ## Conteúdo
 
-- `arcadia-native.exe` — binário do aplicativo;
-- `run-arcadia-native.cmd` — launcher do modo portátil;
+- `Arcadia.exe` — **entrada do aplicativo**; configura o GStreamer e inicia o app;
+- `arcadia-native.exe` — binário interno do app (não abra direto);
+- `run-arcadia-native.cmd` — launcher alternativo para diagnóstico;
 - `boot.mp4` — vídeo de abertura, procurado ao lado do executável;
 - `resources\torrent_rpc\` — worker de download por torrent (Python);
 @@GST_CONTENT@@
@@ -451,6 +480,18 @@ Arcadia em Rust + iced.
 
 O `boot.mp4` é procurado ao lado do `arcadia-native.exe` e em
 `resources\boot.mp4`. Sem ele, a interface abre direto.
+
+## Por que existe o Arcadia.exe
+
+O `arcadia-native.exe` importa as DLLs do GStreamer estaticamente: o Windows
+resolve esses imports **antes** de o código do app rodar. Um executável não
+consegue alterar o próprio `PATH` depois de iniciado. O `Arcadia.exe` monta o
+`PATH` e as variáveis `GST_*` e só então cria o processo do app — por isso ele
+é o alvo do duplo clique e dos atalhos.
+
+Abrir `arcadia-native.exe` direto produz o erro de sistema
+"gobject-2.0-0.dll não foi encontrado"; não é corrupção do download nem falta
+de reinstalação.
 
 ## Dependências de runtime
 

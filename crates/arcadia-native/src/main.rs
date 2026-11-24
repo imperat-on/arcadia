@@ -3,6 +3,10 @@
 //! O app chama os serviços do Arcadia diretamente em um runtime Tokio.
 //! A verificação de fontes usa um navegador em processo separado.
 
+// No Windows o release é GUI: sem console atrás da janela. O launcher também
+// usa CREATE_NO_WINDOW, então builds antigos de console continuam limpos.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod animated_cards;
 mod asset_cache;
 mod app;

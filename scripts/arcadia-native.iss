@@ -6,7 +6,7 @@
 #define MyStageDir GetEnv("ARCADIA_STAGE_DIR")
 #define MyOutputDir GetEnv("ARCADIA_OUTPUT_DIR")
 #define MyIcon GetEnv("ARCADIA_ICON")
-#define MyLauncher GetEnv("ARCADIA_LAUNCHER")
+#define MyInstalledMarker GetEnv("ARCADIA_INSTALLED_MARKER")
 
 [Setup]
 AppId={{583a8669-975c-4932-8bc6-fa6f01e6270c}
@@ -42,13 +42,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#MyStageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Substitui o launcher portátil pelo launcher instalado (ARCADIA_PACKAGED=1).
-Source: "{#MyLauncher}"; DestDir: "{app}"; DestName: "run-arcadia-native.cmd"; Flags: ignoreversion
+; O launcher nativo (Arcadia.exe) já vem do estágio portátil.
+Source: "{#MyStageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "run-arcadia-native.cmd"
+; installed.marker faz o launcher definir ARCADIA_PACKAGED=1 (canal NSIS).
+Source: "{#MyInstalledMarker}"; DestDir: "{app}"; DestName: "installed.marker"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Arcadia"; Filename: "{app}\run-arcadia-native.cmd"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Arcadia"; Filename: "{app}\run-arcadia-native.cmd"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\run-arcadia-native.cmd"; Description: "{cm:LaunchProgram,Arcadia}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Arcadia.exe"; Description: "{cm:LaunchProgram,Arcadia}"; Flags: nowait postinstall skipifsilent

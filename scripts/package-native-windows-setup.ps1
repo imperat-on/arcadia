@@ -1,6 +1,10 @@
 #Requires -Version 5.1
 # Gera o instalador Windows (Inno Setup) a partir do estágio portátil.
 #
+# O estágio precisa ter sido gerado por package-native-windows.ps1 (Arcadia.exe,
+# arcadia-native.exe e, opcionalmente, gstreamer\). O instalador adiciona
+# installed.marker para o launcher nativo selecionar o canal NSIS.
+#
 # Uso:
 #   pwsh -File .\scripts\package-native-windows-setup.ps1
 #   pwsh -File .\scripts\package-native-windows-setup.ps1 -Version 2.0.0
@@ -79,6 +83,10 @@ $Bin = Join-Path $StageDir "arcadia-native.exe"
 if (-not (Test-Path -LiteralPath $Bin -PathType Leaf)) {
     throw "estágio portátil sem arcadia-native.exe: $StageDir"
 }
+$Launcher = Join-Path $StageDir "Arcadia.exe"
+if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) {
+    throw "estágio portátil sem Arcadia.exe; rode scripts\package-native-windows.ps1 antes de gerar o instalador"
+}
 $Icon = Join-Path $RepoRoot "crates\arcadia-native\assets\icons\icon.ico"
 if (-not (Test-Path -LiteralPath $Icon -PathType Leaf)) {
     throw "ícone .ico não encontrado: $Icon"
@@ -104,38 +112,18 @@ if ($null -eq $Iscc) {
     throw "Inno Setup 6 (ISCC.exe) não encontrado; instale com: choco install innosetup -y --no-progress"
 }
 
-# Launcher do app instalado. Diferente do portátil:
-# - ARCADIA_PACKAGED=1 faz o updater detectar o canal NSIS;
-# - quando o GStreamer foi embarcado, aponta PATH/GST_* para gstreamer\.
-$installedLauncher = Join-Path $Output "run-arcadia-native-installed.cmd"
-$launcherLines = @(
-    "@echo off",
-    "setlocal",
-    "set `"HERE=%~dp0`""
-)
-$gstDll = Join-Path $StageDir "gstreamer\bin\gstreamer-1.0-0.dll"
-if (Test-Path -LiteralPath $gstDll -PathType Leaf) {
-    $launcherLines += @(
-        "set `"PATH=%HERE%gstreamer\bin;%PATH%`"",
-        "set `"GST_PLUGIN_PATH=%HERE%gstreamer\lib\gstreamer-1.0`"",
-        "set `"GST_PLUGIN_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
-        "set `"GST_PLUGIN_SYSTEM_PATH_1_0=%HERE%gstreamer\lib\gstreamer-1.0`"",
-        "if exist `"%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\libexec\gstreamer-1.0\gst-plugin-scanner.exe`"",
-        "if exist `"%HERE%gstreamer\bin\gst-plugin-scanner.exe`" set `"GST_PLUGIN_SCANNER=%HERE%gstreamer\bin\gst-plugin-scanner.exe`""
-    )
-}
-$launcherLines += @(
-    "set `"ARCADIA_PACKAGED=1`"",
-    "start `"`" /D `"%HERE%`" `"%HERE%arcadia-native.exe`" %*"
-)
-$launcher = ($launcherLines -join "`r`n") + "`r`n"
-Write-TextFile -Path $installedLauncher -Content $launcher
+# Marcador copiado pelo Inno Setup para {app}. O launcher nativo o encontra ao
+# lado do Arcadia.exe e define ARCADIA_PACKAGED=1 (canal NSIS). O zip portátil
+# não tem o marcador, então continua sendo tratado como portátil.
+New-Item -ItemType Directory -Path $Output -Force | Out-Null
+$marker = Join-Path $Output "installed.marker"
+Write-TextFile -Path $marker -Content "installed`n"
 
 $env:ARCADIA_VERSION = $Version
 $env:ARCADIA_STAGE_DIR = $StageDir
 $env:ARCADIA_OUTPUT_DIR = $Output
 $env:ARCADIA_ICON = $Icon
-$env:ARCADIA_LAUNCHER = $installedLauncher
+$env:ARCADIA_INSTALLED_MARKER = $marker
 
 Write-Host "==> Inno Setup: $Iscc"
 Write-Host "==> estágio:    $StageDir"

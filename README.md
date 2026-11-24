@@ -23,8 +23,9 @@ dependencies and installation steps.
   directly (`chmod +x` once). From a source checkout, `./install.sh` builds the
   app and adds it to the application menu.
 - **Windows** — extract `arcadia-native-<version>-windows-x86_64.zip` and run
-  `run-arcadia-native.cmd` when the archive bundles GStreamer. For an archive
-  without the runtime, install GStreamer and run `arcadia-native.exe`.
+  `Arcadia.exe`. It configures the bundled GStreamer runtime and starts the
+  app; `arcadia-native.exe` is the internal binary and must not be opened
+  directly. The Inno Setup installer creates shortcuts that use `Arcadia.exe`.
 
 Existing users can open the native app with their current Arcadia data. The
 default data directories are `~/.local/share/arcadia` on Linux and
@@ -56,6 +57,7 @@ with its SHA-256 checksum:
 | Crate | Role |
 |---|---|
 | `arcadia-native` | Desktop and Big Picture, navigation and display |
+| `arcadia-launcher` | Windows entry point that sets up GStreamer before starting the app |
 | `arcadia-source-helper` | Isolated WebKit window for source verification challenges (Linux) |
 | `arcadia-native-media`, `arcadia-native-input` | GStreamer playback and controller navigation |
 | `arcadia-ipc` | Application commands, called directly from the native interface |

@@ -275,6 +275,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "arcadia-launcher"
+version = "2.0.0"
+
+[[package]]
 name = "arcadia-media"
 version = "2.0.0"
 dependencies = [

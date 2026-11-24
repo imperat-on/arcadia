@@ -23,6 +23,7 @@ members = [
     "crates/arcadia-gamepad",
     "crates/arcadia-ipc",
     "crates/arcadia-native",
+    "crates/arcadia-launcher",
     "crates/arcadia-native-input",
     "crates/arcadia-source-helper",
 ]
