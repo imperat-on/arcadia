@@ -24,7 +24,7 @@ PrivilegesRequired=lowest
 OutputDir={#MyOutputDir}
 OutputBaseFilename=Arcadia_{#MyVersion}_x64-setup
 SetupIconFile={#MyIcon}
-UninstallDisplayIcon={app}\arcadia-native.exe
+UninstallDisplayIcon={app}\Arcadia.exe
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -48,8 +48,8 @@ Source: "{#MyStageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "{#MyInstalledMarker}"; DestDir: "{app}"; DestName: "installed.marker"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\arcadia-native.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\Arcadia.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\Arcadia"; Filename: "{app}\Arcadia.exe"; IconFilename: "{app}\Arcadia.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Arcadia.exe"; Description: "{cm:LaunchProgram,Arcadia}"; Flags: nowait postinstall skipifsilent

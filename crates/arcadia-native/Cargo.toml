@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Frontend nativo do Arcadia em Rust puro (iced), sem Tauri e sem webview na interface"
 
+[build-dependencies]
+embed-resource = "3"
+
 [dependencies]
 arcadia-api = { path = "../arcadia-api" }
 arcadia-catalog = { path = "../arcadia-catalog" }

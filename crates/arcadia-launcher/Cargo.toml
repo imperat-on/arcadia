@@ -7,3 +7,6 @@ publish = false
 description = "Launcher Windows do Arcadia Native: monta o ambiente do GStreamer antes de iniciar o app"
 
 [dependencies]
+
+[build-dependencies]
+embed-resource = "3"

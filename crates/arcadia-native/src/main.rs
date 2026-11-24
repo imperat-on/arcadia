@@ -44,6 +44,14 @@ fn bundled_torrent_worker(executable: Option<&Path>) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// Ícone da janela/taskbar, decodificado do PNG embutido no binário.
+fn window_icon() -> Option<window::Icon> {
+    let decoded = image::load_from_memory(include_bytes!("../assets/icons/icon.png")).ok()?;
+    let rgba = decoded.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    window::icon::from_rgba(rgba.into_raw(), width, height).ok()
+}
+
 fn main() -> iced::Result {
     let data_dir = arcadia_store::paths::resolve_data_dir();
     if let Err(error) = std::fs::create_dir_all(&data_dir) {
@@ -110,6 +118,7 @@ fn main() -> iced::Result {
             size: Size::new(1280.0, 800.0),
             min_size: Some(Size::new(1024.0, 640.0)),
             decorations: false,
+            icon: window_icon(),
             ..window::Settings::default()
         })
         .antialiasing(true)
