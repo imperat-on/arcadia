@@ -115,6 +115,12 @@ export function GeneralSection({ onSaved }: { onSaved: () => void }) {
 
       <Group title={t("settings.behavior")}>
         <Toggle
+          label={t("settings.achievement_sound.label")}
+          desc={t("settings.achievement_sound.desc")}
+          value={cfg.achievement_sound !== false}
+          onChange={(v) => set("achievement_sound", v)}
+        />
+        <Toggle
           label={t("settings.check_updates.label")}
           desc={t("settings.check_updates.desc")}
           value={cfg.check_updates_on_start !== false}
@@ -203,6 +209,8 @@ function ProcurarAtualizacao() {
       const r = await window.launcherAPI?.updatePackagedCheck({ manual: true })
       setBusy(false)
       if (r?.motivo === "canal_nao_suportado") return setMsg(t("update.packaged.sem_suporte"))
+      if (r?.motivo === "sem_release") return setMsg(t("update.packaged.sem_release"))
+      if (r?.motivo === "ocupado") return
       if (!r?.ok) return setMsg(r?.erro || t("update.erro_generico"))
       if (!r.disponivel) return setMsg(t("update.packaged.em_dia"))
       // A checagem manual zera o "já avisei" no módulo; o diálogo do launcher

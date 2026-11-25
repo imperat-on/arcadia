@@ -1,5 +1,55 @@
 import type { Game } from "./components/ps5-launcher/types"
 
+export interface TrophyItem {
+  id?: number
+  title: string
+  desc?: string
+  icon?: string
+  icongray?: string
+  apiname?: string
+  block?: number | null
+  bit?: number | null
+  achieved?: boolean
+  unlock?: number
+  percent?: number | null
+  hidden?: boolean
+  trophyGroup?: "base" | "dlc"
+  unlockEstimated?: boolean
+}
+
+export interface TrophySummary {
+  items: TrophyItem[]
+  catalog: "confirmed" | "known" | "partial" | "empty" | "unknown"
+  progress: "detected" | "unknown"
+  done: number
+  total: number
+  percent: number | null
+  stale: boolean
+  platinum?: {
+    base: { done: number; total: number; known: number }
+    dlc: { done: number; total: number; known: number }
+    awarded: boolean
+    earnedAt: number | null
+  }
+}
+
+export interface TrophyUnlock {
+  appid: string
+  key: string
+  apiname?: string
+  title: string
+  gameTitle?: string
+  desc?: string
+  icon?: string
+  percent?: number
+  unlock?: number
+  notice: "launcher" | "native" | null
+  rare: boolean
+  platinum?: boolean
+  sound: boolean
+  reducedMotion: boolean
+}
+
 export interface Profile {
   name?: string
   realName?: string
@@ -207,7 +257,7 @@ export interface UpdateInfo {
 export type UpdateEtapa = "pull" | "deps" | "build" | "pronto"
 
 export type UpdatePackagedCanal = "fonte" | "appimage" | "nsis" | "portable" | "zip" | "sem_suporte"
-export type UpdatePackagedFase = "ocioso" | "disponivel" | "baixando" | "pronto" | "erro" | "sem_suporte"
+export type UpdatePackagedFase = "ocioso" | "disponivel" | "baixando" | "pronto" | "erro" | "sem_suporte" | "sem_release"
 /** Qual ação do usuário gerou o erro; define o retry do diálogo (N7/N8). */
 export type UpdatePackagedErroAcao = "checar" | "baixar" | "instalar"
 
@@ -237,7 +287,7 @@ export interface UpdatePackagedCheck {
   disponivel: boolean
   versao?: string | null
   tamanho?: number | null
-  motivo?: "canal_nao_suportado" | "jogo_rodando" | "erro" | "fonte"
+  motivo?: "canal_nao_suportado" | "jogo_rodando" | "erro" | "fonte" | "sem_release" | "ocupado"
   erro?: string
 }
 
@@ -300,6 +350,7 @@ export interface AppConfig {
   auto_start_menu_shortcuts?: boolean
   auto_add_to_steam?: boolean
   disable_playtime_tracking?: boolean
+  achievement_sound?: boolean
   discord_rich_presence?: boolean
   discord_client_id?: string
   library_featured_column?: "disabled" | "recent" | "favorites" | "most-played"
@@ -513,6 +564,7 @@ export interface DmItem {
   speed: number // MiB/s
   error: string
   priority?: number // prioridade [-10,10] da fila persistida
+  integrity?: { state?: string }
   installPath?: string // pasta escolhida no diálogo de instalação
 }
 
@@ -1695,20 +1747,11 @@ declare global {
           percent?: number
         }>
       >
+      achievementsTrophySummary: (appid: string) => Promise<TrophySummary | null>
       /** Test toast (for debugging) */
       testToast: (platinum?: boolean) => Promise<{ ok: boolean; error?: string }>
       /** Conquista desbloqueada em tempo real (watcher do processo principal). */
-      onAchievementUnlocked: (
-        cb: (payload: {
-          appid: string
-          key: string
-          title: string
-          desc?: string
-          icon?: string
-          percent?: number
-          unlock?: number
-        }) => void,
-      ) => () => void
+      onAchievementUnlocked: (cb: (payload: TrophyUnlock) => void) => () => void
       /** Recarrega apiname/título/desc/ícones dos itens a partir dos UserGameStatsSchema_*.bin da Steam. */
       achievementsSchemasLoad: () => Promise<{
         ok: boolean

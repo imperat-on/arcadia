@@ -34,6 +34,45 @@ const base = (over = {}) => ({
   ...over,
 })
 
+test("checagem em segundo plano baixa sem aviso e bloqueia instalação durante jogo", async () => {
+  const up = fakeUpdater()
+  const check = up.checkForUpdates
+  up.checkForUpdates = async () => {
+    const result = await check()
+    up.emitir("update-available", result.updateInfo)
+    return result
+  }
+  const fases = []
+  let jogando = false
+  const u = createPackagedUpdater(base({
+    autoUpdater: up,
+    baixarEmSegundoPlano: () => true,
+    isJogoRodando: () => jogando,
+    onChange: ({ fase }) => fases.push(fase),
+  }))
+  await u.checar()
+  assert.deepEqual(fases, ["baixando", "pronto"])
+  assert.equal(up.baixou, 1)
+  jogando = true
+  assert.equal(u.instalar().erro, "jogo_rodando")
+  assert.equal(up.instalou, false)
+})
+
+test("repositório sem releases não gera diálogo de erro", async () => {
+  const up = fakeUpdater()
+  up.checkForUpdates = async () => {
+    const error = Object.assign(new Error("No published versions"), {
+      code: "ERR_UPDATER_NO_PUBLISHED_VERSIONS",
+    })
+    up.emitir("error", error)
+    throw error
+  }
+  const fases = []
+  const u = createPackagedUpdater(base({ autoUpdater: up, onChange: ({ fase }) => fases.push(fase) }))
+  assert.equal((await u.checar({ manual: true })).motivo, "sem_release")
+  assert.deepEqual(fases, ["sem_release"])
+})
+
 test("canal: fonte quando nao empacotado", () => {
   const u = createPackagedUpdater(base({ app: { isPackaged: false, getVersion: () => "1.4.1" } }))
   assert.equal(u.canal(), "fonte")

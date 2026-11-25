@@ -1,12 +1,15 @@
 "use client"
 
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react"
-import type { NewsItem } from "../../global"
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
+import type { NewsItem, TrophyItem, TrophySummary } from "../../global"
 import { useI18n } from "../../i18n/I18nContext"
 import { userLocale } from "../../i18n/locale"
 import type { Game } from "./types"
 import { horasCombinadas, useSteamHoras } from "../steamHoras"
 import { useFriends } from "../account/FriendsContext"
+import { useAccountOptional } from "../account/AccountContext"
+import { TrophyDetails, TrophyStatus, unavailableTrophies } from "../TrophyDetails"
 
 type OverviewInfo = {
   short_description?: string
@@ -21,13 +24,6 @@ type OverviewInfo = {
   movies?: { id: number; name: string; thumb: string; mp4?: string; webm?: string }[]
 }
 
-type Achievement = {
-  title: string
-  desc?: string
-  icon?: string
-  icongray?: string
-  achieved?: boolean
-}
 
 type MediaItem = {
   src: string
@@ -49,6 +45,9 @@ interface GameOverviewProps {
   onOpenNews: (url: string) => void
   onMore?: () => void
   onOpenFriends?: () => void
+  trophiesOpen: boolean
+  onTrophiesOpen: (open: boolean) => void
+  trophiesGamepad: boolean
 }
 
 type OverviewGame = Game & {
@@ -99,10 +98,12 @@ function timeSince(date: string): string {
 }
 
 export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(function GameOverview(
-  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews, onMore, onOpenFriends },
+  { game, news, appFocused = true, visible = true, rodando, abrindo, closing, onClose, onLaunch, onOpenNews, onMore, onOpenFriends, trophiesOpen, onTrophiesOpen, trophiesGamepad },
   ref,
 ) {
   const { t } = useI18n()
+  const account = useAccountOptional()?.session?.user?.id
+  const captureTransition = useRef<(() => void) | null>(null)
   const { data: friendsData } = useFriends()
   const steamHoras = useSteamHoras()
   const minutes = horasCombinadas(steamHoras, [game.id, game.appid], game.playtime_minutes)
@@ -110,10 +111,12 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   const [meta, setMeta] = useState<OverviewInfo | null>(null)
   const [trailer, setTrailer] = useState<string | null>(null)
   const [media, setMedia] = useState("hero")
-  const [achievements, setAchievements] = useState<Achievement[] | null>(null)
-  const [retroProgress, setRetroProgress] = useState<{ unlocked: number; total: number } | null>(
-    null,
-  )
+  const trophyScope = `${account ?? ""}:${game.id}`
+  const [trophyResult, setTrophyResult] = useState<{ scope: string; summary: TrophySummary } | null>(null)
+  const trophies = trophyResult?.scope === trophyScope ? trophyResult.summary : null
+  const trophyGame = !!(game.retro && game.systemId) || game.launcher === "steam"
+  const refreshTrophies = useRef<(() => Promise<void>) | null>(null)
+  const closeTrophies = useCallback(() => onTrophiesOpen(false), [onTrophiesOpen])
   // Consultas IPC e leitura de trailer são adiadas até o painel terminar de
   // subir. Dispará-las no primeiro frame roubava tempo da animação.
   const [ready, setReady] = useState(false)
@@ -185,11 +188,14 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
   useEffect(() => {
     let live = true
     let request = 0
-    setAchievements(null)
-    setRetroProgress(null)
-    if (!ready) return () => { live = false }
+    if (!ready || !trophyGame) return
+    const setTrophies = (summary: TrophySummary) => setTrophyResult(old => ({
+      scope: trophyScope,
+      summary: summary.stale && summary.progress === "unknown" && old?.scope === trophyScope && old.summary.items.length
+        ? { ...old.summary, stale: true } : summary,
+    }))
     const api = window.launcherAPI
-    if (!api) { setAchievements([]); return }
+    if (!api) { setTrophies(unavailableTrophies); return }
     const appid = String(game.appid || game.id).replace(/^steam:/, "")
     const refresh = async () => {
       const current = ++request
@@ -197,17 +203,21 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
         if (game.retro && game.systemId && api.retroachievementsGameProgress) {
           const result = await api.retroachievementsGameProgress(game.title, game.systemId)
           if (!live || current !== request) return
-          setAchievements((result?.achievements || []).map(item => ({ title: item.title, desc: item.description, icon: item.badgeUrl, icongray: item.badgeLockedUrl, achieved: item.unlocked })))
-          setRetroProgress(result?.game ? { unlocked: result.game.numAwardedToUser || 0, total: result.game.numAchievements || 0 } : null)
+          if (!result?.ok) throw new Error("RetroAchievements")
+          const items = (result?.achievements || []).map(item => ({ id: item.id, title: item.title, desc: item.description, icon: item.badgeUrl, icongray: item.badgeLockedUrl, achieved: item.unlocked }))
+          const total = result.game?.numAchievements ?? items.length
+          const done = items.filter(item => item.achieved).length
+          setTrophies({ items, total: items.length, done, catalog: !result.game ? "unknown" : !total ? "empty" : items.length !== total ? "partial" : "confirmed", progress: result.game ? "detected" : "unknown", percent: total && items.length === total ? Math.floor(100 * done / total) : null, stale: false })
         } else if (game.launcher === "steam") {
-          const items = await api.achievementsGet(appid)
-          if (live && current === request) setAchievements(Array.isArray(items) ? items : [])
-        } else if (live) setAchievements([])
+          const result = await api.achievementsTrophySummary(appid)
+          if (live && current === request && result) setTrophies(result)
+        }
       } catch {
         // A transient refresh failure must not erase the last known progress.
-        if (live && current === request) setAchievements(items => items ?? [])
+        if (live && current === request) setTrophies(unavailableTrophies)
       }
     }
+    refreshTrophies.current = refresh
     void refresh()
     // The same IPC as the desktop panel; re-read the authoritative list to
     // preserve schema aliases instead of matching duplicate display titles.
@@ -223,16 +233,19 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     if (!api.onAppFocus) window.addEventListener("focus", onFocus)
     return () => {
       live = false
+      refreshTrophies.current = null
       offUnlock?.()
       offLibrary?.()
       offSync?.()
       offFocus?.()
       window.removeEventListener("focus", onFocus)
     }
-  }, [game.id, game.appid, game.launcher, game.retro, game.systemId, game.title, ready])
+  }, [game.id, game.appid, game.launcher, game.retro, game.systemId, game.title, ready, trophyGame, trophyScope])
+
 
   useEffect(() => {
     setMedia("hero")
+    return () => captureTransition.current?.()
   }, [game.id])
 
   useEffect(() => {
@@ -301,12 +314,95 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
     return (related.length ? related : news).slice(0, 2)
   }, [game.title, news])
 
-  const unlocked =
-    retroProgress?.unlocked ?? achievements?.filter((item) => item.achieved).length ?? 0
-  const total = retroProgress?.total ?? achievements?.length ?? 0
-  const progress = total ? Math.round((unlocked / total) * 100) : 0
+  const latest = trophies?.items.reduce<TrophyItem | undefined>((best, item) =>
+    item.achieved && (item.unlock || 0) > (best?.unlock || 0) ? item : best, undefined)
   const preview = media !== "trailer" && media !== "hero" ? media : backdrop || cover
   const showingTrailer = media === "trailer" && Boolean(trailer) && appFocused
+  const captureIndex = screenshots.findIndex((item) => item.full === media)
+  const galleryRef = useRef<HTMLElement>(null)
+  const captureRef = useRef<HTMLImageElement>(null)
+  useEffect(() => {
+    const gallery = galleryRef.current
+    const image = captureRef.current
+    if (!gallery || !image || captureIndex < 0 || screenshots.length < 2 || !visible || closing || !appFocused) return
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
+    let direction = 0
+    let armed = false
+    let settle: Animation | undefined
+    const reset = () => {
+      direction = 0
+      armed = false
+      settle?.cancel()
+      image.style.removeProperty("translate")
+    }
+    const onAxis = (event: Event) => {
+      event.preventDefault()
+      const x = Math.max(-1, Math.min(1, (event as CustomEvent<number>).detail))
+      if (Math.abs(x) < .15) {
+        if (armed && direction) {
+          const index = (captureIndex + direction + screenshots.length) % screenshots.length
+          reset()
+          setMedia(screenshots[index].full)
+        } else if (image.style.translate) {
+          const from = image.style.translate
+          image.style.removeProperty("translate")
+          if (!preference.matches) settle = image.animate([{ translate: from }, { translate: "0px" }], { duration: 180, easing: "ease-out" })
+        }
+        armed = true
+        return
+      }
+      if (!armed) return
+      if (Math.abs(x) >= .65) direction = Math.sign(x)
+      settle?.cancel()
+      if (!preference.matches) image.style.translate = `${-x * 48}px`
+    }
+    const onFocusOut = (event: FocusEvent) => {
+      if (!(event.relatedTarget instanceof Node) || !gallery.contains(event.relatedTarget)) reset()
+    }
+    gallery.addEventListener("arcadia:capture-axis", onAxis)
+    gallery.addEventListener("focusout", onFocusOut)
+    window.addEventListener("gamepaddisconnected", reset)
+    preference.addEventListener("change", reset)
+    return () => {
+      reset()
+      gallery.removeEventListener("arcadia:capture-axis", onAxis)
+      gallery.removeEventListener("focusout", onFocusOut)
+      window.removeEventListener("gamepaddisconnected", reset)
+      preference.removeEventListener("change", reset)
+    }
+  }, [appFocused, captureIndex, closing, screenshots, visible])
+  const transitionCapture = (source: HTMLElement | null, update: () => HTMLElement | null) => {
+    captureTransition.current?.()
+    if (!source || !document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      update()
+      return
+    }
+    source.style.viewTransitionName = "console-capture"
+    let canceled = false
+    let destination: HTMLElement | null = null
+    const transition = document.startViewTransition(() => {
+      if (canceled) return
+      flushSync(() => { destination = update() })
+      // The preview only exists after React commits the media change.
+      if (!destination && source.isConnected) {
+        destination = source.closest("section")?.querySelector(".console-media-preview") ?? null
+      }
+      if (source !== destination) source.style.removeProperty("view-transition-name")
+      if (destination) destination.style.viewTransitionName = "console-capture"
+    })
+    const clean = () => {
+      if (canceled) return
+      source.style.removeProperty("view-transition-name")
+      destination?.style.removeProperty("view-transition-name")
+      captureTransition.current = null
+    }
+    captureTransition.current = () => {
+      clean()
+      canceled = true
+      transition.skipTransition()
+    }
+    void transition.finished.then(clean, clean)
+  }
   const overviewTime = new Date().toLocaleTimeString(userLocale(), { hour: "2-digit", minute: "2-digit" })
 
   return (
@@ -317,7 +413,7 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
       aria-modal="true"
       aria-label={`${t("gameoverview.detalhes")}: ${game.title}`}
       onKeyDown={(event) => {
-        if (event.key !== "Tab") return
+        if (trophiesOpen || event.key !== "Tab") return
         const targets = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),video[controls],[tabindex="0"]')).filter(el => el.getBoundingClientRect().width > 0)
         const first = targets[0]
         const last = targets[targets.length - 1]
@@ -372,17 +468,66 @@ export const GameOverview = forwardRef<HTMLDivElement, GameOverviewProps>(functi
           <small>{release} · {developer}</small>
         </aside>
         <div className="ps5-overview-stats">
-          <section className="ps5-overview-progress"><span>◔ {t("gameoverview.progresso")}</span><b>{progress}%</b><i><em style={{ width: `${progress}%` }} /></i><small>{total ? t("gameoverview.desbloqueadas", { done: unlocked, total }) : t("conquistas.vazio")}</small></section>
+          {trophyGame && <button type="button" className="ps5-overview-progress text-left" onClick={() => onTrophiesOpen(true)}>
+            <span>{t("trofeus.abrir")}</span><b aria-hidden="true">›</b>
+            {trophies?.percent != null && <i><em style={{ width: `${trophies.percent}%` }} /></i>}
+            <small className="!whitespace-normal"><TrophyStatus summary={trophies} /></small>
+            {trophies?.stale && <small className="!whitespace-normal">{t("trofeus.leitura_falhou")}</small>}
+            {latest && <small title={latest.title}>{t("trofeus.ultima", { title: latest.title })}</small>}
+          </button>}
           <section className="ps5-overview-time">◷ {minutes ? t("gameoverview.jogado", { tempo: formatPlaytime(minutes) }) : t("gameoverview.nao_jogado")}</section>
         </div>
-        <section className="console-achievements">
-          <h2>{t("conquistas.titulo")} <small>{total ? `${unlocked} / ${total}` : ""}</small></h2>
-          {achievements === null ? <p role="status">{t("common.carregando")}</p> : achievements.length ? <div className="console-achievement-grid">{achievements.map((item, index) => <article key={`${item.title}-${index}`} tabIndex={0} data-unlocked={Boolean(item.achieved)}>
-            {(item.icon || item.icongray) && <img src={item.achieved ? item.icon : item.icongray || item.icon} alt="" loading="lazy" />}
-            <div><h3>{item.title}</h3><p>{item.desc}</p><small>{t(item.achieved ? "console.unlocked" : "console.locked")}</small></div>
-          </article>)}</div> : <p>{t("conquistas.vazio")}</p>}
-        </section>
-        {mediaItems.length > 0 && <section className="console-media"><h2>{t("gameoverview.trailer")}</h2><div>{mediaItems.map(item => <button type="button" key={item.full} onClick={() => setMedia(item.full)} aria-label={item.label}><img src={item.src} alt=""/><span>{item.label}</span></button>)}</div>{media !== "hero" && (showingTrailer && trailer ? <video ref={videoRef} src={trailer} controls autoPlay muted playsInline /> : <img className="console-media-preview" src={preview} alt={game.title} />)}</section>}
+        {trophiesOpen && trophyGame && <TrophyDetails summary={trophies} key={trophyScope} title={game.title} source={game.retro ? "retro" : "steam"}
+          onClose={closeTrophies} gamepad={trophiesGamepad}
+          onCapture={game.retro ? undefined : async () => {
+            const r = await window.launcherAPI?.steamCapturarAgora()
+            if (r?.ok) await refreshTrophies.current?.()
+            return r?.ok === true
+          }} />}
+        {mediaItems.length > 0 && (
+          <section ref={galleryRef} className="console-media" data-capture-gesture={captureIndex >= 0 && screenshots.length > 1}>
+            <h2>{t("gameoverview.trailer")}</h2>
+            <div>{mediaItems.map(item => (
+              <button type="button" key={item.full} data-gallery-item={item.full} aria-label={item.label}
+                onClick={(event) => transitionCapture(item.trailer || item.full === media ? null : event.currentTarget.querySelector("img"), () => {
+                  setMedia(item.full)
+                  return null
+                })}>
+                <img src={item.src} alt=""/><span>{item.label}</span>
+              </button>
+            ))}</div>
+            {media !== "hero" && (showingTrailer && trailer
+              ? <video ref={videoRef} src={trailer} controls autoPlay muted playsInline />
+              : <img ref={captureRef} key={preview} className="console-media-preview" src={preview} alt={game.title}
+                  onLoad={(event) => { event.currentTarget.dataset.ready = "true" }} />)}
+            {media !== "hero" && (
+              <button type="button" className="mt-3 rounded-lg border border-white/20 px-4 py-2"
+                onClick={(event) => {
+                  const section = event.currentTarget.closest("section")
+                  const thumbnails = section?.querySelectorAll<HTMLButtonElement>("[data-gallery-item]")
+                  const thumbnail = Array.from(thumbnails ?? []).find((item) => item.dataset.galleryItem === media)
+                  transitionCapture(captureIndex >= 0 ? section?.querySelector(".console-media-preview") ?? null : null, () => {
+                    ;(thumbnail ?? thumbnails?.[0])?.focus()
+                    setMedia("hero")
+                    return thumbnail?.querySelector("img") ?? null
+                  })
+                }}>
+                {t("common.fechar")}
+              </button>
+            )}
+            {captureIndex >= 0 && screenshots.length > 1 && (
+              <nav className="mt-3 flex items-center justify-center gap-4" aria-label={t("gameoverview.trailer")}>
+                <button type="button" className="rounded-lg border border-white/20 px-4 py-2"
+                  aria-label={t("gallery.previous")}
+                  onClick={() => setMedia(screenshots[(captureIndex + screenshots.length - 1) % screenshots.length].full)}>‹</button>
+                <span role="status" className="tabular-nums">{captureIndex + 1} / {screenshots.length}</span>
+                <button type="button" className="rounded-lg border border-white/20 px-4 py-2"
+                  aria-label={t("gallery.next")}
+                  onClick={() => setMedia(screenshots[(captureIndex + 1) % screenshots.length].full)}>›</button>
+              </nav>
+            )}
+          </section>
+        )}
         <section className="console-related"><h2>{t("gameoverview.detalhes")}</h2><p>{description}</p><p>{[developer, publisher, platform, release, ...tags].filter(Boolean).join(" · ")}</p></section>
         <section className="console-related"><h2>{t("console.friends")}</h2><button type="button" onClick={onOpenFriends}>{friendsData?.friends?.length ? friendsData.friends.map(friend => friend.display_name || friend.username).join(" · ") : t("gameoverview.nenhum_amigo")}</button></section>
         {relatedNews.length > 0 && <section className="console-related"><h2>{t("topbar.noticias")}</h2>{relatedNews.map(item => <button key={item.url} type="button" onClick={() => onOpenNews(item.url)}>{item.title}</button>)}</section>}

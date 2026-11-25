@@ -1,23 +1,11 @@
 "use client"
 
-// Toast de conquista desbloqueada dentro do launcher (sem som — o som fica
-// na janela nativa do electron/notify.js): canto inferior direito, fila com
-// no máximo 3, auto-hide ~5s. Independente do painel — o watcher do main
-// process entrega o payload mesmo com a loja fechada.
+// O processo principal escolhe a superfície. Só eventos "launcher" entram na fila.
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
+import type { TrophyUnlock } from "../../global"
 
-type PayloadConquista = {
-  appid: string
-  key: string
-  title: string
-  desc?: string
-  icon?: string
-  percent?: number
-  unlock?: number
-}
-
-type ItemToast = PayloadConquista & { _id: number }
+type ItemToast = TrophyUnlock & { _id: string }
 
 export function AchievementToast() {
   const { t } = useI18n()
@@ -25,19 +13,21 @@ export function AchievementToast() {
 
   useEffect(() => {
     const off = window.launcherAPI?.onAchievementUnlocked((payload) => {
-      setFilas((prev) => [{ ...payload, _id: Date.now() + Math.random() }, ...prev].slice(0, 3))
+      if (payload.notice !== "launcher") return
+      setFilas((prev) => [{ ...payload, _id: `${payload.appid}:${payload.apiname || payload.key}:${payload.unlock}` }, ...prev].slice(0, 3))
+      if (payload.sound) void new Audio(payload.platinum ? "./sounds/platinum.wav" : "./sounds/unlock.wav").play().catch(() => {})
     })
     return off
   }, [])
 
   return (
     <>
-      <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+      <div role="status" className="pointer-events-none fixed bottom-6 right-6 z-[95] flex flex-col gap-2">
         {filas.map((f) => (
           <ToastItem
             key={f._id}
             item={f}
-            heading={t("conquistas.desbloquear_ok")}
+            heading={t(f.platinum ? "trofeus.platina" : f.rare ? "trofeus.raro" : "conquistas.desbloquear_ok")}
             onFechar={() => setFilas((prev) => prev.filter((x) => x._id !== f._id))}
           />
         ))}
@@ -45,6 +35,12 @@ export function AchievementToast() {
       <style>{`
         @keyframes ach-in { from { opacity:0; transform:translateY(12px);} to {opacity:1; transform:translateY(0);} }
         @keyframes ach-out { from {opacity:1; transform:translateY(0);} to {opacity:0; transform:translateY(-8px);} }
+        @keyframes ach-platinum { from {opacity:0; transform:translateY(12px) scale(.95);} to {opacity:1; transform:none;} }
+        @media (prefers-reduced-motion: no-preference) {
+          [data-trophy-motion="in"] { animation: ach-in 300ms ease-out; }
+          [data-trophy-motion="platinum"] { animation: ach-platinum 420ms ease-out; }
+          [data-trophy-motion="out"] { animation: ach-out 200ms ease-out forwards; }
+        }
       `}</style>
     </>
   )
@@ -60,6 +56,7 @@ function ToastItem({
   onFechar: () => void
 }) {
   const [saindo, setSaindo] = useState(false)
+  const { t } = useI18n()
 
   // Auto-hide ~5s: marca saindo (anima 200ms), depois remove da fila.
   useEffect(() => {
@@ -75,17 +72,17 @@ function ToastItem({
 
   return (
     <div
-      className="pointer-events-auto relative flex items-center gap-3 rounded-xl border border-white/10 bg-[color:var(--surface-3)]/95 px-3 py-2.5 shadow-2xl shadow-black/60 backdrop-blur-md"
+      className="arcadia-achievement-toast pointer-events-auto relative flex items-center gap-3 rounded-xl border border-white/10 bg-[color:var(--surface-3)]/95 px-3 py-2.5 shadow-2xl shadow-black/60 backdrop-blur-md"
+      data-trophy-motion={item.reducedMotion ? undefined : saindo ? "out" : item.platinum ? "platinum" : "in"}
       style={{
         minWidth: "280px",
         maxWidth: "360px",
-        animation: saindo ? "ach-out 200ms ease-out forwards" : "ach-in 300ms ease-out",
       }}
     >
       <button
         onClick={onFechar}
         className="absolute right-2 top-2 text-white/40 transition-colors hover:text-white"
-        aria-label="Fechar"
+        aria-label={t("common.fechar")}
       >
         <svg
           width="20"
@@ -109,11 +106,11 @@ function ToastItem({
         </div>
       )}
       <div className="flex min-w-0 flex-col">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--state-warn)]">
+        <div className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${item.rare ? "text-[var(--state-info-soft)]" : "text-[var(--state-warn)]"}`}>
           {heading}
         </div>
         <div className="truncate text-[13px] font-semibold text-white">{item.title}</div>
-        <div className="truncate text-[12px] text-white/55">{item.desc || " "}</div>
+        <div className="truncate text-[12px] text-white/65">{item.gameTitle || item.desc}</div>
       </div>
     </div>
   )

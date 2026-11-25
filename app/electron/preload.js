@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld("launcherAPI", {
   profileStats: () => ipcRenderer.invoke("profile:stats"),
   steamHorasTodas: () => ipcRenderer.invoke("steam:horasTodas"),
   achievementsGet: (appid) => ipcRenderer.invoke("achievements:get", appid),
+  achievementsTrophySummary: (appid) => ipcRenderer.invoke("achievements:trophy-summary", appid),
   achievementsSchemasLoad: () => ipcRenderer.invoke("achievements:schemas:load"),
   appDiagnostico: () => ipcRenderer.invoke("app:diagnostico"),
   legendaryStatus: () => ipcRenderer.invoke("runner:legendary:status"),

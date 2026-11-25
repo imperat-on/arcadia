@@ -57,6 +57,10 @@
      no boot. Componente le sempre var(--accent). */
   --accent: #22d3ee;
   --accent-foreground: #ffffff;
+  /* Índice do item na cascata de entrada da sidebar. O componente
+     sobrescreve por item via style; aqui é o fallback (item 0), para o
+     token existir mesmo sem JS e o teste de tokens não acusar órfão. */
+  --i: 0;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.1);
   --ring: #0072ce;
@@ -1884,16 +1888,22 @@ select:disabled {
   color: white !important;
   border-color: rgba(255,255,255,.12);
   /* Preto puro: o item ativo se distingue pela barra do acento e pelo texto
-     branco, nao por preenchimento colorido. */
-  background: #000 !important;
+     branco, nao por preenchimento colorido.
+     background-color (e nao o atalho background) para nao zerar o
+     background-image da varredura de luz do item ativo. */
+  background-color: #000 !important;
   box-shadow: none;
 }
 
-.desktop-sidebar-nav .desktop-sidebar-item > span.absolute {
-  width: 2px !important;
-  height: 20px !important;
-  border-radius: 0 !important;
-  background: var(--accent) !important;
+.arcadia-sidebar-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 20px;
+  z-index: 1;
+  pointer-events: none;
+  background: var(--accent);
   box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
@@ -1972,6 +1982,220 @@ select:disabled {
 .desktop-sidebar-footer > div {
   display: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR — MOVIMENTO
+   Todas as animações herdam o kill-switch global de prefers-reduced-motion
+   (index.css:156). Nada aqui depende de JS além dos índices de stagger.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1 · Marcador deslizante. O JS já posiciona por left/translateY; sem
+   transition ele teleportava entre itens. */
+.arcadia-sidebar-marker {
+  transition:
+    transform 280ms var(--ease-out),
+    left 280ms var(--ease-out),
+    opacity 140ms ease;
+}
+
+/* 2 · Ícone do item: escala + inclinação na gramática diagonal do Arcadia. */
+.desktop-sidebar-nav .desktop-sidebar-item svg {
+  flex-shrink: 0;
+  transition: transform 220ms var(--ease-out), filter 220ms ease;
+}
+.desktop-sidebar-nav .desktop-sidebar-item:hover svg {
+  transform: scale(1.08) rotate(-4deg);
+}
+.desktop-sidebar-nav .desktop-sidebar-item[aria-current="page"] svg {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+
+/* 3 · Pill do item ativo inflando (scaleY de 0.35 → 1). Fica atrás do texto
+   e não interfere no layout porque é absoluto. */
+.desktop-sidebar-nav .desktop-sidebar-item[aria-current="page"]::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  z-index: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  transform-origin: center;
+  animation: sidebar-pill-in 260ms var(--ease-out) both;
+}
+@keyframes sidebar-pill-in {
+  from { transform: scaleY(.35); opacity: 0; }
+  to   { transform: scaleY(1);   opacity: 1; }
+}
+.desktop-sidebar-nav .desktop-sidebar-item[aria-current="page"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 4 · Entrada em cascata dos 8 itens. --i vem do map em Sidebar.tsx.
+   Vive no wrapper <div>, não no <button>: o item ativo já usa `animation`
+   para a varredura de luz (#11) e a última declaração venceria o stagger. */
+.desktop-sidebar-nav > div {
+  animation: sidebar-item-in 420ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 38ms);
+}
+@keyframes sidebar-item-in {
+  from { opacity: 0; translate: -14px 0; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+/* 5 · Ripple de clique. Radial que nasce no centro e some. */
+.desktop-sidebar-nav .desktop-sidebar-item::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  z-index: 0;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--accent) 26%, transparent), transparent 68%);
+}
+.desktop-sidebar-nav .desktop-sidebar-item:active::after {
+  animation: sidebar-ripple 340ms ease-out both;
+}
+@keyframes sidebar-ripple {
+  from { opacity: .9; transform: scale(.35); }
+  to   { opacity: 0;  transform: scale(1); }
+}
+.desktop-sidebar-nav .desktop-sidebar-item {
+  transition: color 160ms ease, background-color 160ms ease,
+    border-color 160ms ease, transform 120ms ease;
+}
+.desktop-sidebar-nav .desktop-sidebar-item:active {
+  transform: scale(.985);
+}
+
+/* 6 · Badge de downloads: pulso quando o contador muda (o React remonta o
+   span com key={downloadsActive}) + respiração lenta em repouso. */
+.arcadia-download-count > span {
+  display: block;
+  animation: arcadia-status-enter 180ms var(--ease-out) both;
+}
+.arcadia-download-count {
+  animation: sidebar-badge-breathe 2.6s ease-in-out infinite;
+}
+@keyframes sidebar-badge-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent); }
+  50%      { box-shadow: 0 0 9px 1px color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+
+/* 7 · Chevron da seção JOGOS: já tem transition-transform inline; só garante
+   que a rotação use a curva do sistema. */
+
+/* 8 · Sub-itens de Configurações abrem deslizando (grid 0fr → 1fr). */
+.arcadia-config-subs {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  /* visibility só vira hidden DEPOIS que as linhas recolhem — sem isso o
+     conteúdo pisca fora no primeiro frame do fechamento. Fica na regra
+     base, e não no :not(), porque o :not() tem especificidade maior e
+     venceria a transição atrasada. */
+  visibility: hidden;
+  transition: grid-template-rows 300ms var(--ease-out), opacity 200ms ease,
+    visibility 0s linear 300ms;
+}
+.arcadia-config-subs[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows 300ms var(--ease-out), opacity 200ms ease,
+    visibility 0s linear 0s;
+}
+/* Fechado: fora do alcance do clique (o visibility acima já tira do Tab e
+   dos leitores de tela). */
+.arcadia-config-subs:not([data-open="true"]) {
+  pointer-events: none;
+}
+.arcadia-config-subs > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 10 · Linhas de jogo entram em slide escalonado. --i vem do map. */
+.desktop-sidebar-games .arcadia-game-row {
+  animation: sidebar-game-in 340ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+@keyframes sidebar-game-in {
+  from { opacity: 0; translate: -10px 0; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+/* 11 · Varredura de luz na borda do item ativo. */
+.desktop-sidebar-nav .desktop-sidebar-item[aria-current="page"] {
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(
+    100deg,
+    transparent 32%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 50%,
+    transparent 68%
+  );
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  animation: sidebar-scan 4.2s ease-in-out infinite;
+}
+@keyframes sidebar-scan {
+  0%, 62%, 100% { background-position: -130% 0; }
+  82%           { background-position: 130% 0; }
+}
+
+/* 12 · Menu de perfil cresce a partir do canto do avatar. */
+.desktop-sidebar-profile > div.arcadia-profile-menu {
+  transform-origin: top left;
+  animation: profile-menu-in 190ms var(--ease-out) both;
+}
+@keyframes profile-menu-in {
+  from { opacity: 0; transform: scale(.94) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* 13 · Botão Big Picture: o traço do ícone se desenha no hover.
+   Perímetro do <rect> (20+13)*2 = 66; 120 no dasharray garante que ele
+   comece totalmente oculto. */
+.desktop-sidebar-footer > button svg.arcadia-trace {
+  stroke-dasharray: 120;
+  stroke-dashoffset: 0;
+  transition: color 200ms ease;
+}
+.desktop-sidebar-footer > button:hover svg.arcadia-trace,
+.desktop-sidebar-footer > button:focus-visible svg.arcadia-trace {
+  animation: arcadia-trace-draw 780ms var(--ease-out) forwards;
+}
+@keyframes arcadia-trace-draw {
+  from { stroke-dashoffset: 120; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* 14 · Glitch no logo ao passar o mouse (mesma gramática do boot). */
+.desktop-sidebar-brand:hover .desktop-arcadia-logo::after {
+  animation: desktop-logo-glitch-hover 620ms steps(1, end) both;
+}
+@keyframes desktop-logo-glitch-hover {
+  0%   { opacity: 0;  transform: translateX(0); }
+  15%  { opacity: .9; transform: translateX(4px); }
+  30%  { opacity: 0;  transform: translateX(0); }
+  45%  { opacity: .6; transform: translateX(-3px); }
+  60%  { opacity: 0;  transform: translateX(0); }
+  100% { opacity: 0;  transform: translateX(0); }
+}
+
+/* 15 · Scrollbar da lista de jogos aparece só no hover da seção. */
+.desktop-sidebar-games ::-webkit-scrollbar { width: 6px; }
+.desktop-sidebar-games ::-webkit-scrollbar-track { background: transparent; }
+.desktop-sidebar-games ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.desktop-sidebar-games:hover ::-webkit-scrollbar-thumb { opacity: 1; }
+
 
 .desktop-retro-main {
   border-color: color-mix(in srgb, var(--accent) 13%, transparent) !important;
@@ -2483,6 +2707,154 @@ select:disabled {
 
 @keyframes console-art-fade { from { opacity:0 } to { opacity:1 } }
 
+::view-transition-group(library-game-cover) {
+  animation-duration: 280ms;
+  animation-timing-function: var(--ease-out);
+}
+
+.arcadia-hero-ambient {
+  position: absolute;
+  inset: auto 8% 5%;
+  width: 84%;
+  height: 24%;
+  object-fit: cover;
+  filter: blur(38px) saturate(1.6);
+  opacity: .22;
+  mask-image: radial-gradient(ellipse, black 18%, transparent 72%);
+  pointer-events: none;
+}
+
+@keyframes arcadia-ambient-in { from { opacity: 0; } to { opacity: .22; } }
+
+.arcadia-mode-surface { min-height: 100vh; background: var(--background, #08090b); }
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(console-capture) { animation-duration: 280ms; animation-timing-function: var(--ease-out); }
+  .arcadia-hero-ambient-enter { animation: arcadia-ambient-in 500ms var(--ease-out) both; }
+  .arcadia-context-menu { animation: ctx-in 120ms var(--ease-out) both; }
+  .console-media-preview[data-ready="true"] { animation: console-art-fade 220ms ease-out both; }
+  .arcadia-download-status { display: inline-block; animation: arcadia-status-enter 220ms var(--ease-out) both; }
+  .arcadia-speed-bar { transition: transform 180ms var(--ease-out); }
+  .arcadia-library-search:focus { animation: arcadia-search-open 180ms var(--ease-out); transform-origin: 20px center; }
+  .arcadia-update-ready { animation: arcadia-status-enter 240ms var(--ease-out) both; }
+  .arcadia-session-summary { animation: arcadia-status-enter 240ms var(--ease-out) both; }
+  .profile-header .profile-banner { animation: console-art-fade 340ms ease-out both; }
+  .profile-header .profile-identity { animation: console-reveal 340ms var(--ease-out) 55ms both; }
+  .retro-game-copy > :is(.ps5-hero-logo, .game-name) { animation: arcadia-logo-reveal 300ms var(--ease-out) both; }
+  .retro-game-copy .ps5-hero-actions { animation: arcadia-status-enter 240ms var(--ease-out) 65ms both; }
+  .ps5-hero-more.is-fav { animation: arcadia-trophy-reveal 300ms var(--ease-out) both; }
+  :is(.retro-play-button, .ps5-overview-play).is-opening { animation: arcadia-launch-ready 260ms var(--ease-out) both; }
+  .desktop-retro-main .ui-empty { animation: console-reveal 230ms var(--ease-out) both; }
+  .retro-big-picture { --hero-drift: 12px; --hero-title-drift: 24px; }
+  .retro-big-picture[data-hero-direction="backward"] { --hero-drift: -12px; --hero-title-drift: -24px; }
+  .arcadia-hero-enter { animation: arcadia-hero-drift 500ms var(--ease-out) both; }
+  .retro-big-picture .retro-library-card :is(.ps5-cover-art) {
+    transition: scale 260ms var(--ease-out), opacity 200ms ease-out;
+    opacity: .82;
+  }
+  .retro-big-picture .retro-library-card:is([data-active="true"], :focus-visible) :is(.ps5-cover-art) {
+    scale: 1.06;
+    opacity: 1;
+  }
+  .retro-big-picture .retro-library-card:is([data-active="true"], :focus-visible) .retro-library-cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 25%, #fff5 48%, transparent 72%);
+    animation: arcadia-cover-glint 520ms var(--ease-out) both;
+  }
+  .retro-big-picture .ps5-overview-activity > *,
+  .retro-big-picture .ps5-overview-product,
+  .retro-big-picture .ps5-overview-stats {
+    animation: console-reveal 320ms var(--ease-out) both;
+  }
+  .retro-big-picture .ps5-overview-activity > :nth-child(2) { animation-delay: 45ms; }
+  .retro-big-picture .ps5-overview-activity > :nth-child(3) { animation-delay: 75ms; }
+  .retro-big-picture .ps5-overview-actions { animation-delay: 110ms; }
+  .retro-big-picture .ps5-overview-stats { animation-delay: 140ms; }
+  /* A transição base do marker (mais acima) já cobre transform + left
+     com a curva do sistema; esta linha mais específica a sobrescrevia e
+     deixava o left teleportando. */
+  .arcadia-download-count > span { animation: arcadia-status-enter 180ms var(--ease-out) both; }
+  .arcadia-library-card {
+    transition: translate 200ms var(--ease-out), border-color 160ms ease, box-shadow 200ms ease;
+  }
+  .arcadia-library-card:is(:hover, :focus-within) {
+    translate: 0 -3px;
+    box-shadow: 0 8px 22px #0006;
+  }
+  .arcadia-library-card .arcadia-card-actions {
+    translate: 0 5px;
+    transition: opacity 180ms ease, translate 220ms var(--ease-out);
+  }
+  .arcadia-library-card:is(:hover, :focus-within) .arcadia-card-actions {
+    translate: 0 0;
+    opacity: 1;
+  }
+  .retro-download-card { animation: console-reveal 220ms var(--ease-out) both; }
+  .arcadia-achievement-toast > img { animation: arcadia-trophy-reveal 420ms var(--ease-out) both; }
+  :is(.retro-download-card, .ps5-overview-actions, .desktop-sidebar-nav) button:active {
+    scale: .96;
+  }
+}
+
+.arcadia-library-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.arcadia-cover-reflection { display: none; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .arcadia-cover-reflection {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(ellipse at var(--cover-light-x, 50%) var(--cover-light-y, 50%), #fff5, transparent 65%);
+    transition: opacity 180ms var(--ease-out);
+  }
+  .arcadia-library-card:hover .arcadia-cover-reflection { opacity: 1; }
+  .arcadia-library-card .arcadia-card-actions { z-index: 2; }
+}
+
+@keyframes arcadia-cover-glint {
+  from { transform: translateX(-100%); opacity: 0; }
+  35% { opacity: .65; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes arcadia-status-enter { from { opacity: .25; translate: 0 5px; } to { opacity: 1; translate: none; } }
+@keyframes arcadia-search-open { from { scale: .98 1; } to { scale: 1; } }
+@keyframes arcadia-hero-drift {
+  from { opacity: 0; transform: translateX(var(--hero-drift, 12px)) scale(1.035); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes arcadia-logo-reveal {
+  from { clip-path: inset(0 18% 0 0); opacity: .25; translate: var(--hero-title-drift, 0px) 0; }
+  to { clip-path: inset(0); opacity: 1; translate: none; }
+}
+@keyframes arcadia-launch-ready { 35% { scale: .97; } to { scale: 1; } }
+@keyframes arcadia-trophy-reveal {
+  from { scale: .78; opacity: .35; }
+  65% { scale: 1.08; }
+  to { scale: 1; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-retro-main *, .desktop-retro-main *::before, .desktop-retro-main *::after,
+  .desktop-sidebar-nav *, .retro-download-card *, .arcadia-achievement-toast * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .desktop-retro-main.view-in, .retro-download-card, .arcadia-achievement-toast {
+    animation: none !important;
+  }
+  .arcadia-library-card:focus-within .arcadia-card-actions { opacity: 1; }
+}
+
 /* Console interiors: shared data/components, independent TV presentation. */
 .retro-big-picture .console-profile .profile-header { padding:0; }
 .retro-big-picture .console-profile .profile-banner { height:clamp(180px, 27vh, 340px); border-radius:20px; }
@@ -2546,4 +2918,65 @@ select:disabled {
 }
 .pr-0\.5 {
   padding-right: 0.125rem;
+}
+
+/* Trophy browser: one frame for the dialog header, list and inspector. */
+.trophy-browser {
+  --trophy-frame: 78rem;
+  --trophy-edge: clamp(1rem, 4vw, 4.5rem);
+  padding: clamp(1rem, 4vh, 3rem) var(--trophy-edge) 0;
+  color: var(--text-1);
+  background: radial-gradient(ellipse at 84% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 55%), var(--surface-1);
+}
+.trophy-browser > header, .trophy-shell { width: 100%; max-width: var(--trophy-frame); margin-inline: auto; }
+.trophy-browser > header { padding-bottom: 1rem; margin-bottom: 0; border-bottom: 1px solid var(--glass-border); }
+.trophy-browser > header h2 { font-size: clamp(1.55rem, 3.2vw, 2.75rem); font-weight: 650; line-height: 1.12; overflow-wrap: anywhere; }
+.trophy-browser > header p { margin-top: .5rem; font-size: .875rem; color: var(--text-strong); }
+.trophy-browser > header button { flex: none; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; background: var(--surface-2); color: var(--text-strong); border: 1px solid var(--glass-border); border-radius: .625rem; }
+.trophy-eyebrow { display: block; margin-bottom: .375rem; font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--state-info-soft); }
+.trophy-shell { padding-block: 1rem; }
+.trophy-meter { display: block; width: min(100%, 18rem); height: .375rem; margin-bottom: 1rem; appearance: none; border: 0; border-radius: 1rem; overflow: hidden; background: var(--surface-3); color: var(--state-info); }
+.trophy-meter::-webkit-progress-bar { background: var(--surface-3); }
+.trophy-meter::-webkit-progress-value { background: var(--state-info); border-radius: 1rem; }
+.trophy-groups { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem .625rem; margin-bottom: .75rem; font-size: .8125rem; color: var(--text-strong); }
+.trophy-warning { color: var(--state-warn-soft); font-size: .875rem; margin-bottom: .75rem; }
+.trophy-workspace { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); align-items: start; gap: .75rem clamp(.75rem, 2vw, 1.5rem); }
+.trophy-toolbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.trophy-filters { display: flex; flex-wrap: wrap; gap: .25rem; padding: .25rem; background: var(--surface-2); border: 1px solid var(--glass-border); border-radius: .75rem; }
+.trophy-control { min-height: 2.125rem; padding: .375rem .75rem; border-radius: .5rem; border: 1px solid var(--glass-border); font-size: .875rem; font-weight: 550; color: var(--text-strong); background: var(--surface-2); }
+.trophy-filters .trophy-control { border-color: transparent; background: transparent; }
+.trophy-control:disabled { color: var(--text-2); cursor: default; }
+.trophy-control:not(:disabled):hover, .trophy-browser > header button:hover { background: var(--surface-3); color: var(--text-1); }
+.trophy-control[aria-pressed="true"] { color: var(--text-1); background: var(--surface-3); border-color: var(--glass-border); }
+.trophy-sort { display: inline-flex; align-items: center; gap: .5rem; }
+.trophy-list { max-height: clamp(11rem, calc(100dvh - 17rem), 40rem); min-width: 0; padding: 2px; overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior-y: contain; }
+.trophy-row { position: relative; display: flex; align-items: center; gap: .75rem; width: 100%; min-height: 3.25rem; padding: .375rem .75rem; border: 1px solid transparent; border-bottom-color: var(--glass-border); border-radius: .5rem; text-align: left; color: var(--text-strong); }
+.trophy-row:hover { background: var(--surface-2); color: var(--text-1); }
+.trophy-row[aria-pressed="true"] { background: color-mix(in srgb, var(--state-info) 12%, var(--surface-2)); border-color: color-mix(in srgb, var(--state-info) 36%, var(--glass-border)); color: var(--text-1); }
+.trophy-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9375rem; font-weight: 550; }
+.trophy-row-check { color: var(--state-success); font-weight: 650; }
+.trophy-art { display: grid; place-items: center; flex: none; width: 2.375rem; height: 2.375rem; border-radius: .5rem; overflow: hidden; color: var(--text-strong); background: var(--surface-3); }
+.trophy-art img { width: 100%; height: 100%; object-fit: contain; }
+.trophy-browser button:focus { outline: 2px solid var(--text-1) !important; outline-offset: 1px; }
+.trophy-row:focus { outline-offset: -2px !important; }
+.trophy-detail { min-width: 0; display: grid; justify-items: start; gap: .875rem; padding: clamp(.875rem, 2vw, 1.375rem); border: 1px solid var(--glass-border); border-radius: .875rem; overflow-wrap: anywhere; background: linear-gradient(145deg, var(--surface-3), var(--surface-2)); }
+.trophy-detail-head { display: flex; align-items: center; gap: .875rem; width: 100%; min-width: 0; }
+.trophy-detail .trophy-art { width: clamp(3.25rem, 6vw, 5.25rem); height: auto; aspect-ratio: 1; border: 1px solid var(--glass-border); background: var(--surface-1); }
+.trophy-detail h3 { font-size: clamp(1.125rem, 2vw, 1.625rem); font-weight: 650; line-height: 1.18; }
+.trophy-detail-state { margin-bottom: .25rem; font-size: .75rem; color: var(--text-strong); }
+.trophy-detail-state[data-earned="true"] { color: var(--state-success); }
+.trophy-detail-description { color: var(--text-1); font-size: .9375rem; line-height: 1.45; }
+.trophy-detail-meta { display: flex; flex-wrap: wrap; gap: .25rem 1rem; width: 100%; padding-top: .75rem; border-top: 1px solid var(--glass-border); font-size: .8125rem; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.trophy-empty { padding: 1rem; color: var(--text-strong); background: var(--surface-2); border-radius: .625rem; }
+.trophy-source { margin-top: .75rem; padding-top: .625rem; border-top: 1px solid var(--glass-border); font-size: .8125rem; color: var(--text-strong); }
+.trophy-source-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.trophy-source-actions button { margin-left: auto; }
+.trophy-source-details { display: grid; justify-items: start; gap: .375rem; margin-top: .625rem; }
+@media (min-width: 75rem) and (min-height: 48rem) {
+  .trophy-row { min-height: 3.5rem; }
+  .trophy-row-name { font-size: 1rem; }
+}
+@media (max-width: 43.75rem) {
+  .trophy-workspace { grid-template-columns: minmax(0, 1fr); }
+  .trophy-list { max-height: 38dvh; }
 }

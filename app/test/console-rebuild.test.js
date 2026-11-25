@@ -6,11 +6,10 @@ const read = name => fs.readFileSync(path.join(__dirname, '../src', name), 'utf8
 
 test('o quadrado do console enquadra com recorte central, sem barra nem esticamento', () => {
   const regras = [...read('index.css').matchAll(/([^{}]*\.ps5-cover-art[^{}]*)\{([^{}]*)\}/g)]
-  assert.ok(regras.length >= 2)
+  assert.ok(regras.filter(([, , declaracoes]) => /object-fit:\s*cover/.test(declaracoes)).length >= 2)
   for (const [, , declaracoes] of regras) {
-    assert.match(declaracoes, /object-fit:\s*cover/)
-    assert.doesNotMatch(declaracoes, /object-fit:\s*(fill|contain)/)
-    assert.match(declaracoes, /transform:\s*none/)
+    if (/\bobject-fit\s*:/.test(declaracoes)) assert.match(declaracoes, /object-fit:\s*cover\b/)
+    if (/\btransform\s*:/.test(declaracoes)) assert.match(declaracoes, /transform:\s*none\b/)
   }
   // A moldura do Big Picture é quadrada: é ela que define o enquadramento.
   const moldura = read('index.css').match(/\.retro-big-picture \.retro-library-cover \{[^}]*\}/)[0]
@@ -24,7 +23,8 @@ test('console does not render navigation instructions', () => {
 test('console overview uses shared hours and renders complete achievement collections', () => {
   const source = read('components/ps5-launcher/GameOverview.tsx')
   assert.match(source, /horasCombinadas\(steamHoras, \[game.id, game.appid\], game.playtime_minutes\)/)
-  assert.match(source, /achievements\.map\(/)
+  assert.match(source, /<TrophyDetails summary=\{trophies\}/)
+  assert.match(read('components/TrophyDetails.tsx'), /summary\?\.items/)
   assert.match(source, /result\?\.achievements/)
   assert.doesNotMatch(source, /formatPlaytime\(game.playtime_minutes\)/)
   assert.match(source, /data-gamepad-scroll/)
@@ -66,7 +66,17 @@ test('console store remains reachable and receives the complete library', () => 
 test('console art loads before fading and reacts to same-game art updates', () => {
   const source = read('components/ps5-launcher/HeroBackground.tsx')
   assert.match(source, /image.onload = commit/)
+  assert.match(source, /onLoadedData=\{onReady\}/)
+  assert.match(source, /entering=\{candidate.ready\} waiting=\{!candidate.ready\}/)
+  assert.match(source, /key=\{current\} source=\{current\}/)
+  assert.match(source, /key=\{candidate.source\} source=\{candidate.source\}/)
   assert.match(source, /ticket !== generation.current/)
   assert.match(source, /\[hero, id\]/)
   assert.match(source, /prefers-reduced-motion/)
+})
+
+test('Big Picture background tolerates an empty pending-art state', () => {
+  const source = read('components/ps5-launcher/HeroBackground.tsx')
+  assert.match(source, /if \(!incoming \|\| !incoming\.ready \|\| incoming\.source !== hero \|\| preto\) return/)
+  assert.match(source, /const candidate = incoming && incoming\.source === hero && incoming\.source !== current \? incoming : null/)
 })

@@ -4,7 +4,7 @@
 
 const fs = require("node:fs")
 const { getClient } = require("./client")
-const { caminhoArquivoConta } = require("./conta")
+const { caminhoArquivoConta, conta } = require("./conta")
 
 // Cache local da lista (por conta): a 1ª pintura da aba amigos/perfil sai do
 // disco (instantâneo) e o refresh em background atualiza via friends:changed.
@@ -274,17 +274,20 @@ function gravarAchCache(friendId, data) {
 }
 
 /** Conquistas recentes do amigo (RPC security definer — so entre amigos). */
-async function friendAchievements(friendId) {
+async function friendAchievements(friendId, { fresh = false } = {}) {
+  const scope = conta()
   const me = await requireUserId()
   if (!me) return { ok: false, error: "nao_logado" }
+  if (scope !== conta()) return { ok: false, error: "conta_trocada" }
   if (!friendId || friendId === me) return { ok: false, error: "destino_invalido" }
 
-  const cache = lerAchCache(friendId)
+  const cache = !fresh && lerAchCache(friendId)
   if (cache) return { ok: true, achievements: cache, deCache: true }
 
   const { data, error } = await getClient().rpc("friend_achievements", {
     p_friend: friendId,
   })
+  if (scope !== conta()) return { ok: false, error: "conta_trocada" }
   if (error) return { ok: false, error: error.message }
   gravarAchCache(friendId, data || [])
   return { ok: true, achievements: data || [] }

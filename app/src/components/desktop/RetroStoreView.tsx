@@ -291,7 +291,13 @@ export function RetroStoreView({
       for (const response of resolved) {
         const offer = response?.ok ? response.offer : undefined
         if (!offer) continue
+        // Variantes regionais do mesmo jogo (USA, Japan, Korea…) geram o mesmo
+        // magnet em registros diferentes. Deduplicar pela URI evita oferecer
+        // duas vezes a mesma ISO quando o catálogo é colapsado no cliente.
+        const seen = new Set(opcoes.map((opcao) => opcao.magnet))
         for (const [index, uri] of (offer.uris || []).entries()) {
+          if (seen.has(uri)) continue
+          seen.add(uri)
           opcoes.push({
             ref: `${offer.id}:${index}`,
             magnet: uri,

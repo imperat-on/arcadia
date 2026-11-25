@@ -1,0 +1,25 @@
+const test = require("node:test")
+const assert = require("node:assert/strict")
+const fs = require("node:fs")
+const path = require("node:path")
+
+test("perfis mantêm biblioteca e amigos sem vitrine, feed ou comparação de troféus", () => {
+  const own = fs.readFileSync(path.join(__dirname, "../src/components/ps5-launcher/ProfilePage.tsx"), "utf8")
+  const friend = fs.readFileSync(path.join(__dirname, "../src/components/desktop/FriendProfileView.tsx"), "utf8")
+  assert.match(own, /profile\.todos_jogos/)
+  assert.match(own, /<FriendAvatar/)
+  assert.match(friend, /<ProfilePage/)
+  assert.doesNotMatch(own, /TrophyShowcase|TrophyDetails|onCompare/)
+  assert.doesNotMatch(friend, /TrophyShowcase|friendsAchievements\(|amigos\.(?:conquistas_recentes|platinadas)/)
+})
+
+test("Big Picture pausa o hub quando a tela de troféus assume o controle", () => {
+  const read = name => fs.readFileSync(path.join(__dirname, "../src/components", name), "utf8")
+  const shell = read("ps5-launcher/PS5Launcher.tsx")
+  const overview = read("ps5-launcher/GameOverview.tsx")
+  const desktop = read("desktop/AchievementsPanel.tsx")
+  assert.ok(shell.includes("!trophiesOpen"), "botão B não pode fechar o hub por trás dos troféus")
+  assert.ok(overview.includes("<TrophyDetails"), "Big Picture abre a tela compartilhada")
+  assert.ok(desktop.includes("<TrophyDetails"), "Desktop abre a mesma tela")
+  assert.ok(overview.includes("achievementsTrophySummary"), "o hub usa estados do processo principal")
+})

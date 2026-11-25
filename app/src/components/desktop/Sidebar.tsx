@@ -1,12 +1,44 @@
 "use client"
 
 // Sidebar do modo desktop (estilo Heroic, adaptada ao tema do Arcadia).
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { Profile } from "../../global"
 import type { Game } from "../ps5-launcher/types"
 import { useI18n } from "../../i18n/I18nContext"
 import { useFriends } from "../account/FriendsContext"
 import { useAccount } from "../account/AccountContext"
+
+function SidebarMarker({ view }: { view: string }) {
+  const marker = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const node = marker.current
+    const nav = node?.parentElement
+    if (!node || !nav) return
+    const active = nav.querySelector<HTMLButtonElement>('button[aria-current="page"]')
+    if (!active) {
+      node.hidden = true
+      return
+    }
+    // Medido por getBoundingClientRect, não por offsetTop/offsetLeft: o wrapper
+    // de cada item tem `translate` (stagger de entrada), o que o torna
+    // containing block e zera o offsetTop de todos os botões — o marcador
+    // ficaria travado no primeiro item.
+    const position = () => {
+      const navRect = nav.getBoundingClientRect()
+      const alvo = active.getBoundingClientRect()
+      node.style.left = `${alvo.left - navRect.left}px`
+      node.style.transform = `translateY(${alvo.top - navRect.top + (alvo.height - node.offsetHeight) / 2}px)`
+    }
+    node.hidden = false
+    position()
+    const observer = new ResizeObserver(position)
+    observer.observe(nav)
+    for (const button of nav.querySelectorAll(".desktop-sidebar-item")) observer.observe(button)
+    return () => observer.disconnect()
+  }, [view])
+
+  return <span ref={marker} className="arcadia-sidebar-marker" aria-hidden="true" />
+}
 
 export type DesktopView =
   | "inicio"
@@ -151,7 +183,7 @@ export function Sidebar({
           </div>
         </button>
         {profileMenu && (
-          <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)]/95 shadow-2xl shadow-black/50 backdrop-blur">
+          <div className="arcadia-profile-menu mt-2 overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)]/95 shadow-2xl shadow-black/50 backdrop-blur">
             <ProfileMenuItem
               label={t("profile.meu_perfil")}
               onClick={() => {
@@ -191,33 +223,29 @@ export function Sidebar({
       </div>
 
       {/* Itens */}
-      <nav className="desktop-sidebar-nav flex flex-col gap-0.5 px-2">
-        {ITENS.map((it) => {
+      <nav className="desktop-sidebar-nav relative flex flex-col gap-0.5 px-2">
+        <SidebarMarker view={view} />
+        {ITENS.map((it, indice) => {
           const active = view === it.id
           return (
-            <div key={it.id}>
+            <div key={it.id} style={{ ["--i" as string]: indice }}>
               <button
                 onClick={() => onView(it.id)}
+                aria-current={active ? "page" : undefined}
                 className={`desktop-sidebar-item relative flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-[12px] transition-colors ${
                   active
                     ? "bg-white/[0.07] text-white"
                     : "text-white/50 hover:bg-white/[0.04] hover:text-white/85"
                 }`}
               >
-                {active && (
-                  <span
-                    className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                  />
-                )}
                 {it.icon}
                 {t(it.labelKey)}
                 {it.id === "downloads" && downloadsActive > 0 && (
                   <span
-                    className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-black"
+                    className="arcadia-download-count ml-auto flex h-5 min-w-5 items-center justify-center overflow-hidden rounded-full px-1.5 text-[11px] font-bold text-black"
                     style={{ background: "var(--accent)" }}
                   >
-                    {downloadsActive}
+                    <span key={downloadsActive}>{downloadsActive}</span>
                   </span>
                 )}
                 {it.id === "amigos" && pedidos > 0 && (
@@ -231,7 +259,8 @@ export function Sidebar({
               </button>
 
               {/* Sub-itens de Configurações: aparecem logo abaixo do item pai */}
-              {it.id === "config" && view === "config" && (
+              {it.id === "config" && (
+                <div className="arcadia-config-subs" data-open={view === "config"}>
                 <div className="ml-9 mt-1 flex flex-col gap-0.5">
                   {CONFIG_SUBS.map((s) => {
                     const ativo = configSub === s.id
@@ -256,6 +285,7 @@ export function Sidebar({
                       </div>
                     )
                   })}
+                </div>
                 </div>
               )}
             </div>
@@ -341,11 +371,12 @@ export function Sidebar({
                 />
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-                {jogos.map((g) => (
+                {jogos.map((g, linha) => (
                   <button
                     key={g.id}
                     onClick={() => onOpenGame(g)}
-                    className={`relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                    style={{ ["--i" as string]: linha }}
+                    className={`arcadia-game-row relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
                       activeGameId === g.id ? "bg-white/[0.07]" : "hover:bg-white/[0.06]"
                     }`}
                     title={g.title}
@@ -383,6 +414,7 @@ export function Sidebar({
           title={t("sidebar.modo_tela_cheia")}
         >
           <svg
+            className="arcadia-trace"
             width="16"
             height="16"
             viewBox="0 0 24 24"

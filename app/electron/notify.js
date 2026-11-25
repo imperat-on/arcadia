@@ -1,5 +1,5 @@
-// Toast nativo de conquista desbloqueada (estilo Steam): janela borderless/
-// transparente no canto inferior direito, click-through e sempre no topo —
+// Toast nativo de conquista: janela borderless no canto superior direito,
+// click-through e sempre no topo —
 // aparece por cima do jogo sem roubar foco nem cliques.
 // Fila FIFO: um toast por vez (~6s). O notify.html se fecha sozinho e o
 // evento 'closed' dispara o próximo da fila.
@@ -11,16 +11,16 @@ const { dataPath } = require("./runtime-paths")
 const CONFIG = dataPath("config.json")
 
 const HEADING_MAP = {
-  "pt-BR": "Conquista desbloqueada!",
-  "en-US": "Achievement unlocked!",
-  "es-ES": "¡Logro desbloqueado!",
+  "pt-BR": ["Conquista desbloqueada!", "Conquista rara!", "Platina Arcadia"],
+  "en-US": ["Achievement unlocked!", "Rare achievement!", "Arcadia Platinum"],
+  "es-ES": ["¡Logro desbloqueado!", "¡Logro raro!", "Platino Arcadia"],
 }
 
 // Idioma vem do config.json (campo `language`); sem ele, default pt-BR.
 function headingTraduzido() {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG, "utf-8"))
-    return HEADING_MAP[cfg.language] || HEADING_MAP["pt-BR"]
+    return Object.hasOwn(HEADING_MAP, cfg.language) ? HEADING_MAP[cfg.language] : HEADING_MAP["pt-BR"]
   } catch {
     return HEADING_MAP["pt-BR"]
   }
@@ -84,7 +84,7 @@ function processarFila() {
   toastWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   // Click-through: o toast nunca atrapalha o jogo.
   toastWin.setIgnoreMouseEvents(true)
-  toastWin.once("ready-to-show", () => toastWin?.show())
+  toastWin.once("ready-to-show", () => toastWin?.showInactive())
   // Timeout de segurança: se o loadFile falhar, o 'closed' nunca dispara e a
   // fila ficaria presa — destrói e segue para o próximo da fila.
   const seguro = setTimeout(() => {
@@ -95,32 +95,29 @@ function processarFila() {
     toastWin = null
     processarFila()
   })
-  // Calculate done/total from payload if available
-  const done = payload.done || 0
-  const total = payload.total || 0
-
   const isPlatinum = payload._platinum === true
-  toastWin.loadFile(NOTIFY_HTML, {
+  const current = toastWin
+  current.loadFile(NOTIFY_HTML, {
     query: {
       title: String(payload.title || ""),
-      desc: String(payload.desc || ""),
+      desc: String(payload.gameTitle || payload.desc || ""),
       icon: String(payload.icon || ""),
-      heading: headingTraduzido(),
-      sound: isPlatinum ? "platinum" : "unlock",
-      done: String(done),
-      total: String(total),
+      heading: headingTraduzido()[isPlatinum ? 2 : payload.rare ? 1 : 0],
+      variant: isPlatinum ? "platinum" : payload.rare ? "rare" : "unlock",
+      sound: payload.sound === false ? "off" : isPlatinum ? "platinum" : "unlock",
+      reducedMotion: payload.reducedMotion ? "1" : "0",
     },
-  })
+  }).catch(() => { if (!current.isDestroyed()) current.destroy() })
 }
 
 // Chamado no before-quit do main.js (mesmo padrão do killActive do
 // downloadmanager): sem isso sobraria uma janela always-on-top órfã.
 function closeAchievementToast() {
+  fila.length = 0
   try {
     if (toastWin && !toastWin.isDestroyed()) toastWin.destroy()
   } catch {}
   toastWin = null
-  fila.length = 0
 }
 
 module.exports = { showAchievementToast, closeAchievementToast }

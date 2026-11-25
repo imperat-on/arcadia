@@ -23,13 +23,14 @@ import { useI18n } from "../i18n/I18nContext"
 // A estética usa o vocabulário .ui-* que já existia no index.css (e que quase
 // ninguém consumia), então o overlay passa a parecer da mesma peça que o resto.
 
-export type ModalSize = "sm" | "md" | "lg" | "xl"
+export type ModalSize = "sm" | "md" | "lg" | "xl" | "full"
 
 const LARGURA: Record<ModalSize, string> = {
   sm: "480px",
   md: "560px",
   lg: "620px",
   xl: "760px",
+  full: "100vw",
 }
 
 // Contador de modais abertos: dois modais empilhados não podem liberar o scroll
@@ -142,13 +143,14 @@ export function Modal({
       const focaveis = painel.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
       )
-      if (!focaveis.length) {
+      const visiveis = [...focaveis].filter(el => el.getClientRects().length > 0)
+      if (!visiveis.length) {
         evento.preventDefault()
         painel.focus({ preventScroll: true })
         return
       }
-      const primeiro = focaveis[0]
-      const ultimo = focaveis[focaveis.length - 1]
+      const primeiro = visiveis[0]
+      const ultimo = visiveis[visiveis.length - 1]
       const ativo = document.activeElement
       if (evento.shiftKey && (ativo === primeiro || ativo === painel)) {
         evento.preventDefault()
@@ -180,7 +182,9 @@ export function Modal({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         onMouseDown={(evento) => evento.stopPropagation()}
-        className={`flex max-h-[90vh] w-full max-w-[92vw] flex-col rounded-2xl border border-white/10 bg-[color:var(--surface-1)] outline-none ${
+        className={`flex w-full flex-col bg-[color:var(--surface-1)] outline-none ${
+          size === "full" ? "h-full" : "max-h-[90vh] max-w-[92vw] rounded-2xl border border-white/10"
+        } ${
           isConsole ? "p-7" : "p-6 shadow-2xl"
         } ${className}`}
         style={{ width: LARGURA[size] }}

@@ -103,10 +103,11 @@ function parseFLT(filePath) {
   // FLT: uma pasta com 1 arquivo por conquista desbloqueada
   // O nome do arquivo = apiname da conquista
   try {
-    return fs.readdirSync(filePath).map((nome) => ({
-      name: nome,
-      unlockTime: Date.now(),
-    }))
+    return fs.readdirSync(filePath, { withFileTypes: true }).filter(entry => entry.isFile()).map(({ name }) => {
+      let unlockTime = 0
+      try { unlockTime = fs.statSync(path.join(filePath, name)).mtimeMs } catch {}
+      return { name, unlockTime }
+    })
   } catch {
     return []
   }
@@ -552,6 +553,7 @@ function payloadParaDesbloqueio(appid, item, desbloqueio, registro) {
     icon: item.icon,
     percent: item.percent || 0,
     unlock: Math.floor((desbloqueio.unlockTime || 0) / 1000) || Math.floor(Date.now() / 1000),
+    unlockEstimated: !desbloqueio.unlockTime,
   }
 }
 
@@ -678,12 +680,13 @@ function iniciarVigia(onUnlock, onRevoke = null) {
   // viraria spam.
   let avisoPausa = false
   let escopoDoAviso = null
-  const scan = () => {
+  const scan = (initial = false) => {
     // Escopo da conta mudou (boot como guest -> sessão restaurada): o aviso pode
     // ter saído com o vínculo da RAIZ, que não é o desta conta — repete o aviso
     // com o motivo certo em vez de ficar calado com um diagnóstico errado.
     const escopoAtual = conta() || "__guest__"
-    if (escopoAtual !== escopoDoAviso) {
+    const newAccount = escopoAtual !== escopoDoAviso
+    if (newAccount) {
       avisoPausa = false
       escopoDoAviso = escopoAtual
     }
@@ -732,6 +735,14 @@ function iniciarVigia(onUnlock, onRevoke = null) {
       if (!items.length) continue // sem schema, sem o que detectar
 
       const registros = caminhosPrefixados(prefixo, appid, entry)
+      const silentImport = initial || newAccount || Boolean(permissao.status?.forcado)
+      const emitUnlock = (item, payload, silent) => {
+        item.localUnlock = true
+        item.unlockEstimated = payload.unlockEstimated
+        delete item.revoked
+        delete item.revokedAt
+        if (onUnlock?.(payload, { silent })?.platinumCelebrated) store[appid].platinumCelebrated = true
+      }
 
       // Schema do PRÓPRIO emulador (steam_settings/achievements.json): é a
       // fonte do NOME REAL das conquistas numa instalação crackeada, e é o que
@@ -808,9 +819,10 @@ function iniciarVigia(onUnlock, onRevoke = null) {
                         it.achieved = false
                         it.unlock = 0
                         it.revoked = true
+                        it.revokedAt = Math.floor(Date.now() / 1000)
                         atualizou = true
                         if (onRevoke && it.apiname) {
-                          try { onRevoke({ appid, apiname: it.apiname }) } catch { /* ignore */ }
+                          try { onRevoke({ appid, apiname: it.remoteApiname || it.apiname }) } catch { /* ignore */ }
                         }
                       }
                     }
@@ -849,8 +861,7 @@ function iniciarVigia(onUnlock, onRevoke = null) {
           it.unlock = payload.unlock
           atualizou = true
 
-          // Dispara o toast
-          if (onUnlock) onUnlock(payload)
+          emitUnlock(it, payload, silentImport || (primeiraLeitura && !d.unlockTime))
         }
 
         if (atualizou) {
@@ -887,13 +898,14 @@ function iniciarVigia(onUnlock, onRevoke = null) {
           if (it.achieved) continue
 
           it.achieved = true
-          it.unlock = Math.floor((d.unlockTime || Date.now()) / 1000)
+          const payload = payloadParaDesbloqueio(appid, it, d, { name: "flt" })
+          it.unlock = payload.unlock
           atualizou = true
 
           // Mesmo construtor de payload dos outros formatos: sem isto o aviso
           // saía sem `apiname`/`provider` (o toast casava pelo key, mas o log
           // e qualquer consumidor futuro liam campos vazios).
-          if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: "flt" }))
+          emitUnlock(it, payload, silentImport || !d.unlockTime)
         }
 
         if (atualizou) {
@@ -938,11 +950,12 @@ function iniciarVigia(onUnlock, onRevoke = null) {
             if (!it) continue
             if (it.achieved) continue
             it.achieved = true
-            it.unlock = Math.floor(d.unlockTime / 1000) || Math.floor(Date.now() / 1000)
+            const payload = payloadParaDesbloqueio(appid, it, d, { name: ef.nome })
+            it.unlock = payload.unlock
             mudou = true
             // Idem FLT: payload pelo construtor canônico para não perder
             // `apiname`/`provider` no caminho do SteamData/3DMGAME.
-            if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: ef.nome }))
+            emitUnlock(it, payload, silentImport || (ultima === undefined && !d.unlockTime))
           }
           if (mudou) {
             store[appid] = { ...(store[appid] || {}), items }
@@ -1038,7 +1051,7 @@ function iniciarVigia(onUnlock, onRevoke = null) {
   }
 
   // Roda uma vez no inicio para sincronizar o estado atual
-  scan()
+  scan(true)
 
   // Piso: garante o aviso mesmo sem evento (e é o único caminho onde o evento não chega)
   const interval = setInterval(scan, INTERVALO_POLL)

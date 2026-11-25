@@ -104,6 +104,8 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
         return t("update.packaged.pronto")
       case "sem_suporte":
         return t("update.packaged.sem_suporte")
+      case "sem_release":
+        return t("update.packaged.sem_release")
       case "erro":
         return e.erro || t("update.packaged.erro")
       default:
@@ -122,6 +124,8 @@ export function AboutSection({ console: modoConsole = false }: { console?: boole
       const r = await window.launcherAPI?.updatePackagedCheck({ manual: true })
       setBusy(false)
       if (r?.motivo === "canal_nao_suportado") return setMsg(t("update.packaged.sem_suporte"))
+      if (r?.motivo === "sem_release") return setMsg(t("update.packaged.sem_release"))
+      if (r?.motivo === "ocupado") return
       if (!r?.ok) return setMsg(r?.erro || t("update.erro_generico"))
       if (!r.disponivel) return setMsg(t("update.packaged.em_dia"))
       return

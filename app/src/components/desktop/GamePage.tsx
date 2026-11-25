@@ -18,6 +18,7 @@ import {
   stripHtml,
 } from "./GameDetailPanels"
 import { FixesPanel } from "./FixesPanel"
+import { AchievementsPanel } from "./AchievementsPanel"
 import { CommunityPanel } from "../CommunityPanel"
 import { HorasNaSteam } from "./HorasNaSteam"
 
@@ -196,6 +197,7 @@ export function GamePage({
                 src={g.hero || g.cover}
                 alt=""
                 className="h-full w-full object-cover"
+                data-library-cover-destination
                 draggable={false}
               />
             ) : null}
@@ -547,6 +549,7 @@ export function GamePage({
               <GameDescription html={sys?.about} fallback={sys?.short_description} />
               <ProtonDBPanel appid={steamAppid} />
               <StatsPanel appid={steamAppid} />
+              <AchievementsPanel appid={steamAppid} title={g.title} />
               {instalado && fixesAtivo && (
                 <FixesPanel appid={steamAppid} installPath={installPath} />
               )}

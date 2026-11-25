@@ -22,7 +22,8 @@ const DesktopLauncher = lazy(() =>
 
 function LauncherLoading() {
   return (
-    <div className="min-h-screen bg-[color:var(--surface-0)] text-white/70 grid place-items-center">
+    <div role="status" aria-live="polite" className="min-h-screen bg-[#08090b] text-white/70 grid place-items-center">
+      <span className="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
     </div>
   )
 }
@@ -33,6 +34,7 @@ function Root() {
   const { mode, setMode } = useMode()
   const { t } = useI18n()
   const modeRef = useRef(mode)
+
   const appFocusedRef = useRef(document.hasFocus())
   const gameRunningRef = useRef(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -42,6 +44,16 @@ function Root() {
   }, [mode])
 
   useEffect(() => {
+    const onRendererError = (event: ErrorEvent) => {
+      console.error("[renderer:error]", event.message, event.filename, event.lineno, event.error)
+      setErro(event.message || String(event.error || "Erro no renderer"))
+    }
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      console.error("[renderer:unhandledrejection]", event.reason)
+      setErro(String(event.reason?.message || event.reason || "Falha assíncrona no renderer"))
+    }
+    window.addEventListener("error", onRendererError)
+    window.addEventListener("unhandledrejection", onUnhandled)
     const offErr = window.launcherAPI?.onLaunchError?.((p) => setErro(p.error))
     const offWarn = window.launcherAPI?.onLaunchWarning?.((p) => setErro(p.warnings.join("\n")))
     const offFocus = window.launcherAPI?.onAppFocus?.((focused) => {
@@ -63,6 +75,8 @@ function Root() {
     }
     window.addEventListener("keydown", onKey)
     return () => {
+      window.removeEventListener("error", onRendererError)
+      window.removeEventListener("unhandledrejection", onUnhandled)
       offErr?.()
       offWarn?.()
       offFocus?.()
@@ -74,7 +88,9 @@ function Root() {
     <AccountProvider>
       <FriendsProvider>
         <Suspense fallback={<LauncherLoading />}>
-          {mode === "console" ? <PS5Launcher /> : <DesktopLauncher />}
+          <div key={mode} className="arcadia-mode-surface" data-mode-entry={mode}>
+            {mode === "console" ? <PS5Launcher /> : <DesktopLauncher />}
+          </div>
         </Suspense>
         {erro && (
         <div className="fixed bottom-6 right-6 z-[9999] max-w-md rounded-lg bg-red-900/95 text-white px-5 py-4 shadow-2xl border border-red-500/50 backdrop-blur">

@@ -87,7 +87,7 @@
     "dist:nsis": "vite build && electron-builder --win nsis --x64 --publish never",
     "dist:portable": "vite build && electron-builder --win portable --x64 --publish never",
     "dist:zip": "vite build && electron-builder --win zip --x64 --publish never",
-    "test": "NODE_ENV=test node --test",
+    "test": "node --env-file=test/test.env --test",
     "electron": "electron .",
     "start": "vite build && electron ."
   },

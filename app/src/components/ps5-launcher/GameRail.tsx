@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import type { Game } from "./types"
 import { LauncherIcon } from "./HeroSection"
 import { isRovingKey, nextRovingIndex } from "./rovingTab.mjs"
+import { signalRailEdge } from "./railEdgeMotion"
 
 interface GameRailProps {
   games: Game[]
@@ -39,29 +40,64 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, artes, onSelec
   const { t } = useI18n()
   const railRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLButtonElement>(null)
-  const lastMove = useRef(0)
+  const frameRef = useRef<HTMLSpanElement>(null)
+  const previousCover = useRef<{ id: string; x: number; y: number } | null>(null)
   const cardWidth = Math.round(142 * Math.min(1.6, Math.max(.85, cardScale)))
+  const selectedId = games[selectedIndex]?.id
+
+  useLayoutEffect(() => {
+    const rail = railRef.current
+    const frame = frameRef.current
+    const cover = selectedRef.current?.querySelector(".retro-library-cover")
+    if (!rail || !frame || !cover || !selectedId) {
+      previousCover.current = null
+      return
+    }
+    const bounds = cover.getBoundingClientRect()
+    const viewport = rail.getBoundingClientRect()
+    const next = { id: selectedId, x: bounds.left - viewport.left + rail.scrollLeft, y: bounds.top - viewport.top + rail.scrollTop }
+    const previous = previousCover.current
+    previousCover.current = next
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
+    if (!previous || previous.id === next.id || preference.matches || !bounds.width || !bounds.height) return
+
+    Object.assign(frame.style, {
+      left: `${next.x}px`, top: `${next.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`,
+      borderRadius: getComputedStyle(cover).borderRadius,
+    })
+    const motion = frame.animate([
+      { transform: `translate(${previous.x - next.x}px, ${previous.y - next.y}px)`, opacity: 1 },
+      { transform: "translate(0, 0)", opacity: 1, offset: .8 },
+      { transform: "translate(0, 0)", opacity: 0 },
+    ], { duration: 200, easing: "cubic-bezier(.2,.75,.25,1)" })
+    const cancel = () => motion.cancel()
+    preference.addEventListener("change", cancel)
+    return () => { preference.removeEventListener("change", cancel); cancel() }
+  }, [selectedId, selectedIndex, cardWidth])
 
   useEffect(() => {
-    const now = performance.now()
-    const fast = now - lastMove.current < 320
-    lastMove.current = now
     const rail = railRef.current
     const selected = selectedRef.current
     if (rail && selected) {
       // scrollIntoView também rolava o documento inteiro quando o trilho era
       // o primeiro item. Em tela cheia isso empurrava a sidebar para fora do
       // viewport. Alterar apenas scrollLeft mantém o shell imóvel.
-      const target = selected.offsetLeft - (rail.clientWidth - selected.offsetWidth) / 2
-      rail.scrollTo({ left: Math.max(0, target), behavior: fast || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })
+      const viewport = rail.getBoundingClientRect()
+      const card = selected.getBoundingClientRect()
+      const target = rail.scrollLeft + card.left + card.width / 2 - viewport.left - viewport.width / 2
+      rail.scrollTo({
+        left: Math.max(0, Math.min(target, rail.scrollWidth - rail.clientWidth)),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+      })
     }
     if (railRef.current?.contains(document.activeElement)) selectedRef.current?.focus({ preventScroll: true })
-  }, [selectedIndex])
+  }, [selectedIndex, selectedId, cardWidth])
 
   return (
     <section className="retro-featured relative shrink-0 border-b px-5 pb-3 pt-3">
       <div className="retro-featured-label mb-2 px-1 text-[10px] font-black uppercase tracking-[0.12em]">{t("gameoverview.em_destaque")}</div>
-      <div ref={railRef} className="retro-game-rail flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("topbar.jogos")}>
+      <div ref={railRef} className="retro-game-rail relative flex select-none items-start gap-3 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("topbar.jogos")}>
+        <span ref={frameRef} aria-hidden="true" className="pointer-events-none absolute z-20 border-2 border-[color:var(--accent)] opacity-0" />
         {games.map((game, index) => {
           const focused = index === selectedIndex
           const cover = coverFor(game, artes)
@@ -82,6 +118,10 @@ export function GameRail({ games, selectedIndex, cardScale = 1.6, artes, onSelec
                 event.stopPropagation()
                 const next = nextRovingIndex(index, games.length, event.key)
                 if (next === null) return
+                if (next === index && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+                  signalRailEdge(event.currentTarget, event.key === "ArrowLeft" ? -1 : 1)
+                  return
+                }
                 onSelect(next)
                 requestAnimationFrame(() => railRef.current?.querySelector<HTMLButtonElement>(`[data-roving-index="${next}"]`)?.focus({ preventScroll: true }))
               }}

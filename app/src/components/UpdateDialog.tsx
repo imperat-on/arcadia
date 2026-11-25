@@ -135,9 +135,9 @@ const BOTAO_PRIMARIO =
 const BOTAO_SECUNDARIO =
   "rounded-lg border border-white/15 px-5 py-2.5 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
 
-function BotaoPrimario({ onClick, children }: { onClick: () => void; children: string }) {
+function BotaoPrimario({ onClick, children, disabled }: { onClick: () => void; children: string; disabled?: boolean }) {
   return (
-    <button onClick={onClick} className={BOTAO_PRIMARIO} style={{ background: "var(--accent)" }}>
+    <button disabled={disabled} onClick={onClick} className={`${BOTAO_PRIMARIO} disabled:opacity-50`} style={{ background: "var(--accent)" }}>
       {children}
     </button>
   )
@@ -165,6 +165,7 @@ export function UpdatePackagedDialog({
   onDepois,
 }: UpdatePackagedDialogProps) {
   const { t } = useI18n()
+  const [confirmedVersion, setConfirmedVersion] = useState<string | null>(null)
   const baixando = estado.fase === "baixando"
   const erro = estado.fase === "erro"
   const semSuporte = estado.fase === "sem_suporte"
@@ -205,12 +206,21 @@ export function UpdatePackagedDialog({
         {t("update.packaged.abrir_release")}
       </BotaoPrimario>
     ) : retry === "instalar" ? (
-      <BotaoPrimario onClick={onInstalar}>{t("update.packaged.reiniciar")}</BotaoPrimario>
+      <BotaoPrimario onClick={onInstalar} disabled={estado.jogoRodando}>{t("update.packaged.reiniciar")}</BotaoPrimario>
     ) : retry === "tentar" ? (
       <BotaoPrimario onClick={onTentar}>{t("update.packaged.tentar")}</BotaoPrimario>
     ) : (
       <BotaoPrimario onClick={onBaixar}>{t("update.packaged.baixar")}</BotaoPrimario>
     )
+
+  if (estado.fase === "pronto" && confirmedVersion !== (estado.versaoNova ?? estado.versaoAtual)) {
+    return (
+      <button type="button" className="arcadia-update-ready fixed right-5 top-16 z-[65] max-w-[80vw] rounded-full border border-white/20 bg-[color:var(--surface-2)] px-4 py-2 text-sm text-white focus-visible:outline-2"
+        onClick={() => setConfirmedVersion(estado.versaoNova ?? estado.versaoAtual)}>
+        {t("update.packaged.pronto")}
+      </button>
+    )
+  }
 
   return (
     <Modal
@@ -257,7 +267,7 @@ export function UpdatePackagedDialog({
 /**
  * Assina o canal empacotado e decide quando o diálogo abre:
  * - abre: `disponivel` (se `!jaAvisado`), `pronto` (reaviso do boot, D6),
- *   `sem_suporte` (portable/zip/AppImage extraído, no boot) e `erro` de ação
+ *   e `erro` de ação
  *   do usuário (`erroDeFundo === false`);
  * - silencia: `ocioso`, `baixando` (só continua um diálogo já aberto) e erro
  *   de fundo (sem rede no ciclo de 6h não pode virar aviso).
@@ -271,8 +281,7 @@ export function useAtualizacaoEmpacotada() {
     let vivo = true
     const chave = (e: UpdatePackagedState) => `${e.fase}:${e.versaoNova ?? e.versaoAtual}`
     const decidir = (e: UpdatePackagedState): UpdatePackagedState | null => {
-      if (e.canal === "fonte") return null
-      if (e.fase === "sem_suporte") return dispensados.current.has(chave(e)) ? null : e
+      if (e.canal === "fonte" || e.jogoRodando) return null
       if (e.fase === "disponivel") return e.jaAvisado || dispensados.current.has(chave(e)) ? null : e
       if (e.fase === "pronto") return dispensados.current.has(chave(e)) ? null : e
       if (e.fase === "erro") return e.erroDeFundo ? null : e
@@ -327,6 +336,7 @@ export function useAtualizacaoEmpacotada() {
 
   const instalar = async () => {
     const r = await window.launcherAPI?.updatePackagedInstall?.()
+    if (r?.erro === "jogo_rodando") return
     if (!r?.ok) {
       setEstado((atual) =>
         atual

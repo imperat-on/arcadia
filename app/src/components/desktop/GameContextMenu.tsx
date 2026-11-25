@@ -110,8 +110,8 @@ export function GameContextMenu({
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[80] w-[240px] overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)] py-1.5 shadow-2xl shadow-black/70"
-      style={{ left: px, top: py, animation: "ctx-in 0.12s ease-out" }}
+      className="arcadia-context-menu fixed z-[80] w-[240px] overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)] py-1.5 shadow-2xl shadow-black/70"
+      style={{ left: px, top: py, transformOrigin: `${x - px}px ${y - py}px` }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {verCategorias ? (

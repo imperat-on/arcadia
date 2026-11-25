@@ -71,7 +71,7 @@ test("screenshots: shape { src, full } — card usa src, viewer usa full", () =>
   // O card renderiza o leve (`item.src`)...
   assert.match(fonte, /<img src=\{item\.src\}/)
   // ...e o clique abre o nítido (`item.full`).
-  assert.match(fonte, /onClick=\{\(\) => setMedia\(item\.full\)\}/)
+  assert.match(fonte, /onClick=\{\(event\) => transitionCapture\([^\n]+\n\s+setMedia\(item\.full\)/)
 })
 
 test("mediaItems: um item por screenshot, labels renumerados sem buracos", () => {

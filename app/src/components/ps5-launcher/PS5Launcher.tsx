@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { Game } from "./types"
 import { HeroSection } from "./HeroSection"
 import { HeroBackground } from "./HeroBackground"
 import { GameRail } from "./GameRail"
+import { signalRailEdge } from "./railEdgeMotion"
 import { NewsView } from "./NewsView"
 import { BootScreen } from "./BootScreen"
 import ProfileSelect from "./ProfileSelect"
@@ -20,6 +21,8 @@ import { StoreView } from "../desktop/StoreView"
 import { ConsoleDestinoDialog, type DestinoOpcao } from "./ConsoleDestinoDialog"
 import { useStoreActions, ehAviso } from "../useStoreActions"
 import { useJogoRodando } from "../useJogoRodando"
+import { useGameReturnMotion } from "../useGameReturnMotion"
+import { GameReturnSummary } from "../GameReturnSummary"
 import { useLibraryState } from "../useLibraryState"
 import { fmtMiB } from "../tamanho"
 import { ProfilePage } from "./ProfilePage"
@@ -147,6 +150,23 @@ export function PS5Launcher() {
     typeof window !== "undefined" && window.launcherAPI ? [] : MOCK_GAMES,
   )
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const stepRail = useCallback((direction: number, count: number) => {
+    if (!count) return
+    const card = document.querySelector<HTMLElement>('.retro-game-rail [data-active="true"]')
+    if (card && Number(card.dataset.rovingIndex) === (direction < 0 ? 0 : count - 1)) {
+      signalRailEdge(card, direction)
+    }
+    setSelectedIndex((index) => Math.max(0, Math.min(count - 1, index + direction)))
+  }, [])
+  const previousSelection = useRef(selectedIndex)
+  const [heroDirection, setHeroDirection] = useState<"forward" | "backward">("forward")
+  useLayoutEffect(() => {
+    const previous = previousSelection.current
+    if (previous !== selectedIndex) {
+      setHeroDirection(selectedIndex > previous ? "forward" : "backward")
+      previousSelection.current = selectedIndex
+    }
+  }, [selectedIndex])
   const [toast, setToast] = useState<LaunchToast>({ title: "", visible: false })
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -194,11 +214,15 @@ export function PS5Launcher() {
   const [newsLoading, setNewsLoading] = useState(false)
   const newsRef = useRef<HTMLDivElement>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
+  const [reviewingSession, setReviewingSession] = useState(false)
+  const closeSessionReview = useCallback(() => setReviewingSession(false), [])
+  const [trophiesOpen, setTrophiesOpen] = useState(false)
   const [overviewMounted, setOverviewMounted] = useState(false)
   const [overviewClosing, setOverviewClosing] = useState(false)
   const overviewReopenRef = useRef(false)
   const overviewRef = useRef<HTMLDivElement>(null)
   const overviewCloseTimer = useRef<number | null>(null)
+  const overviewCover = useRef<{ rect: DOMRect; src: string } | null>(null)
   const openOverview = useCallback((force = false) => {
     // O hub só existe na aba Jogos. A Loja e Notícias têm suas próprias telas
     // e nunca devem receber o Game Overview por cima ao pressionar ↓.
@@ -213,11 +237,21 @@ export function PS5Launcher() {
       window.clearTimeout(overviewCloseTimer.current)
       overviewCloseTimer.current = null
     }
+    if (!overviewOpen && !force && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const image = document.querySelector<HTMLImageElement>('.retro-game-rail [data-active="true"] .ps5-cover-art')
+      const cover = image?.parentElement
+      overviewCover.current = image?.complete && image.naturalWidth && cover
+        ? { rect: cover.getBoundingClientRect(), src: image.currentSrc || image.src }
+        : null
+    } else if (!overviewOpen) {
+      overviewCover.current = null
+    }
     setOverviewClosing(false)
     setOverviewMounted(true)
     setOverviewOpen(true)
-  }, [activeTab, overviewClosing])
+  }, [activeTab, overviewClosing, overviewOpen])
   const closeOverview = useCallback(() => {
+    setTrophiesOpen(false)
     if (overviewCloseTimer.current) window.clearTimeout(overviewCloseTimer.current)
     setOverviewClosing(true)
     overviewCloseTimer.current = window.setTimeout(() => {
@@ -246,6 +280,37 @@ export function PS5Launcher() {
       if (overviewCloseTimer.current) window.clearTimeout(overviewCloseTimer.current)
     }
   }, [])
+
+  useLayoutEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const cover = overviewCover.current
+    const panel = overviewRef.current
+    const icon = panel?.querySelector(".ps5-overview-icon")
+    if (!overviewOpen || preference.matches || !cover || !panel || !icon) return
+
+    // Remove the panel's slide offset from the icon's final viewport position.
+    const bounds = panel.getBoundingClientRect()
+    const rect = icon.getBoundingClientRect()
+    const destination = new DOMRect(rect.left - bounds.left, rect.top - bounds.top, rect.width, rect.height)
+    const [from, to] = overviewClosing ? [destination, cover.rect] : [cover.rect, destination]
+    if (!from.width || !from.height || !to.width || !to.height) return
+
+    const image = document.createElement("img")
+    image.src = cover.src
+    image.alt = ""
+    image.setAttribute("aria-hidden", "true")
+    image.style.cssText = `position:fixed;z-index:79;pointer-events:none;object-fit:cover;left:${to.left}px;top:${to.top}px;width:${to.width}px;height:${to.height}px;transform-origin:top left;border-radius:12px`
+    document.body.append(image)
+    const motion = image.animate([
+      { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+      { transform: "none", opacity: 1, offset: .8 },
+      { transform: "none", opacity: 0 },
+    ], { duration: 420, easing: "cubic-bezier(.16,1,.3,1)" })
+    const stop = () => { motion.cancel(); image.remove() }
+    motion.onfinish = stop
+    preference.addEventListener("change", stop)
+    return () => { preference.removeEventListener("change", stop); stop() }
+  }, [overviewOpen, overviewClosing])
 
   // Boot + portão de perfil (declarados ANTES do modalOpenRef, que os lê).
   const [boot, setBoot] = useState(true)
@@ -364,6 +429,7 @@ export function PS5Launcher() {
     menuOpen ||
     showProfile ||
     aboutOpen ||
+    reviewingSession ||
     overviewOpen ||
     Boolean(ctxGame) ||
     Boolean(editGame) ||
@@ -517,6 +583,10 @@ export function PS5Launcher() {
   // Gamescope, document.hasFocus() e os eventos DOM podem refletir a janela do
   // compositor, não a BrowserWindow que o main está controlando.
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
+  const { surface: returnSurface, summary } = useGameReturnMotion(jogoAtivo.rodando, gameRunning, appFocused, jogoAtivo.jogo, reviewingSession)
+  const sessionReviewAvailable = useRef(false)
+  sessionReviewAvailable.current = Boolean(summary?.trophies.length)
+  useEffect(() => { if (!summary) closeSessionReview() }, [summary, closeSessionReview])
   const appFocusedRef = useRef(appFocused)
   const ultimoFocoRef = useRef<HTMLElement | null>(null)
   // A resposta de getAppFocus() é assíncrona. Um evento IPC mais novo precisa
@@ -718,6 +788,8 @@ export function PS5Launcher() {
   const overviewNavActive =
     overviewOpen &&
     !overviewClosing &&
+    !trophiesOpen &&
+    !reviewingSession &&
     appFocused &&
     !showEditProfile &&
     !menuOpen &&
@@ -957,7 +1029,7 @@ export function PS5Launcher() {
     const COOLDOWN = 160
 
     const N = viewGames.length
-    const step = (d: number) => setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + d)))
+    const step = (d: number) => stepRail(d, N)
 
     const handleKey = (e: KeyboardEvent) => {
       // Em gamescope o Chromium continua dizendo que está focado e pode até
@@ -1030,7 +1102,7 @@ export function PS5Launcher() {
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing])
+  }, [viewGames.length, columns, _launch_selected, _refresh_library, openOverview, overviewClosing, stepRail])
 
   // Navegação por controle (Gamepad API): D-pad/analógico, A=jogar, Start=atualizar.
   useEffect(() => {
@@ -1110,7 +1182,7 @@ export function PS5Launcher() {
       let delta = 0
       if (dx !== 0) delta = dx
       if (delta === 0) return
-      setSelectedIndex((i) => Math.max(0, Math.min(N - 1, i + delta)))
+      stepRail(delta, N)
     }
 
     let running = true
@@ -1168,6 +1240,11 @@ export function PS5Launcher() {
           // qualquer aba. L2 fica livre de propósito.
           if (primed && gp.buttons[7]?.pressed && !prev[7]) {
             setShowDownloads(true)
+          } else if (!uiBlockedRef.current && primed && gp.buttons[3]?.pressed && !prev[3] && sessionReviewAvailable.current) {
+            setReviewingSession(true)
+            prev = gp.buttons.map((button) => button.pressed)
+            schedule()
+            return
           }
           if (primed && gp.buttons[5]?.pressed && !prev[5]) {
             setActiveTab((t) => Math.min(TAB_COUNT - 1, t + 1))
@@ -1405,6 +1482,9 @@ export function PS5Launcher() {
 
   return (
     <div
+      ref={returnSurface}
+      data-hero-direction={heroDirection}
+      style={{ backgroundColor: "var(--background, #08090b)", color: "var(--foreground, #fff)" }}
       className={`retro-big-picture relative flex min-h-screen flex-col select-none overflow-hidden ${storeMode ? "retro-store-active" : ""} ${posLogin ? "pos-login home-reveal" : ""} ${overviewOpen ? (overviewClosing ? "overview-returning" : "overview-active") : ""}`}
       onKeyDownCapture={(event) => {
         const action =
@@ -1445,7 +1525,10 @@ export function PS5Launcher() {
           Agora `HeroBackground` mantém DUAS camadas: a atual segue visível
           enquanto a nova entra em fade por cima; só quando a nova cobre é
           que a antiga sai. Sem gap preto. */}
-      <HeroBackground
+      <GameReturnSummary summary={modalOpenRef.current && !reviewingSession ? null : summary} reviewing={reviewingSession} shortcut={activeTab === 1} onReview={() => {
+        if (!modalOpenRef.current) setReviewingSession(true)
+      }} onClose={closeSessionReview} gamepad={appFocused && !gameRunning} />
+        <HeroBackground
         preto={newsMode || storeMode}
         hero={(appFocused && !gameRunning ? trailerUrl : null) || selectedGame?.hero || selectedGame?.cover}
         id={selectedGame ? `${selectedGame.id}:${trailerUrl ? "trailer" : "art"}` : null}
@@ -1528,6 +1611,9 @@ export function PS5Launcher() {
           news={news}
           appFocused={appFocused}
           visible={overviewOpen}
+          trophiesOpen={trophiesOpen}
+          onTrophiesOpen={setTrophiesOpen}
+          trophiesGamepad={appFocused && !gameRunning}
           rodando={Boolean(
             selectedGame && jogoAtivo.rodando && jogoAtivo.jogo?.id === selectedGame.id,
           )}

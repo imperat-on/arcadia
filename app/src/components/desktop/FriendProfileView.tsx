@@ -1,8 +1,5 @@
 "use client"
 
-// Perfil do amigo: header gigante (avatar, username, "amigos desde") +
-// grid de conquistas recentes dele (RPC friend_achievements — só entre
-// amigos). Enriquece com título/ícone quando o jogo existe localmente.
 import { useEffect, useState } from "react"
 import { useI18n } from "../../i18n/I18nContext"
 import { corDeUsername, inicialDe, formatarData } from "../account/avatar"
@@ -25,16 +22,8 @@ interface Props {
   onRemovido: () => void
 }
 
-type ConquistaEnriquecida = FriendAchievement & {
-  title?: string
-  icon?: string
-  percent?: number | null
-  unlockLocal?: number
-}
-
 export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props) {
   const { t } = useI18n()
-  const [conquistas, setConquistas] = useState<ConquistaEnriquecida[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [confirmandoRemover, setConfirmandoRemover] = useState(false)
   const [removendo, setRemovendo] = useState(false)
@@ -43,74 +32,25 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
     games: { appid: string; title: string; minutes?: number }[]
     friends?: FriendProfile[]
     stats?: { jogos: number; playtime_hours: number }
-  } | null>(null)
-
-  useEffect(() => {
-    let vivo = true
-    ;(async () => {
-      let r
-      try {
-        r = await window.launcherAPI?.friendsAchievements(amigo.id)
-      } catch (e) {
-        if (!vivo) return
-        setErro(String(e?.message || e))
-        setConquistas([])
-        return
-      }
-      if (!vivo) return
-      if (!r?.ok) {
-        setErro(r?.error || t("amigos.erro_geral"))
-        setConquistas([])
-        return
-      }
-      // 1a pintura: os dados crus do servidor ja trazem title/icon sincronizados
-      // do amigo — a grade aparece imediatamente, sem esperar enriquecimento.
-      const lista = (r.achievements || []) as ConquistaEnriquecida[]
-      if (vivo) setConquistas(lista)
-
-      // Enriquecimento em PARALELO: titulo/icone melhores do achievements.json
-      // local (se o jogo existir aqui). Cada achievementsGet pode disparar um
-      // scrape da Steam p/ jogo sem items locais (ate 15s) — em serie isso
-      // segurava a tela inteira; em paralelo a grid ja esta visivel e os dados
-      // chegam quando prontos.
-      const appids = [...new Set(lista.map((a) => a.appid))]
-      const porApp = await Promise.all(
-        appids.map(async (appid) => {
-          try {
-            const g = await window.launcherAPI?.achievementsGet(appid)
-            return [appid, Array.isArray(g) ? g : null] as const
-          } catch {
-            return [appid, null] as const
-          }
-        }),
-      )
-      if (!vivo) return
-      const mapa = new Map(porApp)
-      const enriquecidas = lista.map((a) => {
-        const item = mapa.get(a.appid)?.find((i) => i.apiname === a.apiname)
-        return {
-          ...a,
-          title: item?.title || a.title || a.apiname,
-          icon: item?.icon || a.icon,
-          unlockLocal: item?.unlock ?? a.unlockLocal,
-        }
-      })
-      setConquistas(enriquecidas)
-    })()
-    return () => {
-      vivo = false
-    }
-  }, [amigo.id, t])
+  } | null>()
+  const aceito = amigo.status === "accepted"
 
   useEffect(() => {
     let vivo = true
     window.launcherAPI?.friendsProfile(amigo.id).then((r) => {
-      if (vivo && r?.ok && r.profile) setPerfil({ profile: r.profile, games: r.games || [], friends: r.friends || [], stats: r.stats })
-      if (vivo && !r?.ok) setErro(r?.error || t("amigos.erro_geral"))
+      if (!vivo) return
+      if (r?.ok && r.profile) setPerfil({ profile: r.profile, games: r.games || [], friends: r.friends || [], stats: r.stats })
+      else {
+        setPerfil(null)
+        setErro(r?.error || t("amigos.erro_geral"))
+      }
     }).catch((e) => {
       // Promise rejeitada (rede/rota ausente): mostra o erro em vez de ficar
       // em "Carregando perfil..." para sempre.
-      if (vivo) setErro(String(e?.message || e))
+      if (vivo) {
+        setPerfil(null)
+        setErro(String(e?.message || e))
+      }
     })
     return () => { vivo = false }
   }, [amigo.id, t])
@@ -125,8 +65,6 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
 
   const cor = corDeUsername(amigo.username)
   const corClara = `hsl(${cor.replace(/hsl\((\d+).*/, "$1")} 90% 60%)`
-  const aceito = amigo.status === "accepted"
-
   if (!perfil && !erro) {
     return <div className="flex h-full items-center justify-center text-sm text-white/45">{t("profile.carregando")}</div>
   }
@@ -247,113 +185,10 @@ export function FriendProfileView({ amigo, games, onVoltar, onRemovido }: Props)
         </div>
       </div>
 
-      {/* Conquistas — só entre amigos aceitos (privacidade) */}
-      {aceito && (
-        <div className="mt-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-white/50">
-              {t("amigos.conquistas_recentes")}
-              {conquistas ? ` (${conquistas.length})` : ""}
-            </h3>
-          </div>
-
-        {erro && (
-          <div className="rounded-xl border border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.07] px-3.5 py-2.5 text-xs text-[color:var(--state-danger)]">
-            {erro}
-          </div>
-        )}
-
-        {!conquistas && !erro && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-20 animate-pulse rounded-xl border border-white/5 bg-white/[0.03]"
-              />
-            ))}
-          </div>
-        )}
-
-        {conquistas && conquistas.length === 0 && !erro && (
-          <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center text-sm text-white/30">
-            {t("amigos.sem_conquistas")}
-          </div>
-        )}
-
-        {conquistas && conquistas.length > 0 && (
-          <>
-            {/* Resumo estilo "meu perfil" */}
-            <div className="mb-4 grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[color:var(--state-info-soft)]">{conquistas.length}</div>
-                <div className="text-[10px] uppercase tracking-wider text-white/35">
-                  {t("amigos.total_conquistas")}
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[color:var(--state-success)]">
-                  {conquistas.filter((c) => c.percent != null && c.percent >= 100).length > 0
-                    ? `${Math.round(
-                        (conquistas.filter((c) => c.percent != null && c.percent >= 100).length / conquistas.length) * 100,
-                      )}%`
-                    : "—"}
-                </div>
-                <div className="text-[10px] uppercase tracking-wider text-white/35">
-                  {t("amigos.platinadas")}
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                <div className="text-xl font-bold text-[color:var(--state-warn)]">
-                  {new Set(conquistas.map((c) => c.appid)).size}
-                </div>
-                <div className="text-[10px] uppercase tracking-wider text-white/35">
-                  {t("amigos.jogos")}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {conquistas.map((c) => (
-                <div
-                  key={c.appid + c.apiname}
-                  className="group flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-all hover:border-[color:var(--accent)]/40 hover:bg-white/[0.05]"
-                >
-                  <div className="flex items-start gap-2.5">
-                    {c.icon ? (
-                      <img
-                        src={c.icon}
-                        alt=""
-                        className="h-11 w-11 shrink-0 rounded-lg border border-white/10 object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--brand-steam)]/30 to-[color:var(--accent)]/10 text-lg text-[color:var(--state-info-soft)]">
-                        🏆
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-white">
-                        {c.title || c.apiname}
-                      </div>
-                      <div className="mt-0.5 truncate text-[10px] text-white/35">{c.appid}</div>
-                    </div>
-                    {c.percent != null && (
-                      <span className="shrink-0 rounded-full bg-[color:var(--state-success)]/15 px-1.5 py-0.5 text-[10px] font-bold text-[color:var(--state-success)]">
-                        {Math.round(c.percent)}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between border-t border-white/5 pt-2">
-                    <span className="text-[10px] text-white/35">
-                      {formatarData(c.unlocked_at)}
-                    </span>
-                    <span className="text-[10px] font-semibold text-[color:var(--state-success)]">✓</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-        </div>
+      {erro && (
+        <p role="alert" className="mt-6 rounded-xl border border-[color:var(--state-danger)]/25 bg-[color:var(--state-danger)]/[0.07] px-3.5 py-2.5 text-xs text-[color:var(--state-danger)]">
+          {erro}
+        </p>
       )}
 
       {/* Ações — só entre amigos aceitos */}

@@ -13,6 +13,7 @@ const {
   resolveAchievementConflict,
 } = require("../../../contracts")
 const { buildIndex, findItem, rememberAlias } = require("../achievements/match")
+const { platinumForGame } = require("../achievements/platinum")
 
 // Fila, estado e metadados são POR CONTA (conta.js escopa por username)
 const QUEUE_PATH = () => caminhoArquivoConta("sync_queue.json")
@@ -191,11 +192,13 @@ function applyPulled(rows, context = null) {
   if (!Array.isArray(rows) || !contextStillActive(context)) return false
   const store = readJson(ACH_PATH(), {})
   let mudou = false
+  const evaluated = new Set()
   for (const r of rows) {
     if (!contextStillActive(context)) return false
     const remote = resolveAchievementConflict(null, r)
     if (!remote) continue
     const appid = remote.appid
+    evaluated.add(appid)
     const app = store[appid] || (store[appid] = { at: Date.now(), items: [] })
     if (!Array.isArray(app.items)) app.items = []
     // A MESMA conquista pode ter apiname diferente em cada máquina (bin da
@@ -206,6 +209,15 @@ function applyPulled(rows, context = null) {
     const item = findItem(buildIndex(app.items), { apiname: remote.apiname, title: remote.title })
     const remoteAchieved = remote.achieved === true || (remote.unlocked_at != null && remote.unlocked_at > 0)
     if (item) {
+      // Não ressuscita uma correção local com o mesmo unlock. Um desbloqueio
+      // posterior à correção pode vir de outra máquina.
+      if (item.revoked === true) {
+        if (!(item.revokedAt > 0 && remote.unlocked_at > item.revokedAt)) continue
+        delete item.revoked
+        delete item.revokedAt
+        delete item.localUnlock
+        mudou = true
+      }
       if (rememberAlias(item, remote.apiname)) mudou = true
       // Set-once: a primeira chave vista para este item é a que o servidor
       // conhece; trocar depois só criaria linha nova lá.
@@ -220,8 +232,9 @@ function applyPulled(rows, context = null) {
       const remoteUnlock = remote.unlocked_at
       const newAchieved = localAchieved || remoteAchieved
       let newUnlock = localUnlock
-      if (remoteUnlock != null && (newUnlock == null || remoteUnlock < newUnlock)) {
+      if (remoteUnlock > 0 && (newUnlock == null || item.unlockEstimated || remoteUnlock < newUnlock)) {
         newUnlock = remoteUnlock
+        if (item.unlockEstimated) { delete item.unlockEstimated; mudou = true }
       }
       if (item.achieved !== newAchieved || normalizeTs(item.unlock) !== newUnlock) {
         item.achieved = newAchieved
@@ -243,6 +256,13 @@ function applyPulled(rows, context = null) {
         unlock: remote.unlocked_at || 0,
         percent: remote.percent ?? 100,
       })
+      mudou = true
+    }
+  }
+  for (const appid of evaluated) {
+    const app = store[appid]
+    if (!app.platinumCelebrated && platinumForGame(appid, app.items)?.awarded) {
+      app.platinumCelebrated = true
       mudou = true
     }
   }
@@ -363,7 +383,7 @@ async function syncAllLocal(context = null) {
   for (const [appid, data] of Object.entries(store)) {
     if (!data?.items) continue
     for (const item of data.items) {
-      if (item.achieved && item.apiname && item.unlock) {
+      if (item.achieved && item.revoked !== true && item.apiname) {
         items.push({
           appid,
           // A MESMA conquista pode ter apiname diferente em cada máquina (o
@@ -371,7 +391,7 @@ async function syncAllLocal(context = null) {
           // máquina usam o nome real "ACH19"). A chave do servidor manda: sem
           // isto o catch-up criava uma SEGUNDA linha para a mesma conquista.
           apiname: item.remoteApiname || item.apiname,
-          unlocked_at: normalizeTs(item.unlock),
+          unlocked_at: item.unlockEstimated ? 0 : normalizeTs(item.unlock) ?? 0,
           title: item.title,
           icon: item.icon,
           percent: item.percent,

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import type { Game } from "../ps5-launcher/types"
 import { InstallDialog } from "./InstallDialog"
 import { GameSettingsDialog } from "./GameSettingsDialog"
@@ -31,6 +32,22 @@ export function LibraryView({
 }) {
   const { t } = useI18n()
   const [busca, setBusca] = useState("")
+  const searchInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      const input = searchInput.current
+      if (!input || event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey ||
+        document.querySelector('[role="dialog"], dialog[open]')) return
+      const editable = event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+      if (editable) return
+      const shortcut = event.ctrlKey || event.metaKey ? event.key.toLowerCase() === "k" : event.key === "/"
+      if (!shortcut) return
+      event.preventDefault()
+      input.focus({ preventScroll: true })
+    }
+    window.addEventListener("keydown", focusSearch)
+    return () => window.removeEventListener("keydown", focusSearch)
+  }, [])
   const [catFiltro, setCatFiltro] = useState("todas")
   const [aba, setAba] = useState<"todos" | "retro">("todos")
   const [soInstalados, setSoInstalados] = useState(false)
@@ -42,6 +59,8 @@ export function LibraryView({
   const [desinstalando, setDesinstalando] = useState<Game | null>(null)
   const [pagina, setPagina] = useState<Game | null>(null)
   const [paginaLoja, setPaginaLoja] = useState<Game | null>(null)
+  const libraryScroll = useRef<HTMLDivElement>(null)
+  const savedScrollTop = useRef(0)
   const [adicionando, setAdicionando] = useState(false)
   const [menu, setMenu] = useState<{ g: Game; x: number; y: number } | null>(null)
   const [recemDesinstalados, setRecemDesinstalados] = useState<Set<string>>(new Set())
@@ -146,6 +165,38 @@ export function LibraryView({
     })
   }
 
+  const closePage = (gameId: string) => {
+    const restore = () => {
+      flushSync(() => {
+        setPagina(null)
+        setPaginaLoja(null)
+      })
+      const scroll = libraryScroll.current
+      if (!scroll) return null
+      scroll.scrollTop = savedScrollTop.current
+      const card = scroll.querySelector<HTMLElement>(`[data-library-game="${CSS.escape(gameId)}"]`)
+      if (card) card.focus({ preventScroll: true })
+      else scroll.focus({ preventScroll: true })
+      return card?.querySelector<HTMLElement>("[data-library-cover]") ?? null
+    }
+    const source = document.querySelector<HTMLElement>("[data-library-cover-destination]")
+    if (!source || !document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      restore()
+      return
+    }
+    source.style.viewTransitionName = "library-game-cover"
+    let destination: HTMLElement | null = null
+    const transition = document.startViewTransition(() => {
+      destination = restore()
+      if (destination) destination.style.viewTransitionName = "library-game-cover"
+    })
+    const clean = () => {
+      source.style.removeProperty("view-transition-name")
+      destination?.style.removeProperty("view-transition-name")
+    }
+    void transition.finished.then(clean, clean)
+  }
+
   if (paginaLoja) {
     return (
       <>
@@ -160,7 +211,7 @@ export function LibraryView({
             manifest: true,
           }}
           game={paginaLoja}
-          onClose={() => setPaginaLoja(null)}
+          onClose={() => closePage(paginaLoja.id)}
           onBaixar={() => instalar(paginaLoja)}
           onRemover={() => {
             window.launcherAPI
@@ -195,7 +246,7 @@ export function LibraryView({
         <GamePage
           embedded
           game={pagina}
-          onClose={() => setPagina(null)}
+          onClose={() => closePage(pagina.id)}
           onJogar={() => void actions.launch(pagina)}
           onInstalar={() => instalar(pagina)}
           onImportar={() => window.launcherAPI?.gameImport(pagina)}
@@ -229,11 +280,14 @@ export function LibraryView({
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input
+            ref={searchInput}
+            aria-label={t("library.buscar")}
+            aria-keyshortcuts="/ Control+K Meta+K"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder={t("library.buscar")}
             spellCheck={false}
-            className="ui-input w-full rounded-xl py-2.5 pl-10 pr-4 text-sm placeholder:text-white/30"
+            className="arcadia-library-search ui-input w-full rounded-xl py-2.5 pl-10 pr-4 text-sm placeholder:text-white/30"
           />
         </div>
         {categorias.length > 0 && (
@@ -283,8 +337,8 @@ export function LibraryView({
       </div>
 
       {/* Grade */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8 pt-2">
-        <div className="grid-stagger grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">
+      <div ref={libraryScroll} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-8 pb-8 pt-2">
+        <AnimatedLibraryGrid>
           {lista.map((g) => {
             // Recém-desinstalado: já mostra como não instalado (sem botão jogar).
             const g2 = recemDesinstalados.has(g.id) ? { ...g, installed: false } : g
@@ -297,18 +351,36 @@ export function LibraryView({
                 onInstall={() => instalar(g)}
                 onConfig={() => setConfigurando(g)}
                 onMenu={(x, y) => setMenu({ g, x, y })}
-                onOpen={() => {
+                onOpen={(card) => {
                   if (g2.launcher === "retro" || g2.retro === true || String(g2.id).startsWith("retro:")) {
                     onRetroOpen?.(g2)
                     return
                   }
-                  String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2)
+                  savedScrollTop.current = libraryScroll.current?.scrollTop ?? 0
+                  const open = () => String(g2.id).startsWith("steam:") ? setPaginaLoja(g2) : setPagina(g2)
+                  const cover = card.querySelector<HTMLElement>("[data-library-cover]")
+                  if (!cover || !document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                    open()
+                    return
+                  }
+                  cover.style.viewTransitionName = "library-game-cover"
+                  let destination: HTMLElement | null = null
+                  const transition = document.startViewTransition(() => {
+                    flushSync(open)
+                    destination = document.querySelector<HTMLElement>("[data-library-cover-destination]")
+                    if (destination) destination.style.viewTransitionName = "library-game-cover"
+                  })
+                  const clean = () => {
+                    cover.style.removeProperty("view-transition-name")
+                    destination?.style.removeProperty("view-transition-name")
+                  }
+                  void transition.finished.then(clean, clean)
                 }}
                 onPlay={() => void actions.launch(g2)}
               />
             )
           })}
-        </div>
+        </AnimatedLibraryGrid>
           {lista.length === 0 && <div className="ui-empty">{aba === "retro" ? t("library.retro_vazio") : t("library.vazio")}</div>}
       </div>
 
@@ -438,6 +510,37 @@ function RetroLibraryIcon() {
   )
 }
 
+function AnimatedLibraryGrid({ children }: { children: React.ReactNode }) {
+  const grid = useRef<HTMLDivElement>(null)
+  const positions = useRef(new Map<string, { x: number; y: number }>())
+
+  useLayoutEffect(() => {
+    const element = grid.current
+    if (!element) return
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const viewport = element.parentElement?.getBoundingClientRect()
+    const cards = Array.from(element.querySelectorAll<HTMLElement>(":scope > [data-library-game]"))
+    const next = new Map(cards.map((card) => [card.dataset.libraryGame!, { x: card.offsetLeft, y: card.offsetTop }]))
+    if (!reducedMotion && viewport) {
+      const gridTop = element.getBoundingClientRect().top
+      for (const card of cards) {
+        const id = card.dataset.libraryGame!
+        const before = positions.current.get(id)
+        const after = next.get(id)!
+        if (!before || (before.x === after.x && before.y === after.y)) continue
+        if (gridTop + after.y > viewport.bottom || gridTop + after.y + card.offsetHeight < viewport.top) continue
+        card.animate([
+          { transform: `translate(${before.x - after.x}px, ${before.y - after.y}px)` },
+          { transform: "none" },
+        ], { duration: 240, easing: "ease-out" })
+      }
+    }
+    positions.current = next
+  }, [children])
+
+  return <div ref={grid} className="relative grid-stagger grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4">{children}</div>
+}
+
 function Card({
   game: g,
   tilesColor,
@@ -454,7 +557,7 @@ function Card({
   onInstall?: () => void
   onConfig?: () => void
   onMenu?: (x: number, y: number) => void
-  onOpen?: () => void
+  onOpen?: (card: HTMLElement) => void
   onPlay?: () => void
 }) {
   const { t } = useI18n()
@@ -474,16 +577,27 @@ function Card({
   return (
     <div
       data-no-drag
-      onClick={onOpen}
+      onClick={(event) => onOpen?.(event.currentTarget)}
       onMouseEnter={() => window.launcherAPI?.gameSysinfo(g)} // esquenta o cache da página
+      onPointerMove={(event) => {
+        if (event.pointerType !== "mouse" || !window.matchMedia("(hover: hover) and (prefers-reduced-motion: no-preference)").matches) return
+        const card = event.currentTarget
+        const { left, top, width, height } = card.getBoundingClientRect()
+        if (!width || !height) return
+        card.style.setProperty("--cover-light-x", `${(event.clientX - left) / width * 100}%`)
+        card.style.setProperty("--cover-light-y", `${(event.clientY - top) / height * 100}%`)
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         onMenu?.(e.clientX, e.clientY)
       }}
-      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[color:var(--surface-2)] transition-colors hover:border-white/25"
+      data-library-game={g.id}
+      tabIndex={-1}
+      className="arcadia-library-card group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[color:var(--surface-2)] transition-colors hover:border-white/25"
     >
-      <div className="relative aspect-[2/3] w-full overflow-hidden bg-black">
+      <div data-library-cover className="relative aspect-[2/3] w-full overflow-hidden bg-black">
         <Capa game={g} apagada={!instalado && !tilesColor} />
+        <span className="arcadia-cover-reflection" aria-hidden="true" />
         {g.favorite && (
           <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="#e8703a">
@@ -493,7 +607,7 @@ function Card({
         )}
 
         {/* Overlay de ação: ícone download (não instalado) ou play+config (instalado) */}
-        <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="arcadia-card-actions absolute inset-0 flex items-center justify-center gap-3 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {instalado ? (
             <>
               {/* Configurações do jogo */}

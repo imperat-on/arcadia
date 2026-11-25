@@ -52,11 +52,17 @@ function loadKvBin(file) {
 
 // (block, bit) -> epoch, lido do bin de progresso (formato novo e antigo).
 function progressMap(file) {
+  return readProgressMap(file) ?? {}
+}
+
+function readProgressMap(file) {
   const kv = loadKvBin(file)
-  if (!kv || typeof kv !== "object") return {}
+  if (!kv || typeof kv !== "object") return null
   const out = {}
+  let recognized = false
   for (const [blk, bval] of Object.entries(kv)) {
     if (!bval || typeof bval !== "object" || bval.data === undefined) continue
+    recognized = true
     const times = bval.AchievementTimes
     if (times && typeof times === "object") {
       for (const [idx, ts] of Object.entries(times)) {
@@ -73,7 +79,7 @@ function progressMap(file) {
       }
     }
   }
-  return out
+  return recognized ? out : null
 }
 
 // Inicia o vigia de bins da Steam. onUnlock(payload) recebe
@@ -205,6 +211,26 @@ function parseAchievementsHtml(page) {
   return out
 }
 
+// Novo frontend da Steam: o JSON público contém os IDs sem depender de raridade.
+function parseSteamAchievementData(page, appid) {
+  const source = page.match(/<script\b[^>]*\bid="valve-ssr-data"[^>]*>([\s\S]*?)<\/script>/i)?.[1]
+  if (!source || !/^\d+$/.test(String(appid))) return null
+  try {
+    const { queries } = JSON.parse(JSON.parse(source).renderContext.queryData)
+    const schema = queries.find(q => String(q.state?.data?.appid) === String(appid) && Array.isArray(q.state.data.groups))?.state.data
+    if (!schema) return null
+    const percentages = queries.find(q => q.queryKey?.[0] === "achievements" && String(q.queryKey[1]) === String(appid) && q.queryKey[2] === "globalpercentages")?.state?.data?.percentages
+    const iconUrl = name => typeof name === "string" && /^[a-f0-9]+\.(jpg|png)$/i.test(name)
+      ? `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appid}/${name}` : ""
+    return schema.groups.filter(g => g?.ispublic === true && !g.archived && !g.developeronly && Array.isArray(g.achievements))
+      .flatMap(g => g.achievements.filter(it => it && !it.archived && typeof it.api_name === "string" && it.api_name.trim()).map(it => ({
+        apiname: it.api_name, title: String(it.name || it.api_name), desc: String(it.description || ""),
+        icon: iconUrl(it.icon_achieved), icongray: iconUrl(it.icon_unachieved), hidden: it.hidden === true,
+        percent: Number.isFinite(percentages?.[it.internal_key]) ? Number(percentages[it.internal_key].toFixed(2)) : null,
+      })))
+  } catch { return null }
+}
+
 // Conquistas de QUALQUER jogo Steam (loja incluso), fetch direto da página
 // pública — Steam pede consentimento de idade pros maiores de 18.
 function fetchConsentUrl(appid) {
@@ -296,13 +322,16 @@ async function fetchAchievementsForApp(appid) {
   const page = await res.text()
 
   // Fallback: página pede confirmação de idade — refaz com consentimento.
-  let items = parseAchievementsHtml(page)
+  let items = parseSteamAchievementData(page, appid) ?? parseAchievementsHtml(page)
   if (!items.length && page.includes("app_agegate")) {
     const res2 = await fetch(fetchConsentUrl(appid) + "&agree_to_agegate=1", {
       headers,
       signal: ctl,
     })
-    if (res2.ok) items = parseAchievementsHtml(await res2.text())
+    if (res2.ok) {
+      const unlockedPage = await res2.text()
+      items = parseSteamAchievementData(unlockedPage, appid) ?? parseAchievementsHtml(unlockedPage)
+    }
   }
 
   // Apiname real pelo percentual (a página não expõe mais o id).
@@ -316,6 +345,7 @@ async function fetchAchievementsForApp(appid) {
     desc: it.desc,
     icon: it.icon,
     icongray: it.icongray,
+    hidden: it.hidden,
     block: null,
     bit: null,
     achieved: false,
@@ -340,9 +370,11 @@ module.exports = {
   readKv,
   loadKvBin,
   progressMap,
+  readProgressMap,
   startSteamBinWatcher,
   fetchAchievementsForApp,
   parseAchievementsHtml,
+  parseSteamAchievementData,
   apinamesByPercent,
   STATS_DIR,
 }

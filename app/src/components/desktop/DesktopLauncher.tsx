@@ -34,6 +34,8 @@ import { RetroStoreView, retroGameFromLibrary } from "./RetroStoreView"
 import { useMode } from "../ModeContext"
 import { useGameActions, type GameActions, type GameLaunchResult } from "../useGameActions"
 import { useJogoRodando } from "../useJogoRodando"
+import { useGameReturnMotion } from "../useGameReturnMotion"
+import { GameReturnSummary } from "../GameReturnSummary"
 
 // Roda DENTRO do <AccountProvider> (por isso consegue usar useAccount):
 // na primeira vez sem sessão salva, manda o launcher abrir o login/sign-up.
@@ -114,6 +116,10 @@ export function DesktopLauncher() {
   const jogoAtivo = useJogoRodando(games)
   const gameRunning = jogoAtivo.rodando || jogoAtivo.pendente
   const [appFocused, setAppFocused] = useState(() => document.hasFocus())
+  const [reviewingSession, setReviewingSession] = useState(false)
+  const closeSessionReview = useCallback(() => setReviewingSession(false), [])
+  const { surface: returnSurface, summary } = useGameReturnMotion(jogoAtivo.rodando, gameRunning, appFocused, jogoAtivo.jogo, reviewingSession)
+  useEffect(() => { if (!summary) closeSessionReview() }, [summary, closeSessionReview])
   const appFocusedRef = useRef(appFocused)
   // A leitura inicial é assíncrona; um evento IPC mais novo invalida o valor
   // que estava em trânsito.
@@ -303,6 +309,7 @@ export function DesktopLauncher() {
       />
       <ProfileBridge perfilLocal={profile} setPerfilLocal={setProfile} />
       <div
+        ref={returnSurface}
         className="arcadia-desktop-retro app-drag flex h-screen w-full select-none overflow-hidden bg-black text-white antialiased"
         onKeyDownCapture={(event) => {
           const action =
@@ -352,6 +359,7 @@ export function DesktopLauncher() {
         key={`${view}:${navegacao}`}
         className="desktop-retro-main view-in flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.06]"
       >
+        <GameReturnSummary summary={summary} reviewing={reviewingSession} onReview={() => setReviewingSession(true)} onClose={closeSessionReview} gamepad={false} />
         <DesktopHeader />
         <div className="min-h-0 flex-1 overflow-hidden">
         {view === "biblioteca" && jogoPagina && String(jogoPagina.id).startsWith("steam:") && (

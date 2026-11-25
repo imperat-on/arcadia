@@ -69,11 +69,14 @@ export function ProfilePage({
     if (!open) return
     if (statsOverride !== undefined) setStats(statsOverride)
     else window.launcherAPI?.profileStats().then(setStats)
-    if (embedded || !navActive) return
+  }, [open, statsOverride, games])
+
+  useEffect(() => {
+    if (!open || embedded || !navActive) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose, embedded, statsOverride, navActive, games])
+  }, [open, onClose, embedded, navActive])
 
   const steamHoras = useSteamHoras()
   if (!open) return null

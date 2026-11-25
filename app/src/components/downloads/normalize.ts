@@ -30,6 +30,7 @@ export type DownloadActionType = "pause" | "resume" | "cancel" | "retry" | "dism
 
 /** Item normalizado — o contrato do card único (desktop e console). */
 export interface DownloadVM {
+  verifying?: boolean
   id: string
   kind: DownloadKind
   status: DownloadStatus
@@ -100,6 +101,7 @@ export function normalizeDmItem(it: DmItem): DownloadVM {
   return {
     id: String(it.appid),
     kind: dmKind(it.appid),
+    verifying: status === "active" && it.integrity?.state === "verifying",
     status,
     title: it.title || it.appName || "",
     cover: it.cover || "",

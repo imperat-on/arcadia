@@ -1,10 +1,15 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, screen } = require("electron")
+const { app, BrowserWindow, ipcMain, dialog, shell, session, screen, systemPreferences } = require("electron")
 // Blindagem de rede: nenhum header com code point > 255 derruba o main (o undici
 // recusa ByteString; um dado externo corrompido virava "JavaScript error" em dialog).
 const { instalar: instalarNetGuard } = require("./net-guard")
 instalarNetGuard()
 const { resolveLauncherMode, ignoreBrokenPipe } = require("./startup")
 const { refreshBootVideo, BOOT_VIDEO_CODECS } = require("./bootVideo")
+
+// Mantém as animações do Arcadia independentes dos efeitos do Windows.
+if (process.platform === "win32" && !app.commandLine.hasSwitch("force-prefers-reduced-motion")) {
+  app.commandLine.appendSwitch("force-prefers-no-reduced-motion")
+}
 
 // ── DNS: resolver por conta própria, não pelo DNS de quem usa ─────────
 // O `net.fetch` do Electron (usado pelo httpfetch) resolve nomes pela pilha do
@@ -43,6 +48,8 @@ if (!lockUnico) {
 }
 
 const { aliasesOf } = require("./achievements/match")
+const { getTrophySummary } = require("./achievements/summary")
+const { platinumForGame } = require("./achievements/platinum")
 const { fatorDeZoom, escalaEfetiva, escalaDaCapa, migrarEscala, REFERENCIA } = require("./ui-scale")
 const { startAchievementWatcher, fetchAchievementsForApp } = require("./achievements")
 const { iniciarVigia } = require("./achievements/cracked_watcher")
@@ -1171,6 +1178,9 @@ const marcar = (rodando, forcar = false) => {
   jogoRodando = rodando
   if (win && !win.isDestroyed()) {
     win.webContents.send("game:running", rodando)
+    if (atualizadorEmpacotado?.estado().fase === "pronto") {
+      win.webContents.send("update:packaged:changed", atualizadorEmpacotado.estado())
+    }
     // Canal com o gameId: o botão Running/Stop da página do jogo (desktop)
     // precisa saber QUAL jogo está rodando — o boolean do game:running não
     // basta. gameId vazio = jogo detectado mas não lançado por nós (ex:
@@ -2678,93 +2688,60 @@ let pararVigia = null
 // é item reaparecendo (store reconstruído / pull / passe forçado), não notícia nova.
 const JANELA_TOAST_S = 300
 
-// Callback único de desbloqueio: marca o item no achievements.json (o painel
-// lê de lá) e avisa o renderer.
-function onUnlockAchievement(payload) {
-  let novo = false
+// Persiste antes de emitir: painel, sessão e notificação usam o mesmo evento.
+function onUnlockAchievement(payload, { silent = false } = {}) {
+  let item
+  let platinum = false
   try {
     const arq = caminhoConta(path.join(DATA_DIR, "achievements.json"))
     const store = JSON.parse(fs.readFileSync(arq, "utf-8"))
-    const it = (store?.[payload.appid]?.items || []).find(
-      (x) =>
-        `${x.block}|${x.bit}` === payload.key ||
-        (payload.apiname &&
-          aliasesOf(x).some((nome) => nome.toLowerCase() === String(payload.apiname).toLowerCase())),
-    )
-    if (it && !it.achieved) {
-          it.achieved = true
-          it.unlock = payload.unlock
-          it.localUnlock = true  // origem: runtime local (este processo)
-      fs.writeFileSync(arq, JSON.stringify(store))
-      novo = true
-      // Conta online: enfileira o desbloqueio pro sync (só se o item tem
-      // apiname — sem ele não dá pra referenciar na nuvem). Nunca bloqueia
-      // o caminho do launch: enqueue é síncrono local e o sync roda depois.
-      // A chave do servidor tem prioridade: usar a local criaria uma segunda
-      // linha para a mesma conquista quando os apinames divergem.
-      try {
-        if (it.apiname) {
-          const syncMod = require("./supabase/sync")
-          syncMod.enqueue([
-            {
-              appid: payload.appid,
-              apiname: it.remoteApiname || it.apiname,
-              unlocked_at: payload.unlock,
-              title: it.title,
-              icon: it.icon,
-              percent: it.percent,
-            },
-          ])
-          syncMod.scheduleNow()
-        }
-      } catch {}
-    }
-  } catch {}
-  // Só dispara toast e IPC se a conquista era realmente nova — evita flood
-  // em sincronização inicial e duplicatas entre os dois watchers.
-  if (novo) {
-    // Check if all achievements for this game are now unlocked
-    let isPlatinum = false
-    try {
-      const arq2 = caminhoConta(path.join(DATA_DIR, "achievements.json"))
-      const store2 = JSON.parse(fs.readFileSync(arq2, "utf-8"))
-      const gameItems = store2?.[payload.appid]?.items || []
-      if (gameItems.length > 0 && gameItems.every((item) => item.achieved)) {
-        isPlatinum = true
-      }
-    } catch {}
+    const entry = store?.[payload.appid]
+    const items = entry?.items || []
+    const apiname = String(payload.apiname || "").toLowerCase()
+    item = (apiname && items.find(x => aliasesOf(x).some(name => name.toLowerCase() === apiname))) ||
+      items.find(x => x.block != null && x.bit != null && `${x.block}|${x.bit}` === payload.key)
+    if (!item || item.achieved) return
+    const alreadyPlatinum = platinumForGame(payload.appid, items)?.awarded
+    item.achieved = true
+    item.unlock = payload.unlock
+    item.localUnlock = true
+    delete item.revoked
+    delete item.revokedAt
+    item.unlockEstimated = payload.unlockEstimated === true
+    platinum = !alreadyPlatinum && platinumForGame(payload.appid, items)?.awarded === true && entry.platinumCelebrated !== true
+    if (platinum) entry.platinumCelebrated = true
+    fs.writeFileSync(arq, JSON.stringify(store))
+  } catch { return }
 
-    // Calculate done/total for progress bar
-    let done = 0
-    let total = 0
+  if (item.apiname) {
     try {
-      const arq3 = caminhoConta(path.join(DATA_DIR, "achievements.json"))
-      const store3 = JSON.parse(fs.readFileSync(arq3, "utf-8"))
-      const gameItems = store3?.[payload.appid]?.items || []
-      total = gameItems.length
-      done = gameItems.filter((item) => item.achieved).length
+      const syncMod = require("./supabase/sync")
+      syncMod.enqueue([{
+        appid: payload.appid, apiname: item.remoteApiname || item.apiname,
+        unlocked_at: item.unlockEstimated ? 0 : payload.unlock, achieved: true, title: item.title, icon: item.icon, percent: item.percent,
+      }])
+      syncMod.scheduleNow()
     } catch {}
-
-    const toastPayload = { ...payload, done, total }
-    // Só avisa quando o desbloqueio é RECENTE.
-    //
-    // O vigia roda a cada 15s, então conquista de verdade chega com timestamp de
-    // agora. Já um item ANTIGO que reaparece como "não desbloqueado" (store
-    // reconstruído, item adotado do servidor, passe forçado do "Capturar agora",
-    // troca de conta) vinha disparando toast + som "do nada", como se tivesse
-    // acabado de acontecer. O timestamp é a diferença entre os dois casos.
-    const quando = Number(payload.unlock) || 0
-    const agora = Math.floor(Date.now() / 1000)
-    const recente = quando > 0 && agora - quando <= JANELA_TOAST_S
-    require("./debug").log(
-      recente ? "achievements/toast" : "achievements/toast-suprimido",
-      `${payload.appid} ${payload.apiname || payload.key} unlock=${quando} (idade ${quando ? agora - quando : "?"}s)`,
-    )
-    if (recente) {
-      if (win && !win.isDestroyed()) win.webContents.send("achievement:unlocked", toastPayload)
-      showAchievementToast(toastPayload, { platinum: isPlatinum })
-    }
   }
+
+  const age = Math.floor(Date.now() / 1000) - Number(payload.unlock)
+  const recent = !silent && Number(payload.unlock) > 0 && age >= 0 && age <= JANELA_TOAST_S
+  const hasWindow = win && !win.isDestroyed()
+  const inLauncher = hasWindow && focado && win.isVisible() && !win.isMinimized() && !jogoRodando && !jogoAtivo && !lancamentoAtual
+  const notice = recent ? inLauncher ? "launcher" : "native" : null
+  const cfg = recent ? readConfig() : {}
+  const percent = item.percent ?? payload.percent
+  const gameTitle = recent ? readLibrary().find(game => game.id === `steam:${payload.appid}`)?.title : undefined
+  const event = {
+    ...payload, apiname: item.apiname, gameTitle, notice, percent, platinum: Boolean(notice && platinum),
+    rare: typeof percent === "number" && percent > 0 && percent <= 5,
+    sound: cfg.achievement_sound !== false,
+    reducedMotion: cfg.no_anim === true || (recent && systemPreferences.getAnimationSettings?.()?.prefersReducedMotion === true),
+  }
+  require("./debug").log(notice ? "achievements/toast" : "achievements/toast-suprimido", `${payload.appid} ${item.apiname || payload.key} unlock=${payload.unlock}`)
+  if (hasWindow) win.webContents.send("achievement:unlocked", event)
+  if (notice === "native") showAchievementToast(event, { platinum: event.platinum })
+  return { platinumCelebrated: platinum }
 }
 
 // Callback de revogo: o runtime Goldberg/UPC (fonte da verdade) diz que um item
@@ -3036,7 +3013,8 @@ app.whenReady().then(() => {
       autoUpdater: app.isPackaged ? require("electron-updater").autoUpdater : null,
       env: process.env,
       temAppUpdateYml: fs.existsSync(path.join(process.resourcesPath, "app-update.yml")),
-      isJogoRodando: () => jogoRodando,
+      isJogoRodando: () => jogoRodando || launchInFlight,
+      baixarEmSegundoPlano: () => readConfig().check_updates_on_start !== false,
       jaAvisado: (versao) => readConfig().update_ja_avisado === versao,
       salvarJaAvisado: (versao) => writeConfig({ update_ja_avisado: versao }),
       pendente: () => readConfig().update_pendente_versao || null,
@@ -3194,6 +3172,8 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle("achievements:trophy-summary", (_e, appid) => getTrophySummary(appid))
+
   // Recarrega apiname/título/desc/ícones dos itens do achievements.json a partir
   // dos UserGameStatsSchema_*.bin da Steam.
   ipcMain.handle("achievements:schemas:load", async () => {
@@ -3228,6 +3208,8 @@ app.whenReady().then(() => {
         icon: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/3751950/34a75e8dee0de8b524c57006fe21487ade9fd248.jpg",
         percent: 50,
         unlock: Math.floor(Date.now() / 1000),
+        sound: readConfig().achievement_sound !== false,
+        reducedMotion: readConfig().no_anim === true || systemPreferences.getAnimationSettings?.()?.prefersReducedMotion === true,
       }
       showAchievementToast(testPayload, { platinum })
       return { ok: true }
@@ -4271,11 +4253,19 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
-  ipcMain.handle("app:setMode", (_e, mode) => {
+  ipcMain.handle("app:setMode", async (_e, mode) => {
     if (mode !== "console" && mode !== "desktop") return { ok: false, error: "modo inválido" }
     if (!win || win.isDestroyed()) return { ok: false, error: "janela indisponível" }
     try {
-      win.setFullScreen(mode === "console")
+      const fullScreen = mode === "console"
+      if (win.isFullScreen() !== fullScreen) {
+        await new Promise((resolve) => {
+          const event = fullScreen ? "enter-full-screen" : "leave-full-screen"
+          const timeout = setTimeout(resolve, 1200)
+          win.once(event, () => { clearTimeout(timeout); resolve() })
+          win.setFullScreen(fullScreen)
+        })
+      }
       process.env.ARCADIA_MODE = mode
       applyWindowZoom(uiScaleFactor(mode))
       avisarEscala(mode)
@@ -4332,7 +4322,7 @@ app.whenReady().then(() => {
         "system_theme", "notifications_enabled", "notification_volume",
         "trailer_auto", "youtube_cookies", "card_scale", "library_sidebar", "accent",
         // Captura de conquistas (B2): desligada, só o botão "Capturar agora" ingere.
-        "achievements_auto_capture",
+        "achievements_auto_capture", "achievement_sound",
         "theme_name",
         // Acessibilidade (AccessibilityView salvar()) — estavam fora e eram descartadas.
         "content_font", "actions_font", "custom_css_path", "tiles_color", "always_titles",

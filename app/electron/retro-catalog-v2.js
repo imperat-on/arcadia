@@ -13,6 +13,7 @@
 const { createRetroCatalog: createV1Catalog } = require("./retro-catalog")
 const { createRetroRepository } = require("./retro-repository")
 const { rebuildCatalogFromSources, applyOverridesToCatalog } = require("./retro-catalog-builder")
+const { collapseVariants, displayKey, variantIds } = require("./retro-variants")
 const { getDataDir } = require("./runtime-paths")
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -256,9 +257,15 @@ function createRetroCatalogV2(options = {}) {
 
       // TODO: Filter by sources (requires offer lookup)
 
+      // A release name da ISO cria um segundo registro para o mesmo jogo
+      // (`007: Agent Under Fire` + `007 - Agent Under Fire (Korea)`). A grade
+      // mostra uma ficha por jogo; as variantes ficam no detalhe como fontes.
+      // O colapso vem antes da paginação para que `total` conte jogos, não ISOs.
+      const collapsed = collapseVariants(filtered)
+
       // Paginate
-      const total = filtered.length
-      const games = filtered.slice(safeOffset, safeOffset + safeLimit).map(publicGame)
+      const total = collapsed.length
+      const games = collapsed.slice(safeOffset, safeOffset + safeLimit).map(publicGame)
 
       // Build facets
       const facets = {
@@ -266,7 +273,7 @@ function createRetroCatalogV2(options = {}) {
         releaseKinds: {},
       }
 
-      for (const game of allGames) {
+      for (const game of collapseVariants(allGames)) {
         facets.systems[game.systemId] = (facets.systems[game.systemId] || 0) + 1
       }
 
@@ -303,6 +310,10 @@ function createRetroCatalogV2(options = {}) {
 
   /**
    * Get game details.
+   *
+   * Quando a grade colapsa variantes, o detalhe do representante precisa de
+   * todas as ofertas do grupo — senão a ficha mostra `offerCount: 5` e apenas
+   * os downloads do registro vencedor.
    */
   async function getGame(gameId) {
     try {
@@ -316,19 +327,30 @@ function createRetroCatalogV2(options = {}) {
         }
       }
 
-      const offers = repository.getOffersForGame(gameId)
+      const key = displayKey(game)
+      const representative = collapseVariants(repository.getGames()).find(
+        candidate => displayKey(candidate) === key,
+      )
 
-      return {
-        ok: true,
-        game: publicGame(game),
-        offers: offers.map(o => {
-          const { uris, ...summary } = o
-          return {
+      const offers = []
+      const seenOfferIds = new Set()
+      for (const id of new Set([gameId, ...variantIds(gameId, repository.getGames())])) {
+        for (const offer of repository.getOffersForGame(id)) {
+          if (seenOfferIds.has(offer.id)) continue
+          seenOfferIds.add(offer.id)
+          const { uris, ...summary } = offer
+          offers.push({
             ...summary,
             hasUris: uris && uris.length > 0,
             uriCount: uris ? uris.length : 0,
-          }
-        }),
+          })
+        }
+      }
+
+      return {
+        ok: true,
+        game: publicGame(representative || game),
+        offers,
       }
     } catch (error) {
       return {

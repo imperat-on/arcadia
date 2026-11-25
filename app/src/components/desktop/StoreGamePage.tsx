@@ -334,6 +334,7 @@ export function StoreGamePage({
                   alt=""
                   draggable={false}
                   className="h-full w-full object-cover"
+                  data-library-cover-destination
                   onError={(e) => {
                     ;(e.currentTarget as HTMLImageElement).src = header
                   }}
@@ -595,7 +596,7 @@ export function StoreGamePage({
               <>
                 <ProtonDBPanel appid={jogo.appid} />
                 <StatsPanel appid={jogo.appid} />
-                <AchievementsPanel appid={jogo.appid} />
+                <AchievementsPanel appid={jogo.appid} title={jogo.title} />
                 <RequirementsPanel min={info?.req_min} rec={info?.req_rec} />
                 <LanguagesPanel languages={info?.languages} />
                 <ControllerPanel support={info?.controller_support} />

@@ -1,7 +1,7 @@
 // Atualização do app EMPACOTADO (AppImage/NSIS), via electron-updater.
 //
 // O updater git (./updater.js) continua sendo o canal de quem roda da fonte.
-// Este é o segundo canal: pergunta antes de baixar (autoDownload=false),
+// Este canal controla o download em segundo plano,
 // instala só no "Reiniciar agora" (autoInstallOnAppQuit=false) e nunca deixa
 // o EventEmitter do autoUpdater derrubar o processo (listener de `error`).
 //
@@ -77,6 +77,7 @@ function createPackagedUpdater({
   temAppUpdateYml = false,
   platform = process.platform,
   isJogoRodando = () => false,
+  baixarEmSegundoPlano = () => false,
   jaAvisado = () => false,
   salvarJaAvisado = () => {},
   pendente = () => null,
@@ -108,6 +109,7 @@ function createPackagedUpdater({
   // retry oferecer (N8): "checar" → Tentar de novo; "baixar" → Baixar;
   // "instalar" → Tentar de novo (o check revalida o cache e devolve "pronto").
   let acaoUsuario = null
+  let operacao = null
 
   const snapshot = () => ({ ...estadoAtual, jogoRodando: Boolean(isJogoRodando()) })
   const publicar = () => {
@@ -126,6 +128,7 @@ function createPackagedUpdater({
     autoUpdater.autoInstallOnAppQuit = false
 
     autoUpdater.on("update-available", (info) => {
+      if (operacao && !acaoUsuario && baixarEmSegundoPlano() && !isJogoRodando()) return
       const versao = String(info?.version || "")
       mudar({
         fase: "disponivel",
@@ -184,11 +187,18 @@ function createPackagedUpdater({
     // Sem este listener o EventEmitter lança e pode derrubar o processo. O
     // handler NUNCA re-lança: só registra o estado (erro de fundo não abre UI).
     autoUpdater.on("error", (e) => {
+      if (operacao) return // A operação em andamento trata a rejeição e publica o estado final.
       mudar({ fase: "erro", erro: mensagem(e), erroDeFundo: !acaoUsuario, erroAcao: acaoUsuario })
     })
   }
 
-  async function checar({ manual = false } = {}) {
+  function checar(opcoes = {}) {
+    if (operacao) return Promise.resolve({ ok: true, disponivel: Boolean(estadoAtual.versaoNova), motivo: "ocupado" })
+    operacao = Promise.resolve().then(() => verificar(opcoes)).finally(() => { operacao = null })
+    return operacao
+  }
+
+  async function verificar({ manual = false } = {}) {
     if (!suportado) {
       mudar({ fase: "sem_suporte" })
       return { ok: false, disponivel: false, motivo: "canal_nao_suportado" }
@@ -197,6 +207,10 @@ function createPackagedUpdater({
     if (!manual && isJogoRodando()) {
       mudar({ jogoRodando: true })
       return { ok: true, disponivel: false, motivo: "jogo_rodando" }
+    }
+    if (estadoAtual.fase === "pronto") {
+      publicar()
+      return { ok: true, disponivel: true, versao: estadoAtual.versaoNova }
     }
 
     acaoUsuario = manual ? "checar" : null
@@ -223,8 +237,8 @@ function createPackagedUpdater({
       // D6: já baixado numa sessão anterior. O electron-updater valida o cache
       // por sha512 e reemite `update-downloaded` sem baixar de novo; se o cache
       // sumiu, baixa a MESMA versão que o usuário já aceitou.
-      if (pendente() === versao) {
-        mudar({ fase: "baixando", progresso: 0, erro: null, erroDeFundo: false, erroAcao: null })
+      if (pendente() === versao || (!manual && baixarEmSegundoPlano() && !isJogoRodando())) {
+        mudar({ fase: "baixando", versaoNova: versao, tamanho: tamanhoDe(info), progresso: 0, erro: null, erroDeFundo: false, erroAcao: null })
         await autoUpdater.downloadUpdate()
         if (estadoAtual.fase !== "pronto") mudar({ fase: "pronto", progresso: 100 })
         return { ok: true, disponivel: true, versao, tamanho: tamanhoDe(info) }
@@ -252,6 +266,10 @@ function createPackagedUpdater({
       }
       return { ok: true, disponivel: true, versao, tamanho: tamanhoDe(info) }
     } catch (e) {
+      if (["ERR_UPDATER_NO_PUBLISHED_VERSIONS", "ERR_UPDATER_LATEST_VERSION_NOT_FOUND"].includes(e?.code)) {
+        mudar({ fase: "sem_release", erro: null, erroDeFundo: false, erroAcao: null, versaoNova: null, tamanho: null, progresso: 0 })
+        return { ok: true, disponivel: false, motivo: "sem_release" }
+      }
       mudar({
         fase: "erro",
         erro: mensagem(e),
@@ -264,7 +282,13 @@ function createPackagedUpdater({
     }
   }
 
-  async function baixar() {
+  function baixar() {
+    if (operacao) return Promise.resolve({ ok: false, erro: "ocupado" })
+    operacao = Promise.resolve().then(baixarPacote).finally(() => { operacao = null })
+    return operacao
+  }
+
+  async function baixarPacote() {
     if (!suportado) return { ok: false, erro: "canal_nao_suportado" }
     if (!estadoAtual.versaoNova) return { ok: false, erro: "sem_versao" }
     acaoUsuario = "baixar"
@@ -284,6 +308,7 @@ function createPackagedUpdater({
   function instalar() {
     if (!suportado) return { ok: false, erro: "canal_nao_suportado" }
     if (estadoAtual.fase !== "pronto") return { ok: false, erro: "sem_download" }
+    if (isJogoRodando()) return { ok: false, erro: "jogo_rodando" }
     try {
       autoUpdater.quitAndInstall()
       return { ok: true }

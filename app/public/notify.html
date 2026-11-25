@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { background: transparent; overflow: hidden; }
@@ -25,6 +25,10 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
   .toast.saindo { animation: fade-out 300ms ease-in forwards; }
+  .toast.rare .heading { color: #b3d6ff; }
+  .toast.platinum .heading { color: #dce8fb; }
+  .toast.still *, .toast.still { animation: none !important; transition: none !important; }
+  @media (prefers-reduced-motion: reduce) { .toast, .toast * { animation: none !important; transition: none !important; } }
   @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
 
   .icon-wrap {
@@ -57,7 +61,7 @@
     transition: opacity 0.2s;
   }
 
-  .icon.loaded + .icon-fallback { opacity: 0; position: absolute; }
+  .icon-wrap:has(.icon.loaded) .icon-fallback { opacity: 0; }
 
   .texts {
     display: flex;
@@ -92,20 +96,22 @@
       <div id="desc" class="desc"></div>
     </div>
   </div>
-  <audio id="som" src="sounds/unlock.wav" autoplay></audio>
-  <audio id="som-platinum" src="sounds/platinum.wav"></audio>
   <script>
     const q = new URLSearchParams(location.search)
-    const isPlatinum = q.get("sound") === "platinum"
+    const variant = q.get("variant")
+    const isPlatinum = variant === "platinum"
+    const sound = q.get("sound")
     document.getElementById("heading").textContent = q.get("heading") || "Conquista desbloqueada!"
     document.getElementById("title").textContent = q.get("title") || ""
     document.getElementById("desc").textContent = q.get("desc") || " "
     const toast = document.getElementById("toast")
+    if (variant === "rare" || isPlatinum) toast.classList.add(variant)
+    if (q.get("reducedMotion") === "1") toast.classList.add("still")
+    if (sound === "unlock" || sound === "platinum") new Audio(`sounds/${sound}.wav`).play().catch(() => {})
     if (isPlatinum) {
       toast.style.visibility = "visible"
       document.getElementById("fallback").className = "trophy trophy-animate"
-      document.getElementById("som").remove()
-      const p = document.getElementById("som-platinum"); p.autoplay = true; p.play().catch(()=>{})
+
       setTimeout(() => window.close(), 8000)
     } else {
       const icon = q.get("icon")

@@ -68,7 +68,17 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
     setCancelando(false)
   }, [vm.cover, vm.id, vm.status])
 
-  const baixando = vm.status === "active"
+  const baixando = vm.status === "active" && !vm.verifying
+  const [speedHistory, setSpeedHistory] = useState<number[]>([])
+  useEffect(() => {
+    if (!baixando) {
+      setSpeedHistory((previous) => previous.length ? [] : previous)
+      return
+    }
+    if (!Number.isFinite(vm.speedBps) || vm.speedBps < 0) return
+    setSpeedHistory((previous) => [...previous.slice(-15), vm.speedBps])
+  }, [baixando, vm.speedBps, vm.percent])
+  const peakSpeed = Math.max(1, ...speedHistory)
   const acoes = actionsFor(vm.kind, vm.status)
 
   // Linha de métrica da esquerda (progresso) — formatação por origem:
@@ -149,16 +159,18 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
         <div className="flex items-baseline justify-between gap-4">
           <h3 className="truncate text-base font-semibold text-white/95">{vm.title}</h3>
           <span
-            className="shrink-0 text-xs"
+            key={vm.verifying ? "verifying" : vm.status}
+            className="arcadia-download-status shrink-0 text-xs"
             style={{ color: statusTone(vm.status), fontWeight: baixando ? 600 : 400 }}
           >
-            {t(statusKey(vm.status))}
+            {vm.status === "done" && <span aria-hidden="true">✓ </span>}
+            {t(vm.verifying ? "downloads.verifying" : statusKey(vm.status))}
           </span>
         </div>
 
         {/* Barra de progresso — indeterminada em cacheando, vermelha em erro */}
-        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/[0.07]">
-          {vm.status === "caching" ? (
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/[0.07]" aria-hidden="true">
+          {vm.status === "caching" || vm.verifying ? (
             <div
               className="h-full w-1/4 rounded-full"
               style={{
@@ -198,6 +210,14 @@ export function DownloadCard({ item: vm }: { item: DownloadVM }) {
           </span>
           <span className="shrink-0 tabular-nums text-white/70">{vivos.join(" · ")}</span>
         </div>
+        {baixando && speedHistory.length > 1 && (
+          <div aria-hidden="true" className="mt-1 flex h-3 justify-end gap-px overflow-hidden">
+            {speedHistory.map((speed, index) => (
+              <span key={index} className="arcadia-speed-bar h-full w-0.5 origin-bottom bg-[color:var(--accent)] opacity-60"
+                style={{ transform: `scaleY(${speed / peakSpeed})` }} />
+            ))}
+          </div>
+        )}
 
         {/* Erro é informação de primeira classe, não nota de rodapé */}
         {vm.status === "error" && (

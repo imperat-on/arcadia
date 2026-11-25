@@ -467,7 +467,11 @@ export function useGamepadNav(
           // repouso, e vale até ele voltar. Procurar a cada quadro varreria o
           // DOM da loja inteira 60 vezes por segundo; e reescolher no meio do
           // movimento faria o gesto pular de um trilho para outro sozinho.
-          const alvoX = vel(ex)
+          const gallery = document.activeElement?.closest('[data-capture-gesture="true"]')
+          const galleryHandlesX = gallery && rootRef.current.contains(gallery) &&
+            !gallery.dispatchEvent(new CustomEvent("arcadia:capture-axis", { cancelable: true, detail: ex }))
+          const alvoX = galleryHandlesX ? 0 : vel(ex)
+          if (galleryHandlesX) scrollVelX = 0
           if (alvoX || Math.abs(scrollVelX) > 0.05) {
             if (!trilho || !document.contains(trilho)) {
               const focado = document.activeElement as HTMLElement | null

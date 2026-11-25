@@ -11,12 +11,14 @@
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
-const { loadKvBin, progressMap, fetchAchievementsForApp } = require("./steam_bin")
-const { loadAchievements, saveAchievements } = require("./schema")
+const { loadKvBin, readProgressMap, fetchAchievementsForApp } = require("./steam_bin")
+const { ACHIEVEMENTS_FILE, loadAchievements, saveAchievements } = require("./schema")
 const { buildIndex, findItem, aliasesOf, rememberAlias } = require("./match")
 const { log } = require("./../debug")
 const { caminhoArquivoConta } = require("./../supabase/conta")
 const { readLibraryFile } = require("./../library-store")
+const { steamidParaContaId } = require("../vdf")
+const { platinumForGame, trophySets } = require("./platinum")
 
 const { findSteamDir } = require("./../steam-path")
 const { dataPath } = require("./../runtime-paths")
@@ -76,11 +78,7 @@ function steamIconUrl(appid, hash) {
   return `${STEAM_ICON_HOST}/steamcommunity/public/images/apps/${appid}/${hash}`
 }
 
-// Apinames reais por appid na ordem do scrape HTML. A API pública
-// GetGlobalAchievementPercentagesForApp expõe o nome interno sem chave e a
-// página de conquistas expõe título/desc/ícone na mesma ordem. Fallback pra
-// jogos sem UserGameStatsSchema_*.bin (repacks/crackeados, ex. Cyberpunk via
-// emulador), pra lista e sync não ficarem com só 1 item mínimo.
+// Catálogo público para instalações sem UserGameStatsSchema_*.bin.
 async function loadSchemaFallback(appid) {
   let items
   try {
@@ -89,56 +87,27 @@ async function loadSchemaFallback(appid) {
     log("achievements/fallback-fetch", e)
     return {}
   }
-  if (!items || !items.length) return {}
-  // Apinames reais (mesma ordem do HTML). Se falhar, gera sintético.
-  let apinames = []
-  try {
-    const res = await fetch(
-      "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=" +
-        appid,
-    )
-    const d = await res.json()
-    apinames = (d.achievementpercentages?.achievements || []).map((a) => a.name)
-  } catch (e) {
-    log("achievements/fallback-apinames", e)
-  }
   const out = {}
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]
-      if (!it || !it.title) continue
-      // Apiname real do scrape HTML (id da <div class="achieveRow ...">)
-      // quando disponível. Só usa o array posicional da API quando o scrape
-      // não trouxe o apiname — e mesmo assim, tenta um casamento por título
-      // (case-insensitive) antes de cair no índice, porque a ordem do HTML
-      // pode divergir da ordem da API pública (DLC, atualizações).
-      let apiname = it.apiname
-      if (!apiname && apinames.length) {
-        // Casamento por título: o HTML lista os achievements com título e
-        // a API devolve apinames na mesma ordem, mas sem título. Como não
-        // temos título na API, usamos o índice como fallback — mas ao menos
-        // preferimos o apiname vindo do scrape (it.apiname) quando o HTML
-        // o expõe no atributo id.
-        apiname = apinames[i] || "ach_" + String(i + 1).padStart(2, "0")
-      }
-      apiname = apiname || "ach_" + String(i + 1).padStart(2, "0")
-      out[i + "|0"] = {
-        apiname,
-        name: it.title,
-        desc: it.desc || "",
-        icon_hash: it.icon || "",
-        icongray_hash: it.icongray || it.icon || "",
-      }
+  for (const [i, it] of items.entries()) {
+    if (!it?.title || !it.apiname) continue
+    out[`${i}|0`] = {
+      apiname: it.apiname, name: it.title, desc: it.desc || "", hidden: it.hidden,
+      percent: it.percent, icon_hash: it.icon || "", icongray_hash: it.icongray || it.icon || "",
     }
+  }
   return out
 }
 
 // Lê o schema de UM appid e devolve o índice block|bit → { apiname, name, desc,
 // icon_hash, icongray_hash }. Devolve {} se o schema não existe ou é inválido.
 function loadSchemaForAppid(appid) {
+  return readNativeSchema(appid) ?? {}
+}
+
+function readNativeSchema(appid) {
   const file = path.join(STATS_DIR, `UserGameStatsSchema_${appid}.bin`)
-  if (!fs.existsSync(file)) return {}
   const kv = loadKvBin(file)
-  if (!kv || !kv.stats) return {}
+  if (!kv?.stats || typeof kv.stats !== "object") return null
   const out = {}
   for (const [blkKey, blk] of Object.entries(kv.stats)) {
     if (!blk || typeof blk !== "object" || !blk.bits) continue
@@ -151,6 +120,7 @@ function loadSchemaForAppid(appid) {
         apiname,
         name: pickLocalized(display.name),
         desc: pickLocalized(display.desc),
+        hidden: Number(display.hidden) === 1,
         icon_hash: display.icon || "",
         icongray_hash: display.icon_gray || display.icon || "",
       }
@@ -186,6 +156,7 @@ function itensSalvosComoIndice(entry) {
 // real ou em sessões anteriores do Arcadia são marcadas como achieved automaticamente,
 // sem depender do watcher ter rodado naquela sessão.
 async function loadAllSchemas() {
+  const accountFile = ACHIEVEMENTS_FILE()
   const loaded = loadAchievements()
   const store = loaded && typeof loaded === "object" ? loaded : {}
 
@@ -245,10 +216,12 @@ async function loadAllSchemas() {
   // Bins de progresso do Steam (UserGameStats_<steamid>_<appid>.bin) indexados de
   // UMA leitura da pasta, não de uma por appid.
   const binsProgresso = new Map()
+  const steamid = permissao.status?.contaAtual?.steamid
+  const contaId = steamid ? steamidParaContaId(steamid) : null
   try {
     for (const f of fs.readdirSync(STATS_DIR)) {
       const pm = /^UserGameStats_(\d+)_(\d+)\.bin$/.exec(f)
-      if (pm) binsProgresso.set(pm[2], path.join(STATS_DIR, f))
+      if (pm && (pm[1] === steamid || pm[1] === contaId)) binsProgresso.set(pm[2], path.join(STATS_DIR, f))
     }
   } catch (e) {
     log("achievements/listar-bins-progresso", e)
@@ -260,16 +233,32 @@ async function loadAllSchemas() {
     // disparada no boot, segurava IPC e leituras file:// do renderer por
     // centenas de ms (medido: ~380ms de bloqueio contínuo atrasando o paint).
     if (++processados % 4 === 0) await new Promise((r) => setImmediate(r))
-    let idx = loadSchemaForAppid(appid)
+    if (ACHIEVEMENTS_FILE() !== accountFile) break
+    const native = readNativeSchema(appid)
+    const nativeCatalog = !!native && Object.keys(native).length > 0
+    let idx = native
     // Sem bin do Steam (crackeado/repack): o índice pode já estar SALVO no
     // achievements.json de um boot anterior. O fallback da API pública custa
     // 2 fetches sequenciais por appid e era refeito em TODO boot, segurando a
     // cadeia de inicialização (library:get espera por ela) em jogos UPC.
+    if (!nativeCatalog && Object.hasOwn(trophySets, appid) && store[appid]?.items?.some(it => /^ach_\d+$/.test(it?.apiname || ""))) {
+      // Troca chaves posicionais legadas por IDs reais só com um catálogo verificável.
+      const upgraded = await loadSchemaFallback(appid)
+      if (ACHIEVEMENTS_FILE() !== accountFile) break
+      const keys = new Set(Object.values(upgraded).map(it => String(it.apiname).toLowerCase()))
+      if (trophySets[appid].base.every(key => keys.has(key.toLowerCase()))) idx = upgraded
+    }
     if (!idx || !Object.keys(idx).length) {
       idx = itensSalvosComoIndice(store[appid])
     }
     if (!idx || !Object.keys(idx).length) {
+      if (native && !store[appid]?.items?.length) {
+        store[appid] = { ...store[appid], items: [], trophyCatalog: "confirmed", trophyCatalogSize: 0 }
+        updated++
+        continue
+      }
       idx = await loadSchemaFallback(appid)
+      if (ACHIEVEMENTS_FILE() !== accountFile) break
     }
     if (!idx || !Object.keys(idx).length) continue
 
@@ -279,26 +268,26 @@ async function loadAllSchemas() {
     // divergiu (bin da Steam x scrape).
     const antigos = ((store[appid] && store[appid].items) || []).filter(Boolean)
     const indiceAntigo = buildIndex(antigos)
-    const old = new Map()
-    for (const it of antigos) {
-      if (it.apiname) old.set("apiname:" + it.apiname, it)
-      if (it.block != null && it.bit != null) old.set("bb:" + it.block + "|" + it.bit, it)
-    }
+    const exact = new Map(antigos.filter(it => it.apiname).map(it => [String(it.apiname).toLowerCase(), it]))
+    const schemaNames = new Set(Object.values(idx).map(sch => String(sch.apiname).toLowerCase()))
+    const titulosNovos = buildIndex(Object.values(idx).map(sch => ({ title: sch.name })))
 
     // Progresso real do bin: bits já setados pela Steam (sessões anteriores).
     // Sincroniza o achieved/unlock com o estado real — sem depender do watcher
     // ter rodado antes (bits já estavam setados no boot).
-    let progress = {}
+    let progress = null
+    let progressStale = false
     // B1/B2 — sem permissão de captura (conta da Steam trocada, ou captura
     // automática desligada) o progresso do bin NÃO é lido: nada é ingerido.
-    if (permissao.permitido) {
+    if (permissao.permitido && nativeCatalog) {
       const bin = binsProgresso.get(String(appid))
       if (bin) {
         try {
-          progress = progressMap(bin)
+          progress = readProgressMap(bin)
         } catch (e) {
           log("achievements/progresso-bin", e)
         }
+        progressStale = progress === null
       }
     }
 
@@ -316,13 +305,16 @@ async function loadAllSchemas() {
     for (const [k, sch] of Object.entries(idx)) {
       const [blk, bit] = k.split("|")
       if (sch.apiname) reais.add(String(sch.apiname))
-      let prev = old.get("apiname:" + sch.apiname) || old.get("bb:" + k)
-      // Sem casamento exato, tenta apelido e depois título único. Sem isso, um
-      // item criado pelo pull (apiname remoto, sem block|bit) ficava sem dono e
-      // era descartado na regravação — a conquista vinda do servidor sumia.
-      if (!prev) prev = findItem(indiceAntigo, { apiname: sch.apiname, title: sch.name })
+      const title = findItem(titulosNovos, { title: sch.name }) ? sch.name : undefined
+      const key = String(sch.apiname).toLowerCase()
+      let prev = exact.get(key)
+      if (!prev) {
+        const candidate = findItem(indiceAntigo, { apiname: sch.apiname, title })
+        if (candidate && !schemaNames.has(String(candidate.apiname).toLowerCase())) prev = candidate
+      }
+      if (usados.has(prev)) prev = null
       if (prev) usados.add(prev)
-      const binTs = progress[`${blk}|${bit}`] || 0
+      const binTs = progress?.[`${blk}|${bit}`] || 0
       // Ícone: hash local do bin (copia pro cache ou monta URL da Steam) ou URL
       // completa vinda do fallback de jogos sem bin (repack/crackeado).
       const resolveIcon = (hash) =>
@@ -344,7 +336,7 @@ async function loadAllSchemas() {
         p_sync.push({
           appid,
           apiname: apinameSync,
-          unlocked_at: unlock || 0,
+          unlocked_at: binTs <= 0 && prev?.unlockEstimated ? 0 : unlock || 0,
           achieved,
           title: sch.name,
           icon,
@@ -355,13 +347,17 @@ async function loadAllSchemas() {
         apiname: sch.apiname,
         title: sch.name,
         desc: sch.desc,
+        hidden: sch.hidden ?? prev?.hidden,
         block: Number(blk),
         bit: Number(bit),
         icon: icon || (prev && prev.icon) || "",
         icongray: resolveIcon(sch.icongray_hash) || (prev && prev.icongray) || "",
         achieved,
         unlock,
-        percent: prev && prev.percent ? prev.percent : 0,
+        ...(binTs <= 0 && prev?.unlockEstimated && { unlockEstimated: true }),
+        ...(binTs <= 0 && prev?.revoked && { revoked: true, revokedAt: prev.revokedAt }),
+        ...(prev?.localUnlock && { localUnlock: true }),
+        percent: sch.percent ?? prev?.percent ?? 0,
       }
       // Herda apelidos e a chave do servidor do item anterior: é o que mantém o
       // casamento (e o push) exatos nas próximas sessões.
@@ -406,11 +402,18 @@ async function loadAllSchemas() {
       if (!y) return -1
       return x[0] - y[0] || x[1] - y[1]
     })
-    store[appid] = Object.assign({}, store[appid], { items })
+    const entry = store[appid] = { ...store[appid], items }
+    if (platinumForGame(appid, items)?.awarded) entry.platinumCelebrated = true
+    if (nativeCatalog) {
+      entry.trophyCatalog = items.length === reais.size && items.every(it => reais.has(it.apiname)) ? "confirmed" : "partial"
+      entry.trophyCatalogSize = items.length
+      if (progress) entry.trophyProgress = "steam"
+      if (progress || progressStale) entry.trophyProgressStale = progressStale
+    }
     updated++
   }
 
-  saveAchievements(store)
+  if (ACHIEVEMENTS_FILE() === accountFile) saveAchievements(store)
   return { updated, iconsCopied, total: Object.keys(store).length }
 }
 

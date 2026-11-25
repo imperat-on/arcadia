@@ -4,7 +4,28 @@ O updater do app empacotado (AppImage/NSIS) lê o `latest*.yml` anexado ao
 release. Anexar o yml errado (ou esquecer) faz o app baixar a versão errada —
 siga a ordem.
 
-## Checklist
+## Automated release path
+
+Push a tag whose version matches `app/package.json`:
+
+```bash
+git tag v1.5.6
+git push origin v1.5.6
+```
+
+GitHub Actions runs the full test, typecheck and front-end build first. Then it
+builds the NSIS Windows installer and Linux AppImage and uploads both to a
+draft release. Once both jobs succeed, verify the assets and publish the draft.
+`electron-updater` reads `latest.yml` on Windows and `latest-linux.yml` on Linux.
+
+Do not publish a tag before the version in `app/package.json` is updated. The
+workflow rejects mismatched tags.
+
+Portable and zip packages remain manual downloads. They cannot replace their
+own executable while running, so they show the release page instead of
+pretending to auto-update.
+
+## Manual checklist
 
 1. **Versão** — confira `"version"` em `app/package.json` (ex.: `1.5.0`).
 2. **Limpe os yml antigos** — `rm -f app/release/latest*.yml`. O `release/`
