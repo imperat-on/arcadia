@@ -1,85 +1,153 @@
 # Arcadia
 
-Arcadia is a game launcher for **Linux and Windows**. The Desktop and
-controller-first Big Picture interfaces run in the same native Rust
-application, built with [iced](https://iced.rs/).
+A self-hosted game launcher for **Linux and Windows**, built with Electron and
+React. It manages your library, launches games through Steam, Proton/Wine
+prefixes or local emulators, tracks achievements, and syncs playtime and
+achievements across your machines through your own backend.
 
-- Manage your library, add Steam titles and custom games, and browse the retro
-  catalog.
-- Queue downloads, configure sources and set per-game launch options.
-- Run games with Wine, Proton or an emulator, depending on the title.
-- View achievements and playtime. Sign in to synchronize your Steam store
-  additions and removals across devices.
+Two interfaces ship in the same app:
+
+- **Desktop** — windowed library, store and downloads.
+- **Console (Big Picture)** — fullscreen, gamepad-first, TV-friendly. The
+  launcher opens straight into it when started with `./arcadia.sh`.
+
+## Features
+
+- **Unified library** — games added from the store, downloaded titles and
+  custom entries, each with cover art and per-game details.
+- **Store** — catalog search, per-title details and a download queue. Sources
+  are configured by you in Settings; providers can be cut in and out without
+  touching the rest of the app.
+- **Downloads** — serial queue with real progress in MiB, speed and ETA,
+  pause/resume/cancel and cleanup of partial files.
+- **Per-game launch options** — Wine/Proton version, dedicated prefix,
+  DXVK/NVAPI/VKD3D, Esync/Fsync, gamescope, gamemode, MangoHud, custom
+  wrappers, environment variables, game arguments, pre/post scripts and
+  verbose logs (Linux only; Windows titles run natively).
+- **Wine manager** — installs and manages GE-Proton and Wine-GE, and detects
+  the Protons that Steam already ships (Linux only).
+- **Achievements** — real-time unlock tracking with native toast
+  notifications, plus sync across machines.
+- **Playtime** — hours read from your Steam installation, per account.
+- **Trailers** — YouTube search and download through `yt-dlp`.
+- **Accounts** — per-account libraries on the same machine; each account sees
+  the titles assigned to it.
+
+## Requirements
+
+### Linux
+
+- x86_64, `python3`, a native **Steam** installation, **.NET 9+**
+  (installed locally by the launcher if missing).
+- The compatible DepotDownloader runtime is fetched automatically on the first
+  depot download, or from Settings → Integrations.
+
+### Windows
+
+- Windows 10/11 x64, a native **Steam** installation, **.NET 9+**
+  (installed automatically if missing).
 
 ## Install
 
-Download the native archive from a GitHub Actions build for your system. See
-[the packaging guide](docs/NATIVE-PACKAGING.md) for the archive contents, system
-dependencies and installation steps.
+### Linux — script
 
-- **Linux** — extract `arcadia-native-<version>-linux-<arch>.tar.gz` and run
-  `./arcadia-native` in the extracted directory. The
-  `arcadia-native-<version>-linux-<arch>.AppImage` bundles GStreamer and runs
-  directly (`chmod +x` once). From a source checkout, `./install.sh` builds the
-  app and adds it to the application menu.
-- **Windows** — extract `arcadia-native-<version>-windows-x86_64.zip` and run
-  `Arcadia.exe`. It configures the bundled GStreamer runtime and starts the
-  app; `arcadia-native.exe` is the internal binary and must not be opened
-  directly. The Inno Setup installer creates shortcuts that use `Arcadia.exe`.
-
-Existing users can open the native app with their current Arcadia data. The
-default data directories are `~/.local/share/arcadia` on Linux and
-`%LOCALAPPDATA%\arcadia` on Windows. Set `ARCADIA_DATA_DIR` to an absolute path
-to use a separate directory, for example when testing.
-
-## Build and test
-
-Install a Rust toolchain and the
-[platform build dependencies](docs/NATIVE-PACKAGING.md#dependências-de-build).
-From the repository root:
-
-```sh
-cargo run --locked -p arcadia-native
-cargo test --locked --workspace
+```bash
+curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/install.sh | bash
 ```
 
-The native packaging scripts build the release binary and produce an archive
-with its SHA-256 checksum:
+### Linux — manual
 
-| Platform | Command | Output |
-|---|---|---|
-| Linux (tarball) | `./scripts/package-native-linux.sh` | `dist/native-linux/` |
-| Linux (AppImage) | `./scripts/package-native-appimage.sh` | `dist/native-linux/appimage/` |
-| Windows | `pwsh -File ./scripts/package-native-windows.ps1` | `dist/native-windows/` |
+```bash
+git clone https://github.com/imperat-on/arcadia.git && cd arcadia
+./install.sh                       # dependencies, npm install, config, desktop entry
+cp config.example.json config.json # if install.sh did not create it
+./arcadia-desktop.sh               # desktop mode
+./arcadia.sh                       # console mode (fullscreen)
+```
+
+### Windows
+
+Download the latest build from the
+[releases page](https://github.com/imperat-on/arcadia/releases):
+
+- `Arcadia-Setup-<version>-x64.exe` — NSIS installer.
+- `Arcadia-<version>-x64.exe` — portable, no installation.
+- `Arcadia-<version>-x64.zip` — plain unpacked folder.
+- `Arcadia-<version>-x86_64.AppImage` — Linux AppImage, `chmod +x` and run.
+
+On first run the launcher prepares the local data directory, restores the
+session and uses the front-end that ships inside the package.
+
+## Releasing
+
+Releases are built and published manually. The packaged app auto-updates from
+the `latest*.yml` files attached to each release, so the checklist matters:
+see [docs/release.md](docs/release.md) before publishing.
+
+## Uninstall
+
+### Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/imperat-on/arcadia/master/uninstall.sh | bash
+```
+
+Or, from inside the repo, `./uninstall.sh`. It removes the app, its desktop
+entry/icons and `~/.local/share/arcadia/`, and asks before touching anything
+that is not a cache or binary: installed games (`games/`) and Wine prefixes
+(`prefixes/`, which may hold saves) are kept unless you opt out. Use
+`-y`/`--yes` to skip the prompts. Games downloaded through the store stay
+registered in your Steam installation; remove them from the store first if you
+do not want them there.
+
+### Windows
+
+Use **Add/Remove Programs** for the installed version, or delete the extracted
+folder for the portable one.
+
+## Config
+
+`config.json` lives in the data directory, is not versioned, and is created
+from `config.example.json`:
+
+| Key | Purpose |
+|---|---|
+| `steam_api_key` | Optional Steam metadata and integration data |
+| `steam_id64` | Account used for the Steam integration |
+| `hubcap_api_key` | Manifest provider key used by the store |
+| `language` | UI language (`pt-BR`, `en-US`, `es-ES`) |
+
+## Layout
+
+```
+app/src        # React front-end (desktop/ + console/)
+app/electron   # Electron main process (main.js, downloadmanager, steamstore, winemanager)
+arcadia.sh     # Linux console entry · arcadia-desktop.sh (Linux desktop entry)
+install.sh     # Linux setup · uninstall.sh (Linux full removal)
+```
+
+User data (config, library, downloads, prefixes, artwork) lives under
+`~/.local/share/arcadia/` on Linux and `%LOCALAPPDATA%\arcadia` on Windows, and
+is never versioned. Set `ARCADIA_DATA_DIR=/absolute/path` to use an isolated
+directory for development or testing; the Electron caches follow the same
+directory.
 
 ## Architecture
 
-| Crate | Role |
-|---|---|
-| `arcadia-native` | Desktop and Big Picture, navigation and display |
-| `arcadia-launcher` | Windows entry point that sets up GStreamer before starting the app |
-| `arcadia-source-helper` | Isolated source verification challenges (WebKitGTK on Linux, system browser on Windows) |
-| `arcadia-native-media`, `arcadia-native-input` | GStreamer playback and controller navigation |
-| `arcadia-ipc` | Application commands, called directly from the native interface |
-| `arcadia-contracts` | Shared data and synchronization contracts |
-| `arcadia-api`, `arcadia-sync`, `arcadia-store` | Backend requests, synchronization and local data |
-| `arcadia-steamstore`, `arcadia-retro`, `arcadia-catalog` | Store and retro catalog |
-| `arcadia-download`, `arcadia-launch`, `arcadia-emulators` | Downloads and launching games |
+- **`app/`** — the Electron launcher: React renderer in `app/src`, main
+  process in `app/electron`.
+- **Backend** — the client talks to the Arcadia API over HTTPS. The server
+  code and migrations live in a separate, private repository.
 
-On Linux the app can open a separate WebKitGTK window to verify download
-sources that need an interactive browser check. The Desktop and Big Picture
-interfaces use iced.
+Per-account sync works from `owned_games.json`: it decides which titles from
+the local snapshot each account sees (a guest sees everything). Sensitive
+values — provider keys and source caches — are never uploaded.
 
-## Backend and configuration
+## Backend
 
-The [Arcadia server](https://github.com/imperat-on/arcadia-server) is developed
-in a separate repository. The launcher connects over HTTPS. Set
-`ARCADIA_API_URL` to use your own instance.
-
-Settings and optional integrations are configured in the app. See
-[`config.example.json`](config.example.json) for the local configuration format
-and [the runtime dependencies guide](docs/DEPENDENCIAS.md) for optional tools.
-Account data and credentials belong in the data directory.
+The launcher uses the managed Arcadia API. Point the client at an authorized
+instance with `ARCADIA_API_URL`; installing the launcher does not require a
+local PostgreSQL.
 
 ## License
 

@@ -2,7 +2,5 @@
   "steam_api_key": "",
   "steam_id64": "",
   "hubcap_api_key": "",
-  "language": "en-US",
-  "discord_rich_presence": false,
-  "discord_client_id": ""
+  "language": "en-US"
 }

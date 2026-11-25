@@ -1,0 +1,348 @@
+// Vigia de conquistas: observa os bins locais do Steam (appcache/stats) e
+// emite "achievement:unlocked" quando surge uma conquista nova — funciona em
+// jogos legítimos e injetados (via schema do SLScheevo). Só Steam nativo bin.
+//
+// Além do vigia de bins, este módulo traz o scrape sob demanda da página
+// pública da Steam (fetchAchievementsForApp), usado pela loja.
+
+const fs = require("fs")
+const path = require("path")
+const os = require("os")
+const { loadItemIndex, ACHIEVEMENTS_STORE_FILE, STORE_TTL_MS } = require("./schema")
+const { log } = require("./../debug")
+
+const { findSteamDir } = require("./../steam-path")
+const STATS_DIR = path.join(findSteamDir(), "appcache", "stats")
+
+// --- Parser mínimo de KeyValues binário do Steam ---------------------------
+function readKv(buf, pos) {
+  const t = buf[pos]
+  pos += 1
+  let end = buf.indexOf(0, pos)
+  const name = buf.toString("utf8", pos, end)
+  pos = end + 1
+  if (t === 0x00) {
+    const val = {}
+    while (buf[pos] !== 0x08) {
+      const r = readKv(buf, pos)
+      val[r[0]] = r[1]
+      pos = r[2]
+    }
+    return [name, val, pos + 1]
+  }
+  if (t === 0x01) {
+    end = buf.indexOf(0, pos)
+    return [name, buf.toString("utf8", pos, end), end + 1]
+  }
+  if (t === 0x02) return [name, buf.readInt32LE(pos), pos + 4]
+  if (t === 0x07) return [name, Number(buf.readBigUInt64LE(pos)), pos + 8]
+  if (t === 0x0a) return [name, Number(buf.readBigInt64LE(pos)), pos + 8]
+  if (t === 0x0b) return [name, buf.readFloatLE(pos), pos + 4]
+  throw new Error("tipo KV desconhecido: " + t)
+}
+
+function loadKvBin(file) {
+  try {
+    const buf = fs.readFileSync(file)
+    return readKv(buf, 0)[1]
+  } catch {
+    return null
+  }
+}
+
+// (block, bit) -> epoch, lido do bin de progresso (formato novo e antigo).
+function progressMap(file) {
+  const kv = loadKvBin(file)
+  if (!kv || typeof kv !== "object") return {}
+  const out = {}
+  for (const [blk, bval] of Object.entries(kv)) {
+    if (!bval || typeof bval !== "object" || bval.data === undefined) continue
+    const times = bval.AchievementTimes
+    if (times && typeof times === "object") {
+      for (const [idx, ts] of Object.entries(times)) {
+        out[`${blk}|${idx}`] = Number(ts) || 0
+      }
+    }
+    const bits = bval.bits
+    if (bits && typeof bits === "object") {
+      for (const [idx, binfo] of Object.entries(bits)) {
+        if (binfo && typeof binfo === "object" && Number(binfo.bits) & 1) {
+          const k = `${blk}|${idx}`
+          if (!(k in out)) out[k] = Number(binfo.unlock_time) || 0
+        }
+      }
+    }
+  }
+  return out
+}
+
+// Inicia o vigia de bins da Steam. onUnlock(payload) recebe
+// {appid,title,desc,icon,percent,unlock,key}. key = "block|bit" — permite ao
+// caller marcar o item no achievements.json.
+function startSteamBinWatcher(onUnlock) {
+  let itemIndex = loadItemIndex()
+  const snapshots = new Map() // appid -> Set("block|bit")
+  const fileRe = /^UserGameStats_(\d+)_(\d+)\.bin$/
+
+  const snap = (appid, file) => {
+    const set = new Set(Object.keys(progressMap(file)))
+    snapshots.set(appid, set)
+    return set
+  }
+
+  // Snapshot inicial: não dispara toast para o que já estava desbloqueado.
+  try {
+    for (const f of fs.readdirSync(STATS_DIR)) {
+      const m = fileRe.exec(f)
+      if (m) snap(m[2], path.join(STATS_DIR, f))
+    }
+  } catch {
+    return () => {}
+  }
+
+  const check = (fname) => {
+    const m = fileRe.exec(fname || "")
+    if (!m) return
+    const appid = m[2]
+    const file = path.join(STATS_DIR, fname)
+    const prev = snapshots.get(appid) || new Set()
+    const curMap = progressMap(file)
+    const cur = new Set(Object.keys(curMap))
+    // O snapshot de conquistas pode ter mudado — recarrega leve.
+    itemIndex = loadItemIndex()
+    for (const k of cur) {
+      if (prev.has(k)) continue
+      prev.add(k)
+      const it = itemIndex[appid]?.[k]
+      if (it && curMap[k] > 0) {
+        onUnlock({
+          appid,
+          key: k,
+          title: it.title,
+          desc: it.desc,
+          icon: it.icon,
+          percent: it.percent,
+          unlock: curMap[k],
+        })
+      } else if (!it && curMap[k] > 0) {
+        // Progresso novo sem entrada no índice: achievements.json ausente ou
+        // sem esta conquista. Antes falhava em silêncio (sem toast, sem pista).
+        console.warn(
+          `[achievements] desbloqueio ${k} p/ appid ${appid} sem índice (achievements.json ausente/incompleto)`,
+        )
+      }
+    }
+    // Bin criado depois do boot (não estava no snapshot inicial):
+    // guarda o estado atual p/ não re-notificar no próximo poll.
+    if (!snapshots.has(appid)) snapshots.set(appid, prev)
+  }
+
+  let debounce = null
+  let watcher = null
+  try {
+    watcher = fs.watch(STATS_DIR, (_ev, fname) => {
+      if (!fileRe.test(fname || "")) return
+      clearTimeout(debounce)
+      debounce = setTimeout(() => check(fname), 3000) // Steam grava com atraso
+    })
+  } catch {}
+
+  // Fallback: alguns jogos só gravam o bin ao fechar/mudar de foco.
+  const poll = setInterval(() => {
+    try {
+      for (const f of fs.readdirSync(STATS_DIR)) {
+        if (fileRe.test(f)) check(f)
+      }
+    } catch {}
+  }, 15000)
+
+  return () => {
+    watcher?.close()
+    clearInterval(poll)
+    clearTimeout(debounce)
+  }
+}
+
+// --- Loja: scrape sob demanda da página pública -----------------------------
+// Mesma lógica do parser da página pública da Steam: bloco achieveRow,
+// primeira img do bloco (sem classe), título h3 e descrição h5. A página
+// expõe o apiname no atributo id da <div class="achieveRow ..."> — extraímos
+// ele para uso no casamento por título no loader (em vez de índice posicional).
+function parseAchievementsHtml(page) {
+  const out = []
+  const rowRe = /<div class="achieveRow[^"]*"[^>]*>([\s\S]*?)<div style="clear: both;">/g
+  let m
+  while ((m = rowRe.exec(page))) {
+    const full = m[0]
+    const b = m[1]
+    // Extrai o apiname do atributo id da <div class="achieveRow ...">
+    // Ex.: <div class="achieveRow" id="ach_ACObsidian_Ach_40"> → "ach_ACObsidian_Ach_40"
+    const idM = /id="([^"]+)"/.exec(full)
+    const apiname = idM ? idM[1].trim() : ""
+    const iconM = /<img src="([^"]+)"/.exec(b)
+    const titleM = /<h3>([\s\S]*?)<\/h3>/.exec(b)
+    if (!iconM || !titleM) continue
+    const descM = /<h5>([\s\S]*?)<\/h5>/.exec(b)
+    // Percentual de jogadores com a conquista. A página usa "." (80.8%), mas o
+    // locale pt-BR pode trazer ","; a normalização fica em percentKey().
+    const pctM = /achievePercent">([\d.,]+)%</.exec(b)
+    const unesc = (s) =>
+      s
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+    out.push({
+      apiname,
+      title: unesc(titleM[1]).trim(),
+      desc: descM ? unesc(descM[1]).trim() : "",
+      icon: iconM[1],
+      icongray: iconM[1],
+      percent: pctM ? Number(String(pctM[1]).replace(",", ".")) : null,
+    })
+  }
+  return out
+}
+
+// Conquistas de QUALQUER jogo Steam (loja incluso), fetch direto da página
+// pública — Steam pede consentimento de idade pros maiores de 18.
+function fetchConsentUrl(appid) {
+  return (
+    "https://steamcommunity.com/stats/" + appid + "/achievements?l=brazilian&gid=0&birthyear=2005"
+  )
+}
+
+// --- Apiname real das conquistas da página ----------------------------------
+// A página pública deixou de expor o apiname no HTML (as <div class="achieveRow">
+// vêm sem atributo id), então o scrape sozinho só consegue numerar as linhas
+// ("ach_01", "ach_02"...). Essa numeração é DESTA página: não bate com o apiname
+// real da Steam ("ACH01") nem com a máquina que leu o schema do bin. A mesma
+// conquista ficava com duas chaves e o sync não conseguia casá-las.
+//
+// O percentual de jogadores é o mesmo número nos dois lados e é o que amarra a
+// linha da página ao nome da API pública. Só entra percentual que aparece UMA
+// vez em cada lado: percentual repetido é ambíguo e mantém o nome sintético.
+
+function percentKey(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(1) : null
+}
+
+// Pura (e testável): recebe as linhas da página (com `percent`) e a lista da API
+// ({ name, percent }) e devolve as linhas com o apiname real preenchido.
+function apinamesByPercent(items, percentuais) {
+  const lista = Array.isArray(items) ? items : []
+  const daApi = new Map()
+  for (const a of Array.isArray(percentuais) ? percentuais : []) {
+    const p = percentKey(a && a.percent)
+    const nome = a && a.name ? String(a.name) : ""
+    if (!p || !nome) continue
+    daApi.set(p, daApi.has(p) ? null : nome)
+  }
+  const repeticoes = new Map()
+  for (const it of lista) {
+    const p = percentKey(it && it.percent)
+    if (!p) continue
+    repeticoes.set(p, (repeticoes.get(p) || 0) + 1)
+  }
+  return lista.map((it, i) => {
+    const sintetico = "ach_" + String(i + 1).padStart(2, "0")
+    if (it.apiname) return it
+    const p = percentKey(it.percent)
+    const nome = p && repeticoes.get(p) === 1 ? daApi.get(p) : null
+    return { ...it, apiname: nome || sintetico }
+  })
+}
+
+async function fetchApinamesDaApi(appid, signal) {
+  try {
+    const res = await fetch(
+      "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=" +
+        appid,
+      { signal },
+    )
+    if (!res.ok) return []
+    const dados = await res.json()
+    return dados?.achievementpercentages?.achievements || []
+  } catch (e) {
+    log("achievements/apinames-api", e)
+    return []
+  }
+}
+
+// Conquistas do jogo (não precisa estar na biblioteca). Cache próprio em
+// achievements_store.json (30d) — jogos da loja ficam fora do achievements.json.
+async function fetchAchievementsForApp(appid) {
+  const storePath = ACHIEVEMENTS_STORE_FILE()
+  let store = {}
+  try {
+    store = JSON.parse(fs.readFileSync(storePath, "utf-8"))
+  } catch {}
+
+  const ent = store[appid]
+  const cache = ent && ent.items?.length ? ent.items : null
+  // Cache cujos apinames são TODOS sintéticos não é autoritativo: o nome real
+  // existe e é a chave do sync. Refaz agora em vez de servir por 30 dias.
+  const soSintetico = Boolean(cache) && cache.every((it) => /^ach_\d+$/.test(String(it?.apiname || "")))
+  if (cache && !soSintetico && Date.now() - ent.at < STORE_TTL_MS) {
+    return cache
+  }
+
+  const ctl = AbortSignal.timeout(15000)
+  const headers = { "User-Agent": "Mozilla/5.0", "Accept-Language": "pt-BR,pt;q=0.9" }
+  const res = await fetch(fetchConsentUrl(appid), { headers, signal: ctl })
+  if (!res.ok) throw new Error("HTTP " + res.status)
+  const page = await res.text()
+
+  // Fallback: página pede confirmação de idade — refaz com consentimento.
+  let items = parseAchievementsHtml(page)
+  if (!items.length && page.includes("app_agegate")) {
+    const res2 = await fetch(fetchConsentUrl(appid) + "&agree_to_agegate=1", {
+      headers,
+      signal: ctl,
+    })
+    if (res2.ok) items = parseAchievementsHtml(await res2.text())
+  }
+
+  // Apiname real pelo percentual (a página não expõe mais o id).
+  if (items.some((it) => !it.apiname)) {
+    items = apinamesByPercent(items, await fetchApinamesDaApi(appid, ctl))
+  }
+
+  const out = items.map((it, i) => ({
+    apiname: it.apiname || "ach_" + String(i + 1).padStart(2, "0"),
+    title: it.title,
+    desc: it.desc,
+    icon: it.icon,
+    icongray: it.icongray,
+    block: null,
+    bit: null,
+    achieved: false,
+    unlock: 0,
+    // Percentual de jogadores (a página traz; era descartado).
+    percent: Number.isFinite(it.percent) ? it.percent : 0,
+  }))
+
+  // Vazio não vai pro cache: pode ser falha de parse transitória, e um cache
+  // vazio fresco bloquearia a loja por 30d. Jogo sem conquistas refaz (1 fetch
+  // por abertura, barato) em vez de envenenar o store.
+  if (!out.length) return out
+  store[appid] = { at: Date.now(), items: out }
+  const tmp = storePath + ".tmp"
+  fs.writeFileSync(tmp, JSON.stringify(store))
+  fs.renameSync(tmp, storePath)
+
+  return out
+}
+
+module.exports = {
+  readKv,
+  loadKvBin,
+  progressMap,
+  startSteamBinWatcher,
+  fetchAchievementsForApp,
+  parseAchievementsHtml,
+  apinamesByPercent,
+  STATS_DIR,
+}

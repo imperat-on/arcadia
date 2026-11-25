@@ -2,157 +2,22 @@ name: Arcadia CI
 
 on:
   push:
-    branches: ['**']
   pull_request:
 
 jobs:
-  native:
-    runs-on: ubuntu-24.04
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
     steps:
       - uses: actions/checkout@v4
-
-      - name: Dependências de sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools \
-            libudev-dev libdav1d-dev libgtk-3-dev libwebkit2gtk-4.1-dev file
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
         with:
-          workspaces: ". -> target"
-
-      - name: Testes do workspace
-        run: cargo test --locked --workspace
-
-      - name: Instalar yt-dlp
-        run: pipx install yt-dlp
-
-      - name: Regressão do trailer (rede real)
-        continue-on-error: true
-        env:
-          ARCADIA_LIVE_TESTS: "1"
-        run: cargo test --locked -p arcadia-media --test trailer_stream_live -- --test-threads=1
-
-      - name: Empacotar nativo
-        run: ./scripts/package-native-linux.sh
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arcadia-native-linux
-          path: |
-            dist/native-linux/*.tar.gz
-            dist/native-linux/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Empacotar AppImage com GStreamer embutido
-        run: ./scripts/package-native-appimage.sh --skip-build
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arcadia-native-appimage
-          path: |
-            dist/native-linux/appimage/*.AppImage
-            dist/native-linux/appimage/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 14
-
-  native-windows:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-
-      # O SDK do GStreamer costuma trazer pkg-config.exe em bin\, que já entra
-      # no PATH. Só instala o pkgconfiglite se o SDK não trouxer um.
-      - name: GStreamer 1.28.9 (MSVC x86_64, runtime + devel)
-        shell: pwsh
-        run: |
-          $version = "1.28.9"
-          $sha256 = "ce4008705e8c6fe92803535b82fb3d6551e183f438e6ef26682ac4d0aca61076"
-          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc/gstreamer-1.0-msvc-x86_64-$version.exe"
-          $installer = Join-Path $env:RUNNER_TEMP "gstreamer-$version.exe"
-          $root = Join-Path $env:RUNNER_TEMP "gstreamer"
-
-          curl.exe -fsSL --retry 3 -o $installer $url
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
-          if ($hash -ne $sha256) {
-            throw "SHA-256 do GStreamer não confere: $hash"
-          }
-
-          $process = Start-Process -Wait -PassThru -FilePath $installer -ArgumentList @(
-            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
-            "/TYPE=devel", "/DIR=$root", "/CURRENTUSER"
-          )
-          if ($process.ExitCode -ne 0) {
-            throw "instalador do GStreamer saiu com código $($process.ExitCode)"
-          }
-
-          $coreDll = Join-Path $root "bin\gstreamer-1.0-0.dll"
-          $pkgConfig = Join-Path $root "lib\pkgconfig"
-          if (-not (Test-Path -LiteralPath $coreDll -PathType Leaf)) {
-            throw "GStreamer não foi instalado em $root (falta $coreDll)"
-          }
-          if (-not (Test-Path -LiteralPath $pkgConfig -PathType Container)) {
-            throw "SDK GStreamer incompleto: $pkgConfig não existe"
-          }
-
-          "GSTREAMER_ROOT_X86_64=$root" |
-            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "PKG_CONFIG_PATH=$($pkgConfig -replace '\\', '/')" |
-            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          (Join-Path $root "bin") |
-            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-          # O GITHUB_* só vale nos próximos steps; valide o runtime já aqui.
-          $env:PATH = "$(Join-Path $root 'bin');$env:PATH"
-          & (Join-Path $root "bin\gst-inspect-1.0.exe") --version
-
-      - name: pkg-config
-        shell: pwsh
-        run: |
-          $pkgConfigExe = Join-Path $env:GSTREAMER_ROOT_X86_64 "bin\pkg-config.exe"
-          if (-not (Test-Path -LiteralPath $pkgConfigExe -PathType Leaf)) {
-            choco install pkgconfiglite -y --no-progress
-            $pkgConfigExe = Join-Path $env:ChocolateyInstall "bin\pkg-config.exe"
-          }
-          & $pkgConfigExe --version
-          & $pkgConfigExe --modversion gstreamer-1.0
-
-      - name: dav1d (decodificador AVIF)
-        shell: pwsh
-        run: |
-          $root = $env:VCPKG_INSTALLATION_ROOT
-          $triplet = "x64-windows-static-md"
-          vcpkg install "dav1d:$triplet"
-          if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dav1d" }
-          $dav1dPc = Join-Path $root "installed\$triplet\lib\pkgconfig"
-          $env:PKG_CONFIG_PATH = "$env:PKG_CONFIG_PATH;$($dav1dPc -replace '\\', '/')"
-          pkg-config --atleast-version=1.3.0 dav1d
-          if ($LASTEXITCODE -ne 0) { throw "dav1d >= 1.3.0 não encontrado" }
-          "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH" |
-            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Check do nativo
-        run: cargo check --locked -p arcadia-native -p arcadia-launcher
-
-      - name: Empacotar nativo
-        shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/package-native-windows.ps1
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arcadia-native-windows
-          path: |
-            dist/native-windows/*.zip
-            dist/native-windows/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 14
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build

@@ -1,0 +1,1081 @@
+// Vigia de conquistas de jogos "Jack Sparrow" (crackeados/emulados).
+// Polling a cada 15s nos arquivos de conquista dos crackers dentro do
+// prefixo Wine de cada jogo. Formatos suportados:
+//   Goldberg  → JSON  (earned / earned_time)
+//   UPC/voices38 → JSON  (numeric id / earned / earned_time)
+//   CODEX     → INI   (Achieved / UnlockTime)
+//   RUNE      → INI   (mesmo do CODEX)
+//   Skidrow   → INI   (Achievements/<name>=1@...@timestamp)
+//   EMPRESS   → JSON  (mesmo do Goldberg)
+//   FLT       → pasta com 1 arquivo por conquista
+//   SteamData → INI   (user_stats.ini na pasta do executavel)
+//   SmartSteamEmu → INI
+//   OnlineFix → INI
+//   CreamAPI  → INI
+//   Razor1911 → txt (linhas: name 1 timestamp)
+//   RLD!      → INI (hex State/Time)
+// Formato: 1 arquivo com header ou [Seção] + chave=valor.
+// Política: o mtime é a fonte da verdade — o evento só ANTECIPA a varredura. O
+//           fs.watch entrega o aviso no ato nas duas plataformas e o polling de 3s é
+//           o PISO: em Wine/Proton o inotify pode não entregar arquivo escrito dentro
+//           do prefixo (lib em NTFS/exFAT), e aí quem avisa é o piso (antes: 15s).
+// Integracao: mesmo callback onUnlockAchievement do steam_bin.js — toasts,
+//             som e painel compartilhados.
+
+const fs = require("fs")
+const path = require("path")
+const os = require("os")
+const { loadAchievements, saveAchievements } = require("./schema")
+const { caminhoArquivoConta, conta } = require("./../supabase/conta")
+const { dataPath } = require("./../runtime-paths")
+const { readLibraryFile } = require("../library-store")
+const { log } = require("../debug")
+const {
+  parseUPC,
+  upcRuntimeMap,
+  resolveUplayId,
+  numericAchievementId,
+  uplayRuntimePath,
+  uplaySaveRoot,
+} = require("./uplay")
+const { aliasesOf, buildIndex, findItem, rememberAlias } = require("./match")
+
+const { findSteamDir } = require("./../steam-path")
+const COMPATDATA = path.join(findSteamDir(), "steamapps", "compatdata")
+// Piso de latência do vigia. Era 15s: o usuário desbloqueava e o aviso podia levar
+// até 15s (média ~7s). Uma varredura custa ~20ms (medido, com o store lido uma vez
+// por passada), então 3s é barato e garante aviso em no máximo 3s mesmo quando o
+// evento de arquivo não chega (ver a política no topo do arquivo).
+const INTERVALO_POLL = 3000 // 3s
+
+// --- Utilitários de parse ---
+
+function parseINI(texto) {
+  // Suporta arquivos COM e SEM seções [Section].
+  // Linhas: key=value. Comentários: ; ou #. Ignora linhas vazias.
+  const secoes = {}
+  let secaoAtual = "__root__"
+  for (const linha of texto.split(/\r?\n/)) {
+    const l = linha.trim()
+    if (!l || l.startsWith(";") || l.startsWith("#")) continue
+    if (l.startsWith("[") && l.endsWith("]")) {
+      secaoAtual = l.slice(1, -1)
+      continue
+    }
+    const eq = l.indexOf("=")
+    if (eq === -1) continue
+    const chave = l.slice(0, eq).trim()
+    const valor = l.slice(eq + 1).trim()
+    const map = secoes[secaoAtual] || (secoes[secaoAtual] = {})
+    map[chave] = valor
+  }
+  return secoes
+}
+
+function parseGoldbergJSON(texto) {
+  try {
+    const obj = JSON.parse(texto)
+    // Goldberg: array de { name, earned, earned_time } OU objeto { "<name>": { earned, earned_time } }.
+    // No formato objeto a chave É o nome da conquista — precisamos preservá-la como `name`,
+    // senão o Object.values descarta o vínculo e o unlock nunca casa com o apiname do catálogo
+    // (ficava silenciosamente perdido em `itemParaDesbloqueio`).
+    return Array.isArray(obj) ? obj : Object.entries(obj).map(([name, v]) => ({ name, ...v }))
+  } catch {
+    return []
+  }
+}
+
+function parseRazor1911(texto) {
+  // Formato: ACH_NAME 1 1234567890 (uma por linha)
+  // ACH_NAME 0 ...
+  const ach = []
+  for (const linha of texto.split(/\r?\n/)) {
+    const partes = linha.trim().split(/\s+/)
+    if (partes.length < 3) continue
+    if (partes[1] === "1") {
+      ach.push({ name: partes[0], unlockTime: Number(partes[2]) * 1000 })
+    }
+  }
+  return ach
+}
+
+function parseFLT(filePath) {
+  // FLT: uma pasta com 1 arquivo por conquista desbloqueada
+  // O nome do arquivo = apiname da conquista
+  try {
+    return fs.readdirSync(filePath).map((nome) => ({
+      name: nome,
+      unlockTime: Date.now(),
+    }))
+  } catch {
+    return []
+  }
+}
+
+// --- Parsers por cracker: retornam { name, unlockTime }[] ---
+
+function parseGoldberg(conteudo) {
+  const items = parseGoldbergJSON(conteudo)
+  return items
+    .filter((it) => it && it.earned)
+    .map((it) => ({
+      name: it.name,
+      unlockTime: (it.earned_time || 0) * 1000,
+    }))
+}
+
+function parseCODEX(conteudo) {
+  const secoes = parseINI(conteudo)
+  const achievements = []
+  for (const [secao, pares] of Object.entries(secoes)) {
+    for (const [chave, valor] of Object.entries(pares)) {
+      if (chave === "Achieved" && valor === "1") {
+        const ts = Number(pares.UnlockTime || pares.TimeUnlocked || 0)
+        achievements.push({
+          name: secao,
+          unlockTime: ts > 1e11 ? ts : ts * 1000, // segundos → ms
+        })
+      }
+    }
+  }
+  return achievements
+}
+
+function parseSkidrow(conteudo) {
+  const secoes = parseINI(conteudo)
+  const map = secoes.Achievements || secoes.__root__ || {}
+  const ach = []
+  for (const [nome, val] of Object.entries(map)) {
+    // Formato: "1@nome@timestamp" ou "1"
+    const partes = String(val).split("@")
+    if (partes[0] === "1") {
+      ach.push({
+        name: nome,
+        unlockTime: (Number(partes[partes.length - 1]) || 0) * 1000,
+      })
+    }
+  }
+  return ach
+}
+
+function parseUserStats(conteudo) {
+  const secoes = parseINI(conteudo)
+  const data = secoes.ACHIEVEMENTS || secoes.achievements || {}
+  const ach = []
+  for (const [nome, val] of Object.entries(data)) {
+    // Formato: {"unlocked = true, time = 12345"}
+    const limpo = String(val).replace(/["{}]/g, "")
+    const match = limpo.match(/unlocked\s*=\s*true.*?time\s*=\s*(\d+)/i)
+    if (match) {
+      ach.push({ name: nome, unlockTime: Number(match[1]) * 1000 })
+    }
+  }
+  return ach
+}
+
+function parseOnlineFix(conteudo) {
+  const secoes = parseINI(conteudo)
+  const ach = []
+  for (const [nome, pares] of Object.entries(secoes)) {
+    if (pares.achieved === "true" || pares.Achieved === "true") {
+      const ts = Number(pares.timestamp || pares.TimeUnlocked || 0)
+      ach.push({
+        name: nome,
+        unlockTime: ts > 1e11 ? ts : ts * 1000,
+      })
+    }
+  }
+  return ach
+}
+
+function parseRLD(conteudo) {
+  const secoes = parseINI(conteudo)
+  const ach = []
+  for (const [nome, pares] of Object.entries(secoes)) {
+    if (nome === "Steam") continue
+    if (!pares.State) continue
+    try {
+      // Buffer.from pode ser uma view sobre um slab maior; usar `.buffer`
+      // diretamente lê bytes anteriores ao valor e transforma State=1 em zero.
+      const stateBytes = Buffer.from(String(pares.State), "hex")
+      if (stateBytes.length < 4 || stateBytes.readUInt32LE(0) !== 1) continue
+
+      const timeBytes = pares.Time ? Buffer.from(String(pares.Time), "hex") : null
+      const time = timeBytes && timeBytes.length >= 4 ? timeBytes.readUInt32LE(0) : 0
+      ach.push({ name: nome, unlockTime: time * 1000 })
+    } catch {}
+  }
+  return ach
+}
+
+function parseCreamAPI(conteudo) {
+  const secoes = parseINI(conteudo)
+  const ach = []
+  for (const [nome, pares] of Object.entries(secoes)) {
+    if (pares.achieved === "true") {
+      const ts = Number(pares.unlocktime || 0)
+      ach.push({
+        name: nome,
+        unlockTime: ts > 1e11 ? ts : ts * 1000,
+      })
+    }
+  }
+  return ach
+}
+
+// --- Mapeamento de cracker → caminhos e parser ---
+
+const USUARIO_WINE = "steamuser" // Proton sempre usa steamuser
+
+function readSettings(entry, appid) {
+  try {
+    const settingsFile = caminhoArquivoConta("game_settings.json")
+    if (!fs.existsSync(settingsFile)) return {}
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
+    const key = entry && entry.id ? entry.id : `steam:${appid}`
+    return settings[key] || settings[String(appid)] || {}
+  } catch {
+    return {}
+  }
+}
+
+function numericUplayDirs(prefixo) {
+  const root = uplaySaveRoot(prefixo)
+  if (!root) return []
+  try {
+    return fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d{1,18}$/.test(entry.name))
+      .map((entry) => entry.name.replace(/^0+(?=\d)/, ""))
+  } catch {
+    return []
+  }
+}
+
+function caminhosPrefixados(prefixo, appid, entry) {
+  // Raízes por plataforma: no Linux são derivadas do prefixo Wine; no Windows
+  // nativo, das pastas reais do usuário (%APPDATA%, %PUBLIC%, etc.).
+  const raizes = raizesCrack(prefixo)
+  const u = raizes.user
+  const a = raizes.appdata
+  const pub = raizes.publicDocs
+  const prog = raizes.programData
+  const docs = raizes.userDocs
+  const local = raizes.localAppData
+  const settings = readSettings(entry, appid)
+  const uplayIds = new Set()
+  const configuredUplayId = resolveUplayId(appid, settings, entry)
+  if (configuredUplayId) uplayIds.add(configuredUplayId)
+  // No Windows não há prefixo Wine: todos os jogos compartilham a mesma pasta
+  // de saves (%APPDATA%\Goldberg UplayEmu Saves), então enumerar os diretórios
+  // numéricos vazaria o uplayId de UM jogo para TODOS os outros (ex.: um
+  // cruzamento do runtime do Black Flag no Cyberpunk). Nesse caso só enumeramos
+  // quando o jogo é UPC confirmado. No Linux o prefixo Wine é ISOLADO por jogo,
+  // então a enumeração é segura — e é o único jeito de descobrir o uplayId de
+  // jogos que não estão em KNOWN_UPC_IDS (auto-detect). A restrição é só Windows.
+  const deveEnumerarDirs = process.platform === "win32" ? Boolean(configuredUplayId) : true
+  if (deveEnumerarDirs) {
+    for (const id of numericUplayDirs(prefixo)) uplayIds.add(id)
+  }
+
+  const upcRecords = [...uplayIds].map((uplayId) => ({
+    name: "upc",
+    uplayId,
+    file: uplayRuntimePath(prefixo, uplayId),
+    parse: parseUPC,
+  }))
+
+  return [
+    // UPC/voices38 (schema na raiz do jogo; runtime na pasta de saves).
+    ...upcRecords,
+    // Goldberg (2 variantes)
+    {
+      name: "goldberg",
+      file: path.join(a, "Goldberg SteamEmu Saves", appid, "achievements.json"),
+      parse: parseGoldberg,
+    },
+    {
+      name: "goldberg",
+      file: path.join(a, "GSE Saves", appid, "achievements.json"),
+      parse: parseGoldberg,
+    },
+    // CODEX
+    {
+      name: "codex",
+      file: path.join(pub, "Steam", "CODEX", appid, "achievements.ini"),
+      parse: parseCODEX,
+    },
+    {
+      name: "codex",
+      file: path.join(a, "Steam", "CODEX", appid, "achievements.ini"),
+      parse: parseCODEX,
+    },
+    // RUNE
+    {
+      name: "rune",
+      file: path.join(pub, "Steam", "RUNE", appid, "achievements.ini"),
+      parse: parseCODEX,
+    },
+    // Skidrow (3 variantes)
+    {
+      name: "skidrow",
+      file: path.join(docs, "SKIDROW", appid, "SteamEmu", "UserStats", "achiev.ini"),
+      parse: parseSkidrow,
+    },
+    {
+      name: "skidrow",
+      file: path.join(docs, "Player", appid, "SteamEmu", "UserStats", "achiev.ini"),
+      parse: parseSkidrow,
+    },
+    {
+      name: "skidrow",
+      file: path.join(local, "SKIDROW", appid, "SteamEmu", "UserStats", "achiev.ini"),
+      parse: parseSkidrow,
+    },
+    // EMPRESS
+    {
+      name: "empress",
+      file: path.join(a, "EMPRESS", "remote", appid, "achievements.json"),
+      parse: parseGoldberg,
+    },
+    {
+      name: "empress",
+      file: path.join(pub, "EMPRESS", appid, "remote", appid, "achievements.json"),
+      parse: parseGoldberg,
+    },
+    // OnlineFix
+    {
+      name: "onlinefix",
+      file: path.join(pub, "OnlineFix", appid, "Stats", "Achievements.ini"),
+      parse: parseOnlineFix,
+    },
+    {
+      name: "onlinefix",
+      file: path.join(pub, "OnlineFix", appid, "Achievements.ini"),
+      parse: parseOnlineFix,
+    },
+    // CreamAPI
+    {
+      name: "creamapi",
+      file: path.join(a, "CreamAPI", appid, "stats", "CreamAPI.Achievements.cfg"),
+      parse: parseCreamAPI,
+    },
+    // SmartSteamEmu
+    {
+      name: "sse",
+      file: path.join(a, "SmartSteamEmu", appid, "User", "Achievements.ini"),
+      parse: parseOnlineFix,
+    },
+    // Razor1911
+    {
+      name: "razor",
+      file: path.join(a, ".1911", appid, "achievement"),
+      parse: parseRazor1911,
+    },
+    // RLD!
+    {
+      name: "rld",
+      file: path.join(prog, "RLD!", appid, "achievements.ini"),
+      parse: parseRLD,
+    },
+    {
+      name: "rld",
+      file: path.join(prog, "Steam", "Player", appid, "stats", "achievements.ini"),
+      parse: parseRLD,
+    },
+    {
+      name: "rld",
+      file: path.join(prog, "Steam", "RLD!", appid, "stats", "achievements.ini"),
+      parse: parseRLD,
+    },
+    // FLT (pasta, não arquivo)
+    {
+      name: "flt",
+      file: null, // resolvido separadamente
+      parse: null,
+    },
+  ]
+}
+
+// Raízes das pastas de save dos crackers, por plataforma. No Linux entram
+// dentro do prefixo Wine (drive_c/users/steamuser ou Public); no Windows são
+// as pastas reais do usuário. Mesma árvore, base diferente.
+function raizesCrack(prefixo) {
+  if (process.platform === "win32") {
+    const home = os.homedir()
+    const appdata = process.env.APPDATA || path.join(home, "AppData", "Roaming")
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+    const publicDocs = process.env.PUBLIC
+      ? path.join(process.env.PUBLIC, "Documents")
+      : path.join("C:", "Users", "Public", "Documents")
+    const programData = process.env.PROGRAMDATA || path.join("C:", "ProgramData")
+    return {
+      user: appdata, // base do UPC — em Windows, também vive em %APPDATA%
+      appdata,
+      localAppData,
+      publicDocs,
+      programData,
+      // OneDrive move a pasta Documents real — resolve por existência, com
+      // fallback para o path clássico quando nada existe ainda.
+      userDocs: pastaDocumentosWindows(home),
+    }
+  }
+  const u = path.join(prefixo, "drive_c", "users", USUARIO_WINE)
+  return {
+    user: u,
+    appdata: path.join(u, "AppData", "Roaming"),
+    localAppData: path.join(u, "AppData", "Local"),
+    publicDocs: path.join(prefixo, "drive_c", "users", "Public", "Documents"),
+    programData: path.join(prefixo, "drive_c", "ProgramData"),
+    userDocs: path.join(u, "Documents"),
+  }
+}
+
+// Documents pode estar redirecionado (OneDrive/empresa). Devolve a pasta que
+// existe; senão, o path clássico como fallback determinístico.
+function pastaDocumentosWindows(home) {
+  const candidatos = [
+    path.join(home, "Documents"),
+    path.join(home, "OneDrive", "Documents"),
+    path.join(home, "OneDrive - Personal", "Documents"),
+  ]
+  for (const c of candidatos) {
+    try {
+      if (fs.statSync(c).isDirectory()) return c
+    } catch {}
+  }
+  return candidatos[0]
+}
+
+// --- Resolvedor de prefixo ---
+
+function resolvePrefixo(appid, entry) {
+  const settings = readSettings(entry, appid)
+  // `prefixPath` é o nome usado pelo diálogo atual. `winePrefixPath` fica
+  // aceito apenas para instalações antigas.
+  if (settings.prefixPath || settings.winePrefixPath) {
+    return settings.prefixPath || settings.winePrefixPath
+  }
+  // O Arcadia usa prefixos próprios por gameId. É importante passar o ID
+  // completo (steam:3751950), pois winemanager transforma ':' em '_'.
+  try {
+    const { prefixOf } = require("../winemanager")
+    const prefix = prefixOf(entry && entry.id ? entry.id : `steam:${appid}`)
+    if (prefix) return prefix
+  } catch {}
+  // Fallback legado para instalações que ainda usam compatdata da Steam.
+  return path.join(COMPATDATA, String(appid), "pfx")
+}
+
+// Índice apiname → item. Inclui os APELIDOS: o arquivo de conquista do crack
+// pode usar a chave real ("ACH01") enquanto o item local ficou com a sintética
+// ("ach_01") do fallback de scrape — sem os apelidos o desbloqueio local seria
+// silenciosamente ignorado.
+function indicePorApiname(items) {
+  const idx = new Map()
+  for (const it of Array.isArray(items) ? items : []) {
+    for (const nome of aliasesOf(it)) {
+      const chave = nome.toLowerCase()
+      if (!idx.has(chave)) idx.set(chave, it)
+    }
+  }
+  return idx
+}
+
+// Resolve um registro do UPC para o item do Arcadia. O loader atual grava
+// somente a chave decimal ("40"), enquanto o catálogo Steam usa, neste jogo,
+// ACObsidian_Ach_40. Nunca usamos a posição do array quando há um ID explícito.
+function itemParaDesbloqueio(items, desbloqueio, registro, extras = {}) {
+  const byName = indicePorApiname(items)
+  if (registro?.name === "upc") {
+    // O Goldberg/vozes38 numera o runtime numa ordem PRÓPRIA que não corresponde
+    // ao número do apiname (permutações: id 44 = "Amigo dos Bichos", id 46 =
+    // "Cacifo do Davy Jones"). O único vínculo estável entre runtime e store é o
+    // displayName — casamos por título EXATO (case-insensitive) primeiro, e só
+    // caímos no id numérico como fallback (compatível com o bin do Steam/Proton,
+    // cuja ordem id↔apiname era a mesma). Sem isso, desbloquear uma conquista
+    // marca a errada e corrompe a contagem de platina.
+    const nome = String(desbloqueio?.name || desbloqueio?.title || "").trim()
+    if (nome) {
+      const byTitle = items.find(
+        (item) => String(item?.title || "").trim().toLowerCase() === nome.toLowerCase(),
+      )
+      if (byTitle) return byTitle
+    }
+    const id = numericAchievementId(desbloqueio.id)
+    if (id !== null) {
+      for (const item of items) {
+        const itemId = [item?.uplayId, item?.upcId, item?.apiname, item?.name]
+          .map((value) => numericAchievementId(value))
+          .find((value) => value !== null)
+        if (itemId === id) return item
+      }
+    }
+  }
+  const names = [desbloqueio.name, desbloqueio.apiname, desbloqueio.id]
+  for (const name of names) {
+    const item = byName.get(String(name ?? "").toLowerCase())
+    if (item) return item
+  }
+  // Ponte pelo TÍTULO, com o schema do emulador: o arquivo de progresso entrega
+  // só o nome real ("ACH19") e o item local pode ter ficado com a chave
+  // sintética ("ach_15") e sem apelido — o nome não casa e o desbloqueio era
+  // descartado em silêncio. O schema (steam_settings/achievements.json) dá o
+  // título de cada nome; o match por título é o mesmo do resto do app e só
+  // aceita título ÚNICO dentro do appid.
+  const titulos = extras && extras.titulos
+  if (titulos && titulos.size) {
+    const indice = extras.indice || buildIndex(items)
+    for (const name of names) {
+      const chave = String(name ?? "").trim().toLowerCase()
+      if (!chave) continue
+      for (const titulo of titulos.get(chave) || []) {
+        const item = findItem(indice, { title: titulo })
+        if (item) return item
+      }
+    }
+  }
+  return null
+}
+
+function payloadParaDesbloqueio(appid, item, desbloqueio, registro) {
+  return {
+    appid,
+    key:
+      item.block != null && item.bit != null
+        ? `${item.block}|${item.bit}`
+        : String(item.apiname || desbloqueio.id || ""),
+    apiname: item.apiname,
+    provider: registro?.name || "cracked",
+    title: item.title,
+    desc: item.desc,
+    icon: item.icon,
+    percent: item.percent || 0,
+    unlock: Math.floor((desbloqueio.unlockTime || 0) / 1000) || Math.floor(Date.now() / 1000),
+  }
+}
+
+// --- Lógica principal ---
+
+function lerLibrary() {
+  const raw = readLibraryFile(dataPath("library.json"))
+  const games = Array.isArray(raw?.games) ? raw.games.slice() : []
+  const byId = new Map(games.filter((game) => game && game.id).map((game) => [String(game.id), game]))
+  // Um jogo pode estar configurado e ainda não aparecer no snapshot global da
+  // biblioteca (por exemplo, enquanto o pull da Steam está pendente). As
+  // configurações por conta são uma fonte segura adicional para o watcher:
+  // sem exePath/runtime não há arquivo para ler, então não há falso unlock.
+  try {
+    const settingsFile = caminhoArquivoConta("game_settings.json")
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"))
+    for (const [id, cfg] of Object.entries(settings || {})) {
+      if (!/^steam:\d+$/.test(id) || !cfg || (!cfg.exePath && !cfg.prefixPath && !cfg.uplayId && !cfg.upcId)) continue
+      const old = byId.get(id)
+      if (old) {
+        old.installed = true
+      } else {
+        const game = { id, installed: true, exe: cfg.exePath }
+        games.push(game)
+        byId.set(id, game)
+      }
+    }
+  } catch {}
+  return games
+}
+
+function extrairAppid(entry) {
+  // id = "steam:1091500" → "1091500"
+  if (!entry || !entry.id) return null
+  const m = /^steam:(\d+)$/.exec(String(entry.id))
+  return m ? m[1] : null
+}
+
+function resolveExeDir(entry, appid) {
+  // Diretório do executável (onde SteamData/ e 3DMGAME/ costumam ficar).
+  const cfg = readSettings(entry, appid)
+  const exePath = cfg && cfg.exePath ? String(cfg.exePath) : entry && entry.exe
+  return exePath ? path.dirname(exePath) : null
+}
+
+// --- Schema do PRÓPRIO emulador (steam_settings/achievements.json) -----------
+//
+// Numa instalação crackeada, quem define o NOME das conquistas é o schema que o
+// emulador carrega — `steam_settings/achievements.json` (GSE/Goldberg), com
+// `name` (ACH01, ACH02, ...) e `displayName` por idioma. O Arcadia nunca leu
+// esse arquivo, e é assim que os dois espaços de chave se separam: o arquivo de
+// progresso do emulador fala "ACH19" enquanto o item local pode ter ficado com
+// a chave SINTÉTICA do scrape ("ach_15", posicional, e sem apelido nenhum
+// quando a conquista ainda não veio do servidor). Sem uma ponte, esse
+// desbloqueio era descartado em silêncio — sem erro, sem aviso, só o número
+// que não sobe.
+//
+// A ponte é o TÍTULO: o schema dá o título de cada nome e o match.js casa por
+// título SOMENTE quando ele é único dentro do appid (marcar a conquista errada
+// é pior do que não marcar).
+const cacheSchemaEmulador = new Map() // caminho → { mtimeMs, titulos }
+
+// O `steam_settings` fica ao lado do executável no layout do GSE, mas o pacote
+// costuma instalá-lo na RAIZ do jogo (com o exe em Gameface/Binaries/Win64/...).
+// Sobe no máximo 5 níveis, sem sair da raiz do filesystem.
+function acharSchemaEmulador(pastaExe) {
+  if (!pastaExe) return null
+  let dir = pastaExe
+  for (let i = 0; i < 5; i++) {
+    const candidato = path.join(dir, "steam_settings", "achievements.json")
+    try {
+      const st = fs.statSync(candidato)
+      if (st.isFile()) return { caminho: candidato, mtimeMs: st.mtimeMs }
+    } catch {}
+    const pai = path.dirname(dir)
+    if (!pai || pai === dir || pai === path.parse(pai).root) break
+    dir = pai
+  }
+  return null
+}
+
+// Títulos na ordem de confiança: o idioma do catálogo do usuário primeiro e
+// depois os outros que o schema traz. Todos são tentados — o match por título
+// só aceita título ÚNICO, então uma tradução ambígua nunca casa por engano.
+const IDIOMAS_SCHEMA = ["brazilian", "english", "spanish", "latam", "LATAM"]
+const CAMPOS_IDIOMA = ["displayName", "display_name"]
+
+function titulosDoSchemaEmulador(pastaExe) {
+  const achado = acharSchemaEmulador(pastaExe)
+  if (!achado) return null
+  const emCache = cacheSchemaEmulador.get(achado.caminho)
+  if (emCache && emCache.mtimeMs === achado.mtimeMs) return emCache.titulos
+  let itens = []
+  try {
+    const bruto = JSON.parse(fs.readFileSync(achado.caminho, "utf-8"))
+    itens = Array.isArray(bruto) ? bruto : Object.values(bruto || {})
+  } catch {
+    return null
+  }
+  const titulos = new Map()
+  for (const it of itens) {
+    const nome = String((it && (it.name || it.apiname)) || "").trim()
+    if (!nome) continue
+    const lista = []
+    const push = (valor) => {
+      const t = String(valor ?? "").trim()
+      if (t && !lista.includes(t)) lista.push(t)
+    }
+    const disp = CAMPOS_IDIOMA.map((c) => it && it[c]).find((d) => d && typeof d === "object") || {}
+    for (const idioma of IDIOMAS_SCHEMA) push(disp[idioma])
+    for (const valor of Object.values(disp)) push(valor)
+    push(it && it.title)
+    if (lista.length) titulos.set(nome.toLowerCase(), lista)
+  }
+  cacheSchemaEmulador.set(achado.caminho, { mtimeMs: achado.mtimeMs, titulos })
+  return titulos
+}
+
+function iniciarVigia(onUnlock, onRevoke = null) {
+  const cacheMtime = new Map() // account + filePath → mtimeMs
+  const cacheKey = (filePath) => `${conta() || "__guest__"}\0${filePath}`
+
+  // Avisa a pausa UMA vez por transição: o scan roda em laço e sem isto o log
+  // viraria spam.
+  let avisoPausa = false
+  let escopoDoAviso = null
+  const scan = () => {
+    // Escopo da conta mudou (boot como guest -> sessão restaurada): o aviso pode
+    // ter saído com o vínculo da RAIZ, que não é o desta conta — repete o aviso
+    // com o motivo certo em vez de ficar calado com um diagnóstico errado.
+    const escopoAtual = conta() || "__guest__"
+    if (escopoAtual !== escopoDoAviso) {
+      avisoPausa = false
+      escopoDoAviso = escopoAtual
+    }
+    // B1/B2 — só ingere/revoga quando a conta Steam logada é a mesma amarrada a
+    // esta conta do Arcadia (e a captura automática está ligada). Trocou de
+    // conta: para, sem mexer em nada.
+    const saConta = require("./../steam-account")
+    const permissao = saConta.capturaPermitida(caminhoArquivoConta, log, { componente: "vigia-crack" })
+    if (!permissao.permitido) {
+      if (!avisoPausa) {
+        avisoPausa = true
+        const s = permissao.status || {}
+        log(
+          "achievements/captura-pausada",
+          `vigia de crack: motivo=${saConta.motivoPausa(s)} auto=${s.auto} vinculoOk=${s.vinculoOk} ` +
+            `escopo=${escopoAtual} steam=${s.contaAtual ? s.contaAtual.persona : "nenhuma"} ` +
+            `vinculada=${s.vinculo ? s.vinculo.persona : "nenhuma"}`,
+        )
+      }
+      return
+    }
+    avisoPausa = false
+    const library = lerLibrary()
+    if (!library || !library.length) return
+
+    // O store é lido UMA vez por varredura, não uma por jogo. Antes era
+    // `loadAchievements()` dentro do laço — um JSON.parse do achievements.json
+    // (1,3 MB no perfil real) por jogo. Com o polling em 3s isso virava custo fixo
+    // proporcional ao tamanho da biblioteca, e o objeto em memória ainda acumula as
+    // gravações da própria passada (cada save escreve o store inteiro).
+    const store = loadAchievements()
+
+    for (const entry of library) {
+      if (!entry.installed) continue
+      const appid = extrairAppid(entry)
+      if (!appid) continue
+
+      const prefixo = resolvePrefixo(appid, entry)
+      // No Windows nativo não há prefixo Wine — as raízes reais (APPDATA,
+      // PUBLIC, PROGRAMDATA...) são resolvidas dentro de raizesCrack. O gate
+      // de existência do prefixo vale só para o Linux.
+      if (process.platform !== "win32" && !fs.existsSync(prefixo)) continue
+
+      // Carrega o índice de conquistas pra mapear apiname → item
+      const items = store[appid] && store[appid].items ? store[appid].items : []
+      if (!items.length) continue // sem schema, sem o que detectar
+
+      const registros = caminhosPrefixados(prefixo, appid, entry)
+
+      // Schema do PRÓPRIO emulador (steam_settings/achievements.json): é a
+      // fonte do NOME REAL das conquistas numa instalação crackeada, e é o que
+      // permite casar o nome do arquivo de progresso ("ACH19") com um item
+      // local que ficou com a chave sintética do scrape ("ach_15"). Lido uma
+      // vez por jogo/varredura (cache por mtime dentro do helper) para o
+      // polling de 3s não pagar I/O por arquivo.
+      const pastaExeJogo = resolveExeDir(entry, appid)
+      const titulosEmu = titulosDoSchemaEmulador(pastaExeJogo)
+      const indiceTitulos = titulosEmu ? buildIndex(items) : null
+
+      for (const reg of registros) {
+        if (!reg.file) continue
+        if (!fs.existsSync(reg.file)) continue
+
+        let mtime
+        try {
+          mtime = fs.statSync(reg.file).mtimeMs
+        } catch {
+          continue
+        }
+
+        const ultima = cacheMtime.get(cacheKey(reg.file))
+        // Reconciliar sempre na "primeira" leitura por arquivo (cache vazio),
+        // para corrigir no boot desbloqueios fantasmas já gravados.
+        const primeiraLeitura = ultima === undefined
+        if (!primeiraLeitura && ultima === mtime) continue // sem mudanca
+        cacheMtime.set(cacheKey(reg.file), mtime)
+
+        // Parseia o arquivo
+        let conteudo
+        try {
+          conteudo = fs.readFileSync(reg.file, "utf-8")
+        } catch {
+          continue
+        }
+
+        // ---- UPC: reconcilia desbloqueios fantasmas (servidor != runtime) ----
+                // O runtime Goldberg/UPC é a fonte da verdade para desbloqueios que
+                // ESTA máquina gravou (localUnlock=true). Só revogamos itens que:
+                //   1. Foram desbloqueados localmente (localUnlock=true) — conquistas
+                //      que vieram de outra máquina (pull) não são revogadas, evitando
+                //      o ping-pong revoke/re-push entre dispositivos.
+                //   2. O runtime tem pelo menos 1 entrada com earned=1 (está ativo);
+                //      um runtime zeroado (jogo nunca jogado) não é autoritativo.
+                //   3. O sync de conquistas já completou ao menos um pull desde a
+                //      instalação — senão revogaríamos antes de saber o que o servidor
+                //      tem.
+                let atualizou = false
+                if (reg.name === "upc") {
+                  const runtimeMap = upcRuntimeMap(conteudo)
+                  if (runtimeMap && runtimeMap.size >= items.length) {
+                    // Runtime completo: tem pelo menos um item por schema. Se o
+                    // runtime está ativo (algum earned=1), confiamos que earned=0
+                    // é intencional. Se o runtime é todo zero (jogo nunca jogado),
+                    // não revogamos.
+                    const runtimeAtivo = [...runtimeMap.values()].some((v) => v.earned === true)
+                    if (!runtimeAtivo) continue
+                    // Só revoga depois do primeiro pull da sessão (evita corrida)
+                    let podeRevogar = false
+                    try {
+                      podeRevogar = !!require("../supabase/sync").getState().lastPullAt
+                    } catch {}
+                    if (!podeRevogar) continue
+                    for (const it of items) {
+                      if (!it || !it.achieved) continue
+                      // Só revoga desbloqueios que esta máquina originou
+                      if (it.localUnlock !== true) continue
+                      const titulo = String(it.title || it.name || "").trim().toLowerCase()
+                      if (!titulo) continue
+                      const rt = runtimeMap.get(titulo)
+                      if (rt && rt.earned === false) {
+                        // runtime diz que NÓS NÃO desbloqueou → reverter
+                        it.achieved = false
+                        it.unlock = 0
+                        it.revoked = true
+                        atualizou = true
+                        if (onRevoke && it.apiname) {
+                          try { onRevoke({ appid, apiname: it.apiname }) } catch { /* ignore */ }
+                        }
+                      }
+                    }
+                  }
+                }
+
+        const desbloqueadas = reg.parse(conteudo)
+        if (!desbloqueadas || !desbloqueadas.length) {
+          if (atualizou) { store[appid] = { ...(store[appid] || {}), items }; saveAchievements(store) }
+          continue
+        }
+
+        for (const d of desbloqueadas) {
+          const it = itemParaDesbloqueio(items, d, reg, { titulos: titulosEmu, indice: indiceTitulos })
+          if (!it) continue
+
+          // O nome que o emulador usa é o nome REAL do jogo — o mesmo espaço do
+          // bin da Steam e do servidor. Guardá-lo como apelido faz o casamento
+          // ser exato nas próximas vezes (não depende mais de título), e o
+          // `remoteApiname` impede que o desbloqueio suba com a chave sintética
+          // e crie uma SEGUNDA linha no servidor para a mesma conquista.
+          if (d.name) {
+            const nomeEmu = String(d.name).trim()
+            const jaConhecido = aliasesOf(it).some((a) => a.toLowerCase() === nomeEmu.toLowerCase())
+            if (!jaConhecido) {
+              if (!it.remoteApiname) it.remoteApiname = nomeEmu
+              rememberAlias(it, nomeEmu)
+              atualizou = true
+            }
+          }
+
+          if (it.achieved) continue // ja estava marcado
+
+          const payload = payloadParaDesbloqueio(appid, it, d, reg)
+          it.achieved = true
+          it.unlock = payload.unlock
+          atualizou = true
+
+          // Dispara o toast
+          if (onUnlock) onUnlock(payload)
+        }
+
+        if (atualizou) {
+          store[appid] = { ...(store[appid] || {}), items }
+          saveAchievements(store)
+        }
+      }
+
+      // FLT: pasta com 1 arquivo por conquista
+      const raizes = raizesCrack(prefixo)
+      const fltDir = path.join(raizes.appdata, "FLT", appid)
+      if (fs.existsSync(fltDir)) {
+        let mtime
+        try {
+          mtime = fs.statSync(fltDir).mtimeMs
+        } catch {
+          continue
+        }
+
+        // FLT tracking via contagem de arquivos (mtime da pasta muda ao criar)
+        const ultimaFlt = cacheMtime.get(cacheKey(fltDir))
+        if (ultimaFlt === mtime) continue
+        cacheMtime.set(cacheKey(fltDir), mtime)
+
+        const desbloqueadas = parseFLT(fltDir)
+        if (!desbloqueadas.length) continue
+
+        const indice = indicePorApiname(items)
+
+        let atualizou = false
+        for (const d of desbloqueadas) {
+          const it = indice.get(String(d.name).toLowerCase())
+          if (!it) continue
+          if (it.achieved) continue
+
+          it.achieved = true
+          it.unlock = Math.floor((d.unlockTime || Date.now()) / 1000)
+          atualizou = true
+
+          // Mesmo construtor de payload dos outros formatos: sem isto o aviso
+          // saía sem `apiname`/`provider` (o toast casava pelo key, mas o log
+          // e qualquer consumidor futuro liam campos vazios).
+          if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: "flt" }))
+        }
+
+        if (atualizou) {
+          store[appid] = { ...(store[appid] || {}), items }
+          saveAchievements(store)
+        }
+      }
+
+      // SteamData e 3DMGAME: pastas na raiz do jogo (perto do .exe),
+      // comuns em repacks. Exe path vem do game_settings.json.
+      const pastaExe = pastaExeJogo
+      if (pastaExe && fs.existsSync(pastaExe)) {
+        const exeFiles = [
+          {
+            nome: "steamdata",
+            file: path.join(pastaExe, "SteamData", "user_stats.ini"),
+            parse: parseUserStats,
+          },
+          {
+            nome: "3dmgame",
+            file: path.join(pastaExe, "3DMGAME", "Player", "stats", "achievements.ini"),
+            parse: parseCODEX,
+          },
+        ]
+        for (const ef of exeFiles) {
+          if (!fs.existsSync(ef.file)) continue
+          let mtime
+          try {
+            mtime = fs.statSync(ef.file).mtimeMs
+          } catch {
+            continue
+          }
+          const ultima = cacheMtime.get(cacheKey(ef.file))
+          if (ultima === mtime) continue
+          cacheMtime.set(cacheKey(ef.file), mtime)
+          const desbloqueadas = ef.parse(fs.readFileSync(ef.file, "utf-8"))
+          if (!desbloqueadas || !desbloqueadas.length) continue
+          const idx = indicePorApiname(items)
+          let mudou = false
+          for (const d of desbloqueadas) {
+            const it = idx.get(String(d.name).toLowerCase())
+            if (!it) continue
+            if (it.achieved) continue
+            it.achieved = true
+            it.unlock = Math.floor(d.unlockTime / 1000) || Math.floor(Date.now() / 1000)
+            mudou = true
+            // Idem FLT: payload pelo construtor canônico para não perder
+            // `apiname`/`provider` no caminho do SteamData/3DMGAME.
+            if (onUnlock) onUnlock(payloadParaDesbloqueio(appid, it, d, { name: ef.nome }))
+          }
+          if (mudou) {
+            store[appid] = { ...(store[appid] || {}), items }
+            saveAchievements(store)
+          }
+        }
+      }
+    }
+  }
+
+  // --- Observadores de diretório ------------------------------------------------
+  //
+  // O polling era o único caminho: 15s de latência (média ~7s) entre desbloquear e o
+  // aviso aparecer. Agora o evento antecipa a varredura — é o MESMO padrão que o vigia
+  // de bin da Steam já usa (steam_bin.js: watcher + debounce + poll de rede).
+  //
+  // O POLLING CONTINUA como piso, não como enfeite: no Linux há relato de inotify não
+  // entregar evento de arquivo escrito dentro de prefixo Proton (biblioteca em NTFS/
+  // exFAT), e no Windows um evento pode se perder (pasta de rede, arquivo criado antes
+  // de o watcher subir). Com o piso em 3s, o pior caso é avisar em 3s; o melhor é no ato.
+  //
+  // O diretório ao lado do .exe (SteamData/3DMGAME) NÃO é observado porque depende do
+  // jogo instalado: quem cobre esse é o piso.
+  const DEBOUNCE_EVENTO_MS = 300
+  const observadores = []
+  let debounceEvento = null
+
+  const dirsObservaveis = () => {
+    // POR JOGO, não uma vez com prefixo vazio: no Linux as raízes saem do prefixo de
+    // cada jogo (`<prefixo>/drive_c/users/steamuser/AppData/Roaming`), então
+    // `raizesCrack("")` montava caminho RELATIVO e nenhum observador era criado. No
+    // Windows o prefixo é ignorado e a lista se repete entre jogos — o Set deduplica.
+    const dirs = new Set()
+    for (const entry of lerLibrary()) {
+      if (!entry.installed) continue
+      const appid = extrairAppid(entry)
+      if (!appid) continue
+      const prefixo = resolvePrefixo(appid, entry)
+      if (process.platform !== "win32" && !fs.existsSync(prefixo)) continue
+      const r = raizesCrack(prefixo)
+      for (const d of [
+        path.join(r.appdata, "GSE Saves"),
+        path.join(r.appdata, "Goldberg SteamEmu Saves"),
+        path.join(r.appdata, "Goldberg UplayEmu Saves"),
+        path.join(r.appdata, "EMPRESS"),
+        path.join(r.appdata, "CreamAPI"),
+        path.join(r.appdata, "SmartSteamEmu"),
+        path.join(r.appdata, ".1911"),
+        path.join(r.publicDocs, "Steam"),
+        path.join(r.publicDocs, "OnlineFix"),
+        path.join(r.programData, "RLD!"),
+        path.join(r.programData, "Steam"),
+        path.join(r.userDocs, "SKIDROW"),
+        path.join(r.localAppData, "SKIDROW"),
+      ]) {
+        dirs.add(d)
+      }
+    }
+    return [...dirs]
+  }
+
+  // Um evento → uma varredura (com debounce: o crack costuma truncar e regravar, o
+  // que dispara dois eventos para a mesma conquista).
+  const agendarVarredura = () => {
+    clearTimeout(debounceEvento)
+    debounceEvento = setTimeout(scan, DEBOUNCE_EVENTO_MS)
+  }
+
+  // Vale nas duas plataformas. No Linux o diretório observado é o de dentro do
+  // prefixo (o mesmo que o polling já varria), e o `recursive` cobre o
+  // `<appid>/achievements.json`. Se o inotify não entregar (lib em NTFS/exFAT), o
+  // piso de 3s resolve — por isso o observador nunca substitui o polling.
+  for (const dir of dirsObservaveis()) {
+    if (!fs.existsSync(dir)) continue
+    // Caminho normalizado ANTES de observar. No Windows algumas pastas vêm em nome
+    // CURTO 8.3 (C:\Users\ADMINI~1\...) e o libuv compara o nome do arquivo recebido
+    // com o diretório observado: com nome curto isso estoura uma ASSERT NATIVA do Node
+    // (`!_wcsnicmp(filename, dir, dirlen)`, src\win\fs-event.c) que ABORTA o processo —
+    // try/catch não pega assert nativo. O realpath resolve para o nome longo e ainda
+    // desfaz junction/symlink (o prefixo Proton costuma ser caminho com symlink).
+    let alvo = dir
+    try {
+      alvo = fs.realpathSync.native(dir)
+    } catch {}
+    try {
+      observadores.push(fs.watch(alvo, { recursive: true }, agendarVarredura))
+    } catch (e) {
+      log("achievements/vigia-watch", e)
+    }
+  }
+  if (observadores.length) {
+    log("achievements/vigia-watch", `${observadores.length} pasta(s) observada(s) — aviso no ato`)
+  }
+
+  // Roda uma vez no inicio para sincronizar o estado atual
+  scan()
+
+  // Piso: garante o aviso mesmo sem evento (e é o único caminho onde o evento não chega)
+  const interval = setInterval(scan, INTERVALO_POLL)
+
+  return () => {
+    clearInterval(interval)
+    clearTimeout(debounceEvento)
+    for (const o of observadores) {
+      try {
+        o.close()
+      } catch {}
+    }
+  }
+}
+
+module.exports = {
+  iniciarVigia,
+  parseINI,
+  parseGoldbergJSON,
+  parseGoldberg,
+  parseUPC,
+  parseRazor1911,
+  parseFLT,
+  parseCODEX,
+  parseSkidrow,
+  parseUserStats,
+  parseOnlineFix,
+  parseRLD,
+  parseCreamAPI,
+  caminhosPrefixados,
+  raizesCrack,
+  resolvePrefixo,
+  resolveExeDir,
+  titulosDoSchemaEmulador,
+  lerLibrary,
+  extrairAppid,
+  itemParaDesbloqueio,
+  payloadParaDesbloqueio,
+  INTERVALO_POLL,
+}

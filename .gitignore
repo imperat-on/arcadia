@@ -1,6 +1,7 @@
 # Dependências e builds
 node_modules/
 dist/
+app/release/
 .env
 server/.env
 __pycache__/
@@ -77,28 +78,19 @@ achievement_icons/
 # Config local de editor/agente (opencode.json é do ambiente de dev, não do projeto)
 opencode.json
 
-# Conta online: sessão e filas de sincronização
+# Conta online (Supabase): sessão e fila de sync NUNCA sobem
 session.json
 session.json.bak
 sync_queue.json
-library_sync_queue.json
-owned_games.json
 
-# Dados locais por conta
+# Dados locais por conta + sessão (NUNCA versionar)
 contas/
 sync_state.json
+session.json
+session.json.bak
+profile_cache.json
+logs/
 .worktrees/
 
 # Estado de conta (vínculo com a Steam): nunca versionar
 steam_account.json
-
-# Rust
-/target
-# Ferramentas locais extraídas sem root
-/.tools
-
-# logs
-*.log
-
-# build probe (release manual)
-/target-probe
