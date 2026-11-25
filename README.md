@@ -5,6 +5,9 @@ React. It manages your library, launches games through Steam, Proton/Wine
 prefixes or local emulators, tracks achievements, and syncs playtime and
 achievements across your machines through your own backend.
 
+The `master` branch runs the Electron 1.5.5 codebase. Prebuilt downloads
+are currently unavailable. Use the source instructions below.
+
 Two interfaces ship in the same app:
 
 - **Desktop** — windowed library, store and downloads.
@@ -67,22 +70,23 @@ cp config.example.json config.json # if install.sh did not create it
 
 ### Windows
 
-Download the latest build from the
-[releases page](https://github.com/imperat-on/arcadia/releases):
+Install Git and Node.js 22, then run these commands in PowerShell:
 
-- `Arcadia-Setup-<version>-x64.exe` — NSIS installer.
-- `Arcadia-<version>-x64.exe` — portable, no installation.
-- `Arcadia-<version>-x64.zip` — plain unpacked folder.
-- `Arcadia-<version>-x86_64.AppImage` — Linux AppImage, `chmod +x` and run.
+```powershell
+git clone https://github.com/imperat-on/arcadia.git
+cd arcadia/app
+npm ci
+npm start
+```
 
-On first run the launcher prepares the local data directory, restores the
-session and uses the front-end that ships inside the package.
+To build a Windows x64 portable executable, run `npm run dist:portable`
+from `app/`. The executable is written to `app/release/`.
 
 ## Releasing
 
-Releases are built and published manually. The packaged app auto-updates from
-the `latest*.yml` files attached to each release, so the checklist matters:
-see [docs/release.md](docs/release.md) before publishing.
+Releases are built and published manually. Packaged auto-updates require a
+published release with the matching `latest*.yml` files. See
+[docs/release.md](docs/release.md) before publishing.
 
 ## Uninstall
 
